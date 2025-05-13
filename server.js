@@ -86,7 +86,7 @@ app.post('/api/users', async (req, res) => {
 app.get('/api/users/:phone', async (req, res) => {
   const { phone } = req.params;
   try {
-    const result = await pool.query('SELECT * FROM users WHERE phone = $1', [phone]);
+    const result = await pool.query('SELECT * FROM users WHERE phone_number = $1', [phone]);
     if (result.rows.length > 0) {
       res.json({ exists: true, user: result.rows[0] });
     } else {
