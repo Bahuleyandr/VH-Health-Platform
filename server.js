@@ -98,6 +98,36 @@ app.get('/api/users/:phone', async (req, res) => {
   }
 });
 
+app.put('/api/users/:phone', async (req, res) => {
+  const { phone } = req.params;
+  const { name, gender, address, email, birthday, anniversary, profilePicture } = req.body;
+
+  try {
+    const result = await pool.query(
+      `UPDATE users SET
+        name = $1,
+        gender = $2,
+        address = $3,
+        email = $4,
+        birthday = $5,
+        anniversary = $6,
+        profile_picture = $7
+      WHERE phone = $8
+      RETURNING *`,
+      [name, gender, address, email, birthday, anniversary, profilePicture, phone]
+    );
+
+    if (result.rows.length > 0) {
+      res.json({ message: 'User profile updated successfully.', user: result.rows[0] });
+    } else {
+      res.status(404).json({ error: 'User not found.' });
+    }
+  } catch (error) {
+    console.error('Error Details:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get All Users
 app.get('/api/users', async (req, res) => {
   try {
