@@ -1,10 +1,23 @@
 openapi: 3.0.0
 info:
   title: VH Health API
-  version: "1.0.0"
-  description: API Documentation for VH Health Application
+  version: "1.1.0"
+  description: >
+    API Documentation for VH Health Application.
+    Secured via API Key in header: `x-api-key`.
+
 servers:
   - url: https://vh-health-backend.onrender.com/api/v1
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+
+security:
+  - ApiKeyAuth: []
 
 paths:
   /health:
@@ -12,7 +25,7 @@ paths:
       summary: Health check
       responses:
         '200':
-          description: Server status
+          description: Server status OK
 
   /app-version:
     get:
@@ -57,10 +70,25 @@ paths:
 
   /users:
     get:
-      summary: Get all users
+      summary: List users with optional search and pagination
+      parameters:
+        - in: query
+          name: query
+          schema:
+            type: string
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 10
       responses:
         '200':
-          description: List of users
+          description: Paginated list of users
     post:
       summary: Create or update a user profile
       requestBody:
@@ -103,7 +131,7 @@ paths:
         '200':
           description: User profile details
     put:
-      summary: Update user profile
+      summary: Update user profile by phone
       parameters:
         - in: path
           name: phone
@@ -159,7 +187,7 @@ paths:
 
   /appointments/{phone}:
     get:
-      summary: Get appointments by phone with optional filter (upcoming, past)
+      summary: List appointments with optional filter and pagination
       parameters:
         - in: path
           name: phone
@@ -168,10 +196,23 @@ paths:
             type: string
         - in: query
           name: filter
-          required: false
           schema:
             type: string
             enum: [upcoming, past]
+        - in: query
+          name: doctor_name
+          schema:
+            type: string
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 10
       responses:
         '200':
           description: List of appointments
@@ -198,7 +239,7 @@ paths:
 
   /health-records/{phone}:
     get:
-      summary: Get health records by phone with optional type filter (consultation, investigation, pharmacy)
+      summary: List health records with optional type filter
       parameters:
         - in: path
           name: phone
@@ -207,7 +248,6 @@ paths:
             type: string
         - in: query
           name: type
-          required: false
           schema:
             type: string
             enum: [consultation, investigation, pharmacy]
@@ -235,7 +275,7 @@ paths:
 
   /investigations/{phone}:
     get:
-      summary: Get investigations by phone
+      summary: List investigations by phone
       parameters:
         - in: path
           name: phone
@@ -266,7 +306,7 @@ paths:
 
   /pharmacy-orders/{phone}:
     get:
-      summary: Get pharmacy orders by phone
+      summary: List pharmacy orders by phone
       parameters:
         - in: path
           name: phone
@@ -297,6 +337,18 @@ paths:
         '200':
           description: Feedback received
 
+  /doctors:
+    get:
+      summary: Search or list all doctors
+      parameters:
+        - in: query
+          name: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of doctors
+
   /doctors/{doctorId}:
     get:
       summary: Get doctor profile by ID
@@ -309,6 +361,13 @@ paths:
       responses:
         '200':
           description: Doctor profile details
+
+  /departments:
+    get:
+      summary: List all departments
+      responses:
+        '200':
+          description: List of departments
 
   /departments/{departmentId}:
     get:
