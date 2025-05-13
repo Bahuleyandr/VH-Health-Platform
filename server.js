@@ -1,9 +1,18 @@
-// server.js
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
-const pool = require('./db');
 
+const rateLimit = require('express-rate-limit');
+const { body, validationResult } = require('express-validator');
+const swaggerUi = require('swagger-ui-express');
+const YAML = require('yamljs');
+
+if (!process.env.API_KEY || !process.env.DATABASE_URL) {
+  console.error('Missing required environment variables. Exiting.');
+  process.exit(1);
+}
+
+const pool = require('./db');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -11,269 +20,222 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// API Key Protection
-const API_KEY = process.env.API_KEY || 'vhhealth123';
+// Rate Limiting
+const limiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 100,
+  message: 'Too many requests from this IP, please try again later.',
+});
+app.use(limiter);
+
+// API Key Middleware
+const API_KEY = process.env.API_KEY;
 app.use((req, res, next) => {
-  const clientKey = req.headers['x-api-key'];
-  if (clientKey !== API_KEY) {
-    return res.status(401).json({ error: 'Unauthorized: Invalid API Key' });
-  }
+  const key = req.headers['x-api-key'];
+  if (key !== API_KEY) return res.status(401).json({ error: 'Unauthorized' });
   next();
 });
 
-// Health Check
+// Swagger Setup
+const swaggerDocument = YAML.load('./swagger.yaml');
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+
+// Base Health Check
 app.get('/', (req, res) => {
   res.json({ message: 'VH Health API is running.' });
 });
 
-// Existing Features Remain Unchanged...
+// API v1 Routes
+const base = '/api/v1';
 
-// Mock Send OTP
-app.get('/api/send-otp', (req, res) => {
-  const phone = req.query.phone;
-  if (!phone) {
-    return res.status(400).json({ error: 'Phone number is required.' });
-  }
-  res.json({ message: `Mock OTP sent to ${phone}` });
-});
-
-// Request OTP (Mock)
-app.post('/api/request-otp', (req, res) => {
-  const { phoneNumber } = req.body;
-  if (!phoneNumber) return res.status(400).json({ error: 'Phone number required.' });
-  const otp = '123456';
-  res.json({ message: `Mock OTP ${otp} sent to ${phoneNumber}` });
-});
-
-// Verify OTP (Mock)
-app.post('/api/verify-otp', (req, res) => {
-  const { phoneNumber, otp } = req.body;
-  if (otp === '123456') {
-    res.json({ success: true, message: 'OTP verified successfully.' });
-  } else {
-    res.status(400).json({ success: false, message: 'Incorrect OTP.' });
+// Health Endpoint
+app.get(`${base}/health`, async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  } catch {
+    res.status(500).json({ status: 'error', message: 'Database unreachable' });
   }
 });
 
-// Profile Management
-app.post('/api/users', async (req, res) => {
+// OTP (Mock)
+app.post(`${base}/request-otp`, body('phoneNumber').isLength({ min: 10 }), (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+  res.json({ message: `Mock OTP 123456 sent to ${req.body.phoneNumber}` });
+});
+
+app.post(`${base}/verify-otp`, [
+  body('phoneNumber').isLength({ min: 10 }),
+  body('otp').isLength({ min: 6, max: 6 }),
+], (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+  if (req.body.otp === '123456') return res.json({ success: true, message: 'OTP verified' });
+  res.status(400).json({ success: false, message: 'Incorrect OTP' });
+});
+
+// User Profile
+app.post(`${base}/users`, async (req, res) => {
   const { phoneNumber, name, gender, address, email, birthday, anniversary, profilePicture } = req.body;
-  if (!phoneNumber || !name || !gender) {
-    return res.status(400).json({ error: 'Phone number, name, and gender are required.' });
-  }
+  if (!phoneNumber || !name || !gender) return res.status(400).json({ error: 'Required fields missing.' });
   try {
-    const result = await pool.query(
-      `INSERT INTO users (phone, name, gender, address, email, birthday, anniversary, profile_picture, registered_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-       ON CONFLICT (phone) DO UPDATE SET
-         name = EXCLUDED.name,
-         gender = EXCLUDED.gender,
-         address = EXCLUDED.address,
-         email = EXCLUDED.email,
-         birthday = EXCLUDED.birthday,
-         anniversary = EXCLUDED.anniversary,
-         profile_picture = EXCLUDED.profile_picture
-       RETURNING *`,
-      [phoneNumber, name, gender, address, email, birthday, anniversary, profilePicture]
-    );
-    res.json({ message: 'User profile saved successfully.', user: result.rows[0] });
-  } catch (error) {
-  console.error('Error Details:', error);
-  res.status(500).json({ error: error.message });
+    const result = await pool.query(`
+      INSERT INTO users (phone, name, gender, address, email, birthday, anniversary, profile_picture, registered_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+      ON CONFLICT (phone) DO UPDATE SET
+        name=EXCLUDED.name, gender=EXCLUDED.gender, address=EXCLUDED.address,
+        email=EXCLUDED.email, birthday=EXCLUDED.birthday,
+        anniversary=EXCLUDED.anniversary, profile_picture=EXCLUDED.profile_picture
+      RETURNING *`, [phoneNumber, name, gender, address, email, birthday, anniversary, profilePicture]);
+    res.json({ message: 'User saved', user: result.rows[0] });
+  } catch (err) {
+    console.error(err); res.status(500).json({ error: 'DB error' });
   }
 });
 
-app.get('/api/users/:phone', async (req, res) => {
-  const { phone } = req.params;
+app.get(`${base}/users/:phone`, async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM users WHERE phone = $1', [phone]);
-    if (result.rows.length > 0) {
-      res.json({ exists: true, user: result.rows[0] });
-    } else {
-      res.json({ exists: false });
-    }
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Database error' });
+    const result = await pool.query('SELECT * FROM users WHERE phone=$1', [req.params.phone]);
+    res.json(result.rows.length ? { exists: true, user: result.rows[0] } : { exists: false });
+  } catch (err) {
+    console.error(err); res.status(500).json({ error: 'DB error' });
   }
 });
 
-app.put('/api/users/:phone', async (req, res) => {
-  const { phone } = req.params;
+app.put(`${base}/users/:phone`, async (req, res) => {
   const { name, gender, address, email, birthday, anniversary, profilePicture } = req.body;
-
   try {
-    const result = await pool.query(
-      `UPDATE users SET
-        name = $1,
-        gender = $2,
-        address = $3,
-        email = $4,
-        birthday = $5,
-        anniversary = $6,
-        profile_picture = $7
-      WHERE phone = $8
-      RETURNING *`,
-      [name, gender, address, email, birthday, anniversary, profilePicture, phone]
+    const result = await pool.query(`
+      UPDATE users SET name=$1, gender=$2, address=$3, email=$4, birthday=$5, anniversary=$6, profile_picture=$7
+      WHERE phone=$8 RETURNING *`,
+      [name, gender, address, email, birthday, anniversary, profilePicture, req.params.phone]
     );
-
-    if (result.rows.length > 0) {
-      res.json({ message: 'User profile updated successfully.', user: result.rows[0] });
-    } else {
-      res.status(404).json({ error: 'User not found.' });
-    }
-  } catch (error) {
-    console.error('Error Details:', error);
-    res.status(500).json({ error: error.message });
+    res.json(result.rows.length ? { message: 'Updated', user: result.rows[0] } : { error: 'Not found' });
+  } catch (err) {
+    console.error(err); res.status(500).json({ error: 'DB error' });
   }
 });
 
-// Get All Users
-app.get('/api/users', async (req, res) => {
+app.get(`${base}/users`, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM users');
     res.json(result.rows);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Database error' });
+  } catch (err) {
+    console.error(err); res.status(500).json({ error: 'DB error' });
   }
 });
 
-// Book Appointment
-app.post('/api/appointments', async (req, res) => {
+// Appointments
+app.post(`${base}/appointments`, async (req, res) => {
   const { phone, doctor_name, date, time } = req.body;
-  if (!phone || !doctor_name || !date || !time) {
-    return res.status(400).json({ error: 'All fields are required.' });
-  }
+  if (!phone || !doctor_name || !date || !time) return res.status(400).json({ error: 'All fields required' });
   try {
     const result = await pool.query(
-      'INSERT INTO appointments (phone, doctor_name, date, time) VALUES ($1, $2, $3, $4) RETURNING *',
+      'INSERT INTO appointments (phone, doctor_name, date, time) VALUES ($1,$2,$3,$4) RETURNING *',
       [phone, doctor_name, date, time]
     );
-    res.json({ message: 'Appointment booked successfully.', appointment: result.rows[0] });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Database error' });
+    res.json({ message: 'Appointment booked', appointment: result.rows[0] });
+  } catch (err) {
+    console.error(err); res.status(500).json({ error: 'DB error' });
   }
 });
 
-// Get Appointments by Phone Number
-app.get('/api/appointments/:phone', async (req, res) => {
-  const { phone } = req.params;
+app.get(`${base}/appointments/:phone`, async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM appointments WHERE phone = $1', [phone]);
+    const result = await pool.query('SELECT * FROM appointments WHERE phone = $1', [req.params.phone]);
     res.json(result.rows);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Database error' });
+  } catch (err) {
+    console.error(err); res.status(500).json({ error: 'DB error' });
   }
 });
 
-// Add Health Record
-app.post('/api/health-records', async (req, res) => {
+// Health Records
+app.post(`${base}/health-records`, async (req, res) => {
   const { phone, file_name, file_type } = req.body;
-  if (!phone || !file_name || !file_type) {
-    return res.status(400).json({ error: 'All fields are required.' });
-  }
+  if (!phone || !file_name || !file_type) return res.status(400).json({ error: 'All fields required' });
   try {
     const result = await pool.query(
-      'INSERT INTO health_records (phone, file_name, file_type) VALUES ($1, $2, $3) RETURNING *',
+      'INSERT INTO health_records (phone, file_name, file_type) VALUES ($1,$2,$3) RETURNING *',
       [phone, file_name, file_type]
     );
-    res.json({ message: 'Health record added successfully.', record: result.rows[0] });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Database error' });
+    res.json({ message: 'Health record added', record: result.rows[0] });
+  } catch (err) {
+    console.error(err); res.status(500).json({ error: 'DB error' });
   }
 });
 
-// Get Health Records by Phone Number
-app.get('/api/health-records/:phone', async (req, res) => {
-  const { phone } = req.params;
+app.get(`${base}/health-records/:phone`, async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM health_records WHERE phone = $1', [phone]);
+    const result = await pool.query('SELECT * FROM health_records WHERE phone=$1', [req.params.phone]);
     res.json(result.rows);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Database error' });
+  } catch (err) {
+    console.error(err); res.status(500).json({ error: 'DB error' });
   }
 });
 
-// Add Investigation Request
-app.post('/api/investigations', async (req, res) => {
+// Investigations
+app.post(`${base}/investigations`, async (req, res) => {
   const { phone, test_name } = req.body;
-  if (!phone || !test_name) {
-    return res.status(400).json({ error: 'Phone number and test name are required.' });
-  }
+  if (!phone || !test_name) return res.status(400).json({ error: 'Missing test/phone' });
   try {
     const result = await pool.query(
-      'INSERT INTO investigations (phone, test_name) VALUES ($1, $2) RETURNING *',
+      'INSERT INTO investigations (phone, test_name) VALUES ($1,$2) RETURNING *',
       [phone, test_name]
     );
-    res.json({ message: 'Investigation requested successfully.', investigation: result.rows[0] });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Database error' });
+    res.json({ message: 'Investigation requested', investigation: result.rows[0] });
+  } catch (err) {
+    console.error(err); res.status(500).json({ error: 'DB error' });
   }
 });
 
-// Get Investigations by Phone Number
-app.get('/api/investigations/:phone', async (req, res) => {
-  const { phone } = req.params;
+app.get(`${base}/investigations/:phone`, async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM investigations WHERE phone = $1', [phone]);
+    const result = await pool.query('SELECT * FROM investigations WHERE phone=$1', [req.params.phone]);
     res.json(result.rows);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Database error' });
+  } catch (err) {
+    console.error(err); res.status(500).json({ error: 'DB error' });
   }
 });
 
-// Place Pharmacy Order
-app.post('/api/pharmacy-orders', async (req, res) => {
+// Pharmacy Orders
+app.post(`${base}/pharmacy-orders`, async (req, res) => {
   const { phone, order_note } = req.body;
-  if (!phone || !order_note) {
-    return res.status(400).json({ error: 'Phone number and order note are required.' });
-  }
+  if (!phone || !order_note) return res.status(400).json({ error: 'Missing fields' });
   try {
     const result = await pool.query(
-      'INSERT INTO pharmacy_orders (phone, order_note) VALUES ($1, $2) RETURNING *',
+      'INSERT INTO pharmacy_orders (phone, order_note) VALUES ($1,$2) RETURNING *',
       [phone, order_note]
     );
-    res.json({ message: 'Pharmacy order placed successfully.', order: result.rows[0] });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Database error' });
+    res.json({ message: 'Order placed', order: result.rows[0] });
+  } catch (err) {
+    console.error(err); res.status(500).json({ error: 'DB error' });
   }
 });
 
-// Get Pharmacy Orders by Phone Number
-app.get('/api/pharmacy-orders/:phone', async (req, res) => {
-  const { phone } = req.params;
+app.get(`${base}/pharmacy-orders/:phone`, async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM pharmacy_orders WHERE phone = $1', [phone]);
+    const result = await pool.query('SELECT * FROM pharmacy_orders WHERE phone=$1', [req.params.phone]);
     res.json(result.rows);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Database error' });
+  } catch (err) {
+    console.error(err); res.status(500).json({ error: 'DB error' });
   }
 });
 
-// Submit Feedback
-app.post('/api/feedback', (req, res) => {
+// Feedback
+app.post(`${base}/feedback`, async (req, res) => {
   const { phoneNumber, rating, comment } = req.body;
-  if (!phoneNumber || !rating) {
-    return res.status(400).json({ error: 'Phone number and rating required.' });
-  }
-  res.json({ success: true, message: 'Feedback submitted successfully.' });
+  if (!phoneNumber || !rating) return res.status(400).json({ error: 'Required: phoneNumber & rating' });
+  res.json({ success: true, message: 'Feedback received' });
 });
 
-// App Version
-app.get('/api/app-version', (req, res) => {
-  res.json({ version: '1.0.0', updated_at: '2025-05-12' });
+// Fallback Error Handler
+app.use((err, req, res, next) => {
+  console.error('Unexpected error:', err.stack);
+  res.status(500).json({ error: 'Internal Server Error' });
 });
 
-// Start the server
+// Start Server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

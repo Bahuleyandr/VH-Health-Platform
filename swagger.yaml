@@ -1,0 +1,46 @@
+openapi: 3.0.0
+info:
+  title: VH Health API
+  version: "1.0.0"
+  description: API Documentation for VH Health Application
+servers:
+  - url: https://vh-health-backend.onrender.com/api/v1
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: Server status
+  /request-otp:
+    post:
+      summary: Request OTP (Mock)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phoneNumber:
+                  type: string
+      responses:
+        '200':
+          description: OTP sent
+  /verify-otp:
+    post:
+      summary: Verify OTP (Mock)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phoneNumber:
+                  type: string
+                otp:
+                  type: string
+      responses:
+        '200':
+          description: OTP verified or error message
