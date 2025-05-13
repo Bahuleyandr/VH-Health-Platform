@@ -58,6 +58,10 @@ app.get(`${base}/health`, async (req, res) => {
   }
 });
 
+app.get(`${base}/app-version`, (req, res) => {
+  res.json({ version: '1.0.0', updated_at: '2025-05-12' });
+});
+
 // OTP (Mock)
 app.post(`${base}/request-otp`, body('phoneNumber').isLength({ min: 10 }), (req, res) => {
   const errors = validationResult(req);
