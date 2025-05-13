@@ -62,6 +62,15 @@ app.get(`${base}/app-version`, (req, res) => {
   res.json({ version: '1.0.0', updated_at: '2025-05-12' });
 });
 
+// Send OTP (Mock)
+app.get(`${base}/send-otp`, (req, res) => {
+  const { phone } = req.query;
+  if (!phone) {
+    return res.status(400).json({ error: 'Phone number is required.' });
+  }
+  res.json({ message: `Mock OTP 123456 sent to ${phone}` });
+});
+
 // OTP (Mock)
 app.post(`${base}/request-otp`, body('phoneNumber').isLength({ min: 10 }), (req, res) => {
   const errors = validationResult(req);
