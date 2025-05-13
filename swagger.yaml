@@ -14,6 +14,13 @@ paths:
         '200':
           description: Server status
 
+  /app-version:
+    get:
+      summary: Get app version
+      responses:
+        '200':
+          description: App version details
+
   /request-otp:
     post:
       summary: Request OTP (Mock)
@@ -152,13 +159,19 @@ paths:
 
   /appointments/{phone}:
     get:
-      summary: Get appointments by phone
+      summary: Get appointments by phone with optional filter (upcoming, past)
       parameters:
         - in: path
           name: phone
           required: true
           schema:
             type: string
+        - in: query
+          name: filter
+          required: false
+          schema:
+            type: string
+            enum: [upcoming, past]
       responses:
         '200':
           description: List of appointments
@@ -185,13 +198,19 @@ paths:
 
   /health-records/{phone}:
     get:
-      summary: Get health records by phone
+      summary: Get health records by phone with optional type filter (consultation, investigation, pharmacy)
       parameters:
         - in: path
           name: phone
           required: true
           schema:
             type: string
+        - in: query
+          name: type
+          required: false
+          schema:
+            type: string
+            enum: [consultation, investigation, pharmacy]
       responses:
         '200':
           description: List of health records
@@ -278,9 +297,28 @@ paths:
         '200':
           description: Feedback received
 
-  /app-version:
+  /doctors/{doctorId}:
     get:
-      summary: Get app version
+      summary: Get doctor profile by ID
+      parameters:
+        - in: path
+          name: doctorId
+          required: true
+          schema:
+            type: string
       responses:
         '200':
-          description: App version details
+          description: Doctor profile details
+
+  /departments/{departmentId}:
+    get:
+      summary: Get department details by ID
+      parameters:
+        - in: path
+          name: departmentId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Department details
