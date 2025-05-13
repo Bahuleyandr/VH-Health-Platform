@@ -5,6 +5,7 @@ info:
   description: API Documentation for VH Health Application
 servers:
   - url: https://vh-health-backend.onrender.com/api/v1
+
 paths:
   /health:
     get:
@@ -12,6 +13,7 @@ paths:
       responses:
         '200':
           description: Server status
+
   /request-otp:
     post:
       summary: Request OTP (Mock)
@@ -27,6 +29,7 @@ paths:
       responses:
         '200':
           description: OTP sent
+
   /verify-otp:
     post:
       summary: Verify OTP (Mock)
@@ -43,4 +46,241 @@ paths:
                   type: string
       responses:
         '200':
-          description: OTP verified or error message
+          description: OTP verification result
+
+  /users:
+    get:
+      summary: Get all users
+      responses:
+        '200':
+          description: List of users
+    post:
+      summary: Create or update a user profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phoneNumber:
+                  type: string
+                name:
+                  type: string
+                gender:
+                  type: string
+                address:
+                  type: string
+                email:
+                  type: string
+                birthday:
+                  type: string
+                anniversary:
+                  type: string
+                profilePicture:
+                  type: string
+      responses:
+        '200':
+          description: User profile saved
+
+  /users/{phone}:
+    get:
+      summary: Get user profile by phone
+      parameters:
+        - in: path
+          name: phone
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User profile details
+    put:
+      summary: Update user profile
+      parameters:
+        - in: path
+          name: phone
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                gender:
+                  type: string
+                address:
+                  type: string
+                email:
+                  type: string
+                birthday:
+                  type: string
+                anniversary:
+                  type: string
+                profilePicture:
+                  type: string
+      responses:
+        '200':
+          description: User profile updated
+
+  /appointments:
+    post:
+      summary: Book an appointment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                doctor_name:
+                  type: string
+                date:
+                  type: string
+                time:
+                  type: string
+      responses:
+        '200':
+          description: Appointment booked
+
+  /appointments/{phone}:
+    get:
+      summary: Get appointments by phone
+      parameters:
+        - in: path
+          name: phone
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of appointments
+
+  /health-records:
+    post:
+      summary: Add health record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                file_name:
+                  type: string
+                file_type:
+                  type: string
+      responses:
+        '200':
+          description: Health record added
+
+  /health-records/{phone}:
+    get:
+      summary: Get health records by phone
+      parameters:
+        - in: path
+          name: phone
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of health records
+
+  /investigations:
+    post:
+      summary: Request investigation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                test_name:
+                  type: string
+      responses:
+        '200':
+          description: Investigation requested
+
+  /investigations/{phone}:
+    get:
+      summary: Get investigations by phone
+      parameters:
+        - in: path
+          name: phone
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of investigations
+
+  /pharmacy-orders:
+    post:
+      summary: Place pharmacy order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                order_note:
+                  type: string
+      responses:
+        '200':
+          description: Pharmacy order placed
+
+  /pharmacy-orders/{phone}:
+    get:
+      summary: Get pharmacy orders by phone
+      parameters:
+        - in: path
+          name: phone
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of pharmacy orders
+
+  /feedback:
+    post:
+      summary: Submit feedback
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phoneNumber:
+                  type: string
+                rating:
+                  type: integer
+                comment:
+                  type: string
+      responses:
+        '200':
+          description: Feedback received
+
+  /app-version:
+    get:
+      summary: Get app version
+      responses:
+        '200':
+          description: App version details
