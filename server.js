@@ -78,8 +78,8 @@ app.post('/api/users', async (req, res) => {
     );
     res.json({ message: 'User profile saved successfully.', user: result.rows[0] });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Database error' });
+  console.error('Error Details:', error);
+  res.status(500).json({ error: error.message });
   }
 });
 
