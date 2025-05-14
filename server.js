@@ -1,8 +1,10 @@
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
-require('./instrument'); // Initialize Sentry
-const Sentry = require('@sentry/node'); // Import Handlers
+const express = require('express');
+const app = express();
+const initSentry = require('./instrument');
+const Sentry = initSentry(app);
 const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
 const swaggerUi = require('swagger-ui-express');
