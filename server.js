@@ -1,6 +1,7 @@
 const cors = require('cors');
 require('dotenv').config();
 const express = require('express');
+const app = express();
 const Sentry = require('./instrument');
 const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
