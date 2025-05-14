@@ -1,6 +1,6 @@
 // src/middleware/errorHandlerMiddleware.js
 
-const logger = require('../utils/logger');
+const logger = require('../logging/logger');
 
 /**
  * Centralized error handling middleware.
