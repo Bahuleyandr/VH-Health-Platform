@@ -2,9 +2,9 @@
   "name": "vh-health-backend",
   "version": "1.0.0",
   "description": "VH Health API for managing patients, appointments, records, and more",
-  "main": "src/app.js",
+  "main": "src/bin/www.js",
   "scripts": {
-    "start": "node src/app.js",
+    "start": "node src/bin/www.js",
     "test": "echo \"No tests defined\" && exit 0"
   },
   "repository": {
