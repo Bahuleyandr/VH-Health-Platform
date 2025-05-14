@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 require('./instrument');
 require('dotenv').config();
+require('./instrument'); // Already initializes Sentry globally
 const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
 const swaggerUi = require('swagger-ui-express');
@@ -360,7 +361,9 @@ app.get(`${base}/departments/:departmentId`, async (req, res) => {
 }
 });
 
-app.use(require('./instrument').Handlers.errorHandler());
+app.get('/debug-sentry', (req, res) => {
+  throw new Error("My first Sentry error!");
+});
 
 // Fallback Error Handler
 app.use((err, req, res, next) => {
