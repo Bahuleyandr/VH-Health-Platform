@@ -6,4 +6,9 @@ Sentry.init({
   sendDefaultPii: true,
 });
 
-module.exports = Sentry;
+module.exports = {
+  Sentry,
+  Handlers: {
+    errorHandler: Sentry.Handlers.errorHandler()
+  }
+};
