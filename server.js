@@ -23,8 +23,12 @@ requiredEnv.forEach((key) => {
 const PORT = process.env.PORT || 5000;
 
 if (process.env.SENTRY_DSN) {
-  app.use(Sentry.Handlers.requestHandler());
-  app.use(Sentry.Handlers.tracingHandler());
+  if (Sentry.Handlers && Sentry.Handlers.requestHandler) {
+    app.use(Sentry.Handlers.requestHandler());
+  }
+  if (Sentry.Handlers && Sentry.Handlers.tracingHandler) {
+    app.use(Sentry.Handlers.tracingHandler());
+  }
 }
 
 // Middleware
@@ -38,6 +42,7 @@ app.use(cors({
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      console.warn(`Blocked CORS request from origin: ${origin}`);
       callback(null, false); // Block CORS without throwing an error
     }
   },
@@ -47,22 +52,43 @@ app.use(express.json());
 app.use(helmet());
 
 // Rate Limiting
-app.use(rateLimit({
+const rateLimitOptions = {
   windowMs: process.env.RATE_LIMIT_WINDOW_MS || 1 * 60 * 1000, // Default: 1 minute
   max: process.env.RATE_LIMIT_MAX || 100, // Default: 100 requests
   message: 'Too many requests from this IP, please try again later.',
-}));
+};
+
+if (process.env.NODE_ENV === 'production') {
+  rateLimitOptions.max = 50; // Stricter limits for production
+}
+
+app.use(rateLimit(rateLimitOptions));
 
 // API Key Middleware
-const API_KEY = process.env.API_KEY;
-app.use((req, res, next) => {
-  if (req.headers['x-api-key'] !== API_KEY) return res.status(401).json({ error: 'Unauthorized' });
+const validateApiKey = (req, res, next) => {
+  if (req.headers['x-api-key'] !== process.env.API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
   next();
-});
+};
+
+app.use(validateApiKey);
 
 // Swagger Setup
 const path = require('path');
-const swaggerDocument = YAML.load(path.resolve(__dirname, 'swagger.yaml'));
+let swaggerDocument;
+try {
+  swaggerDocument = YAML.load(path.resolve(__dirname, 'swagger.yaml'));
+} catch (err) {
+  logger.error('Failed to load Swagger YAML file:', err);
+  swaggerDocument = null;
+}
+
+if (swaggerDocument) {
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+} else {
+  logger.warn('Swagger documentation is not available');
+}
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 // Utilities
@@ -73,12 +99,12 @@ app.get('/', (req, res) => res.json({ message: 'VH Health API is running.' }));
 app.get(`${base}/health`, async (req, res) => {
   try {
     // Check Database
-    const checkDatabase = async () => {
+    const checkDatabaseConnection = async () => {
   let retries = 3;
   while (retries) {
     try {
       await pool.query('SELECT 1');
-      return 'connected';
+      return true;
     } catch (err) {
       retries -= 1;
       if (!retries) throw new Error('Database unreachable');
@@ -86,6 +112,26 @@ app.get(`${base}/health`, async (req, res) => {
     }
   }
 };
+
+app.get(`${base}/health`, async (req, res) => {
+  try {
+    await checkDatabaseConnection();
+
+    const missingEnv = requiredEnv.filter(key => !process.env[key]);
+    if (missingEnv.length > 0) {
+      return res.status(500).json({ status: 'error', message: `Missing env vars: ${missingEnv.join(', ')}` });
+    }
+
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      checks: { database: 'connected', environment: 'all variables present' },
+    });
+  } catch (err) {
+    logger.error(err.stack || err.toString());
+    res.status(500).json({ status: 'error', message: 'Database unreachable' });
+  }
+});
 
     // Check Environment Variables
     const requiredEnv = ['API_KEY', 'DATABASE_URL', 'ALLOWED_ORIGINS'];
@@ -385,9 +431,11 @@ app.get(`${base}/departments/:departmentId`, async (req, res) => {
 }
 });
 
-app.get('/debug-sentry', (req, res) => {
-  throw new Error("My first Sentry error!");
-});
+if (process.env.NODE_ENV !== 'production') {
+  app.get('/debug-sentry', (req, res) => {
+    throw new Error("My first Sentry error!");
+  });
+}
 
 app.use(Sentry.Handlers.errorHandler());
 
