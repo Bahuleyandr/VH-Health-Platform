@@ -1,7 +1,7 @@
 // src/routes/recordRoutes.js
 
 const express = require('express');
-const pool = require('../utils/db');
+const pool = require('../db');
 const { success, error } = require('../utils/responseHelper');
 const logger = require('../logging/logger');
 
