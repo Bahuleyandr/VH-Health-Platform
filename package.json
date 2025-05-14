@@ -1,10 +1,12 @@
 {
   "name": "vh-health-backend",
   "version": "1.0.0",
-  "description": "VH Health API for managing patients, appointments, records, and more",
-  "main": "src/bin/www.js",
+  "description": "VH Health API for managing patients, appointments, records, investigations, pharmacy orders, and feedback.",
+  "main": "src/app.js",
   "scripts": {
     "start": "node src/bin/www.js",
+    "dev": "nodemon src/bin/www.js",
+    "lint": "eslint .",
     "test": "echo \"No tests defined\" && exit 0"
   },
   "repository": {
@@ -27,5 +29,22 @@
     "winston": "^3.17.0",
     "winston-daily-rotate-file": "^5.0.0",
     "yamljs": "^0.3.0"
-  }
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2",
+    "eslint": "^8.55.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "vh-health",
+    "healthcare-api",
+    "nodejs",
+    "express",
+    "postgresql",
+    "swagger",
+    "winston",
+    "api"
+  ]
 }
