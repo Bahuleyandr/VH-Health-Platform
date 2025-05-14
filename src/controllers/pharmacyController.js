@@ -1,6 +1,6 @@
 // controllers/pharmacyController.js
 const pool = require('../db');
-const logger = require('../logger');
+const logger = require('../logging/logger');
 const { success, error } = require('../responseHelper');
 
 exports.placePharmacyOrder = async (req, res) => {

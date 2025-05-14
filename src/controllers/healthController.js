@@ -1,6 +1,6 @@
 // controllers/healthController.js
 const pool = require('../db');
-const logger = require('../logger');
+const logger = require('../logging/logger');
 
 exports.healthCheck = async (req, res) => {
   try {
