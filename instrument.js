@@ -1,17 +1,13 @@
 const Sentry = require('@sentry/node');
 const Tracing = require('@sentry/tracing');
 
-function initSentry(app) {
-  Sentry.init({
-    dsn: process.env.SENTRY_DSN,
-    integrations: [
-      new Sentry.Integrations.Http({ tracing: true }),
-      new Tracing.Integrations.Express({ app })
-    ],
-    tracesSampleRate: 1.0,
-  });
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  tracesSampleRate: 1.0,
+  integrations: [
+    new Sentry.Integrations.Http({ tracing: true }),
+    new Tracing.Integrations.Express({ app: null }) // Will attach app later in server.js
+  ],
+});
 
-  return Sentry;
-}
-
-module.exports = initSentry;
+module.exports = Sentry;
