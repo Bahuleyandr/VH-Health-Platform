@@ -12,12 +12,20 @@ const logger = require('./logger');
 const { validatePhoneNumber, validateOTP } = require('./middleware/validators');
 const { success, error } = require('./responseHelper');
 
-require('./validateEnv');
+const requiredEnv = ['API_KEY', 'DATABASE_URL', 'ALLOWED_ORIGINS'];
+requiredEnv.forEach((key) => {
+  if (!process.env[key]) {
+    console.error(`Missing required environment variable: ${key}`);
+    process.exit(1); // Exit the application
+  }
+});
 
 const PORT = process.env.PORT || 5000;
 
-app.use(Sentry.Handlers.requestHandler());
-app.use(Sentry.Handlers.tracingHandler());
+if (process.env.SENTRY_DSN) {
+  app.use(Sentry.Handlers.requestHandler());
+  app.use(Sentry.Handlers.tracingHandler());
+}
 
 // Middleware
 const helmet = require('helmet');
@@ -28,9 +36,10 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) {
-      return callback(null, true);
+      callback(null, true);
+    } else {
+      callback(null, false); // Block CORS without throwing an error
     }
-    return callback(new Error('Not allowed by CORS'));
   },
 }));
 
@@ -39,8 +48,8 @@ app.use(helmet());
 
 // Rate Limiting
 app.use(rateLimit({
-  windowMs: 1 * 60 * 1000,
-  max: 100,
+  windowMs: process.env.RATE_LIMIT_WINDOW_MS || 1 * 60 * 1000, // Default: 1 minute
+  max: process.env.RATE_LIMIT_MAX || 100, // Default: 100 requests
   message: 'Too many requests from this IP, please try again later.',
 }));
 
@@ -52,7 +61,8 @@ app.use((req, res, next) => {
 });
 
 // Swagger Setup
-const swaggerDocument = YAML.load('./swagger.yaml');
+const path = require('path');
+const swaggerDocument = YAML.load(path.resolve(__dirname, 'swagger.yaml'));
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 // Utilities
@@ -63,7 +73,19 @@ app.get('/', (req, res) => res.json({ message: 'VH Health API is running.' }));
 app.get(`${base}/health`, async (req, res) => {
   try {
     // Check Database
-    await pool.query('SELECT 1');
+    const checkDatabase = async () => {
+  let retries = 3;
+  while (retries) {
+    try {
+      await pool.query('SELECT 1');
+      return 'connected';
+    } catch (err) {
+      retries -= 1;
+      if (!retries) throw new Error('Database unreachable');
+      await new Promise((res) => setTimeout(res, 1000)); // Retry after 1 second
+    }
+  }
+};
 
     // Check Environment Variables
     const requiredEnv = ['API_KEY', 'DATABASE_URL', 'ALLOWED_ORIGINS'];
@@ -372,7 +394,11 @@ app.use(Sentry.Handlers.errorHandler());
 // Fallback Error Handler
 app.use((err, req, res, next) => {
   logger.error(`Unexpected error: ${err.stack}`);
-  res.status(500).json({ error: 'Internal Server Error' });
+  if (err.status) {
+    res.status(err.status).json({ error: err.message });
+  } else {
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
 });
 
 // Start Server
