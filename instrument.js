@@ -4,7 +4,8 @@ const Tracing = require('@sentry/tracing');
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
   integrations: [
-    new Tracing.Integrations.Express({ app: require('express')() }) // Only Express tracing
+    new Sentry.Integrations.Http({ tracing: true }),
+    new Tracing.Integrations.Express(),
   ],
   tracesSampleRate: 1.0,
 });
