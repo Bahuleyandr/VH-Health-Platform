@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
-const logger = require('../logger');
+const logger = require('../logging/logger');
 
 const base = '/api/v1';
 

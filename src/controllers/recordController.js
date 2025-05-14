@@ -1,6 +1,6 @@
 // controllers/recordController.js
 const pool = require('../db');
-const logger = require('../logger');
+const logger = require('../logging/logger');
 const { success, error } = require('../responseHelper');
 
 exports.addHealthRecord = async (req, res) => {

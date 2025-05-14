@@ -1,7 +1,7 @@
 // controllers/otpController.js
 const { validationResult } = require('express-validator');
 const { success, error } = require('../responseHelper');
-const logger = require('../logger');
+const logger = require('../logging/logger');
 
 exports.requestOtp = (req, res) => {
   const errors = validationResult(req);
