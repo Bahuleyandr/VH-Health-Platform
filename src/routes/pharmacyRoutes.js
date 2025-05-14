@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 const { success, error } = require('../utils/responseHelper');
-const logger = require('../utils/logger');
+const logger = require('../logging/logger');
 
 // Place a new pharmacy order
 router.post('/pharmacy-orders', async (req, res) => {

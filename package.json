@@ -1,14 +1,18 @@
 {
   "name": "vh-health-backend",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "VH Health API for managing patients, appointments, records, and more",
+  "main": "src/app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node src/app.js",
+    "test": "echo \"No tests defined\" && exit 0"
   },
-  "keywords": [],
-  "author": "",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/vh-health-backend.git"
+  },
+  "author": "VH Health Tech Team",
   "license": "ISC",
-  "description": "",
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",

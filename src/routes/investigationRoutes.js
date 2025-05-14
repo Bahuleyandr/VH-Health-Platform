@@ -3,7 +3,7 @@
 const express = require('express');
 const pool = require('../utils/db');
 const { success, error } = require('../utils/responseHelper');
-const logger = require('../utils/logger');
+const logger = require('../logging/logger');
 
 const router = express.Router();
 const base = '/investigations';

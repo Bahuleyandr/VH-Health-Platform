@@ -1,6 +1,6 @@
 // src/middleware/loggingMiddleware.js
 
-const logger = require('../utils/logger');
+const logger = require('../logging/logger');
 
 /**
  * Logs basic request details for each incoming request.
