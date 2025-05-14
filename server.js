@@ -2,7 +2,6 @@ const cors = require('cors');
 require('dotenv').config();
 const express = require('express');
 const Sentry = require('./instrument');
-const app = express();
 const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
 const swaggerUi = require('swagger-ui-express');
