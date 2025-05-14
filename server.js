@@ -1,10 +1,8 @@
-const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 const express = require('express');
+const Sentry = require('./instrument');
 const app = express();
-const initSentry = require('./instrument');
-const Sentry = initSentry(app);
 const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
 const swaggerUi = require('swagger-ui-express');
@@ -16,7 +14,6 @@ const { success, error } = require('./responseHelper');
 
 require('./validateEnv');
 
-const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(Sentry.Handlers.requestHandler());
