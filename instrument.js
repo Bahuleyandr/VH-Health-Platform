@@ -1,14 +1,12 @@
-const Sentry = require("@sentry/node");
+const Sentry = require('@sentry/node');
+const Tracing = require('@sentry/tracing');
 
 Sentry.init({
-  dsn: "https://9e3749902b4c395c970fe3421de3d7c3@o4509318211239936.ingest.us.sentry.io/4509318237650944",
+  dsn: process.env.SENTRY_DSN,
   tracesSampleRate: 1.0,
-  sendDefaultPii: true,
+  integrations: [
+    new Sentry.Integrations.Http({ tracing: true }),
+  ],
 });
 
-module.exports = {
-  Sentry,
-  Handlers: {
-    errorHandler: Sentry.Handlers.errorHandler()
-  }
-};
+module.exports = Sentry;

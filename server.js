@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
-require('./instrument');
 require('dotenv').config();
+const Sentry = require('./instrument');
 const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
 const swaggerUi = require('swagger-ui-express');
@@ -15,6 +15,9 @@ require('./validateEnv');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+app.use(Sentry.Handlers.requestHandler());
+app.use(Sentry.Handlers.tracingHandler());
 
 // Middleware
 const helmet = require('helmet');
@@ -364,7 +367,7 @@ app.get('/debug-sentry', (req, res) => {
   throw new Error("My first Sentry error!");
 });
 
-app.use(require('./instrument').Handlers.errorHandler());
+app.use(Sentry.Handlers.errorHandler());
 
 // Fallback Error Handler
 app.use((err, req, res, next) => {
