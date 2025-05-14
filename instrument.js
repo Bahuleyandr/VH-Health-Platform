@@ -1,14 +1,13 @@
 const Sentry = require('@sentry/node');
-const { Http } = require('@sentry/integrations');
 const Tracing = require('@sentry/tracing');
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
   integrations: [
-    new Http({ tracing: true }), // Correctly importing Http from '@sentry/integrations'
-    new Tracing.Integrations.Express(),
+    // Removed Sentry.Handlers.Http as it is not a constructor and may not be supported
+    new Tracing.Integrations.Express(), // Tracing for Express.js
   ],
-  tracesSampleRate: 1.0, // Adjust as per your application's requirements
+  tracesSampleRate: 1.0, // Adjust as needed for performance and cost
 });
 
 module.exports = Sentry;
