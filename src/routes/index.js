@@ -19,20 +19,20 @@ const staffRoutes = require('./staffRoutes');
 
 
 // Mount all routes
-router.use('/departments', departmentRoutes);
-router.use('/doctors', doctorRoutes);
-router.use('/appointments', appointmentRoutes);
-router.use('/health-records', recordRoutes);
-router.use('/investigations', investigationRoutes);
-router.use('/pharmacy-orders', pharmacyRoutes);
-router.use('/feedback', feedbackRoutes);
-router.use('/otp', otpRoutes);
-router.use('/version', versionRoutes);
-router.use('/health', healthRoutes);
-router.use('/users', userRoutes);
-router.use(sosRoutes);
-router.use(adminDepartmentRoutes);
-router.use(adminDoctorRoutes);
-router.use(staffRoutes);
+router.use('/api/v1', departmentRoutes);
+router.use('/api/v1', doctorRoutes);
+router.use('/api/v1', appointmentRoutes);
+router.use('/api/v1', recordRoutes);
+router.use('/api/v1', investigationRoutes);
+router.use('/api/v1', pharmacyRoutes);
+router.use('/api/v1', feedbackRoutes);
+router.use('/api/v1', otpRoutes);
+router.use('/api/v1', versionRoutes);
+router.use('/api/v1', healthRoutes);
+router.use('/api/v1', userRoutes);
+router.use('/api/v1', sosRoutes);
+router.use('/api/v1', adminDepartmentRoutes);
+router.use('/api/v1', adminDoctorRoutes);
+router.use('/api/v1', staffRoutes);
 
 module.exports = router;
