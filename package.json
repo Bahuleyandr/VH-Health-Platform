@@ -4,11 +4,13 @@
   "description": "VH Health API for managing patients, appointments, records, investigations, pharmacy orders, and feedback.",
   "main": "src/app.js",
   "scripts": {
-    "start": "node src/bin/www.js",
-    "dev": "nodemon src/bin/www.js",
-    "lint": "eslint .",
-    "test": "echo \"No tests defined\" && exit 0"
-  },
+  "start": "node src/bin/www.js",
+  "dev": "nodemon src/bin/www.js",
+  "lint": "eslint .",
+  "test": "echo \"No tests defined\" && exit 0",
+  "start:local": "dotenv -e .env.local -- npm start",
+  "start:render": "dotenv -e .env.render -- npm start"
+},
   "repository": {
     "type": "git",
     "url": "https://github.com/your-org/vh-health-backend.git"
