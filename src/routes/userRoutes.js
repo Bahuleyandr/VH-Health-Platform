@@ -104,4 +104,23 @@ router.get(`${base}`, async (req, res) => {
   }
 });
 
+// Get user profile by phone number
+router.get(`${base}/:phoneNumber`, async (req, res) => {
+  const { phoneNumber } = req.params;
+  if (!phoneNumber) {
+    return res.status(400).json({ error: 'Phone number required.' });
+  }
+
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE phone = $1', [phoneNumber]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+    success(res, result.rows[0], 'User profile retrieved.');
+  } catch (err) {
+    logger.error(err);
+    error(res, 'Failed to retrieve user profile.');
+  }
+});
+
 module.exports = router;

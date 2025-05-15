@@ -61,4 +61,20 @@ router.get(`${base}/:phone`, async (req, res) => {
   }
 });
 
+// Get all appointments by phone number
+router.get(`${base}/:phoneNumber`, async (req, res) => {
+  const { phoneNumber } = req.params;
+  if (!phoneNumber) {
+    return res.status(400).json({ error: 'Phone number required.' });
+  }
+
+  try {
+    const result = await pool.query('SELECT * FROM appointments WHERE phone = $1 ORDER BY date DESC', [phoneNumber]);
+    success(res, result.rows, 'Appointments retrieved.');
+  } catch (err) {
+    logger.error(err);
+    error(res, 'Failed to retrieve appointments.');
+  }
+});
+
 module.exports = router;

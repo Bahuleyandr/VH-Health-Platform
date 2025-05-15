@@ -40,4 +40,20 @@ router.get('/pharmacy-orders/:phone', async (req, res) => {
   }
 });
 
+// Get all pharmacy orders by phone number
+router.get(`/pharmacy-orders/:phoneNumber`, async (req, res) => {
+  const { phoneNumber } = req.params;
+  if (!phoneNumber) {
+    return res.status(400).json({ error: 'Phone number required.' });
+  }
+
+  try {
+    const result = await pool.query('SELECT * FROM pharmacy_orders WHERE phone = $1 ORDER BY created_at DESC', [phoneNumber]);
+    success(res, result.rows, 'Pharmacy orders retrieved.');
+  } catch (err) {
+    logger.error(err);
+    error(res, 'Failed to retrieve pharmacy orders.');
+  }
+});
+
 module.exports = router;
