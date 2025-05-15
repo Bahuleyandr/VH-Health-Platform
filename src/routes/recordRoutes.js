@@ -47,4 +47,36 @@ router.get(`${base}/:phone`, async (req, res) => {
   }
 });
 
+// Get all health records by phone number
+router.get(`${base}/:phoneNumber`, async (req, res) => {
+  const { phoneNumber } = req.params;
+  if (!phoneNumber) {
+    return res.status(400).json({ error: 'Phone number required.' });
+  }
+
+  try {
+    const result = await pool.query('SELECT * FROM health_records WHERE phone = $1 ORDER BY created_at DESC', [phoneNumber]);
+    success(res, result.rows, 'Health records retrieved.');
+  } catch (err) {
+    logger.error(err);
+    error(res, 'Failed to retrieve health records.');
+  }
+});
+
+// Get all consultations by phone number
+router.get(`/consultations/:phoneNumber`, async (req, res) => {
+  const { phoneNumber } = req.params;
+  if (!phoneNumber) {
+    return res.status(400).json({ error: 'Phone number required.' });
+  }
+
+  try {
+    const result = await pool.query('SELECT * FROM consultations WHERE phone = $1 ORDER BY created_at DESC', [phoneNumber]);
+    success(res, result.rows, 'Consultations retrieved.');
+  } catch (err) {
+    logger.error(err);
+    error(res, 'Failed to retrieve consultations.');
+  }
+});
+
 module.exports = router;
