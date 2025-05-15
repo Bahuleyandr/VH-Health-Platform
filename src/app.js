@@ -12,7 +12,7 @@ const swaggerUi = require('swagger-ui-express');
 const swaggerLoader = require('./utils/swaggerLoader');
 const swaggerDocument = swaggerLoader();
 const app = express();
-const logger = require('./utils/logger');
+const logger = require('./logging/logger');
 app.use(rateLimitMiddleware());
 
 
