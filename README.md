@@ -1,104 +1,149 @@
-# VH Health Backend API
+# VH Health Backend
 
-A robust and modular Node.js API for managing users, appointments, records, investigations, pharmacy orders, and feedback for VH Health.
-
----
-
-## 🛠️ Tech Stack
-
-- **Node.js + Express.js**  
-  Scalable API framework with modular route and controller structure.
-- **PostgreSQL**  
-  Managed relational database for secure data storage.
-- **Swagger UI**  
-  Live API documentation at `/api-docs`.
-- **Helmet**  
-  HTTP headers security hardening.
-- **CORS Middleware**  
-  Origin restriction via `ALLOWED_ORIGINS` environment variable.
-- **Rate Limiting Middleware**  
-  Request limiting per IP to prevent abuse.
-- **API Key Middleware**  
-  Secures access using `x-api-key` header.
-- **Winston + Morgan Logging**  
-  Structured console and file logging with daily rotation and HTTP request tracking.
-- **Environment Validation**  
-  Ensures all required environment variables are defined at startup.
-- **Input Validators**  
-  Validates request bodies using `express-validator`.
-- **Modular Structure**  
-  Organized into `routes`, `controllers`, `middleware`, and `utils` folders for maintainability.
+The backend API for the VH Health mobile and staff applications.  
+This service powers appointment bookings, health records management, pharmacy orders, SOS alerts, and staff management.
 
 ---
 
-## 🚀 Getting Started
+## ✅ Project Status
 
-### 1. Clone the Repository
+- **Stage**: Local Development ✅ Fully Verified
+- **Version**: v1.0.0
+- **Next Step**: Deploy to Render and validate with Postman against cloud APIs
 
-```bash
-git clone https://github.com/your-org/vh-health-backend.git
-cd vh-health-backend
-2. Install Dependencies
+---
+
+## ✅ Features Overview
+
+### 🟢 Patient API
+| Method | Endpoint                                        | Description                           |
+|------|-------------------------------------------------|---------------------------------------|
+| POST  | `/api/v1/request-otp`                            | Send OTP to patient phone number      |
+| POST  | `/api/v1/verify-otp`                             | Verify OTP and authenticate user      |
+| GET   | `/api/v1/users/:phoneNumber`                     | Fetch user profile by phone number    |
+| POST  | `/api/v1/users`                                  | Create or update user profile         |
+| GET   | `/api/v1/doctors`                                | List all doctors                      |
+| GET   | `/api/v1/departments-with-doctors`               | List all departments and doctors      |
+| POST  | `/api/v1/appointments`                           | Book an appointment                   |
+| GET   | `/api/v1/appointments/:phoneNumber`              | Get appointments by phone number      |
+| POST  | `/api/v1/investigations`                         | Request an investigation              |
+| GET   | `/api/v1/investigations/:phoneNumber`            | Get investigation requests            |
+| POST  | `/api/v1/pharmacy-orders`                        | Upload pharmacy prescription          |
+| GET   | `/api/v1/pharmacy-orders/:phoneNumber`           | Get pharmacy orders                   |
+| POST  | `/api/v1/health-records`                         | Upload health record                  |
+| GET   | `/api/v1/health-records/:phoneNumber`            | Get health records                    |
+| POST  | `/api/v1/feedback`                               | Submit feedback                       |
+| POST  | `/api/v1/sos-alert`                              | Send SOS alert with location          |
+
+### 🟢 Staff API
+| Method | Endpoint                                        | Description                           |
+|------|-------------------------------------------------|---------------------------------------|
+| GET   | `/api/v1/staff/attendance`                       | Get staff attendance records          |
+| POST  | `/api/v1/staff/attendance`                       | Mark staff attendance                 |
+| GET   | `/api/v1/staff/roll-call`                        | Get staff roll-call records           |
+| GET   | `/api/v1/consultations/:phoneNumber`             | Get patient consultations             |
+| POST  | `/api/v1/staff/consultations`                    | Upload patient consultation document  |
+| POST  | `/api/v1/staff/investigations`                   | Upload investigation result           |
+| POST  | `/api/v1/staff/pharmacy-orders`                  | Update pharmacy order status          |
+
+### 🟢 Admin API
+| Method | Endpoint                                        | Description                           |
+|------|-------------------------------------------------|---------------------------------------|
+| POST  | `/api/v1/admin/departments`                      | Add or update a department            |
+| DELETE| `/api/v1/admin/departments/:departmentId`        | Delete a department                   |
+| POST  | `/api/v1/admin/doctors`                          | Add or update a doctor                |
+| DELETE| `/api/v1/admin/doctors/:doctorId`                | Delete a doctor                       |
+
+### 🟢 System Health & Version
+| Method | Endpoint                                        | Description                           |
+|------|-------------------------------------------------|---------------------------------------|
+| GET   | `/api/v1/health`                                 | Check system health                   |
+| GET   | `/api/v1/app-version`                            | Get current app version information   |
+
+---
+
+## ✅ Example Request Payloads
+
+### 📌 **Submit Feedback**
+```json
+{
+  "phoneNumber": "9876543210",
+  "rating": 5,
+  "comment": "Excellent service!"
+}
+📌 Book Appointment
+json
+Copy code
+{
+  "phone": "9876543210",
+  "doctor_name": "Dr. John Doe",
+  "date": "2025-05-15",
+  "time": "10:00 AM"
+}
+📌 Upload Pharmacy Order (Patient)
+json
+Copy code
+{
+  "phone": "9876543210",
+  "order_file": "prescription.jpg"
+}
+📌 Fulfill Pharmacy Order (Staff)
+json
+Copy code
+{
+  "phone": "9876543210",
+  "order_id": "1",
+  "status": "fulfilled",
+  "notes": "Delivered to patient address"
+}
+📌 Upload Investigation Result (Staff)
+json
+Copy code
+{
+  "phone": "9876543210",
+  "test_name": "Blood Test",
+  "result_file": "blood_test_results.pdf"
+}
+📌 Send SOS Alert
+json
+Copy code
+{
+  "phone": "9876543210",
+  "latitude": "13.0827",
+  "longitude": "80.2707"
+}
+✅ Environment Configuration (.env Example)
+bash
+Copy code
+API_KEY=vhhealth123
+API_BASE_URL=https://your-render-domain.onrender.com/api/v1
+DATABASE_URL=postgresql://<user>:<password>@dpg-your-db-url.render.com/vh_health
+ALLOWED_ORIGINS=https://yourapp.com,https://admin.yourapp.com
+RATE_LIMIT_WINDOW_MS=60000
+RATE_LIMIT_MAX=100
+PORT=5000
+✅ Deployment Steps
+Ensure .env is configured for Render.
+
+Push code to GitHub.
+
+Trigger deploy on Render.
+
+Test all routes again on Render URL.
+
+✅ Local Development
+Run locally with:
+
 bash
 Copy code
 npm install
-3. Environment Variables Setup
-Create a .env file in the root with the following keys:
+npm start
+Access local API at:
 
-env
-Copy code
-API_KEY=your_api_key_here
-DATABASE_URL=your_postgres_url_here
-ALLOWED_ORIGINS=https://yourapp.com,https://admin.yourapp.com
-PORT=5000
-4. Running the Application
-Local Development
 bash
 Copy code
-npm start
-Access the API
-Swagger Documentation: http://localhost:5000/api-docs
+http://localhost:5000/api/v1
+✅ Contributors
+Backend Developer: Bahuleyan
 
-Health Check: http://localhost:5000/api/v1/health
-
-🗂️ Project Structure
-lua
-Copy code
-src/
-├── controllers/
-├── middleware/
-├── routes/
-├── utils/
-├── logging/
-├── validateEnv.js
-├── responseHelper.js
-logs/
-├── error.log
-├── combined.log
-.gitignore
-package.json
-README.md
-🛡️ Production Notes
-Environment Variables: Ensure .env is properly configured on your production server.
-
-Port Configuration: Uses PORT from .env or defaults to 5000.
-
-Rate Limiting: Stricter limits apply in production mode.
-
-Logging: Logs are rotated daily and stored in /logs.
-
-API Security: Requires x-api-key header matching your API_KEY.
-
-📖 API Documentation
-Visit /api-docs after starting the server to explore the API via Swagger UI.
-
-👨‍💻 Contributing
-Fork the repository.
-
-Create your feature branch (git checkout -b feature-name).
-
-Commit your changes (git commit -m 'Add new feature').
-
-Push to the branch (git push origin feature-name).
-
-Open a Pull Request.
+Project: VH Health
