@@ -18,9 +18,10 @@ router.post('/admin/departments', async (req, res) => {
       [name]
     );
     success(res, result.rows[0] || { message: 'Department already exists.' }, 'Department saved.');
-  } catch (err) {
-    logger.error(err);
-    error(res, 'Failed to save department.');
+    } catch (err) {
+    console.error('SQL Error:', err.stack || err.toString());
+    logger.error(err.stack || err.toString());
+    error(res, err.message || 'Database error');
   }
 });
 

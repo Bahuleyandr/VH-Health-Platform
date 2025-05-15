@@ -18,9 +18,10 @@ router.post('/admin/doctors', async (req, res) => {
       [name, department, intro, imageUrl]
     );
     success(res, result.rows[0], 'Doctor saved.');
-  } catch (err) {
-    logger.error(err);
-    error(res, 'Failed to save doctor.');
+    } catch (err) {
+    console.error('SQL Error:', err.stack || err.toString());
+    logger.error(err.stack || err.toString());
+    error(res, err.message || 'Database error');
   }
 });
 

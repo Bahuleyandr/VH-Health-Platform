@@ -14,13 +14,14 @@ router.post('/feedback', async (req, res) => {
 
   try {
     const result = await pool.query(
-      'INSERT INTO feedback (phone, rating, comment) VALUES ($1, $2, $3) RETURNING *',
-      [phoneNumber, rating, comment || null]
-    );
+  'INSERT INTO feedback (phonenumber, rating, comment) VALUES ($1, $2, $3) RETURNING *',
+  [phoneNumber, rating, comment || null]
+);
     success(res, result.rows[0], 'Feedback submitted successfully');
-  } catch (err) {
+    } catch (err) {
+    console.error('SQL Error:', err.stack || err.toString());
     logger.error(err.stack || err.toString());
-    error(res, 'Database error');
+    error(res, err.message || 'Database error');
   }
 });
 
