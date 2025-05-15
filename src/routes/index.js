@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-
+const firebaseAuthRoutes = require('./firebaseAuthRoutes');
 const departmentRoutes = require('./departmentRoutes');
 const doctorRoutes = require('./doctorRoutes');
 const appointmentRoutes = require('./appointmentRoutes');
@@ -19,6 +19,7 @@ const staffRoutes = require('./staffRoutes');
 
 
 // Mount all routes
+router.use('/api/v1/auth', firebaseAuthRoutes);
 router.use('/api/v1', departmentRoutes);
 router.use('/api/v1', doctorRoutes);
 router.use('/api/v1', appointmentRoutes);
