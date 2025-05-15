@@ -27,4 +27,30 @@ exports.firebaseLogin = async (req, res) => {
     console.error('Firebase Login Error:', error);
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
+exports.registerUser = async (req, res) => {
+  const { phone, name, gender, email, birthday, anniversary, address } = req.body;
+
+  if (!phone || !name) {
+    return res.status(400).json({ success: false, message: 'Phone and Name are required' });
+  }
+
+  try {
+    const insertQuery = `
+      INSERT INTO users (phone, name, gender, email, birthday, anniversary, address)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *;
+    `;
+    const values = [phone, name, gender, email, birthday, anniversary, address];
+
+    const queryResult = await db.query(insertQuery, values);
+
+    return res.status(201).json({
+      success: true,
+      message: 'User profile created',
+      user: queryResult.rows[0],
+    });
+  } catch (error) {
+    console.error('Register User Error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
 };
