@@ -6,7 +6,7 @@ const Joi = require('joi');
 const envSchema = Joi.object({
   API_KEY: Joi.string().required().label('API_KEY'),
   DATABASE_URL: Joi.string().uri().required().label('DATABASE_URL'),
-  ALLOWED_ORIGINS: Joi.string().required().label('ALLOWED_ORIGINS'),
+  ALLOWED_ORIGINS: Joi.string().default('http://localhost:3000').label('ALLOWED_ORIGINS'),
   PORT: Joi.number().default(5000).label('PORT'),
   RATE_LIMIT_WINDOW_MS: Joi.number().optional().label('RATE_LIMIT_WINDOW_MS'),
   RATE_LIMIT_MAX: Joi.number().optional().label('RATE_LIMIT_MAX'),
