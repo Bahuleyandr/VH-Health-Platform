@@ -37,7 +37,7 @@ if (swaggerDocument) {
 }
 
 // API Routes
-app.use('/api/v1', routes);
+app.use('/', routes);
 
 // Health Check
 app.get('/', (req, res) => {

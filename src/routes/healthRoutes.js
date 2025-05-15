@@ -3,13 +3,13 @@ const router = express.Router();
 const pool = require('../db');
 const logger = require('../logging/logger');
 
-const base = '/api/v1';
-
-router.get('/', (req, res) => {
+// Root health check
+router.get('/health', (req, res) => {
   res.json({ message: 'VH Health API is running.' });
 });
 
-router.get(`${base}/health`, async (req, res) => {
+// Detailed health check with database and env check
+router.get('/health-check', async (req, res) => {
   try {
     let retries = 3;
     while (retries) {
@@ -19,7 +19,7 @@ router.get(`${base}/health`, async (req, res) => {
       } catch (err) {
         retries -= 1;
         if (!retries) throw new Error('Database unreachable');
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
 
@@ -44,7 +44,8 @@ router.get(`${base}/health`, async (req, res) => {
   }
 });
 
-router.get(`${base}/app-version`, (req, res) => {
+// App version check
+router.get('/app-version', (req, res) => {
   res.json({ version: '1.0.0', updated_at: '2025-05-12' });
 });
 

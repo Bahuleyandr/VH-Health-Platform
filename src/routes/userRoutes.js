@@ -1,15 +1,12 @@
-// src/routes/userRoutes.js
-
 const express = require('express');
 const pool = require('../db');
 const { success, error } = require('../utils/responseHelper');
 const logger = require('../logging/logger');
 
 const router = express.Router();
-const base = '/users';
 
 // Create or update user profile
-router.post(`${base}`, async (req, res) => {
+router.post('/users', async (req, res) => {
   const { phoneNumber, name, gender, address, email, birthday, anniversary, profilePicture } = req.body;
   if (!phoneNumber || !name || !gender) {
     return res.status(400).json({ error: 'Required fields missing.' });
@@ -38,7 +35,7 @@ router.post(`${base}`, async (req, res) => {
 });
 
 // Get user profile by phone
-router.get(`${base}/:phone`, async (req, res) => {
+router.get('/users/:phone', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM users WHERE phone = $1', [req.params.phone]);
     if (result.rows.length) {
@@ -53,7 +50,7 @@ router.get(`${base}/:phone`, async (req, res) => {
 });
 
 // Update user profile by phone
-router.put(`${base}/:phone`, async (req, res) => {
+router.put('/users/:phone', async (req, res) => {
   const { name, gender, address, email, birthday, anniversary, profilePicture } = req.body;
 
   try {
@@ -74,7 +71,7 @@ router.put(`${base}/:phone`, async (req, res) => {
 });
 
 // List users with optional search
-router.get(`${base}`, async (req, res) => {
+router.get('/users', async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
@@ -105,7 +102,7 @@ router.get(`${base}`, async (req, res) => {
 });
 
 // Get user profile by phone number
-router.get(`${base}/:phoneNumber`, async (req, res) => {
+router.get('/users/:phoneNumber', async (req, res) => {
   const { phoneNumber } = req.params;
   if (!phoneNumber) {
     return res.status(400).json({ error: 'Phone number required.' });

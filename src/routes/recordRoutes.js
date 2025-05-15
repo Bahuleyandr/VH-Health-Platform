@@ -1,15 +1,12 @@
-// src/routes/recordRoutes.js
-
 const express = require('express');
 const pool = require('../db');
 const { success, error } = require('../utils/responseHelper');
 const logger = require('../logging/logger');
 
 const router = express.Router();
-const base = '/health-records';
 
 // Add health record
-router.post(`${base}`, async (req, res) => {
+router.post('/health-records', async (req, res) => {
   const { phone, file_name, file_type } = req.body;
   if (!phone || !file_name || !file_type) {
     return res.status(400).json({ error: 'All fields required' });
@@ -21,14 +18,15 @@ router.post(`${base}`, async (req, res) => {
       [phone, file_name, file_type]
     );
     success(res, result.rows[0], 'Health record added');
-  } catch (err) {
+    } catch (err) {
+    console.error('SQL Error:', err.stack || err.toString());
     logger.error(err.stack || err.toString());
-    error(res, 'Database error');
+    error(res, err.message || 'Database error');
   }
 });
 
 // Get health records by phone with optional type filter
-router.get(`${base}/:phone`, async (req, res) => {
+router.get('/health-records/:phone', async (req, res) => {
   try {
     const { phone } = req.params;
     const { type } = req.query;
@@ -48,7 +46,7 @@ router.get(`${base}/:phone`, async (req, res) => {
 });
 
 // Get all health records by phone number
-router.get(`${base}/:phoneNumber`, async (req, res) => {
+router.get('/health-records/:phoneNumber', async (req, res) => {
   const { phoneNumber } = req.params;
   if (!phoneNumber) {
     return res.status(400).json({ error: 'Phone number required.' });
@@ -64,7 +62,7 @@ router.get(`${base}/:phoneNumber`, async (req, res) => {
 });
 
 // Get all consultations by phone number
-router.get(`/consultations/:phoneNumber`, async (req, res) => {
+router.get('/consultations/:phoneNumber', async (req, res) => {
   const { phoneNumber } = req.params;
   if (!phoneNumber) {
     return res.status(400).json({ error: 'Phone number required.' });

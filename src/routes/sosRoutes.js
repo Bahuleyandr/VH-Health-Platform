@@ -19,9 +19,10 @@ router.post('/sos-alert', async (req, res) => {
       [phone, latitude, longitude]
     );
     success(res, result.rows[0], 'SOS alert saved.');
-  } catch (err) {
-    logger.error(err);
-    error(res, 'Failed to save SOS alert.');
+    } catch (err) {
+    console.error('SQL Error:', err.stack || err.toString());
+    logger.error(err.stack || err.toString());
+    error(res, err.message || 'Database error');
   }
 });
 

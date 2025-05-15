@@ -1,15 +1,12 @@
-// src/routes/investigationRoutes.js
-
 const express = require('express');
 const pool = require('../db');
 const { success, error } = require('../utils/responseHelper');
 const logger = require('../logging/logger');
 
 const router = express.Router();
-const base = '/investigations';
 
 // Create investigation request
-router.post(`${base}`, async (req, res) => {
+router.post('/investigations', async (req, res) => {
   const { phone, test_name } = req.body;
 
   if (!phone || !test_name) {
@@ -29,7 +26,7 @@ router.post(`${base}`, async (req, res) => {
 });
 
 // Fetch investigations by phone
-router.get(`${base}/:phone`, async (req, res) => {
+router.get('/investigations/:phone', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM investigations WHERE phone = $1', [req.params.phone]);
     success(res, result.rows, 'Investigations fetched');
@@ -40,7 +37,7 @@ router.get(`${base}/:phone`, async (req, res) => {
 });
 
 // Get all investigation requests by phone number
-router.get(`${base}/:phoneNumber`, async (req, res) => {
+router.get('/investigations/:phoneNumber', async (req, res) => {
   const { phoneNumber } = req.params;
   if (!phoneNumber) {
     return res.status(400).json({ error: 'Phone number required.' });

@@ -1,15 +1,12 @@
-// src/routes/doctorRoutes.js
-
 const express = require('express');
 const pool = require('../db');
 const { success, error } = require('../utils/responseHelper');
 const logger = require('../logging/logger');
 
 const router = express.Router();
-const base = '/doctors';
 
 // Get all doctors or search by name/specialty
-router.get(`${base}`, async (req, res) => {
+router.get('/doctors', async (req, res) => {
   try {
     const { query } = req.query;
     let result;
@@ -27,14 +24,15 @@ router.get(`${base}`, async (req, res) => {
     }
 
     success(res, result.rows, 'Doctors fetched');
-  } catch (err) {
+    } catch (err) {
+    console.error('SQL Error:', err.stack || err.toString());
     logger.error(err.stack || err.toString());
-    error(res, 'Database error');
+    error(res, err.message || 'Database error');
   }
 });
 
 // Get doctor profile by ID
-router.get(`${base}/:doctorId`, async (req, res) => {
+router.get('/doctors/:doctorId', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM doctors WHERE id=$1', [req.params.doctorId]);
     if (result.rows.length) {
