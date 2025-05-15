@@ -42,7 +42,7 @@ const logger = createLogger({
     // Daily Rotate File for rolling logs
     new DailyRotateFile({
       filename: path.join(logsDir, 'application-%DATE%.log'),
-      datePattern: 'YYYY-MM-DD',
+      datePattern: 'DD-MM-YYYY',
       zippedArchive: true,
       maxSize: '20m',
       maxFiles: '14d',

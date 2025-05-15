@@ -12,6 +12,7 @@ const swaggerUi = require('swagger-ui-express');
 const swaggerLoader = require('./utils/swaggerLoader');
 const swaggerDocument = swaggerLoader();
 const app = express();
+const logger = require('./utils/logger');
 app.use(rateLimitMiddleware());
 
 
@@ -20,6 +21,9 @@ app.use(helmet());
 
 // JSON Parser
 app.use(express.json());
+
+// Morgan HTTP Request Logging
+app.use(logger.morganMiddleware);
 
 // CORS Setup
 const corsMiddleware = require('./middleware/corsMiddleware');
