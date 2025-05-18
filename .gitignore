@@ -4,12 +4,15 @@ node_modules/
 # Environment Variables
 .env
 .env.local
+.env.render
 .env.development.local
 .env.test.local
 .env.production.local
+.env.production
 
 # Logs
-logs
+logs/
+src/logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -53,3 +56,6 @@ coverage/
 # Ignore uploads or temp files
 uploads/
 tmp/
+
+# Sentry Config File
+.sentryclirc

@@ -1,0 +1,190 @@
+✅ Environment-Specific Startup
+npm run start:local — Uses .env.local
+
+npm run start:render — Uses .env.render
+
+npm start — Defaults to production setup (src/bin/www.js)
+
+✅ Developer Utilities
+npm run dev — Starts with nodemon for auto-reloading
+
+npm run lint — Runs ESLint for code quality checks
+
+npm run test — Placeholder for tests
+
+✅ Admin Tools & Maintenance
+npm run purge:logs — Purges old logs
+
+npm run backup-db — Dumps database to backups/
+
+npm run restore-db — Restores database from latest or specified dump
+
+npm run cleanup-logs — Cleans old application logs
+
+✅ R2 Storage Utilities
+npm run r2-list — Lists files in R2 storage bucket
+
+npm run r2-cleanup — Removes files older than retention policy
+
+✅ Schema & API Validation
+npm run validate-schema — Validates database schema
+
+npm run validate-swagger — Validates Swagger/OpenAPI definitions
+
+npm run generate-swagger — Regenerates Swagger documentation
+
+✅ Permission & Ownership Tools
+npm run fix-permissions — Fixes file/directory permissions for cross-platform compatibility
+
+node src/scripts/upgrade-sdk.js
+node src/scripts/cleanup-logs.js
+node src/scripts/r2-list-files.js
+
+"start": "node src/bin/www.js",
+"dev": "nodemon src/bin/www.js",
+"start:local": "dotenv -e .env.local -- npm start",
+"start:render": "dotenv -e .env.render -- npm start",
+"lint": "eslint .",
+"test": "echo \"No tests defined\" && exit 0",
+"upgrade:sdk": "node src/scripts/upgrade-sdk.js",
+"fix:permissions": "node src/scripts/fix-permissions.js",
+"cleanup:logs": "node src/scripts/cleanup-logs.js",
+"check:updates": "npx npm-check-updates",
+"install:updates": "npx npm-check-updates -u && npm install",
+"swagger:validate": "node src/scripts/validate-swagger.js",
+"swagger:generate": "node src/scripts/generate-swagger.js",
+"db:validate-schema": "node src/scripts/validate-schema.js",
+"db:backup": "node src/scripts/backup-db.js",
+"db:restore": "node src/scripts/restore-db.js",
+"r2:list": "node src/scripts/r2-list-files.js",
+"r2:cleanup": "node src/scripts/r2-cleanup-old.js"
+
+## ✅ 1. **NPM Scripts (package.json)**
+
+| Command                    | Description                                |
+| -------------------------- | ------------------------------------------ |
+| `npm start`                | Start the server (default production mode) |
+| `npm run dev`              | Start in dev mode with Nodemon             |
+| `npm run lint`             | Run ESLint to check code style             |
+| `npm test`                 | Placeholder test command                   |
+| `npm run start:local`      | Start with `.env.local` environment        |
+| `npm run start:render`     | Start with `.env.render` environment       |
+| `npm run purge:logs`       | Delete old log files                       |
+| `npm run backup-db`        | Backup PostgreSQL database                 |
+| `npm run restore-db`       | Restore PostgreSQL database from backup    |
+| `npm run r2-cleanup`       | Delete old files from R2 storage           |
+| `npm run r2-list`          | List files in R2 storage                   |
+| `npm run validate-schema`  | Validate PostgreSQL schema                 |
+| `npm run validate-swagger` | Validate Swagger API documentation         |
+| `npm run generate-swagger` | Generate Swagger documentation             |
+| `npm run cleanup-logs`     | Clean up old application logs              |
+| `npm run fix-permissions`  | Fix file permissions in logs/tmp           |
+
+---
+
+## ✅ 2. **API Routes (Mounted at `/api/v1`)**
+
+### 🔑 **Auth**
+
+| Method | Route                         | Description        |
+| ------ | ----------------------------- | ------------------ |
+| POST   | `/api/v1/auth/firebase-login` | Firebase OTP Login |
+| POST   | `/api/v1/auth/register`       | Register New User  |
+
+### 👤 **User Management**
+
+| Method | Route                    | Description                  |
+| ------ | ------------------------ | ---------------------------- |
+| GET    | `/api/v1/users`          | Lookup Users                 |
+| GET    | `/api/v1/users/uid/:uid` | Get User by UID              |
+| POST   | `/api/v1/users`          | Create/Update User by Phone  |
+| GET    | `/api/v1/users/:phone`   | Get User by Phone            |
+| PUT    | `/api/v1/users/:phone`   | Update User by Phone         |
+| GET    | `/api/v1/users/search`   | Search Users with Pagination |
+
+### 🏥 **Departments & Doctors**
+
+| Method | Route                                          | Description                    |
+| ------ | ---------------------------------------------- | ------------------------------ |
+| GET    | `/api/v1/departments`                          | Get All Departments            |
+| GET    | `/api/v1/departments/:departmentId`            | Get Department by ID           |
+| GET    | `/api/v1/departments/departments-with-doctors` | Departments with Doctor List   |
+| GET    | `/api/v1/doctors`                              | List Doctors (optional search) |
+| GET    | `/api/v1/doctors/:doctorId`                    | Get Doctor by ID               |
+
+### 📅 **Appointments**
+
+| Method | Route                           | Description               |
+| ------ | ------------------------------- | ------------------------- |
+| POST   | `/api/v1/appointments`          | Book Appointment          |
+| GET    | `/api/v1/appointments/:phone`   | Get Appointments by Phone |
+| GET    | `/api/v1/appointments/uid/:uid` | Get Appointments by UID   |
+
+### 🧾 **Health Records**
+
+| Method | Route                                        | Description                 |
+| ------ | -------------------------------------------- | --------------------------- |
+| POST   | `/api/v1/records/health-records`             | Add Health Record           |
+| GET    | `/api/v1/records/health-records/:phone`      | Get Health Records by Phone |
+| GET    | `/api/v1/records/consultations/:phoneNumber` | Get Consultations by Phone  |
+| GET    | `/api/v1/records/uid/:uid`                   | Get Health Records by UID   |
+
+### 🧪 **Investigations**
+
+| Method | Route                             | Description                 |
+| ------ | --------------------------------- | --------------------------- |
+| POST   | `/api/v1/investigations`          | Request Investigation       |
+| GET    | `/api/v1/investigations/:phone`   | Get Investigations by Phone |
+| GET    | `/api/v1/investigations/uid/:uid` | Get Investigations by UID   |
+
+### 💊 **Pharmacy**
+
+| Method | Route                              | Description                  |
+| ------ | ---------------------------------- | ---------------------------- |
+| POST   | `/api/v1/pharmacy-orders`          | Place Pharmacy Order         |
+| GET    | `/api/v1/pharmacy-orders/:phone`   | Get Pharmacy Orders by Phone |
+| GET    | `/api/v1/pharmacy-orders/uid/:uid` | Get Pharmacy Orders by UID   |
+
+### 💬 **Feedback**
+
+| Method | Route                       | Description         |
+| ------ | --------------------------- | ------------------- |
+| POST   | `/api/v1/feedback`          | Submit Feedback     |
+| GET    | `/api/v1/feedback/uid/:uid` | Get Feedback by UID |
+
+### 🆘 **SOS Alerts**
+
+| Method | Route         | Description    |
+| ------ | ------------- | -------------- |
+| POST   | `/api/v1/sos` | Send SOS Alert |
+
+### 🧑‍⚕️ **Staff Operations**
+
+| Method | Route                           | Description                        |
+| ------ | ------------------------------- | ---------------------------------- |
+| POST   | `/api/v1/staff/consultations`   | Upload Consultation File           |
+| POST   | `/api/v1/staff/investigations`  | Upload Investigation Result        |
+| POST   | `/api/v1/staff/pharmacy-orders` | Fulfill Pharmacy Order             |
+| GET    | `/api/v1/staff/attendance`      | Get Attendance (Placeholder)       |
+| POST   | `/api/v1/staff/attendance`      | Mark Attendance (Placeholder)      |
+| GET    | `/api/v1/staff/roll-call`       | Get Roll-call Status (Placeholder) |
+
+### 🧩 **System Utilities**
+
+| Method | Route                  | Description                     |
+| ------ | ---------------------- | ------------------------------- |
+| POST   | `/api/v1/upload`       | Upload File to R2 Storage       |
+| GET    | `/api/v1/version`      | App Version Check               |
+| GET    | `/api/v1/health`       | Health Check                    |
+| GET    | `/api/v1/health-check` | Full Health Check with DB & ENV |
+| GET    | `/api/v1/app-version`  | Get App Version Info            |
+
+### 🔑 **OTP Handling**
+
+| Method | Route                     | Description        |
+| ------ | ------------------------- | ------------------ |
+| POST   | `/api/v1/otp/request-otp` | Request OTP (Mock) |
+| POST   | `/api/v1/otp/verify-otp`  | Verify OTP (Mock)  |
+
+
+

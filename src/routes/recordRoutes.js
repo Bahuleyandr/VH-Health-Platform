@@ -1,32 +1,21 @@
 const express = require('express');
-const pool = require('../db');
-const { success, error } = require('../utils/responseHelper');
-const logger = require('../logging/logger');
-
 const router = express.Router();
+const recordController = require('../controllers/recordController');
+const rbac = require('../middleware/rbacMiddleware');
+const { PATIENT, NURSING_STAFF, DOCTOR } = require('../utils/roles');
 
-// Add health record
-router.post('/health-records', async (req, res) => {
-  const { phone, file_name, file_type } = req.body;
-  if (!phone || !file_name || !file_type) {
-    return res.status(400).json({ error: 'All fields required' });
-  }
+// ✅ Get health records by UID (Patient, Doctor, Nursing Staff)
+router.get('/uid/:uid', rbac([PATIENT, DOCTOR, NURSING_STAFF]), recordController.getRecordsByUID);
 
-  try {
-    const result = await pool.query(
-      'INSERT INTO health_records (phone, file_name, file_type) VALUES ($1, $2, $3) RETURNING *',
-      [phone, file_name, file_type]
-    );
-    success(res, result.rows[0], 'Health record added');
-    } catch (err) {
-    console.error('SQL Error:', err.stack || err.toString());
-    logger.error(err.stack || err.toString());
-    error(res, err.message || 'Database error');
-  }
-});
+// ✅ Add health record (Nursing Staff, Doctor)
+router.post('/health-records', rbac([NURSING_STAFF, DOCTOR]), recordController.addHealthRecord);
 
-// Get health records by phone with optional type filter
-router.get('/health-records/:phone', async (req, res) => {
+// ✅ Get health records by phone (Patient, Doctor, Nursing Staff)
+router.get('/health-records/:phone', rbac([PATIENT, DOCTOR, NURSING_STAFF]), async (req, res) => {
+  const pool = require('../db');
+  const { success, error } = require('../utils/responseHelper');
+  const logger = require('../logging/logger');
+
   try {
     const { phone } = req.params;
     const { type } = req.query;
@@ -45,24 +34,12 @@ router.get('/health-records/:phone', async (req, res) => {
   }
 });
 
-// Get all health records by phone number
-router.get('/health-records/:phoneNumber', async (req, res) => {
-  const { phoneNumber } = req.params;
-  if (!phoneNumber) {
-    return res.status(400).json({ error: 'Phone number required.' });
-  }
+// ✅ Get all consultations by phone number (Patient, Doctor, Nursing Staff)
+router.get('/consultations/:phoneNumber', rbac([PATIENT, DOCTOR, NURSING_STAFF]), async (req, res) => {
+  const pool = require('../db');
+  const { success, error } = require('../utils/responseHelper');
+  const logger = require('../logging/logger');
 
-  try {
-    const result = await pool.query('SELECT * FROM health_records WHERE phone = $1 ORDER BY created_at DESC', [phoneNumber]);
-    success(res, result.rows, 'Health records retrieved.');
-  } catch (err) {
-    logger.error(err);
-    error(res, 'Failed to retrieve health records.');
-  }
-});
-
-// Get all consultations by phone number
-router.get('/consultations/:phoneNumber', async (req, res) => {
   const { phoneNumber } = req.params;
   if (!phoneNumber) {
     return res.status(400).json({ error: 'Phone number required.' });
@@ -72,7 +49,7 @@ router.get('/consultations/:phoneNumber', async (req, res) => {
     const result = await pool.query('SELECT * FROM consultations WHERE phone = $1 ORDER BY created_at DESC', [phoneNumber]);
     success(res, result.rows, 'Consultations retrieved.');
   } catch (err) {
-    logger.error(err);
+    logger.error(err.stack || err.toString());
     error(res, 'Failed to retrieve consultations.');
   }
 });

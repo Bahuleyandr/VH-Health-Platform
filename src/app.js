@@ -1,54 +1,92 @@
-require('dotenv').config();
+// ✅ Prefer .env.local if it exists, otherwise fallback to .env.render or default .env
+const fs = require('fs');
+if (fs.existsSync('.env.local')) {
+  require('dotenv').config({ path: '.env.local' });
+} else if (fs.existsSync('.env.render')) {
+  require('dotenv').config({ path: '.env.render' });
+} else {
+  require('dotenv').config();
+}
+
 require('./utils/validateEnv');
+
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
-const rateLimitMiddleware = require('./middleware/rateLimitMiddleware');
 const loggingMiddleware = require('./middleware/loggingMiddleware');
 const errorHandlerMiddleware = require('./middleware/errorHandlerMiddleware');
 const validateApiKey = require('./middleware/validateApiKey');
 const routes = require('./routes');
 const swaggerUi = require('swagger-ui-express');
 const swaggerLoader = require('./utils/swaggerLoader');
-const swaggerDocument = swaggerLoader();
-const app = express();
 const logger = require('./logging/logger');
-app.use(rateLimitMiddleware());
 
+const app = express();
 
-// Security Headers
+// ✅ Validate and Load Swagger Documentation on Startup
+let swaggerDocument;
+try {
+  swaggerDocument = swaggerLoader();
+  if (!swaggerDocument) {
+    throw new Error('Failed to load Swagger documentation.');
+  }
+  console.log('✅ Swagger documentation validated and loaded.');
+} catch (err) {
+  console.error('❌ Failed to load or validate Swagger documentation:', err.message);
+  process.exit(1);
+}
+
+// ✅ Load Authentication Middlewares
+const apiKeyAuth = require('./middleware/authMiddleware');
+const jwtAuth = require('./middleware/jwtMiddleware');
+
+// ✅ Middleware Stack
 app.use(helmet());
-
-// JSON Parser
 app.use(express.json());
-
-// Morgan HTTP Request Logging
 app.use(logger.morganMiddleware);
 
-// CORS Setup
 const corsMiddleware = require('./middleware/corsMiddleware');
 app.use(corsMiddleware);
 
-// Logging Middleware
 app.use(loggingMiddleware);
-
-// API Key Validation
 app.use(validateApiKey);
 
-// API Documentation (Swagger)
-if (swaggerDocument) {
-  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
-}
+// ✅ Swagger API Docs Route
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
-// API Routes
+// ✅ Protect Admin and Staff Routes with API Key + JWT
+const adminRoutes = require('./routes/adminRoutes');
+app.use('/api/v1/admin', apiKeyAuth, jwtAuth, adminRoutes);
+
+const staffRoutes = require('./routes/staffRoutes');
+app.use('/api/v1/staff', apiKeyAuth, jwtAuth, staffRoutes);
+
+// ✅ Import Rate Limiters
+const { patientRateLimiter, noRateLimiter, genericLimiter } = require('./middleware/rateLimitMiddleware');
+
+// ✅ Rate Limiting Per Route
+app.use('/api/v1/auth', patientRateLimiter);
+app.use('/api/v1/users', patientRateLimiter);
+app.use('/api/v1/appointments', patientRateLimiter);
+app.use('/api/v1/records', patientRateLimiter);
+app.use('/api/v1/investigations', patientRateLimiter);
+app.use('/api/v1/pharmacy-orders', patientRateLimiter);
+app.use('/api/v1/feedback', patientRateLimiter);
+app.use('/api/v1/otp', patientRateLimiter);
+app.use('/api/v1/sos', patientRateLimiter);
+
+// ✅ Apply Generic Limiter to Remaining Routes
+app.use(genericLimiter);
+
+// ✅ API Routes
 app.use('/', routes);
 
-// Health Check
+// ✅ Root Health Check
 app.get('/', (req, res) => {
   res.json({ message: 'VH Health API is running.' });
 });
 
-// Error Handler Middleware
+// ✅ Global Error Handler
 app.use(errorHandlerMiddleware);
 
 module.exports = app;

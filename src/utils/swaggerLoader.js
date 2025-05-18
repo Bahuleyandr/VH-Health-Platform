@@ -10,7 +10,7 @@ const YAML = require('yamljs');
  */
 function loadSwaggerDocument() {
   try {
-    const filePath = path.resolve(__dirname, '../swagger.yaml');
+    const filePath = path.resolve(__dirname, '../docs/swagger.yaml');
     const swaggerDocument = YAML.load(filePath);
     return swaggerDocument;
   } catch (error) {

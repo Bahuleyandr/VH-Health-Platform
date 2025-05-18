@@ -1,6 +1,7 @@
 // src/controllers/appointmentController.js
 const pool = require('../db');
 const { success, error } = require('../utils/responseHelper');
+const db = require('../db');
 
 exports.bookAppointment = async (req, res) => {
   const { phone, doctor_name, date, time } = req.body;
@@ -17,6 +18,30 @@ exports.bookAppointment = async (req, res) => {
     return success(res, result.rows[0], 'Appointment booked');
   } catch (err) {
     return error(res, err.message || 'Database error', 500);
+  }
+};
+
+exports.getAppointmentsByUID = async (req, res) => {
+  const { uid } = req.params;
+
+  if (!uid) {
+    return res.status(400).json({ success: false, message: 'UID is required' });
+  }
+
+  try {
+    const result = await db.query(
+      'SELECT * FROM appointments WHERE phone = (SELECT phone FROM users WHERE uid = $1)',
+      [uid]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'No appointments found for this UID' });
+    }
+
+    return res.status(200).json({ success: true, appointments: result.rows });
+  } catch (error) {
+    console.error('Get Appointments By UID Error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 

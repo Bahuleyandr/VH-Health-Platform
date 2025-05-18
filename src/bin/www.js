@@ -3,6 +3,9 @@
 // Load environment variables
 require('dotenv').config();
 
+// Scheduler
+const { runAllScheduledTasksNow } = require('../utils/scheduler');
+
 // Import the configured Express app
 const app = require('../app');
 
@@ -46,6 +49,9 @@ function onListening() {
   const addr = server.address();
   const bind = typeof addr === 'string' ? 'pipe ' + addr : 'port ' + addr.port;
   console.log(`VH Health Backend running on ${bind}`);
+
+  // ✅ Run all scheduled tasks once on startup
+  runAllScheduledTasksNow();
 }
 
 // Bind event listeners

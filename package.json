@@ -4,13 +4,25 @@
   "description": "VH Health API for managing patients, appointments, records, investigations, pharmacy orders, and feedback.",
   "main": "src/app.js",
   "scripts": {
-  "start": "node src/bin/www.js",
-  "dev": "nodemon src/bin/www.js",
-  "lint": "eslint .",
-  "test": "echo \"No tests defined\" && exit 0",
-  "start:local": "dotenv -e .env.local -- npm start",
-  "start:render": "dotenv -e .env.render -- npm start"
-},
+    "start": "node src/bin/www.js",
+    "dev": "nodemon src/bin/www.js",
+    "lint": "eslint .",
+    "test": "echo \"No tests defined\" && exit 0",
+    "start:local": "dotenv -e .env.local -- npm start",
+    "start:render": "dotenv -e .env.render -- npm start",
+    "r2:migrate-archive": "node src/scripts/r2-migrate-archive.js",
+    "r2:cleanup-old": "node src/scripts/r2-cleanup-old.js",
+    "r2:list-files": "node src/scripts/r2-list-files.js",
+    "db:backup": "node src/scripts/backup-db.js",
+    "db:restore": "node src/scripts/restore-db.js",
+    "swagger:validate": "node src/scripts/validate-swagger.js",
+    "swagger:generate": "node src/scripts/generate-swagger.js",
+    "logs:cleanup": "node src/scripts/cleanup-logs.js",
+    "logs:list": "node src/scripts/list-logs.js",
+    "logs:purge": "node src/scripts/purge-logs.js",
+    "fix:permissions": "node src/scripts/fix-permissions.js",
+    "scheduler:run-now": "node -e \"require('./src/utils/scheduler').runAllScheduledTasksNow()\""
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/your-org/vh-health-backend.git"
@@ -18,6 +30,11 @@
   "author": "VH Health Tech Team",
   "license": "ISC",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.812.0",
+    "@aws-sdk/s3-request-presigner": "^3.812.0",
+    "@aws-sdk/util-create-request": "^3.810.0",
+    "@prisma/client": "^6.8.2",
+    "clamav.js": "^0.12.0",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
@@ -25,7 +42,10 @@
     "express-validator": "^7.2.1",
     "helmet": "^8.1.0",
     "joi": "^17.13.3",
+    "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "multer": "^1.4.5-lts.2",
+    "node-cron": "^4.0.5",
     "pg": "^8.15.6",
     "swagger-ui-express": "^5.0.1",
     "winston": "^3.17.0",
@@ -33,8 +53,10 @@
     "yamljs": "^0.3.0"
   },
   "devDependencies": {
+    "@stoplight/spectral-cli": "^6.11.0",
+    "eslint": "^8.55.0",
     "nodemon": "^3.0.2",
-    "eslint": "^8.55.0"
+    "prisma": "^6.8.2"
   },
   "engines": {
     "node": ">=18.0.0"
