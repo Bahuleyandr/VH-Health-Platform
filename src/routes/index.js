@@ -1,6 +1,14 @@
+// src/routes/index.js
 const express = require('express');
 const router = express.Router();
+
+// Load route modules
+const uploadRoutes = require('./uploadRoutes');
+const debugRoutes = require('./debugRoutes');
+const userRoutes = require('./userRoutes');
+const lookupRoutes = require('./lookupRoutes');
 const firebaseAuthRoutes = require('./firebaseAuthRoutes');
+const authRoutes = require('./authRoutes');
 const departmentRoutes = require('./departmentRoutes');
 const doctorRoutes = require('./doctorRoutes');
 const appointmentRoutes = require('./appointmentRoutes');
@@ -11,29 +19,37 @@ const feedbackRoutes = require('./feedbackRoutes');
 const otpRoutes = require('./otpRoutes');
 const versionRoutes = require('./versionRoutes');
 const healthRoutes = require('./healthRoutes');
-const userRoutes = require('./userRoutes');
 const sosRoutes = require('./sosRoutes');
 const adminDepartmentRoutes = require('./adminDepartmentRoutes');
 const adminDoctorRoutes = require('./adminDoctorRoutes');
 const staffRoutes = require('./staffRoutes');
 
-
-// Mount all routes
+// ✅ API Version 1 Route Mounts (NO trailing slashes)
 router.use('/api/v1/auth', firebaseAuthRoutes);
-router.use('/api/v1', departmentRoutes);
-router.use('/api/v1', doctorRoutes);
-router.use('/api/v1', appointmentRoutes);
-router.use('/api/v1', recordRoutes);
-router.use('/api/v1', investigationRoutes);
-router.use('/api/v1', pharmacyRoutes);
-router.use('/api/v1', feedbackRoutes);
-router.use('/api/v1', otpRoutes);
-router.use('/api/v1', versionRoutes);
-router.use('/api/v1', healthRoutes);
-router.use('/api/v1', userRoutes);
-router.use('/api/v1', sosRoutes);
-router.use('/api/v1', adminDepartmentRoutes);
-router.use('/api/v1', adminDoctorRoutes);
-router.use('/api/v1', staffRoutes);
+router.use('/api/v1', debugRoutes);
+router.use('/api/v1/auth', authRoutes);
+router.use('/api/v1/upload', uploadRoutes);
+router.use('/api/v1/users', userRoutes);
+router.use('/api/v1/lookup', lookupRoutes);
+router.use('/api/v1/departments', departmentRoutes);
+router.use('/api/v1/doctors', doctorRoutes);
+router.use('/api/v1/appointments', appointmentRoutes);
+router.use('/api/v1/records', recordRoutes);
+router.use('/api/v1/investigations', investigationRoutes);
+router.use('/api/v1/pharmacy-orders', pharmacyRoutes);
+router.use('/api/v1/feedback', feedbackRoutes);
+router.use('/api/v1/otp', otpRoutes);
+router.use('/api/v1/version', versionRoutes);
+router.use('/api/v1/health', healthRoutes);
+router.use('/api/v1/sos', sosRoutes);
+router.use('/api/v1/admin/departments', adminDepartmentRoutes);
+router.use('/api/v1/admin/doctors', adminDoctorRoutes);
+router.use('/api/v1/staff', staffRoutes);
+
+// ✅ Safe 404 Logger for unmatched routes (no wildcard)
+router.use((req, res) => {
+  console.warn(`⚠️  Unmatched Route: ${req.method} ${req.originalUrl}`);
+  res.status(404).json({ error: 'API endpoint not found' });
+});
 
 module.exports = router;

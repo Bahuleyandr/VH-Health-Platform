@@ -1,12 +1,19 @@
+// src/routes/userRoutes.js
 const express = require('express');
 const pool = require('../db');
 const { success, error } = require('../utils/responseHelper');
 const logger = require('../logging/logger');
+const userController = require('../controllers/userController');
 
 const router = express.Router();
 
-// Create or update user profile
-router.post('/users', async (req, res) => {
+console.log('✅ userRoutes loaded');
+
+// ✅ Get user profile by UID
+router.get('/uid/:uid', userController.getUserByUID);
+
+// ✅ Create or update user profile by phone
+router.post('/', async (req, res) => {
   const { phoneNumber, name, gender, address, email, birthday, anniversary, profilePicture } = req.body;
   if (!phoneNumber || !name || !gender) {
     return res.status(400).json({ error: 'Required fields missing.' });
@@ -34,8 +41,8 @@ router.post('/users', async (req, res) => {
   }
 });
 
-// Get user profile by phone
-router.get('/users/:phone', async (req, res) => {
+// ✅ Get user profile by phone
+router.get('/:phone', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM users WHERE phone = $1', [req.params.phone]);
     if (result.rows.length) {
@@ -49,8 +56,8 @@ router.get('/users/:phone', async (req, res) => {
   }
 });
 
-// Update user profile by phone
-router.put('/users/:phone', async (req, res) => {
+// ✅ Update user profile by phone
+router.put('/:phone', async (req, res) => {
   const { name, gender, address, email, birthday, anniversary, profilePicture } = req.body;
 
   try {
@@ -70,8 +77,8 @@ router.put('/users/:phone', async (req, res) => {
   }
 });
 
-// List users with optional search
-router.get('/users', async (req, res) => {
+// ✅ List or search users with pagination
+router.get('/search', async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
@@ -98,25 +105,6 @@ router.get('/users', async (req, res) => {
   } catch (err) {
     logger.error(err.stack || err.toString());
     error(res, 'Database error');
-  }
-});
-
-// Get user profile by phone number
-router.get('/users/:phoneNumber', async (req, res) => {
-  const { phoneNumber } = req.params;
-  if (!phoneNumber) {
-    return res.status(400).json({ error: 'Phone number required.' });
-  }
-
-  try {
-    const result = await pool.query('SELECT * FROM users WHERE phone = $1', [phoneNumber]);
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'User not found.' });
-    }
-    success(res, result.rows[0], 'User profile retrieved.');
-  } catch (err) {
-    logger.error(err);
-    error(res, 'Failed to retrieve user profile.');
   }
 });
 

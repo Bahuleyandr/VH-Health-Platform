@@ -3,8 +3,8 @@ const router = express.Router();
 const pool = require('../db');
 const logger = require('../logging/logger');
 
-// Root health check
-router.get('/health', (req, res) => {
+// Root health check (Changed from '/health' to '/')
+router.get('/', (req, res) => {
   res.json({ message: 'VH Health API is running.' });
 });
 

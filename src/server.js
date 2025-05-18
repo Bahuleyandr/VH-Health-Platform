@@ -10,6 +10,7 @@ const validateApiKey = require('./src/middleware/validateApiKey');
 const swaggerLoader = require('./src/utils/swaggerLoader');
 const errorHandler = require('./src/middleware/errorHandlerMiddleware');
 const corsConfig = require('./src/middleware/corsMiddleware');
+const routes = require('./src/routes'); // ✅ Import your combined routes
 
 require('./src/utils/validateEnv'); // Ensure env vars are loaded correctly
 
@@ -26,21 +27,11 @@ app.use(helmet());
 app.use(rateLimit);
 app.use(validateApiKey);
 
+// ✅ Mount all API routes via /src/routes/index.js
+app.use('/', routes);
+
 // Load Swagger documentation if available
 swaggerLoader(app);
-
-// Mount Routes
-app.use('/api/v1', require('./src/routes/healthRoutes'));
-app.use('/api/v1', require('./src/routes/userRoutes'));
-app.use('/api/v1', require('./src/routes/appointmentRoutes'));
-app.use('/api/v1', require('./src/routes/recordRoutes'));
-app.use('/api/v1', require('./src/routes/doctorRoutes'));
-app.use('/api/v1', require('./src/routes/departmentRoutes'));
-app.use('/api/v1', require('./src/routes/pharmacyRoutes'));
-app.use('/api/v1', require('./src/routes/investigationRoutes'));
-app.use('/api/v1', require('./src/routes/feedbackRoutes'));
-app.use('/api/v1', require('./src/routes/otpRoutes'));
-app.use('/api/v1', require('./src/routes/versionRoutes'));
 
 // Fallback error handler
 app.use(errorHandler);

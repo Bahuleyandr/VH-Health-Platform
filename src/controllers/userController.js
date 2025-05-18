@@ -1,7 +1,8 @@
 // controllers/userController.js
 const pool = require('../db');
 const logger = require('../logging/logger');
-const { success, error } = require('../responseHelper');
+const { success, error } = require('../utils/responseHelper');
+const db = require('../db');
 
 exports.createOrUpdateUser = async (req, res) => {
   const { phoneNumber, name, gender, address, email, birthday, anniversary, profilePicture } = req.body;
@@ -104,5 +105,60 @@ exports.getUsers = async (req, res) => {
   } catch (err) {
     logger.error(err.stack || err.toString());
     error(res, 'Database error');
+  }
+};
+
+exports.getUserByUID = async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE uid = $1', [req.params.uid]);
+    if (result.rows.length > 0) {
+      success(res, result.rows[0], 'User found by UID');
+    } else {
+      error(res, 'User not found by UID', 404);
+    }
+  } catch (err) {
+    logger.error(err.stack || err.toString());
+    error(res, 'Database error');
+  }
+};
+
+console.log('✅ userController loaded');
+
+exports.lookupUser = async (req, res) => {
+  console.log('✅ lookupUser function invoked');
+  const { normalizePhone } = require('../utils/phoneUtils');
+  let phone = normalizePhone(req.query.phone);
+  const { uid, name } = req.query;
+
+  console.log('Lookup Params:', { phone, uid, name });  // ✅ Add here
+
+  if (!phone && !uid && !name) {
+    return res.status(400).json({ success: false, message: 'Provide phone, uid, or name to search' });
+  }
+
+  try {
+    let result;
+
+    if (phone) {
+      console.log('Query by phone:', phone);  // ✅ Add here
+      result = await db.query('SELECT * FROM users WHERE phone = $1', [phone]);
+    } else if (uid) {
+      console.log('Query by uid:', uid);  // ✅ Add here
+      result = await db.query('SELECT * FROM users WHERE uid = $1', [uid]);
+    } else if (name) {
+      console.log('Query by name:', name);  // ✅ Add here
+      result = await db.query('SELECT * FROM users WHERE LOWER(name) LIKE $1', [`%${name.toLowerCase()}%`]);
+    }
+
+    if (!result || result.rows.length === 0) {
+      console.log('No results found.');  // ✅ Add here
+      return res.status(404).json({ success: false, message: 'No matching users found' });
+    }
+
+    console.log('Results found:', result.rows);  // ✅ Add here
+    return res.status(200).json({ success: true, users: result.rows });
+  } catch (error) {
+    console.error('User Lookup Error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };

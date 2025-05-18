@@ -2,16 +2,39 @@
 
 const rateLimit = require('express-rate-limit');
 
-/**
- * Provides a rate-limiting middleware with optional overrides.
- * @param {Object} options - Optional configuration overrides.
- * @returns {Function} Express middleware function.
- */
-module.exports = (options = {}) => rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
-  max: 100,                // limit each IP to 100 requests per windowMs
-  message: 'Too many requests, please try again later.',
-  standardHeaders: true,   // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false,    // Disable the `X-RateLimit-*` headers
-  ...options               // Allow overrides via options
+const getRateLimiter = (windowMinutes, maxRequests, message) => rateLimit({
+  windowMs: windowMinutes * 60 * 1000,
+  max: maxRequests,
+  message: message,
+  standardHeaders: true,
+  legacyHeaders: false,
 });
+
+/**
+ * Configurable Generic Limiter
+ */
+const genericLimiter = getRateLimiter(
+  parseInt(process.env.GENERIC_RATE_LIMIT_WINDOW_MINUTES || '1', 10),
+  parseInt(process.env.GENERIC_RATE_LIMIT_MAX_REQUESTS || '100', 10),
+  'Too many requests, please try again later.'
+);
+
+/**
+ * Configurable Patient Limiter
+ */
+const patientRateLimiter = getRateLimiter(
+  parseInt(process.env.PATIENT_RATE_LIMIT_WINDOW_MINUTES || '1', 10),
+  parseInt(process.env.PATIENT_RATE_LIMIT_MAX_REQUESTS || '10', 10),
+  'Too many requests from this IP, please try again later.'
+);
+
+/**
+ * No Limiter for Staff APIs (Pass-through)
+ */
+const noRateLimiter = (req, res, next) => next();
+
+module.exports = {
+  genericLimiter,
+  patientRateLimiter,
+  noRateLimiter,
+};

@@ -33,19 +33,19 @@ const logger = createLogger({
       ),
     }),
 
-    // File transport for error level
+    // Error level to error.log
     new transports.File({ filename: path.join(logsDir, 'error.log'), level: 'error' }),
 
-    // File transport for all logs
+    // Combined logs to combined.log
     new transports.File({ filename: path.join(logsDir, 'combined.log') }),
 
-    // Daily Rotate File for rolling logs
+    // Daily Rotate with 90 days retention and compression
     new DailyRotateFile({
-      filename: path.join(logsDir, 'application-%DATE%.log'),
+      filename: path.join(logsDir, 'vh-health-%DATE%.log'),
       datePattern: 'DD-MM-YYYY',
       zippedArchive: true,
       maxSize: '20m',
-      maxFiles: '14d',
+      maxFiles: '90d',  // Retain up to 90 days
     }),
   ],
 });
@@ -62,7 +62,7 @@ logger.stream = {
   },
 };
 
-// Optional: Provide morgan middleware pre-configured to use the logger
+// Morgan middleware pre-configured
 logger.morganMiddleware = morgan('combined', { stream: logger.stream });
 
 module.exports = logger;

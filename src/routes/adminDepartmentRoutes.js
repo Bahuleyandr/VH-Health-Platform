@@ -1,3 +1,5 @@
+// src/routes/adminDepartmentRoutes.js
+
 const express = require('express');
 const pool = require('../db');
 const { success, error } = require('../utils/responseHelper');
@@ -5,8 +7,8 @@ const logger = require('../logging/logger');
 
 const router = express.Router();
 
-// Add or update a department
-router.post('/admin/departments', async (req, res) => {
+// ✅ Add or update a department
+router.post('/', async (req, res) => {
   const { name } = req.body;
   if (!name) {
     return res.status(400).json({ error: 'Department name is required.' });
@@ -18,15 +20,14 @@ router.post('/admin/departments', async (req, res) => {
       [name]
     );
     success(res, result.rows[0] || { message: 'Department already exists.' }, 'Department saved.');
-    } catch (err) {
-    console.error('SQL Error:', err.stack || err.toString());
+  } catch (err) {
     logger.error(err.stack || err.toString());
     error(res, err.message || 'Database error');
   }
 });
 
-// Delete a department by ID
-router.delete('/admin/departments/:deptId', async (req, res) => {
+// ✅ Delete a department by ID
+router.delete('/:deptId', async (req, res) => {
   const { deptId } = req.params;
   try {
     await pool.query('DELETE FROM departments WHERE id = $1', [deptId]);

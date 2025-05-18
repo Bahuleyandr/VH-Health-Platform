@@ -2,11 +2,12 @@ const express = require('express');
 const pool = require('../db');
 const { success, error } = require('../utils/responseHelper');
 const logger = require('../logging/logger');
+const appointmentController = require('../controllers/appointmentController');
 
 const router = express.Router();
 
-// Book appointment
-router.post('/appointments', async (req, res) => {
+// ✅ Book appointment - POST /api/v1/appointments
+router.post('/', async (req, res) => {
   const { phone, doctor_name, date, time } = req.body;
   if (!phone || !doctor_name || !date || !time) {
     return res.status(400).json({ error: 'All fields required' });
@@ -18,60 +19,25 @@ router.post('/appointments', async (req, res) => {
       [phone, doctor_name, date, time]
     );
     success(res, result.rows[0], 'Appointment booked');
-    } catch (err) {
-    console.error('SQL Error:', err.stack || err.toString());
-    logger.error(err.stack || err.toString());
-    error(res, err.message || 'Database error');
-  }
-});
-
-// Get appointments by phone with filters
-router.get('/appointments/:phone', async (req, res) => {
-  try {
-    const { phone } = req.params;
-    const { filter, doctor_name, page = 1, limit = 10 } = req.query;
-    const offset = (page - 1) * limit;
-
-    let queryText = 'SELECT * FROM appointments WHERE phone = $1';
-    const queryParams = [phone];
-
-    if (doctor_name) {
-      queryText += ' AND LOWER(doctor_name) LIKE $2';
-      queryParams.push(`%${doctor_name.toLowerCase()}%`);
-    }
-
-    queryText += ` ORDER BY date DESC LIMIT ${limit} OFFSET ${offset}`;
-
-    const result = await pool.query(queryText, queryParams);
-
-    let appointments = result.rows;
-    if (filter === 'upcoming') {
-      appointments = appointments.filter(a => new Date(a.date) >= new Date());
-    } else if (filter === 'past') {
-      appointments = appointments.filter(a => new Date(a.date) < new Date());
-    }
-
-    success(res, { page: parseInt(page), limit: parseInt(limit), data: appointments }, 'Appointments fetched');
   } catch (err) {
     logger.error(err.stack || err.toString());
     error(res, 'Database error');
   }
 });
 
-// Get all appointments by phone number
-router.get('/appointments/:phoneNumber', async (req, res) => {
-  const { phoneNumber } = req.params;
-  if (!phoneNumber) {
-    return res.status(400).json({ error: 'Phone number required.' });
-  }
-
+// ✅ Get appointments by phone - GET /api/v1/appointments/:phone
+router.get('/:phone', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM appointments WHERE phone = $1 ORDER BY date DESC', [phoneNumber]);
-    success(res, result.rows, 'Appointments retrieved.');
+    const { phone } = req.params;
+    const result = await pool.query('SELECT * FROM appointments WHERE phone = $1 ORDER BY date DESC', [phone]);
+    success(res, result.rows, 'Appointments fetched');
   } catch (err) {
-    logger.error(err);
-    error(res, 'Failed to retrieve appointments.');
+    logger.error(err.stack || err.toString());
+    error(res, 'Database error');
   }
 });
+
+// ✅ Get appointments by UID - GET /api/v1/appointments/uid/:uid
+router.get('/uid/:uid', appointmentController.getAppointmentsByUID);
 
 module.exports = router;
