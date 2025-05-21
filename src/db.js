@@ -1,6 +1,6 @@
 // src/db.js
 
-const { Pool } = require('pg');
+import { Pool } from 'pg';
 
 const connectionString = process.env.DATABASE_URL;
 
@@ -15,4 +15,5 @@ const pool = new Pool({
 // ✅ Log the active database connection
 console.log(`✅ Connected to database: ${connectionString}`);
 
-module.exports = pool;
+// ✅ Export as default for ESM compatibility
+export default pool;

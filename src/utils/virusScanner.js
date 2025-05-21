@@ -1,20 +1,24 @@
-const clamav = require('clamav.js');
+import clamav from 'clamav.js';
 
 /**
- * Scans a buffer using ClamAV.
- * @param {Buffer} buffer - File buffer to scan.
- * @returns {Promise<void>} - Resolves if clean, rejects if infected.
+ * Scan a buffer with ClamAV
+ * @param {Buffer} buffer
+ * @returns {Promise<void>}
  */
-exports.scanBuffer = (buffer) => {
+export function scanBuffer(buffer) {
   return new Promise((resolve, reject) => {
-    clamav.ping(3310, 'localhost', 1000, (err) => {
+    const stream = require('stream');
+    const readable = new stream.PassThrough();
+    readable.end(buffer);
+
+    clamav.ping(3310, '127.0.0.1', 1000, (err) => {
       if (err) return reject(new Error('ClamAV not reachable'));
-      
-      clamav.createScanner(3310, 'localhost').scan(buffer, (err, object, malicious) => {
+
+      clamav.createScanner(3310, '127.0.0.1').scan(readable, (err, object, malicious) => {
         if (err) return reject(err);
-        if (malicious) return reject(new Error(`Malware detected: ${malicious}`));
+        if (malicious) return reject(new Error(`Virus detected: ${malicious}`));
         resolve();
       });
     });
   });
-};
+}

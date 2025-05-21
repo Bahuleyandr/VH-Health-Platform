@@ -5,7 +5,7 @@
  * @param {...string} allowedRoles - List of allowed roles
  * @returns {Function} Express middleware function
  */
-module.exports = (...allowedRoles) => {
+export default function roleMiddleware(...allowedRoles) {
   return (req, res, next) => {
     const user = req.user;
 
@@ -22,4 +22,4 @@ module.exports = (...allowedRoles) => {
 
     next();
   };
-};
+}

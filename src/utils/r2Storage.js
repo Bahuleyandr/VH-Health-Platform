@@ -1,12 +1,14 @@
-const {
+// src/utils/r2Storage.js
+
+import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
   ListObjectsV2Command,
   CopyObjectCommand
-} = require('@aws-sdk/client-s3');
-const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+} from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const {
   CF_ACCOUNT_ID,
@@ -30,7 +32,7 @@ const s3Client = new S3Client({
 });
 
 // ✅ Upload File to R2
-exports.uploadFileToR2 = async (buffer, key, contentType = 'application/octet-stream') => {
+export async function uploadFileToR2(buffer, key, contentType = 'application/octet-stream') {
   try {
     const command = new PutObjectCommand({
       Bucket: CF_R2_BUCKET,
@@ -44,10 +46,10 @@ exports.uploadFileToR2 = async (buffer, key, contentType = 'application/octet-st
     console.error(`❌ Failed to upload ${key}:`, err);
     throw err;
   }
-};
+}
 
 // ✅ Get File Buffer from R2
-exports.getFileFromR2 = async (key) => {
+export async function getFileFromR2(key) {
   try {
     const command = new GetObjectCommand({
       Bucket: CF_R2_BUCKET,
@@ -59,85 +61,46 @@ exports.getFileFromR2 = async (key) => {
     console.error(`❌ Failed to get file ${key}:`, err);
     throw err;
   }
-};
+}
 
-// ✅ Generate Signed URL (optional)
-exports.getSignedUrlFromR2 = async (key, expiresInSeconds = 3600) => {
-  try {
-    const command = new GetObjectCommand({
-      Bucket: CF_R2_BUCKET,
-      Key: key
-    });
-    return await getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
-  } catch (err) {
-    console.error(`❌ Failed to generate signed URL for ${key}:`, err);
-    throw err;
-  }
-};
-
-// ✅ Delete File from R2
-exports.deleteFileFromR2 = async (key) => {
+// ✅ Delete Object from R2
+export async function deleteObject(key) {
   try {
     const command = new DeleteObjectCommand({
       Bucket: CF_R2_BUCKET,
       Key: key
     });
     await s3Client.send(command);
-    return true;
   } catch (err) {
     console.error(`❌ Failed to delete ${key}:`, err);
     throw err;
   }
-};
+}
 
-// ✅ List All Objects in R2 Bucket (Pagination Support)
-exports.listObjectsV2 = async () => {
-  try {
-    let allObjects = [];
-    let continuationToken;
+// ✅ List Objects from R2 Bucket
+export async function listObjectsV2(continuationToken = undefined) {
+  const command = new ListObjectsV2Command({
+    Bucket: CF_R2_BUCKET,
+    ContinuationToken: continuationToken
+  });
+  return await s3Client.send(command);
+}
 
-    do {
-      const command = new ListObjectsV2Command({
-        Bucket: CF_R2_BUCKET,
-        ContinuationToken: continuationToken
-      });
-      const response = await s3Client.send(command);
-      allObjects = allObjects.concat(response.Contents || []);
-      continuationToken = response.NextContinuationToken;
-    } while (continuationToken);
+// ✅ Copy Object within R2 Bucket
+export async function copyObject(sourceKey, destinationKey) {
+  const command = new CopyObjectCommand({
+    Bucket: CF_R2_BUCKET,
+    CopySource: `${CF_R2_BUCKET}/${sourceKey}`,
+    Key: destinationKey
+  });
+  return await s3Client.send(command);
+}
 
-    return allObjects;
-  } catch (err) {
-    console.error('❌ Failed to list objects:', err);
-    throw err;
-  }
-};
-
-// ✅ Delete Object by Key
-exports.deleteObject = async (key) => {
-  try {
-    const command = new DeleteObjectCommand({
-      Bucket: CF_R2_BUCKET,
-      Key: key,
-    });
-    await s3Client.send(command);
-  } catch (err) {
-    console.error(`❌ Failed to delete object ${key}:`, err);
-    throw err;
-  }
-};
-
-// ✅ Copy Object by Key
-exports.copyObject = async (sourceKey, targetKey) => {
-  try {
-    const command = new CopyObjectCommand({
-      Bucket: CF_R2_BUCKET,
-      CopySource: `/${CF_R2_BUCKET}/${sourceKey}`,
-      Key: targetKey,
-    });
-    await s3Client.send(command);
-  } catch (err) {
-    console.error(`❌ Failed to copy ${sourceKey} to ${targetKey}:`, err);
-    throw err;
-  }
-};
+// ✅ Generate Signed URL for GET access
+export async function getSignedFileUrl(key, expiresInSeconds = 3600) {
+  const command = new GetObjectCommand({
+    Bucket: CF_R2_BUCKET,
+    Key: key
+  });
+  return await getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
+}

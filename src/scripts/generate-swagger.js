@@ -1,10 +1,16 @@
-// generate-swagger.js
-const fs = require('fs');
-const path = require('path');
-const YAML = require('yamljs');
+// src/scripts/generate-swagger.js
 
-const swaggerFilePath = path.join(__dirname, 'src', 'docs', 'swagger.yaml');
-const outputJsonPath = path.join(__dirname, 'src', 'docs', 'swagger.json');
+import fs from 'fs';
+import path from 'path';
+import YAML from 'yamljs';
+import { fileURLToPath } from 'url';
+
+// ESM __dirname replacement
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const swaggerFilePath = path.join(__dirname, '../docs/swagger.yaml');
+const outputJsonPath = path.join(__dirname, '../docs/swagger.json');
 
 // Check if swagger.yaml exists
 if (!fs.existsSync(swaggerFilePath)) {

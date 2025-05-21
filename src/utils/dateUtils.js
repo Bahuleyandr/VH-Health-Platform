@@ -1,11 +1,11 @@
-// utils/dateUtils.js
+// src/utils/dateUtils.js
 
 /**
  * Formats a Date object or ISO string to 'DD-MM-YYYY' format.
  * @param {Date|string} date - Date object or ISO date string.
  * @returns {string} - Formatted date string.
  */
-function formatDateDDMMYYYY(date) {
+export function formatDateDDMMYYYY(date) {
   if (!date) return '';
   const d = new Date(date);
   const day = String(d.getDate()).padStart(2, '0');
@@ -19,7 +19,7 @@ function formatDateDDMMYYYY(date) {
  * @param {Date|string} date - Date object or ISO date string.
  * @returns {boolean} - True if date is in the future.
  */
-function isFutureDate(date) {
+export function isFutureDate(date) {
   const d = new Date(date);
   const now = new Date();
   return d > now;
@@ -30,14 +30,8 @@ function isFutureDate(date) {
  * @param {Date|string} date - Date object or ISO date string.
  * @returns {boolean} - True if date is in the past.
  */
-function isPastDate(date) {
+export function isPastDate(date) {
   const d = new Date(date);
   const now = new Date();
   return d < now;
 }
-
-module.exports = {
-  formatDateDDMMYYYY,
-  isFutureDate,
-  isPastDate,
-};

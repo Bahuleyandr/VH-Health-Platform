@@ -1,14 +1,25 @@
-// src/routes/versionRoutes.js
+import express from 'express';
+import { success } from '../utils/responseHelper.js';
+import { wrapRoutes } from '../config/routeWrapper.js';
 
-const express = require('express');
 const router = express.Router();
 
-/**
- * @route GET /api/v1/version
- * @desc  Get app version
- */
-router.get('/', (req, res) => {
-  res.json({ version: '1.0.0', updated_at: '2025-05-12' });
+// ✅ Public Version Info Route (No UID/Phone check, No RBAC)
+wrapRoutes(router, [], {
+  get: [
+    ['/', (req, res) => {
+      const versionInfo = {
+        version: '1.0.0',
+        updated_at: '2025-05-12',
+        message: 'VH Health API Version 1.0.0 - Initial Release'
+      };
+
+      success(res, versionInfo, 'App version fetched successfully');
+    }]
+  ]
+}, {
+  requireUID: false,
+  requirePhone: false
 });
 
-module.exports = router;
+export default router;

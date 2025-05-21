@@ -1,9 +1,15 @@
-// purgeLogs.js
-const fs = require('fs');
-const path = require('path');
-const readline = require('readline');
+// src/scripts/purgeLogs.js
 
-const logsDir = path.join(__dirname, 'src', 'logs');
+import fs from 'fs';
+import path from 'path';
+import readline from 'readline';
+import { fileURLToPath } from 'url';
+
+// ESM __dirname replacement
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const logsDir = path.join(__dirname, '../logs');
 
 if (!fs.existsSync(logsDir)) {
   console.log('No logs directory found.');

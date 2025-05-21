@@ -1,13 +1,13 @@
-// utils/fileUtils.js
+// src/utils/fileUtils.js
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
 
 /**
  * Ensure directory exists, create if not.
  * @param {string} dirPath - Path of the directory to ensure.
  */
-function ensureDirectoryExists(dirPath) {
+export function ensureDirectoryExists(dirPath) {
   if (!fs.existsSync(dirPath)) {
     fs.mkdirSync(dirPath, { recursive: true });
   }
@@ -20,7 +20,7 @@ function ensureDirectoryExists(dirPath) {
  * @param {Buffer|string} content - Content to write.
  * @returns {string} - Full path of the saved file.
  */
-function saveFile(dir, filename, content) {
+export function saveFile(dir, filename, content) {
   ensureDirectoryExists(dir);
   const filePath = path.join(dir, filename);
   fs.writeFileSync(filePath, content);
@@ -32,7 +32,7 @@ function saveFile(dir, filename, content) {
  * @param {string} filePath - Path to the file.
  * @returns {boolean} - True if deleted, false if not found.
  */
-function deleteFile(filePath) {
+export function deleteFile(filePath) {
   if (fs.existsSync(filePath)) {
     fs.unlinkSync(filePath);
     return true;
@@ -45,16 +45,9 @@ function deleteFile(filePath) {
  * @param {string} dir - Directory path.
  * @returns {string[]} - List of filenames.
  */
-function listFiles(dir) {
+export function listFiles(dir) {
   if (fs.existsSync(dir)) {
     return fs.readdirSync(dir);
   }
   return [];
 }
-
-module.exports = {
-  ensureDirectoryExists,
-  saveFile,
-  deleteFile,
-  listFiles,
-};

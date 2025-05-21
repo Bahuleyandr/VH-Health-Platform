@@ -1,8 +1,8 @@
 // src/utils/r2CleanupJob.js
 
-const cron = require('node-cron');
-const { listObjectsV2, deleteObject } = require('./r2Storage');
-const logger = require('../logging/logger');
+import cron from 'node-cron';
+import { listObjectsV2, deleteObject } from './r2Storage.js';
+import logger from '../logging/logger.js';
 
 // Configuration: Cleanup files older than 2 years (730 days)
 const MAX_FILE_AGE_DAYS = 730;
@@ -22,7 +22,7 @@ function getFileAgeInDays(isoDate) {
 /**
  * Executes the R2 cleanup job.
  */
-async function executeCleanup() {
+export async function executeCleanup() {
   logger.info('🔄 Starting R2 cleanup job...');
 
   try {
@@ -49,33 +49,26 @@ async function executeCleanup() {
             totalFilesDeleted++;
             logger.info(`🗑️ Deleted ${file.Key} (Age: ${ageDays} days)`);
           } catch (deleteErr) {
-            logger.error(`❌ Failed to delete ${file.Key}:`, deleteErr);
+            logger.error(`❌ Failed to delete ${file.Key}: ${deleteErr}`);
           }
-        } else {
-          logger.info(`⏩ Skipped ${file.Key} (Age: ${ageDays} days)`);
         }
       }
 
       continuationToken = pageResult.NextContinuationToken;
     } while (continuationToken);
 
-    logger.info(`✅ R2 cleanup job completed. Checked: ${totalFilesChecked}, Deleted: ${totalFilesDeleted}`);
-  } catch (error) {
-    logger.error('❌ R2 cleanup job failed:', error);
+    logger.info(`✅ R2 cleanup completed. Checked: ${totalFilesChecked}, Deleted: ${totalFilesDeleted}`);
+  } catch (err) {
+    logger.error('❌ R2 cleanup job failed:', err);
   }
 }
 
 /**
- * Schedule to run daily at midnight.
+ * Schedules the R2 cleanup job to run monthly.
  */
-function scheduleR2CleanupJob() {
-  cron.schedule('0 0 * * *', () => {
+export function scheduleCleanupJob() {
+  cron.schedule('0 3 1 * *', () => {
     executeCleanup();
   });
-  logger.info('⏰ R2 cleanup job scheduled to run daily at midnight.');
+  logger.info('⏰ R2 Cleanup job scheduled to run monthly on the 1st at 03:00 AM.');
 }
-
-module.exports = {
-  scheduleR2CleanupJob,
-  executeCleanup,
-};

@@ -1,6 +1,6 @@
-// utils/validateEnv.js
+// src/utils/validateEnv.js
 
-const Joi = require('joi');
+import Joi from 'joi';
 
 // Define the expected environment variables schema
 const envSchema = Joi.object({
@@ -23,4 +23,4 @@ if (error) {
 }
 
 // Export validated environment variables for safe usage elsewhere
-module.exports = envVars;
+export default envVars;

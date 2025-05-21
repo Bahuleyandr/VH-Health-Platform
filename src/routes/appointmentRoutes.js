@@ -1,43 +1,64 @@
-const express = require('express');
-const pool = require('../db');
-const { success, error } = require('../utils/responseHelper');
-const logger = require('../logging/logger');
-const appointmentController = require('../controllers/appointmentController');
+// src/routes/appointmentRoutes.js
+
+import express from 'express';
+import pool from '../db.js';
+import { success, error } from '../utils/responseHelper.js';
+import logger from '../logging/logger.js';
+import * as appointmentController from '../controllers/appointmentController.js';
+import { appointmentValidator } from '../config/validationSchemas.js';
+import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
+import { validationResult } from 'express-validator';
+import { wrapAutoRBAC } from '../config/routeWrapper.js';
+import { normalizePhone } from '../utils/phoneUtils.js';
 
 const router = express.Router();
 
-// ✅ Book appointment - POST /api/v1/appointments
-router.post('/', async (req, res) => {
-  const { phone, doctor_name, date, time } = req.body;
-  if (!phone || !doctor_name || !date || !time) {
-    return res.status(400).json({ error: 'All fields required' });
-  }
+/**
+ * ✅ Centralized appointment routes
+ * Applies RBAC, audit log, identity check, and validation
+ */
+wrapAutoRBAC(router, 'appointmentRoutes', {
+  post: [
+    ['/', appointmentValidator, async (req, res) => {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({
+          errors: errors.array(),
+          message: RESPONSE_MESSAGES.VALIDATION_FAILED,
+        });
+      }
 
-  try {
-    const result = await pool.query(
-      'INSERT INTO appointments (phone, doctor_name, date, time) VALUES ($1, $2, $3, $4) RETURNING *',
-      [phone, doctor_name, date, time]
-    );
-    success(res, result.rows[0], 'Appointment booked');
-  } catch (err) {
-    logger.error(err.stack || err.toString());
-    error(res, 'Database error');
-  }
+      const phone = normalizePhone(req.body.phone || req.body.phoneNumber);  // ✅ corrected
+      const { doctor_name, date, time } = req.body;
+
+      try {
+        const result = await pool.query(
+          'INSERT INTO appointments (phone, doctor_name, date, time) VALUES ($1, $2, $3, $4) RETURNING *',
+          [phone, doctor_name, date, time]
+        );
+        success(res, result.rows[0], RESPONSE_MESSAGES.APPOINTMENT_BOOKED);
+      } catch (err) {
+        logger.error(err.stack || err.toString());
+        error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
+      }
+    }]
+  ],
+  get: [
+    ['/:phone', async (req, res) => {
+      try {
+        const phone = normalizePhone(req.params.phone);  // ✅ corrected
+        const result = await pool.query(
+          'SELECT * FROM appointments WHERE phone = $1 ORDER BY date DESC',
+          [phone]
+        );
+        success(res, result.rows, 'Appointments fetched successfully');
+      } catch (err) {
+        logger.error(err.stack || err.toString());
+        error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
+      }
+    }],
+    ['/uid/:uid', appointmentController.getAppointmentsByUID]
+  ]
 });
 
-// ✅ Get appointments by phone - GET /api/v1/appointments/:phone
-router.get('/:phone', async (req, res) => {
-  try {
-    const { phone } = req.params;
-    const result = await pool.query('SELECT * FROM appointments WHERE phone = $1 ORDER BY date DESC', [phone]);
-    success(res, result.rows, 'Appointments fetched');
-  } catch (err) {
-    logger.error(err.stack || err.toString());
-    error(res, 'Database error');
-  }
-});
-
-// ✅ Get appointments by UID - GET /api/v1/appointments/uid/:uid
-router.get('/uid/:uid', appointmentController.getAppointmentsByUID);
-
-module.exports = router;
+export default router;

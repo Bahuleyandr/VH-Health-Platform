@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 
-// Load environment variables
-require('dotenv').config();
+// src/bin/www.js
 
-// Scheduler
-const { runAllScheduledTasksNow } = require('../utils/scheduler');
+import dotenv from 'dotenv';
+import http from 'http';
+import app from '../app.js';
+import { runAllScheduledTasksNow } from '../utils/scheduler.js';
 
-// Import the configured Express app
-const app = require('../app');
+// Load environment variables from .env.local or fallback to .env
+dotenv.config();
 
-// Normalize port function
+// Normalize port
 function normalizePort(val) {
   const port = parseInt(val, 10);
   if (isNaN(port)) return val; // Named pipe
@@ -17,49 +18,41 @@ function normalizePort(val) {
   return false;
 }
 
-// Determine and normalize the port
 const PORT = normalizePort(process.env.PORT || '5000');
 app.set('port', PORT);
 
 // Create HTTP server
-const http = require('http');
 const server = http.createServer(app);
 
-// Event listener for HTTP server "error" event.
+// Handle server errors
 function onError(error) {
   if (error.syscall !== 'listen') throw error;
 
   const bind = typeof PORT === 'string' ? 'Pipe ' + PORT : 'Port ' + PORT;
   switch (error.code) {
     case 'EACCES':
-      console.error(bind + ' requires elevated privileges');
+      console.error(`${bind} requires elevated privileges`);
       process.exit(1);
-      break;
     case 'EADDRINUSE':
-      console.error(bind + ' is already in use');
+      console.error(`${bind} is already in use`);
       process.exit(1);
-      break;
     default:
       throw error;
   }
 }
 
-// Event listener for HTTP server "listening" event.
+// On server listening
 function onListening() {
   const addr = server.address();
   const bind = typeof addr === 'string' ? 'pipe ' + addr : 'port ' + addr.port;
   console.log(`VH Health Backend running on ${bind}`);
 
-  // ✅ Run all scheduled tasks once on startup
+  // Run all scheduled tasks once at startup
   runAllScheduledTasksNow();
 }
 
-// Bind event listeners
 server.on('error', onError);
 server.on('listening', onListening);
-
-// Start the server
 server.listen(PORT);
 
-// Export server for testing (optional)
-module.exports = server;
+export default server;

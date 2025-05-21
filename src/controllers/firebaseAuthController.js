@@ -1,60 +1,60 @@
 // src/controllers/firebaseAuthController.js
 
-const db = require('../db');
-const { normalizePhone } = require('../utils/phoneUtils');
+import db from '../db.js';
 
 /**
- * Handle Firebase phone number login
+ * ✅ Handle Firebase phone number login
  */
-exports.firebaseLogin = async (req, res) => {
-  const phone = normalizePhone(req.body.phone);
+export async function firebaseLogin(req, res) {
+  const { phone } = req.body;
 
   if (!phone) {
     return res.status(400).json({ success: false, message: 'Phone number is required' });
   }
 
   try {
-    const queryResult = await db.query('SELECT * FROM users WHERE phone = $1', [phone]);
-    const profileExists = queryResult.rows.length > 0;
+    const result = await db.query('SELECT * FROM users WHERE phone = $1', [phone]);
+    const profileExists = result.rows.length > 0;
 
     return res.status(200).json({
       success: true,
       message: 'Login successful',
       profileExists,
-      user: profileExists ? {
-        uid: queryResult.rows[0].uid,
-        phone: queryResult.rows[0].phone,
-        name: queryResult.rows[0].name,
-      } : null,
+      user: profileExists
+        ? {
+            uid: result.rows[0].uid,
+            phone: result.rows[0].phone,
+            name: result.rows[0].name,
+          }
+        : null,
     });
   } catch (error) {
-    console.error('Firebase Login Error:', error);
-    return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
+    console.error('Firebase Login Error:', error.stack || error.toString());
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
-};
+}
 
 /**
- * Handle user registration
+ * ✅ Handle user registration (idempotent)
  */
-exports.registerUser = async (req, res) => {
-  const phone = normalizePhone(req.body.phone);
-  const { name, gender, email, birthday, anniversary, address } = req.body;
+export async function registerUser(req, res) {
+  const { phone, name, gender, email, birthday, anniversary, address } = req.body;
 
   if (!phone || !name) {
-    return res.status(400).json({ success: false, message: 'Phone and Name are required' });
+    return res.status(400).json({ success: false, message: 'Phone and name are required' });
   }
 
   try {
-    const existingUser = await db.query('SELECT * FROM users WHERE phone = $1', [phone]);
-    if (existingUser.rows.length > 0) {
-      console.log('User already exists, returning existing user.');
+    const existing = await db.query('SELECT * FROM users WHERE phone = $1', [phone]);
+
+    if (existing.rows.length > 0) {
       return res.status(200).json({
         success: true,
         message: 'User already exists',
         user: {
-          uid: existingUser.rows[0].uid,
-          phone: existingUser.rows[0].phone,
-          name: existingUser.rows[0].name,
+          uid: existing.rows[0].uid,
+          phone: existing.rows[0].phone,
+          name: existing.rows[0].name,
         },
       });
     }
@@ -65,19 +65,19 @@ exports.registerUser = async (req, res) => {
       RETURNING *;
     `;
     const values = [phone, name, gender, email, birthday, anniversary, address];
-    const queryResult = await db.query(insertQuery, values);
+    const result = await db.query(insertQuery, values);
 
     return res.status(201).json({
       success: true,
       message: 'User profile created',
       user: {
-        uid: queryResult.rows[0].uid,
-        phone: queryResult.rows[0].phone,
-        name: queryResult.rows[0].name,
+        uid: result.rows[0].uid,
+        phone: result.rows[0].phone,
+        name: result.rows[0].name,
       },
     });
   } catch (error) {
-    console.error('Register User Error:', error);
-    return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
+    console.error('Register User Error:', error.stack || error.toString());
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
-};
+}

@@ -1,11 +1,18 @@
-const fs = require('fs');
-const path = require('path');
+// src/admin/cleanup-backups.js
+
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// ESM __dirname replacement
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const BACKUP_ROOT = path.resolve(__dirname, '..', 'backups');
 const RETENTION_DAYS = 90;
 const MILLISECONDS_IN_A_DAY = 24 * 60 * 60 * 1000;
 
-function cleanupOldBackups(folderPath) {
+export function cleanupOldBackups(folderPath) {
   if (!fs.existsSync(folderPath)) {
     console.log(`Skipping missing folder: ${folderPath}`);
     return;
@@ -18,7 +25,6 @@ function cleanupOldBackups(folderPath) {
   files.forEach(file => {
     const filePath = path.join(folderPath, file);
     const stats = fs.statSync(filePath);
-
     const ageInDays = (now - stats.mtimeMs) / MILLISECONDS_IN_A_DAY;
 
     if (ageInDays > RETENTION_DAYS) {

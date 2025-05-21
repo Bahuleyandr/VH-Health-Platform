@@ -1,13 +1,13 @@
 // src/utils/archiveMigrationJob.js
 
-const cron = require('node-cron');
-const { spawn } = require('child_process');
-const logger = require('../logging/logger');
+import cron from 'node-cron';
+import { spawn } from 'child_process';
+import logger from '../logging/logger.js';
 
 /**
  * Runs the archive migration script as a child process.
  */
-function executeArchiveMigration() {
+export function executeArchiveMigration() {
   logger.info('🚀 Starting Archive Migration...');
   const process = spawn('node', ['src/scripts/r2-migrate-archive.js']);
 
@@ -26,14 +26,9 @@ function executeArchiveMigration() {
 /**
  * Schedule Archive Migration to run monthly on the 1st at 02:00 AM.
  */
-function scheduleArchiveMigrationJob() {
+export function scheduleArchiveMigrationJob() {
   cron.schedule('0 2 1 * *', () => {
     executeArchiveMigration();
   });
   logger.info('⏰ Archive Migration job scheduled to run monthly on the 1st at 02:00 AM.');
 }
-
-module.exports = {
-  scheduleArchiveMigrationJob,
-  executeArchiveMigration,
-};

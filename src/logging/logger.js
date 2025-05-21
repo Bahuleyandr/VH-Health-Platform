@@ -1,9 +1,15 @@
-// utils/logger.js
-const { createLogger, format, transports } = require('winston');
-const DailyRotateFile = require('winston-daily-rotate-file');
-const morgan = require('morgan');
-const fs = require('fs');
-const path = require('path');
+// src/logging/logger.js
+
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { createLogger, format, transports } from 'winston';
+import DailyRotateFile from 'winston-daily-rotate-file';
+import morgan from 'morgan';
+
+// ESM __dirname replacement
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Ensure logs directory exists
 const logsDir = path.join(__dirname, '../logs');
@@ -18,13 +24,12 @@ const logFormat = format.printf(({ timestamp, level, message }) => {
 
 // Create Winston logger instance
 const logger = createLogger({
-  level: 'debug', // Enable debug & verbose levels
+  level: 'debug',
   format: format.combine(
     format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
     logFormat
   ),
   transports: [
-    // Console output with colors
     new transports.Console({
       format: format.combine(
         format.colorize(),
@@ -32,20 +37,14 @@ const logger = createLogger({
         logFormat
       ),
     }),
-
-    // Error level to error.log
     new transports.File({ filename: path.join(logsDir, 'error.log'), level: 'error' }),
-
-    // Combined logs to combined.log
     new transports.File({ filename: path.join(logsDir, 'combined.log') }),
-
-    // Daily Rotate with 90 days retention and compression
     new DailyRotateFile({
       filename: path.join(logsDir, 'vh-health-%DATE%.log'),
       datePattern: 'DD-MM-YYYY',
       zippedArchive: true,
       maxSize: '20m',
-      maxFiles: '90d',  // Retain up to 90 days
+      maxFiles: '90d',
     }),
   ],
 });
@@ -65,4 +64,4 @@ logger.stream = {
 // Morgan middleware pre-configured
 logger.morganMiddleware = morgan('combined', { stream: logger.stream });
 
-module.exports = logger;
+export default logger;

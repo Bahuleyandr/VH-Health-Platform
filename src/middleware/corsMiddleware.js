@@ -1,6 +1,6 @@
 // src/middleware/corsMiddleware.js
 
-const cors = require('cors');
+import cors from 'cors';
 
 /**
  * Dynamically configure allowed origins based on environment variable ALLOWED_ORIGINS.
@@ -21,4 +21,4 @@ const corsMiddleware = cors({
   credentials: true,
 });
 
-module.exports = corsMiddleware;
+export default corsMiddleware;

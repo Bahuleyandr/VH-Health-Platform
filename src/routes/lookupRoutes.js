@@ -1,13 +1,19 @@
 // src/routes/lookupRoutes.js
 
-const express = require('express');
+import express from 'express';
+import * as userController from '../controllers/userController.js';
+import { wrapAutoRBAC } from '../config/routeWrapper.js';
+
 const router = express.Router();
-const userController = require('../controllers/userController');
 
-// ✅ Lookup user by phone, name, or UID via query parameters
-// Example: /api/v1/lookup?phone=9876543210
-// Example: /api/v1/lookup?uid=505929da-13c9-4132-9140-5f63e8f6d300
-// Example: /api/v1/lookup?name=John
-router.get('/', userController.lookupUser);
+// ✅ GET /api/v1/lookup?phone=... or ?uid=... or ?name=...
+wrapAutoRBAC(router, 'lookupRoutes', {
+  get: [
+    ['/', userController.lookupUser]
+  ]
+}, {
+  requireUID: false,
+  requirePhone: false
+});
 
-module.exports = router;
+export default router;

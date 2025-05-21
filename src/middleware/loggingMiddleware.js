@@ -1,11 +1,11 @@
 // src/middleware/loggingMiddleware.js
 
-const logger = require('../logging/logger');
+import logger from '../logging/logger.js';
 
 /**
  * Logs request details with UID (if available), IP, and API path.
  */
-const loggingMiddleware = (req, res, next) => {
+export default function loggingMiddleware(req, res, next) {
   const { method, originalUrl } = req;
   const timestamp = new Date().toISOString();
 
@@ -19,6 +19,4 @@ const loggingMiddleware = (req, res, next) => {
   logger.info(`[${timestamp}] ${method} ${originalUrl} | UID: ${uid} | IP: ${ip}`);
 
   next();
-};
-
-module.exports = loggingMiddleware;
+}

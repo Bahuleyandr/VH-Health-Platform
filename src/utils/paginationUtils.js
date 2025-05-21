@@ -1,4 +1,4 @@
-// utils/paginationUtils.js
+// src/utils/paginationUtils.js
 
 /**
  * Extract pagination parameters from request query.
@@ -7,7 +7,7 @@
  * @param {Object} query - The request query object.
  * @returns {Object} - Contains page, limit, offset.
  */
-function getPaginationParams(query) {
+export function getPaginationParams(query) {
   const page = Math.max(parseInt(query.page) || 1, 1);
   const limit = Math.max(parseInt(query.limit) || 10, 1);
   const offset = (page - 1) * limit;
@@ -23,7 +23,7 @@ function getPaginationParams(query) {
  * @param {Array} data - The actual data array.
  * @returns {Object} - Formatted paginated response.
  */
-function formatPaginatedResponse(page, limit, data) {
+export function formatPaginatedResponse(page, limit, data) {
   return {
     page,
     limit,
@@ -31,8 +31,3 @@ function formatPaginatedResponse(page, limit, data) {
     data,
   };
 }
-
-module.exports = {
-  getPaginationParams,
-  formatPaginatedResponse,
-};
