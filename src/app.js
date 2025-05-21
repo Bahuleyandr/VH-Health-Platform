@@ -15,7 +15,7 @@ import logger from './logging/logger.js';
 import jwtAuth from './middleware/jwtMiddleware.js';
 import corsMiddleware from './middleware/corsMiddleware.js';
 import authMiddleware from './middleware/authMiddleware.js';
-import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js'; // ✅ Centralized identity normalization
+import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
 
 import adminRoutes from './routes/adminRoutes.js';
 import staffRoutes from './routes/staffRoutes.js';
@@ -24,7 +24,7 @@ import {
   genericLimiter
 } from './middleware/rateLimitMiddleware.js';
 
-// ✅ Load Environment Variables
+// ✅ Load .env from appropriate file
 if (fs.existsSync('.env.local')) {
   dotenv.config({ path: '.env.local' });
 } else if (fs.existsSync('.env.render')) {
@@ -41,48 +41,53 @@ const app = express();
 let swaggerDocument;
 try {
   swaggerDocument = swaggerLoader();
-  if (!swaggerDocument) {
-    throw new Error('Failed to load Swagger documentation.');
-  }
+  if (!swaggerDocument) throw new Error('Failed to load Swagger documentation.');
   console.log('✅ Swagger documentation validated and loaded.');
 } catch (err) {
   console.error('❌ Failed to load or validate Swagger documentation:', err.message);
   process.exit(1);
 }
 
-// ✅ Middleware Stack (Ordered)
+// ✅ Base Middleware (CORS, JSON, security)
 app.use(helmet());
 app.use(express.json());
 app.use(corsMiddleware);
-app.use(normalizeIdentityFields);  // ✅ Normalize phone, uid, gender, optional fields
-app.use(authMiddleware);           // ✅ Attach req.user
-app.use(loggingMiddleware);        // ✅ Log request details
-app.use(validateApiKey);           // ✅ Enforce API key
+
+// ✅ Normalize identity input before anything else
+app.use(normalizeIdentityFields);
+
+// ✅ Apply logger and API key checks early
+app.use(loggingMiddleware);
+app.use(validateApiKey);
 app.use(logger.morganMiddleware);
 
-// ✅ Swagger Docs
+// ✅ Serve Swagger API Docs
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+
+// ✅ Mount public routes before JWT auth
+// ⛔ Must be before JWT to avoid forcing token on /auth
+app.use('/api/v1/auth', patientRateLimiter);
+app.use('/api/v1/otp', patientRateLimiter);
+app.use('/', routes); // ✅ mounts /auth, /otp, /lookup, etc.
+
+// ✅ JWT Enforcement begins here (admin/staff require it)
+app.use(authMiddleware);
 
 // ✅ Auth-protected Routes
 app.use('/api/v1/admin', jwtAuth, adminRoutes);
 app.use('/api/v1/staff', jwtAuth, staffRoutes);
 
-// ✅ Rate Limiting (route-specific)
-app.use('/api/v1/auth', patientRateLimiter);
+// ✅ Rate-limited authenticated user routes
 app.use('/api/v1/users', patientRateLimiter);
 app.use('/api/v1/appointments', patientRateLimiter);
 app.use('/api/v1/records', patientRateLimiter);
 app.use('/api/v1/investigations', patientRateLimiter);
 app.use('/api/v1/pharmacy-orders', patientRateLimiter);
 app.use('/api/v1/feedback', patientRateLimiter);
-app.use('/api/v1/otp', patientRateLimiter);
 app.use('/api/v1/sos', patientRateLimiter);
 
-// ✅ Generic Limiter for Remaining Routes
+// ✅ Apply fallback rate limit for anything else
 app.use(genericLimiter);
-
-// ✅ Main API Routes
-app.use('/', routes);
 
 // ✅ Root Health Check
 app.get('/', (req, res) => {
