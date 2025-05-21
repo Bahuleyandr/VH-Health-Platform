@@ -1,42 +1,43 @@
-// controllers/userController.js
-const pool = require('../db');
-const logger = require('../logging/logger');
-const { success, error } = require('../utils/responseHelper');
-const db = require('../db');
+// src/controllers/userController.js
 
-exports.createOrUpdateUser = async (req, res) => {
-  const { phoneNumber, name, gender, address, email, birthday, anniversary, profilePicture } = req.body;
-  if (!phoneNumber || !name || !gender) {
+import pool from '../db.js';
+import db from '../db.js';
+import logger from '../logging/logger.js';
+import { success, error } from '../utils/responseHelper.js';
+
+export async function createOrUpdateUser(req, res) {
+  const { phone, name, gender, address, email, birthday, anniversary, profilePicture } = req.body;
+
+  if (!phone || !name || !gender) {
     return res.status(400).json({ error: 'Required fields missing.' });
   }
 
   try {
     const result = await pool.query(
-      `
-      INSERT INTO users (phone, name, gender, address, email, birthday, anniversary, profile_picture, registered_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-      ON CONFLICT (phone) DO UPDATE SET
-        name = EXCLUDED.name,
-        gender = EXCLUDED.gender,
-        address = EXCLUDED.address,
-        email = EXCLUDED.email,
-        birthday = EXCLUDED.birthday,
-        anniversary = EXCLUDED.anniversary,
-        profile_picture = EXCLUDED.profile_picture
-      RETURNING *;
-      `,
-      [phoneNumber, name, gender, address, email, birthday, anniversary, profilePicture]
+      `INSERT INTO users (phone, name, gender, address, email, birthday, anniversary, profile_picture, registered_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+       ON CONFLICT (phone) DO UPDATE SET
+         name = EXCLUDED.name,
+         gender = EXCLUDED.gender,
+         address = EXCLUDED.address,
+         email = EXCLUDED.email,
+         birthday = EXCLUDED.birthday,
+         anniversary = EXCLUDED.anniversary,
+         profile_picture = EXCLUDED.profile_picture
+       RETURNING *`,
+      [phone, name, gender, address, email, birthday, anniversary, profilePicture]
     );
     success(res, result.rows[0], 'User saved');
   } catch (err) {
     logger.error(err.stack || err.toString());
     error(res, 'Database error');
   }
-};
+}
 
-exports.getUserByPhone = async (req, res) => {
+export async function getUserByPhone(req, res) {
   try {
-    const result = await pool.query('SELECT * FROM users WHERE phone = $1', [req.params.phone]);
+    const { phone } = req.params;
+    const result = await pool.query('SELECT * FROM users WHERE phone = $1', [phone]);
     if (result.rows.length > 0) {
       success(res, result.rows[0], 'User found');
     } else {
@@ -46,20 +47,21 @@ exports.getUserByPhone = async (req, res) => {
     logger.error(err.stack || err.toString());
     error(res, 'Database error');
   }
-};
+}
 
-exports.updateUser = async (req, res) => {
+export async function updateUser(req, res) {
+  const phone = req.params.phone;
   const { name, gender, address, email, birthday, anniversary, profilePicture } = req.body;
+
   try {
     const result = await pool.query(
-      `
-      UPDATE users 
-      SET name = $1, gender = $2, address = $3, email = $4, birthday = $5, anniversary = $6, profile_picture = $7
-      WHERE phone = $8
-      RETURNING *;
-      `,
-      [name, gender, address, email, birthday, anniversary, profilePicture, req.params.phone]
+      `UPDATE users
+       SET name = $1, gender = $2, address = $3, email = $4, birthday = $5, anniversary = $6, profile_picture = $7
+       WHERE phone = $8
+       RETURNING *`,
+      [name, gender, address, email, birthday, anniversary, profilePicture, phone]
     );
+
     if (result.rows.length > 0) {
       success(res, result.rows[0], 'User updated');
     } else {
@@ -69,9 +71,9 @@ exports.updateUser = async (req, res) => {
     logger.error(err.stack || err.toString());
     error(res, 'Database error');
   }
-};
+}
 
-exports.getUsers = async (req, res) => {
+export async function getUsers(req, res) {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
@@ -79,24 +81,19 @@ exports.getUsers = async (req, res) => {
     const query = req.query.query ? `%${req.query.query.toLowerCase()}%` : null;
 
     let result;
-
     if (query) {
       result = await pool.query(
-        `
-        SELECT * FROM users 
-        WHERE LOWER(name) LIKE $1 OR phone LIKE $1 
-        ORDER BY registered_at DESC 
-        LIMIT $2 OFFSET $3;
-        `,
+        `SELECT * FROM users
+         WHERE LOWER(name) LIKE $1 OR phone LIKE $1
+         ORDER BY registered_at DESC
+         LIMIT $2 OFFSET $3`,
         [query, limit, offset]
       );
     } else {
       result = await pool.query(
-        `
-        SELECT * FROM users 
-        ORDER BY registered_at DESC 
-        LIMIT $1 OFFSET $2;
-        `,
+        `SELECT * FROM users
+         ORDER BY registered_at DESC
+         LIMIT $1 OFFSET $2`,
         [limit, offset]
       );
     }
@@ -106,11 +103,12 @@ exports.getUsers = async (req, res) => {
     logger.error(err.stack || err.toString());
     error(res, 'Database error');
   }
-};
+}
 
-exports.getUserByUID = async (req, res) => {
+export async function getUserByUID(req, res) {
   try {
-    const result = await pool.query('SELECT * FROM users WHERE uid = $1', [req.params.uid]);
+    const { uid } = req.params;
+    const result = await pool.query('SELECT * FROM users WHERE uid = $1', [uid]);
     if (result.rows.length > 0) {
       success(res, result.rows[0], 'User found by UID');
     } else {
@@ -120,17 +118,15 @@ exports.getUserByUID = async (req, res) => {
     logger.error(err.stack || err.toString());
     error(res, 'Database error');
   }
-};
+}
 
 console.log('✅ userController loaded');
 
-exports.lookupUser = async (req, res) => {
+export async function lookupUser(req, res) {
   console.log('✅ lookupUser function invoked');
-  const { normalizePhone } = require('../utils/phoneUtils');
-  let phone = normalizePhone(req.query.phone);
-  const { uid, name } = req.query;
 
-  console.log('Lookup Params:', { phone, uid, name });  // ✅ Add here
+  const { phone, uid, name } = req.query;
+  console.log('Lookup Params:', { phone, uid, name });
 
   if (!phone && !uid && !name) {
     return res.status(400).json({ success: false, message: 'Provide phone, uid, or name to search' });
@@ -140,25 +136,23 @@ exports.lookupUser = async (req, res) => {
     let result;
 
     if (phone) {
-      console.log('Query by phone:', phone);  // ✅ Add here
       result = await db.query('SELECT * FROM users WHERE phone = $1', [phone]);
     } else if (uid) {
-      console.log('Query by uid:', uid);  // ✅ Add here
       result = await db.query('SELECT * FROM users WHERE uid = $1', [uid]);
     } else if (name) {
-      console.log('Query by name:', name);  // ✅ Add here
-      result = await db.query('SELECT * FROM users WHERE LOWER(name) LIKE $1', [`%${name.toLowerCase()}%`]);
+      result = await db.query(
+        'SELECT * FROM users WHERE LOWER(name) LIKE $1',
+        [`%${name.toLowerCase()}%`]
+      );
     }
 
     if (!result || result.rows.length === 0) {
-      console.log('No results found.');  // ✅ Add here
       return res.status(404).json({ success: false, message: 'No matching users found' });
     }
 
-    console.log('Results found:', result.rows);  // ✅ Add here
     return res.status(200).json({ success: true, users: result.rows });
-  } catch (error) {
-    console.error('User Lookup Error:', error);
+  } catch (err) {
+    console.error('User Lookup Error:', err.stack || err.toString());
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
-};
+}

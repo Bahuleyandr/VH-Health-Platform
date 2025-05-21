@@ -1,15 +1,55 @@
 // src/routes/authRoutes.js
 
-const express = require('express');
+import express from 'express';
+import { validationResult } from 'express-validator';
+import { phoneValidator } from '../config/validationSchemas.js';
+import * as authController from '../controllers/authController.js';
+import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
+import { wrapRoutes, wrapRoutesWithValidation } from '../config/routeWrapper.js';
+
 const router = express.Router();
-const authController = require('../controllers/authController');
 
-// ✅ User Login Route
-router.post('/login', authController.login);
+/**
+ * ✅ Public Authentication Routes
+ * No RBAC required — only identity + validation
+ */
+wrapRoutesWithValidation(router, [], {
+  post: [
+    ['/login', phoneValidator, (req, res) => {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({
+          errors: errors.array(),
+          message: RESPONSE_MESSAGES.VALIDATION_FAILED,
+        });
+      }
+      authController.login(req, res);
+    }],
+    ['/register', phoneValidator, (req, res) => {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({
+          errors: errors.array(),
+          message: RESPONSE_MESSAGES.VALIDATION_FAILED,
+        });
+      }
+      authController.register(req, res);
+    }]
+  ]
+});
 
-// Optional Future Enhancements
-// router.post('/register', authController.register);
-// router.post('/refresh', authController.refreshToken);
-// router.post('/logout', authController.logout);
+/**
+ * ✅ Stateless Token + Logout Routes
+ * No validation or UID/phone required
+ */
+wrapRoutes(router, [], {
+  post: [
+    ['/token', authController.refreshToken],
+    ['/logout', authController.logout]
+  ]
+}, {
+  requireUID: false,
+  requirePhone: false
+});
 
-module.exports = router;
+export default router;

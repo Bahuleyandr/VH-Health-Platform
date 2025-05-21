@@ -1,10 +1,12 @@
 // src/middleware/jwtMiddleware.js
-const { verifyToken } = require('../utils/jwtUtils');
 
-module.exports = (req, res, next) => {
+import { verifyToken } from '../utils/jwtUtils.js';
+
+export default function jwtMiddleware(req, res, next) {
   const authHeader = req.headers['authorization'];
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    console.warn('JWT Middleware Denied: Missing or malformed Authorization header');
     return res.status(401).json({ success: false, error: 'Authorization header missing or invalid' });
   }
 
@@ -12,9 +14,11 @@ module.exports = (req, res, next) => {
   const decoded = verifyToken(token);
 
   if (!decoded) {
+    console.warn('JWT Middleware Denied: Invalid or expired token');
     return res.status(403).json({ success: false, error: 'Invalid or expired token' });
   }
 
+  console.log(`JWT Middleware Granted: User authenticated as '${decoded.role}' with UID '${decoded.uid}'`);
   req.user = decoded;
   next();
-};
+}

@@ -1,17 +1,20 @@
 // src/utils/scheduler.js
 
-const cron = require('node-cron');
-const logger = require('../logging/logger');
+import cron from 'node-cron';
+import path from 'path';
+import logger from '../logging/logger.js';
+import purgeLogs from '../scripts/cleanup-logs.js';
+import purgeArchives from '../../admin/purge-archives.js';
+import backupDb from '../../admin/backup-db.js';
+import { cleanupOldBackups as cleanupBackups } from '../../admin/cleanup-backups.js';
+import loadSwaggerDocument from './swaggerLoader.js';
 
-// Importing tasks
-const purgeLogs = require('../scripts/cleanup-logs.js');
-const purgeArchives = require('../../admin/purge-archives.js');
-const backupDb = require('../../admin/backup-db.js');
-const { scheduleR2CleanupJob, executeCleanup } = require('./r2CleanupJob');
-const cleanupBackups = require('../../admin/cleanup-backups.js');
+// R2 Maintenance Jobs
+import { scheduleCleanupJob as scheduleR2CleanupJob, executeCleanup } from './r2CleanupJob.js';
+import { scheduleArchiveMigrationJob } from './archiveMigrationJob.js';
 
-// 🗓️ Every Sunday at 00:00 - Purge old logs
-cron.schedule('0 0 * * 0', () => {
+// 🗓️ Daily at 00:00 - Purge old logs
+cron.schedule('0 0 * * *', () => {
   logger.info('Scheduled Task: Purging old logs...');
   try {
     purgeLogs();
@@ -20,34 +23,19 @@ cron.schedule('0 0 * * 0', () => {
   }
 });
 
-// 🗓️ Every Sunday at 03:00 - Purge archived .gz logs older than 14 days
-cron.schedule('0 3 * * 0', () => {
-  logger.info('Scheduled Task: Purging archived log files...');
-  try {
-    purgeArchives();
-  } catch (err) {
-    logger.error('Error during purgeArchives task:', err);
-  }
-});
-
-// 🗓️ Every day at 00:00 - Validate Swagger
+// 🗓️ Daily at 00:00 - Swagger validation
 cron.schedule('0 0 * * *', () => {
   logger.info('Scheduled Task: Validating Swagger...');
-  const loadSwaggerDocument = require('./swaggerLoader');
-
-try {
-  const swaggerDocument = loadSwaggerDocument();
-  if (!swaggerDocument) {
-    throw new Error('Swagger validation failed: Document could not be loaded.');
+  try {
+    const swaggerDocument = loadSwaggerDocument();
+    if (!swaggerDocument) throw new Error('Swagger document not loaded');
+    logger.info('✅ Swagger documentation validated.');
+  } catch (err) {
+    logger.error('Swagger validation failed:', err.message || err);
   }
-  logger.info('✅ Swagger documentation validated and loaded.');
-} catch (err) {
-  logger.error('Error during Swagger validation task:', err.message || err);
-}
-
 });
 
-// 🗓️ Every day at 02:00 - Backup database
+// 🗓️ Daily at 02:00 - Backup database
 cron.schedule('0 2 * * *', () => {
   logger.info('Scheduled Task: Backing up database...');
   try {
@@ -57,47 +45,52 @@ cron.schedule('0 2 * * *', () => {
   }
 });
 
-// Import Archive Migration Job
-const { scheduleArchiveMigrationJob } = require('./archiveMigrationJob');
-
-// 🗓️ Schedule Archive Migration Monthly on the 1st at 02:00 AM
+// 🗓️ Monthly archive migration on the 1st at 02:00
 scheduleArchiveMigrationJob();
 
-// 🗓️ Every day at 03:00 - R2 Cleanup
+// 🗓️ Daily at 03:00 - Perform R2 cleanup (via integrated logic)
 scheduleR2CleanupJob();
 
-// 🗓️ Every Sunday at 04:00 - Cleanup Old Backups
-cron.schedule('0 4 * * 0', () => {
-  logger.info('Scheduled Task: Cleaning up old backups...');
+// 🗓️ Weekly on Sunday at 03:00 - Purge archived logs
+cron.schedule('0 3 * * 0', () => {
+  logger.info('Scheduled Task: Purging .gz archived logs...');
   try {
-    cleanupBackups();
+    purgeArchives();
   } catch (err) {
-    logger.error('Error during backup cleanup task:', err);
+    logger.error('Error during purgeArchives task:', err);
   }
 });
 
-// ✅ Manual Trigger Function (Optional)
-async function runAllScheduledTasksNow() {
+// 🗓️ Weekly on Sunday at 04:00 - Clean old backup folders
+cron.schedule('0 4 * * 0', () => {
+  logger.info('Scheduled Task: Cleaning up old backups...');
+  try {
+    cleanupBackups(path.resolve('backups', 'local'));
+    cleanupBackups(path.resolve('backups', 'render'));
+  } catch (err) {
+    logger.error('Error during cleanupBackups task:', err);
+  }
+});
+
+// ✅ Manual Trigger
+export async function runAllScheduledTasksNow() {
   logger.info('Running all scheduled tasks manually...');
   try {
     purgeLogs();
     purgeArchives();
 
-    // ✅ Swagger Validation
-    const loadSwaggerDocument = require('./swaggerLoader');
     const swaggerDocument = loadSwaggerDocument();
-    if (!swaggerDocument) {
-      throw new Error('Swagger validation failed: Document could not be loaded.');
-    }
-    logger.info('✅ Swagger documentation validated and loaded.');
+    if (!swaggerDocument) throw new Error('Swagger document not loaded');
+    logger.info('✅ Swagger documentation validated.');
 
     backupDb();
     await executeCleanup();
-    logger.info('All manual tasks completed.');
+
+    cleanupBackups(path.resolve('backups', 'local'));
+    cleanupBackups(path.resolve('backups', 'render'));
+
+    logger.info('✅ All manual tasks completed.');
   } catch (err) {
     logger.error('Error running manual tasks:', err.message || err);
   }
 }
-
-// Export manual runner if needed elsewhere
-module.exports = { runAllScheduledTasksNow };

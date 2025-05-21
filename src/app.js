@@ -1,29 +1,43 @@
-// ✅ Prefer .env.local if it exists, otherwise fallback to .env.render or default .env
-const fs = require('fs');
+// src/app.js
+import fs from 'fs';
+import dotenv from 'dotenv';
+import express from 'express';
+import helmet from 'helmet';
+import cors from 'cors';
+import swaggerUi from 'swagger-ui-express';
+
+import loggingMiddleware from './middleware/loggingMiddleware.js';
+import errorHandlerMiddleware from './middleware/errorHandlerMiddleware.js';
+import validateApiKey from './middleware/validateApiKey.js';
+import routes from './routes/index.js';
+import swaggerLoader from './utils/swaggerLoader.js';
+import logger from './logging/logger.js';
+import jwtAuth from './middleware/jwtMiddleware.js';
+import corsMiddleware from './middleware/corsMiddleware.js';
+import authMiddleware from './middleware/authMiddleware.js';
+import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js'; // ✅ Centralized identity normalization
+
+import adminRoutes from './routes/adminRoutes.js';
+import staffRoutes from './routes/staffRoutes.js';
+import {
+  patientRateLimiter,
+  genericLimiter
+} from './middleware/rateLimitMiddleware.js';
+
+// ✅ Load Environment Variables
 if (fs.existsSync('.env.local')) {
-  require('dotenv').config({ path: '.env.local' });
+  dotenv.config({ path: '.env.local' });
 } else if (fs.existsSync('.env.render')) {
-  require('dotenv').config({ path: '.env.render' });
+  dotenv.config({ path: '.env.render' });
 } else {
-  require('dotenv').config();
+  dotenv.config();
 }
 
-require('./utils/validateEnv');
-
-const express = require('express');
-const helmet = require('helmet');
-const cors = require('cors');
-const loggingMiddleware = require('./middleware/loggingMiddleware');
-const errorHandlerMiddleware = require('./middleware/errorHandlerMiddleware');
-const validateApiKey = require('./middleware/validateApiKey');
-const routes = require('./routes');
-const swaggerUi = require('swagger-ui-express');
-const swaggerLoader = require('./utils/swaggerLoader');
-const logger = require('./logging/logger');
+import './utils/validateEnv.js';
 
 const app = express();
 
-// ✅ Validate and Load Swagger Documentation on Startup
+// ✅ Load Swagger Documentation
 let swaggerDocument;
 try {
   swaggerDocument = swaggerLoader();
@@ -36,35 +50,24 @@ try {
   process.exit(1);
 }
 
-// ✅ Load Authentication Middlewares
-const apiKeyAuth = require('./middleware/authMiddleware');
-const jwtAuth = require('./middleware/jwtMiddleware');
-
-// ✅ Middleware Stack
+// ✅ Middleware Stack (Ordered)
 app.use(helmet());
 app.use(express.json());
+app.use(corsMiddleware);
+app.use(normalizeIdentityFields);  // ✅ Normalize phone, uid, gender, optional fields
+app.use(authMiddleware);           // ✅ Attach req.user
+app.use(loggingMiddleware);        // ✅ Log request details
+app.use(validateApiKey);           // ✅ Enforce API key
 app.use(logger.morganMiddleware);
 
-const corsMiddleware = require('./middleware/corsMiddleware');
-app.use(corsMiddleware);
-
-app.use(loggingMiddleware);
-app.use(validateApiKey);
-
-// ✅ Swagger API Docs Route
+// ✅ Swagger Docs
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
-// ✅ Protect Admin and Staff Routes with API Key + JWT
-const adminRoutes = require('./routes/adminRoutes');
-app.use('/api/v1/admin', apiKeyAuth, jwtAuth, adminRoutes);
+// ✅ Auth-protected Routes
+app.use('/api/v1/admin', jwtAuth, adminRoutes);
+app.use('/api/v1/staff', jwtAuth, staffRoutes);
 
-const staffRoutes = require('./routes/staffRoutes');
-app.use('/api/v1/staff', apiKeyAuth, jwtAuth, staffRoutes);
-
-// ✅ Import Rate Limiters
-const { patientRateLimiter, noRateLimiter, genericLimiter } = require('./middleware/rateLimitMiddleware');
-
-// ✅ Rate Limiting Per Route
+// ✅ Rate Limiting (route-specific)
 app.use('/api/v1/auth', patientRateLimiter);
 app.use('/api/v1/users', patientRateLimiter);
 app.use('/api/v1/appointments', patientRateLimiter);
@@ -75,10 +78,10 @@ app.use('/api/v1/feedback', patientRateLimiter);
 app.use('/api/v1/otp', patientRateLimiter);
 app.use('/api/v1/sos', patientRateLimiter);
 
-// ✅ Apply Generic Limiter to Remaining Routes
+// ✅ Generic Limiter for Remaining Routes
 app.use(genericLimiter);
 
-// ✅ API Routes
+// ✅ Main API Routes
 app.use('/', routes);
 
 // ✅ Root Health Check
@@ -89,4 +92,4 @@ app.get('/', (req, res) => {
 // ✅ Global Error Handler
 app.use(errorHandlerMiddleware);
 
-module.exports = app;
+export default app;

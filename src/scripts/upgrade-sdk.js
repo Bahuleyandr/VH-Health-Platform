@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 
-const fs = require('fs');
-const path = require('path');
+// src/scripts/upgrade-sdk.js
+
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// ESM __dirname replacement
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const packageJsonPath = path.resolve(__dirname, '../../package.json');
 
@@ -10,7 +17,7 @@ if (!fs.existsSync(packageJsonPath)) {
   process.exit(1);
 }
 
-const packageJson = require(packageJsonPath);
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
 
 if (!packageJson.dependencies) {
   console.error('❌ No dependencies found in package.json.');

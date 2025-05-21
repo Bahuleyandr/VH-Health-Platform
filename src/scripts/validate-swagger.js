@@ -1,16 +1,19 @@
-// src/scripts/validate-swagger.js
+import { execSync } from 'child_process';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import logger from '../logging/logger.js';
 
-const { execSync } = require('child_process');
-const path = require('path');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-const swaggerFilePath = path.join(__dirname, '../utils/swagger.yaml');
-
-console.log('🔍 Validating Swagger file using Spectral...');
+const swaggerPath = path.join(__dirname, '../docs/swagger.yaml');
 
 try {
-  execSync(`npx spectral lint ${swaggerFilePath}`, { stdio: 'inherit' });
-  console.log('✅ Swagger validation passed.');
+  logger.info('🔍 Validating Swagger file using Spectral...');
+  execSync(`npx spectral lint --ruleset @stoplight/spectral-rulesets/oas ${swaggerPath}`, { stdio: 'inherit' });
+  logger.info('✅ Swagger validation passed.');
+  process.exit(0); // ensures success exit
 } catch (err) {
-  console.error('❌ Swagger validation failed.');
-  process.exit(1);
+  logger.error('❌ Swagger validation failed.');
+  process.exit(1); // triggers 500 if run via execSync in API
 }

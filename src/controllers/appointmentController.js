@@ -1,9 +1,14 @@
 // src/controllers/appointmentController.js
-const pool = require('../db');
-const { success, error } = require('../utils/responseHelper');
-const db = require('../db');
 
-exports.bookAppointment = async (req, res) => {
+import pool from '../db.js';
+import db from '../db.js';
+import { success, error } from '../utils/responseHelper.js';
+import { resolvePhoneFromUID } from '../utils/resolveIdentity.js';
+
+/**
+ * ✅ Book Appointment
+ */
+export async function bookAppointment(req, res) {
   const { phone, doctor_name, date, time } = req.body;
 
   if (!phone || !doctor_name || !date || !time) {
@@ -19,9 +24,12 @@ exports.bookAppointment = async (req, res) => {
   } catch (err) {
     return error(res, err.message || 'Database error', 500);
   }
-};
+}
 
-exports.getAppointmentsByUID = async (req, res) => {
+/**
+ * ✅ Get Appointments by UID
+ */
+export async function getAppointmentsByUID(req, res) {
   const { uid } = req.params;
 
   if (!uid) {
@@ -29,39 +37,40 @@ exports.getAppointmentsByUID = async (req, res) => {
   }
 
   try {
-    const result = await db.query(
-      'SELECT * FROM appointments WHERE phone = (SELECT phone FROM users WHERE uid = $1)',
-      [uid]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'No appointments found for this UID' });
+    const phone = await resolvePhoneFromUID(uid);
+    if (!phone) {
+      return res.status(404).json({ success: false, message: 'UID not found in users table' });
     }
 
-    return res.status(200).json({ success: true, appointments: result.rows });
+    const result = await db.query('SELECT * FROM appointments WHERE phone = $1 ORDER BY date DESC', [phone]);
+
+    return success(res, result.rows, result.rows.length ? 'Appointments found' : 'No appointments found');
   } catch (error) {
     console.error('Get Appointments By UID Error:', error);
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
-};
+}
 
-exports.getAppointmentsByPhone = async (req, res) => {
+/**
+ * ✅ Get Appointments by Phone (with optional filters)
+ */
+export async function getAppointmentsByPhone(req, res) {
   const { phone } = req.params;
   const { filter, doctor_name, page = 1, limit = 10 } = req.query;
   const offset = (page - 1) * limit;
 
-  let baseQuery = 'SELECT * FROM appointments WHERE phone = $1';
-  const queryParams = [phone];
-
-  if (doctor_name) {
-    baseQuery += ' AND LOWER(doctor_name) LIKE $2';
-    queryParams.push(`%${doctor_name.toLowerCase()}%`);
-  }
-
-  baseQuery += ' ORDER BY date DESC LIMIT $3 OFFSET $4';
-  queryParams.push(limit, offset);
-
   try {
+    let baseQuery = 'SELECT * FROM appointments WHERE phone = $1';
+    const queryParams = [phone];
+
+    if (doctor_name) {
+      baseQuery += ' AND LOWER(doctor_name) LIKE $2';
+      queryParams.push(`%${doctor_name.toLowerCase()}%`);
+    }
+
+    baseQuery += ` ORDER BY date DESC LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`;
+    queryParams.push(limit, offset);
+
     const result = await pool.query(baseQuery, queryParams);
 
     let appointments = result.rows;
@@ -77,4 +86,4 @@ exports.getAppointmentsByPhone = async (req, res) => {
   } catch (err) {
     return error(res, err.message || 'Database error', 500);
   }
-};
+}

@@ -1,8 +1,15 @@
-const { execSync } = require('child_process');
-const path = require('path');
-const fs = require('fs');
-const zlib = require('zlib');
-const dotenv = require('dotenv');
+// src/admin/backup-db.js
+
+import { execSync } from 'child_process';
+import path from 'path';
+import fs from 'fs';
+import zlib from 'zlib';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+
+// ESM __dirname replacement
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 function compressFile(filePath) {
   const gzip = zlib.createGzip();
@@ -15,7 +22,7 @@ function compressFile(filePath) {
   });
 }
 
-function backupDatabase(envFile, label) {
+export default function backupDb(envFile, label) {
   const envPath = path.resolve(__dirname, '..', envFile);
   if (!fs.existsSync(envPath)) {
     console.error(`❌ ${envFile} not found. Skipping ${label} backup.`);
@@ -42,12 +49,14 @@ function backupDatabase(envFile, label) {
   try {
     execSync(`pg_dump "${dbUrl}" > "${backupFile}"`, { stdio: 'inherit' });
     console.log(`✅ ${label} backup completed: ${backupFile}`);
-    compressFile(backupFile); // Compress after success
+    compressFile(backupFile);
   } catch (err) {
-    console.error(`❌ ${label} backup failed: ${err.message}`);
+    console.error(`❌ Failed to backup ${label}:`, err.message);
   }
 }
 
-// Backup local and render databases
-backupDatabase('.env.local', 'local');
-backupDatabase('.env.render', 'render');
+// Optional: if run directly as CLI
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  backupDb('.env.local', 'local');
+  backupDb('.env.render', 'render');
+}

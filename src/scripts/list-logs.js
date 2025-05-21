@@ -1,8 +1,14 @@
-// list-logs.js
-const fs = require('fs');
-const path = require('path');
+// src/scripts/list-logs.js
 
-const logDir = path.join(__dirname, 'src', 'logs');
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// ESM __dirname replacement
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const logDir = path.join(__dirname, '../logs');
 
 if (!fs.existsSync(logDir)) {
   console.log('Logs directory does not exist.');

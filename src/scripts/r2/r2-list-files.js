@@ -1,14 +1,16 @@
 // src/scripts/r2-list-files.js
 
-const { listObjectsV2 } = require('../utils/r2Storage');
-const dayjs = require('dayjs');
+import { listObjectsV2 } from '../../utils/r2Storage.js';
+import dayjs from 'dayjs';
 
 async function run() {
   console.log('📦 Listing all R2 bucket files with age info...\n');
 
   try {
-    const files = await listObjectsV2();
-    if (!files || files.length === 0) {
+    const filesPage = await listObjectsV2();
+    const files = filesPage.Contents || [];
+
+    if (files.length === 0) {
       console.log('No files found in R2 bucket.');
       return;
     }

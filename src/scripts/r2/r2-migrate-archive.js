@@ -1,6 +1,7 @@
 // src/scripts/r2-migrate-archive.js
-const { listObjectsV2, copyObject, deleteObject } = require('../utils/r2Storage');
-const logger = require('../logging/logger');
+
+import { listObjectsV2, copyObject, deleteObject } from '../../utils/r2Storage.js';
+import logger from '../../logging/logger.js';
 
 const TWO_YEARS_DAYS = 730;
 const FIVE_YEARS_DAYS = 1825;
@@ -22,9 +23,10 @@ async function migrateFile(key, targetFolder) {
 
 async function migrateR2Storage() {
   logger.info('🚀 Starting R2 Archive Migration Job...');
-  const files = await listObjectsV2();
+  const filesPage = await listObjectsV2();
 
-  if (!files || files.length === 0) {
+  const files = filesPage.Contents || [];
+  if (files.length === 0) {
     logger.info('No files found in R2 bucket.');
     return;
   }
@@ -46,5 +48,6 @@ async function migrateR2Storage() {
 }
 
 migrateR2Storage().catch(err => {
-  logger.error('❌ Archive Migration Failed:', err);
+  logger.error('❌ Migration failed:', err);
+  process.exit(1);
 });

@@ -1,13 +1,18 @@
 // src/scripts/r2-cleanup-old.js
 
-const path = require('path');
+import path from 'path';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { executeCleanup } from '../../utils/r2CleanupJob.js';
+
+// ESM __dirname replacement
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Load environment variables
-require('dotenv').config({
+dotenv.config({
   path: path.resolve(__dirname, '../../.env.local') // Adjust if you want .env.render or fallback
 });
-
-const { executeCleanup } = require('../utils/r2CleanupJob');
 
 (async () => {
   console.log('🔄 Manual R2 cleanup started...');

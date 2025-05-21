@@ -1,19 +1,23 @@
-// controllers/pharmacyController.js
-const pool = require('../db');
-const logger = require('../logging/logger');
-const { success, error } = require('../utils/responseHelper');
-const db = require('../db');
+// src/controllers/pharmacyController.js
+
+import pool from '../db.js';
+import db from '../db.js';
+import logger from '../logging/logger.js';
+import { success, error } from '../utils/responseHelper.js';
+import { resolvePhoneFromUID } from '../utils/resolveIdentity.js';
 
 // ✅ Place Pharmacy Order with optional file_key
-exports.placePharmacyOrder = async (req, res) => {
+export async function placePharmacyOrder(req, res) {
   const { phone, order_note, file_key } = req.body;
+
   if (!phone || !order_note) {
-    return res.status(400).json({ error: 'Phone and order note are required' });
+    return res.status(400).json({ error: 'Phone and order_note are required' });
   }
 
   try {
     const result = await pool.query(
-      'INSERT INTO pharmacy_orders (phone, order_note, file_key) VALUES ($1, $2, $3) RETURNING *',
+      `INSERT INTO pharmacy_orders (phone, order_note, file_key)
+       VALUES ($1, $2, $3) RETURNING *`,
       [phone, order_note, file_key || null]
     );
     success(res, result.rows[0], 'Pharmacy order placed');
@@ -21,61 +25,57 @@ exports.placePharmacyOrder = async (req, res) => {
     logger.error(err.stack || err.toString());
     error(res, 'Database error');
   }
-};
+}
 
 // ✅ Get Pharmacy Orders by Phone
-exports.getPharmacyOrdersByPhone = async (req, res) => {
-  try {
-    const { phone } = req.params;
+export async function getPharmacyOrdersByPhone(req, res) {
+  const { phone } = req.params;
 
+  if (!phone) {
+    return res.status(400).json({ error: 'Phone parameter is required' });
+  }
+
+  try {
     const result = await pool.query(
-      'SELECT * FROM pharmacy_orders WHERE phone = $1',
+      `SELECT * FROM pharmacy_orders WHERE phone = $1 ORDER BY created_at DESC`,
       [phone]
     );
-
-    success(res, result.rows, 'Pharmacy orders fetched');
+    success(res, result.rows, result.rows.length ? 'Pharmacy orders fetched' : 'No pharmacy orders found');
   } catch (err) {
     logger.error(err.stack || err.toString());
     error(res, 'Database error');
   }
-};
+}
 
 // ✅ Get Pharmacy Orders by UID
-exports.getPharmacyOrdersByUID = async (req, res) => {
+// ✅ Get Pharmacy Orders by UID
+export async function getPharmacyOrdersByUID(req, res) {
   const { uid } = req.params;
-  console.log('📌 UID received:', uid);
 
   if (!uid) {
-    return res.status(400).json({ success: false, message: 'UID is required' });
+    return res.status(400).json({ error: 'UID is required' });
   }
 
   try {
-    console.log('🔍 Fetching pharmacy orders for UID:', uid);
+    const phone = await resolvePhoneFromUID(uid);
 
-    const phoneResult = await db.query('SELECT phone FROM users WHERE uid = $1', [uid]);
-    console.log('🔍 Resolved phone for UID:', phoneResult.rows);
-
-    if (phoneResult.rows.length === 0) {
-      console.log('❌ UID not found in users table.');
-      return res.status(404).json({ success: false, message: 'UID not found in users table' });
+    if (!phone) {
+      return res.status(404).json({ error: 'UID not found in users table' });
     }
 
-    const resolvedPhone = phoneResult.rows[0].phone;
-    console.log('✅ Using resolved phone:', resolvedPhone);
-
-    const result = await db.query('SELECT * FROM pharmacy_orders WHERE phone = $1', [resolvedPhone]);
-    console.log('🔍 Pharmacy orders lookup result:', result.rows);
+    const result = await db.query(
+      `SELECT * FROM pharmacy_orders WHERE phone = $1 ORDER BY created_at DESC`,
+      [phone]
+    );
 
     if (result.rows.length === 0) {
-      console.log('❌ No pharmacy orders found for this phone.');
-      return res.status(404).json({ success: false, message: 'No pharmacy orders found for this phone' });
+      return res.status(404).json({ error: 'No pharmacy orders found for this user' });
     }
 
-    console.log('✅ Pharmacy orders found:', result.rows);
     return res.status(200).json({ success: true, pharmacyOrders: result.rows });
 
-  } catch (error) {
-    console.error('Get Pharmacy Orders By UID Error:', error);
-    return res.status(500).json({ success: false, message: 'Internal server error' });
+  } catch (err) {
+    logger.error('Get Pharmacy Orders By UID Error:', err); // ✅ correctly logs the error // ✅ fixed
+    return res.status(500).json({ error: 'Internal server error' });
   }
-};
+}

@@ -1,40 +1,43 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const helmet = require('helmet');
-const morgan = require('morgan');
-const logger = require('./src/logging/logger');
+// server.js
 
-const rateLimit = require('./src/middleware/rateLimitMiddleware');
-const validateApiKey = require('./src/middleware/validateApiKey');
-const swaggerLoader = require('./src/utils/swaggerLoader');
-const errorHandler = require('./src/middleware/errorHandlerMiddleware');
-const corsConfig = require('./src/middleware/corsMiddleware');
-const routes = require('./src/routes'); // ✅ Import your combined routes
+import dotenv from 'dotenv';
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import morgan from 'morgan';
 
-require('./src/utils/validateEnv'); // Ensure env vars are loaded correctly
+import logger from './src/logging/logger.js';
+import rateLimit from './src/middleware/rateLimitMiddleware.js';
+import validateApiKey from './src/middleware/validateApiKey.js';
+import swaggerLoader from './src/utils/swaggerLoader.js';
+import errorHandler from './src/middleware/errorHandlerMiddleware.js';
+import corsConfig from './src/middleware/corsMiddleware.js';
+import routes from './src/routes/index.js';
+import './src/utils/validateEnv.js';
+
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Log all HTTP requests using Morgan + Winston
+// ✅ Log all HTTP requests using Morgan + Winston
 app.use(logger.morganMiddleware);
 
-// Apply global middlewares
+// ✅ Apply Global Middlewares
 app.use(cors(corsConfig));
 app.use(express.json());
 app.use(helmet());
 app.use(rateLimit);
 app.use(validateApiKey);
 
-// ✅ Mount all API routes via /src/routes/index.js
+// ✅ Mount API Routes
 app.use('/', routes);
 
-// Load Swagger documentation if available
+// ✅ Load Swagger Documentation if available
 swaggerLoader(app);
 
-// Fallback error handler
+// ✅ Fallback Error Handler
 app.use(errorHandler);
 
-// Start the server
+// ✅ Start Server
 app.listen(PORT, () => logger.info(`VH Health Backend running on port ${PORT}`));
