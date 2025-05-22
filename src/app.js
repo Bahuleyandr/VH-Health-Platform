@@ -5,6 +5,7 @@ import express from 'express';
 import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
 
+import logger from './logging/logger.js';
 import loggingMiddleware from './middleware/loggingMiddleware.js';
 import errorHandlerMiddleware from './middleware/errorHandlerMiddleware.js';
 import validateApiKey from './middleware/validateApiKey.js';
@@ -23,7 +24,6 @@ import {
 } from './middleware/rateLimitMiddleware.js';
 
 import swaggerLoader from './utils/swaggerLoader.js';
-import logger from './logging/logger.js';
 
 // ✅ Load .env from appropriate file
 if (fs.existsSync('.env.local')) {
@@ -36,42 +36,42 @@ if (fs.existsSync('.env.local')) {
 import './utils/validateEnv.js';
 
 const app = express();
-app.set('trust proxy', 1); // ✅ Required for Render or behind Cloudflare
+app.set('trust proxy', 1); // ✅ Required for Render or Cloudflare
 
-// ✅ Swagger Load
+// ✅ Swagger Setup
 let swaggerDocument;
 try {
   swaggerDocument = swaggerLoader();
   if (!swaggerDocument) throw new Error('Failed to load Swagger documentation.');
   console.log('✅ Swagger documentation validated and loaded.');
 } catch (err) {
-  console.error('❌ Failed to load or validate Swagger documentation:', err.message);
+  console.error('❌ Swagger load failed:', err.message);
   process.exit(1);
 }
 
-// ✅ Core Middleware Stack
+// ✅ Global Middleware
 app.use(helmet());
 app.use(express.json());
 app.use(corsMiddleware);
-app.use(normalizeIdentityFields);
-app.use(authMiddleware); // Attaches req.user if token is present
-app.use(loggingMiddleware);
+app.use(loggingMiddleware);          // Log incoming requests
 app.use(logger.morganMiddleware);
+app.use(normalizeIdentityFields);    // Normalize phone, uid, etc.
+app.use(authMiddleware);             // Attach req.user if JWT is present
 
-// ✅ Swagger Docs (no API Key check needed)
+// ✅ Swagger Docs (no API key required)
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
-// ✅ Public routes — No API Key or JWT required
+// ✅ Public Routes — no API Key, no JWT
 app.use('/api/v1/auth', patientRateLimiter, routes.auth);
 app.use('/api/v1/otp', patientRateLimiter, routes.otp);
 app.use('/api/v1/lookup', routes.lookup);
 app.use('/api/v1/version', routes.version);
 app.use('/api/v1/health', routes.health);
 
-// ✅ Apply API Key check for protected routes
+// ✅ Apply API Key check
 app.use(validateApiKey);
 
-// ✅ Authenticated routes (no JWT needed)
+// ✅ Authenticated (API key only) Routes
 app.use('/api/v1/users', patientRateLimiter, routes.users);
 app.use('/api/v1/appointments', patientRateLimiter, routes.appointments);
 app.use('/api/v1/records', patientRateLimiter, routes.healthRecords);
@@ -81,19 +81,19 @@ app.use('/api/v1/feedback', patientRateLimiter, routes.feedback);
 app.use('/api/v1/sos', patientRateLimiter, routes.sos);
 app.use('/api/v1/upload', routes.upload);
 
-// ✅ JWT-protected routes
+// ✅ JWT-Protected Admin/Staff Routes
 app.use('/api/v1/admin', jwtAuth, adminRoutes);
 app.use('/api/v1/staff', jwtAuth, staffRoutes);
 
-// ✅ Catch-all limiter for remaining endpoints
+// ✅ Fallback rate limiter
 app.use(genericLimiter);
 
-// ✅ Fallback Health Check
+// ✅ Root Health Check
 app.get('/', (req, res) => {
   res.json({ message: 'VH Health API is running.' });
 });
 
-// ✅ Error handler
+// ✅ Global Error Handler
 app.use(errorHandlerMiddleware);
 
 export default app;
