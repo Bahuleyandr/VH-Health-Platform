@@ -1,14 +1,10 @@
 // src/config/routeWrapper.js
+
 import rbac from '../middleware/rbacMiddleware.js';
 import { dynamicRoleRateLimiter, getRateLimiter } from '../middleware/rateLimitMiddleware.js';
 import rbacConfig from './rbacConfig.js';
 import { auditLogger } from '../middleware/auditLogger.js';
 import { validateUID, validatePhone } from '../middleware/identityValidator.js';
-
-/**
- * Optional fine-tuning per route profile
- * Format: { 'routeKey.method': 'rateProfileName' }
- */
 import { ROUTE_RATE_PROFILES, ROUTE_AUDIT_DISABLED } from './routeWrapperSettings.js';
 
 /**
@@ -18,15 +14,19 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
   const {
     requireUID = true,
     requirePhone = true,
+    skipRBAC = false,
+    skipAudit = false,
     configKey = null
   } = options;
 
-  if (allowedRoles.length > 0) {
+  // ✅ Conditionally apply RBAC
+  if (!skipRBAC && allowedRoles.length > 0) {
     router.use(rbac(allowedRoles));
   }
 
-  // Conditionally disable audit for some methods
-  if (!ROUTE_AUDIT_DISABLED[configKey]) {
+  // ✅ Conditionally apply audit
+  const auditSuppressed = skipAudit || ROUTE_AUDIT_DISABLED[configKey];
+  if (!auditSuppressed) {
     router.use(auditLogger);
   }
 
@@ -36,7 +36,7 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
     routes.forEach(([path, ...handlers]) => {
       const base = [];
 
-      // Determine specific rate limiter
+      // ✅ Apply rate limiter per routeKey
       const routeKey = `${configKey || 'generic'}.${method.toLowerCase()}`;
       const profile = ROUTE_RATE_PROFILES[routeKey];
       const limiter = profile ? getRateLimiter(profile) : (isWrite ? dynamicRoleRateLimiter : null);
