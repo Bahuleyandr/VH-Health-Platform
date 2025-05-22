@@ -36,6 +36,7 @@ if (fs.existsSync('.env.local')) {
 import './utils/validateEnv.js';
 
 const app = express();
+app.set('trust proxy', 1); // ✅ Required for Render, Cloudflare, etc.
 
 // ✅ Load Swagger Documentation
 let swaggerDocument;
