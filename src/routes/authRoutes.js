@@ -10,8 +10,8 @@ import { wrapRoutes, wrapRoutesWithValidation } from '../config/routeWrapper.js'
 const router = express.Router();
 
 /**
- * ✅ Public Authentication Routes
- * No RBAC required — only identity + validation
+ * ✅ Public Authentication Routes (Login / Register)
+ * No RBAC, UID, or Phone validation middleware — only validator + controller
  */
 wrapRoutesWithValidation(router, [], {
   post: [
@@ -36,11 +36,14 @@ wrapRoutesWithValidation(router, [], {
       authController.register(req, res);
     }]
   ]
+}, {
+  skipRBAC: true,
+  requireUID: false,
+  requirePhone: false
 });
 
 /**
  * ✅ Stateless Token + Logout Routes
- * No validation or UID/phone required
  */
 wrapRoutes(router, [], {
   post: [
@@ -48,6 +51,7 @@ wrapRoutes(router, [], {
     ['/logout', authController.logout]
   ]
 }, {
+  skipRBAC: true,
   requireUID: false,
   requirePhone: false
 });
