@@ -72,7 +72,9 @@ wrapAutoRBAC(router, 'userRoutes', {
     }]
   ],
   put: [
-    ['/:phone', userProfileValidator, userController.updateUser]
+    ['/:phone', userProfileValidator, userController.updateUser],
+    // ✅ Admin-only route to update role
+    ['/:phone/role', userController.updateUserRole]
   ]
 });
 
