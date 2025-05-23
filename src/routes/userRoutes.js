@@ -18,39 +18,7 @@ console.log('✅ userRoutes loaded');
 // ✅ POST: Create or update user profile with validation (no UID/Phone enforcement)
 wrapAutoRBAC(router, 'userRoutes', {
   post: [
-    ['/', userProfileValidator, async (req, res) => {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(HTTP_STATUS.BAD_REQUEST).json({
-          errors: errors.array(),
-          message: RESPONSE_MESSAGES.VALIDATION_FAILED,
-        });
-      }
-
-      const phone = normalizePhone(req.body.phone || req.body.phoneNumber);
-      const { name, gender, address, email, birthday, anniversary, profilePicture } = req.body;
-
-      try {
-        const result = await pool.query(
-          `INSERT INTO users (phone, name, gender, address, email, birthday, anniversary, profile_picture, registered_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-           ON CONFLICT (phone) DO UPDATE SET
-             name = EXCLUDED.name,
-             gender = EXCLUDED.gender,
-             address = EXCLUDED.address,
-             email = EXCLUDED.email,
-             birthday = EXCLUDED.birthday,
-             anniversary = EXCLUDED.anniversary,
-             profile_picture = EXCLUDED.profile_picture
-           RETURNING *`,
-          [phone, name, gender, address, email, birthday, anniversary, profilePicture]
-        );
-        success(res, result.rows[0], 'User saved');
-      } catch (err) {
-        logger.error(err.stack || err.toString());
-        error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
-      }
-    }]
+    ['/', userProfileValidator, userController.createOrUpdateUser]
   ]
 }, {
   requireUID: false,
