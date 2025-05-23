@@ -18,6 +18,7 @@ import debugRoutes from './routes/debugRoutes.js';
 import routes from './routes/index.js';
 import adminRoutes from './routes/adminRoutes.js';
 import staffRoutes from './routes/staffRoutes.js';
+import departmentRoutes from './routes/departmentRoutes.js';
 
 import {
   patientRateLimiter,
@@ -86,6 +87,7 @@ app.use('/api/v1/pharmacy-orders', patientRateLimiter, routes.pharmacy);
 app.use('/api/v1/feedback', patientRateLimiter, routes.feedback);
 app.use('/api/v1/sos', patientRateLimiter, routes.sos);
 app.use('/api/v1/upload', routes.upload);
+app.use('/api/v1/departments', departmentRoutes);
 
 // ✅ JWT-Protected Admin/Staff Routes
 app.use('/api/v1/admin', jwtAuth, adminRoutes);
