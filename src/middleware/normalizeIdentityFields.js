@@ -1,14 +1,6 @@
 // src/middleware/normalizeIdentityFields.js
 
-/**
- * ✅ Normalize identity and input fields (non-mutating)
- * - Normalizes phone number to last 10 digits
- * - Ensures phoneNumber → phone
- * - Ensures consistent UID
- * - Lowercases gender and trims strings
- * - Converts empty strings to null for optional fields
- * NOTE: Only modifies req.body (not req.query or req.params)
- */
+import { parse, isValid, format } from 'date-fns';
 
 function getLast10Digits(phone) {
   if (!phone) return phone;
@@ -22,6 +14,25 @@ function normalizeValue(val) {
     return trimmed === '' ? null : trimmed;
   }
   return val;
+}
+
+function parseFlexibleDate(input) {
+  if (!input || typeof input !== 'string') return null;
+  const formatsToTry = ['dd-MM-yyyy', 'yyyy-MM-dd', 'dd/MM/yyyy'];
+  for (const fmt of formatsToTry) {
+    const parsed = parse(input, fmt, new Date());
+    if (isValid(parsed)) return format(parsed, 'yyyy-MM-dd');
+  }
+  return null;
+}
+
+function normalizeDates(obj, fields = []) {
+  for (const field of fields) {
+    if (obj?.[field]) {
+      const parsed = parseFlexibleDate(obj[field]);
+      if (parsed) obj[field] = parsed;
+    }
+  }
 }
 
 export function normalizeIdentityFields(req, res, next) {
@@ -51,6 +62,13 @@ export function normalizeIdentityFields(req, res, next) {
   if (src?.email && typeof src.email === 'string') {
     req.body.email = src.email.trim().toLowerCase();
   }
+
+  // ✅ Normalize birthday and anniversary in body
+  normalizeDates(req.body, ['birthday', 'anniversary']);
+
+  // ✅ Normalize known date fields in query and params too
+  normalizeDates(req.query, ['birthday', 'anniversary', 'fromDate', 'toDate']);
+  normalizeDates(req.params, ['birthday', 'anniversary', 'fromDate', 'toDate']);
 
   // ✅ Optional fields → null if empty string
   const optionalFields = [

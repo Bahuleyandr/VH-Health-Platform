@@ -38,6 +38,7 @@
     "@stoplight/spectral-rulesets": "^1.22.0",
     "clamav.js": "^0.12.0",
     "cors": "^2.8.5",
+    "date-fns": "^4.1.0",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "express-list-endpoints": "^7.1.1",
