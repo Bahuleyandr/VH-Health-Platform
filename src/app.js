@@ -4,7 +4,8 @@ import dotenv from 'dotenv';
 import express from 'express';
 import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
-import * as Sentry from '@sentry/node'; // ✅ Use Sentry's full export
+import * as Sentry from '@sentry/node';
+import { Handlers } from '@sentry/node';
 
 import logger from './logging/logger.js';
 import loggingMiddleware from './middleware/loggingMiddleware.js';
@@ -32,9 +33,9 @@ import swaggerLoader from './utils/swaggerLoader.js';
 dotenv.config();
 import './utils/validateEnv.js';
 
-// ✅ Sentry Initialization (edit DSN below or move to sentry.js)
+// ✅ Sentry Initialization
 Sentry.init({
-  dsn: process.env.SENTRY_DSN, // 🔁 Make sure SENTRY_DSN exists in your .env
+  dsn: process.env.SENTRY_DSN,
   tracesSampleRate: 1.0,
   environment: process.env.NODE_ENV || 'development',
 });
@@ -42,10 +43,10 @@ Sentry.init({
 const app = express();
 app.set('trust proxy', 1); // ✅ Required for Render or Cloudflare
 
-// ✅ Sentry Request Middleware (must come before routes)
-app.use(Sentry.Handlers.requestHandler());
+// ✅ Sentry Request Middleware
+app.use(Handlers.requestHandler());
 
-// ✅ JWT-Protected Debug Routes (mounted early to catch errors too)
+// ✅ Debug Routes (secured by JWT)
 app.use('/api/v1/debug', jwtAuth, debugRoutes);
 
 // ✅ Swagger Setup
@@ -107,8 +108,8 @@ app.use('/api/v1/staff', jwtAuth, staffRoutes);
 // ✅ Fallback rate limiter
 app.use(genericLimiter);
 
-// ✅ Sentry Error Middleware (after all routes)
-app.use(Sentry.Handlers.errorHandler());
+// ✅ Sentry Error Handler
+app.use(Handlers.errorHandler());
 
 // ✅ Global Error Handler
 app.use(errorHandlerMiddleware);
