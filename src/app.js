@@ -1,5 +1,4 @@
 // src/app.js
-import fs from 'fs';
 import dotenv from 'dotenv';
 import express from 'express';
 import helmet from 'helmet';
@@ -25,14 +24,9 @@ import {
 
 import swaggerLoader from './utils/swaggerLoader.js';
 
-// ✅ Load .env from appropriate file
-if (fs.existsSync('.env.local')) {
-  dotenv.config({ path: '.env.local' });
-} else if (fs.existsSync('.env.render')) {
-  dotenv.config({ path: '.env.render' });
-} else {
-  dotenv.config();
-}
+// ✅ Load .env from local file if available, else rely on Render secrets
+dotenv.config();
+
 import './utils/validateEnv.js';
 
 const app = express();
@@ -67,9 +61,9 @@ app.use('/api/v1/lookup', routes.lookup);
 app.use('/api/v1/version', routes.version);
 app.use('/api/v1/health', routes.health);
 
-// ✅ Apply API Key check
+// ✅ Apply API Key and Auth Middleware
 app.use(validateApiKey);
-app.use(authMiddleware);           
+app.use(authMiddleware);
 
 // ✅ Authenticated (API key only) Routes
 app.use('/api/v1/users', patientRateLimiter, routes.users);
