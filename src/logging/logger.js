@@ -30,6 +30,7 @@ const logger = createLogger({
     logFormat
   ),
   transports: [
+    // Console logger with color
     new transports.Console({
       format: format.combine(
         format.colorize(),
@@ -37,14 +38,24 @@ const logger = createLogger({
         logFormat
       ),
     }),
-    new transports.File({ filename: path.join(logsDir, 'error.log'), level: 'error' }),
-    new transports.File({ filename: path.join(logsDir, 'combined.log') }),
+
+    // File-based logs
+    new transports.File({
+      filename: path.join(logsDir, 'error.log'),
+      level: 'error',
+    }),
+    new transports.File({
+      filename: path.join(logsDir, 'combined.log'),
+    }),
+
+    // Daily rotated .gz compressed logs
     new DailyRotateFile({
-      filename: path.join(logsDir, 'vh-health-%DATE%.log'),
+      dirname: logsDir,
+      filename: 'vh-health-%DATE%.log',
       datePattern: 'DD-MM-YYYY',
       zippedArchive: true,
       maxSize: '20m',
-      maxFiles: '90d',
+      maxFiles: '90d', // retain logs for 90 days
     }),
   ],
 });
@@ -54,14 +65,14 @@ logger.on('error', (err) => {
   console.error('Logger failed:', err);
 });
 
-// Morgan HTTP logging stream
+// Morgan HTTP logging stream for express middleware
 logger.stream = {
   write: (message) => {
     logger.http(message.trim());
   },
 };
 
-// Morgan middleware pre-configured
+// Preconfigured morgan middleware
 logger.morganMiddleware = morgan('combined', { stream: logger.stream });
 
 export default logger;
