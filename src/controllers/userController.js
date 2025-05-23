@@ -7,6 +7,8 @@ import { success, error } from '../utils/responseHelper.js';
 import { ADMIN, PATIENT, DOCTOR, HR_STAFF, GENERAL_STAFF } from '../utils/roles.js';
 
 export async function createOrUpdateUser(req, res) {
+  console.log('Logged-in user:', req.user);
+
   const {
     phone,
     name,
@@ -68,6 +70,8 @@ export async function getUserByPhone(req, res) {
 }
 
 export async function updateUser(req, res) {
+  console.log('Logged-in user:', req.user);
+
   const phone = req.params.phone;
   const {
     name,
@@ -160,7 +164,6 @@ export async function getUserByUID(req, res) {
 }
 
 console.log('✅ userController loaded');
-console.log('Logged-in user:', req.user);
 
 export async function lookupUser(req, res) {
   console.log('✅ lookupUser function invoked');
