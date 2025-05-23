@@ -28,14 +28,14 @@ export async function createOrUpdateUser(req, res) {
     const allowedRoles = [PATIENT, DOCTOR, ADMIN, HR_STAFF, GENERAL_STAFF];
 let role = PATIENT;
 
-logger.info(`🟡 Requested role from body: ${requestedRole}`);
-logger.info(`🟢 Logged-in user: ${JSON.stringify(req.user)}`);
+logger.error(`🟡 Requested role from body: ${requestedRole}`);
+logger.error(`🟢 Logged-in user: ${JSON.stringify(req.user)}`);
 
 if (req.user?.role === ADMIN && allowedRoles.includes(requestedRole)) {
   role = requestedRole;
 }
 
-logger.info(`🟣 Final assigned role to DB: ${role}`);
+logger.error(`🟣 Final assigned role to DB: ${role}`);
 
   try {
     const result = await pool.query(
