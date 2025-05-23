@@ -1,6 +1,4 @@
 // src/app.js
-
-import fs from 'fs';
 import dotenv from 'dotenv';
 import express from 'express';
 import helmet from 'helmet';
@@ -15,24 +13,19 @@ import corsMiddleware from './middleware/corsMiddleware.js';
 import authMiddleware from './middleware/authMiddleware.js';
 import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
 
-import router from './routes/index.js'; // ✅ uses combined router logic
+import routes from './routes/index.js';
 import adminRoutes from './routes/adminRoutes.js';
 import staffRoutes from './routes/staffRoutes.js';
 
 import {
+  patientRateLimiter,
   genericLimiter
 } from './middleware/rateLimitMiddleware.js';
 
 import swaggerLoader from './utils/swaggerLoader.js';
 
-// ✅ Load .env from appropriate file
-if (fs.existsSync('.env.local')) {
-  dotenv.config({ path: '.env.local' });
-} else if (fs.existsSync('.env.render')) {
-  dotenv.config({ path: '.env.render' });
-} else {
-  dotenv.config();
-}
+// ✅ Load .env from local file if available, else rely on Render secrets
+dotenv.config();
 
 import './utils/validateEnv.js';
 
@@ -61,12 +54,26 @@ app.use(normalizeIdentityFields);    // Normalize phone, uid, etc.
 // ✅ Swagger Docs (no API key required)
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
-// ✅ Public and Protected Routes (Centralized)
-app.use(router);
+// ✅ Public Routes — no API Key, no JWT
+app.use('/api/v1/auth', patientRateLimiter, routes.auth);
+app.use('/api/v1/otp', patientRateLimiter, routes.otp);
+app.use('/api/v1/lookup', routes.lookup);
+app.use('/api/v1/version', routes.version);
+app.use('/api/v1/health', routes.health);
 
-// ✅ Apply API Key and Identity Middleware globally (for protected routes)
+// ✅ Apply API Key and Auth Middleware
 app.use(validateApiKey);
 app.use(authMiddleware);
+
+// ✅ Authenticated (API key only) Routes
+app.use('/api/v1/users', patientRateLimiter, routes.users);
+app.use('/api/v1/appointments', patientRateLimiter, routes.appointments);
+app.use('/api/v1/records', patientRateLimiter, routes.healthRecords);
+app.use('/api/v1/investigations', patientRateLimiter, routes.investigations);
+app.use('/api/v1/pharmacy-orders', patientRateLimiter, routes.pharmacy);
+app.use('/api/v1/feedback', patientRateLimiter, routes.feedback);
+app.use('/api/v1/sos', patientRateLimiter, routes.sos);
+app.use('/api/v1/upload', routes.upload);
 
 // ✅ JWT-Protected Admin/Staff Routes
 app.use('/api/v1/admin', jwtAuth, adminRoutes);
@@ -78,6 +85,11 @@ app.use(genericLimiter);
 // ✅ Root Health Check
 app.get('/', (req, res) => {
   res.json({ message: 'VH Health API is running.' });
+});
+
+// Handle HEAD / for health checks gracefully
+app.head('/', (req, res) => {
+  res.status(200).end();
 });
 
 // ✅ Global Error Handler
