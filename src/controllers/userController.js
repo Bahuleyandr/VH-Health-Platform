@@ -4,18 +4,35 @@ import pool from '../db.js';
 import db from '../db.js';
 import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
+import { ADMIN, PATIENT, DOCTOR, HR_STAFF, GENERAL_STAFF } from '../utils/roles.js';
 
 export async function createOrUpdateUser(req, res) {
-  const { phone, name, gender, address, email, birthday, anniversary, profilePicture } = req.body;
+  const {
+    phone,
+    name,
+    gender,
+    address,
+    email,
+    birthday,
+    anniversary,
+    profilePicture,
+    role: requestedRole
+  } = req.body;
 
   if (!phone || !name || !gender) {
     return res.status(400).json({ error: 'Required fields missing.' });
   }
 
+  const allowedRoles = [PATIENT, DOCTOR, ADMIN, HR_STAFF, GENERAL_STAFF];
+  let role = PATIENT;
+  if (req.user?.role === ADMIN && allowedRoles.includes(requestedRole)) {
+    role = requestedRole;
+  }
+
   try {
     const result = await pool.query(
-      `INSERT INTO users (phone, name, gender, address, email, birthday, anniversary, profile_picture, registered_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+      `INSERT INTO users (phone, name, gender, address, email, birthday, anniversary, profile_picture, role, registered_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
        ON CONFLICT (phone) DO UPDATE SET
          name = EXCLUDED.name,
          gender = EXCLUDED.gender,
@@ -23,9 +40,10 @@ export async function createOrUpdateUser(req, res) {
          email = EXCLUDED.email,
          birthday = EXCLUDED.birthday,
          anniversary = EXCLUDED.anniversary,
-         profile_picture = EXCLUDED.profile_picture
+         profile_picture = EXCLUDED.profile_picture,
+         role = EXCLUDED.role
        RETURNING *`,
-      [phone, name, gender, address, email, birthday, anniversary, profilePicture]
+      [phone, name, gender, address, email, birthday, anniversary, profilePicture, role]
     );
     success(res, result.rows[0], 'User saved');
   } catch (err) {
@@ -51,16 +69,37 @@ export async function getUserByPhone(req, res) {
 
 export async function updateUser(req, res) {
   const phone = req.params.phone;
-  const { name, gender, address, email, birthday, anniversary, profilePicture } = req.body;
+  const {
+    name,
+    gender,
+    address,
+    email,
+    birthday,
+    anniversary,
+    profilePicture,
+    role: requestedRole
+  } = req.body;
+
+  const allowedRoles = [PATIENT, DOCTOR, ADMIN, HR_STAFF, GENERAL_STAFF];
+  let roleUpdateClause = '';
+  let roleParam = null;
+
+  if (req.user?.role === ADMIN && allowedRoles.includes(requestedRole)) {
+    roleUpdateClause = ', role = $9';
+    roleParam = requestedRole;
+  }
 
   try {
-    const result = await pool.query(
-      `UPDATE users
-       SET name = $1, gender = $2, address = $3, email = $4, birthday = $5, anniversary = $6, profile_picture = $7
+    const query = `UPDATE users
+       SET name = $1, gender = $2, address = $3, email = $4, birthday = $5, anniversary = $6, profile_picture = $7${roleUpdateClause}
        WHERE phone = $8
-       RETURNING *`,
-      [name, gender, address, email, birthday, anniversary, profilePicture, phone]
-    );
+       RETURNING *`;
+
+    const values = roleParam
+      ? [name, gender, address, email, birthday, anniversary, profilePicture, phone, roleParam]
+      : [name, gender, address, email, birthday, anniversary, profilePicture, phone];
+
+    const result = await pool.query(query, values);
 
     if (result.rows.length > 0) {
       success(res, result.rows[0], 'User updated');
