@@ -1,5 +1,4 @@
 // src/routes/index.js
-
 import express from 'express';
 
 // ✅ Route Imports
@@ -73,27 +72,12 @@ router.use('/api/v1/staff', staffRoutes);
 // ✅ Swagger UI
 router.use('/api-docs', swaggerRoutes);
 
-// ✅ Generic fallback
+// ✅ Fallback
 router.use(genericLimiter);
 router.use((req, res) => {
   console.warn(`⚠️  Unmatched Route: ${req.method} ${req.originalUrl}`);
   res.status(404).json({ error: 'API endpoint not found' });
 });
 
-export default {
-  auth,
-  otp,
-  lookup,
-  version,
-  health,
-  users,
-  appointments,
-  healthRecords,
-  investigations,
-  pharmacy,
-  feedback,
-  sos,
-  upload,
-  doctors,
-  departments
-};
+// ✅ Export Express Router
+export default router;
