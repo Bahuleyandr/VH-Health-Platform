@@ -5,6 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import logger from '../logging/logger.js';
+import db from '../db.js';
 
 // ESM __dirname replacement
 const __filename = fileURLToPath(import.meta.url);
@@ -132,5 +133,21 @@ export const validateSwagger = (req, res) => {
     res.json({ success: true, message: 'Swagger validation completed.' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ✅ View Role Audit Log
+export const viewRoleAudit = async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT phone, old_role, new_role, changed_by_uid, changed_at
+       FROM user_role_audit
+       ORDER BY changed_at DESC
+       LIMIT 100`
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) {
+    logger.error('Failed to fetch audit log:', err.stack || err.toString());
+    res.status(500).json({ success: false, message: 'Failed to fetch audit log' });
   }
 };
