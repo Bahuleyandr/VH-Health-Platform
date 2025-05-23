@@ -1,4 +1,5 @@
 // src/app.js
+
 import dotenv from 'dotenv';
 import express from 'express';
 import helmet from 'helmet';
@@ -13,6 +14,7 @@ import corsMiddleware from './middleware/corsMiddleware.js';
 import authMiddleware from './middleware/authMiddleware.js';
 import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
 
+import debugRoutes from './routes/debugRoutes.js';
 import routes from './routes/index.js';
 import adminRoutes from './routes/adminRoutes.js';
 import staffRoutes from './routes/staffRoutes.js';
@@ -26,11 +28,13 @@ import swaggerLoader from './utils/swaggerLoader.js';
 
 // ✅ Load .env from local file if available, else rely on Render secrets
 dotenv.config();
-
 import './utils/validateEnv.js';
 
-const app = express();
+const app = express(); // ✅ define app before using it
 app.set('trust proxy', 1); // ✅ Required for Render or Cloudflare
+
+// ✅ JWT-Protected Debug Routes
+app.use('/api/v1/debug', jwtAuth, debugRoutes);
 
 // ✅ Swagger Setup
 let swaggerDocument;
@@ -61,6 +65,14 @@ app.use('/api/v1/lookup', routes.lookup);
 app.use('/api/v1/version', routes.version);
 app.use('/api/v1/health', routes.health);
 
+// ✅ Root Health Check for Render and bots
+app.get('/', (req, res) => {
+  res.json({ message: 'VH Health API is running.' });
+});
+app.head('/', (req, res) => {
+  res.status(200).end();
+});
+
 // ✅ Apply API Key and Auth Middleware
 app.use(validateApiKey);
 app.use(authMiddleware);
@@ -81,16 +93,6 @@ app.use('/api/v1/staff', jwtAuth, staffRoutes);
 
 // ✅ Fallback rate limiter
 app.use(genericLimiter);
-
-// ✅ Root Health Check
-app.get('/', (req, res) => {
-  res.json({ message: 'VH Health API is running.' });
-});
-
-// Handle HEAD / for health checks gracefully
-app.head('/', (req, res) => {
-  res.status(200).end();
-});
 
 // ✅ Global Error Handler
 app.use(errorHandlerMiddleware);
