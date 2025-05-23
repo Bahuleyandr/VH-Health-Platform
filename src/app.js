@@ -56,7 +56,6 @@ app.use(corsMiddleware);
 app.use(loggingMiddleware);          // Log incoming requests
 app.use(logger.morganMiddleware);
 app.use(normalizeIdentityFields);    // Normalize phone, uid, etc.
-app.use(authMiddleware);             // Attach req.user if JWT is present
 
 // ✅ Swagger Docs (no API key required)
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
@@ -70,6 +69,7 @@ app.use('/api/v1/health', routes.health);
 
 // ✅ Apply API Key check
 app.use(validateApiKey);
+app.use(authMiddleware);           
 
 // ✅ Authenticated (API key only) Routes
 app.use('/api/v1/users', patientRateLimiter, routes.users);
