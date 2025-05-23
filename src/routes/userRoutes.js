@@ -23,9 +23,10 @@ wrapAutoRBAC(router, 'userRoutes', {
   requirePhone: false
 });
 
-// ✅ GET + PUT: User lookup and role-aware update
+// ✅ GET + PUT: User lookup, list, and role-aware update
 wrapAutoRBAC(router, 'userRoutes', {
   get: [
+    ['/', userController.getUsers], // ✅ Enables ?role=ADMIN
     ['/uid/:uid', userController.getUserByUID],
     ['/:phone', async (req, res) => {
       try {
@@ -73,7 +74,6 @@ wrapAutoRBAC(router, 'userRoutes', {
   ],
   put: [
     ['/:phone', userProfileValidator, userController.updateUser],
-    // ✅ Admin-only route to update role
     ['/:phone/role', userController.updateUserRole]
   ]
 });
