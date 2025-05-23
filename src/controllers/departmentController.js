@@ -65,3 +65,45 @@ export async function getDepartmentsWithDoctors(req, res) {
     error(res, 'Failed to fetch department-doctor data');
   }
 }
+/**
+ * ✅ Add a new department (ADMIN only)
+ */
+export async function addDepartment(req, res) {
+  const { name } = req.body;
+
+  if (!name) return error(res, 'Department name is required', 400);
+  if (req.user?.role !== 'ADMIN') return error(res, 'Only admins can add departments', 403);
+
+  try {
+    const result = await pool.query(
+      'INSERT INTO departments (name) VALUES ($1) RETURNING *',
+      [name.trim()]
+    );
+    success(res, result.rows[0], 'Department created');
+  } catch (err) {
+    logger.error('[addDepartment]', err.stack || err.toString());
+    error(res, 'Failed to add department');
+  }
+}
+
+/**
+ * ✅ Delete department by ID (ADMIN only)
+ */
+export async function deleteDepartment(req, res) {
+  const { departmentId } = req.params;
+
+  if (!departmentId) return error(res, 'Department ID required', 400);
+  if (req.user?.role !== 'ADMIN') return error(res, 'Only admins can delete departments', 403);
+
+  try {
+    const result = await pool.query('DELETE FROM departments WHERE id = $1 RETURNING *', [departmentId]);
+    if (result.rows.length) {
+      success(res, result.rows[0], 'Department deleted');
+    } else {
+      error(res, 'Department not found', 404);
+    }
+  } catch (err) {
+    logger.error('[deleteDepartment]', err.stack || err.toString());
+    error(res, 'Failed to delete department');
+  }
+}
