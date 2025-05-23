@@ -24,7 +24,6 @@ import adminDepartmentRoutes from './adminDepartmentRoutes.js';
 import adminDoctorRoutes from './adminDoctorRoutes.js';
 import staffRoutes from './staffRoutes.js';
 import swaggerRoutes from './swaggerRoutes.js';
-import doctors from './doctorRoutes.js';
 import departments from './departmentRoutes.js';
 
 import {
