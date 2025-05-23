@@ -4,19 +4,17 @@ import express from 'express';
 import pool from '../db.js';
 import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
-import { wrapAutoRBAC } from '../config/routeWrapper.js';
+import { wrapRoutes } from '../config/routeWrapper.js';
 
 const router = express.Router();
 
 /**
- * ✅ Health Routes
+ * ✅ Public Health Routes (No RBAC, No UID/Phone validation)
  * - GET /               : Lightweight ping
  * - GET /health-check   : DB + Env checks
  * - GET /app-version    : API version
- * RBAC: as per rbacConfig
- * UID/Phone Validation: Disabled
  */
-wrapAutoRBAC(router, 'healthRoutes', {
+wrapRoutes(router, [], {
   get: [
     ['/', (req, res) => {
       success(res, { message: 'VH Health API is running.' }, 'Service reachable');
