@@ -45,3 +45,23 @@ export async function getDepartmentById(req, res) {
     error(res, 'Failed to fetch department');
   }
 }
+
+/**
+ * ✅ Fetch departments with their doctors
+ */
+export async function getDepartmentsWithDoctors(req, res) {
+  try {
+    const result = await pool.query(
+      `SELECT d.id AS department_id, d.name AS department_name,
+              json_agg(json_build_object('id', doc.id, 'name', doc.name)) AS doctors
+       FROM departments d
+       LEFT JOIN doctors doc ON doc.department_id = d.id
+       GROUP BY d.id, d.name
+       ORDER BY d.name ASC`
+    );
+    success(res, result.rows, 'Departments with doctors fetched');
+  } catch (err) {
+    logger.error('[getDepartmentsWithDoctors]', err.stack || err.toString());
+    error(res, 'Failed to fetch department-doctor data');
+  }
+}
