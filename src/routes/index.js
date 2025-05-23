@@ -1,5 +1,4 @@
 // src/routes/index.js
-import express from 'express';
 
 // ✅ Route Imports
 import upload from './uploadRoutes.js';
@@ -30,8 +29,6 @@ import {
   adminRateLimiter,
   genericLimiter
 } from '../middleware/rateLimitMiddleware.js';
-
-const router = express.Router();
 
 // ✅ Rate Limiting by Role
 router.use('/api/v1/auth', patientRateLimiter);
@@ -80,4 +77,22 @@ router.use((req, res) => {
 });
 
 // ✅ Export Express Router
-export default router;
+export default {
+  auth,
+  firebaseAuth,
+  upload,
+  debug,
+  users,
+  lookup,
+  departments,
+  doctors,
+  appointments,
+  healthRecords,
+  investigations,
+  pharmacy,
+  feedback,
+  otp,
+  version,
+  health,
+  sos,
+};
