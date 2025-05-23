@@ -93,5 +93,7 @@ export default {
   pharmacy,
   feedback,
   sos,
-  upload
+  upload,
+  doctors,
+  departments
 };
