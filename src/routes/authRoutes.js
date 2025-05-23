@@ -9,7 +9,7 @@ import { wrapRoutes, wrapRoutesWithValidation } from '../config/routeWrapper.js'
 
 const router = express.Router();
 
-// ✅ Public Authentication Routes (no RBAC)
+// ✅ Public Authentication Routes — explicitly skip UID enforcement
 wrapRoutesWithValidation(router, [], {
   post: [
     ['/login', phoneValidator, (req, res) => {
@@ -33,6 +33,9 @@ wrapRoutesWithValidation(router, [], {
       authController.register(req, res);
     }]
   ]
+}, {
+  requireUID: false,
+  requirePhone: true // phone is validated anyway via phoneValidator
 });
 
 // ✅ Stateless Token + Logout Routes (no RBAC, no UID/Phone needed)
