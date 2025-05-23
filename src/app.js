@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
-
+import Sentry from './utils/sentry.js';
 import logger from './logging/logger.js';
 import loggingMiddleware from './middleware/loggingMiddleware.js';
 import errorHandlerMiddleware from './middleware/errorHandlerMiddleware.js';
@@ -32,6 +32,7 @@ dotenv.config();
 import './utils/validateEnv.js';
 
 const app = express(); // ✅ define app before using it
+app.use(Sentry.Handlers.requestHandler());
 app.set('trust proxy', 1); // ✅ Required for Render or Cloudflare
 
 // ✅ JWT-Protected Debug Routes
@@ -96,6 +97,7 @@ app.use('/api/v1/staff', jwtAuth, staffRoutes);
 // ✅ Fallback rate limiter
 app.use(genericLimiter);
 
+app.use(Sentry.Handlers.errorHandler());
 // ✅ Global Error Handler
 app.use(errorHandlerMiddleware);
 
