@@ -5,7 +5,6 @@ import express from 'express';
 import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
 import * as Sentry from '@sentry/node';
-import { Handlers } from '@sentry/node';
 
 import logger from './logging/logger.js';
 import loggingMiddleware from './middleware/loggingMiddleware.js';
@@ -44,7 +43,7 @@ const app = express();
 app.set('trust proxy', 1); // ✅ Required for Render or Cloudflare
 
 // ✅ Sentry Request Middleware
-app.use(Handlers.requestHandler());
+app.use(Sentry.Handlers.requestHandler());
 
 // ✅ Debug Routes (secured by JWT)
 app.use('/api/v1/debug', jwtAuth, debugRoutes);
@@ -109,7 +108,7 @@ app.use('/api/v1/staff', jwtAuth, staffRoutes);
 app.use(genericLimiter);
 
 // ✅ Sentry Error Handler
-app.use(Handlers.errorHandler());
+app.use(Sentry.Handlers.errorHandler());
 
 // ✅ Global Error Handler
 app.use(errorHandlerMiddleware);
