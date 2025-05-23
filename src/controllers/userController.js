@@ -160,6 +160,7 @@ export async function getUserByUID(req, res) {
 }
 
 console.log('✅ userController loaded');
+console.log('Logged-in user:', req.user);
 
 export async function lookupUser(req, res) {
   console.log('✅ lookupUser function invoked');
