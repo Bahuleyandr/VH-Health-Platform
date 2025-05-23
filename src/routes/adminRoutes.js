@@ -15,7 +15,6 @@ wrapAutoRBAC(router, 'adminRoutes', {
     ['/r2/files', adminController.listR2Files],
     ['/logs/list', adminController.listLogs],
 
-    // ✅ Add this new route for JWT validation testing
     ['/validate-jwt', (req, res) => {
       res.json({
         success: true,
@@ -23,7 +22,10 @@ wrapAutoRBAC(router, 'adminRoutes', {
         role: req.user?.role || null,
         message: 'JWT and RBAC validation successful'
       });
-    }]
+    }],
+
+    // ✅ View role change audit log
+    ['/users/audit', adminController.viewRoleAudit]
   ],
   post: [
     ['/r2/cleanup', adminController.cleanupR2Files],
