@@ -1,21 +1,19 @@
 // src/routes/userRoutes.js
 
 import express from 'express';
-import pool from '../db.js';
 import { success, error } from '../utils/responseHelper.js';
 import logger from '../logging/logger.js';
+import pool from '../db.js';
 import * as userController from '../controllers/userController.js';
 import { userProfileValidator } from '../config/validationSchemas.js';
-import { validationResult } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
 import { wrapAutoRBAC } from '../config/routeWrapper.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 
 const router = express.Router();
-
 console.log('✅ userRoutes loaded');
 
-// ✅ POST: Create or update user profile with validation (no UID/Phone enforcement)
+// ✅ POST: Create or update user profile (with optional role if ADMIN)
 wrapAutoRBAC(router, 'userRoutes', {
   post: [
     ['/', userProfileValidator, userController.createOrUpdateUser]
@@ -25,7 +23,7 @@ wrapAutoRBAC(router, 'userRoutes', {
   requirePhone: false
 });
 
-// ✅ GET + PUT: User lookups and update (with UID/Phone enforcement)
+// ✅ GET + PUT: User lookup and role-aware update
 wrapAutoRBAC(router, 'userRoutes', {
   get: [
     ['/uid/:uid', userController.getUserByUID],
@@ -74,26 +72,7 @@ wrapAutoRBAC(router, 'userRoutes', {
     }]
   ],
   put: [
-    ['/:phone', async (req, res) => {
-      const phone = normalizePhone(req.params.phone);
-      const { name, gender, address, email, birthday, anniversary, profilePicture } = req.body;
-
-      try {
-        const result = await pool.query(
-          `UPDATE users SET name = $1, gender = $2, address = $3, email = $4, birthday = $5, anniversary = $6, profile_picture = $7
-           WHERE phone = $8 RETURNING *`,
-          [name, gender, address, email, birthday, anniversary, profilePicture, phone]
-        );
-        if (result.rows.length) {
-          success(res, result.rows[0], 'User updated');
-        } else {
-          error(res, RESPONSE_MESSAGES.USER_NOT_FOUND, HTTP_STATUS.NOT_FOUND);
-        }
-      } catch (err) {
-        logger.error(err.stack || err.toString());
-        error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
-      }
-    }]
+    ['/:phone', userProfileValidator, userController.updateUser]
   ]
 });
 
