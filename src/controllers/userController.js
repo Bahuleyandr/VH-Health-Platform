@@ -7,8 +7,6 @@ import { success, error } from '../utils/responseHelper.js';
 import { ADMIN, PATIENT, DOCTOR, HR_STAFF, GENERAL_STAFF } from '../utils/roles.js';
 
 export async function createOrUpdateUser(req, res) {
-  console.log('Logged-in user:', req.user);
-
   const {
     phone,
     name,
@@ -21,21 +19,21 @@ export async function createOrUpdateUser(req, res) {
     role: requestedRole
   } = req.body;
 
+  logger.info('✅ createOrUpdateUser invoked');
+  logger.info(`🔎 Processing user with phone=${phone}`);
+
   if (!phone || !name || !gender) {
     return res.status(400).json({ error: 'Required fields missing.' });
   }
 
-    const allowedRoles = [PATIENT, DOCTOR, ADMIN, HR_STAFF, GENERAL_STAFF];
-let role = PATIENT;
+  const allowedRoles = [PATIENT, DOCTOR, ADMIN, HR_STAFF, GENERAL_STAFF];
+  let role = PATIENT;
 
-logger.error(`🟡 Requested role from body: ${requestedRole}`);
-logger.error(`🟢 Logged-in user: ${JSON.stringify(req.user)}`);
+  if (req.user?.role === ADMIN && allowedRoles.includes(requestedRole)) {
+    role = requestedRole;
+  }
 
-if (req.user?.role === ADMIN && allowedRoles.includes(requestedRole)) {
-  role = requestedRole;
-}
-
-logger.error(`🟣 Final assigned role to DB: ${role}`);
+  logger.info(`👤 User ${phone} saved with role '${role}' by ${req.user?.role || 'anonymous'} (${req.user?.uid || 'unknown'})`);
 
   try {
     const result = await pool.query(
@@ -76,8 +74,6 @@ export async function getUserByPhone(req, res) {
 }
 
 export async function updateUser(req, res) {
-  console.log('Logged-in user:', req.user);
-
   const phone = req.params.phone;
   const {
     name,
@@ -169,13 +165,8 @@ export async function getUserByUID(req, res) {
   }
 }
 
-console.log('✅ userController loaded');
-
 export async function lookupUser(req, res) {
-  console.log('✅ lookupUser function invoked');
-
   const { phone, uid, name } = req.query;
-  console.log('Lookup Params:', { phone, uid, name });
 
   if (!phone && !uid && !name) {
     return res.status(400).json({ success: false, message: 'Provide phone, uid, or name to search' });

@@ -51,6 +51,16 @@ export const userProfileValidator = [
   body('birthday').optional().isISO8601().toDate().withMessage('Invalid birthday format (YYYY-MM-DD)'),
   body('anniversary').optional().isISO8601().toDate().withMessage('Invalid anniversary format (YYYY-MM-DD)'),
   body('address').optional().isString().withMessage('Address must be a string'),
+
+  // ✅ Only admins can set the 'role' field
+  body('role')
+    .optional()
+    .custom((value, { req }) => {
+      if (req.user?.role !== 'ADMIN') {
+        throw new Error('Only admins can assign role');
+      }
+      return true;
+    })
 ];
 
 /**
