@@ -23,7 +23,11 @@ export async function login(req, res) {
     }
 
     const user = result.rows[0];
-    const token = generateToken({ uid: user.uid, phone: user.phone });
+    const token = generateToken({
+      uid: user.uid,
+      phone: user.phone,
+      role: user.role
+    });
 
     success(res, { token }, 'Login successful');
   } catch (err) {
@@ -50,12 +54,16 @@ export async function register(req, res) {
     }
 
     const insert = await db.query(
-      'INSERT INTO users (phone, name, registered_at) VALUES ($1, $2, NOW()) RETURNING *',
-      [phone, name]
+      'INSERT INTO users (phone, name, role, registered_at) VALUES ($1, $2, $3, NOW()) RETURNING *',
+      [phone, name, 'PATIENT']
     );
 
     const user = insert.rows[0];
-    const token = generateToken({ uid: user.uid, phone: user.phone });
+    const token = generateToken({
+      uid: user.uid,
+      phone: user.phone,
+      role: user.role
+    });
 
     success(res, { token, user }, 'Registration successful');
   } catch (err) {
@@ -80,7 +88,11 @@ export async function refreshToken(req, res) {
     return res.status(401).json({ success: false, error: 'Invalid or expired token' });
   }
 
-  const newToken = generateToken({ uid: decoded.uid, phone: decoded.phone });
+  const newToken = generateToken({
+    uid: decoded.uid,
+    phone: decoded.phone,
+    role: decoded.role
+  });
 
   success(res, { token: newToken }, 'Token refreshed successfully');
 }
