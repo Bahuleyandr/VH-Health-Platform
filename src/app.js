@@ -4,7 +4,8 @@ import dotenv from 'dotenv';
 import express from 'express';
 import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
-import * as Sentry from '@sentry/node';
+import SentryModule from '@sentry/node';
+const Sentry = SentryModule.default || SentryModule;
 
 import logger from './logging/logger.js';
 import loggingMiddleware from './middleware/loggingMiddleware.js';
