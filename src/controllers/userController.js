@@ -25,11 +25,17 @@ export async function createOrUpdateUser(req, res) {
     return res.status(400).json({ error: 'Required fields missing.' });
   }
 
-  const allowedRoles = [PATIENT, DOCTOR, ADMIN, HR_STAFF, GENERAL_STAFF];
+    const allowedRoles = [PATIENT, DOCTOR, ADMIN, HR_STAFF, GENERAL_STAFF];
   let role = PATIENT;
+
+  console.log('Requested role from body:', requestedRole);
+  console.log('Logged-in user:', req.user);
+
   if (req.user?.role === ADMIN && allowedRoles.includes(requestedRole)) {
     role = requestedRole;
   }
+
+  console.log('Final assigned role to DB:', role);
 
   try {
     const result = await pool.query(
