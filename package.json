@@ -35,6 +35,7 @@
     "@aws-sdk/s3-request-presigner": "^3.812.0",
     "@aws-sdk/util-create-request": "^3.810.0",
     "@prisma/client": "^6.8.2",
+    "@sentry/node": "^9.22.0",
     "@stoplight/spectral-rulesets": "^1.22.0",
     "clamav.js": "^0.12.0",
     "cors": "^2.8.5",
