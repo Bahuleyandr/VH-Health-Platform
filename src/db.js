@@ -1,19 +1,17 @@
-// src/db.js
-
 import { Pool } from 'pg';
 
 const connectionString = process.env.DATABASE_URL;
 
-// Determine if SSL should be used based on the connection target
+if (!connectionString) {
+  console.error('❌ DATABASE_URL is missing in environment variables');
+  process.exit(1);
+}
+
+const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
+
 const pool = new Pool({
   connectionString,
-  ssl: connectionString.includes('localhost') || connectionString.includes('127.0.0.1')
-    ? false
-    : { rejectUnauthorized: false }
+  ssl: isLocal ? false : { rejectUnauthorized: false }
 });
 
-// ✅ Log the active database connection
-console.log(`✅ Connected to database: ${connectionString}`);
-
-// ✅ Export as default for ESM compatibility
 export default pool;

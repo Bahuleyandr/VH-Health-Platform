@@ -1,8 +1,7 @@
-// src/controllers/doctorController.js
-
 import pool from '../db.js';
 import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
+import { logAudit } from '../utils/logAudit.js';
 
 /**
  * ✅ Get all doctors or search by name/specialty
@@ -60,6 +59,7 @@ export async function getDoctorById(req, res) {
     error(res, 'Failed to fetch doctor');
   }
 }
+
 /**
  * ✅ Add a new doctor (ADMIN only)
  */
@@ -88,7 +88,7 @@ export async function addDoctor(req, res) {
 }
 
 /**
- * ✅ Delete doctor by ID (ADMIN only)
+ * ✅ Delete doctor by ID (ADMIN only) with audit logging
  */
 export async function deleteDoctor(req, res) {
   const { doctorId } = req.params;
@@ -108,7 +108,17 @@ export async function deleteDoctor(req, res) {
     );
 
     if (result.rows.length) {
-      success(res, result.rows[0], 'Doctor deleted successfully');
+      const deleted = result.rows[0];
+
+      // ✅ Audit the deletion
+      await logAudit(req, 'delete-doctor', {
+        doctorId,
+        name: deleted.name,
+        specialty: deleted.specialty,
+        department_id: deleted.department_id
+      });
+
+      success(res, deleted, 'Doctor deleted successfully');
     } else {
       error(res, 'Doctor not found', 404);
     }
@@ -117,4 +127,3 @@ export async function deleteDoctor(req, res) {
     error(res, 'Failed to delete doctor');
   }
 }
-
