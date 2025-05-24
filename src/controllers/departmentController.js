@@ -1,8 +1,7 @@
-// src/controllers/departmentController.js
-
 import pool from '../db.js';
 import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
+import { logAudit } from '../utils/logAudit.js';
 
 /**
  * ✅ Fetch all departments (alphabetical)
@@ -65,6 +64,7 @@ export async function getDepartmentsWithDoctors(req, res) {
     error(res, 'Failed to fetch department-doctor data');
   }
 }
+
 /**
  * ✅ Add a new department (ADMIN only)
  */
@@ -87,7 +87,7 @@ export async function addDepartment(req, res) {
 }
 
 /**
- * ✅ Delete department by ID (ADMIN only)
+ * ✅ Delete department by ID (ADMIN only) with audit logging
  */
 export async function deleteDepartment(req, res) {
   const { departmentId } = req.params;
@@ -98,7 +98,15 @@ export async function deleteDepartment(req, res) {
   try {
     const result = await pool.query('DELETE FROM departments WHERE id = $1 RETURNING *', [departmentId]);
     if (result.rows.length) {
-      success(res, result.rows[0], 'Department deleted');
+      const deleted = result.rows[0];
+
+      // ✅ Audit log
+      await logAudit(req, 'delete-department', {
+        departmentId,
+        name: deleted.name
+      });
+
+      success(res, deleted, 'Department deleted');
     } else {
       error(res, 'Department not found', 404);
     }

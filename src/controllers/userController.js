@@ -3,6 +3,7 @@ import db from '../db.js';
 import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
 import { ADMIN, PATIENT, DOCTOR, HR_STAFF, GENERAL_STAFF } from '../utils/roles.js';
+import { logAudit } from '../utils/logAudit.js';
 
 const allowedRoles = [PATIENT, DOCTOR, ADMIN, HR_STAFF, GENERAL_STAFF];
 
@@ -116,11 +117,13 @@ export async function updateUserRole(req, res) {
     if (oldRole === newRole) return success(res, { phone, role: newRole }, 'Role unchanged');
 
     await db.query('UPDATE users SET role = $1 WHERE phone = $2', [newRole, phone]);
-    await db.query(
-      `INSERT INTO user_role_audit (phone, old_role, new_role, changed_by_uid)
-       VALUES ($1, $2, $3, $4)`,
-      [phone, oldRole, newRole, req.user?.uid || null]
-    );
+
+    // ✅ Audit the role change
+    await logAudit(req, 'role-change', {
+      phone,
+      oldRole,
+      newRole
+    });
 
     logger.info(`🔁 Role changed for ${phone}: ${oldRole} → ${newRole} by ${req.user?.uid}`);
     success(res, { phone, role: newRole }, 'Role updated');

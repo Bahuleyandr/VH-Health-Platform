@@ -5,7 +5,7 @@ import { uploadFileToR2, deleteObject as deleteFileFromR2 } from '../utils/r2Sto
 import pool from '../db.js';
 import { success, error } from '../utils/responseHelper.js';
 import logger from '../logging/logger.js';
-import { scanBuffer } from '../utils/virusScanner.js';
+import { scanFileWithClamAV } from '../utils/clamavScanHelper.js';
 import { wrapAutoRBAC } from '../config/routeWrapper.js';
 
 const router = express.Router();
@@ -34,24 +34,52 @@ wrapAutoRBAC(router, 'uploadRoutes', {
       const uploadedBy = req.body.uploaded_by || req.user?.uid || 'system';
 
       try {
-        try {
-          await scanBuffer(req.file.buffer);
-        } catch (scanErr) {
-          logger.warn(`⚠️ Virus scan skipped or failed: ${scanErr.message}`);
-          // Optionally block uploads in production:
-          // return res.status(503).json({ error: 'Virus scanner unavailable. Try again later.' });
-        }
-
         const key = `uploads/${Date.now()}_${req.file.originalname}`;
         const url = await uploadFileToR2(req.file.buffer, key, req.file.mimetype);
 
+        // 🔄 Insert metadata and return ID
+        const insertResult = await pool.query(
+          `INSERT INTO file_metadata 
+           (file_name, file_type, file_size, storage_key, storage_url, uploaded_at, uploaded_by, scan_status, scan_result) 
+           VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7, $8)
+           RETURNING id`,
+          [req.file.originalname, req.file.mimetype, req.file.size, key, url, uploadedBy, 'pending', null]
+        );
+
+        const fileId = insertResult.rows[0].id;
+
+        // 🔍 Immediately scan the file
+        const scanResult = await scanFileWithClamAV(url);
+
+        let status = 'failed';
+        let resultText = 'Unknown error';
+
+        if (scanResult.status === 'clean') {
+          status = 'clean';
+          resultText = null;
+        } else if (scanResult.status === 'infected') {
+          status = 'infected';
+          resultText = scanResult.virus;
+        } else if (scanResult.status === 'error') {
+          status = 'failed';
+          resultText = scanResult.error;
+        }
+
+        // 🔄 Update scan result
         await pool.query(
-  'INSERT INTO file_metadata (file_name, file_type, file_size, storage_key, storage_url, uploaded_at, uploaded_by) VALUES ($1, $2, $3, $4, $5, NOW(), $6)',
-  [req.file.originalname, req.file.mimetype, req.file.size, key, url, uploadedBy]
-);
+          `UPDATE file_metadata SET scan_status = $1, scan_result = $2 WHERE id = $3`,
+          [status, resultText, fileId]
+        );
+
+        // 📝 Audit log
+        await pool.query(
+          `INSERT INTO audit_logs (event_type, description, created_at, related_id, created_by)
+           VALUES ($1, $2, NOW(), $3, $4)`,
+          ['FILE_SCAN', `Scan result: ${status}${resultText ? ` (${resultText})` : ''}`, fileId, uploadedBy]
+        );
 
         logger.info(`✅ Uploaded: ${req.file.originalname} | UID: ${req.user?.uid} | Role: ${req.user?.role}`);
-        success(res, { url }, 'File uploaded successfully');
+        success(res, { url }, 'File uploaded and scanned successfully');
       } catch (err) {
         logger.error(err.stack || err.toString());
         error(res, 'Upload failed.');
@@ -60,26 +88,53 @@ wrapAutoRBAC(router, 'uploadRoutes', {
   ],
   get: [
     ['/', async (req, res) => {
-      try {
-        const result = await pool.query('SELECT * FROM file_metadata ORDER BY uploaded_at DESC');
-        success(res, result.rows, 'Files fetched successfully');
-      } catch (err) {
-        logger.error(err.stack || err.toString());
-        error(res, 'Failed to fetch files.');
-      }
-    }],
+  const safeOnly = req.query.safeOnly === 'true';
+
+  try {
+    const query = safeOnly
+      ? `SELECT * FROM file_metadata WHERE scan_status = 'clean' ORDER BY uploaded_at DESC`
+      : `SELECT * FROM file_metadata ORDER BY uploaded_at DESC`;
+
+    const result = await pool.query(query);
+
+    // ✅ Add `quarantined` flag to each result
+    const files = result.rows.map(file => ({
+      ...file,
+      quarantined: ['infected', 'failed'].includes(file.scan_status)
+    }));
+
+    success(res, files, `Files fetched${safeOnly ? ' (clean only)' : ''} successfully`);
+  } catch (err) {
+    logger.error(err.stack || err.toString());
+    error(res, 'Failed to fetch files.');
+  }
+}],
     ['/:key', async (req, res) => {
-      try {
-        const result = await pool.query('SELECT * FROM file_metadata WHERE storage_key = $1', [req.params.key]);
-        if (result.rows.length === 0) {
-          return error(res, 'File not found', 404);
-        }
-        success(res, result.rows[0], 'File metadata found');
-      } catch (err) {
-        logger.error(err.stack || err.toString());
-        error(res, 'Failed to fetch file metadata.');
-      }
-    }]
+  try {
+    const result = await pool.query(
+      'SELECT * FROM file_metadata WHERE storage_key = $1',
+      [req.params.key]
+    );
+
+    if (result.rows.length === 0) {
+      return error(res, 'File not found', 404);
+    }
+
+    const file = result.rows[0];
+
+    // ✅ Add `quarantined` flag based on scan status
+    const quarantined = ['infected', 'failed'].includes(file.scan_status);
+    const response = {
+      ...file,
+      quarantined
+    };
+
+    success(res, response, 'File metadata found');
+  } catch (err) {
+    logger.error(err.stack || err.toString());
+    error(res, 'Failed to fetch file metadata.');
+  }
+}]
   ],
   delete: [
     ['/:key', async (req, res) => {

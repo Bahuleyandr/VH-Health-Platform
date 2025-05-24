@@ -20,6 +20,9 @@ import routes from './routes/index.js';
 import adminRoutes from './routes/adminRoutes.js';
 import staffRoutes from './routes/staffRoutes.js';
 import departmentRoutes from './routes/departmentRoutes.js';
+import rbacRoutes from './routes/rbacRoutes.js';
+import analyticsRoutes from './routes/analyticsRoutes.js';
+import { attachUserContext } from './middleware/attachUserContext.js';
 
 import {
   patientRateLimiter,
@@ -65,6 +68,7 @@ app.use(express.json());
 app.use(corsMiddleware);
 app.use(loggingMiddleware);
 app.use(logger.morganMiddleware);
+app.use(attachUserContext);
 app.use(normalizeIdentityFields);
 
 // ✅ Swagger Docs (no API key required)
@@ -101,6 +105,8 @@ app.use('/api/v1/upload', routes.upload);
 app.use('/api/v1/departments', departmentRoutes);
 
 // ✅ JWT-Protected Admin/Staff Routes
+app.use('/api/v1/admin/rbac', jwtAuth, rbacRoutes);
+app.use('/api/v1/admin/analytics', jwtAuth, analyticsRoutes);
 app.use('/api/v1/admin', jwtAuth, adminRoutes);
 app.use('/api/v1/staff', jwtAuth, staffRoutes);
 
