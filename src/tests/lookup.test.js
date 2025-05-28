@@ -1,7 +1,8 @@
 import request from 'supertest';
 import app from '../app.js';
 
-import testClient from './testClient.js';describe('User Lookup API', () => {
+import testClient from './testClient.js';
+describe('User Lookup API', () => {
   it('should fail without query parameters', async () => {
     const res = await testClient().get('/api/v1/lookup');
     expect(res.statusCode).toBe(400);

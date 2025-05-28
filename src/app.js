@@ -26,7 +26,7 @@ import { attachUserContext } from './middleware/attachUserContext.js';
 
 import {
   patientRateLimiter,
-  genericLimiter
+  genericLimiter,
 } from './middleware/rateLimitMiddleware.js';
 
 import swaggerLoader from './utils/swaggerLoader.js';
@@ -55,7 +55,8 @@ app.use('/api/v1/debug', jwtAuth, debugRoutes);
 let swaggerDocument;
 try {
   swaggerDocument = swaggerLoader();
-  if (!swaggerDocument) throw new Error('Failed to load Swagger documentation.');
+  if (!swaggerDocument)
+    throw new Error('Failed to load Swagger documentation.');
   console.log('✅ Swagger documentation validated and loaded.');
 } catch (err) {
   console.error('❌ Swagger load failed:', err.message);

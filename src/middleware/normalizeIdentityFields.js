@@ -72,8 +72,13 @@ export function normalizeIdentityFields(req, res, next) {
 
   // ✅ Optional fields → null if empty string
   const optionalFields = [
-    'address', 'birthday', 'anniversary', 'profilePicture',
-    'file_key', 'file_name', 'file_type'
+    'address',
+    'birthday',
+    'anniversary',
+    'profilePicture',
+    'file_key',
+    'file_name',
+    'file_type',
   ];
   for (const field of optionalFields) {
     if (typeof src?.[field] === 'string' && src[field].trim() === '') {

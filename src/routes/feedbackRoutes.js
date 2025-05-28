@@ -16,21 +16,23 @@ const router = express.Router();
  */
 wrapAutoRBAC(router, 'feedbackRoutes', {
   post: [
-    ['/', feedbackValidator, (req, res) => {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(HTTP_STATUS.BAD_REQUEST).json({
-          errors: errors.array(),
-          message: RESPONSE_MESSAGES.VALIDATION_FAILED,
-        });
-      }
+    [
+      '/',
+      feedbackValidator,
+      (req, res) => {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+          return res.status(HTTP_STATUS.BAD_REQUEST).json({
+            errors: errors.array(),
+            message: RESPONSE_MESSAGES.VALIDATION_FAILED,
+          });
+        }
 
-      return feedbackController.submitFeedback(req, res);
-    }]
+        return feedbackController.submitFeedback(req, res);
+      },
+    ],
   ],
-  get: [
-    ['/uid/:uid', feedbackController.getFeedbackByUID]
-  ]
+  get: [['/uid/:uid', feedbackController.getFeedbackByUID]],
 });
 
 export default router;

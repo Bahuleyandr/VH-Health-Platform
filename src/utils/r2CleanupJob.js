@@ -57,7 +57,9 @@ export async function executeCleanup() {
       continuationToken = pageResult.NextContinuationToken;
     } while (continuationToken);
 
-    logger.info(`✅ R2 cleanup completed. Checked: ${totalFilesChecked}, Deleted: ${totalFilesDeleted}`);
+    logger.info(
+      `✅ R2 cleanup completed. Checked: ${totalFilesChecked}, Deleted: ${totalFilesDeleted}`,
+    );
   } catch (err) {
     logger.error('❌ R2 cleanup job failed:', err);
   }
@@ -70,5 +72,7 @@ export function scheduleCleanupJob() {
   cron.schedule('0 3 1 * *', () => {
     executeCleanup();
   });
-  logger.info('⏰ R2 Cleanup job scheduled to run monthly on the 1st at 03:00 AM.');
+  logger.info(
+    '⏰ R2 Cleanup job scheduled to run monthly on the 1st at 03:00 AM.',
+  );
 }

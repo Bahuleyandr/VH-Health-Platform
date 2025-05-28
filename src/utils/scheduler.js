@@ -10,7 +10,10 @@ import { cleanupOldBackups as cleanupBackups } from '../../admin/cleanup-backups
 import loadSwaggerDocument from './swaggerLoader.js';
 
 // R2 Maintenance Jobs
-import { scheduleCleanupJob as scheduleR2CleanupJob, executeCleanup } from './r2CleanupJob.js';
+import {
+  scheduleCleanupJob as scheduleR2CleanupJob,
+  executeCleanup,
+} from './r2CleanupJob.js';
 import { scheduleArchiveMigrationJob } from './archiveMigrationJob.js';
 
 // 🗓️ Daily at 00:00 - Purge old logs

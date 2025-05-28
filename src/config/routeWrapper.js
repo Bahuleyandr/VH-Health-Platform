@@ -1,11 +1,17 @@
 // src/config/routeWrapper.js
 
 import rbac from '../middleware/rbacMiddleware.js';
-import { dynamicRoleRateLimiter, getRateLimiter } from '../middleware/rateLimitMiddleware.js';
+import {
+  dynamicRoleRateLimiter,
+  getRateLimiter,
+} from '../middleware/rateLimitMiddleware.js';
 import rbacConfig from './rbacConfig.js';
 import { auditLogger } from '../middleware/auditLogger.js';
 import { validateUID, validatePhone } from '../middleware/identityValidator.js';
-import { ROUTE_RATE_PROFILES, ROUTE_AUDIT_DISABLED } from './routeWrapperSettings.js';
+import {
+  ROUTE_RATE_PROFILES,
+  ROUTE_AUDIT_DISABLED,
+} from './routeWrapperSettings.js';
 
 /**
  * Base wrapper function to attach RBAC, rate limits, audit logging, and identity validation.
@@ -16,7 +22,7 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
     requirePhone = true,
     skipRBAC = false,
     skipAudit = false,
-    configKey = null
+    configKey = null,
   } = options;
 
   // ✅ Conditionally apply RBAC
@@ -31,7 +37,9 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
   }
 
   for (const [method, routes] of Object.entries(routeMap)) {
-    const isWrite = ['post', 'put', 'patch', 'delete'].includes(method.toLowerCase());
+    const isWrite = ['post', 'put', 'patch', 'delete'].includes(
+      method.toLowerCase(),
+    );
 
     routes.forEach(([path, ...handlers]) => {
       const base = [];
@@ -39,7 +47,11 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
       // ✅ Apply rate limiter per routeKey
       const routeKey = `${configKey || 'generic'}.${method.toLowerCase()}`;
       const profile = ROUTE_RATE_PROFILES[routeKey];
-      const limiter = profile ? getRateLimiter(profile) : (isWrite ? dynamicRoleRateLimiter : null);
+      const limiter = profile
+        ? getRateLimiter(profile)
+        : isWrite
+          ? dynamicRoleRateLimiter
+          : null;
 
       if (limiter) base.push(limiter);
       if (requireUID) base.push(validateUID);
@@ -55,17 +67,31 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
 /**
  * wrapRoutes — for general use, no validation chaining
  */
-export function wrapRoutes(router, allowedRoles = [], routeMap = {}, options = {}) {
+export function wrapRoutes(
+  router,
+  allowedRoles = [],
+  routeMap = {},
+  options = {},
+) {
   return applyWrappers(router, allowedRoles, routeMap, options);
 }
 
 /**
  * wrapRoutesWithValidation — assumes validator and handler
  */
-export function wrapRoutesWithValidation(router, allowedRoles = [], routeMap = {}, options = {}) {
+export function wrapRoutesWithValidation(
+  router,
+  allowedRoles = [],
+  routeMap = {},
+  options = {},
+) {
   const adjustedMap = {};
   for (const [method, routes] of Object.entries(routeMap)) {
-    adjustedMap[method] = routes.map(([path, validator, handler]) => [path, validator, handler]);
+    adjustedMap[method] = routes.map(([path, validator, handler]) => [
+      path,
+      validator,
+      handler,
+    ]);
   }
   return applyWrappers(router, allowedRoles, adjustedMap, options);
 }

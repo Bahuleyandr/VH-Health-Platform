@@ -16,15 +16,19 @@ export const phoneValidator = [
     .if(body('phone').exists())
     .trim()
     .customSanitizer(phoneSanitizer)
-    .isLength({ min: 10, max: 10 }).withMessage('Phone number must be 10 digits')
-    .isNumeric().withMessage('Phone number must contain only numbers'),
+    .isLength({ min: 10, max: 10 })
+    .withMessage('Phone number must be 10 digits')
+    .isNumeric()
+    .withMessage('Phone number must contain only numbers'),
 
   body('phoneNumber')
     .if(body('phoneNumber').exists())
     .trim()
     .customSanitizer(phoneSanitizer)
-    .isLength({ min: 10, max: 10 }).withMessage('Phone number must be 10 digits')
-    .isNumeric().withMessage('Phone number must contain only numbers'),
+    .isLength({ min: 10, max: 10 })
+    .withMessage('Phone number must be 10 digits')
+    .isNumeric()
+    .withMessage('Phone number must contain only numbers'),
 ];
 
 /**
@@ -32,9 +36,12 @@ export const phoneValidator = [
  */
 export const otpValidator = body('otp')
   .trim()
-  .notEmpty().withMessage('OTP is required')
-  .isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits')
-  .isNumeric().withMessage('OTP must contain only numbers');
+  .notEmpty()
+  .withMessage('OTP is required')
+  .isLength({ min: 6, max: 6 })
+  .withMessage('OTP must be 6 digits')
+  .isNumeric()
+  .withMessage('OTP must contain only numbers');
 
 /**
  * ✅ User Profile Validator
@@ -44,12 +51,23 @@ export const userProfileValidator = [
   body('name').trim().notEmpty().withMessage('Name is required'),
   body('gender')
     .trim()
-    .notEmpty().withMessage('Gender is required')
-    .custom((value) => ['male', 'female', 'other'].includes(value.toLowerCase()))
+    .notEmpty()
+    .withMessage('Gender is required')
+    .custom((value) =>
+      ['male', 'female', 'other'].includes(value.toLowerCase()),
+    )
     .withMessage('Gender must be Male, Female, or Other'),
   body('email').optional().isEmail().withMessage('Invalid email format'),
-  body('birthday').optional().isISO8601().toDate().withMessage('Invalid birthday format (YYYY-MM-DD)'),
-  body('anniversary').optional().isISO8601().toDate().withMessage('Invalid anniversary format (YYYY-MM-DD)'),
+  body('birthday')
+    .optional()
+    .isISO8601()
+    .toDate()
+    .withMessage('Invalid birthday format (YYYY-MM-DD)'),
+  body('anniversary')
+    .optional()
+    .isISO8601()
+    .toDate()
+    .withMessage('Invalid anniversary format (YYYY-MM-DD)'),
   body('address').optional().isString().withMessage('Address must be a string'),
 
   // ✅ Only admins can set the 'role' field
@@ -60,7 +78,7 @@ export const userProfileValidator = [
         throw new Error('Only admins can assign role');
       }
       return true;
-    })
+    }),
 ];
 
 /**
@@ -68,8 +86,11 @@ export const userProfileValidator = [
  */
 export const feedbackValidator = [
   ...phoneValidator,
-  body('rating').notEmpty().withMessage('Rating is required')
-    .isInt({ min: 1, max: 5 }).withMessage('Rating must be between 1 and 5'),
+  body('rating')
+    .notEmpty()
+    .withMessage('Rating is required')
+    .isInt({ min: 1, max: 5 })
+    .withMessage('Rating must be between 1 and 5'),
   body('comment').optional().isString().withMessage('Comment must be a string'),
 ];
 
@@ -89,7 +110,10 @@ export const appointmentValidator = [
 export const pharmacyOrderValidator = [
   ...phoneValidator,
   body('order_note').trim().notEmpty().withMessage('Order note is required'),
-  body('file_key').optional().isString().withMessage('File key must be a string'),
+  body('file_key')
+    .optional()
+    .isString()
+    .withMessage('File key must be a string'),
 ];
 
 /**
@@ -98,7 +122,10 @@ export const pharmacyOrderValidator = [
 export const investigationRequestValidator = [
   ...phoneValidator,
   body('test_name').trim().notEmpty().withMessage('Test name is required'),
-  body('file_key').optional().isString().withMessage('File key must be a string'),
+  body('file_key')
+    .optional()
+    .isString()
+    .withMessage('File key must be a string'),
 ];
 
 /**
@@ -114,6 +141,12 @@ export const healthRecordValidator = [
  */
 export const sosAlertValidator = [
   ...phoneValidator,
-  body('latitude').optional().isFloat().withMessage('Latitude must be a number'),
-  body('longitude').optional().isFloat().withMessage('Longitude must be a number'),
+  body('latitude')
+    .optional()
+    .isFloat()
+    .withMessage('Latitude must be a number'),
+  body('longitude')
+    .optional()
+    .isFloat()
+    .withMessage('Longitude must be a number'),
 ];

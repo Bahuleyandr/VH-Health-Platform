@@ -1,7 +1,8 @@
 import request from 'supertest';
 import app from '../app.js';
 
-import testClient from './testClient.js';describe('Investigation API', () => {
+import testClient from './testClient.js';
+describe('Investigation API', () => {
   it('should fail without phone or test_name', async () => {
     const res = await testClient().post('/api/v1/investigations').send({});
     expect(res.statusCode).toBe(400);
@@ -10,7 +11,7 @@ import testClient from './testClient.js';describe('Investigation API', () => {
   it('should create an investigation', async () => {
     const res = await testClient().post('/api/v1/investigations').send({
       phone: '9876543210',
-      test_name: 'Blood Test'
+      test_name: 'Blood Test',
     });
     expect(res.statusCode).toBe(200);
   });

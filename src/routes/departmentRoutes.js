@@ -16,15 +16,14 @@ const router = express.Router();
 wrapAutoRBAC(router, 'departmentRoutes', {
   get: [
     ['/', departmentController.getAllDepartments],
-    ['/departments-with-doctors', departmentController.getDepartmentsWithDoctors],
-    ['/:departmentId', departmentController.getDepartmentById]
+    [
+      '/departments-with-doctors',
+      departmentController.getDepartmentsWithDoctors,
+    ],
+    ['/:departmentId', departmentController.getDepartmentById],
   ],
- post: [
-    ['/', departmentController.addDepartment]
-  ],
-  delete: [
-    ['/:departmentId', departmentController.deleteDepartment]
-  ]
+  post: [['/', departmentController.addDepartment]],
+  delete: [['/:departmentId', departmentController.deleteDepartment]],
 });
 
 export default router;

@@ -35,4 +35,6 @@ if (packageJson.dependencies['aws-sdk']) {
 }
 
 fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2));
-console.log('✅ package.json updated successfully. Please run npm install to apply changes.');
+console.log(
+  '✅ package.json updated successfully. Please run npm install to apply changes.',
+);

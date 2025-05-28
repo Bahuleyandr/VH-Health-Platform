@@ -1,9 +1,12 @@
 import request from 'supertest';
 import app from '../app.js';
 
-import testClient from './testClient.js';describe('Admin Department and Doctor API', () => {
+import testClient from './testClient.js';
+describe('Admin Department and Doctor API', () => {
   it('should add or update a department', async () => {
-    const res = await testClient().post('/api/v1/admin/departments').send({ name: 'Cardiology' });
+    const res = await testClient()
+      .post('/api/v1/admin/departments')
+      .send({ name: 'Cardiology' });
     expect(res.statusCode).toBe(200);
   });
 
@@ -17,7 +20,7 @@ import testClient from './testClient.js';describe('Admin Department and Doctor A
       name: 'Dr. Admin Test',
       department: 'Cardiology',
       intro: 'Specialist in heart health',
-      imageUrl: 'http://example.com/image.jpg'
+      imageUrl: 'http://example.com/image.jpg',
     });
     expect(res.statusCode).toBe(200);
   });

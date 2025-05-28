@@ -16,7 +16,9 @@ export default function loggingMiddleware(req, res, next) {
   const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
 
   // Log in structured format
-  logger.info(`[${timestamp}] ${method} ${originalUrl} | UID: ${uid} | IP: ${ip}`);
+  logger.info(
+    `[${timestamp}] ${method} ${originalUrl} | UID: ${uid} | IP: ${ip}`,
+  );
 
   next();
 }

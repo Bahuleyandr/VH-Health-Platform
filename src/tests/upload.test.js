@@ -3,7 +3,8 @@ import app from '../app.js';
 import path from 'path';
 import fs from 'fs';
 
-import testClient from './testClient.js';describe('File Upload API', () => {
+import testClient from './testClient.js';
+describe('File Upload API', () => {
   const filePath = path.resolve('src/tests/testfile.pdf');
 
   beforeAll(() => {

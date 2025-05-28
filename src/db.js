@@ -7,11 +7,13 @@ if (!connectionString) {
   process.exit(1);
 }
 
-const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
+const isLocal =
+  connectionString.includes('localhost') ||
+  connectionString.includes('127.0.0.1');
 
 const pool = new Pool({
   connectionString,
-  ssl: isLocal ? false : { rejectUnauthorized: false }
+  ssl: isLocal ? false : { rejectUnauthorized: false },
 });
 
 export default pool;

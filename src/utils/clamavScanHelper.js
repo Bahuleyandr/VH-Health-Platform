@@ -16,7 +16,9 @@ export async function scanFileWithClamAV(fileUrl) {
     });
 
     if (!response.ok) {
-      logger.warn(`ClamAV scan failed for ${fileUrl}, status: ${response.status}`);
+      logger.warn(
+        `ClamAV scan failed for ${fileUrl}, status: ${response.status}`,
+      );
       return { status: 'error', error: 'Scan API failed' };
     }
 

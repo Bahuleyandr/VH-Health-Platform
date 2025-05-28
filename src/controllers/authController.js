@@ -16,7 +16,9 @@ export async function login(req, res) {
   }
 
   try {
-    const result = await db.query('SELECT * FROM users WHERE phone = $1', [phone]);
+    const result = await db.query('SELECT * FROM users WHERE phone = $1', [
+      phone,
+    ]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, error: 'User not found' });
@@ -26,7 +28,7 @@ export async function login(req, res) {
     const token = generateToken({
       uid: user.uid,
       phone: user.phone,
-      role: user.role
+      role: user.role,
     });
 
     success(res, { token }, 'Login successful');
@@ -43,14 +45,20 @@ export async function register(req, res) {
   const { phone, name } = req.body;
 
   if (!phone || !name) {
-    return res.status(400).json({ success: false, error: 'Phone and name are required' });
+    return res
+      .status(400)
+      .json({ success: false, error: 'Phone and name are required' });
   }
 
   try {
-    const existing = await db.query('SELECT * FROM users WHERE phone = $1', [phone]);
+    const existing = await db.query('SELECT * FROM users WHERE phone = $1', [
+      phone,
+    ]);
 
     if (existing.rows.length > 0) {
-      return res.status(409).json({ success: false, error: 'User already exists' });
+      return res
+        .status(409)
+        .json({ success: false, error: 'User already exists' });
     }
 
     // 🛠️ Automatically assign ADMIN role if phone is 9962074440
@@ -58,14 +66,14 @@ export async function register(req, res) {
 
     const insert = await db.query(
       'INSERT INTO users (phone, name, role, registered_at) VALUES ($1, $2, $3, NOW()) RETURNING *',
-      [phone, name, role]
+      [phone, name, role],
     );
 
     const user = insert.rows[0];
     const token = generateToken({
       uid: user.uid,
       phone: user.phone,
-      role: user.role
+      role: user.role,
     });
 
     success(res, { token, user }, 'Registration successful');
@@ -88,13 +96,15 @@ export async function refreshToken(req, res) {
   const decoded = verifyToken(token);
 
   if (!decoded) {
-    return res.status(401).json({ success: false, error: 'Invalid or expired token' });
+    return res
+      .status(401)
+      .json({ success: false, error: 'Invalid or expired token' });
   }
 
   const newToken = generateToken({
     uid: decoded.uid,
     phone: decoded.phone,
-    role: decoded.role
+    role: decoded.role,
   });
 
   success(res, { token: newToken }, 'Token refreshed successfully');
@@ -104,5 +114,7 @@ export async function refreshToken(req, res) {
  * ✅ Logout (stateless)
  */
 export async function logout(req, res) {
-  success(res, { message: 'Logged out successfully (client should discard token)' });
+  success(res, {
+    message: 'Logged out successfully (client should discard token)',
+  });
 }

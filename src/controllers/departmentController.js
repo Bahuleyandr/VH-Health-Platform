@@ -9,7 +9,7 @@ import { logAudit } from '../utils/logAudit.js';
 export async function getAllDepartments(req, res) {
   try {
     const result = await pool.query(
-      'SELECT * FROM departments ORDER BY name ASC'
+      'SELECT * FROM departments ORDER BY name ASC',
     );
     success(res, result.rows, 'Departments fetched successfully');
   } catch (err) {
@@ -29,10 +29,9 @@ export async function getDepartmentById(req, res) {
   }
 
   try {
-    const result = await pool.query(
-      'SELECT * FROM departments WHERE id = $1',
-      [departmentId]
-    );
+    const result = await pool.query('SELECT * FROM departments WHERE id = $1', [
+      departmentId,
+    ]);
 
     if (result.rows.length > 0) {
       success(res, result.rows[0], 'Department found');
@@ -56,7 +55,7 @@ export async function getDepartmentsWithDoctors(req, res) {
        FROM departments d
        LEFT JOIN doctors doc ON doc.department_id = d.id
        GROUP BY d.id, d.name
-       ORDER BY d.name ASC`
+       ORDER BY d.name ASC`,
     );
     success(res, result.rows, 'Departments with doctors fetched');
   } catch (err) {
@@ -72,12 +71,13 @@ export async function addDepartment(req, res) {
   const { name } = req.body;
 
   if (!name) return error(res, 'Department name is required', 400);
-  if (req.user?.role !== 'ADMIN') return error(res, 'Only admins can add departments', 403);
+  if (req.user?.role !== 'ADMIN')
+    return error(res, 'Only admins can add departments', 403);
 
   try {
     const result = await pool.query(
       'INSERT INTO departments (name) VALUES ($1) RETURNING *',
-      [name.trim()]
+      [name.trim()],
     );
     success(res, result.rows[0], 'Department created');
   } catch (err) {
@@ -93,17 +93,21 @@ export async function deleteDepartment(req, res) {
   const { departmentId } = req.params;
 
   if (!departmentId) return error(res, 'Department ID required', 400);
-  if (req.user?.role !== 'ADMIN') return error(res, 'Only admins can delete departments', 403);
+  if (req.user?.role !== 'ADMIN')
+    return error(res, 'Only admins can delete departments', 403);
 
   try {
-    const result = await pool.query('DELETE FROM departments WHERE id = $1 RETURNING *', [departmentId]);
+    const result = await pool.query(
+      'DELETE FROM departments WHERE id = $1 RETURNING *',
+      [departmentId],
+    );
     if (result.rows.length) {
       const deleted = result.rows[0];
 
       // ✅ Audit log
       await logAudit(req, 'delete-department', {
         departmentId,
-        name: deleted.name
+        name: deleted.name,
       });
 
       success(res, deleted, 'Department deleted');

@@ -18,7 +18,7 @@ export async function healthCheck(req, res) {
       } catch (err) {
         retries -= 1;
         if (!retries) throw new Error('Database unreachable');
-        await new Promise(resolve => setTimeout(resolve, 1000)); // 1s delay
+        await new Promise((resolve) => setTimeout(resolve, 1000)); // 1s delay
       }
     }
 

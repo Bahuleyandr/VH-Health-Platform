@@ -11,7 +11,7 @@ const __dirname = path.dirname(__filename);
 
 // Load environment variables
 dotenv.config({
-  path: path.resolve(__dirname, '../../.env.local') // Adjust if you want .env.render or fallback
+  path: path.resolve(__dirname, '../../.env.local'), // Adjust if you want .env.render or fallback
 });
 
 (async () => {

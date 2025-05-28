@@ -21,7 +21,10 @@ export default function authMiddleware(req, res, next) {
   }
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ success: false, error: 'Authorization token missing or malformed' });
+    return res.status(401).json({
+      success: false,
+      error: 'Authorization token missing or malformed',
+    });
   }
 
   const token = authHeader.split(' ')[1];
@@ -31,6 +34,8 @@ export default function authMiddleware(req, res, next) {
     req.user = decoded;
     next();
   } catch (err) {
-    return res.status(401).json({ success: false, error: 'Invalid or expired token' });
+    return res
+      .status(401)
+      .json({ success: false, error: 'Invalid or expired token' });
   }
 }

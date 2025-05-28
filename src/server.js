@@ -40,4 +40,6 @@ swaggerLoader(app);
 app.use(errorHandler);
 
 // ✅ Start Server
-app.listen(PORT, () => logger.info(`VH Health Backend running on port ${PORT}`));
+app.listen(PORT, () =>
+  logger.info(`VH Health Backend running on port ${PORT}`),
+);

@@ -3,7 +3,7 @@
 /**
  * Normalize phone number to +91xxxxxxxxxx format (India-specific).
  * Accepts string or numeric input, trims, strips non-digits, and ensures 10-digit format.
- * 
+ *
  * @param {string|number} phoneInput - Raw phone input from user or request.
  * @returns {string|null} - Normalized phone number like +919876543210 or null if invalid.
  */
