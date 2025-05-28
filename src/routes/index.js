@@ -1,5 +1,3 @@
-// src/routes/index.js
-
 import upload from './uploadRoutes.js';
 import debug from './debugRoutes.js';
 import users from './userRoutes.js';
@@ -17,6 +15,7 @@ import otp from './otpRoutes.js';
 import version from './versionRoutes.js';
 import health from './healthRoutes.js';
 import sos from './sosRoutes.js';
+import devices from './deviceRoutes.js'; // ✅ Newly added
 
 export default {
   auth,
@@ -35,5 +34,6 @@ export default {
   otp,
   version,
   health,
-  sos
+  sos,
+  devices
 };

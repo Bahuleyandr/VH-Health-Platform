@@ -1,8 +1,9 @@
-// src/routes/adminRoutes.js
-
 import express from 'express';
 import * as adminController from '../controllers/adminController.js';
 import { wrapAutoRBAC } from '../config/routeWrapper.js';
+import validateApiKey from '../middleware/validateApiKey.js';
+import jwtMiddleware from '../middleware/jwtMiddleware.js';
+import rbac from '../middleware/rbacMiddleware.js';
 
 const router = express.Router();
 
@@ -24,8 +25,10 @@ wrapAutoRBAC(router, 'adminRoutes', {
       });
     }],
 
-    // ✅ View role change audit log
-    ['/users/audit', adminController.viewRoleAudit]
+    ['/users/audit', adminController.viewRoleAudit],
+
+    // ✅ Audit logs viewer
+    ['/audit/logs', adminController.getAuditLogs]
   ],
   post: [
     ['/r2/cleanup', adminController.cleanupR2Files],
@@ -35,7 +38,10 @@ wrapAutoRBAC(router, 'adminRoutes', {
     ['/logs/cleanup', adminController.cleanupLogs],
     ['/logs/purge', adminController.purgeLogs],
     ['/fix-permissions', adminController.fixPermissions],
-    ['/swagger/validate', adminController.validateSwagger]
+    ['/swagger/validate', adminController.validateSwagger],
+
+    // ✅ Admin-triggered push
+    ['/push-test', adminController.sendTestNotification]
   ]
 }, {
   requireUID: false,
