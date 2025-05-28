@@ -2,7 +2,7 @@
 
 import pool from '../db.js';
 import admin from '../utils/firebaseAdmin.js';
-import { generateToken } from '../utils/jwtHelper.js';
+import { generateToken } from '../utils/jwtUtils.js';
 
 /**
  * ✅ Handle secure Firebase OTP login using ID token
@@ -15,7 +15,6 @@ export async function firebaseLogin(req, res) {
   }
 
   try {
-    // ✅ Verify ID token using Firebase Admin SDK
     const decoded = await admin.auth().verifyIdToken(idToken);
     const phone = decoded.phone_number;
 
@@ -23,12 +22,10 @@ export async function firebaseLogin(req, res) {
       return res.status(400).json({ success: false, message: 'Phone number missing in ID token' });
     }
 
-    // ✅ Check if user already exists
     const result = await pool.query('SELECT * FROM users WHERE phone = $1', [phone]);
 
     let user;
     if (result.rows.length === 0) {
-      // ✅ Create new user if not found
       const insert = await pool.query(
         `INSERT INTO users (phone, created_at) VALUES ($1, NOW()) RETURNING *`,
         [phone]
@@ -38,7 +35,6 @@ export async function firebaseLogin(req, res) {
       user = result.rows[0];
     }
 
-    // ✅ Generate your own access token
     const accessToken = generateToken({ uid: user.uid, role: user.role });
 
     return res.status(200).json({
