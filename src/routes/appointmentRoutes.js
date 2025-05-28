@@ -19,46 +19,53 @@ const router = express.Router();
  */
 wrapAutoRBAC(router, 'appointmentRoutes', {
   post: [
-    ['/', appointmentValidator, async (req, res) => {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(HTTP_STATUS.BAD_REQUEST).json({
-          errors: errors.array(),
-          message: RESPONSE_MESSAGES.VALIDATION_FAILED,
-        });
-      }
+    [
+      '/',
+      appointmentValidator,
+      async (req, res) => {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+          return res.status(HTTP_STATUS.BAD_REQUEST).json({
+            errors: errors.array(),
+            message: RESPONSE_MESSAGES.VALIDATION_FAILED,
+          });
+        }
 
-      const phone = normalizePhone(req.body.phone || req.body.phoneNumber);  // ✅ corrected
-      const { doctor_name, date, time } = req.body;
+        const phone = normalizePhone(req.body.phone || req.body.phoneNumber); // ✅ corrected
+        const { doctor_name, date, time } = req.body;
 
-      try {
-        const result = await pool.query(
-          'INSERT INTO appointments (phone, doctor_name, date, time) VALUES ($1, $2, $3, $4) RETURNING *',
-          [phone, doctor_name, date, time]
-        );
-        success(res, result.rows[0], RESPONSE_MESSAGES.APPOINTMENT_BOOKED);
-      } catch (err) {
-        logger.error(err.stack || err.toString());
-        error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
-      }
-    }]
+        try {
+          const result = await pool.query(
+            'INSERT INTO appointments (phone, doctor_name, date, time) VALUES ($1, $2, $3, $4) RETURNING *',
+            [phone, doctor_name, date, time],
+          );
+          success(res, result.rows[0], RESPONSE_MESSAGES.APPOINTMENT_BOOKED);
+        } catch (err) {
+          logger.error(err.stack || err.toString());
+          error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
+        }
+      },
+    ],
   ],
   get: [
-    ['/:phone', async (req, res) => {
-      try {
-        const phone = normalizePhone(req.params.phone);  // ✅ corrected
-        const result = await pool.query(
-          'SELECT * FROM appointments WHERE phone = $1 ORDER BY date DESC',
-          [phone]
-        );
-        success(res, result.rows, 'Appointments fetched successfully');
-      } catch (err) {
-        logger.error(err.stack || err.toString());
-        error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
-      }
-    }],
-    ['/uid/:uid', appointmentController.getAppointmentsByUID]
-  ]
+    [
+      '/:phone',
+      async (req, res) => {
+        try {
+          const phone = normalizePhone(req.params.phone); // ✅ corrected
+          const result = await pool.query(
+            'SELECT * FROM appointments WHERE phone = $1 ORDER BY date DESC',
+            [phone],
+          );
+          success(res, result.rows, 'Appointments fetched successfully');
+        } catch (err) {
+          logger.error(err.stack || err.toString());
+          error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
+        }
+      },
+    ],
+    ['/uid/:uid', appointmentController.getAppointmentsByUID],
+  ],
 });
 
 export default router;

@@ -10,7 +10,10 @@ const swaggerPath = path.join(__dirname, '../docs/swagger.yaml');
 
 try {
   logger.info('🔍 Validating Swagger file using Spectral...');
-  execSync(`npx spectral lint --ruleset @stoplight/spectral-rulesets/oas ${swaggerPath}`, { stdio: 'inherit' });
+  execSync(
+    `npx spectral lint --ruleset @stoplight/spectral-rulesets/oas ${swaggerPath}`,
+    { stdio: 'inherit' },
+  );
   logger.info('✅ Swagger validation passed.');
   process.exit(0); // ensures success exit
 } catch (err) {

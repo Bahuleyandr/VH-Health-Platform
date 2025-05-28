@@ -16,13 +16,16 @@ const router = express.Router();
 const swaggerDocument = YAML.load(path.join(__dirname, '../docs/swagger.yaml'));
 
 // ✅ Public Swagger UI route with audit logging
-wrapRoutes(router, [], {
-  get: [
-    ['/', swaggerUi.serve, swaggerUi.setup(swaggerDocument)]
-  ]
-}, {
-  requireUID: false,
-  requirePhone: false
-});
+wrapRoutes(
+  router,
+  [],
+  {
+    get: [['/', swaggerUi.serve, swaggerUi.setup(swaggerDocument)]],
+  },
+  {
+    requireUID: false,
+    requirePhone: false,
+  },
+);
 
 export default router;

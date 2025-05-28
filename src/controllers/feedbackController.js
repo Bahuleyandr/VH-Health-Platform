@@ -3,7 +3,10 @@
 import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
 import db from '../db.js';
-import { resolvePhoneFromRequest, resolvePhoneFromUID } from '../utils/resolveIdentity.js';
+import {
+  resolvePhoneFromRequest,
+  resolvePhoneFromUID,
+} from '../utils/resolveIdentity.js';
 
 // ✅ Submit Feedback using resolved phone
 export async function submitFeedback(req, res) {
@@ -17,7 +20,7 @@ export async function submitFeedback(req, res) {
 
     const result = await db.query(
       'INSERT INTO feedback (phonenumber, rating, comment) VALUES ($1, $2, $3) RETURNING *',
-      [phone, rating, comment || null]
+      [phone, rating, comment || null],
     );
 
     success(res, result.rows[0], 'Feedback submitted successfully');
@@ -34,18 +37,27 @@ export async function getFeedbackByUID(req, res) {
     const resolvedPhone = await resolvePhoneFromUID(uid);
 
     if (!resolvedPhone) {
-      return res.status(404).json({ success: false, message: 'UID not found in users table' });
+      return res
+        .status(404)
+        .json({ success: false, message: 'UID not found in users table' });
     }
 
-    const result = await db.query('SELECT * FROM feedback WHERE phonenumber = $1', [resolvedPhone]);
+    const result = await db.query(
+      'SELECT * FROM feedback WHERE phonenumber = $1',
+      [resolvedPhone],
+    );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'No feedback found for this phone' });
+      return res
+        .status(404)
+        .json({ success: false, message: 'No feedback found for this phone' });
     }
 
     return res.status(200).json({ success: true, feedback: result.rows });
   } catch (error) {
     logger.error('Get Feedback By UID Error:', error);
-    return res.status(500).json({ success: false, message: 'Internal server error' });
+    return res
+      .status(500)
+      .json({ success: false, message: 'Internal server error' });
   }
 }

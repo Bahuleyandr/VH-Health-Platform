@@ -18,13 +18,13 @@ export const registerDevice = async (req, res) => {
        SET fcm_token = EXCLUDED.fcm_token,
            platform = EXCLUDED.platform,
            updated_at = NOW()`,
-      [phone, fcm_token, platform]
+      [phone, fcm_token, platform],
     );
 
     await pool.query(
       `INSERT INTO audit_logs (action, phone, platform)
        VALUES ($1, $2, $3)`,
-      ['DEVICE_REGISTERED', phone, platform]
+      ['DEVICE_REGISTERED', phone, platform],
     );
 
     console.info(`[DEVICE REGISTERED] Phone: ${phone}, Platform: ${platform}`);

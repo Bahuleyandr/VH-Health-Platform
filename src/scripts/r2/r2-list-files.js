@@ -15,10 +15,12 @@ async function run() {
       return;
     }
 
-    files.forEach(file => {
+    files.forEach((file) => {
       const lastModified = dayjs(file.LastModified);
       const ageDays = dayjs().diff(lastModified, 'day');
-      console.log(`🗂️ ${file.Key} (Age: ${ageDays} days, Size: ${file.Size} bytes, Last Modified: ${file.LastModified})`);
+      console.log(
+        `🗂️ ${file.Key} (Age: ${ageDays} days, Size: ${file.Size} bytes, Last Modified: ${file.LastModified})`,
+      );
     });
 
     console.log(`\n✅ ${files.length} files listed.`);

@@ -10,10 +10,10 @@ const __dirname = path.dirname(__filename);
 
 const TARGET_DIRECTORIES = [
   path.join(__dirname, '../logs'),
-  path.join(__dirname, '../backups')
+  path.join(__dirname, '../backups'),
 ];
 
-TARGET_DIRECTORIES.forEach(dir => {
+TARGET_DIRECTORIES.forEach((dir) => {
   if (fs.existsSync(dir)) {
     console.log(`🔧 Fixing permissions for ${dir}`);
     try {

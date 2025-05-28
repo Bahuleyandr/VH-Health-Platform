@@ -6,7 +6,7 @@ import cors from 'cors';
  * Dynamically configure allowed origins based on environment variable ALLOWED_ORIGINS.
  */
 const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
+  ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim())
   : [];
 
 const corsMiddleware = cors({

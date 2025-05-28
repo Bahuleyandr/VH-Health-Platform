@@ -11,6 +11,12 @@
       "@docs/*": ["docs/*"],
       "@scripts/*": ["scripts/*"],
       "@bin/*": ["bin/*"]
-    }
-  }
+    },
+    "checkJs": true,
+    "allowJs": true,
+    "module": "ESNext",
+    "target": "ES2021",
+    "moduleResolution": "node"
+  },
+  "include": ["src"]
 }

@@ -35,5 +35,5 @@ export default {
   version,
   health,
   sos,
-  devices
+  devices,
 };

@@ -27,7 +27,7 @@ const logger = createLogger({
   level: 'debug',
   format: format.combine(
     format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-    logFormat
+    logFormat,
   ),
   transports: [
     // Console logger with color
@@ -35,7 +35,7 @@ const logger = createLogger({
       format: format.combine(
         format.colorize(),
         format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-        logFormat
+        logFormat,
       ),
     }),
 

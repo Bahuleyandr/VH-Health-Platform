@@ -1,7 +1,8 @@
 import request from 'supertest';
 import app from '../app.js';
 
-import testClient from './testClient.js';describe('Health Records API', () => {
+import testClient from './testClient.js';
+describe('Health Records API', () => {
   it('should fail without phone or file_key', async () => {
     const res = await testClient().post('/api/v1/records').send({});
     expect(res.statusCode).toBe(400);
@@ -10,7 +11,7 @@ import testClient from './testClient.js';describe('Health Records API', () => {
   it('should add health record', async () => {
     const res = await testClient().post('/api/v1/records').send({
       phone: '9876543210',
-      file_key: 'testfile.pdf'
+      file_key: 'testfile.pdf',
     });
     expect(res.statusCode).toBe(200);
   });

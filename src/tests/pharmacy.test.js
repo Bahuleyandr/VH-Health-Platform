@@ -13,7 +13,7 @@ describe('Pharmacy Orders API', () => {
       `INSERT INTO pharmacy_orders (phone, order_note, status, placed_at)
        VALUES ($1, 'Test seed order', 'pending', NOW())
        RETURNING id`,
-      [phone]
+      [phone],
     );
     seededOrderId = result.rows[0].id;
   });
@@ -40,7 +40,7 @@ describe('Pharmacy Orders API', () => {
         phone,
         order_id: seededOrderId,
         status: 'fulfilled',
-        notes: 'Paracetamol 500mg'
+        notes: 'Paracetamol 500mg',
       });
     expect(res.statusCode).toBe(200);
     expect(res.body.data.status).toBe('fulfilled');

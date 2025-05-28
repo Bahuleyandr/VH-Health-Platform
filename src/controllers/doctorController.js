@@ -12,7 +12,7 @@ export async function getAllDoctors(req, res) {
 
     if (!query) {
       const result = await pool.query(
-        'SELECT * FROM doctors ORDER BY name ASC'
+        'SELECT * FROM doctors ORDER BY name ASC',
       );
       return success(res, result.rows, 'Doctors fetched successfully');
     }
@@ -23,7 +23,7 @@ export async function getAllDoctors(req, res) {
       `SELECT * FROM doctors 
        WHERE LOWER(name) LIKE $1 OR LOWER(specialty) LIKE $1 
        ORDER BY name ASC`,
-      [searchPattern]
+      [searchPattern],
     );
 
     success(res, result.rows, 'Doctor search results');
@@ -44,10 +44,9 @@ export async function getDoctorById(req, res) {
   }
 
   try {
-    const result = await pool.query(
-      'SELECT * FROM doctors WHERE id = $1',
-      [doctorId]
-    );
+    const result = await pool.query('SELECT * FROM doctors WHERE id = $1', [
+      doctorId,
+    ]);
 
     if (result.rows.length) {
       success(res, result.rows[0], 'Doctor profile found');
@@ -78,7 +77,7 @@ export async function addDoctor(req, res) {
     const result = await pool.query(
       `INSERT INTO doctors (name, specialty, department_id) 
        VALUES ($1, $2, $3) RETURNING *`,
-      [name.trim(), specialty.trim(), department_id]
+      [name.trim(), specialty.trim(), department_id],
     );
     success(res, result.rows[0], 'Doctor added successfully');
   } catch (err) {
@@ -104,7 +103,7 @@ export async function deleteDoctor(req, res) {
   try {
     const result = await pool.query(
       'DELETE FROM doctors WHERE id = $1 RETURNING *',
-      [doctorId]
+      [doctorId],
     );
 
     if (result.rows.length) {
@@ -115,7 +114,7 @@ export async function deleteDoctor(req, res) {
         doctorId,
         name: deleted.name,
         specialty: deleted.specialty,
-        department_id: deleted.department_id
+        department_id: deleted.department_id,
       });
 
       success(res, deleted, 'Doctor deleted successfully');

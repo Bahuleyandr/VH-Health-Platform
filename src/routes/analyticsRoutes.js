@@ -9,8 +9,8 @@ wrapAutoRBAC(router, 'analyticsRoutes', {
     ['/registrations', analyticsController.getUserRegistrations],
     ['/counts', analyticsController.getEntityCounts],
     ['/active-users', analyticsController.getActiveUsers],
-    ['/active-departments', analyticsController.getActiveDepartments]
-  ]
+    ['/active-departments', analyticsController.getActiveDepartments],
+  ],
 });
 
 export default router;

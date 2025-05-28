@@ -14,7 +14,7 @@ dotenv.config();
 function normalizePort(val) {
   const port = parseInt(val, 10);
   if (isNaN(port)) return val; // Named pipe
-  if (port >= 0) return port;  // Port number
+  if (port >= 0) return port; // Port number
   return false;
 }
 

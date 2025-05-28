@@ -21,16 +21,19 @@ const rl = readline.createInterface({
   output: process.stdout,
 });
 
-rl.question(`Are you sure you want to purge all logs in ${logsDir}? (yes/no): `, (answer) => {
-  if (answer.toLowerCase() === 'yes' || answer.toLowerCase() === 'y') {
-    const files = fs.readdirSync(logsDir);
-    files.forEach(file => {
-      const filePath = path.join(logsDir, file);
-      fs.unlinkSync(filePath);
-    });
-    console.log('All logs have been purged.');
-  } else {
-    console.log('Purge cancelled.');
-  }
-  rl.close();
-});
+rl.question(
+  `Are you sure you want to purge all logs in ${logsDir}? (yes/no): `,
+  (answer) => {
+    if (answer.toLowerCase() === 'yes' || answer.toLowerCase() === 'y') {
+      const files = fs.readdirSync(logsDir);
+      files.forEach((file) => {
+        const filePath = path.join(logsDir, file);
+        fs.unlinkSync(filePath);
+      });
+      console.log('All logs have been purged.');
+    } else {
+      console.log('Purge cancelled.');
+    }
+    rl.close();
+  },
+);

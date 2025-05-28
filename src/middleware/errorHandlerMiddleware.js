@@ -18,7 +18,9 @@ export default function errorHandlerMiddleware(err, req, res, next) {
     Sentry.captureException(err);
   }
 
-  logger.error(`[${new Date().toISOString()}] ${statusCode} - ${message} - ${req.originalUrl} - ${req.method}`);
+  logger.error(
+    `[${new Date().toISOString()}] ${statusCode} - ${message} - ${req.originalUrl} - ${req.method}`,
+  );
 
   res.status(statusCode).json({
     success: false,

@@ -1,7 +1,8 @@
 import request from 'supertest';
 import app from '../app.js';
 
-import testClient from './testClient.js';describe('Feedback API', () => {
+import testClient from './testClient.js';
+describe('Feedback API', () => {
   it('should fail without phoneNumber or rating', async () => {
     const res = await testClient().post('/api/v1/feedback').send({});
     expect(res.statusCode).toBe(400);
@@ -11,7 +12,7 @@ import testClient from './testClient.js';describe('Feedback API', () => {
     const res = await testClient().post('/api/v1/feedback').send({
       phoneNumber: '9876543210',
       rating: 5,
-      comment: 'Excellent service!'
+      comment: 'Excellent service!',
     });
     expect(res.statusCode).toBe(200);
   });

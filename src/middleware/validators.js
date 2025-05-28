@@ -8,9 +8,12 @@ import { body } from 'express-validator';
  */
 export const validatePhoneNumber = body('phoneNumber')
   .trim()
-  .notEmpty().withMessage('Phone number is required')
-  .isLength({ min: 10, max: 10 }).withMessage('Phone number must be 10 digits')
-  .isNumeric().withMessage('Phone number must contain only numbers');
+  .notEmpty()
+  .withMessage('Phone number is required')
+  .isLength({ min: 10, max: 10 })
+  .withMessage('Phone number must be 10 digits')
+  .isNumeric()
+  .withMessage('Phone number must contain only numbers');
 
 /**
  * OTP validation middleware
@@ -18,6 +21,9 @@ export const validatePhoneNumber = body('phoneNumber')
  */
 export const validateOTP = body('otp')
   .trim()
-  .notEmpty().withMessage('OTP is required')
-  .isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits')
-  .isNumeric().withMessage('OTP must contain only numbers');
+  .notEmpty()
+  .withMessage('OTP is required')
+  .isLength({ min: 6, max: 6 })
+  .withMessage('OTP must be 6 digits')
+  .isNumeric()
+  .withMessage('OTP must contain only numbers');
