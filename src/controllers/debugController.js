@@ -1,5 +1,4 @@
 import { success } from '../utils/responseHelper.js';
-import os from 'os';
 
 export async function getDebugInfo(req, res) {
   const user = req.user || {};

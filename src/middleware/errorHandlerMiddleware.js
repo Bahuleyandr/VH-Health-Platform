@@ -9,7 +9,7 @@ import logger from '../logging/logger.js';
  * - Sends formatted JSON response
  * - Reports 5xx errors to Sentry (not 4xx)
  */
-export default function errorHandlerMiddleware(err, req, res, next) {
+export default function errorHandlerMiddleware(err, req, res, _next) {
   const statusCode = res.statusCode >= 400 ? res.statusCode : 500;
   const message = err.message || 'Internal Server Error';
 

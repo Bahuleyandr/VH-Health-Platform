@@ -1,6 +1,6 @@
 import pool from '../db.js';
 import logger from '../logging/logger.js';
-import { sendPushNotification } from '../utils/firebasePushHelper.js';
+import { sendPushNotification } from '../services/sendPushNotification.js';
 
 const sendAppointmentReminders = async () => {
   try {
