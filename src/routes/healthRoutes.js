@@ -22,12 +22,8 @@ wrapRoutes(
       [
         '/',
         (req, res) => {
-          success(
-            res,
-            { message: 'VH Health API is running.' },
-            'Service reachable',
-          );
-        },
+          success(res, { message: 'VH Health API is running.' }, 'Service reachable');
+        }
       ],
       [
         '/health-check',
@@ -41,19 +37,15 @@ wrapRoutes(
               } catch (err) {
                 retries -= 1;
                 if (!retries) throw new Error('Database unreachable');
-                await new Promise((resolve) => setTimeout(resolve, 1000));
+                await new Promise(resolve => setTimeout(resolve, 1000));
               }
             }
 
             const requiredEnv = ['API_KEY', 'DATABASE_URL', 'ALLOWED_ORIGINS'];
-            const missingEnv = requiredEnv.filter((key) => !process.env[key]);
+            const missingEnv = requiredEnv.filter(key => !process.env[key]);
 
             if (missingEnv.length > 0) {
-              return error(
-                res,
-                `Missing environment variables: ${missingEnv.join(', ')}`,
-                500,
-              );
+              return error(res, `Missing environment variables: ${missingEnv.join(', ')}`, 500);
             }
 
             success(
@@ -63,16 +55,16 @@ wrapRoutes(
                 timestamp: new Date().toISOString(),
                 checks: {
                   database: 'connected',
-                  environment: 'all variables present',
-                },
+                  environment: 'all variables present'
+                }
               },
-              'Detailed health check passed',
+              'Detailed health check passed'
             );
           } catch (err) {
             logger.error(err.stack || err.toString());
             error(res, 'Database unreachable', 500);
           }
-        },
+        }
       ],
       [
         '/app-version',
@@ -82,18 +74,18 @@ wrapRoutes(
             {
               version: '1.0.0',
               updated_at: '2025-05-12',
-              message: 'VH Health API Version 1.0.0 - Initial Release',
+              message: 'VH Health API Version 1.0.0 - Initial Release'
             },
-            'App version fetched successfully',
+            'App version fetched successfully'
           );
-        },
-      ],
-    ],
+        }
+      ]
+    ]
   },
   {
     requireUID: false,
-    requirePhone: false,
-  },
+    requirePhone: false
+  }
 );
 
 export default router;

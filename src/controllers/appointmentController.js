@@ -12,17 +12,13 @@ export async function bookAppointment(req, res) {
   const { phone, doctor_name, date, time } = req.body;
 
   if (!phone || !doctor_name || !date || !time) {
-    return error(
-      res,
-      'All fields (phone, doctor_name, date, time) are required',
-      400,
-    );
+    return error(res, 'All fields (phone, doctor_name, date, time) are required', 400);
   }
 
   try {
     const result = await pool.query(
       'INSERT INTO appointments (phone, doctor_name, date, time) VALUES ($1, $2, $3, $4) RETURNING *',
-      [phone, doctor_name, date, time],
+      [phone, doctor_name, date, time]
     );
     return success(res, result.rows[0], 'Appointment booked');
   } catch (err) {
@@ -43,26 +39,22 @@ export async function getAppointmentsByUID(req, res) {
   try {
     const phone = await resolvePhoneFromUID(uid);
     if (!phone) {
-      return res
-        .status(404)
-        .json({ success: false, message: 'UID not found in users table' });
+      return res.status(404).json({ success: false, message: 'UID not found in users table' });
     }
 
     const result = await db.query(
       'SELECT * FROM appointments WHERE phone = $1 ORDER BY date DESC',
-      [phone],
+      [phone]
     );
 
     return success(
       res,
       result.rows,
-      result.rows.length ? 'Appointments found' : 'No appointments found',
+      result.rows.length ? 'Appointments found' : 'No appointments found'
     );
   } catch (error) {
     console.error('Get Appointments By UID Error:', error);
-    return res
-      .status(500)
-      .json({ success: false, message: 'Internal server error' });
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 }
 
@@ -92,15 +84,15 @@ export async function getAppointmentsByPhone(req, res) {
     const now = new Date();
 
     if (filter === 'upcoming') {
-      appointments = appointments.filter((a) => new Date(a.date) >= now);
+      appointments = appointments.filter(a => new Date(a.date) >= now);
     } else if (filter === 'past') {
-      appointments = appointments.filter((a) => new Date(a.date) < now);
+      appointments = appointments.filter(a => new Date(a.date) < now);
     }
 
     return success(
       res,
       { page: parseInt(page), limit: parseInt(limit), data: appointments },
-      'Appointments fetched',
+      'Appointments fetched'
     );
   } catch (err) {
     return error(res, err.message || 'Database error', 500);

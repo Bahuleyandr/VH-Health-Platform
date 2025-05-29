@@ -16,12 +16,8 @@ wrapAutoRBAC(router, 'debugRoutes', {
     [
       '/ping',
       (req, res) => {
-        success(
-          res,
-          { message: 'Debug route is operational' },
-          'Ping successful',
-        );
-      },
+        success(res, { message: 'Debug route is operational' }, 'Ping successful');
+      }
     ],
     ['/debug', debugController.getDebugInfo],
     [
@@ -32,9 +28,9 @@ wrapAutoRBAC(router, 'debugRoutes', {
         } catch (err) {
           next(err); // Will be caught by centralized error handler
         }
-      },
-    ],
-  ],
+      }
+    ]
+  ]
 });
 
 export default router;

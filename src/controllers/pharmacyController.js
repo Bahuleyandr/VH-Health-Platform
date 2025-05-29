@@ -18,7 +18,7 @@ export async function placePharmacyOrder(req, res) {
     const result = await pool.query(
       `INSERT INTO pharmacy_orders (phone, order_note, file_key)
        VALUES ($1, $2, $3) RETURNING *`,
-      [phone, order_note, file_key || null],
+      [phone, order_note, file_key || null]
     );
     success(res, result.rows[0], 'Pharmacy order placed');
   } catch (err) {
@@ -38,14 +38,12 @@ export async function getPharmacyOrdersByPhone(req, res) {
   try {
     const result = await pool.query(
       `SELECT * FROM pharmacy_orders WHERE phone = $1 ORDER BY created_at DESC`,
-      [phone],
+      [phone]
     );
     success(
       res,
       result.rows,
-      result.rows.length
-        ? 'Pharmacy orders fetched'
-        : 'No pharmacy orders found',
+      result.rows.length ? 'Pharmacy orders fetched' : 'No pharmacy orders found'
     );
   } catch (err) {
     logger.error(err.stack || err.toString());
@@ -71,13 +69,11 @@ export async function getPharmacyOrdersByUID(req, res) {
 
     const result = await db.query(
       `SELECT * FROM pharmacy_orders WHERE phone = $1 ORDER BY created_at DESC`,
-      [phone],
+      [phone]
     );
 
     if (result.rows.length === 0) {
-      return res
-        .status(404)
-        .json({ error: 'No pharmacy orders found for this user' });
+      return res.status(404).json({ error: 'No pharmacy orders found for this user' });
     }
 
     return res.status(200).json({ success: true, pharmacyOrders: result.rows });

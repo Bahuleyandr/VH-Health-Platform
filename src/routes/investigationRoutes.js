@@ -23,7 +23,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
         if (!errors.isEmpty()) {
           return res.status(HTTP_STATUS.BAD_REQUEST).json({
             errors: errors.array(),
-            message: RESPONSE_MESSAGES.VALIDATION_FAILED,
+            message: RESPONSE_MESSAGES.VALIDATION_FAILED
           });
         }
 
@@ -32,26 +32,35 @@ wrapAutoRBAC(router, 'investigationRoutes', {
 
         if (!phone || !test_name) {
           return res.status(HTTP_STATUS.BAD_REQUEST).json({
-            error: 'Phone and test name are required.',
+            error: 'Phone and test name are required.'
           });
         }
 
         try {
           const result = await pool.query(
             'INSERT INTO investigations (phone, test_name, file_key) VALUES ($1, $2, $3) RETURNING *',
-            [phone, test_name, file_key || null],
+            [phone, test_name, file_key || null]
           );
-          success(
-            res,
-            result.rows[0],
-            RESPONSE_MESSAGES.INVESTIGATION_REQUESTED,
+
+          // 🔔 Save in-app notification only (no push)
+          await pool.query(
+            `INSERT INTO notifications (phone, title, body, type, created_at, read)
+             VALUES ($1, $2, $3, $4, NOW(), false)`,
+            [
+              phone,
+              'Investigation Report Ready',
+              `Your investigation report for "${test_name}" is now available.`,
+              'investigation_ready'
+            ]
           );
+
+          success(res, result.rows[0], RESPONSE_MESSAGES.INVESTIGATION_REQUESTED);
         } catch (err) {
           logger.error(err.stack || err.toString());
           error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
         }
-      },
-    ],
+      }
+    ]
   ],
   get: [
     ['/uid/:uid', investigationController.getInvestigationsByUID],
@@ -60,18 +69,15 @@ wrapAutoRBAC(router, 'investigationRoutes', {
       async (req, res) => {
         try {
           const phone = normalizePhone(req.params.phone);
-          const result = await pool.query(
-            'SELECT * FROM investigations WHERE phone = $1',
-            [phone],
-          );
+          const result = await pool.query('SELECT * FROM investigations WHERE phone = $1', [phone]);
           success(res, result.rows, 'Investigations fetched successfully');
         } catch (err) {
           logger.error(err.stack || err.toString());
           error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
         }
-      },
-    ],
-  ],
+      }
+    ]
+  ]
 });
 
 export default router;

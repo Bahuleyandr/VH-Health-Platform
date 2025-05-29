@@ -18,7 +18,7 @@ export async function addInvestigation(req, res) {
     const result = await pool.query(
       `INSERT INTO investigations (phone, test_name, file_key)
        VALUES ($1, $2, $3) RETURNING *`,
-      [phone, test_name, file_key || null],
+      [phone, test_name, file_key || null]
     );
     success(res, result.rows[0], 'Investigation requested');
   } catch (err) {
@@ -38,13 +38,13 @@ export async function getInvestigationsByPhone(req, res) {
   try {
     const result = await pool.query(
       `SELECT * FROM investigations WHERE phone = $1 ORDER BY requested_at DESC`,
-      [phone],
+      [phone]
     );
 
     success(
       res,
       result.rows,
-      result.rows.length ? 'Investigations found' : 'No investigations found',
+      result.rows.length ? 'Investigations found' : 'No investigations found'
     );
   } catch (err) {
     logger.error(err.stack || err.toString());
@@ -68,21 +68,16 @@ export async function getInvestigationsByUID(req, res) {
 
     const result = await db.query(
       `SELECT * FROM investigations WHERE phone = $1 ORDER BY requested_at DESC`,
-      [phone],
+      [phone]
     );
 
     if (result.rows.length === 0) {
-      return res
-        .status(404)
-        .json({ error: 'No investigations found for this user' });
+      return res.status(404).json({ error: 'No investigations found for this user' });
     }
 
     return res.status(200).json({ success: true, investigations: result.rows });
   } catch (error) {
-    logger.error(
-      'Get Investigations By UID Error:',
-      error.stack || error.toString(),
-    );
+    logger.error('Get Investigations By UID Error:', error.stack || error.toString());
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

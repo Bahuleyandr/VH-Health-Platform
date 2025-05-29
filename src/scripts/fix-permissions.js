@@ -8,12 +8,9 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const TARGET_DIRECTORIES = [
-  path.join(__dirname, '../logs'),
-  path.join(__dirname, '../backups'),
-];
+const TARGET_DIRECTORIES = [path.join(__dirname, '../logs'), path.join(__dirname, '../backups')];
 
-TARGET_DIRECTORIES.forEach((dir) => {
+TARGET_DIRECTORIES.forEach(dir => {
   if (fs.existsSync(dir)) {
     console.log(`🔧 Fixing permissions for ${dir}`);
     try {

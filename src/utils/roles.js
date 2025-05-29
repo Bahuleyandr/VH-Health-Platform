@@ -20,9 +20,7 @@ export function hasRole(user, allowedRoles) {
   if (!user || !user.role) return false;
 
   const userRole = user.role.trim().toUpperCase();
-  const allowedRolesUpper = allowedRoles.map((role) =>
-    role.trim().toUpperCase(),
-  );
+  const allowedRolesUpper = allowedRoles.map(role => role.trim().toUpperCase());
 
   return allowedRolesUpper.includes(userRole);
 }

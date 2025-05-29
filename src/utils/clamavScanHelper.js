@@ -10,15 +10,13 @@ export async function scanFileWithClamAV(fileUrl) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-API-KEY': CLAMAV_API_KEY,
+        'X-API-KEY': CLAMAV_API_KEY
       },
-      body: JSON.stringify({ fileUrl }),
+      body: JSON.stringify({ fileUrl })
     });
 
     if (!response.ok) {
-      logger.warn(
-        `ClamAV scan failed for ${fileUrl}, status: ${response.status}`,
-      );
+      logger.warn(`ClamAV scan failed for ${fileUrl}, status: ${response.status}`);
       return { status: 'error', error: 'Scan API failed' };
     }
 

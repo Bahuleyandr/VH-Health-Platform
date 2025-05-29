@@ -23,14 +23,14 @@ wrapRoutesWithValidation(
           if (!errors.isEmpty()) {
             return res.status(HTTP_STATUS.BAD_REQUEST).json({
               errors: errors.array(),
-              message: RESPONSE_MESSAGES.VALIDATION_FAILED,
+              message: RESPONSE_MESSAGES.VALIDATION_FAILED
             });
           }
 
           res.status(HTTP_STATUS.OK).json({
-            message: `Mock OTP 123456 sent to ${req.body.phone || req.body.phoneNumber}`,
+            message: `Mock OTP 123456 sent to ${req.body.phone || req.body.phoneNumber}`
           });
-        },
+        }
       ],
       [
         '/verify-otp',
@@ -40,29 +40,25 @@ wrapRoutesWithValidation(
           if (!errors.isEmpty()) {
             return res.status(HTTP_STATUS.BAD_REQUEST).json({
               errors: errors.array(),
-              message: RESPONSE_MESSAGES.VALIDATION_FAILED,
+              message: RESPONSE_MESSAGES.VALIDATION_FAILED
             });
           }
 
           if (req.body.otp === '123456') {
-            return success(
-              res,
-              { verified: true },
-              RESPONSE_MESSAGES.OTP_VERIFIED,
-            );
+            return success(res, { verified: true }, RESPONSE_MESSAGES.OTP_VERIFIED);
           } else {
             return res.status(HTTP_STATUS.BAD_REQUEST).json({
-              error: RESPONSE_MESSAGES.INVALID_OTP,
+              error: RESPONSE_MESSAGES.INVALID_OTP
             });
           }
-        },
-      ],
-    ],
+        }
+      ]
+    ]
   },
   {
     requireUID: false,
-    requirePhone: false,
-  },
+    requirePhone: false
+  }
 );
 
 export default router;

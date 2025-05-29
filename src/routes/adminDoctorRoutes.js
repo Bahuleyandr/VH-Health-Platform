@@ -26,22 +26,22 @@ wrapAutoRBAC(
           if (!name || !department) {
             return res.status(HTTP_STATUS.BAD_REQUEST).json({
               error: RESPONSE_MESSAGES.VALIDATION_FAILED,
-              details: 'Doctor name and department are required.',
+              details: 'Doctor name and department are required.'
             });
           }
 
           try {
             const result = await pool.query(
               `INSERT INTO doctors (name, department, intro, image_url) VALUES ($1, $2, $3, $4) RETURNING *`,
-              [name, department, intro, imageUrl],
+              [name, department, intro, imageUrl]
             );
             success(res, result.rows[0], 'Doctor saved successfully');
           } catch (err) {
             logger.error(err.stack || err.toString());
             error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
           }
-        },
-      ],
+        }
+      ]
     ],
     delete: [
       [
@@ -50,15 +50,14 @@ wrapAutoRBAC(
           const { doctorId } = req.params;
 
           try {
-            const deleteResult = await pool.query(
-              'DELETE FROM doctors WHERE id = $1 RETURNING *',
-              [doctorId],
-            );
+            const deleteResult = await pool.query('DELETE FROM doctors WHERE id = $1 RETURNING *', [
+              doctorId
+            ]);
 
             if (deleteResult.rowCount === 0) {
               return res.status(HTTP_STATUS.NOT_FOUND).json({
                 error: RESPONSE_MESSAGES.NOT_FOUND,
-                details: 'Doctor not found or already deleted.',
+                details: 'Doctor not found or already deleted.'
               });
             }
 
@@ -67,14 +66,14 @@ wrapAutoRBAC(
             logger.error(err.stack || err.toString());
             error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
           }
-        },
-      ],
-    ],
+        }
+      ]
+    ]
   },
   {
     requireUID: false,
-    requirePhone: false,
-  },
+    requirePhone: false
+  }
 );
 
 export default router;

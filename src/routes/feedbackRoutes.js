@@ -24,15 +24,15 @@ wrapAutoRBAC(router, 'feedbackRoutes', {
         if (!errors.isEmpty()) {
           return res.status(HTTP_STATUS.BAD_REQUEST).json({
             errors: errors.array(),
-            message: RESPONSE_MESSAGES.VALIDATION_FAILED,
+            message: RESPONSE_MESSAGES.VALIDATION_FAILED
           });
         }
 
         return feedbackController.submitFeedback(req, res);
-      },
-    ],
+      }
+    ]
   ],
-  get: [['/uid/:uid', feedbackController.getFeedbackByUID]],
+  get: [['/uid/:uid', feedbackController.getFeedbackByUID]]
 });
 
 export default router;

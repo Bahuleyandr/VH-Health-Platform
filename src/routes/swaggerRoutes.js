@@ -20,12 +20,12 @@ wrapRoutes(
   router,
   [],
   {
-    get: [['/', swaggerUi.serve, swaggerUi.setup(swaggerDocument)]],
+    get: [['/', swaggerUi.serve, swaggerUi.setup(swaggerDocument)]]
   },
   {
     requireUID: false,
-    requirePhone: false,
-  },
+    requirePhone: false
+  }
 );
 
 export default router;

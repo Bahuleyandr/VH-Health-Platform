@@ -6,7 +6,7 @@ describe('User Profile API', () => {
   const userData = {
     phoneNumber: '9876543210',
     name: 'Test User',
-    gender: 'Male',
+    gender: 'Male'
   };
 
   it('should fail to create user if required fields are missing', async () => {
@@ -23,9 +23,7 @@ describe('User Profile API', () => {
 
   it('should update the user profile', async () => {
     const updatedData = { ...userData, name: 'Updated Name' };
-    const res = await testClient()
-      .put(`/api/v1/users/${userData.phoneNumber}`)
-      .send(updatedData);
+    const res = await testClient().put(`/api/v1/users/${userData.phoneNumber}`).send(updatedData);
     expect(res.statusCode).toBe(200);
     expect(res.body).toHaveProperty('data');
   });

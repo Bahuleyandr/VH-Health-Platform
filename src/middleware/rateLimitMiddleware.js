@@ -7,15 +7,14 @@ import { RATE_LIMIT_PROFILES } from '../config/rateLimitProfiles.js';
  * ✅ Generate rate limiter based on profile name
  */
 export const getRateLimiter = (profileName = 'default') => {
-  const profile =
-    RATE_LIMIT_PROFILES[profileName] || RATE_LIMIT_PROFILES.default;
+  const profile = RATE_LIMIT_PROFILES[profileName] || RATE_LIMIT_PROFILES.default;
 
   return rateLimit({
     windowMs: profile.windowMs,
     max: profile.max,
     message: profile.message,
     standardHeaders: true,
-    legacyHeaders: false,
+    legacyHeaders: false
   });
 };
 
@@ -49,7 +48,7 @@ export const dynamicRoleRateLimiter = (req, res, next) => {
       'PHARMACY_STAFF',
       'LAB_STAFF',
       'HR_STAFF',
-      'GENERAL_STAFF',
+      'GENERAL_STAFF'
     ].includes(role)
   ) {
     return staffRateLimiter(req, res, next); // Higher limit for staff

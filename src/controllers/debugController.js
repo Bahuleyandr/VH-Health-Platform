@@ -10,13 +10,13 @@ export async function getDebugInfo(req, res) {
     user: {
       uid: user.uid || null,
       role: user.role || 'anonymous',
-      ip,
+      ip
     },
     timestamp: new Date().toISOString(),
     uptime: `${Math.floor(process.uptime() / 60)}m ${Math.floor(process.uptime() % 60)}s`,
     memory: {
-      rss: Math.round(process.memoryUsage().rss / 1024 / 1024) + ' MB',
-    },
+      rss: Math.round(process.memoryUsage().rss / 1024 / 1024) + ' MB'
+    }
   };
 
   return success(res, info, 'Debug info retrieved');

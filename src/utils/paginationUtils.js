@@ -28,6 +28,6 @@ export function formatPaginatedResponse(page, limit, data) {
     page,
     limit,
     count: data.length,
-    data,
+    data
   };
 }

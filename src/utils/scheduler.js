@@ -10,11 +10,12 @@ import { cleanupOldBackups as cleanupBackups } from '../../admin/cleanup-backups
 import loadSwaggerDocument from './swaggerLoader.js';
 
 // R2 Maintenance Jobs
-import {
-  scheduleCleanupJob as scheduleR2CleanupJob,
-  executeCleanup,
-} from './r2CleanupJob.js';
+import { scheduleCleanupJob as scheduleR2CleanupJob, executeCleanup } from './r2CleanupJob.js';
 import { scheduleArchiveMigrationJob } from './archiveMigrationJob.js';
+
+// Notifications
+import { sendAppointmentReminders } from './notifications/appointmentReminderJob.js';
+// import { sendInvestigationNotifications } from './notifications/investigationNotificationJob.js'; // 🔕 Disabled for now
 
 // 🗓️ Daily at 00:00 - Purge old logs
 cron.schedule('0 0 * * *', () => {
@@ -48,10 +49,10 @@ cron.schedule('0 2 * * *', () => {
   }
 });
 
-// 🗓️ Monthly archive migration on the 1st at 02:00
+// 🗓️ Monthly on 1st at 02:00 - Archive migration
 scheduleArchiveMigrationJob();
 
-// 🗓️ Daily at 03:00 - Perform R2 cleanup (via integrated logic)
+// 🗓️ Daily at 03:00 - R2 Cleanup
 scheduleR2CleanupJob();
 
 // 🗓️ Weekly on Sunday at 03:00 - Purge archived logs
@@ -64,7 +65,7 @@ cron.schedule('0 3 * * 0', () => {
   }
 });
 
-// 🗓️ Weekly on Sunday at 04:00 - Clean old backup folders
+// 🗓️ Weekly on Sunday at 04:00 - Cleanup old backups
 cron.schedule('0 4 * * 0', () => {
   logger.info('Scheduled Task: Cleaning up old backups...');
   try {
@@ -75,7 +76,29 @@ cron.schedule('0 4 * * 0', () => {
   }
 });
 
-// ✅ Manual Trigger
+// 🕗 Daily at 08:00 - Send appointment reminders
+cron.schedule('0 8 * * *', async () => {
+  logger.info('Scheduled Task: Sending appointment reminders...');
+  try {
+    await sendAppointmentReminders();
+  } catch (err) {
+    logger.error('Error sending appointment reminders:', err);
+  }
+});
+
+/*
+// 🔕 Daily at 09:00 - Send in-app investigation report notifications (currently disabled)
+// cron.schedule('0 9 * * *', async () => {
+//   logger.info('Scheduled Task: Sending investigation report notifications...');
+//   try {
+//     await sendInvestigationNotifications();
+//   } catch (err) {
+//     logger.error('Error sending investigation notifications:', err);
+//   }
+// });
+*/
+
+// ✅ Manual Trigger for all tasks
 export async function runAllScheduledTasksNow() {
   logger.info('Running all scheduled tasks manually...');
   try {
@@ -91,6 +114,9 @@ export async function runAllScheduledTasksNow() {
 
     cleanupBackups(path.resolve('backups', 'local'));
     cleanupBackups(path.resolve('backups', 'render'));
+
+    await sendAppointmentReminders();
+    // await sendInvestigationNotifications(); // 🔕 Temporarily skipped
 
     logger.info('✅ All manual tasks completed.');
   } catch (err) {

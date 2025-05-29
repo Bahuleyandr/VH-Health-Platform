@@ -17,7 +17,7 @@ async function main() {
 }
 
 main()
-  .catch((error) => {
+  .catch(error => {
     console.error('❌ Error during Prisma Render test:', error);
     process.exit(1);
   })

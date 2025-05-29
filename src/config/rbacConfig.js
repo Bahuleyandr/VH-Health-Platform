@@ -8,7 +8,7 @@ import {
   LAB_STAFF,
   DOCTOR,
   GENERAL_STAFF,
-  HR_STAFF,
+  HR_STAFF
 } from '../utils/roles.js';
 
 export default {
@@ -34,5 +34,5 @@ export default {
   otpRoutes: [],
   debugRoutes: [ADMIN],
   departmentRoutes: [GENERAL_STAFF, ADMIN],
-  swaggerRoutes: [],
+  swaggerRoutes: []
 };

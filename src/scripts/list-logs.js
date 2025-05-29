@@ -20,5 +20,5 @@ if (files.length === 0) {
   console.log('No log files found.');
 } else {
   console.log('Log files:');
-  files.forEach((file) => console.log(file));
+  files.forEach(file => console.log(file));
 }

@@ -23,7 +23,7 @@ export default function cleanupLogs() {
 
     const now = Date.now();
 
-    files.forEach((file) => {
+    files.forEach(file => {
       const filePath = path.join(logsDir, file);
 
       if (!file.match(/\.(log|gz)$/)) {
@@ -38,7 +38,7 @@ export default function cleanupLogs() {
 
         const ageInDays = (now - stats.mtimeMs) / (1000 * 60 * 60 * 24);
         if (ageInDays > retentionDays) {
-          fs.unlink(filePath, (err) => {
+          fs.unlink(filePath, err => {
             if (err) {
               console.error('Failed to delete log file:', filePath, err);
             } else {

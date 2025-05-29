@@ -11,17 +11,14 @@ export function scanBuffer(buffer) {
     const readable = new stream.PassThrough();
     readable.end(buffer);
 
-    clamav.ping(3310, '127.0.0.1', 1000, (err) => {
+    clamav.ping(3310, '127.0.0.1', 1000, err => {
       if (err) return reject(new Error('ClamAV not reachable'));
 
-      clamav
-        .createScanner(3310, '127.0.0.1')
-        .scan(readable, (err, object, malicious) => {
-          if (err) return reject(err);
-          if (malicious)
-            return reject(new Error(`Virus detected: ${malicious}`));
-          resolve();
-        });
+      clamav.createScanner(3310, '127.0.0.1').scan(readable, (err, object, malicious) => {
+        if (err) return reject(err);
+        if (malicious) return reject(new Error(`Virus detected: ${malicious}`));
+        resolve();
+      });
     });
   });
 }

@@ -22,16 +22,14 @@ function restoreDatabase(envFile, label) {
   const dbUrl = process.env.DATABASE_URL;
 
   if (!dbUrl) {
-    console.error(
-      `❌ DATABASE_URL not defined in ${envFile}. Skipping ${label} restore.`,
-    );
+    console.error(`❌ DATABASE_URL not defined in ${envFile}. Skipping ${label} restore.`);
     return;
   }
 
   const backupFolder = path.resolve(__dirname, '..', 'backups', label);
   const latestBackup = fs
     .readdirSync(backupFolder)
-    .filter((file) => file.endsWith('.sql.gz'))
+    .filter(file => file.endsWith('.sql.gz'))
     .sort()
     .pop();
 

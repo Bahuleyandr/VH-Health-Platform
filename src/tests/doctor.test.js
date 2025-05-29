@@ -9,9 +9,7 @@ describe('Department API', () => {
   });
 
   it('should fetch departments with doctors', async () => {
-    const res = await testClient().get(
-      '/api/v1/departments/departments-with-doctors',
-    );
+    const res = await testClient().get('/api/v1/departments/departments-with-doctors');
     expect(res.statusCode).toBe(200);
   });
 

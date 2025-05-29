@@ -6,17 +6,12 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
   ListObjectsV2Command,
-  CopyObjectCommand,
+  CopyObjectCommand
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-const {
-  CF_ACCOUNT_ID,
-  CF_R2_BUCKET,
-  CF_R2_URL,
-  CF_R2_ACCESS_KEY_ID,
-  CF_R2_SECRET_ACCESS_KEY,
-} = process.env;
+const { CF_ACCOUNT_ID, CF_R2_BUCKET, CF_R2_URL, CF_R2_ACCESS_KEY_ID, CF_R2_SECRET_ACCESS_KEY } =
+  process.env;
 
 if (
   !CF_ACCOUNT_ID ||
@@ -33,22 +28,18 @@ const s3Client = new S3Client({
   region: 'auto',
   credentials: {
     accessKeyId: CF_R2_ACCESS_KEY_ID,
-    secretAccessKey: CF_R2_SECRET_ACCESS_KEY,
-  },
+    secretAccessKey: CF_R2_SECRET_ACCESS_KEY
+  }
 });
 
 // ✅ Upload File to R2
-export async function uploadFileToR2(
-  buffer,
-  key,
-  contentType = 'application/octet-stream',
-) {
+export async function uploadFileToR2(buffer, key, contentType = 'application/octet-stream') {
   try {
     const command = new PutObjectCommand({
       Bucket: CF_R2_BUCKET,
       Key: key,
       Body: buffer,
-      ContentType: contentType,
+      ContentType: contentType
     });
     await s3Client.send(command);
     return `${CF_R2_URL}/${key}`;
@@ -63,7 +54,7 @@ export async function getFileFromR2(key) {
   try {
     const command = new GetObjectCommand({
       Bucket: CF_R2_BUCKET,
-      Key: key,
+      Key: key
     });
     const response = await s3Client.send(command);
     return response.Body.transformToByteArray();
@@ -78,7 +69,7 @@ export async function deleteObject(key) {
   try {
     const command = new DeleteObjectCommand({
       Bucket: CF_R2_BUCKET,
-      Key: key,
+      Key: key
     });
     await s3Client.send(command);
   } catch (err) {
@@ -91,7 +82,7 @@ export async function deleteObject(key) {
 export async function listObjectsV2(continuationToken = undefined) {
   const command = new ListObjectsV2Command({
     Bucket: CF_R2_BUCKET,
-    ContinuationToken: continuationToken,
+    ContinuationToken: continuationToken
   });
   return await s3Client.send(command);
 }
@@ -101,7 +92,7 @@ export async function copyObject(sourceKey, destinationKey) {
   const command = new CopyObjectCommand({
     Bucket: CF_R2_BUCKET,
     CopySource: `${CF_R2_BUCKET}/${sourceKey}`,
-    Key: destinationKey,
+    Key: destinationKey
   });
   return await s3Client.send(command);
 }
@@ -110,7 +101,7 @@ export async function copyObject(sourceKey, destinationKey) {
 export async function getSignedFileUrl(key, expiresInSeconds = 3600) {
   const command = new GetObjectCommand({
     Bucket: CF_R2_BUCKET,
-    Key: key,
+    Key: key
   });
   return await getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
 }

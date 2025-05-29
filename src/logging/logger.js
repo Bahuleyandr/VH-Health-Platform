@@ -25,27 +25,24 @@ const logFormat = format.printf(({ timestamp, level, message }) => {
 // Create Winston logger instance
 const logger = createLogger({
   level: 'debug',
-  format: format.combine(
-    format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-    logFormat,
-  ),
+  format: format.combine(format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }), logFormat),
   transports: [
     // Console logger with color
     new transports.Console({
       format: format.combine(
         format.colorize(),
         format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-        logFormat,
-      ),
+        logFormat
+      )
     }),
 
     // File-based logs
     new transports.File({
       filename: path.join(logsDir, 'error.log'),
-      level: 'error',
+      level: 'error'
     }),
     new transports.File({
-      filename: path.join(logsDir, 'combined.log'),
+      filename: path.join(logsDir, 'combined.log')
     }),
 
     // Daily rotated .gz compressed logs
@@ -55,21 +52,21 @@ const logger = createLogger({
       datePattern: 'DD-MM-YYYY',
       zippedArchive: true,
       maxSize: '20m',
-      maxFiles: '90d', // retain logs for 90 days
-    }),
-  ],
+      maxFiles: '90d' // retain logs for 90 days
+    })
+  ]
 });
 
 // Handle logger transport errors gracefully
-logger.on('error', (err) => {
+logger.on('error', err => {
   console.error('Logger failed:', err);
 });
 
 // Morgan HTTP logging stream for express middleware
 logger.stream = {
-  write: (message) => {
+  write: message => {
     logger.http(message.trim());
-  },
+  }
 };
 
 // Preconfigured morgan middleware

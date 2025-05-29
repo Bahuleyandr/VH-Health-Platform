@@ -20,9 +20,7 @@ describe('File Upload API', () => {
   });
 
   it('should upload a valid file', async () => {
-    const res = await testClient()
-      .post('/api/v1/upload')
-      .attach('file', filePath);
+    const res = await testClient().post('/api/v1/upload').attach('file', filePath);
     expect([200, 500]).toContain(res.statusCode); // Accept 500 if virus scanner is enabled
   });
 

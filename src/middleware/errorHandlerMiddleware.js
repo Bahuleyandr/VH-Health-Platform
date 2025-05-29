@@ -19,11 +19,11 @@ export default function errorHandlerMiddleware(err, req, res, next) {
   }
 
   logger.error(
-    `[${new Date().toISOString()}] ${statusCode} - ${message} - ${req.originalUrl} - ${req.method}`,
+    `[${new Date().toISOString()}] ${statusCode} - ${message} - ${req.originalUrl} - ${req.method}`
   );
 
   res.status(statusCode).json({
     success: false,
-    message,
+    message
   });
 }

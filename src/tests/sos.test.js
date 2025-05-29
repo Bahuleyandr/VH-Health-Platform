@@ -12,7 +12,7 @@ describe('SOS API', () => {
     const res = await testClient().post('/api/v1/sos').send({
       phone: '9876543210',
       latitude: 12.9716,
-      longitude: 77.5946,
+      longitude: 77.5946
     });
     expect(res.statusCode).toBe(200);
   });
