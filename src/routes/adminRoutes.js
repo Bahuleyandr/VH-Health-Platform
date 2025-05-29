@@ -4,7 +4,7 @@ import { wrapAutoRBAC } from '../config/routeWrapper.js';
 import pool from '../db.js';
 import { success, error } from '../utils/responseHelper.js';
 import logger from '../logging/logger.js';
-import { sendPushNotification } from '../utils/notifications/sendPushNotifications.js';
+import { sendPushNotification } from '../utils/notifications/sendPushNotification.js';
 
 const router = express.Router();
 
