@@ -1,8 +1,10 @@
 // .eslintrc.cjs
+
 module.exports = {
   env: {
     node: true,
     es2021: true,
+    jest: true, // ✅ Add Jest globals for test files (describe, it, expect)
   },
   extends: ['eslint:recommended', 'prettier'],
   parserOptions: {
@@ -17,4 +19,3 @@ module.exports = {
     'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
   },
 };
-
