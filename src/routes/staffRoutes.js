@@ -23,7 +23,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
 
         if (!phone || !file_key || !file_name) {
           return res.status(HTTP_STATUS.BAD_REQUEST).json({
-            error: 'Phone, file_key, and file_name are required.',
+            error: 'Phone, file_key, and file_name are required.'
           });
         }
 
@@ -31,14 +31,14 @@ wrapAutoRBAC(router, 'staffRoutes', {
           const result = await pool.query(
             `INSERT INTO consultations (phone, file_key, file_name, file_type, created_at)
            VALUES ($1, $2, $3, $4, NOW()) RETURNING *`,
-            [phone, file_key, file_name, file_type],
+            [phone, file_key, file_name, file_type]
           );
           success(res, result.rows[0], 'Consultation uploaded.');
         } catch (err) {
           logger.error(err.stack || err.toString());
           error(res, 'Database error');
         }
-      },
+      }
     ],
 
     [
@@ -50,7 +50,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
 
         if (!phone || !test_name || !file_key) {
           return res.status(HTTP_STATUS.BAD_REQUEST).json({
-            error: 'Phone, test_name, and file_key are required.',
+            error: 'Phone, test_name, and file_key are required.'
           });
         }
 
@@ -58,14 +58,14 @@ wrapAutoRBAC(router, 'staffRoutes', {
           const result = await pool.query(
             `INSERT INTO investigations (phone, test_name, file_key, status, requested_at)
            VALUES ($1, $2, $3, 'pending', CURRENT_TIMESTAMP) RETURNING *`,
-            [phone, test_name, file_key],
+            [phone, test_name, file_key]
           );
           success(res, result.rows[0], 'Investigation requested.');
         } catch (err) {
           logger.error(err.stack || err.toString());
           error(res, 'Database error');
         }
-      },
+      }
     ],
 
     [
@@ -76,7 +76,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
 
         if (!phone || !order_id || !status) {
           return res.status(HTTP_STATUS.BAD_REQUEST).json({
-            error: 'Phone, order ID, and status are required.',
+            error: 'Phone, order ID, and status are required.'
           });
         }
 
@@ -84,13 +84,12 @@ wrapAutoRBAC(router, 'staffRoutes', {
           const result = await pool.query(
             `UPDATE pharmacy_orders SET status = $1, order_note = $2 
            WHERE id = $3 AND phone = $4 RETURNING *`,
-            [status, notes || '', order_id, phone],
+            [status, notes || '', order_id, phone]
           );
 
           if (result.rows.length === 0) {
             return res.status(HTTP_STATUS.BAD_REQUEST).json({
-              error:
-                'No pharmacy order was updated. Please check order_id and phone combination.',
+              error: 'No pharmacy order was updated. Please check order_id and phone combination.'
             });
           }
 
@@ -99,7 +98,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           logger.error(err.stack || err.toString());
           error(res, 'Database error');
         }
-      },
+      }
     ],
 
     [
@@ -108,29 +107,29 @@ wrapAutoRBAC(router, 'staffRoutes', {
         const { staffId, timestamp } = req.body;
         if (!staffId || !timestamp) {
           return res.status(HTTP_STATUS.BAD_REQUEST).json({
-            error: 'staffId and timestamp are required.',
+            error: 'staffId and timestamp are required.'
           });
         }
         res.json({
-          message: `Attendance marked for staffId ${staffId} at ${timestamp}`,
+          message: `Attendance marked for staffId ${staffId} at ${timestamp}`
         });
-      },
-    ],
+      }
+    ]
   ],
   get: [
     [
       '/attendance',
       (req, res) => {
         res.json({ message: 'Attendance feature not implemented yet' });
-      },
+      }
     ],
     [
       '/roll-call',
       (req, res) => {
         res.json({ message: 'Roll-call feature not implemented yet' });
-      },
-    ],
-  ],
+      }
+    ]
+  ]
 });
 
 export default router;

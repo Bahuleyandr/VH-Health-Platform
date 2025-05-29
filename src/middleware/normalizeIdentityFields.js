@@ -78,7 +78,7 @@ export function normalizeIdentityFields(req, res, next) {
     'profilePicture',
     'file_key',
     'file_name',
-    'file_type',
+    'file_type'
   ];
   for (const field of optionalFields) {
     if (typeof src?.[field] === 'string' && src[field].trim() === '') {

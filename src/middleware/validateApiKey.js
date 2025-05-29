@@ -9,17 +9,13 @@ export default function validateApiKey(req, res, next) {
   const serverApiKey = process.env.API_KEY;
 
   if (!serverApiKey) {
-    console.error(
-      '❌ Server misconfiguration: API_KEY not set in environment variables.',
-    );
+    console.error('❌ Server misconfiguration: API_KEY not set in environment variables.');
     return res.status(500).json({ error: 'Server configuration error' });
   }
 
   if (!clientApiKey) {
     console.warn('❌ API Key missing in request headers');
-    return res
-      .status(401)
-      .json({ error: 'Missing API Key in request headers' });
+    return res.status(401).json({ error: 'Missing API Key in request headers' });
   }
 
   if (clientApiKey !== serverApiKey) {

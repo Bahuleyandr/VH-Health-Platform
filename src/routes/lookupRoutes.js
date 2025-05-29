@@ -11,12 +11,12 @@ wrapAutoRBAC(
   router,
   'lookupRoutes',
   {
-    get: [['/', userController.lookupUser]],
+    get: [['/', userController.lookupUser]]
   },
   {
     requireUID: false,
-    requirePhone: false,
-  },
+    requirePhone: false
+  }
 );
 
 export default router;

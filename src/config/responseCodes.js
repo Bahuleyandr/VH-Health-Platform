@@ -8,7 +8,7 @@ export const HTTP_STATUS = {
   FORBIDDEN: 403,
   NOT_FOUND: 404,
   CONFLICT: 409,
-  INTERNAL_SERVER_ERROR: 500,
+  INTERNAL_SERVER_ERROR: 500
 };
 
 export const RESPONSE_MESSAGES = {
@@ -26,5 +26,5 @@ export const RESPONSE_MESSAGES = {
   ORDER_PLACED: 'Order placed successfully',
   INVESTIGATION_REQUESTED: 'Investigation requested successfully',
   HEALTH_RECORD_ADDED: 'Health record added successfully',
-  SOS_ALERT_SAVED: 'SOS alert saved successfully',
+  SOS_ALERT_SAVED: 'SOS alert saved successfully'
 };

@@ -7,7 +7,7 @@ describe('Appointment API', () => {
     phone: '9876543210',
     doctor_name: 'Dr. Test',
     date: '2025-06-01',
-    time: '10:00',
+    time: '10:00'
   };
 
   it('should fail to book appointment without required fields', async () => {
@@ -17,17 +17,13 @@ describe('Appointment API', () => {
   });
 
   it('should book an appointment', async () => {
-    const res = await testClient()
-      .post('/api/v1/appointments')
-      .send(appointmentData);
+    const res = await testClient().post('/api/v1/appointments').send(appointmentData);
     expect(res.statusCode).toBe(200);
     expect(res.body).toHaveProperty('data');
   });
 
   it('should fetch appointments by phone', async () => {
-    const res = await testClient().get(
-      `/api/v1/appointments/${appointmentData.phone}`,
-    );
+    const res = await testClient().get(`/api/v1/appointments/${appointmentData.phone}`);
     expect([200, 404]).toContain(res.statusCode);
   });
 });

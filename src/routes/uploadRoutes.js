@@ -1,15 +1,16 @@
 import express from 'express';
 import multer from 'multer';
 import { FILE_UPLOAD_RULES } from '../config/fileUploadConfig.js';
-import {
-  uploadFileToR2,
-  deleteObject as deleteFileFromR2,
-} from '../utils/r2Storage.js';
+import { uploadFileToR2, deleteObject as deleteFileFromR2 } from '../utils/r2Storage.js';
 import pool from '../db.js';
 import { success, error } from '../utils/responseHelper.js';
 import logger from '../logging/logger.js';
 import { scanFileWithClamAV } from '../utils/clamavScanHelper.js';
 import { wrapAutoRBAC } from '../config/routeWrapper.js';
+import sharp from 'sharp';           // for JPG/JPEG compression
+import { exec } from 'child_process'; // for PDF compression
+import fs from 'fs/promises';        // for reading/writing temp files
+import path from 'path';             // optional, for file paths
 
 const router = express.Router();
 
@@ -23,7 +24,7 @@ const upload = multer({
       return cb(new Error(FILE_UPLOAD_RULES.description));
     }
     cb(null, true);
-  },
+  }
 });
 
 // ✅ Upload Routes with centralized RBAC + audit
@@ -40,12 +41,36 @@ wrapAutoRBAC(router, 'uploadRoutes', {
         const uploadedBy = req.body.uploaded_by || req.user?.uid || 'system';
 
         try {
-          const key = `uploads/${Date.now()}_${req.file.originalname}`;
-          const url = await uploadFileToR2(
-            req.file.buffer,
-            key,
-            req.file.mimetype,
-          );
+          let processedBuffer = req.file.buffer;
+
+if (req.file.mimetype === 'image/jpeg' || req.file.mimetype === 'image/jpg') {
+  // Compress JPG to ~70% quality
+  processedBuffer = await sharp(req.file.buffer)
+    .resize({ width: 1024 }) // optional resize
+    .jpeg({ quality: 70 })
+    .toBuffer();
+}
+
+if (req.file.mimetype === 'application/pdf') {
+  const tempIn = `/tmp/${Date.now()}_in.pdf`;
+  const tempOut = `/tmp/${Date.now()}_out.pdf`;
+
+  await fs.writeFile(tempIn, req.file.buffer);
+
+  await new Promise((resolve, reject) => {
+   exec(
+  `gswin64c -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/ebook -dNOPAUSE -dQUIET -dBATCH -sOutputFile=${tempOut} ${tempIn}`,
+      err => (err ? reject(err) : resolve())
+    );
+  });
+
+  processedBuffer = await fs.readFile(tempOut);
+  await fs.unlink(tempIn);
+  await fs.unlink(tempOut);
+}
+
+const key = `uploads/${Date.now()}_${req.file.originalname}`;
+const url = await uploadFileToR2(processedBuffer, key, req.file.mimetype);
 
           // 🔄 Insert metadata and return ID
           const insertResult = await pool.query(
@@ -56,13 +81,13 @@ wrapAutoRBAC(router, 'uploadRoutes', {
             [
               req.file.originalname,
               req.file.mimetype,
-              req.file.size,
+              processedBuffer.length,
               key,
               url,
               uploadedBy,
               'pending',
-              null,
-            ],
+              null
+            ]
           );
 
           const fileId = insertResult.rows[0].id;
@@ -87,7 +112,7 @@ wrapAutoRBAC(router, 'uploadRoutes', {
           // 🔄 Update scan result
           await pool.query(
             `UPDATE file_metadata SET scan_status = $1, scan_result = $2 WHERE id = $3`,
-            [status, resultText, fileId],
+            [status, resultText, fileId]
           );
 
           // 📝 Audit log
@@ -98,20 +123,20 @@ wrapAutoRBAC(router, 'uploadRoutes', {
               'FILE_SCAN',
               `Scan result: ${status}${resultText ? ` (${resultText})` : ''}`,
               fileId,
-              uploadedBy,
-            ],
+              uploadedBy
+            ]
           );
 
           logger.info(
-            `✅ Uploaded: ${req.file.originalname} | UID: ${req.user?.uid} | Role: ${req.user?.role}`,
+            `✅ Uploaded: ${req.file.originalname} | UID: ${req.user?.uid} | Role: ${req.user?.role}`
           );
           success(res, { url }, 'File uploaded and scanned successfully');
         } catch (err) {
           logger.error(err.stack || err.toString());
           error(res, 'Upload failed.');
         }
-      },
-    ],
+      }
+    ]
   ],
   get: [
     [
@@ -127,30 +152,25 @@ wrapAutoRBAC(router, 'uploadRoutes', {
           const result = await pool.query(query);
 
           // ✅ Add `quarantined` flag to each result
-          const files = result.rows.map((file) => ({
+          const files = result.rows.map(file => ({
             ...file,
-            quarantined: ['infected', 'failed'].includes(file.scan_status),
+            quarantined: ['infected', 'failed'].includes(file.scan_status)
           }));
 
-          success(
-            res,
-            files,
-            `Files fetched${safeOnly ? ' (clean only)' : ''} successfully`,
-          );
+          success(res, files, `Files fetched${safeOnly ? ' (clean only)' : ''} successfully`);
         } catch (err) {
           logger.error(err.stack || err.toString());
           error(res, 'Failed to fetch files.');
         }
-      },
+      }
     ],
     [
       '/:key',
       async (req, res) => {
         try {
-          const result = await pool.query(
-            'SELECT * FROM file_metadata WHERE storage_key = $1',
-            [req.params.key],
-          );
+          const result = await pool.query('SELECT * FROM file_metadata WHERE storage_key = $1', [
+            req.params.key
+          ]);
 
           if (result.rows.length === 0) {
             return error(res, 'File not found', 404);
@@ -162,7 +182,7 @@ wrapAutoRBAC(router, 'uploadRoutes', {
           const quarantined = ['infected', 'failed'].includes(file.scan_status);
           const response = {
             ...file,
-            quarantined,
+            quarantined
           };
 
           success(res, response, 'File metadata found');
@@ -170,8 +190,8 @@ wrapAutoRBAC(router, 'uploadRoutes', {
           logger.error(err.stack || err.toString());
           error(res, 'Failed to fetch file metadata.');
         }
-      },
-    ],
+      }
+    ]
   ],
   delete: [
     [
@@ -180,21 +200,17 @@ wrapAutoRBAC(router, 'uploadRoutes', {
         const { key } = req.params;
         try {
           await deleteFileFromR2(key);
-          await pool.query('DELETE FROM file_metadata WHERE storage_key = $1', [
-            key,
-          ]);
+          await pool.query('DELETE FROM file_metadata WHERE storage_key = $1', [key]);
 
-          logger.info(
-            `🗑️ Deleted: ${key} | UID: ${req.user?.uid} | Role: ${req.user?.role}`,
-          );
+          logger.info(`🗑️ Deleted: ${key} | UID: ${req.user?.uid} | Role: ${req.user?.role}`);
           success(res, null, 'File deleted successfully');
         } catch (err) {
           logger.error(err.stack || err.toString());
           error(res, 'Failed to delete file.');
         }
-      },
-    ],
-  ],
+      }
+    ]
+  ]
 });
 
 export default router;

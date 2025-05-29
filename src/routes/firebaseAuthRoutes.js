@@ -2,10 +2,7 @@
 
 import express from 'express';
 import { validationResult } from 'express-validator';
-import {
-  phoneValidator,
-  userProfileValidator,
-} from '../config/validationSchemas.js';
+import { phoneValidator, userProfileValidator } from '../config/validationSchemas.js';
 import * as firebaseAuthController from '../controllers/firebaseAuthController.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
 import { wrapRoutesWithValidation } from '../config/routeWrapper.js';
@@ -30,11 +27,11 @@ wrapRoutesWithValidation(
           if (!errors.isEmpty()) {
             return res.status(HTTP_STATUS.BAD_REQUEST).json({
               errors: errors.array(),
-              message: RESPONSE_MESSAGES.VALIDATION_FAILED,
+              message: RESPONSE_MESSAGES.VALIDATION_FAILED
             });
           }
           return firebaseAuthController.firebaseLogin(req, res);
-        },
+        }
       ],
       [
         '/register',
@@ -44,18 +41,18 @@ wrapRoutesWithValidation(
           if (!errors.isEmpty()) {
             return res.status(HTTP_STATUS.BAD_REQUEST).json({
               errors: errors.array(),
-              message: RESPONSE_MESSAGES.VALIDATION_FAILED,
+              message: RESPONSE_MESSAGES.VALIDATION_FAILED
             });
           }
           return firebaseAuthController.registerUser(req, res);
-        },
-      ],
-    ],
+        }
+      ]
+    ]
   },
   {
     requireUID: false,
-    requirePhone: false,
-  },
+    requirePhone: false
+  }
 );
 
 export default router;

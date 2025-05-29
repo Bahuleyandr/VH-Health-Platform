@@ -28,7 +28,7 @@ export const phoneValidator = [
     .isLength({ min: 10, max: 10 })
     .withMessage('Phone number must be 10 digits')
     .isNumeric()
-    .withMessage('Phone number must contain only numbers'),
+    .withMessage('Phone number must contain only numbers')
 ];
 
 /**
@@ -53,9 +53,7 @@ export const userProfileValidator = [
     .trim()
     .notEmpty()
     .withMessage('Gender is required')
-    .custom((value) =>
-      ['male', 'female', 'other'].includes(value.toLowerCase()),
-    )
+    .custom(value => ['male', 'female', 'other'].includes(value.toLowerCase()))
     .withMessage('Gender must be Male, Female, or Other'),
   body('email').optional().isEmail().withMessage('Invalid email format'),
   body('birthday')
@@ -78,7 +76,7 @@ export const userProfileValidator = [
         throw new Error('Only admins can assign role');
       }
       return true;
-    }),
+    })
 ];
 
 /**
@@ -91,7 +89,7 @@ export const feedbackValidator = [
     .withMessage('Rating is required')
     .isInt({ min: 1, max: 5 })
     .withMessage('Rating must be between 1 and 5'),
-  body('comment').optional().isString().withMessage('Comment must be a string'),
+  body('comment').optional().isString().withMessage('Comment must be a string')
 ];
 
 /**
@@ -101,7 +99,7 @@ export const appointmentValidator = [
   ...phoneValidator,
   body('doctor_name').trim().notEmpty().withMessage('Doctor name is required'),
   body('date').trim().notEmpty().withMessage('Date is required'),
-  body('time').trim().notEmpty().withMessage('Time is required'),
+  body('time').trim().notEmpty().withMessage('Time is required')
 ];
 
 /**
@@ -110,10 +108,7 @@ export const appointmentValidator = [
 export const pharmacyOrderValidator = [
   ...phoneValidator,
   body('order_note').trim().notEmpty().withMessage('Order note is required'),
-  body('file_key')
-    .optional()
-    .isString()
-    .withMessage('File key must be a string'),
+  body('file_key').optional().isString().withMessage('File key must be a string')
 ];
 
 /**
@@ -122,10 +117,7 @@ export const pharmacyOrderValidator = [
 export const investigationRequestValidator = [
   ...phoneValidator,
   body('test_name').trim().notEmpty().withMessage('Test name is required'),
-  body('file_key')
-    .optional()
-    .isString()
-    .withMessage('File key must be a string'),
+  body('file_key').optional().isString().withMessage('File key must be a string')
 ];
 
 /**
@@ -133,7 +125,7 @@ export const investigationRequestValidator = [
  */
 export const healthRecordValidator = [
   ...phoneValidator,
-  body('file_key').trim().notEmpty().withMessage('File key is required'),
+  body('file_key').trim().notEmpty().withMessage('File key is required')
 ];
 
 /**
@@ -141,12 +133,6 @@ export const healthRecordValidator = [
  */
 export const sosAlertValidator = [
   ...phoneValidator,
-  body('latitude')
-    .optional()
-    .isFloat()
-    .withMessage('Latitude must be a number'),
-  body('longitude')
-    .optional()
-    .isFloat()
-    .withMessage('Longitude must be a number'),
+  body('latitude').optional().isFloat().withMessage('Latitude must be a number'),
+  body('longitude').optional().isFloat().withMessage('Longitude must be a number')
 ];

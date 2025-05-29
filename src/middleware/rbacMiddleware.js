@@ -10,20 +10,16 @@ export default function rbacMiddleware(allowedRoles) {
   return (req, res, next) => {
     if (!req.user) {
       console.warn('❌ RBAC Denied: Missing user information in request');
-      return res
-        .status(403)
-        .json({ error: 'Access denied: no user information' });
+      return res.status(403).json({ error: 'Access denied: no user information' });
     }
 
     const userRole = req.user.role;
 
     if (!hasRole(req.user, allowedRoles)) {
       console.warn(
-        `❌ RBAC Denied: User role '${userRole}' not in allowed roles: [${allowedRoles.join(', ')}]`,
+        `❌ RBAC Denied: User role '${userRole}' not in allowed roles: [${allowedRoles.join(', ')}]`
       );
-      return res
-        .status(403)
-        .json({ error: 'Access denied: insufficient permissions' });
+      return res.status(403).json({ error: 'Access denied: insufficient permissions' });
     }
 
     console.log(`✅ RBAC Granted: User role '${userRole}' is authorized`);

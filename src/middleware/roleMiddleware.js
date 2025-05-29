@@ -10,15 +10,13 @@ export default function roleMiddleware(...allowedRoles) {
     const user = req.user;
 
     if (!user || !user.role) {
-      return res
-        .status(403)
-        .json({ success: false, message: 'Access denied. Role not found.' });
+      return res.status(403).json({ success: false, message: 'Access denied. Role not found.' });
     }
 
     if (!allowedRoles.includes(user.role)) {
       return res.status(403).json({
         success: false,
-        message: `Access denied. Required roles: ${allowedRoles.join(', ')}`,
+        message: `Access denied. Required roles: ${allowedRoles.join(', ')}`
       });
     }
 

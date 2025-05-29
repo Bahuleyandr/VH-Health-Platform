@@ -7,7 +7,7 @@ export function attachUserContext(req, res, next) {
     Sentry.setUser({
       id: req.user.uid,
       username: req.user.phone,
-      role: req.user.role,
+      role: req.user.role
     });
   }
 
@@ -15,7 +15,7 @@ export function attachUserContext(req, res, next) {
     method: req.method,
     url: req.originalUrl,
     headers: req.headers,
-    query: req.query,
+    query: req.query
   });
 
   next();

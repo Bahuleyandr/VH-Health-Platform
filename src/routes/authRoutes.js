@@ -5,10 +5,7 @@ import { validationResult } from 'express-validator';
 import { phoneValidator } from '../config/validationSchemas.js';
 import * as authController from '../controllers/authController.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
-import {
-  wrapRoutes,
-  wrapRoutesWithValidation,
-} from '../config/routeWrapper.js';
+import { wrapRoutes, wrapRoutesWithValidation } from '../config/routeWrapper.js';
 
 const router = express.Router();
 
@@ -26,11 +23,11 @@ wrapRoutesWithValidation(
           if (!errors.isEmpty()) {
             return res.status(HTTP_STATUS.BAD_REQUEST).json({
               errors: errors.array(),
-              message: RESPONSE_MESSAGES.VALIDATION_FAILED,
+              message: RESPONSE_MESSAGES.VALIDATION_FAILED
             });
           }
           authController.login(req, res);
-        },
+        }
       ],
       [
         '/register',
@@ -40,18 +37,18 @@ wrapRoutesWithValidation(
           if (!errors.isEmpty()) {
             return res.status(HTTP_STATUS.BAD_REQUEST).json({
               errors: errors.array(),
-              message: RESPONSE_MESSAGES.VALIDATION_FAILED,
+              message: RESPONSE_MESSAGES.VALIDATION_FAILED
             });
           }
           authController.register(req, res);
-        },
-      ],
-    ],
+        }
+      ]
+    ]
   },
   {
     requireUID: false,
-    requirePhone: true, // phone is validated anyway via phoneValidator
-  },
+    requirePhone: true // phone is validated anyway via phoneValidator
+  }
 );
 
 // ✅ Stateless Token + Logout Routes (no RBAC, no UID/Phone needed)
@@ -61,13 +58,13 @@ wrapRoutes(
   {
     post: [
       ['/token', authController.refreshToken],
-      ['/logout', authController.logout],
-    ],
+      ['/logout', authController.logout]
+    ]
   },
   {
     requireUID: false,
-    requirePhone: false,
-  },
+    requirePhone: false
+  }
 );
 
 export default router;

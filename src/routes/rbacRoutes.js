@@ -7,9 +7,9 @@ const router = express.Router();
 wrapAutoRBAC(router, 'rbacRoutes', {
   get: [
     ['/roles', rbacController.getAllRoles],
-    ['/users', rbacController.getUsersByRole],
+    ['/users', rbacController.getUsersByRole]
   ],
-  post: [['/assign-role', rbacController.assignUserRole]],
+  post: [['/assign-role', rbacController.assignUserRole]]
 });
 
 export default router;

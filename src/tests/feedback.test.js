@@ -12,7 +12,7 @@ describe('Feedback API', () => {
     const res = await testClient().post('/api/v1/feedback').send({
       phoneNumber: '9876543210',
       rating: 5,
-      comment: 'Excellent service!',
+      comment: 'Excellent service!'
     });
     expect(res.statusCode).toBe(200);
   });

@@ -25,9 +25,7 @@ try {
   // Convert to JSON and write it to swagger.json
   fs.writeFileSync(outputJsonPath, JSON.stringify(swaggerYaml, null, 2));
 
-  console.log(
-    '✅ swagger.json generated successfully at src/docs/swagger.json',
-  );
+  console.log('✅ swagger.json generated successfully at src/docs/swagger.json');
 } catch (error) {
   console.error('❌ Failed to generate swagger.json:', error.message);
   process.exit(1);

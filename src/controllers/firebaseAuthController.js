@@ -11,9 +11,7 @@ export async function firebaseLogin(req, res) {
   const { idToken } = req.body;
 
   if (!idToken) {
-    return res
-      .status(400)
-      .json({ success: false, message: 'Firebase ID token is required' });
+    return res.status(400).json({ success: false, message: 'Firebase ID token is required' });
   }
 
   try {
@@ -21,20 +19,16 @@ export async function firebaseLogin(req, res) {
     const phone = decoded.phone_number;
 
     if (!phone) {
-      return res
-        .status(400)
-        .json({ success: false, message: 'Phone number missing in ID token' });
+      return res.status(400).json({ success: false, message: 'Phone number missing in ID token' });
     }
 
-    const result = await pool.query('SELECT * FROM users WHERE phone = $1', [
-      phone,
-    ]);
+    const result = await pool.query('SELECT * FROM users WHERE phone = $1', [phone]);
 
     let user;
     if (result.rows.length === 0) {
       const insert = await pool.query(
         `INSERT INTO users (phone, created_at) VALUES ($1, NOW()) RETURNING *`,
-        [phone],
+        [phone]
       );
       user = insert.rows[0];
     } else {
@@ -51,14 +45,12 @@ export async function firebaseLogin(req, res) {
         uid: user.uid,
         phone: user.phone,
         name: user.name,
-        role: user.role,
-      },
+        role: user.role
+      }
     });
   } catch (error) {
     console.error('Firebase Login Error:', error.stack || error.toString());
-    return res
-      .status(401)
-      .json({ success: false, message: 'Invalid Firebase ID token' });
+    return res.status(401).json({ success: false, message: 'Invalid Firebase ID token' });
   }
 }
 
@@ -66,19 +58,14 @@ export async function firebaseLogin(req, res) {
  * ✅ Handle user registration (idempotent)
  */
 export async function registerUser(req, res) {
-  const { phone, name, gender, email, birthday, anniversary, address } =
-    req.body;
+  const { phone, name, gender, email, birthday, anniversary, address } = req.body;
 
   if (!phone || !name) {
-    return res
-      .status(400)
-      .json({ success: false, message: 'Phone and name are required' });
+    return res.status(400).json({ success: false, message: 'Phone and name are required' });
   }
 
   try {
-    const existing = await pool.query('SELECT * FROM users WHERE phone = $1', [
-      phone,
-    ]);
+    const existing = await pool.query('SELECT * FROM users WHERE phone = $1', [phone]);
 
     if (existing.rows.length > 0) {
       return res.status(200).json({
@@ -87,8 +74,8 @@ export async function registerUser(req, res) {
         user: {
           uid: existing.rows[0].uid,
           phone: existing.rows[0].phone,
-          name: existing.rows[0].name,
-        },
+          name: existing.rows[0].name
+        }
       });
     }
 
@@ -106,13 +93,11 @@ export async function registerUser(req, res) {
       user: {
         uid: result.rows[0].uid,
         phone: result.rows[0].phone,
-        name: result.rows[0].name,
-      },
+        name: result.rows[0].name
+      }
     });
   } catch (error) {
     console.error('Register User Error:', error.stack || error.toString());
-    return res
-      .status(500)
-      .json({ success: false, message: 'Internal server error' });
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 }

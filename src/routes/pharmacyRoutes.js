@@ -24,7 +24,7 @@ wrapAutoRBAC(router, 'pharmacyRoutes', {
         if (!errors.isEmpty()) {
           return res.status(HTTP_STATUS.BAD_REQUEST).json({
             errors: errors.array(),
-            message: RESPONSE_MESSAGES.VALIDATION_FAILED,
+            message: RESPONSE_MESSAGES.VALIDATION_FAILED
           });
         }
 
@@ -33,22 +33,22 @@ wrapAutoRBAC(router, 'pharmacyRoutes', {
 
         if (!phone || !order_note) {
           return res.status(HTTP_STATUS.BAD_REQUEST).json({
-            error: 'Phone and order note are required.',
+            error: 'Phone and order note are required.'
           });
         }
 
         try {
           const result = await pool.query(
             'INSERT INTO pharmacy_orders (phone, order_note, file_key) VALUES ($1, $2, $3) RETURNING *',
-            [phone, order_note, file_key || null],
+            [phone, order_note, file_key || null]
           );
           success(res, result.rows[0], RESPONSE_MESSAGES.ORDER_PLACED);
         } catch (err) {
           logger.error(err.stack || err.toString());
           error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
         }
-      },
-    ],
+      }
+    ]
   ],
   get: [
     ['/uid/:uid', pharmacyController.getPharmacyOrdersByUID],
@@ -59,16 +59,16 @@ wrapAutoRBAC(router, 'pharmacyRoutes', {
           const phone = normalizePhone(req.params.phone);
           const result = await pool.query(
             'SELECT * FROM pharmacy_orders WHERE phone = $1 ORDER BY id DESC',
-            [phone],
+            [phone]
           );
           success(res, result.rows, 'Pharmacy orders fetched successfully');
         } catch (err) {
           logger.error(err.stack || err.toString());
           error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
         }
-      },
-    ],
-  ],
+      }
+    ]
+  ]
 });
 
 export default router;

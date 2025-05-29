@@ -13,7 +13,7 @@ export function requestOtp(req, res) {
     logger.warn('Validation failed on requestOtp', { errors: errors.array() });
     return res.status(400).json({
       message: 'Validation failed',
-      errors: errors.array(),
+      errors: errors.array()
     });
   }
 
@@ -36,7 +36,7 @@ export function verifyOtp(req, res) {
     logger.warn('Validation failed on verifyOtp', { errors: errors.array() });
     return res.status(400).json({
       message: 'Validation failed',
-      errors: errors.array(),
+      errors: errors.array()
     });
   }
 

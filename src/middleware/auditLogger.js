@@ -5,8 +5,6 @@ export function auditLogger(req, res, next) {
   const role = req.user?.role || 'ANONYMOUS';
   const ip = req.ip || req.connection?.remoteAddress;
 
-  console.log(
-    `[AUDIT] ${req.method} ${req.originalUrl} | UID: ${uid} | Role: ${role} | IP: ${ip}`,
-  );
+  console.log(`[AUDIT] ${req.method} ${req.originalUrl} | UID: ${uid} | Role: ${role} | IP: ${ip}`);
   next();
 }

@@ -11,7 +11,7 @@ describe('Health Records API', () => {
   it('should add health record', async () => {
     const res = await testClient().post('/api/v1/records').send({
       phone: '9876543210',
-      file_key: 'testfile.pdf',
+      file_key: 'testfile.pdf'
     });
     expect(res.statusCode).toBe(200);
   });

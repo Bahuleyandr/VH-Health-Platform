@@ -27,11 +27,9 @@ export async function getEntityCounts(req, res) {
     const queries = await Promise.all([
       db.query('SELECT COUNT(*) FROM appointments'),
       db.query('SELECT COUNT(*) FROM health_records'),
-      db.query('SELECT COUNT(*) FROM investigations'),
+      db.query('SELECT COUNT(*) FROM investigations')
     ]);
-    const [appointments, records, investigations] = queries.map((r) =>
-      parseInt(r.rows[0].count, 10),
-    );
+    const [appointments, records, investigations] = queries.map(r => parseInt(r.rows[0].count, 10));
 
     success(res, { appointments, records, investigations }, 'Entity counts');
   } catch (err) {

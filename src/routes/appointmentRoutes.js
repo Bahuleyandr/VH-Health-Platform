@@ -27,45 +27,57 @@ wrapAutoRBAC(router, 'appointmentRoutes', {
         if (!errors.isEmpty()) {
           return res.status(HTTP_STATUS.BAD_REQUEST).json({
             errors: errors.array(),
-            message: RESPONSE_MESSAGES.VALIDATION_FAILED,
+            message: RESPONSE_MESSAGES.VALIDATION_FAILED
           });
         }
 
-        const phone = normalizePhone(req.body.phone || req.body.phoneNumber); // ✅ corrected
-        const { doctor_name, date, time } = req.body;
+        const phone = normalizePhone(req.body.phone || req.body.phoneNumber);
+        const { doctor_name, date, time, department } = req.body;
 
         try {
           const result = await pool.query(
             'INSERT INTO appointments (phone, doctor_name, date, time) VALUES ($1, $2, $3, $4) RETURNING *',
-            [phone, doctor_name, date, time],
+            [phone, doctor_name, date, time]
           );
-          success(res, result.rows[0], RESPONSE_MESSAGES.APPOINTMENT_BOOKED);
+
+          const appointment = result.rows[0];
+
+          const scheduledAt = new Date(
+            `${appointment.date.toISOString().split('T')[0]}T${appointment.time}`
+          );
+
+          success(res, {
+            id: appointment.id,
+            doctor: appointment.doctor_name,
+            department: department || null,
+            scheduled_at: scheduledAt.toISOString()
+          }, RESPONSE_MESSAGES.APPOINTMENT_BOOKED);
         } catch (err) {
           logger.error(err.stack || err.toString());
           error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
         }
-      },
-    ],
+      }
+    ]
   ],
   get: [
     [
       '/:phone',
       async (req, res) => {
         try {
-          const phone = normalizePhone(req.params.phone); // ✅ corrected
+          const phone = normalizePhone(req.params.phone);
           const result = await pool.query(
             'SELECT * FROM appointments WHERE phone = $1 ORDER BY date DESC',
-            [phone],
+            [phone]
           );
           success(res, result.rows, 'Appointments fetched successfully');
         } catch (err) {
           logger.error(err.stack || err.toString());
           error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
         }
-      },
+      }
     ],
-    ['/uid/:uid', appointmentController.getAppointmentsByUID],
-  ],
+    ['/uid/:uid', appointmentController.getAppointmentsByUID]
+  ]
 });
 
 export default router;

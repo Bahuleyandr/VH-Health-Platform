@@ -15,7 +15,9 @@ import otp from './otpRoutes.js';
 import version from './versionRoutes.js';
 import health from './healthRoutes.js';
 import sos from './sosRoutes.js';
-import devices from './deviceRoutes.js'; // ✅ Newly added
+import devices from './deviceRoutes.js';
+import notifications from './notificationRoutes.js'; // ✅ Patient app fetch + mark read
+import adminNotifications from './adminNotificationRoutes.js'; // ✅ Admin push
 
 export default {
   auth,
@@ -36,4 +38,6 @@ export default {
   health,
   sos,
   devices,
+  notifications,         // ✅ GET /api/v1/notifications/:phone etc.
+  adminNotifications     // ✅ POST /api/v1/admin/notifications
 };

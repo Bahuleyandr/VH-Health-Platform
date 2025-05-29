@@ -12,22 +12,19 @@ import logger from '../logging/logger.js';
 export async function logAudit(req, action, metadata = {}) {
   const uid = req.user?.uid || null;
   const role = req.user?.role || null;
-  const ip =
-    req.headers['x-forwarded-for'] || req.connection?.remoteAddress || null;
+  const ip = req.headers['x-forwarded-for'] || req.connection?.remoteAddress || null;
 
   try {
     await db.query(
       `INSERT INTO audit_logs (uid, role, ip, action, metadata)
        VALUES ($1, $2, $3, $4, $5)`,
-      [uid, role, ip, action, metadata],
+      [uid, role, ip, action, metadata]
     );
 
     logger.info(
-      `[AUDIT] ${action} | UID: ${uid} | Role: ${role} | IP: ${ip} | Meta: ${JSON.stringify(metadata)}`,
+      `[AUDIT] ${action} | UID: ${uid} | Role: ${role} | IP: ${ip} | Meta: ${JSON.stringify(metadata)}`
     );
   } catch (err) {
-    logger.error(
-      `[AUDIT-FAIL] ${action} failed to log: ${err.stack || err.message}`,
-    );
+    logger.error(`[AUDIT-FAIL] ${action} failed to log: ${err.stack || err.message}`);
   }
 }

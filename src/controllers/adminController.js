@@ -46,9 +46,7 @@ export const migrateR2Archive = (req, res) => {
   const { uid, ip } = getAdminAuditContext(req);
   try {
     execSync('npm run r2:migrate-archive', { stdio: 'inherit' });
-    logger.info(
-      `[ADMIN] R2 archive migration initiated by ${uid} from IP ${ip}`,
-    );
+    logger.info(`[ADMIN] R2 archive migration initiated by ${uid} from IP ${ip}`);
     res.json({ success: true, message: 'R2 archive migration triggered.' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -146,14 +144,12 @@ export const viewRoleAudit = async (req, res) => {
       `SELECT phone, old_role, new_role, changed_by_uid, changed_at
        FROM user_role_audit
        ORDER BY changed_at DESC
-       LIMIT 100`,
+       LIMIT 100`
     );
     res.json({ success: true, data: result.rows });
   } catch (err) {
     logger.error('Failed to fetch audit log:', err.stack || err.toString());
-    res
-      .status(500)
-      .json({ success: false, message: 'Failed to fetch audit log' });
+    res.status(500).json({ success: false, message: 'Failed to fetch audit log' });
   }
 };
 
@@ -162,28 +158,21 @@ export const sendTestNotification = async (req, res) => {
   const { phone, title, body } = req.body;
 
   if (!phone || !title || !body) {
-    return res
-      .status(400)
-      .json({ success: false, message: 'Phone, title and body are required.' });
+    return res.status(400).json({ success: false, message: 'Phone, title and body are required.' });
   }
 
   try {
-    const result = await db.query(
-      'SELECT fcm_token FROM devices WHERE phone = $1',
-      [phone],
-    );
+    const result = await db.query('SELECT fcm_token FROM devices WHERE phone = $1', [phone]);
 
     if (result.rowCount === 0) {
-      return res
-        .status(404)
-        .json({ success: false, message: 'Device not registered.' });
+      return res.status(404).json({ success: false, message: 'Device not registered.' });
     }
 
     const token = result.rows[0].fcm_token;
 
     const message = {
       token,
-      notification: { title, body },
+      notification: { title, body }
     };
 
     const response = await admin.messaging().send(message);
@@ -191,13 +180,11 @@ export const sendTestNotification = async (req, res) => {
     return res.json({
       success: true,
       message: 'Notification sent.',
-      firebase: response,
+      firebase: response
     });
   } catch (err) {
     logger.error('Push notification error:', err.stack || err.toString());
-    return res
-      .status(500)
-      .json({ success: false, message: 'Failed to send push notification.' });
+    return res.status(500).json({ success: false, message: 'Failed to send push notification.' });
   }
 };
 
@@ -208,13 +195,11 @@ export const getAuditLogs = async (req, res) => {
       `SELECT id, action, phone, platform, timestamp
        FROM audit_logs
        ORDER BY timestamp DESC
-       LIMIT 100`,
+       LIMIT 100`
     );
     res.json({ success: true, logs: result.rows });
   } catch (err) {
     logger.error('Audit log fetch error:', err.stack || err.toString());
-    res
-      .status(500)
-      .json({ success: false, message: 'Unable to fetch audit logs.' });
+    res.status(500).json({ success: false, message: 'Unable to fetch audit logs.' });
   }
 };

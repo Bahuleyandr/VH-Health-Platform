@@ -2,13 +2,7 @@ import pool from '../db.js';
 import db from '../db.js';
 import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
-import {
-  ADMIN,
-  PATIENT,
-  DOCTOR,
-  HR_STAFF,
-  GENERAL_STAFF,
-} from '../utils/roles.js';
+import { ADMIN, PATIENT, DOCTOR, HR_STAFF, GENERAL_STAFF } from '../utils/roles.js';
 import { logAudit } from '../utils/logAudit.js';
 
 const allowedRoles = [PATIENT, DOCTOR, ADMIN, HR_STAFF, GENERAL_STAFF];
@@ -23,7 +17,7 @@ export async function createOrUpdateUser(req, res) {
     birthday,
     anniversary,
     profilePicture,
-    role: requestedRole,
+    role: requestedRole
   } = req.body;
 
   logger.info('✅ createOrUpdateUser invoked');
@@ -39,7 +33,7 @@ export async function createOrUpdateUser(req, res) {
   }
 
   logger.info(
-    `👤 User ${phone} saved with role '${role}' by ${req.user?.role || 'anonymous'} (${req.user?.uid || 'unknown'})`,
+    `👤 User ${phone} saved with role '${role}' by ${req.user?.role || 'anonymous'} (${req.user?.uid || 'unknown'})`
   );
 
   try {
@@ -62,17 +56,7 @@ export async function createOrUpdateUser(req, res) {
          profile_picture = EXCLUDED.profile_picture,
          role = EXCLUDED.role
        RETURNING *`,
-      [
-        phone,
-        name,
-        gender,
-        address,
-        email,
-        birthday,
-        anniversary,
-        profilePicture,
-        role,
-      ],
+      [phone, name, gender, address, email, birthday, anniversary, profilePicture, role]
     );
     success(res, result.rows[0], 'User saved');
   } catch (err) {
@@ -91,7 +75,7 @@ export async function updateUser(req, res) {
     birthday,
     anniversary,
     profilePicture,
-    role: requestedRole,
+    role: requestedRole
   } = req.body;
 
   let roleUpdateClause = '';
@@ -109,27 +93,8 @@ export async function updateUser(req, res) {
        RETURNING *`;
 
     const values = roleParam
-      ? [
-          name,
-          gender,
-          address,
-          email,
-          birthday,
-          anniversary,
-          profilePicture,
-          phone,
-          roleParam,
-        ]
-      : [
-          name,
-          gender,
-          address,
-          email,
-          birthday,
-          anniversary,
-          profilePicture,
-          phone,
-        ];
+      ? [name, gender, address, email, birthday, anniversary, profilePicture, phone, roleParam]
+      : [name, gender, address, email, birthday, anniversary, profilePicture, phone];
 
     const result = await pool.query(query, values);
 
@@ -157,30 +122,22 @@ export async function updateUserRole(req, res) {
   }
 
   try {
-    const current = await db.query('SELECT role FROM users WHERE phone = $1', [
-      phone,
-    ]);
+    const current = await db.query('SELECT role FROM users WHERE phone = $1', [phone]);
     if (!current.rows.length) return error(res, 'User not found', 404);
 
     const oldRole = current.rows[0].role;
-    if (oldRole === newRole)
-      return success(res, { phone, role: newRole }, 'Role unchanged');
+    if (oldRole === newRole) return success(res, { phone, role: newRole }, 'Role unchanged');
 
-    await db.query('UPDATE users SET role = $1 WHERE phone = $2', [
-      newRole,
-      phone,
-    ]);
+    await db.query('UPDATE users SET role = $1 WHERE phone = $2', [newRole, phone]);
 
     // ✅ Audit the role change
     await logAudit(req, 'role-change', {
       phone,
       oldRole,
-      newRole,
+      newRole
     });
 
-    logger.info(
-      `🔁 Role changed for ${phone}: ${oldRole} → ${newRole} by ${req.user?.uid}`,
-    );
+    logger.info(`🔁 Role changed for ${phone}: ${oldRole} → ${newRole} by ${req.user?.uid}`);
     success(res, { phone, role: newRole }, 'Role updated');
   } catch (err) {
     logger.error(err.stack || err.toString());
@@ -191,9 +148,7 @@ export async function updateUserRole(req, res) {
 export async function getUserByPhone(req, res) {
   try {
     const { phone } = req.params;
-    const result = await pool.query('SELECT * FROM users WHERE phone = $1', [
-      phone,
-    ]);
+    const result = await pool.query('SELECT * FROM users WHERE phone = $1', [phone]);
     if (result.rows.length > 0) {
       success(res, result.rows[0], 'User found');
     } else {
@@ -208,9 +163,7 @@ export async function getUserByPhone(req, res) {
 export async function getUserByUID(req, res) {
   try {
     const { uid } = req.params;
-    const result = await pool.query('SELECT * FROM users WHERE uid = $1', [
-      uid,
-    ]);
+    const result = await pool.query('SELECT * FROM users WHERE uid = $1', [uid]);
     if (result.rows.length > 0) {
       success(res, result.rows[0], 'User found by UID');
     } else {
@@ -228,9 +181,7 @@ export async function getUsers(req, res) {
     const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
     const query = req.query.query ? `%${req.query.query.toLowerCase()}%` : null;
-    const roleFilter = req.query.role
-      ? `AND role = '${req.query.role.toUpperCase()}'`
-      : '';
+    const roleFilter = req.query.role ? `AND role = '${req.query.role.toUpperCase()}'` : '';
 
     let result;
     if (query) {
@@ -239,7 +190,7 @@ export async function getUsers(req, res) {
          WHERE (LOWER(name) LIKE $1 OR phone LIKE $1) ${roleFilter}
          ORDER BY registered_at DESC
          LIMIT $2 OFFSET $3`,
-        [query, limit, offset],
+        [query, limit, offset]
       );
     } else {
       result = await pool.query(
@@ -247,7 +198,7 @@ export async function getUsers(req, res) {
          WHERE 1=1 ${roleFilter}
          ORDER BY registered_at DESC
          LIMIT $1 OFFSET $2`,
-        [limit, offset],
+        [limit, offset]
       );
     }
 
@@ -264,7 +215,7 @@ export async function lookupUser(req, res) {
   if (!phone && !uid && !name) {
     return res.status(400).json({
       success: false,
-      message: 'Provide phone, uid, or name to search',
+      message: 'Provide phone, uid, or name to search'
     });
   }
 
@@ -277,21 +228,17 @@ export async function lookupUser(req, res) {
       result = await db.query('SELECT * FROM users WHERE uid = $1', [uid]);
     } else if (name) {
       result = await db.query('SELECT * FROM users WHERE LOWER(name) LIKE $1', [
-        `%${name.toLowerCase()}%`,
+        `%${name.toLowerCase()}%`
       ]);
     }
 
     if (!result || result.rows.length === 0) {
-      return res
-        .status(404)
-        .json({ success: false, message: 'No matching users found' });
+      return res.status(404).json({ success: false, message: 'No matching users found' });
     }
 
     return res.status(200).json({ success: true, users: result.rows });
   } catch (err) {
     logger.error(err.stack || err.toString());
-    return res
-      .status(500)
-      .json({ success: false, message: 'Internal server error' });
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 }
