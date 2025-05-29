@@ -1,5 +1,5 @@
 import admin from 'firebase-admin';
-import logger from '../logging/logger.js';
+import logger from '../../logging/logger.js';
 
 /**
  * Send push notification using Firebase Admin SDK
