@@ -1,3 +1,5 @@
+// src/routes/notificationRoutes.js
+
 import express from 'express';
 import pool from '../db.js';
 import { success, error } from '../utils/responseHelper.js';
@@ -41,6 +43,22 @@ wrapAutoRBAC(router, 'notificationRoutes', {
         } catch (err) {
           logger.error(err.stack || err.toString());
           error(res, 'Failed to update notification.');
+        }
+      }
+    ],
+    [
+      '/:phone/mark-all-read',
+      async (req, res) => {
+        try {
+          const phone = normalizePhone(req.params.phone);
+          await pool.query(
+            `UPDATE notifications SET is_read = TRUE WHERE phone = $1`,
+            [phone]
+          );
+          success(res, null, 'All notifications marked as read');
+        } catch (err) {
+          logger.error(err.stack || err.toString());
+          error(res, 'Failed to mark all notifications as read.');
         }
       }
     ]
