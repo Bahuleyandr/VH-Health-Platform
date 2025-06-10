@@ -8,7 +8,9 @@ import { generateToken } from '../utils/jwtUtils.js';
  * ✅ Handle secure Firebase OTP login using ID token
  */
 export async function firebaseLogin(req, res) {
-  const { idToken } = req.body;
+  const idToken = req.body.idToken || req.headers.authorization?.startsWith('Bearer ')
+  ? req.headers.authorization.split('Bearer ')[1]
+  : null;
 
   if (!idToken) {
     return res.status(400).json({ success: false, message: 'Firebase ID token is required' });
