@@ -2,14 +2,11 @@
 
 import admin from 'firebase-admin';
 import fs from 'fs';
-import path from 'path';
 
-const serviceAccountPath = path.resolve('firebase-service-account.json');
+const serviceAccountPath = '/etc/secrets/firebase-service-account.json'; // ← this matches the Render secret path
 
 if (!fs.existsSync(serviceAccountPath)) {
-  console.error(
-    '❌ firebase-service-account.json not found. Please generate it from Firebase Console.'
-  );
+  console.error('❌ firebase-service-account.json not found at expected secret file path.');
   process.exit(1);
 }
 
