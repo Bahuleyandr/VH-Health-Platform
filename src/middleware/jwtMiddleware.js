@@ -21,9 +21,14 @@ export default function jwtMiddleware(req, res, next) {
     return res.status(403).json({ success: false, error: 'Invalid or expired token' });
   }
 
+  const uid = decoded.sub; // ✅ updated
+  const role = decoded.role;
+  const phone = decoded.phone;
+
   console.log(
-    `JWT Middleware Granted: User authenticated as '${decoded.role}' with UID '${decoded.uid}'`
+    `JWT Middleware Granted: User authenticated as '${role}' with UID '${uid}'`
   );
-  req.user = decoded;
+
+  req.user = { uid, role, phone }; // ✅ attach expected fields
   next();
 }

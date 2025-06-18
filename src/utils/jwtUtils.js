@@ -10,12 +10,26 @@ if (!JWT_SECRET) {
 }
 
 /**
- * Generates a JWT token with the given payload.
- * @param {Object} payload - The payload to embed in the token.
+ * Generates a JWT token with Supabase-compatible claims.
+ * @param {Object} payload - { uid, phone, role }
  * @returns {string} - Signed JWT token.
  */
-export function generateToken(payload) {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+export function generateToken({ uid, phone, role }) {
+  return jwt.sign(
+    {
+      sub: uid,
+      phone,
+      role,
+      'https://hyzrtspkmgelzqylokex.supabase.co/jwt/claims': {
+        'x-hasura-default-role': role.toLowerCase(),
+        'x-hasura-allowed-roles': [role.toLowerCase()],
+        'x-hasura-user-id': uid,
+        'x-hasura-phone': phone
+      }
+    },
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRES_IN }
+  );
 }
 
 /**
