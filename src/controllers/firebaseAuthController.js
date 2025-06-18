@@ -8,9 +8,13 @@ import { generateToken } from '../utils/jwtUtils.js';
  * ✅ Handle secure Firebase OTP login using ID token
  */
 export async function firebaseLogin(req, res) {
-  const idToken = req.body.idToken || req.headers.authorization?.startsWith('Bearer ')
-  ? req.headers.authorization.split('Bearer ')[1]
-  : null;
+  let idToken = null;
+
+  if (req.body.idToken) {
+    idToken = req.body.idToken;
+  } else if (req.headers.authorization?.startsWith('Bearer ')) {
+    idToken = req.headers.authorization.split('Bearer ')[1];
+  }
 
   if (!idToken) {
     return res.status(400).json({ success: false, message: 'Firebase ID token is required' });
@@ -51,7 +55,7 @@ export async function firebaseLogin(req, res) {
       }
     });
   } catch (error) {
-    console.error('Firebase Login Error:', error.stack || error.toString());
+    console.error('[firebaseLogin] Firebase token verification failed:', error.message);
     return res.status(401).json({ success: false, message: 'Invalid Firebase ID token' });
   }
 }
@@ -70,13 +74,16 @@ export async function registerUser(req, res) {
     const existing = await pool.query('SELECT * FROM users WHERE phone = $1', [phone]);
 
     if (existing.rows.length > 0) {
+      const accessToken = generateToken({ uid: user.uid, role: user.role });
       return res.status(200).json({
         success: true,
-        message: 'User already exists',
-        user: {
-          uid: existing.rows[0].uid,
-          phone: existing.rows[0].phone,
-          name: existing.rows[0].name
+        message: 'User already exists, login successful.',
+        accessToken,
+        profile: {
+          uid: user.uid,
+          phone: user.phone,
+          name: user.name,
+          role: user.role
         }
       });
     }
@@ -88,18 +95,21 @@ export async function registerUser(req, res) {
     `;
     const values = [phone, name, gender, email, birthday, anniversary, address];
     const result = await pool.query(insertQuery, values);
+    const newUser = result.rows[0];
 
     return res.status(201).json({
       success: true,
       message: 'User profile created',
-      user: {
-        uid: result.rows[0].uid,
-        phone: result.rows[0].phone,
-        name: result.rows[0].name
+      accessToken,      
+      profile: {
+        uid: newUser.uid,
+        phone: newUser.phone,
+        name: newUser.name,
+        role: newUser.role
       }
     });
   } catch (error) {
-    console.error('Register User Error:', error.stack || error.toString());
+    console.error('[registerUser] Error:', error.stack || error.toString());
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 }
