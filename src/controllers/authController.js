@@ -4,15 +4,18 @@ import { generateToken, verifyToken } from '../utils/jwtUtils.js';
 import db from '../db.js';
 import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
+import smsService from '../utils/smsService.js'; // 📱 Custom SMS service module
+
+const MAGIC_LINK_EXPIRY_SECONDS = 600; // 10 minutes
 
 /**
- * ✅ User Login
+ * ✅ Send Magic Login Link (OTP-Free)
  */
-export async function login(req, res) {
+export async function sendMagicLink(req, res) {
   const { phone } = req.body;
 
   if (!phone) {
-    return res.status(400).json({ success: false, error: 'Phone is required' });
+    return res.status(400).json({ success: false, error: 'Phone number is required' });
   }
 
   try {
@@ -23,21 +26,62 @@ export async function login(req, res) {
     }
 
     const user = result.rows[0];
-    const token = generateToken({
-      uid: user.uid,
-      phone: user.phone,
-      role: user.role
-    });
 
-    success(res, { token }, 'Login successful');
+    // 🔐 Generate short-lived token for magic login
+    const loginToken = generateToken(
+      { uid: user.uid, phone: user.phone, role: user.role, magic: true },
+      MAGIC_LINK_EXPIRY_SECONDS
+    );
+
+    const link = `https://vhhealth.in/magic-login?token=${loginToken}`;
+    await smsService.sendSMS(phone, `Tap to login securely: ${link}`);
+
+    success(res, null, 'Magic login link sent via SMS');
   } catch (err) {
-    logger.error('Login Error:', err.stack || err.toString());
-    error(res, 'Database error');
+    logger.error('Send Magic Link Error:', err.stack || err.toString());
+    error(res, 'Could not send magic login link');
   }
 }
 
 /**
- * ✅ User Registration (with ADMIN override)
+ * ✅ Verify Magic Login Token (OTP-Free)
+ */
+export async function verifyMagicToken(req, res) {
+  const { token } = req.query;
+
+  if (!token) {
+    return res.status(400).json({ success: false, error: 'Token is required' });
+  }
+
+  const decoded = verifyToken(token);
+
+  if (!decoded || !decoded.magic) {
+    return res.status(401).json({ success: false, error: 'Invalid or expired magic link' });
+  }
+
+  try {
+    const result = await db.query('SELECT * FROM users WHERE uid = $1', [decoded.uid]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const user = result.rows[0];
+    const sessionToken = generateToken({
+      uid: user.uid,
+      phone: user.phone,
+      role: user.role,
+    });
+
+    success(res, { token: sessionToken, user }, 'Login successful');
+  } catch (err) {
+    logger.error('Verify Magic Token Error:', err.stack || err.toString());
+    error(res, 'Could not verify magic link');
+  }
+}
+
+/**
+ * ✅ Traditional User Registration
  */
 export async function register(req, res) {
   const { phone, name } = req.body;
@@ -53,7 +97,6 @@ export async function register(req, res) {
       return res.status(409).json({ success: false, error: 'User already exists' });
     }
 
-    // 🛠️ Automatically assign ADMIN role if phone is 9962074440
     const role = phone === '9962074440' ? 'ADMIN' : 'PATIENT';
 
     const insert = await db.query(
@@ -65,7 +108,7 @@ export async function register(req, res) {
     const token = generateToken({
       uid: user.uid,
       phone: user.phone,
-      role: user.role
+      role: user.role,
     });
 
     success(res, { token, user }, 'Registration successful');
@@ -76,7 +119,7 @@ export async function register(req, res) {
 }
 
 /**
- * ✅ Refresh Token (Stateless JWT)
+ * ✅ Refresh Token
  */
 export async function refreshToken(req, res) {
   const { token } = req.body;
@@ -94,17 +137,17 @@ export async function refreshToken(req, res) {
   const newToken = generateToken({
     uid: decoded.uid,
     phone: decoded.phone,
-    role: decoded.role
+    role: decoded.role,
   });
 
   success(res, { token: newToken }, 'Token refreshed successfully');
 }
 
 /**
- * ✅ Logout (stateless)
+ * ✅ Logout (Stateless)
  */
 export async function logout(req, res) {
   success(res, {
-    message: 'Logged out successfully (client should discard token)'
+    message: 'Logged out successfully (client should discard token)',
   });
 }
