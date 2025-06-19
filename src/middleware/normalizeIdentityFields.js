@@ -46,20 +46,20 @@ export function normalizeIdentityFields(req, res, next) {
 
   // ✅ Normalize UID
   if (src?.uid) {
-    req.body.uid = src.uid.trim();
+    req.body.uid = typeof src.uid === 'string' ? src.uid.trim() : src.uid;
   }
 
   // ✅ Normalize gender
-  if (src?.gender && typeof src.gender === 'string') {
+  if (typeof src?.gender === 'string') {
     req.body.gender = src.gender.trim().toLowerCase();
   }
 
   // ✅ Normalize name and email
-  if (src?.name && typeof src.name === 'string') {
+  if (typeof src?.name === 'string') {
     req.body.name = src.name.trim();
   }
 
-  if (src?.email && typeof src.email === 'string') {
+  if (typeof src?.email === 'string') {
     req.body.email = src.email.trim().toLowerCase();
   }
 

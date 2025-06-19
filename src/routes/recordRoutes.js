@@ -44,9 +44,9 @@ wrapAutoRBAC(router, 'recordRoutes', {
           const result = await pool.query('SELECT * FROM health_records WHERE phone = $1', [phone]);
           let records = result.rows;
 
-          if (type) {
+          if (type && typeof type === 'string') {
             records = records.filter(
-              r => r.file_type && r.file_type.toLowerCase() === type.toLowerCase()
+              r => typeof r.file_type === 'string' && r.file_type.toLowerCase() === type.toLowerCase()
             );
           }
 

@@ -53,7 +53,7 @@ export const userProfileValidator = [
     .trim()
     .notEmpty()
     .withMessage('Gender is required')
-    .custom(value => ['male', 'female', 'other'].includes(value.toLowerCase()))
+    .custom(value => typeof value === 'string' && ['male', 'female', 'other'].includes(value.toLowerCase()))
     .withMessage('Gender must be Male, Female, or Other'),
   body('email').optional().isEmail().withMessage('Invalid email format'),
   body('birthday')
