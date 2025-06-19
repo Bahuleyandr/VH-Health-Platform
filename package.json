@@ -37,6 +37,7 @@
     "@prisma/client": "^6.8.2",
     "@sentry/node": "^7.21.1",
     "@stoplight/spectral-rulesets": "^1.22.0",
+    "axios": "^1.10.0",
     "clamav.js": "^0.12.0",
     "cors": "^2.8.5",
     "date-fns": "^4.1.0",
