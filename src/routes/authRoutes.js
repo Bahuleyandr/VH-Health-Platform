@@ -9,7 +9,7 @@ import { wrapRoutes, wrapRoutesWithValidation } from '../config/routeWrapper.js'
 
 const router = express.Router();
 
-// ✅ Public Authentication Routes — explicitly skip UID enforcement
+// ✅ Public Authentication Routes (Login/Register with validation)
 wrapRoutesWithValidation(
   router,
   [],
@@ -42,16 +42,33 @@ wrapRoutesWithValidation(
           }
           authController.register(req, res);
         }
+      ],
+      [
+        '/send-magic-link',
+        phoneValidator,
+        (req, res) => {
+          const errors = validationResult(req);
+          if (!errors.isEmpty()) {
+            return res.status(HTTP_STATUS.BAD_REQUEST).json({
+              errors: errors.array(),
+              message: RESPONSE_MESSAGES.VALIDATION_FAILED
+            });
+          }
+          authController.sendMagicLink(req, res);
+        }
       ]
+    ],
+    get: [
+      ['/verify-token', authController.verifyMagicToken]
     ]
   },
   {
     requireUID: false,
-    requirePhone: true // phone is validated anyway via phoneValidator
+    requirePhone: true // phone validated by phoneValidator
   }
 );
 
-// ✅ Stateless Token + Logout Routes (no RBAC, no UID/Phone needed)
+// ✅ Stateless Token + Logout Routes (No UID/Phone needed)
 wrapRoutes(
   router,
   [],
