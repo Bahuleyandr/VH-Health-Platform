@@ -24,7 +24,6 @@ export async function sendMagicLink(req, res) {
     const result = await db.query('SELECT * FROM users WHERE phone = $1', [phone]);
 
     if (result.rows.length === 0) {
-      // 🆕 Auto-register new user
       const insert = await db.query(
         'INSERT INTO users (phone, name, role, registered_at) VALUES ($1, $2, $3, NOW()) RETURNING *',
         [phone, 'New User', 'PATIENT']
@@ -35,19 +34,23 @@ export async function sendMagicLink(req, res) {
       user = result.rows[0];
     }
 
-    // 🔐 Log entry for token usage (create and store token UUID)
+    const loginToken = generateToken(
+      { magic: true },
+      MAGIC_LINK_EXPIRY_SECONDS
+    );
+
     const audit = await db.query(
-      'INSERT INTO magic_link_logs (uid, phone, used, created_at) VALUES ($1, $2, false, NOW()) RETURNING id',
-      [user.uid, user.phone]
+      'INSERT INTO magic_link_logs (uid, phone, token, used, created_at) VALUES ($1, $2, $3, false, NOW()) RETURNING id',
+      [user.uid, user.phone, loginToken]
     );
     const magicId = audit.rows[0].id;
 
-    const loginToken = generateToken(
+    const tokenWithId = generateToken(
       { magicId, magic: true },
       MAGIC_LINK_EXPIRY_SECONDS
     );
 
-    const link = `https://vhhealth.in/magic-login?token=${loginToken}`;
+    const link = `https://vhhealth.in/magic-login?token=${tokenWithId}`;
     await smsService.sendSMS(phone, `Welcome to VH Health! Click to log in: ${link} \nThis link expires in 5 minutes.`);
     logger.info(`📨 Magic link sent to ${phone}: ${link}`);
 
@@ -87,7 +90,6 @@ export async function verifyMagicToken(req, res) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    // ✅ Mark link as used
     await db.query('UPDATE magic_link_logs SET used = true, used_at = NOW() WHERE id = $1', [decoded.magicId]);
 
     const sessionToken = generateToken({
