@@ -21,8 +21,8 @@ export function generateToken({ uid, phone, role }) {
       phone,
       role,
       'https://hyzrtspkmgelzqylokex.supabase.co/jwt/claims': {
-        'x-hasura-default-role': role.toLowerCase(),
-        'x-hasura-allowed-roles': [role.toLowerCase()],
+        'x-hasura-default-role': role ? role.toLowerCase() : 'anonymous',
+        'x-hasura-allowed-roles': [role ? role.toLowerCase() : 'anonymous'],
         'x-hasura-user-id': uid,
         'x-hasura-phone': phone
       }

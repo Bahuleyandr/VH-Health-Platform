@@ -55,15 +55,16 @@ wrapAutoRBAC(router, 'userRoutes', {
           const page = parseInt(req.query.page) || 1;
           const limit = parseInt(req.query.limit) || 10;
           const offset = (page - 1) * limit;
-          const query = req.query.query ? `%${String(req.query.query).toLowerCase()}%` : null;
+          const queryRaw = req.query.query;
+          const query = typeof queryRaw === 'string' ? `%${queryRaw.toLowerCase()}%` : null;
 
           let result;
           if (query) {
             result = await pool.query(
               `SELECT * FROM users 
-             WHERE LOWER(name) LIKE $1 OR phone LIKE $1 
-             ORDER BY registered_at DESC 
-             LIMIT $2 OFFSET $3`,
+               WHERE LOWER(name) LIKE $1 OR phone LIKE $1 
+               ORDER BY registered_at DESC 
+               LIMIT $2 OFFSET $3`,
               [query, limit, offset]
             );
           } else {
