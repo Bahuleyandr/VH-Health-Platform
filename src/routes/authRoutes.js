@@ -59,8 +59,11 @@ wrapRoutesWithValidation(
       ]
     ],
     get: [
-      ['/verify-token', authController.verifyMagicToken]
-    ]
+  [
+    '/verify-token',
+    (req, res) => authController.verifyMagicToken(req, res)
+  ]
+]
   },
   {
     requireUID: false,
