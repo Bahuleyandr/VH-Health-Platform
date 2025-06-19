@@ -53,7 +53,7 @@ export async function sendMagicLink(req, res) {
 
     success(res, null, 'Magic login link sent via SMS');
   } catch (err) {
-    logger.error('Send Magic Link Error:', err.stack || err.toString());
+    logger.error(`Send Magic Link Error: ${err.message}`, err.stack || err);
     error(res, 'Could not send magic login link');
   }
 }
