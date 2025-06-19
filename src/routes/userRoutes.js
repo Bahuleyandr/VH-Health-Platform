@@ -29,7 +29,7 @@ wrapAutoRBAC(
 // ✅ GET + PUT: User lookup, list, and role-aware update
 wrapAutoRBAC(router, 'userRoutes', {
   get: [
-    ['/', userController.getUsers], // ✅ Enables ?role=ADMIN
+    ['/', userController.getUsers],
     ['/uid/:uid', userController.getUserByUID],
     [
       '/:phone',
@@ -55,7 +55,7 @@ wrapAutoRBAC(router, 'userRoutes', {
           const page = parseInt(req.query.page) || 1;
           const limit = parseInt(req.query.limit) || 10;
           const offset = (page - 1) * limit;
-          const query = req.query.query ? `%${req.query.query.toLowerCase()}%` : null;
+          const query = req.query.query ? `%${String(req.query.query).toLowerCase()}%` : null;
 
           let result;
           if (query) {

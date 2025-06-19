@@ -52,8 +52,8 @@ export async function getAppointmentsByUID(req, res) {
       result.rows,
       result.rows.length ? 'Appointments found' : 'No appointments found'
     );
-  } catch (error) {
-    console.error('Get Appointments By UID Error:', error);
+  } catch (err) {
+    console.error('Get Appointments By UID Error:', err);
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 }
@@ -64,13 +64,13 @@ export async function getAppointmentsByUID(req, res) {
 export async function getAppointmentsByPhone(req, res) {
   const { phone } = req.params;
   const { filter, doctor_name, page = 1, limit = 10 } = req.query;
-  const offset = (page - 1) * limit;
+  const offset = (parseInt(page) - 1) * parseInt(limit);
 
   try {
     let baseQuery = 'SELECT * FROM appointments WHERE phone = $1';
     const queryParams = [phone];
 
-    if (doctor_name) {
+    if (doctor_name && typeof doctor_name === 'string') {
       baseQuery += ' AND LOWER(doctor_name) LIKE $2';
       queryParams.push(`%${doctor_name.toLowerCase()}%`);
     }

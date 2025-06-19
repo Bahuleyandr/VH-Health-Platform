@@ -31,13 +31,15 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
   }
 
   for (const [method, routes] of Object.entries(routeMap)) {
-    const isWrite = ['post', 'put', 'patch', 'delete'].includes(method.toLowerCase());
+    // 🛡️ Guard .toLowerCase() usage
+    const safeMethod = typeof method === 'string' ? method.toLowerCase() : 'get';
+    const isWrite = ['post', 'put', 'patch', 'delete'].includes(safeMethod);
 
     routes.forEach(([path, ...handlers]) => {
       const base = [];
 
       // ✅ Apply rate limiter per routeKey
-      const routeKey = `${configKey || 'generic'}.${method.toLowerCase()}`;
+      const routeKey = `${configKey || 'generic'}.${safeMethod}`;
       const profile = ROUTE_RATE_PROFILES[routeKey];
       const limiter = profile ? getRateLimiter(profile) : isWrite ? dynamicRoleRateLimiter : null;
 
@@ -45,7 +47,7 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
       if (requireUID) base.push(validateUID);
       if (requirePhone) base.push(validatePhone);
 
-      router[method](path, ...base, ...handlers);
+      router[safeMethod](path, ...base, ...handlers);
     });
   }
 
