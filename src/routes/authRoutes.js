@@ -61,7 +61,10 @@ wrapRoutesWithValidation(
     get: [
   [
     '/verify-token',
-    (req, res) => authController.verifyMagicToken(req, res)
+    [], // no validators for GET, but still required
+    (req, res) => {
+      authController.verifyMagicToken(req, res);
+    }
   ]
 ]
   },
