@@ -30,16 +30,15 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
     router.use(auditLogger);
   }
 
-  for (const [method, routes] of Object.entries(routeMap)) {
-    // 🛡️ Guard .toLowerCase() usage
-    const safeMethod = typeof method === 'string' ? method.toLowerCase() : 'get';
-    const isWrite = ['post', 'put', 'patch', 'delete'].includes(safeMethod);
+  for (const [methodKey, routes] of Object.entries(routeMap)) {
+    const method = (methodKey || 'get').toLowerCase();
+    const isWrite = ['post', 'put', 'patch', 'delete'].includes(method);
 
     routes.forEach(([path, ...handlers]) => {
       const base = [];
 
       // ✅ Apply rate limiter per routeKey
-      const routeKey = `${configKey || 'generic'}.${safeMethod}`;
+      const routeKey = `${configKey || 'generic'}.${method}`;
       const profile = ROUTE_RATE_PROFILES[routeKey];
       const limiter = profile ? getRateLimiter(profile) : isWrite ? dynamicRoleRateLimiter : null;
 
@@ -47,7 +46,7 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
       if (requireUID) base.push(validateUID);
       if (requirePhone) base.push(validatePhone);
 
-      router[safeMethod](path, ...base, ...handlers);
+      router[method](path, ...base, ...handlers);
     });
   }
 
