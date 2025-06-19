@@ -59,14 +59,14 @@ wrapRoutesWithValidation(
       ]
     ],
     get: [
-  [
-    '/verify-token',
-    [], // no validators for GET, but still required
-    (req, res) => {
-      authController.verifyMagicToken(req, res);
-    }
-  ]
-]
+      [
+        '/verify-token',
+        [], // no validators for GET, but required by wrapper
+        (req, res) => {
+          authController.verifyMagicToken(req, res);
+        }
+      ]
+    ]
   },
   {
     requireUID: false,
