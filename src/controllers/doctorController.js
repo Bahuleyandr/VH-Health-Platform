@@ -1,3 +1,5 @@
+// src/controllers/doctorController.js
+
 import pool from '../db.js';
 import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';

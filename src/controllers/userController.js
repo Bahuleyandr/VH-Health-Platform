@@ -130,7 +130,6 @@ export async function updateUserRole(req, res) {
 
     await db.query('UPDATE users SET role = $1 WHERE phone = $2', [newRole, phone]);
 
-    // ✅ Audit the role change
     await logAudit(req, 'role-change', {
       phone,
       oldRole,
@@ -180,8 +179,8 @@ export async function getUsers(req, res) {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
-    const query = req.query.query ? `%${req.query.query.toLowerCase()}%` : null;
-    const roleFilter = req.query.role ? `AND role = '${req.query.role.toUpperCase()}'` : '';
+    const query = req.query.query ? `%${String(req.query.query).toLowerCase()}%` : null;
+    const roleFilter = req.query.role ? `AND role = '${String(req.query.role).toUpperCase()}'` : '';
 
     let result;
     if (query) {
@@ -227,8 +226,9 @@ export async function lookupUser(req, res) {
     } else if (uid) {
       result = await db.query('SELECT * FROM users WHERE uid = $1', [uid]);
     } else if (name) {
+      const safeName = typeof name === 'string' ? name.toLowerCase() : '';
       result = await db.query('SELECT * FROM users WHERE LOWER(name) LIKE $1', [
-        `%${name.toLowerCase()}%`
+        `%${safeName}%`
       ]);
     }
 

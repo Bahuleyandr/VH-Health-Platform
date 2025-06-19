@@ -38,7 +38,7 @@ export async function getHealthRecordsByPhone(req, res) {
 
     let records = result.rows;
 
-    if (type) {
+    if (type && typeof type === 'string') {
       records = records.filter(
         r => r.file_type && r.file_type.toLowerCase() === type.toLowerCase()
       );
