@@ -18,9 +18,14 @@ export async function sendPushNotification({ tokens, title, body, data = {} }) {
   // Normalize to array
   const tokenArray = Array.isArray(tokens) ? tokens : [tokens];
 
-  const message = {
-    notification: { title, body },
+  // Firebase allows max 500 tokens per multicast
+  if (tokenArray.length > 500) {
+    throw new Error('🚫 Cannot send to more than 500 tokens in a single multicast request.');
+  }
+
+  const multicastMessage = {
     tokens: tokenArray,
+    notification: { title, body },
     data: {
       ...data,
       click_action: 'FLUTTER_NOTIFICATION_CLICK',
@@ -28,7 +33,7 @@ export async function sendPushNotification({ tokens, title, body, data = {} }) {
   };
 
   try {
-    const response = await admin.messaging().sendMulticast(message);
+    const response = await admin.messaging().sendMulticast(multicastMessage);
 
     logger.info(`📨 Push notification sent. Success: ${response.successCount}, Failure: ${response.failureCount}`);
 
