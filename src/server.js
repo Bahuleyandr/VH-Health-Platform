@@ -33,6 +33,14 @@ app.use(helmet());
 app.use(dynamicRoleRateLimiter);
 app.use(validateApiKey);
 
+// ✅ Add this Health Check route for the root path
+app.get('/', (req, res) => {
+  res.status(200).json({ 
+    status: 'ok', 
+    message: 'VH Health Backend is running.' 
+  });
+});
+
 // ✅ STEP 2: Loop through the routes object and mount each router
 // The old line `app.use('/', routes);` will not work. Replace it with this loop.
 for (const routeName in routes) {
