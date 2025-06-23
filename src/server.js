@@ -7,12 +7,14 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 
 import logger from './logging/logger.js';
-import rateLimit from './middleware/rateLimitMiddleware.js';
-import validateApiKey from './middleware/validateApiKey.js';
-import swaggerLoader from './utils/swaggerLoader.js';
-import errorHandler from './middleware/errorHandlerMiddleware.js';
-import corsConfig from './middleware/corsMiddleware.js';
-import routes from './routes/index.js';
+import { rateLimit } from './middleware/rateLimitMiddleware.js';
+import { validateApiKey } from './middleware/validateApiKey.js';
+import { swaggerLoader } from './utils/swaggerLoader.js'; // Assuming named export
+import { errorHandler } from './middleware/errorHandlerMiddleware.js';
+import { corsConfig } from './middleware/corsMiddleware.js'; // Assuming named export
+
+// ✅ STEP 1: Use a default import to get the routes object
+import routes from './routes/index.js'; 
 import './utils/validateEnv.js';
 
 dotenv.config();
@@ -30,8 +32,13 @@ app.use(helmet());
 app.use(rateLimit);
 app.use(validateApiKey);
 
-// ✅ Mount API Routes
-app.use('/', routes);
+// ✅ STEP 2: Loop through the routes object and mount each router
+// The old line `app.use('/', routes);` will not work. Replace it with this loop.
+for (const routeName in routes) {
+  // This will mount each router with a base path, e.g., /api/v1/auth, /api/v1/users
+  app.use('/api/v1', routes[routeName]);
+}
+
 
 // ✅ Load Swagger Documentation if available
 swaggerLoader(app);
