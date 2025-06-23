@@ -11,7 +11,7 @@ import { rateLimit } from './middleware/rateLimitMiddleware.js';
 import { validateApiKey } from './middleware/validateApiKey.js';
 import { swaggerLoader } from './utils/swaggerLoader.js'; // Assuming named export
 import { errorHandler } from './middleware/errorHandlerMiddleware.js';
-import { corsConfig } from './middleware/corsMiddleware.js'; // Assuming named export
+import corsConfig from './middleware/corsMiddleware.js'; // Assuming named export
 
 // ✅ STEP 1: Use a default import to get the routes object
 import routes from './routes/index.js'; 
