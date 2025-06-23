@@ -1,68 +1,83 @@
-// src/routes/notificationRoutes.js
-
+// src/routes/notificationRoutes.js - CLEAN VERSION
 import express from 'express';
-import pool from '../db.js';
-import { success, error } from '../utils/responseHelper.js';
-import logger from '../logging/logger.js';
-import { wrapAutoRBAC } from '../config/routeWrapper.js';
-import { normalizePhone } from '../utils/phoneUtils.js';
 
 const router = express.Router();
+console.log('✅ notificationRoutes loaded');
 
-wrapAutoRBAC(router, 'notificationRoutes', {
-  get: [
-    [
-      '/:phone',
-      async (req, res) => {
-        try {
-          const phone = normalizePhone(req.params.phone);
-          const result = await pool.query(
-            `SELECT * FROM notifications WHERE phone = $1 ORDER BY created_at DESC`,
-            [phone]
-          );
-          success(res, result.rows, 'Notifications fetched');
-        } catch (err) {
-          logger.error(err.stack || err.toString());
-          error(res, 'Failed to fetch notifications.');
-        }
-      }
-    ]
-  ],
+// Test route first
+router.get('/test', (req, res) => {
+  res.json({ message: 'Notification routes working!' });
+});
 
-  patch: [
-    [
-      '/:id/read',
-      async (req, res) => {
-        try {
-          const { id } = req.params;
-          await pool.query(
-            `UPDATE notifications SET is_read = TRUE WHERE id = $1`,
-            [id]
-          );
-          success(res, null, 'Notification marked as read');
-        } catch (err) {
-          logger.error(err.stack || err.toString());
-          error(res, 'Failed to update notification.');
-        }
-      }
-    ],
-    [
-      '/:phone/mark-all-read',
-      async (req, res) => {
-        try {
-          const phone = normalizePhone(req.params.phone);
-          await pool.query(
-            `UPDATE notifications SET is_read = TRUE WHERE phone = $1`,
-            [phone]
-          );
-          success(res, null, 'All notifications marked as read');
-        } catch (err) {
-          logger.error(err.stack || err.toString());
-          error(res, 'Failed to mark all notifications as read.');
-        }
-      }
+// Simple routes with minimal logic (no DB calls)
+router.get('/list', (req, res) => {
+  res.json({ 
+    message: 'Get notifications list - DB disabled for debugging',
+    notifications: [
+      { id: 1, type: 'appointment', message: 'Appointment reminder', read: false },
+      { id: 2, type: 'result', message: 'Lab results available', read: true },
+      { id: 3, type: 'prescription', message: 'Prescription ready', read: false }
     ]
-  ]
+  });
+});
+
+router.get('/unread', (req, res) => {
+  res.json({ 
+    message: 'Get unread notifications - DB disabled for debugging',
+    count: 2,
+    notifications: []
+  });
+});
+
+router.get('/:id', (req, res) => {
+  res.json({ 
+    message: 'Get notification by ID - DB disabled for debugging',
+    id: req.params.id,
+    notification: {
+      id: req.params.id,
+      type: 'sample',
+      message: 'Sample notification',
+      read: false
+    }
+  });
+});
+
+router.post('/create', (req, res) => {
+  res.json({ 
+    message: 'Create notification - DB disabled for debugging',
+    data: req.body 
+  });
+});
+
+router.put('/:id/read', (req, res) => {
+  res.json({ 
+    message: 'Mark notification as read - DB disabled for debugging',
+    id: req.params.id,
+    read: true
+  });
+});
+
+router.put('/:id/unread', (req, res) => {
+  res.json({ 
+    message: 'Mark notification as unread - DB disabled for debugging',
+    id: req.params.id,
+    read: false
+  });
+});
+
+router.delete('/:id', (req, res) => {
+  res.json({ 
+    message: 'Delete notification - DB disabled for debugging',
+    id: req.params.id
+  });
+});
+
+router.post('/send', (req, res) => {
+  res.json({ 
+    message: 'Send notification - Email service disabled for debugging',
+    recipient: req.body.recipient,
+    message: req.body.message
+  });
 });
 
 export default router;

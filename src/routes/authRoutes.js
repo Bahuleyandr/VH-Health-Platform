@@ -1,93 +1,65 @@
-// src/routes/authRoutes.js
-
+// src/routes/authRoutes.js - CLEAN VERSION
 import express from 'express';
-import { validationResult } from 'express-validator';
-import { phoneValidator } from '../config/validationSchemas.js';
-import * as authController from '../controllers/authController.js';
-import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
-import { wrapRoutes, wrapRoutesWithValidation } from '../config/routeWrapper.js';
 
 const router = express.Router();
+console.log('✅ authRoutes loaded');
 
-// ✅ Public Authentication Routes (Login/Register with validation)
-wrapRoutesWithValidation(
-  router,
-  [],
-  {
-    post: [
-      [
-        '/login',
-        phoneValidator,
-        (req, res) => {
-          const errors = validationResult(req);
-          if (!errors.isEmpty()) {
-            return res.status(HTTP_STATUS.BAD_REQUEST).json({
-              errors: errors.array(),
-              message: RESPONSE_MESSAGES.VALIDATION_FAILED
-            });
-          }
-          authController.login(req, res);
-        }
-      ],
-      [
-        '/register',
-        phoneValidator,
-        (req, res) => {
-          const errors = validationResult(req);
-          if (!errors.isEmpty()) {
-            return res.status(HTTP_STATUS.BAD_REQUEST).json({
-              errors: errors.array(),
-              message: RESPONSE_MESSAGES.VALIDATION_FAILED
-            });
-          }
-          authController.register(req, res);
-        }
-      ],
-      [
-        '/send-magic-link',
-        phoneValidator,
-        (req, res) => {
-          const errors = validationResult(req);
-          if (!errors.isEmpty()) {
-            return res.status(HTTP_STATUS.BAD_REQUEST).json({
-              errors: errors.array(),
-              message: RESPONSE_MESSAGES.VALIDATION_FAILED
-            });
-          }
-          authController.sendMagicLink(req, res);
-        }
-      ]
-    ],
-    get: [
-      [
-        '/verify-token',
-        [], // no validators for GET, but required by wrapper
-        (req, res) => {
-          authController.verifyMagicToken(req, res);
-        }
-      ]
-    ]
-  },
-  {
-    requireUID: false,
-    requirePhone: true // phone validated by phoneValidator
-  }
-);
+// Test route first
+router.get('/test', (req, res) => {
+  res.json({ message: 'Auth routes working!' });
+});
 
-// ✅ Stateless Token + Logout Routes (No UID/Phone needed)
-wrapRoutes(
-  router,
-  [],
-  {
-    post: [
-      ['/token', authController.refreshToken],
-      ['/logout', authController.logout]
-    ]
-  },
-  {
-    requireUID: false,
-    requirePhone: false
-  }
-);
+// Simple routes with minimal logic (no JWT dependencies)
+router.post('/login', (req, res) => {
+  res.json({ 
+    message: 'Login endpoint - JWT disabled for debugging',
+    email: req.body.email,
+    token: 'dummy-token-for-debugging'
+  });
+});
+
+router.post('/register', (req, res) => {
+  res.json({ 
+    message: 'Register endpoint - DB disabled for debugging',
+    user: {
+      email: req.body.email,
+      name: req.body.name
+    }
+  });
+});
+
+router.post('/forgot-password', (req, res) => {
+  res.json({ 
+    message: 'Forgot password endpoint - Email service disabled for debugging',
+    email: req.body.email
+  });
+});
+
+router.post('/reset-password', (req, res) => {
+  res.json({ 
+    message: 'Reset password endpoint - DB disabled for debugging',
+    token: req.body.token
+  });
+});
+
+router.post('/verify-email', (req, res) => {
+  res.json({ 
+    message: 'Verify email endpoint - Email service disabled for debugging',
+    token: req.body.token
+  });
+});
+
+router.post('/refresh-token', (req, res) => {
+  res.json({ 
+    message: 'Refresh token endpoint - JWT disabled for debugging',
+    newToken: 'dummy-refresh-token-for-debugging'
+  });
+});
+
+router.post('/logout', (req, res) => {
+  res.json({ 
+    message: 'Logout successful - Session handling disabled for debugging'
+  });
+});
 
 export default router;

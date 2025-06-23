@@ -1,10 +1,18 @@
+// src/routes/deviceRoutes.js - CLEAN VERSION
 import express from 'express';
-import { registerDevice } from '../controllers/deviceController.js';
-import validateApiKey from '../middleware/validateApiKey.js';
-import jwtMiddleware from '../middleware/jwtMiddleware.js';
 
 const router = express.Router();
+console.log('✅ deviceRoutes loaded');
 
-router.post('/register', validateApiKey, jwtMiddleware, registerDevice);
+router.get('/test', (req, res) => {
+  res.json({ message: 'Device routes working!' });
+});
+
+router.get('/list', (req, res) => {
+  res.json({ 
+    message: 'Get devices - DB disabled for debugging',
+    devices: []
+  });
+});
 
 export default router;

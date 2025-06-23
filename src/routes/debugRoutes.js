@@ -1,36 +1,19 @@
-// src/routes/debugRoutes.js
-
+// src/routes/debugRoutes.js - CLEAN VERSION
 import express from 'express';
-import { success } from '../utils/responseHelper.js';
-import { wrapAutoRBAC } from '../config/routeWrapper.js';
-import * as debugController from '../controllers/debugController.js';
 
 const router = express.Router();
+console.log('✅ debugRoutes loaded');
 
-/**
- * ✅ Debug Routes
- * RBAC-protected using config key: debugRoutes
- */
-wrapAutoRBAC(router, 'debugRoutes', {
-  get: [
-    [
-      '/ping',
-      (req, res) => {
-        success(res, { message: 'Debug route is operational' }, 'Ping successful');
-      }
-    ],
-    ['/debug', debugController.getDebugInfo],
-    [
-      '/debug-sentry',
-      (req, res, next) => {
-        try {
-          throw new Error('Sentry debug trigger: My first Sentry error!');
-        } catch (err) {
-          next(err); // Will be caught by centralized error handler
-        }
-      }
-    ]
-  ]
+router.get('/test', (req, res) => {
+  res.json({ message: 'Debug routes working!' });
+});
+
+router.get('/info', (req, res) => {
+  res.json({ 
+    message: 'Debug info',
+    environment: 'local',
+    timestamp: new Date().toISOString()
+  });
 });
 
 export default router;
