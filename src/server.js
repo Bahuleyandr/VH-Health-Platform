@@ -1,89 +1,135 @@
-// server.js
-import dotenv from 'dotenv';
+// src/server.js - EMERGENCY DEBUG VERSION
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import morgan from 'morgan';
+import rateLimit from 'express-rate-limit';
+import { connectDB } from './db.js';
 import logger from './logging/logger.js';
-import { dynamicRoleRateLimiter } from './middleware/rateLimitMiddleware.js';
-import validateApiKey from './middleware/validateApiKey.js';
-import swaggerUi from 'swagger-ui-express';
-import loadSwaggerDocument from './utils/swaggerLoader.js';
-import errorHandler from './middleware/errorHandlerMiddleware.js';
-import corsConfig from './middleware/corsMiddleware.js';
-import routes from './routes/index.js'; 
-import './utils/validateEnv.js';
-
-dotenv.config();
+import { success } from './utils/responseHelper.js';
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3000;
 
-// ✅ Log all HTTP requests using Morgan + Winston
-app.use(logger.morganMiddleware);
-
-// ✅ Apply Global Middlewares
-app.use(cors(corsConfig));
-app.use(express.json());
+// Basic middleware
 app.use(helmet());
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
 
-// ✅ Health Check routes (before any middleware)
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100 // limit each IP to 100 requests per windowMs
+});
+app.use(limiter);
+
+// Test route first
 app.get('/', (req, res) => {
-  res.status(200).json({ 
-    status: 'ok', 
-    message: 'VH Health Backend is running.',
-    timestamp: new Date().toISOString()
-  });
+  success(res, { message: 'VH Health Backend API is running' }, 'Welcome');
 });
 
-app.head('/', (req, res) => {
-  res.status(200).end();
+app.get('/api/v1', (req, res) => {
+  success(res, { message: 'API v1 is working' }, 'API Status');
 });
 
-// ✅ PUBLIC ROUTES (No rate limiting or API key validation)
-app.use('/api/v1/firebaseAuth', routes.firebaseAuth);  // 🔓 Public auth routes
-app.use('/api/v1/health', routes.health);             // 🔓 Health checks  
-app.use('/api/v1/version', routes.version);           // 🔓 Version info
-app.use('/api/v1/sos', routes.sos);                   // 🔓 Emergency routes
+// 🚨 DEBUG: Test each route import individually
+console.log('🔍 Testing route imports...');
 
-// ✅ Apply rate limiting and API key validation to PROTECTED routes only
-app.use('/api', dynamicRoleRateLimiter);
-app.use('/api', validateApiKey);
-
-// ✅ PROTECTED ROUTES (After rate limiting and API key validation)
-app.use('/api/v1/auth', routes.auth);
-app.use('/api/v1/upload', routes.upload);
-app.use('/api/v1/debug', routes.debug);
-app.use('/api/v1/users', routes.users);
-app.use('/api/v1/lookup', routes.lookup);
-app.use('/api/v1/departments', routes.departments);
-app.use('/api/v1/doctors', routes.doctors);
-app.use('/api/v1/appointments', routes.appointments);
-app.use('/api/v1/healthRecords', routes.healthRecords);
-app.use('/api/v1/investigations', routes.investigations);
-app.use('/api/v1/pharmacy', routes.pharmacy);
-app.use('/api/v1/feedback', routes.feedback);
-app.use('/api/v1/otp', routes.otp);
-app.use('/api/v1/devices', routes.devices);
-app.use('/api/v1/notifications', routes.notifications);
-app.use('/api/v1/admin/notifications', routes.adminNotifications);
-
-// ✅ Load Swagger Documentation if available
-const swaggerDocument = loadSwaggerDocument();
-if (swaggerDocument) {
-  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+try {
+  console.log('📦 Importing userRoutes...');
+  const userRoutes = await import('./routes/userRoutes.js');
+  console.log('✅ userRoutes imported:', typeof userRoutes.default);
+  
+  if (typeof userRoutes.default === 'function') {
+    app.use('/api/v1/users', userRoutes.default);
+    console.log('✅ userRoutes registered');
+  } else {
+    console.log('❌ userRoutes.default is not a function:', userRoutes.default);
+  }
+} catch (error) {
+  console.log('❌ Error importing userRoutes:', error.message);
 }
 
-// ✅ 404 handler for unmatched routes
-app.use('*', (req, res) => {
-  res.status(404).json({
-    error: 'Route not found',
-    message: `Cannot ${req.method} ${req.originalUrl}`
+try {
+  console.log('📦 Importing firebaseAuthRoutes...');
+  const firebaseAuthRoutes = await import('./routes/firebaseAuthRoutes.js');
+  console.log('✅ firebaseAuthRoutes imported:', typeof firebaseAuthRoutes.default);
+  
+  if (typeof firebaseAuthRoutes.default === 'function') {
+    app.use('/api/v1/auth', firebaseAuthRoutes.default);
+    console.log('✅ firebaseAuthRoutes registered');
+  } else {
+    console.log('❌ firebaseAuthRoutes.default is not a function:', firebaseAuthRoutes.default);
+  }
+} catch (error) {
+  console.log('❌ Error importing firebaseAuthRoutes:', error.message);
+}
+
+try {
+  console.log('📦 Importing rbacRoutes...');
+  const rbacRoutes = await import('./routes/rbacRoutes.js');
+  console.log('✅ rbacRoutes imported:', typeof rbacRoutes.default);
+  
+  if (typeof rbacRoutes.default === 'function') {
+    app.use('/api/v1/rbac', rbacRoutes.default);
+    console.log('✅ rbacRoutes registered');
+  } else {
+    console.log('❌ rbacRoutes.default is not a function:', rbacRoutes.default);
+  }
+} catch (error) {
+  console.log('❌ Error importing rbacRoutes:', error.message);
+}
+
+// Test endpoint to verify what's working
+app.get('/api/v1/test', (req, res) => {
+  success(res, { 
+    message: 'Emergency server is running',
+    timestamp: new Date().toISOString(),
+    availableRoutes: [
+      'GET /',
+      'GET /api/v1',
+      'GET /api/v1/test',
+      '/api/v1/users/* (if loaded)',
+      '/api/v1/auth/* (if loaded)', 
+      '/api/v1/rbac/* (if loaded)'
+    ]
+  }, 'Test endpoint');
+});
+
+// Global error handler
+app.use((error, req, res, next) => {
+  logger.error(error.stack || error.toString());
+  res.status(500).json({
+    success: false,
+    message: 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
   });
 });
 
-// ✅ Fallback Error Handler
-app.use(errorHandler);
+// 404 handler
+app.use('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'Route not found',
+    path: req.originalUrl
+  });
+});
 
-// ✅ Start Server
-app.listen(PORT, () => logger.info(`VH Health Backend running on port ${PORT}`));
+// Start server
+async function startServer() {
+  try {
+    await connectDB();
+    logger.info('Database connected successfully');
+    
+    app.listen(PORT, () => {
+      logger.info(`🚀 Server running on port ${PORT}`);
+      console.log(`🌐 Server URL: http://localhost:${PORT}`);
+      console.log(`🔍 Test endpoint: http://localhost:${PORT}/api/v1/test`);
+    });
+  } catch (error) {
+    logger.error('Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+startServer();
