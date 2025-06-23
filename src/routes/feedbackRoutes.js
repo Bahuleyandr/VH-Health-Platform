@@ -1,38 +1,32 @@
-// src/routes/feedbackRoutes.js
-
+// src/routes/feedbackRoutes.js - CLEAN VERSION
 import express from 'express';
-import { validationResult } from 'express-validator';
-import * as feedbackController from '../controllers/feedbackController.js';
-import { feedbackValidator } from '../config/validationSchemas.js';
-import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
-import { wrapAutoRBAC } from '../config/routeWrapper.js';
 
 const router = express.Router();
+console.log('✅ feedbackRoutes loaded');
 
-/**
- * ✅ Feedback Routes (RBAC-controlled via `feedbackRoutes`)
- * - Submit feedback (with phone normalization & validation)
- * - Fetch feedback by UID
- */
-wrapAutoRBAC(router, 'feedbackRoutes', {
-  post: [
-    [
-      '/',
-      feedbackValidator,
-      (req, res) => {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-          return res.status(HTTP_STATUS.BAD_REQUEST).json({
-            errors: errors.array(),
-            message: RESPONSE_MESSAGES.VALIDATION_FAILED
-          });
-        }
+router.get('/test', (req, res) => {
+  res.json({ message: 'Feedback routes working!' });
+});
 
-        return feedbackController.submitFeedback(req, res);
-      }
-    ]
-  ],
-  get: [['/uid/:uid', feedbackController.getFeedbackByUID]]
+router.post('/submit', (req, res) => {
+  res.json({ 
+    message: 'Submit feedback - DB disabled for debugging',
+    data: req.body
+  });
+});
+
+router.get('/list', (req, res) => {
+  res.json({ 
+    message: 'Get feedback list - DB disabled for debugging',
+    feedback: []
+  });
+});
+
+router.get('/:id', (req, res) => {
+  res.json({ 
+    message: 'Get feedback by ID - DB disabled for debugging',
+    id: req.params.id
+  });
 });
 
 export default router;

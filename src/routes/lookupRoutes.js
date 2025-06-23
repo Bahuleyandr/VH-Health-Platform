@@ -1,22 +1,18 @@
-// src/routes/lookupRoutes.js
-
+// src/routes/lookupRoutes.js - CLEAN VERSION
 import express from 'express';
-import * as userController from '../controllers/userController.js';
-import { wrapAutoRBAC } from '../config/routeWrapper.js';
 
 const router = express.Router();
+console.log('✅ lookupRoutes loaded');
 
-// ✅ GET /api/v1/lookup?phone=... or ?uid=... or ?name=...
-wrapAutoRBAC(
-  router,
-  'lookupRoutes',
-  {
-    get: [['/', userController.lookupUser]]
-  },
-  {
-    requireUID: false,
-    requirePhone: false
-  }
-);
+router.get('/test', (req, res) => {
+  res.json({ message: 'Lookup routes working!' });
+});
+
+router.get('/countries', (req, res) => {
+  res.json({ 
+    message: 'Get countries - Static data',
+    countries: ['India', 'USA', 'UK']
+  });
+});
 
 export default router;

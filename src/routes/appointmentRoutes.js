@@ -1,83 +1,49 @@
-// src/routes/appointmentRoutes.js
-
+// src/routes/appointmentRoutes.js - CLEAN VERSION
 import express from 'express';
-import pool from '../db.js';
-import { success, error } from '../utils/responseHelper.js';
-import logger from '../logging/logger.js';
-import * as appointmentController from '../controllers/appointmentController.js';
-import { appointmentValidator } from '../config/validationSchemas.js';
-import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
-import { validationResult } from 'express-validator';
-import { wrapAutoRBAC } from '../config/routeWrapper.js';
-import { normalizePhone } from '../utils/phoneUtils.js';
 
 const router = express.Router();
+console.log('✅ appointmentRoutes loaded');
 
-/**
- * ✅ Centralized appointment routes
- * Applies RBAC, audit log, identity check, and validation
- */
-wrapAutoRBAC(router, 'appointmentRoutes', {
-  post: [
-    [
-      '/',
-      appointmentValidator,
-      async (req, res) => {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-          return res.status(HTTP_STATUS.BAD_REQUEST).json({
-            errors: errors.array(),
-            message: RESPONSE_MESSAGES.VALIDATION_FAILED
-          });
-        }
+// Test route first
+router.get('/test', (req, res) => {
+  res.json({ message: 'Appointment routes working!' });
+});
 
-        const phone = normalizePhone(req.body.phone || req.body.phoneNumber);
-        const { doctor_name, date, time, department } = req.body;
+// Simple routes with minimal logic (no DB calls)
+router.get('/list', (req, res) => {
+  res.json({ 
+    message: 'Get appointments list - DB disabled for debugging',
+    appointments: []
+  });
+});
 
-        try {
-          const result = await pool.query(
-            'INSERT INTO appointments (phone, doctor_name, date, time) VALUES ($1, $2, $3, $4) RETURNING *',
-            [phone, doctor_name, date, time]
-          );
+router.post('/create', (req, res) => {
+  res.json({ 
+    message: 'Create appointment - DB disabled for debugging',
+    data: req.body 
+  });
+});
 
-          const appointment = result.rows[0];
+router.get('/:id', (req, res) => {
+  res.json({ 
+    message: 'Get appointment by ID - DB disabled for debugging',
+    id: req.params.id
+  });
+});
 
-          const scheduledAt = new Date(
-            `${appointment.date.toISOString().split('T')[0]}T${appointment.time}`
-          );
+router.put('/:id', (req, res) => {
+  res.json({ 
+    message: 'Update appointment - DB disabled for debugging',
+    id: req.params.id,
+    data: req.body
+  });
+});
 
-          success(res, {
-            id: appointment.id,
-            doctor: appointment.doctor_name,
-            department: department || null,
-            scheduled_at: scheduledAt.toISOString()
-          }, RESPONSE_MESSAGES.APPOINTMENT_BOOKED);
-        } catch (err) {
-          logger.error(err.stack || err.toString());
-          error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
-        }
-      }
-    ]
-  ],
-  get: [
-    [
-      '/:phone',
-      async (req, res) => {
-        try {
-          const phone = normalizePhone(req.params.phone);
-          const result = await pool.query(
-            'SELECT * FROM appointments WHERE phone = $1 ORDER BY date DESC',
-            [phone]
-          );
-          success(res, result.rows, 'Appointments fetched successfully');
-        } catch (err) {
-          logger.error(err.stack || err.toString());
-          error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
-        }
-      }
-    ],
-    ['/uid/:uid', appointmentController.getAppointmentsByUID]
-  ]
+router.delete('/:id', (req, res) => {
+  res.json({ 
+    message: 'Delete appointment - DB disabled for debugging',
+    id: req.params.id
+  });
 });
 
 export default router;

@@ -1,16 +1,18 @@
+// src/routes/analyticsRoutes.js - CLEAN VERSION
 import express from 'express';
-import * as analyticsController from '../controllers/analyticsController.js';
-import { wrapAutoRBAC } from '../config/routeWrapper.js';
 
 const router = express.Router();
+console.log('✅ analyticsRoutes loaded');
 
-wrapAutoRBAC(router, 'analyticsRoutes', {
-  get: [
-    ['/registrations', analyticsController.getUserRegistrations],
-    ['/counts', analyticsController.getEntityCounts],
-    ['/active-users', analyticsController.getActiveUsers],
-    ['/active-departments', analyticsController.getActiveDepartments]
-  ]
+router.get('/test', (req, res) => {
+  res.json({ message: 'Analytics routes working!' });
+});
+
+router.get('/dashboard', (req, res) => {
+  res.json({ 
+    message: 'Analytics dashboard - DB disabled for debugging',
+    data: {}
+  });
 });
 
 export default router;

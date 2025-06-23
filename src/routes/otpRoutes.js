@@ -1,64 +1,34 @@
-// src/routes/otpRoutes.js
-
+// src/routes/otpRoutes.js - CLEAN VERSION
 import express from 'express';
-import { validationResult } from 'express-validator';
-import { phoneValidator, otpValidator } from '../config/validationSchemas.js';
-import { success, error } from '../utils/responseHelper.js';
-import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
-import { wrapRoutesWithValidation } from '../config/routeWrapper.js';
 
 const router = express.Router();
+console.log('✅ otpRoutes loaded');
 
-// ✅ Public OTP Routes (No RBAC required)
-wrapRoutesWithValidation(
-  router,
-  [],
-  {
-    post: [
-      [
-        '/request-otp',
-        phoneValidator,
-        (req, res) => {
-          const errors = validationResult(req);
-          if (!errors.isEmpty()) {
-            return res.status(HTTP_STATUS.BAD_REQUEST).json({
-              errors: errors.array(),
-              message: RESPONSE_MESSAGES.VALIDATION_FAILED
-            });
-          }
+router.get('/test', (req, res) => {
+  res.json({ message: 'OTP routes working!' });
+});
 
-          res.status(HTTP_STATUS.OK).json({
-            message: `Mock OTP 123456 sent to ${req.body.phone || req.body.phoneNumber}`
-          });
-        }
-      ],
-      [
-        '/verify-otp',
-        [phoneValidator, otpValidator],
-        (req, res) => {
-          const errors = validationResult(req);
-          if (!errors.isEmpty()) {
-            return res.status(HTTP_STATUS.BAD_REQUEST).json({
-              errors: errors.array(),
-              message: RESPONSE_MESSAGES.VALIDATION_FAILED
-            });
-          }
+router.post('/generate', (req, res) => {
+  res.json({ 
+    message: 'Generate OTP - SMS service disabled for debugging',
+    phone: req.body.phone,
+    otp: '123456'
+  });
+});
 
-          if (req.body.otp === '123456') {
-            return success(res, { verified: true }, RESPONSE_MESSAGES.OTP_VERIFIED);
-          } else {
-            return res.status(HTTP_STATUS.BAD_REQUEST).json({
-              error: RESPONSE_MESSAGES.INVALID_OTP
-            });
-          }
-        }
-      ]
-    ]
-  },
-  {
-    requireUID: false,
-    requirePhone: false
-  }
-);
+router.post('/verify', (req, res) => {
+  res.json({ 
+    message: 'Verify OTP - DB disabled for debugging',
+    phone: req.body.phone,
+    verified: true
+  });
+});
+
+router.post('/resend', (req, res) => {
+  res.json({ 
+    message: 'Resend OTP - SMS service disabled for debugging',
+    phone: req.body.phone
+  });
+});
 
 export default router;

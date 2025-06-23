@@ -1,108 +1,66 @@
+// src/routes/adminRoutes.js - CLEAN VERSION
 import express from 'express';
-import * as adminController from '../controllers/adminController.js';
-import { wrapAutoRBAC } from '../config/routeWrapper.js';
-import pool from '../db.js';
-import { success, error } from '../utils/responseHelper.js';
-import logger from '../logging/logger.js';
-import { sendPushNotification } from '../utils/notifications/sendPushNotification.js';
 
 const router = express.Router();
+console.log('✅ adminRoutes loaded');
 
-/**
- * ✅ Admin-only maintenance routes
- * Centrally protected with RBAC, audit logging, and optional identity guards
- */
-wrapAutoRBAC(
-  router,
-  'adminRoutes',
-  {
-    get: [
-      ['/r2/files', adminController.listR2Files],
-      ['/logs/list', adminController.listLogs],
-      [
-        '/validate-jwt',
-        (req, res) => {
-          res.json({
-            success: true,
-            uid: req.user?.uid || null,
-            role: req.user?.role || null,
-            message: 'JWT and RBAC validation successful'
-          });
-        }
-      ],
-      ['/users/audit', adminController.viewRoleAudit],
-      ['/audit/logs', adminController.getAuditLogs]
-    ],
-    post: [
-      ['/r2/cleanup', adminController.cleanupR2Files],
-      ['/r2/migrate-archive', adminController.migrateR2Archive],
-      ['/db/backup', adminController.backupDatabase],
-      ['/db/restore', adminController.restoreDatabase],
-      ['/logs/cleanup', adminController.cleanupLogs],
-      ['/logs/purge', adminController.purgeLogs],
-      ['/fix-permissions', adminController.fixPermissions],
-      ['/swagger/validate', adminController.validateSwagger],
-      ['/push-test', adminController.sendTestNotification],
+// Test route first
+router.get('/test', (req, res) => {
+  res.json({ message: 'Admin routes working!' });
+});
 
-      // ✅ Admin-triggered push + DB save
-      [
-        '/notifications',
-        async (req, res) => {
-          const { phone, title, body, type = 'general' } = req.body;
+// Simple routes with minimal logic (no R2/cloud storage dependencies)
+router.get('/dashboard', (req, res) => {
+  res.json({ 
+    message: 'Admin dashboard data - Cloud storage disabled for debugging',
+    stats: {
+      totalUsers: 0,
+      totalDoctors: 0,
+      totalAppointments: 0
+    }
+  });
+});
 
-          if (!phone || !title || !body) {
-            return error(res, 'Missing required fields', 400);
-          }
+router.get('/users', (req, res) => {
+  res.json({ 
+    message: 'Get all users - DB disabled for debugging',
+    users: []
+  });
+});
 
-          try {
-            // Save notification
-            const saveResult = await pool.query(
-              `INSERT INTO notifications (phone, title, body, type, created_at, read)
-               VALUES ($1, $2, $3, $4, NOW(), false)
-               RETURNING *`,
-              [phone, title, body, type]
-            );
+router.get('/doctors', (req, res) => {
+  res.json({ 
+    message: 'Get all doctors - DB disabled for debugging',
+    doctors: []
+  });
+});
 
-            // Fetch device tokens
-            const tokenResult = await pool.query(
-              `SELECT token FROM device_tokens WHERE phone = $1 AND token IS NOT NULL`,
-              [phone]
-            );
-            const tokens = tokenResult.rows.map(row => row.token).filter(Boolean);
+router.post('/user/:id/approve', (req, res) => {
+  res.json({ 
+    message: 'Approve user - DB disabled for debugging',
+    userId: req.params.id
+  });
+});
 
-            if (tokens.length === 0) {
-              logger.warn(`📭 No device tokens found for ${phone}`);
-            }
+router.post('/doctor/:id/verify', (req, res) => {
+  res.json({ 
+    message: 'Verify doctor - DB disabled for debugging',
+    doctorId: req.params.id
+  });
+});
 
-            // Send FCM push
-            const fcmResponse = await sendPushNotification({
-              tokens,
-              title,
-              body,
-              data: {
-                type,
-                phone
-              }
-            });
+router.get('/reports', (req, res) => {
+  res.json({ 
+    message: 'Admin reports - Cloud storage disabled for debugging',
+    reports: []
+  });
+});
 
-            logger.info(`📢 Notification sent to ${phone} with ${fcmResponse.successCount} success`);
-
-            success(res, {
-              notification: saveResult.rows[0],
-              fcm: fcmResponse
-            }, 'Push notification sent and saved');
-          } catch (err) {
-            logger.error(err.stack || err.toString());
-            error(res, 'Failed to send notification.');
-          }
-        }
-      ]
-    ]
-  },
-  {
-    requireUID: false,
-    requirePhone: false
-  }
-);
+router.post('/settings', (req, res) => {
+  res.json({ 
+    message: 'Update admin settings - DB disabled for debugging',
+    settings: req.body
+  });
+});
 
 export default router;

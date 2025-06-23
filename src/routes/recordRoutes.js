@@ -1,64 +1,65 @@
-// src/routes/recordRoutes.js
-
+// src/routes/recordRoutes.js - CLEAN VERSION
 import express from 'express';
-import { validationResult } from 'express-validator';
-import * as recordController from '../controllers/recordController.js';
-import pool from '../db.js';
-import { success, error } from '../utils/responseHelper.js';
-import logger from '../logging/logger.js';
-import { healthRecordValidator } from '../config/validationSchemas.js';
-import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
-import { wrapAutoRBAC, wrapRoutesWithValidation } from '../config/routeWrapper.js';
-import { normalizePhone } from '../utils/phoneUtils.js';
 
 const router = express.Router();
+console.log('✅ recordRoutes loaded');
 
-// ✅ Add health record with validation
-wrapAutoRBAC(router, 'recordRoutes', {
-  post: [
-    [
-      '/health-records',
-      healthRecordValidator,
-      (req, res) => {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-          return res.status(HTTP_STATUS.BAD_REQUEST).json({
-            errors: errors.array(),
-            message: RESPONSE_MESSAGES.VALIDATION_FAILED
-          });
-        }
+// Test route first
+router.get('/test', (req, res) => {
+  res.json({ message: 'Record routes working!' });
+});
 
-        recordController.addHealthRecord(req, res);
-      }
-    ]
-  ],
-  get: [
-    ['/uid/:uid', recordController.getRecordsByUID],
-    [
-      '/health-records/:phone',
-      async (req, res) => {
-        try {
-          const phone = normalizePhone(req);
-          const { type } = req.query;
+// Simple routes with minimal logic (no DB calls)
+router.get('/list', (req, res) => {
+  res.json({ 
+    message: 'Get medical records list - DB disabled for debugging',
+    records: []
+  });
+});
 
-          const result = await pool.query('SELECT * FROM health_records WHERE phone = $1', [phone]);
-          let records = result.rows;
+router.get('/patient/:patientId', (req, res) => {
+  res.json({ 
+    message: 'Get records by patient ID - DB disabled for debugging',
+    patientId: req.params.patientId,
+    records: []
+  });
+});
 
-          if (type && typeof type === 'string') {
-            records = records.filter(
-              r => typeof r.file_type === 'string' && r.file_type.toLowerCase() === type.toLowerCase()
-            );
-          }
+router.get('/:id', (req, res) => {
+  res.json({ 
+    message: 'Get record by ID - DB disabled for debugging',
+    id: req.params.id
+  });
+});
 
-          success(res, records, 'Health records fetched successfully');
-        } catch (err) {
-          logger.error(err.stack || err.toString());
-          error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
-        }
-      }
-    ],
-    ['/consultations/:phoneNumber', recordController.getHealthRecordsByPhone]
-  ]
+router.post('/create', (req, res) => {
+  res.json({ 
+    message: 'Create medical record - DB disabled for debugging',
+    data: req.body 
+  });
+});
+
+router.put('/:id', (req, res) => {
+  res.json({ 
+    message: 'Update medical record - DB disabled for debugging',
+    id: req.params.id,
+    data: req.body
+  });
+});
+
+router.delete('/:id', (req, res) => {
+  res.json({ 
+    message: 'Delete medical record - DB disabled for debugging',
+    id: req.params.id
+  });
+});
+
+router.get('/search/:query', (req, res) => {
+  res.json({ 
+    message: 'Search medical records - DB disabled for debugging',
+    query: req.params.query,
+    results: []
+  });
 });
 
 export default router;
