@@ -7,10 +7,11 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 
 import logger from './logging/logger.js';
-import { rateLimit } from './middleware/rateLimitMiddleware.js';
-import { validateApiKey } from './middleware/validateApiKey.js';
-import { swaggerLoader } from './utils/swaggerLoader.js'; // Assuming named export
-import { errorHandler } from './middleware/errorHandlerMiddleware.js';
+import { dynamicRoleRateLimiter } from './middleware/rateLimitMiddleware.js';
+import validateApiKey from './middleware/validateApiKey.js';
+import swaggerUi from 'swagger-ui-express';
+import loadSwaggerDocument from './utils/swaggerLoader.js';
+import errorHandler from './middleware/errorHandlerMiddleware.js';
 import corsConfig from './middleware/corsMiddleware.js'; // Assuming named export
 
 // ✅ STEP 1: Use a default import to get the routes object
@@ -29,7 +30,7 @@ app.use(logger.morganMiddleware);
 app.use(cors(corsConfig));
 app.use(express.json());
 app.use(helmet());
-app.use(rateLimit);
+app.use(dynamicRoleRateLimiter);
 app.use(validateApiKey);
 
 // ✅ STEP 2: Loop through the routes object and mount each router
@@ -41,7 +42,10 @@ for (const routeName in routes) {
 
 
 // ✅ Load Swagger Documentation if available
-swaggerLoader(app);
+const swaggerDocument = loadSwaggerDocument();
+if (swaggerDocument) {
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+}
 
 // ✅ Fallback Error Handler
 app.use(errorHandler);
