@@ -1,5 +1,4 @@
 // src/config/routeWrapper.js
-
 import rbac from '../middleware/rbacMiddleware.js';
 import { dynamicRoleRateLimiter, getRateLimiter } from '../middleware/rateLimitMiddleware.js';
 import rbacConfig from './rbacConfig.js';
@@ -19,34 +18,82 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
     configKey = null
   } = options;
 
-  // ✅ Conditionally apply RBAC
+  // ✅ Conditionally apply RBAC only if roles are specified and not skipped
   if (!skipRBAC && allowedRoles.length > 0) {
     router.use(rbac(allowedRoles));
   }
 
   // ✅ Conditionally apply audit
-  const auditSuppressed = skipAudit || ROUTE_AUDIT_DISABLED[configKey];
+  const auditSuppressed = skipAudit || (configKey && ROUTE_AUDIT_DISABLED[configKey]);
   if (!auditSuppressed) {
     router.use(auditLogger);
   }
 
+  // ✅ FIXED: Process each route method properly
   for (const [methodKey, routes] of Object.entries(routeMap)) {
     const method = (methodKey || 'get').toLowerCase();
+    
+    // ✅ Validate that the method exists on router
+    if (typeof router[method] !== 'function') {
+      console.warn(`[routeWrapper] Invalid HTTP method: ${method}`);
+      continue;
+    }
+
     const isWrite = ['post', 'put', 'patch', 'delete'].includes(method);
 
-    routes.forEach(([path, ...handlers]) => {
-      const base = [];
+    // ✅ FIXED: Ensure routes is an array
+    if (!Array.isArray(routes)) {
+      console.warn(`[routeWrapper] Routes for method ${method} is not an array:`, routes);
+      continue;
+    }
+
+    routes.forEach((routeConfig) => {
+      // ✅ FIXED: Ensure routeConfig is an array with at least path
+      if (!Array.isArray(routeConfig) || routeConfig.length < 1) {
+        console.warn(`[routeWrapper] Invalid route config:`, routeConfig);
+        return;
+      }
+
+      const [path, ...handlers] = routeConfig;
+      
+      // ✅ FIXED: Validate path is a string
+      if (typeof path !== 'string') {
+        console.warn(`[routeWrapper] Invalid path for ${method}:`, path);
+        return;
+      }
+
+      // ✅ FIXED: Validate all handlers are functions
+      const validHandlers = handlers.filter(handler => typeof handler === 'function');
+      if (validHandlers.length !== handlers.length) {
+        console.warn(`[routeWrapper] Some handlers are not functions for ${method} ${path}:`, handlers);
+      }
+
+      const middlewareStack = [];
 
       // ✅ Apply rate limiter per routeKey
       const routeKey = `${configKey || 'generic'}.${method}`;
       const profile = ROUTE_RATE_PROFILES[routeKey];
-      const limiter = profile ? getRateLimiter(profile) : isWrite ? dynamicRoleRateLimiter : null;
+      const limiter = profile ? getRateLimiter(profile) : (isWrite ? dynamicRoleRateLimiter : null);
+      
+      if (limiter) {
+        middlewareStack.push(limiter);
+      }
 
-      if (limiter) base.push(limiter);
-      if (requireUID) base.push(validateUID);
-      if (requirePhone) base.push(validatePhone);
+      // ✅ FIXED: Only add identity validators if required AND they exist
+      if (requireUID && validateUID) {
+        middlewareStack.push(validateUID);
+      }
+      
+      if (requirePhone && validatePhone) {
+        middlewareStack.push(validatePhone);
+      }
 
-      router[method](path, ...base, ...handlers);
+      // ✅ FIXED: Apply the route with proper error handling
+      try {
+        router[method](path, ...middlewareStack, ...validHandlers);
+      } catch (error) {
+        console.error(`[routeWrapper] Error registering route ${method} ${path}:`, error);
+      }
     });
   }
 
@@ -64,11 +111,9 @@ export function wrapRoutes(router, allowedRoles = [], routeMap = {}, options = {
  * wrapRoutesWithValidation — assumes validator and handler
  */
 export function wrapRoutesWithValidation(router, allowedRoles = [], routeMap = {}, options = {}) {
-  const adjustedMap = {};
-  for (const [method, routes] of Object.entries(routeMap)) {
-    adjustedMap[method] = routes.map(([path, validator, handler]) => [path, validator, handler]);
-  }
-  return applyWrappers(router, allowedRoles, adjustedMap, options);
+  // ✅ FIXED: Don't modify the original routeMap, just pass it through
+  // The structure should already be correct: [path, validator, handler]
+  return applyWrappers(router, allowedRoles, routeMap, options);
 }
 
 /**
