@@ -1,35 +1,21 @@
-// src/server.js - EMERGENCY DEBUG VERSION
+// src/server.js - ULTRA SIMPLE VERSION (NO DB CONNECTION)
 import express from 'express';
 import cors from 'cors';
-import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
-import { connectDB } from './db.js';
-import logger from './logging/logger.js';
-import { success } from './utils/responseHelper.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Basic middleware
-app.use(helmet());
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
-});
-app.use(limiter);
-
-// Test route first
+// Test route
 app.get('/', (req, res) => {
-  success(res, { message: 'VH Health Backend API is running' }, 'Welcome');
+  res.json({ message: 'VH Health Backend API is running - Emergency Mode' });
 });
 
 app.get('/api/v1', (req, res) => {
-  success(res, { message: 'API v1 is working' }, 'API Status');
+  res.json({ message: 'API v1 is working - Emergency Mode' });
 });
 
 // 🚨 DEBUG: Test each route import individually
@@ -80,11 +66,12 @@ try {
   console.log('❌ Error importing rbacRoutes:', error.message);
 }
 
-// Test endpoint to verify what's working
+// Test endpoint
 app.get('/api/v1/test', (req, res) => {
-  success(res, { 
-    message: 'Emergency server is running',
+  res.json({ 
+    message: 'Emergency server is running - NO DATABASE',
     timestamp: new Date().toISOString(),
+    warning: 'Database connections disabled for debugging',
     availableRoutes: [
       'GET /',
       'GET /api/v1',
@@ -93,16 +80,16 @@ app.get('/api/v1/test', (req, res) => {
       '/api/v1/auth/* (if loaded)', 
       '/api/v1/rbac/* (if loaded)'
     ]
-  }, 'Test endpoint');
+  });
 });
 
 // Global error handler
 app.use((error, req, res, next) => {
-  logger.error(error.stack || error.toString());
+  console.error(error.stack || error.toString());
   res.status(500).json({
     success: false,
     message: 'Internal server error',
-    error: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
+    error: error.message
   });
 });
 
@@ -115,21 +102,10 @@ app.use('*', (req, res) => {
   });
 });
 
-// Start server
-async function startServer() {
-  try {
-    await connectDB();
-    logger.info('Database connected successfully');
-    
-    app.listen(PORT, () => {
-      logger.info(`🚀 Server running on port ${PORT}`);
-      console.log(`🌐 Server URL: http://localhost:${PORT}`);
-      console.log(`🔍 Test endpoint: http://localhost:${PORT}/api/v1/test`);
-    });
-  } catch (error) {
-    logger.error('Failed to start server:', error);
-    process.exit(1);
-  }
-}
-
-startServer();
+// Start server immediately - no DB connection
+app.listen(PORT, () => {
+  console.log(`🚀 EMERGENCY SERVER running on port ${PORT}`);
+  console.log(`🌐 Server URL: http://localhost:${PORT}`);
+  console.log(`🔍 Test endpoint: http://localhost:${PORT}/api/v1/test`);
+  console.log(`⚠️  Database connections disabled for debugging`);
+});
