@@ -1,5 +1,4 @@
 // src/routes/userRoutes.js
-
 import express from 'express';
 import { success, error } from '../utils/responseHelper.js';
 import logger from '../logging/logger.js';
@@ -13,12 +12,12 @@ import { normalizePhone } from '../utils/phoneUtils.js';
 const router = express.Router();
 console.log('✅ userRoutes loaded');
 
-// ✅ POST: Create or update user profile (with optional role if ADMIN)
+// ✅ FIXED: Changed from '/' to '/profile' to avoid root path conflicts
 wrapAutoRBAC(
   router,
   'userRoutes',
   {
-    post: [['/', userProfileValidator, userController.createOrUpdateUser]]
+    post: [['/profile', userProfileValidator, userController.createOrUpdateUser]]
   },
   {
     requireUID: false,
@@ -26,13 +25,13 @@ wrapAutoRBAC(
   }
 );
 
-// ✅ GET + PUT: User lookup, list, and role-aware update
+// ✅ FIXED: Changed from '/' to '/list' and updated other paths
 wrapAutoRBAC(router, 'userRoutes', {
   get: [
-    ['/', userController.getUsers],
+    ['/list', userController.getUsers], // Changed from '/' to '/list'
     ['/uid/:uid', userController.getUserByUID],
     [
-      '/:phone',
+      '/phone/:phone', // Changed from '/:phone' to '/phone/:phone' for clarity
       async (req, res) => {
         try {
           const phone = normalizePhone(req.params.phone);
@@ -57,7 +56,7 @@ wrapAutoRBAC(router, 'userRoutes', {
           const offset = (page - 1) * limit;
           const queryRaw = req.query.query;
           const query = typeof queryRaw === 'string' ? `%${queryRaw.toLowerCase()}%` : null;
-
+          
           let result;
           if (query) {
             result = await pool.query(
@@ -73,7 +72,6 @@ wrapAutoRBAC(router, 'userRoutes', {
               [limit, offset]
             );
           }
-
           success(res, { page, limit, data: result.rows }, 'User list fetched');
         } catch (err) {
           logger.error(err.stack || err.toString());
@@ -83,8 +81,8 @@ wrapAutoRBAC(router, 'userRoutes', {
     ]
   ],
   put: [
-    ['/:phone', userProfileValidator, userController.updateUser],
-    ['/:phone/role', userController.updateUserRole]
+    ['/phone/:phone', userProfileValidator, userController.updateUser], // Changed from '/:phone' 
+    ['/phone/:phone/role', userController.updateUserRole] // Changed from '/:phone/role'
   ]
 });
 
