@@ -6,14 +6,14 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 
-import logger from './src/logging/logger.js';
-import rateLimit from './src/middleware/rateLimitMiddleware.js';
-import validateApiKey from './src/middleware/validateApiKey.js';
-import swaggerLoader from './src/utils/swaggerLoader.js';
-import errorHandler from './src/middleware/errorHandlerMiddleware.js';
-import corsConfig from './src/middleware/corsMiddleware.js';
-import routes from './src/routes/index.js';
-import './src/utils/validateEnv.js';
+import logger from './logging/logger.js';
+import rateLimit from './middleware/rateLimitMiddleware.js';
+import validateApiKey from './middleware/validateApiKey.js';
+import swaggerLoader from './utils/swaggerLoader.js';
+import errorHandler from './middleware/errorHandlerMiddleware.js';
+import corsConfig from './middleware/corsMiddleware.js';
+import routes from './routes/index.js';
+import './utils/validateEnv.js';
 
 dotenv.config();
 
