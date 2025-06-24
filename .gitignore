@@ -1,14 +1,15 @@
 # Node modules
 node_modules/
 
-# Environment Variables
+# Environment Variables (CRITICAL - NEVER COMMIT)
 .env
-.env.local
-.env.render
-.env.development.local
-.env.test.local
-.env.production.local
-.env.production
+.env.*
+!.env.example
+*.env
+env.js
+config.js
+credentials.json
+secrets.json
 firebase-service-account.json
 
 # Logs
@@ -58,6 +59,67 @@ coverage/
 uploads/
 tmp/
 
-# backups
+# Backups
 *.zip
 backups/
+
+# Additional Security Exclusions
+# Generated tokens and keys
+admin-token.txt
+*.key
+*.cert
+*.csr
+*.pem
+api-keys.txt
+tokens.txt
+
+# Database dumps and backups
+*.sql
+*.dump
+*.backup
+db-backup-*
+
+# Temporary files
+temp/
+temporary/
+cache/
+
+# Test files (except configs)
+src/tests/testfile.pdf
+src/tests/test-uploads/
+
+# Runtime and process files
+*.tgz
+*.tar.gz
+.nyc_output
+
+# Editor files
+*.swp
+*.swo
+*~
+
+# Package manager files
+.yarn-integrity
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+Dockerfile.local
+
+# OS specific
+.DS_Store?
+.Trashes
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+Desktop.ini
+$RECYCLE.BIN/
+
+# Firebase
+.firebase/
+.firebaserc

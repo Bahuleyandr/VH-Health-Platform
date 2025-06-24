@@ -21,7 +21,7 @@ export default function jwtMiddleware(req, res, next) {
     return res.status(403).json({ success: false, error: 'Invalid or expired token' });
   }
 
-  const uid = decoded.sub; // ✅ updated
+  const uid = decoded.uid;
   const role = decoded.role;
   const phone = decoded.phone;
 

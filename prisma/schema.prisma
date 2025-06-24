@@ -1,0 +1,409 @@
+// prisma/schema.prisma
+// Unified Hospital-Grade Database Schema for VH Health Backend
+// Compatible with both local and production environments
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===================================================================
+// 👥 USER MANAGEMENT
+// ===================================================================
+
+model users {
+  id              Int       @id @default(autoincrement())
+  uid             String    @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  phone           String    @unique @db.VarChar(15)
+  name            String?   @db.VarChar(255)
+  gender          String?   @db.VarChar(20)
+  address         String?   @db.Text
+  email           String?   @db.VarChar(255)
+  birthday        DateTime? @db.Date
+  anniversary     DateTime? @db.Date
+  profile_picture String?   @db.Text
+  role            String?   @default("PATIENT") @db.VarChar(50)
+  is_active       Boolean   @default(true)
+  registered_at   DateTime  @default(now()) @db.Timestamp(6)
+  updated_at      DateTime  @updatedAt @db.Timestamp(6)
+
+  // Relations
+  appointments    appointments[]
+  health_records  health_records[]
+  investigations  investigations[]
+  pharmacy_orders pharmacy_orders[]
+  feedback        feedback[]
+  sos_alerts      sos_alerts[]
+  consultations   consultations[]
+
+  @@index([phone])
+  @@index([uid])
+  @@index([role])
+  @@map("users")
+}
+
+// ===================================================================
+// 🏥 HOSPITAL STRUCTURE
+// ===================================================================
+
+model departments {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique @db.VarChar(100)
+  description String?   @db.Text
+  is_active   Boolean   @default(true)
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
+  updated_at  DateTime  @updatedAt @db.Timestamp(6)
+
+  // Relations
+  doctors     doctors[]
+
+  @@map("departments")
+}
+
+model doctors {
+  id            Int          @id @default(autoincrement())
+  user_id       Int?         // Link to users table for doctor accounts
+  name          String       @db.VarChar(100)
+  department_id Int?
+  department    String       @db.VarChar(100) // Legacy field
+  specialty     String?      @db.VarChar(100)
+  intro         String?      @db.Text
+  image_url     String?      @db.Text
+  is_available  Boolean      @default(true)
+  is_active     Boolean      @default(true)
+  created_at    DateTime     @default(now()) @db.Timestamp(6)
+  updated_at    DateTime     @updatedAt @db.Timestamp(6)
+
+  // Relations
+  departments   departments? @relation(fields: [department_id], references: [id], onDelete: SetNull)
+  appointments  appointments[]
+
+  @@index([department_id])
+  @@index([is_available])
+  @@map("doctors")
+}
+
+// ===================================================================
+// 📅 APPOINTMENTS & SCHEDULING
+// ===================================================================
+
+model appointments {
+  id              Int       @id @default(autoincrement())
+  uid             String?   @db.Uuid // Link to users.uid
+  phone           String    @db.VarChar(15)
+  doctor_id       Int?      // Link to doctors table
+  doctor_name     String    @db.VarChar(100) // Legacy field
+  patient_name    String?   @db.VarChar(255)
+  appointment_date DateTime @db.Date
+  appointment_time String   @db.VarChar(10)
+  status          String    @default("SCHEDULED") @db.VarChar(50) // SCHEDULED, COMPLETED, CANCELLED, NO_SHOW
+  reason          String?   @db.Text
+  notes           String?   @db.Text
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
+  updated_at      DateTime  @updatedAt @db.Timestamp(6)
+
+  // Relations
+  user            users?    @relation(fields: [uid], references: [uid], onDelete: SetNull)
+  doctor          doctors?  @relation(fields: [doctor_id], references: [id], onDelete: SetNull)
+
+  @@index([phone])
+  @@index([uid])
+  @@index([doctor_id])
+  @@index([appointment_date])
+  @@index([status])
+  @@map("appointments")
+}
+
+// ===================================================================
+// 🏥 MEDICAL RECORDS
+// ===================================================================
+
+model health_records {
+  id          Int       @id @default(autoincrement())
+  uid         String?   @db.Uuid
+  phone       String    @db.VarChar(15)
+  record_type String?   @default("GENERAL") @db.VarChar(50) // GENERAL, LAB, IMAGING, PRESCRIPTION
+  file_name   String    @db.VarChar(255)
+  file_type   String    @db.VarChar(50)
+  file_key    String?   @db.Text // For cloud storage
+  file_size   BigInt?
+  privacy_level String  @default("RESTRICTED") @db.VarChar(20) // PUBLIC, INTERNAL, RESTRICTED, CONFIDENTIAL
+  created_by  String?   @db.Uuid
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
+  updated_at  DateTime  @updatedAt @db.Timestamp(6)
+
+  // Relations
+  user        users?    @relation(fields: [uid], references: [uid], onDelete: SetNull)
+
+  @@index([phone])
+  @@index([uid])
+  @@index([record_type])
+  @@index([privacy_level])
+  @@map("health_records")
+}
+
+model investigations {
+  id           Int       @id @default(autoincrement())
+  uid          String?   @db.Uuid
+  phone        String    @db.VarChar(15)
+  test_name    String    @db.VarChar(255)
+  test_type    String?   @db.VarChar(100) // BLOOD, URINE, IMAGING, etc.
+  status       String    @default("REQUESTED") @db.VarChar(50) // REQUESTED, IN_PROGRESS, COMPLETED, CANCELLED
+  result_file  String?   @db.Text
+  file_key     String?   @db.Text
+  priority     String?   @default("NORMAL") @db.VarChar(20) // URGENT, HIGH, NORMAL, LOW
+  requested_by String?   @db.Uuid
+  requested_at DateTime  @default(now()) @db.Timestamp(6)
+  completed_at DateTime? @db.Timestamp(6)
+  updated_at   DateTime  @updatedAt @db.Timestamp(6)
+
+  // Relations
+  user         users?    @relation(fields: [uid], references: [uid], onDelete: SetNull)
+
+  @@index([phone])
+  @@index([uid])
+  @@index([status])
+  @@index([test_type])
+  @@index([priority])
+  @@map("investigations")
+}
+
+model consultations {
+  id                 Int       @id @default(autoincrement())
+  uid                String?   @db.Uuid
+  phone              String    @db.VarChar(15)
+  doctor_id          Int?
+  consultation_notes String?   @db.Text
+  diagnosis          String?   @db.Text
+  treatment_plan     String?   @db.Text
+  file_name          String?   @db.VarChar(255)
+  file_type          String?   @db.VarChar(50)
+  file_key           String?   @db.Text
+  consulted_at       DateTime  @default(now()) @db.Timestamp(6)
+  created_at         DateTime  @default(now()) @db.Timestamp(6)
+  updated_at         DateTime  @updatedAt @db.Timestamp(6)
+
+  // Relations
+  user               users?    @relation(fields: [uid], references: [uid], onDelete: SetNull)
+
+  @@index([phone])
+  @@index([uid])
+  @@index([consulted_at])
+  @@map("consultations")
+}
+
+// ===================================================================
+// 💊 PHARMACY MANAGEMENT
+// ===================================================================
+
+model pharmacy_orders {
+  id          Int       @id @default(autoincrement())
+  uid         String?   @db.Uuid
+  phone       String    @db.VarChar(15)
+  order_note  String    @db.Text
+  medication  String?   @db.Text // JSON array of medications
+  status      String    @default("PENDING") @db.VarChar(50) // PENDING, PROCESSING, READY, DISPENSED, CANCELLED
+  priority    String?   @default("NORMAL") @db.VarChar(20)
+  file_key    String?   @db.Text
+  prescribed_by String? @db.Uuid
+  dispensed_by  String? @db.Uuid
+  ordered_at  DateTime  @default(now()) @db.Timestamp(6)
+  dispensed_at DateTime? @db.Timestamp(6)
+  updated_at  DateTime  @updatedAt @db.Timestamp(6)
+
+  // Relations
+  user        users?    @relation(fields: [uid], references: [uid], onDelete: SetNull)
+
+  @@index([phone])
+  @@index([uid])
+  @@index([status])
+  @@index([ordered_at])
+  @@map("pharmacy_orders")
+}
+
+// ===================================================================
+// 💬 FEEDBACK & COMMUNICATION
+// ===================================================================
+
+model feedback {
+  id          Int       @id @default(autoincrement())
+  uid         String?   @db.Uuid
+  phone       String    @db.VarChar(15)
+  rating      Int       @db.SmallInt // 1-5 stars
+  comment     String?   @db.Text
+  category    String?   @default("GENERAL") @db.VarChar(50) // GENERAL, DOCTOR, FACILITY, SERVICE
+  department_id Int?
+  doctor_id   Int?
+  appointment_id Int?
+  is_anonymous Boolean  @default(false)
+  status      String    @default("PENDING") @db.VarChar(50) // PENDING, REVIEWED, RESPONDED, CLOSED
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
+  updated_at  DateTime  @updatedAt @db.Timestamp(6)
+
+  // Relations
+  user        users?    @relation(fields: [uid], references: [uid], onDelete: SetNull)
+
+  @@index([phone])
+  @@index([uid])
+  @@index([rating])
+  @@index([category])
+  @@index([status])
+  @@map("feedback")
+}
+
+// ===================================================================
+// 🆘 EMERGENCY RESPONSE
+// ===================================================================
+
+model sos_alerts {
+  id          Int       @id @default(autoincrement())
+  uid         String?   @db.Uuid
+  phone       String    @db.VarChar(15)
+  latitude    Float?    @db.DoublePrecision
+  longitude   Float?    @db.DoublePrecision
+  location_name String? @db.VarChar(255)
+  alert_type  String?   @default("GENERAL") @db.VarChar(50) // GENERAL, MEDICAL, ACCIDENT, FIRE, SECURITY
+  severity    String    @default("MEDIUM") @db.VarChar(20) // LOW, MEDIUM, HIGH, CRITICAL
+  message     String?   @db.Text
+  status      String    @default("ACTIVE") @db.VarChar(50) // ACTIVE, RESPONDED, RESOLVED, CANCELLED
+  responded_by String?  @db.Uuid
+  ip_address  String?   @db.VarChar(45)
+  device_info String?   @db.Text
+  raised_at   DateTime  @default(now()) @db.Timestamp(6)
+  responded_at DateTime? @db.Timestamp(6)
+  resolved_at DateTime? @db.Timestamp(6)
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
+  updated_at  DateTime  @updatedAt @db.Timestamp(6)
+
+  // Relations
+  user        users?    @relation(fields: [uid], references: [uid], onDelete: SetNull)
+
+  @@index([phone])
+  @@index([uid])
+  @@index([alert_type])
+  @@index([severity])
+  @@index([status])
+  @@index([raised_at])
+  @@map("sos_alerts")
+}
+
+// ===================================================================
+// 📁 FILE MANAGEMENT
+// ===================================================================
+
+model file_metadata {
+  id          Int       @id @default(autoincrement())
+  file_name   String    @db.VarChar(255)
+  file_type   String    @db.VarChar(100)
+  storage_key String    @unique @db.Text
+  storage_url String    @db.Text
+  file_size   BigInt
+  uploaded_by String?   @db.Uuid
+  scan_status String?   @default("PENDING") @db.VarChar(50) // PENDING, CLEAN, INFECTED, FAILED
+  scan_result String?   @db.Text
+  privacy_level String  @default("RESTRICTED") @db.VarChar(20)
+  is_active   Boolean   @default(true)
+  uploaded_at DateTime  @default(now()) @db.Timestamp(6)
+  updated_at  DateTime  @updatedAt @db.Timestamp(6)
+
+  @@index([uploaded_by])
+  @@index([scan_status])
+  @@index([privacy_level])
+  @@index([uploaded_at])
+  @@map("file_metadata")
+}
+
+// ===================================================================
+// 👥 STAFF MANAGEMENT
+// ===================================================================
+
+model staff_attendance {
+  id        Int       @id @default(autoincrement())
+  staff_id  Int
+  staff_uid String?   @db.Uuid
+  type      String    @db.VarChar(20) // CHECK_IN, CHECK_OUT, BREAK_START, BREAK_END
+  location  String?   @db.VarChar(255)
+  ip_address String?  @db.VarChar(45)
+  device_info String? @db.Text
+  timestamp DateTime  @default(now()) @db.Timestamp(6)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+
+  @@index([staff_id])
+  @@index([staff_uid])
+  @@index([type])
+  @@index([timestamp])
+  @@map("staff_attendance")
+}
+
+// ===================================================================
+// 🔐 SECURITY & AUDIT
+// ===================================================================
+
+model audit_logs {
+  id          Int       @id @default(autoincrement())
+  uid         String?   @db.Uuid
+  role        String?   @db.VarChar(50)
+  action      String    @db.VarChar(100)
+  resource    String?   @db.VarChar(100)
+  resource_id String?   @db.VarChar(100)
+  metadata    Json?     @db.JsonB
+  ip_address  String?   @db.VarChar(45)
+  user_agent  String?   @db.Text
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([uid])
+  @@index([action])
+  @@index([resource])
+  @@index([created_at])
+  @@map("audit_logs")
+}
+
+model notifications {
+  id          Int       @id @default(autoincrement())
+  uid         String?   @db.Uuid
+  phone       String    @db.VarChar(15)
+  title       String    @db.VarChar(255)
+  body        String    @db.Text
+  type        String    @default("GENERAL") @db.VarChar(50) // GENERAL, APPOINTMENT, EMERGENCY, SYSTEM
+  priority    String    @default("NORMAL") @db.VarChar(20)
+  data        Json?     @db.JsonB
+  is_read     Boolean   @default(false)
+  scheduled_for DateTime? @db.Timestamp(6)
+  sent_at     DateTime? @db.Timestamp(6)
+  read_at     DateTime? @db.Timestamp(6)
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
+  updated_at  DateTime  @updatedAt @db.Timestamp(6)
+
+  @@index([uid])
+  @@index([phone])
+  @@index([type])
+  @@index([is_read])
+  @@index([scheduled_for])
+  @@map("notifications")
+}
+
+model devices {
+  id          Int       @id @default(autoincrement())
+  uid         String?   @db.Uuid
+  phone       String    @db.VarChar(15)
+  device_id   String    @unique @db.VarChar(255)
+  fcm_token   String?   @db.Text
+  device_name String?   @db.VarChar(255)
+  platform    String?   @db.VarChar(50) // iOS, Android, Web
+  app_version String?   @db.VarChar(50)
+  os_version  String?   @db.VarChar(50)
+  is_active   Boolean   @default(true)
+  last_used   DateTime? @db.Timestamp(6)
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
+  updated_at  DateTime  @updatedAt @db.Timestamp(6)
+
+  @@index([uid])
+  @@index([phone])
+  @@index([device_id])
+  @@index([is_active])
+  @@map("devices")
+}
