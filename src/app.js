@@ -1,4 +1,4 @@
-// src/app.js
+// src/app.js - HYBRID VERSION (keeps your working parts)
 
 import dotenv from 'dotenv';
 import express from 'express';
@@ -15,6 +15,7 @@ import corsMiddleware from './middleware/corsMiddleware.js';
 import authMiddleware from './middleware/authMiddleware.js';
 import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
 
+// ✅ Import routes - HYBRID approach (individual + bulk)
 import debugRoutes from './routes/debugRoutes.js';
 import routes from './routes/index.js';
 import adminRoutes from './routes/adminRoutes.js';
@@ -22,10 +23,13 @@ import staffRoutes from './routes/staffRoutes.js';
 import departmentRoutes from './routes/departmentRoutes.js';
 import rbacRoutes from './routes/rbacRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
+import doctorRoutes from './routes/doctorRoutes.js';  // ✅ Added missing
+import notificationRoutes from './routes/notificationRoutes.js';  // ✅ Added missing
+import deviceRoutes from './routes/deviceRoutes.js';  // ✅ Added missing
+import firebaseAuthRoutes from './routes/firebaseAuthRoutes.js';  // ✅ Added missing
+
 import { attachUserContext } from './middleware/attachUserContext.js';
-
 import { patientRateLimiter, genericLimiter } from './middleware/rateLimitMiddleware.js';
-
 import swaggerLoader from './utils/swaggerLoader.js';
 
 // ✅ Load .env from local file if available, else rely on Render secrets
@@ -45,7 +49,7 @@ app.set('trust proxy', 1); // ✅ Required for Render or Cloudflare
 // ✅ Sentry Request Middleware
 app.use(Sentry.Handlers.requestHandler());
 
-// ✅ Debug Routes (secured by JWT)
+// ✅ Debug Routes (secured by JWT) - Keep your existing approach
 app.use('/api/v1/debug', jwtAuth, debugRoutes);
 
 // ✅ Swagger Setup
@@ -73,6 +77,7 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 // ✅ Public Routes — no API Key, no JWT
 app.use('/api/v1/auth', patientRateLimiter, routes.auth);
+app.use('/api/v1/firebase-auth', patientRateLimiter, firebaseAuthRoutes);  // ✅ Added missing
 app.use('/api/v1/otp', patientRateLimiter, routes.otp);
 app.use('/api/v1/lookup', routes.lookup);
 app.use('/api/v1/version', routes.version);
@@ -99,9 +104,12 @@ app.use('/api/v1/pharmacy-orders', patientRateLimiter, routes.pharmacy);
 app.use('/api/v1/feedback', patientRateLimiter, routes.feedback);
 app.use('/api/v1/sos', patientRateLimiter, routes.sos);
 app.use('/api/v1/upload', routes.upload);
-app.use('/api/v1/departments', departmentRoutes);
+app.use('/api/v1/departments', departmentRoutes);  // Keep your existing approach
+app.use('/api/v1/doctors', doctorRoutes);  // ✅ Added missing
+app.use('/api/v1/notifications', notificationRoutes);  // ✅ Added missing
+app.use('/api/v1/devices', deviceRoutes);  // ✅ Added missing
 
-// ✅ JWT-Protected Admin/Staff Routes
+// ✅ JWT-Protected Admin/Staff Routes - Keep your existing approach
 app.use('/api/v1/admin/rbac', jwtAuth, rbacRoutes);
 app.use('/api/v1/admin/analytics', jwtAuth, analyticsRoutes);
 app.use('/api/v1/admin', jwtAuth, adminRoutes);

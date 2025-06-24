@@ -46,7 +46,7 @@ export function normalizeIdentityFields(req, res, next) {
 
   // ✅ Normalize UID
   if (src?.uid) {
-    req.body.uid = typeof src.uid === 'string' ? src.uid.trim() : src.uid;
+    req.body.uid = src.uid.trim();
   }
 
   // ✅ Normalize gender
