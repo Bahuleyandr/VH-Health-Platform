@@ -52,6 +52,7 @@ class DatabaseManager {
     }
 
     try {
+      // ✅ Fixed: Use this.pool.query() here (this is correct within the class)
       const result = await this.pool.query(text, params);
       return result;
     } catch (error) {

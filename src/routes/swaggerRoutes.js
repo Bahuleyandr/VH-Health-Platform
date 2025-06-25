@@ -11,8 +11,7 @@ import { success, error } from '../utils/responseHelper.js';
 import { HTTP_STATUS } from '../config/responseCodes.js';
 import { validationResult, query, body } from 'express-validator';
 import logger from '../logging/logger.js';
-import pool from '../db.js';
-
+import db from '../config/database.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -1167,7 +1166,7 @@ wrapAutoRBAC(router, 'adminDocumentationRoutes', {
           // Get documentation access logs if available
           let accessStats = null;
           try {
-            const accessResult = await pool.query(`
+            const accessResult = await db.query(`
               SELECT 
                 DATE(created_at) as date,
                 COUNT(*) as views,
@@ -1351,7 +1350,7 @@ wrapAutoRBAC(router, 'adminDocumentationRoutes', {
           }
 
           // Log regeneration activity
-          await pool.query(
+          await db.query(
             `INSERT INTO admin_activity_logs (
               admin_uid, action, description, details, 
               ip_address, created_at

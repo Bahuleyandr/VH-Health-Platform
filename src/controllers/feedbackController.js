@@ -2,7 +2,7 @@
 
 import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
-import db from '../db.js';
+import db from '../config/database.js';
 import { resolvePhoneFromRequest, resolvePhoneFromUID } from '../utils/resolveIdentity.js';
 
 // ✅ Submit Feedback using resolved phone

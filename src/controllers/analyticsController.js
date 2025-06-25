@@ -1,4 +1,4 @@
-import db from '../db.js';
+import db from '../config/database.js';
 import { success, error } from '../utils/responseHelper.js';
 
 /**

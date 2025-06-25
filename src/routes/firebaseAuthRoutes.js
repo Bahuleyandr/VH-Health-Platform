@@ -1,4 +1,4 @@
-// src/routes/firebaseAuthRoutes.js - COMPLETE PRODUCTION VERSION WITH RBAC
+// src/routes/firebaseAuthRoutes.js - COMPLETE PRODUCTION VERSION WITH RBAC (FIXED)
 import express from 'express';
 import { validationResult, body } from 'express-validator';
 import { phoneValidator, userProfileValidator } from '../config/validationSchemas.js';
@@ -13,7 +13,7 @@ import { generateToken } from '../utils/jwtUtils.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 
 const router = express.Router();
-console.log('✅ firebaseAuthRoutes loaded with RBAC protection');
+console.log('✅ firebaseAuthRoutes loaded with RBAC protection (fixed validators)');
 
 // ✅ Firebase-specific validators (enhanced from deprecated version)
 const firebaseLoginValidator = [
@@ -202,7 +202,7 @@ wrapRoutesWithValidation(
       // 🔥 Firebase ID Token Authentication (Enhanced from deprecated version)
       [
         '/firebase-login',
-        firebaseLoginValidator,
+        ...firebaseLoginValidator,
         handleValidation,
         async (req, res) => {
           const { idToken, deviceInfo } = req.body;
@@ -355,10 +355,10 @@ wrapRoutesWithValidation(
         }
       ],
 
-      // Legacy registration route (from deprecated version)
+      // Legacy registration route (from deprecated version) - FIXED VALIDATOR
       [
         '/register',
-        userRegistrationValidator,
+        ...userRegistrationValidator,
         handleValidation,
         firebaseAuthController.registerUser
       ],
@@ -366,7 +366,7 @@ wrapRoutesWithValidation(
       // 👤 Complete User Profile after Firebase Auth
       [
         '/complete-profile',
-        userProfileValidator,
+        ...userProfileValidator,
         async (req, res) => {
           const errors = validationResult(req);
           if (!errors.isEmpty()) {
@@ -431,7 +431,7 @@ wrapRoutesWithValidation(
       // 🔄 Link Firebase Account to Existing User
       [
         '/link-account',
-        phoneValidator,
+        ...phoneValidator,
         async (req, res) => {
           const { phone, idToken, otp } = req.body;
 

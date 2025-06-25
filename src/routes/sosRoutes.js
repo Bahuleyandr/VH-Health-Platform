@@ -1,7 +1,7 @@
 // src/routes/sosRoutes.js - Enhanced Emergency SOS System with Full RBAC
 
 import express from 'express';
-import pool from '../db.js';
+import db from '../config/database.js';
 import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
@@ -73,7 +73,7 @@ async function notifyEmergencyTeam(alertData, nearbyHospitals = []) {
     const { id: alertId, phone, severity, message, latitude, longitude, user_name } = alertData;
     
     // Get emergency responder device tokens
-    const responderTokens = await pool.query(`
+    const responderTokens = await db.query(`
       SELECT DISTINCT ud.fcm_token 
       FROM user_devices ud
       JOIN users u ON ud.user_uid = u.uid
@@ -106,7 +106,7 @@ async function notifyEmergencyTeam(alertData, nearbyHospitals = []) {
     }
 
     // Create system-wide emergency notification
-    await pool.query(
+    await db.query(
       `INSERT INTO notifications (
         recipient_roles, title, body, type, priority, 
         related_id, metadata, created_at, expires_at
@@ -141,7 +141,7 @@ async function scheduleEscalation(alertId, severity) {
   setTimeout(async () => {
     try {
       // Check if alert is still active
-      const alertCheck = await pool.query(
+      const alertCheck = await db.query(
         'SELECT status, escalation_status FROM sos_alerts WHERE id = $1',
         [alertId]
       );
@@ -151,7 +151,7 @@ async function scheduleEscalation(alertId, severity) {
       }
 
       // Escalate to external emergency services
-      await pool.query(
+      await db.query(
         `UPDATE sos_alerts SET 
           escalation_status = 'escalated_to_emergency_services',
           escalated_at = NOW(),
@@ -214,7 +214,7 @@ wrapAutoRBAC(router, 'sosRoutes', {
 
         try {
           // Get user information and medical history
-          const userResult = await pool.query(`
+          const userResult = await db.query(`
             SELECT 
               uid, name, age, gender, blood_group, 
               emergency_contact, medical_conditions, allergies,
@@ -226,7 +226,7 @@ wrapAutoRBAC(router, 'sosRoutes', {
           const user = userResult.rows[0] || {};
 
           // Create SOS alert with comprehensive data
-          const alertResult = await pool.query(`
+          const alertResult = await db.query(`
             INSERT INTO sos_alerts (
               phone, user_uid, latitude, longitude, severity, message,
               emergency_type, contact_preference, ip_address, user_agent,
@@ -260,7 +260,7 @@ wrapAutoRBAC(router, 'sosRoutes', {
           if (latitude && longitude) {
             try {
               // Find nearby hospitals (within 25km radius)
-              const hospitalResult = await pool.query(`
+              const hospitalResult = await db.query(`
                 SELECT 
                   id, name, phone as hospital_phone, address, website,
                   latitude as hosp_lat, longitude as hosp_lon,
@@ -291,7 +291,7 @@ wrapAutoRBAC(router, 'sosRoutes', {
 
               // Find nearby 24/7 pharmacies for medication emergencies
               if (emergencyType === 'medical' && (medications || medicalConditions)) {
-                const pharmacyResult = await pool.query(`
+                const pharmacyResult = await db.query(`
                   SELECT 
                     id, name, phone, address, is_24_7,
                     (6371 * acos(cos(radians($1)) * cos(radians(latitude)) * 
@@ -329,7 +329,7 @@ wrapAutoRBAC(router, 'sosRoutes', {
             await scheduleEscalation(alertId, severity);
 
             // Log security event for audit
-            await pool.query(
+            await db.query(
               `INSERT INTO security_logs (
                 event_type, user_uid, phone, ip_address, 
                 event_data, severity, created_at
@@ -407,7 +407,7 @@ wrapAutoRBAC(router, 'sosRoutes', {
           
           // Even if there's an error, try to log basic emergency info
           try {
-            await pool.query(
+            await db.query(
               `INSERT INTO emergency_fallback_logs (
                 phone, latitude, longitude, severity, message, 
                 error_details, created_at
@@ -468,7 +468,7 @@ wrapAutoRBAC(router, 'sosRoutes', {
             };
           }
 
-          const result = await pool.query(
+          const result = await db.query(
             `UPDATE users SET 
               emergency_contact = $1,
               updated_at = NOW(),
@@ -483,7 +483,7 @@ wrapAutoRBAC(router, 'sosRoutes', {
           }
 
           // Log the update for audit
-          await pool.query(
+          await db.query(
             `INSERT INTO user_activity_logs (
               user_uid, action, details, ip_address, created_at
             ) VALUES ($1, $2, $3, $4, NOW())`,
@@ -530,7 +530,7 @@ wrapAutoRBAC(router, 'sosRoutes', {
         }
 
         try {
-          const result = await pool.query(
+          const result = await db.query(
             `UPDATE sos_alerts SET 
               status = 'cancelled',
               cancelled_at = NOW(),
@@ -551,7 +551,7 @@ wrapAutoRBAC(router, 'sosRoutes', {
           const alert = result.rows[0];
 
           // Notify emergency responders about cancellation
-          await pool.query(
+          await db.query(
             `INSERT INTO notifications (
               recipient_roles, title, body, type, related_id, 
               priority, created_at, expires_at
@@ -567,7 +567,7 @@ wrapAutoRBAC(router, 'sosRoutes', {
           );
 
           // Send cancellation notification to emergency team
-          const responderTokens = await pool.query(`
+          const responderTokens = await db.query(`
             SELECT DISTINCT ud.fcm_token 
             FROM user_devices ud
             JOIN users u ON ud.user_uid = u.uid
@@ -663,7 +663,7 @@ wrapAutoRBAC(router, 'sosRoutes', {
             paramIndex++;
           }
 
-          const alerts = await pool.query(`
+          const alerts = await db.query(`
             SELECT 
               id, severity, message, emergency_type, status,
               created_at, resolved_at, cancelled_at, responded_at,
@@ -682,7 +682,7 @@ wrapAutoRBAC(router, 'sosRoutes', {
             LIMIT $2 OFFSET $3
           `, params);
 
-          const total = await pool.query(
+          const total = await db.query(
             `SELECT COUNT(*) FROM sos_alerts ${whereClause}`,
             params.slice(0, paramIndex - 3)
           );
@@ -761,7 +761,7 @@ wrapAutoRBAC(router, 'sosRoutes', {
 
           // Find nearby hospitals
           if (serviceType === 'all' || serviceType === 'hospitals') {
-            const hospitals = await pool.query(`
+            const hospitals = await db.query(`
               SELECT 
                 id, name, phone, address, website, emergency_services,
                 trauma_center, specialties, beds_available, ambulance_available,
@@ -787,7 +787,7 @@ wrapAutoRBAC(router, 'sosRoutes', {
 
           // Find nearby pharmacies
           if (serviceType === 'all' || serviceType === 'pharmacies') {
-            const pharmacies = await pool.query(`
+            const pharmacies = await db.query(`
               SELECT 
                 id, name, phone, address, is_24_7, services,
                 (6371 * acos(cos(radians($1)) * cos(radians(latitude)) * 
@@ -810,7 +810,7 @@ wrapAutoRBAC(router, 'sosRoutes', {
 
           // Find nearby blood banks
           if (serviceType === 'all' || serviceType === 'blood_banks') {
-            const bloodBanks = await pool.query(`
+            const bloodBanks = await db.query(`
               SELECT 
                 id, name, phone, address, blood_types_available,
                 operating_hours, emergency_contact,
@@ -871,7 +871,7 @@ wrapAutoRBAC(router, 'sosRoutes', {
         }
 
         try {
-          const userInfo = await pool.query(`
+          const userInfo = await db.query(`
             SELECT 
               name, age, gender, blood_group, allergies,
               medical_conditions, current_medications, 
@@ -888,7 +888,7 @@ wrapAutoRBAC(router, 'sosRoutes', {
           const medicalInfo = userInfo.rows[0];
 
           // Get recent medical records if available
-          const recentRecords = await pool.query(`
+          const recentRecords = await db.query(`
             SELECT 
               record_type, record_date, summary, doctor_name,
               hospital_name
@@ -938,7 +938,7 @@ wrapAutoRBAC(router, 'emergencyResponderRoutes', {
       async (req, res) => {
         try {
           // Get active alerts prioritized by severity and time
-          const activeAlerts = await pool.query(`
+          const activeAlerts = await db.query(`
             SELECT 
               sa.id, sa.phone, sa.severity, sa.message, sa.emergency_type,
               sa.latitude, sa.longitude, sa.created_at, sa.status,
@@ -975,7 +975,7 @@ wrapAutoRBAC(router, 'emergencyResponderRoutes', {
           };
 
           // Recent activity summary
-          const recentActivity = await pool.query(`
+          const recentActivity = await db.query(`
             SELECT 
               COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '1 hour') as last_hour,
               COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours') as last_24_hours,
@@ -1027,7 +1027,7 @@ wrapAutoRBAC(router, 'emergencyResponderRoutes', {
           const interval = intervals[timeframe];
 
           // Overall metrics
-          const metrics = await pool.query(`
+          const metrics = await db.query(`
             SELECT 
               COUNT(*) as total_alerts,
               COUNT(*) FILTER (WHERE severity = 'critical') as critical_alerts,
@@ -1044,7 +1044,7 @@ wrapAutoRBAC(router, 'emergencyResponderRoutes', {
           `);
 
           // Response time analysis by severity
-          const responseAnalysis = await pool.query(`
+          const responseAnalysis = await db.query(`
             SELECT 
               severity,
               COUNT(*) as alert_count,
@@ -1067,7 +1067,7 @@ wrapAutoRBAC(router, 'emergencyResponderRoutes', {
           `);
 
           // Hourly trends
-          const hourlyTrends = await pool.query(`
+          const hourlyTrends = await db.query(`
             SELECT 
               EXTRACT(HOUR FROM created_at) as hour,
               COUNT(*) as alert_count
@@ -1079,7 +1079,7 @@ wrapAutoRBAC(router, 'emergencyResponderRoutes', {
           `);
 
           // Geographic distribution (if location data available)
-          const locationStats = await pool.query(`
+          const locationStats = await db.query(`
             SELECT 
               COUNT(*) FILTER (WHERE latitude IS NOT NULL AND longitude IS NOT NULL) as with_location,
               COUNT(*) FILTER (WHERE latitude IS NULL OR longitude IS NULL) as without_location
@@ -1144,7 +1144,7 @@ wrapAutoRBAC(router, 'emergencyResponderRoutes', {
           const responderUid = req.user?.uid;
           const responderName = req.user?.name || 'Emergency Responder';
 
-          const result = await pool.query(
+          const result = await db.query(
             `UPDATE sos_alerts SET 
               status = 'responding',
               responder_uid = $1,
@@ -1168,7 +1168,7 @@ wrapAutoRBAC(router, 'emergencyResponderRoutes', {
 
           // Notify patient about response
           if (alert.user_uid) {
-            await pool.query(
+            await db.query(
               `INSERT INTO notifications (
                 user_uid, title, body, type, related_id, 
                 priority, created_at, expires_at
@@ -1184,7 +1184,7 @@ wrapAutoRBAC(router, 'emergencyResponderRoutes', {
             );
 
             // Send push notification to patient
-            const patientTokens = await pool.query(
+            const patientTokens = await db.query(
               'SELECT fcm_token FROM user_devices WHERE user_uid = $1 AND fcm_token IS NOT NULL',
               [alert.user_uid]
             );
@@ -1205,7 +1205,7 @@ wrapAutoRBAC(router, 'emergencyResponderRoutes', {
           }
 
           // Log responder action
-          await pool.query(
+          await db.query(
             `INSERT INTO emergency_response_logs (
               alert_id, responder_uid, action, details, created_at
             ) VALUES ($1, $2, $3, $4, NOW())`,
@@ -1275,7 +1275,7 @@ wrapAutoRBAC(router, 'emergencyResponderRoutes', {
           const resolverUid = req.user?.uid;
           const resolverName = req.user?.name || 'Emergency Responder';
 
-          const result = await pool.query(
+          const result = await db.query(
             `UPDATE sos_alerts SET 
               status = 'resolved',
               resolved_by = $1,
@@ -1301,7 +1301,7 @@ wrapAutoRBAC(router, 'emergencyResponderRoutes', {
 
           // Create follow-up task if required
           if (followUpRequired) {
-            await pool.query(
+            await db.query(
               `INSERT INTO follow_up_tasks (
                 alert_id, assigned_to, description, priority, 
                 due_date, task_type, created_at, created_by
@@ -1323,7 +1323,7 @@ wrapAutoRBAC(router, 'emergencyResponderRoutes', {
             const followUpMessage = followUpRequired ? 
               ' A follow-up contact will be scheduled within 24 hours.' : '';
             
-            await pool.query(
+            await db.query(
               `INSERT INTO notifications (
                 user_uid, title, body, type, related_id, 
                 priority, created_at
@@ -1339,7 +1339,7 @@ wrapAutoRBAC(router, 'emergencyResponderRoutes', {
             );
 
             // Send resolution notification
-            const patientTokens = await pool.query(
+            const patientTokens = await db.query(
               'SELECT fcm_token FROM user_devices WHERE user_uid = $1 AND fcm_token IS NOT NULL',
               [alert.user_uid]
             );
@@ -1359,7 +1359,7 @@ wrapAutoRBAC(router, 'emergencyResponderRoutes', {
           }
 
           // Log resolution
-          await pool.query(
+          await db.query(
             `INSERT INTO emergency_response_logs (
               alert_id, responder_uid, action, details, created_at
             ) VALUES ($1, $2, $3, $4, NOW())`,
@@ -1421,7 +1421,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
           } = req.query;
 
           // Overall system performance
-          const systemMetrics = await pool.query(`
+          const systemMetrics = await db.query(`
             SELECT 
               COUNT(*) as total_alerts,
               COUNT(*) FILTER (WHERE is_test_alert = false) as real_alerts,
@@ -1443,7 +1443,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
           const metrics = systemMetrics.rows[0];
 
           // Performance by severity level
-          const severityPerformance = await pool.query(`
+          const severityPerformance = await db.query(`
             SELECT 
               severity,
               COUNT(*) as alert_count,
@@ -1498,7 +1498,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
           // Add detailed analysis for detailed reports
           if (reportType === 'detailed') {
             // Daily trends
-            const dailyTrends = await pool.query(`
+            const dailyTrends = await db.query(`
               SELECT 
                 DATE(created_at) as alert_date,
                 COUNT(*) as total_alerts,
@@ -1511,7 +1511,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
             `, [startDate, endDate]);
 
             // Geographic analysis
-            const locationAnalysis = await pool.query(`
+            const locationAnalysis = await db.query(`
               SELECT 
                 CASE 
                   WHEN latitude IS NULL OR longitude IS NULL THEN 'No Location'
@@ -1529,7 +1529,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
             `, [startDate, endDate]);
 
             // Responder performance
-            const responderStats = await pool.query(`
+            const responderStats = await db.query(`
               SELECT 
                 u.name as responder_name,
                 u.role as responder_role,
@@ -1558,7 +1558,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
 
           // Add performance benchmarking
           if (reportType === 'performance') {
-            const benchmarks = await pool.query(`
+            const benchmarks = await db.query(`
               SELECT 
                 severity,
                 COUNT(*) as total_alerts,
@@ -1685,7 +1685,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
             paramIndex++;
           }
 
-          const alerts = await pool.query(`
+          const alerts = await db.query(`
             SELECT 
               sa.id, sa.phone, sa.severity, sa.message, sa.emergency_type,
               sa.status, sa.created_at, sa.resolved_at, sa.cancelled_at,
@@ -1716,7 +1716,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
             LIMIT $1 OFFSET $2
           `, params);
 
-          const total = await pool.query(
+          const total = await db.query(
             `SELECT COUNT(*) FROM sos_alerts sa ${whereClause}`,
             params.slice(2)
           );
@@ -1773,7 +1773,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
       async (req, res) => {
         try {
           // Get hospitals with emergency services
-          const hospitals = await pool.query(`
+          const hospitals = await db.query(`
             SELECT 
               id, name, phone, address, emergency_services,
               trauma_center, beds_available, ambulance_available,
@@ -1784,7 +1784,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
           `);
 
           // Get blood banks
-          const bloodBanks = await pool.query(`
+          const bloodBanks = await db.query(`
             SELECT 
               id, name, phone, address, blood_types_available,
               operating_hours, emergency_contact, status, created_at
@@ -1794,7 +1794,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
           `);
 
           // Get 24/7 pharmacies
-          const pharmacies = await pool.query(`
+          const pharmacies = await db.query(`
             SELECT 
               id, name, phone, address, is_24_7, services,
               status, created_at
@@ -1804,7 +1804,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
           `);
 
           // System configuration
-          const systemConfig = await pool.query(`
+          const systemConfig = await db.query(`
             SELECT config_value 
             FROM system_config 
             WHERE config_key = 'sos_emergency_config'
@@ -1854,7 +1854,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
           const interval = intervals[timeframe];
 
           // Core performance metrics
-          const performance = await pool.query(`
+          const performance = await db.query(`
             SELECT 
               COUNT(*) as total_alerts,
               COUNT(*) FILTER (WHERE is_test_alert = false) as real_alerts,
@@ -1874,7 +1874,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
           const metrics = performance.rows[0];
 
           // SLA compliance by severity
-          const slaCompliance = await pool.query(`
+          const slaCompliance = await db.query(`
             SELECT 
               severity,
               COUNT(*) as total_alerts,
@@ -2018,7 +2018,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
           };
 
           // Store configuration in database
-          await pool.query(
+          await db.query(
             `INSERT INTO system_config (config_key, config_value, updated_by, updated_at)
              VALUES ($1, $2, $3, NOW())
              ON CONFLICT (config_key) 
@@ -2030,7 +2030,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
           );
 
           // Log configuration change
-          await pool.query(
+          await db.query(
             `INSERT INTO admin_activity_logs (
               admin_uid, action, description, affected_system, 
               changes_made, ip_address, created_at
@@ -2093,7 +2093,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
           const adminName = req.user?.name || 'System Admin';
 
           // Create system-wide alert
-          const alertResult = await pool.query(
+          const alertResult = await db.query(
             `INSERT INTO system_alerts (
               title, message, severity, target_roles, 
               created_by, expires_at, require_acknowledgment,
@@ -2109,7 +2109,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
           const alertId = alertResult.rows[0].id;
 
           // Get target users based on roles
-          const targetUsers = await pool.query(`
+          const targetUsers = await db.query(`
             SELECT DISTINCT ud.fcm_token, u.uid, u.name, u.role
             FROM users u
             LEFT JOIN user_devices ud ON u.uid = ud.user_uid
@@ -2139,7 +2139,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
 
           // Create individual notifications for tracking
           const notificationPromises = targetUsers.rows.map(user => 
-            pool.query(
+            db.query(
               `INSERT INTO notifications (
                 user_uid, title, body, type, related_id,
                 priority, created_at, expires_at, require_acknowledgment
@@ -2159,7 +2159,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
           await Promise.all(notificationPromises);
 
           // Log broadcast activity
-          await pool.query(
+          await db.query(
             `INSERT INTO admin_activity_logs (
               admin_uid, action, description, affected_users_count,
               details, ip_address, created_at
@@ -2233,7 +2233,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
           const adminName = req.user?.name || 'System Admin';
 
           // Verify alert exists and can be escalated
-          const alertCheck = await pool.query(
+          const alertCheck = await db.query(
             'SELECT id, phone, severity, status, user_uid FROM sos_alerts WHERE id = $1',
             [alertId]
           );
@@ -2249,7 +2249,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
           }
 
           // Update alert with escalation
-          await pool.query(
+          await db.query(
             `UPDATE sos_alerts SET 
               escalation_status = $1,
               escalated_at = NOW(),
@@ -2271,7 +2271,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
           );
 
           // Create escalation notification
-          await pool.query(
+          await db.query(
             `INSERT INTO notifications (
               recipient_roles, title, body, type, related_id,
               priority, created_at, expires_at, metadata
@@ -2292,7 +2292,7 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
           );
 
           // Log escalation
-          await pool.query(
+          await db.query(
             `INSERT INTO emergency_response_logs (
               alert_id, responder_uid, action, details, created_at
             ) VALUES ($1, $2, $3, $4, NOW())`,

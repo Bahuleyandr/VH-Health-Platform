@@ -5,7 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import logger from '../logging/logger.js';
-import db from '../db.js';
+import db from '../config/database.js';
 import admin from 'firebase-admin';
 
 // ESM __dirname replacement

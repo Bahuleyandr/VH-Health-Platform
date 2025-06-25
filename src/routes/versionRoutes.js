@@ -6,7 +6,7 @@ import express from 'express';
 import { success, error } from '../utils/responseHelper.js';
 import { wrapAutoRBAC, wrapRoutes } from '../config/routeWrapper.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
-import pool from '../db.js';
+import db from '../config/database.js';
 import logger from '../logging/logger.js';
 import fs from 'fs';
 import path from 'path';
@@ -125,7 +125,7 @@ wrapRoutes(
 
             // Quick database check
             try {
-              await pool.query('SELECT 1');
+              await db.query('SELECT 1');
               healthStatus.services.database = 'operational';
             } catch (dbErr) {
               healthStatus.services.database = 'degraded';
@@ -303,7 +303,7 @@ wrapAutoRBAC(
               ORDER BY table_name
             `;
             
-            const result = await pool.query(tablesQuery);
+            const result = await db.query(tablesQuery);
             
             const schemaInfo = {
               database: {
@@ -398,8 +398,8 @@ wrapAutoRBAC(
 
             // Advanced database diagnostics
             try {
-              const dbVersionResult = await pool.query('SELECT version()');
-              const dbStatsResult = await pool.query(`
+              const dbVersionResult = await db.query('SELECT version()');
+              const dbStatsResult = await db.query(`
                 SELECT 
                   count(*) as total_connections,
                   sum(case when state = 'active' then 1 else 0 end) as active_connections
@@ -465,7 +465,7 @@ wrapAutoRBAC(
             // Database performance check
             try {
               const start = Date.now();
-              await pool.query('SELECT 1');
+              await db.query('SELECT 1');
               const responseTime = Date.now() - start;
               
               metrics.database.status = 'operational';

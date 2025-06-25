@@ -1,6 +1,7 @@
 // src/tests/pharmacy.test.js
 import client, { API_KEY, AUTH_TOKEN } from './testClient.js';
-import pool from '../db.js'; // for direct DB seeding
+import db from '../config/database.js';
+// for direct DB seeding
 
 describe('Pharmacy Orders API', () => {
   const phone = '9876543210';
@@ -9,7 +10,7 @@ describe('Pharmacy Orders API', () => {
 
   beforeAll(async () => {
     // Ensure DB has a valid order to update
-    const result = await pool.query(
+    const result = await db.query(
       `INSERT INTO pharmacy_orders (phone, order_note, status, placed_at)
        VALUES ($1, 'Test seed order', 'pending', NOW())
        RETURNING id`,
@@ -19,7 +20,7 @@ describe('Pharmacy Orders API', () => {
   });
 
   afterAll(async () => {
-    await pool.query(`DELETE FROM pharmacy_orders WHERE phone = $1`, [phone]);
+    await db.query(`DELETE FROM pharmacy_orders WHERE phone = $1`, [phone]);
   });
 
   it('should fail without phone or order note', async () => {

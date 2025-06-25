@@ -1,6 +1,6 @@
 // src/controllers/recordController.js
 
-import pool from '../db.js';
+import db from '../config/database.js';
 import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
 import { resolvePhoneFromUID } from '../utils/resolveIdentity.js';
@@ -16,7 +16,7 @@ export async function addHealthRecord(req, res) {
   }
 
   try {
-    const result = await pool.query(
+    const result = await db.query(
       `INSERT INTO health_records (phone, file_key, file_name, file_type)
        VALUES ($1, $2, $3, $4) RETURNING *`,
       [phone, file_key, file_name, file_type]
@@ -34,7 +34,7 @@ export async function getHealthRecordsByPhone(req, res) {
     const { phone } = req.params;
     const { type } = req.query;
 
-    const result = await pool.query('SELECT * FROM health_records WHERE phone = $1', [phone]);
+    const result = await db.query('SELECT * FROM health_records WHERE phone = $1', [phone]);
 
     let records = result.rows;
 
@@ -72,7 +72,7 @@ export async function getRecordsByUID(req, res) {
       });
     }
 
-    const result = await pool.query('SELECT * FROM health_records WHERE phone = $1', [
+    const result = await db.query('SELECT * FROM health_records WHERE phone = $1', [
       resolvedPhone
     ]);
 

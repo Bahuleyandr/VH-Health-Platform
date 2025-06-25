@@ -1,4 +1,4 @@
-import pool from '../db.js';
+import db from '../config/database.js';
 import logger from '../logging/logger.js';
 import { sendPushNotification } from '../services/sendPushNotification.js';
 
@@ -7,7 +7,7 @@ const sendAppointmentReminders = async () => {
     const today = new Date();
     const yyyyMMdd = today.toISOString().split('T')[0];
 
-    const { rows: appointments } = await pool.query(`
+    const { rows: appointments } = await db.query(`
       SELECT a.phone, a.id, a.appointment_date, u.name
       FROM appointments a
       JOIN users u ON u.phone = a.phone
@@ -15,7 +15,7 @@ const sendAppointmentReminders = async () => {
     `, [yyyyMMdd]);
 
     for (const appointment of appointments) {
-      const { rows: devices } = await pool.query(
+      const { rows: devices } = await db.query(
         `SELECT token FROM devices WHERE phone = $1`,
         [appointment.phone]
       );

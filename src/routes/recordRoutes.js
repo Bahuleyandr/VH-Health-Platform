@@ -3,7 +3,7 @@ import express from 'express';
 import { validationResult } from 'express-validator';
 import { body, query } from 'express-validator';
 import * as recordController from '../controllers/recordController.js';
-import pool from '../db.js';
+import db from '../config/database.js';
 import { success, error } from '../utils/responseHelper.js';
 import logger from '../logging/logger.js';
 import { healthRecordValidator } from '../config/validationSchemas.js';
@@ -146,7 +146,7 @@ wrapAutoRBAC(router, 'recordRoutes', {
           query += ' ORDER BY hr.created_at DESC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2);
           params.push(parseInt(limit), parseInt(offset));
 
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
 
           // Filter records based on privacy level and user role
           const filteredRecords = result.rows.filter(record => 
@@ -203,7 +203,7 @@ wrapAutoRBAC(router, 'recordRoutes', {
             }
           }
 
-          const result = await pool.query(
+          const result = await db.query(
             `INSERT INTO health_records (
               phone, file_key, file_name, file_type, privacy_level, notes, 
               created_by, created_by_role, created_at
@@ -212,7 +212,7 @@ wrapAutoRBAC(router, 'recordRoutes', {
           );
 
           // Audit log
-          await pool.query(
+          await db.query(
             `INSERT INTO audit_logs (action, table_name, record_id, user_id, user_role, changes, created_at)
              VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
             [
@@ -312,7 +312,7 @@ wrapAutoRBAC(router, 'medicalStaffRoutes', {
           query += ' ORDER BY mr.created_at DESC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2);
           params.push(limit, offset);
           
-          const result = await pool.query(query, params).catch(() => ({ rows: [] }));
+          const result = await db.query(query, params).catch(() => ({ rows: [] }));
           
           // Get total count for pagination
           let countQuery = 'SELECT COUNT(*) FROM medical_records mr WHERE 1=1';
@@ -347,7 +347,7 @@ wrapAutoRBAC(router, 'medicalStaffRoutes', {
             countParams.push(date_to);
           }
           
-          const countResult = await pool.query(countQuery, countParams).catch(() => ({ rows: [{ count: 0 }] }));
+          const countResult = await db.query(countQuery, countParams).catch(() => ({ rows: [{ count: 0 }] }));
           const totalRecords = parseInt(countResult.rows[0].count);
           
           success(res, {
@@ -392,7 +392,7 @@ wrapAutoRBAC(router, 'medicalStaffRoutes', {
           const userRole = req.user?.role;
           const requestedBy = req.user?.uid || 'anonymous';
           
-          const result = await pool.query(`
+          const result = await db.query(`
             SELECT mr.*, 
                    TO_CHAR(mr.created_at, 'DD-MM-YYYY HH24:MI') as created_at_formatted,
                    TO_CHAR(mr.updated_at, 'DD-MM-YYYY HH24:MI') as updated_at_formatted,
@@ -479,10 +479,10 @@ wrapAutoRBAC(router, 'medicalStaffRoutes', {
           query += ' ORDER BY mr.created_at DESC LIMIT $' + (params.length + 1);
           params.push(limit);
           
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
           
           // Get patient info (with privacy filtering)
-          const patientInfo = await pool.query(
+          const patientInfo = await db.query(
             'SELECT name, phone, email, birthday, gender FROM users WHERE id = $1',
             [patient_id]
           );
@@ -537,7 +537,7 @@ wrapAutoRBAC(router, 'medicalStaffRoutes', {
           query += ' ORDER BY mr.created_at DESC LIMIT $' + (params.length + 1);
           params.push(limit);
           
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
           
           success(res, {
             records: result.rows,
@@ -576,7 +576,7 @@ wrapAutoRBAC(router, 'medicalStaffRoutes', {
           
           const [recordStats, recentRecords, patientInfo] = await Promise.all([
             // Get record counts by type
-            pool.query(`
+            db.query(`
               SELECT record_type, COUNT(*) as count,
                      MAX(created_at) as last_record
               FROM medical_records 
@@ -585,7 +585,7 @@ wrapAutoRBAC(router, 'medicalStaffRoutes', {
             `, [patient_id]),
             
             // Get recent records
-            pool.query(`
+            db.query(`
               SELECT mr.id, mr.record_type, mr.title, mr.privacy_level,
                      TO_CHAR(mr.created_at, 'DD-MM-YYYY HH24:MI') as created_at_formatted,
                      d.name as doctor_name, dp.specialization
@@ -598,7 +598,7 @@ wrapAutoRBAC(router, 'medicalStaffRoutes', {
             `, [patient_id]),
             
             // Get patient basic info
-            pool.query(
+            db.query(
               'SELECT name, phone, email, birthday, gender, address FROM users WHERE id = $1',
               [patient_id]
             )
@@ -662,7 +662,7 @@ wrapAutoRBAC(router, 'doctorRoutes', {
           const createdBy = req.user?.uid || 'system';
           
           // Verify patient exists
-          const patientCheck = await pool.query(
+          const patientCheck = await db.query(
             'SELECT id, name, phone FROM users WHERE id = $1', 
             [patient_id]
           );
@@ -674,7 +674,7 @@ wrapAutoRBAC(router, 'doctorRoutes', {
             });
           }
           
-          const result = await pool.query(`
+          const result = await db.query(`
             INSERT INTO medical_records (
               patient_id, doctor_id, record_type, title, description,
               diagnosis, treatment, medications, lab_results, attachments, 
@@ -688,7 +688,7 @@ wrapAutoRBAC(router, 'doctorRoutes', {
           ]);
 
           // Audit log
-          await pool.query(
+          await db.query(
             `INSERT INTO audit_logs (action, table_name, record_id, user_id, user_role, changes, created_at)
              VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
             [
@@ -748,7 +748,7 @@ wrapAutoRBAC(router, 'doctorRoutes', {
           const updatedBy = req.user?.uid || 'system';
 
           // Check if record exists and user has permission to update
-          const existingRecord = await pool.query(
+          const existingRecord = await db.query(
             'SELECT doctor_id, patient_id FROM medical_records WHERE id = $1',
             [id]
           );
@@ -767,7 +767,7 @@ wrapAutoRBAC(router, 'doctorRoutes', {
             });
           }
           
-          const result = await pool.query(`
+          const result = await db.query(`
             UPDATE medical_records SET 
               title = COALESCE($1, title),
               description = COALESCE($2, description),
@@ -783,7 +783,7 @@ wrapAutoRBAC(router, 'doctorRoutes', {
           `, [title, description, diagnosis, treatment, medications, lab_results, attachments, id, updatedBy]);
 
           // Audit log
-          await pool.query(
+          await db.query(
             `INSERT INTO audit_logs (action, table_name, record_id, user_id, user_role, changes, created_at)
              VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
             [
@@ -830,7 +830,7 @@ wrapAutoRBAC(router, 'adminRecordRoutes', {
 
           const [recordStats, privacyStats, activityStats, errorStats] = await Promise.all([
             // Record type distribution
-            pool.query(`
+            db.query(`
               SELECT record_type, COUNT(*) as count,
                      COUNT(CASE WHEN created_at > NOW() - INTERVAL '${days} days' THEN 1 END) as recent_count
               FROM medical_records 
@@ -839,7 +839,7 @@ wrapAutoRBAC(router, 'adminRecordRoutes', {
             `).catch(() => ({ rows: [] })),
 
             // Privacy level distribution
-            pool.query(`
+            db.query(`
               SELECT privacy_level,
                      CASE privacy_level
                        WHEN 0 THEN 'PUBLIC'
@@ -855,7 +855,7 @@ wrapAutoRBAC(router, 'adminRecordRoutes', {
             `).catch(() => ({ rows: [] })),
 
             // Activity by role
-            pool.query(`
+            db.query(`
               SELECT created_by_role, COUNT(*) as records_created,
                      COUNT(DISTINCT patient_id) as patients_treated
               FROM health_records 
@@ -864,7 +864,7 @@ wrapAutoRBAC(router, 'adminRecordRoutes', {
             `).catch(() => ({ rows: [] })),
 
             // Access attempt errors (mock data for demo)
-            pool.query(`
+            db.query(`
               SELECT 'PRIVACY_VIOLATION' as error_type, 15 as count
               UNION ALL
               SELECT 'UNAUTHORIZED_ACCESS' as error_type, 8 as count
@@ -902,7 +902,7 @@ wrapAutoRBAC(router, 'adminRecordRoutes', {
           const { startDate, endDate } = req.query;
           const requestedBy = req.user?.uid;
 
-          const auditData = await pool.query(`
+          const auditData = await db.query(`
             SELECT 
               action, table_name, record_id, user_id, user_role,
               TO_CHAR(created_at, 'DD-MM-YYYY HH24:MI:SS') as access_time,
@@ -961,7 +961,7 @@ wrapAutoRBAC(router, 'adminRecordRoutes', {
           const deletedBy = req.user?.uid;
 
           // Get record details before deletion
-          const recordDetails = await pool.query(
+          const recordDetails = await db.query(
             'SELECT * FROM medical_records WHERE id = $1',
             [id]
           );
@@ -974,13 +974,13 @@ wrapAutoRBAC(router, 'adminRecordRoutes', {
           }
 
           // Soft delete (mark as inactive) instead of hard delete for compliance
-          const result = await pool.query(
+          const result = await db.query(
             'UPDATE medical_records SET is_active = false, deleted_at = NOW(), deleted_by = $2 WHERE id = $1 RETURNING id, title',
             [id, deletedBy]
           );
 
           // Audit log
-          await pool.query(
+          await db.query(
             `INSERT INTO audit_logs (action, table_name, record_id, user_id, user_role, changes, created_at)
              VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
             [

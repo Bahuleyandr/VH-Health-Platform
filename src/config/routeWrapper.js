@@ -7,7 +7,7 @@ import { validateUID, validatePhone } from '../middleware/identityValidator.js';
 import { ROUTE_RATE_PROFILES, ROUTE_AUDIT_DISABLED } from './routeWrapperSettings.js';
 
 /**
- * Base wrapper function to attach RBAC, rate limits, audit logging, and identity validation.
+ * ✅ CORRECTED Base wrapper function to attach RBAC, rate limits, and other middleware.
  */
 function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
   const {
@@ -18,22 +18,21 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
     configKey = null
   } = options;
 
-  // ✅ Conditionally apply RBAC only if roles are specified and not skipped
+  // Conditionally apply RBAC only if roles are specified and not skipped
   if (!skipRBAC && allowedRoles.length > 0) {
     router.use(rbac(allowedRoles));
   }
 
-  // ✅ Conditionally apply audit
+  // Conditionally apply audit logging
   const auditSuppressed = skipAudit || (configKey && ROUTE_AUDIT_DISABLED[configKey]);
   if (!auditSuppressed) {
     router.use(auditLogger);
   }
 
-  // ✅ FIXED: Process each route method properly
+  // Process each HTTP method (get, post, etc.) in the route map
   for (const [methodKey, routes] of Object.entries(routeMap)) {
     const method = (methodKey || 'get').toLowerCase();
     
-    // ✅ Validate that the method exists on router
     if (typeof router[method] !== 'function') {
       console.warn(`[routeWrapper] Invalid HTTP method: ${method}`);
       continue;
@@ -41,14 +40,12 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
 
     const isWrite = ['post', 'put', 'patch', 'delete'].includes(method);
 
-    // ✅ FIXED: Ensure routes is an array
     if (!Array.isArray(routes)) {
       console.warn(`[routeWrapper] Routes for method ${method} is not an array:`, routes);
       continue;
     }
 
     routes.forEach((routeConfig) => {
-      // ✅ FIXED: Ensure routeConfig is an array with at least path
       if (!Array.isArray(routeConfig) || routeConfig.length < 1) {
         console.warn(`[routeWrapper] Invalid route config:`, routeConfig);
         return;
@@ -56,21 +53,19 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
 
       const [path, ...handlers] = routeConfig;
       
-      // ✅ FIXED: Validate path is a string
+      // ✅ FIX: This flattens nested arrays of middleware and validators.
+      // For example, an array like [ [validator1, validator2], handler ] becomes
+      // [ validator1, validator2, handler ], which Express can process correctly.
+      const flattenedHandlers = handlers.flat();
+      
       if (typeof path !== 'string') {
         console.warn(`[routeWrapper] Invalid path for ${method}:`, path);
         return;
       }
 
-      // ✅ FIXED: Validate all handlers are functions
-      const validHandlers = handlers.filter(handler => typeof handler === 'function');
-      if (validHandlers.length !== handlers.length) {
-        console.warn(`[routeWrapper] Some handlers are not functions for ${method} ${path}:`, handlers);
-      }
-
       const middlewareStack = [];
 
-      // ✅ Apply rate limiter per routeKey
+      // Apply rate limiter per routeKey
       const routeKey = `${configKey || 'generic'}.${method}`;
       const profile = ROUTE_RATE_PROFILES[routeKey];
       const limiter = profile ? getRateLimiter(profile) : (isWrite ? dynamicRoleRateLimiter : null);
@@ -79,7 +74,7 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
         middlewareStack.push(limiter);
       }
 
-      // ✅ FIXED: Only add identity validators if required AND they exist
+      // Add identity validators if required
       if (requireUID && validateUID) {
         middlewareStack.push(validateUID);
       }
@@ -88,9 +83,11 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
         middlewareStack.push(validatePhone);
       }
 
-      // ✅ FIXED: Apply the route with proper error handling
       try {
-        router[method](path, ...middlewareStack, ...validHandlers);
+        // ✅ FIX: Apply the flattened handlers directly.
+        // This removes the unnecessary and problematic 'typeof' check.
+        // Express itself will handle the validator objects correctly.
+        router[method](path, ...middlewareStack, ...flattenedHandlers);
       } catch (error) {
         console.error(`[routeWrapper] Error registering route ${method} ${path}:`, error);
       }

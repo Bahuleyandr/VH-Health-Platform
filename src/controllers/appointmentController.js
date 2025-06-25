@@ -1,7 +1,6 @@
 // src/controllers/appointmentController.js
 
-import pool from '../db.js';
-import db from '../db.js';
+import db from '../config/database.js';
 import { success, error } from '../utils/responseHelper.js';
 import { resolvePhoneFromUID } from '../utils/resolveIdentity.js';
 
@@ -16,7 +15,7 @@ export async function bookAppointment(req, res) {
   }
 
   try {
-    const result = await pool.query(
+    const result = await db.query(
       'INSERT INTO appointments (phone, doctor_name, date, time) VALUES ($1, $2, $3, $4) RETURNING *',
       [phone, doctor_name, date, time]
     );
@@ -78,7 +77,7 @@ export async function getAppointmentsByPhone(req, res) {
     baseQuery += ` ORDER BY date DESC LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`;
     queryParams.push(limit, offset);
 
-    const result = await pool.query(baseQuery, queryParams);
+    const result = await db.query(baseQuery, queryParams);
 
     let appointments = result.rows;
     const now = new Date();

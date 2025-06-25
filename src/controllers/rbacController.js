@@ -1,6 +1,6 @@
 import { success, error } from '../utils/responseHelper.js';
 import { ADMIN, DOCTOR, PATIENT, HR_STAFF, GENERAL_STAFF } from '../utils/roles.js';
-import db from '../db.js';
+import db from '../config/database.js';
 import { logAudit } from '../utils/logAudit.js';
 
 const allRoles = [ADMIN, DOCTOR, PATIENT, HR_STAFF, GENERAL_STAFF];

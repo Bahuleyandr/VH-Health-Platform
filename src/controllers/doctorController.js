@@ -1,6 +1,6 @@
 // src/controllers/doctorController.js
 
-import pool from '../db.js';
+import db from '../config/database.js';
 import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
 import { logAudit } from '../utils/logAudit.js';
@@ -13,13 +13,13 @@ export async function getAllDoctors(req, res) {
     const { query } = req.query;
 
     if (!query) {
-      const result = await pool.query('SELECT * FROM doctors ORDER BY name ASC');
+      const result = await db.query('SELECT * FROM doctors ORDER BY name ASC');
       return success(res, result.rows, 'Doctors fetched successfully');
     }
 
     const searchPattern = `%${query.toLowerCase()}%`;
 
-    const result = await pool.query(
+    const result = await db.query(
       `SELECT * FROM doctors 
        WHERE LOWER(name) LIKE $1 OR LOWER(specialty) LIKE $1 
        ORDER BY name ASC`,
@@ -44,7 +44,7 @@ export async function getDoctorById(req, res) {
   }
 
   try {
-    const result = await pool.query('SELECT * FROM doctors WHERE id = $1', [doctorId]);
+    const result = await db.query('SELECT * FROM doctors WHERE id = $1', [doctorId]);
 
     if (result.rows.length) {
       success(res, result.rows[0], 'Doctor profile found');
@@ -72,7 +72,7 @@ export async function addDoctor(req, res) {
   }
 
   try {
-    const result = await pool.query(
+    const result = await db.query(
       `INSERT INTO doctors (name, specialty, department_id) 
        VALUES ($1, $2, $3) RETURNING *`,
       [name.trim(), specialty.trim(), department_id]
@@ -99,7 +99,7 @@ export async function deleteDoctor(req, res) {
   }
 
   try {
-    const result = await pool.query('DELETE FROM doctors WHERE id = $1 RETURNING *', [doctorId]);
+    const result = await db.query('DELETE FROM doctors WHERE id = $1 RETURNING *', [doctorId]);
 
     if (result.rows.length) {
       const deleted = result.rows[0];

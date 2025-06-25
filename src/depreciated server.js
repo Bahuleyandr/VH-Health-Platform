@@ -26,7 +26,7 @@ app.get('/api/v1/test', (req, res) => {
 app.get('/api/v1/db-test', async (req, res) => {
   try {
     const pool = (await import('./db.js')).default;
-    const result = await pool.query('SELECT NOW() as current_time');
+    const result = await db.query('SELECT NOW() as current_time');
     res.json({ 
       message: 'Database connection successful',
       currentTime: result.rows[0].current_time

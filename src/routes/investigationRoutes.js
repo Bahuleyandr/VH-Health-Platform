@@ -1,7 +1,7 @@
 // src/routes/investigationRoutes.js - ENHANCED VERSION WITH FULL RBAC
 import express from 'express';
 import { validationResult } from 'express-validator';
-import pool from '../db.js';
+import db from '../config/database.js';
 import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
 import { investigationRequestValidator, idValidator } from '../config/validationSchemas.js';
@@ -59,7 +59,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
           
           // Patients can only see their own investigations
           if (userRole === 'PATIENT') {
-            const userResult = await pool.query('SELECT id FROM users WHERE uid = $1', [req.user.uid]);
+            const userResult = await db.query('SELECT id FROM users WHERE uid = $1', [req.user.uid]);
             if (userResult.rows.length === 0) {
               return res.status(404).json({ message: 'User not found' });
             }
@@ -112,11 +112,11 @@ wrapAutoRBAC(router, 'investigationRoutes', {
           `;
           
           params.push(limit, offset);
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
           
           // Get total count for pagination
           const countQuery = `SELECT COUNT(*) FROM investigations i WHERE ${baseConditions}`;
-          const countResult = await pool.query(countQuery, params.slice(0, -2));
+          const countResult = await db.query(countQuery, params.slice(0, -2));
           const totalInvestigations = parseInt(countResult.rows[0].count);
           
           await logAudit(req, 'investigation-list-view', {
@@ -175,7 +175,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
           
           // Patients can only view their own investigations
           if (userRole === 'PATIENT') {
-            const userResult = await pool.query('SELECT id FROM users WHERE uid = $1', [req.user.uid]);
+            const userResult = await db.query('SELECT id FROM users WHERE uid = $1', [req.user.uid]);
             if (userResult.rows.length === 0) {
               return res.status(404).json({ message: 'User not found' });
             }
@@ -183,7 +183,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
             params.push(userResult.rows[0].id);
           }
           
-          const result = await pool.query(`
+          const result = await db.query(`
             SELECT i.*, 
                    p.name as patient_name, p.phone as patient_phone, p.email as patient_email,
                    p.birthday, p.gender,
@@ -238,7 +238,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
           
           // Access control: patients can only view their own data
           if (userRole === 'PATIENT') {
-            const userResult = await pool.query('SELECT id FROM users WHERE uid = $1', [req.user.uid]);
+            const userResult = await db.query('SELECT id FROM users WHERE uid = $1', [req.user.uid]);
             if (userResult.rows.length === 0 || userResult.rows[0].id !== parseInt(patient_id)) {
               return res.status(403).json({ 
                 message: 'Access denied: Cannot view other patient records',
@@ -275,10 +275,10 @@ wrapAutoRBAC(router, 'investigationRoutes', {
           query += ` ORDER BY i.ordered_date DESC LIMIT $${params.length + 1}`;
           params.push(limit);
           
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
           
           // Get patient info (filtered for privacy)
-          const patientInfo = await pool.query(
+          const patientInfo = await db.query(
             `SELECT name, ${userRole === 'ADMIN' ? 'phone, email,' : ''} birthday, gender 
              FROM users WHERE id = $1`,
             [patient_id]
@@ -338,7 +338,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
           
           query += ' ORDER BY i.ordered_date DESC, i.priority DESC';
           
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
           
           await logAudit(req, 'doctor-investigations-view', { doctor_id, status, count: result.rows.length });
           
@@ -400,7 +400,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
           
           query += ' ORDER BY i.ordered_date DESC LIMIT 100';
           
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
           
           await logAudit(req, 'investigations-by-type-view', { type, status, count: result.rows.length });
           
@@ -462,7 +462,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
           
           query += ' ORDER BY i.priority DESC, i.ordered_date ASC';
           
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
           
           await logAudit(req, 'pending-investigations-view', { type, priority, count: result.rows.length });
           
@@ -491,7 +491,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
           
           // Access control for phone-based lookup
           if (userRole === 'PATIENT') {
-            const userResult = await pool.query('SELECT phone FROM users WHERE uid = $1', [req.user.uid]);
+            const userResult = await db.query('SELECT phone FROM users WHERE uid = $1', [req.user.uid]);
             if (userResult.rows.length === 0 || userResult.rows[0].phone !== phone) {
               return res.status(403).json({ 
                 message: 'Access denied: Cannot view other patient records',
@@ -500,7 +500,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
             }
           }
           
-          const result = await pool.query('SELECT * FROM investigations WHERE phone = $1', [phone]);
+          const result = await db.query('SELECT * FROM investigations WHERE phone = $1', [phone]);
           
           await logAudit(req, 'investigations-phone-lookup', { phone, count: result.rows.length });
           
@@ -534,7 +534,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
           }
           
           // Resolve UID to phone for legacy compatibility
-          const userResult = await pool.query('SELECT phone FROM users WHERE uid = $1', [uid]);
+          const userResult = await db.query('SELECT phone FROM users WHERE uid = $1', [uid]);
           if (userResult.rows.length === 0) {
             return res.status(404).json({ 
               message: 'User not found',
@@ -544,7 +544,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
           }
           
           const phone = userResult.rows[0].phone;
-          const result = await pool.query('SELECT * FROM investigations WHERE phone = $1', [phone]);
+          const result = await db.query('SELECT * FROM investigations WHERE phone = $1', [phone]);
           
           await logAudit(req, 'investigations-uid-lookup', { uid, count: result.rows.length });
           
@@ -620,8 +620,8 @@ wrapAutoRBAC(router, 'investigationRoutes', {
           
           // Verify patient and doctor exist
           const [patientCheck, doctorCheck] = await Promise.all([
-            pool.query('SELECT id, name FROM users WHERE id = $1', [patient_id]),
-            pool.query('SELECT id, name FROM users WHERE id = $1 AND role = $2', [doctor_id, 'DOCTOR'])
+            db.query('SELECT id, name FROM users WHERE id = $1', [patient_id]),
+            db.query('SELECT id, name FROM users WHERE id = $1 AND role = $2', [doctor_id, 'DOCTOR'])
           ]);
           
           if (patientCheck.rows.length === 0) {
@@ -631,7 +631,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
             return res.status(404).json({ message: 'Doctor not found', requestedBy });
           }
           
-          const result = await pool.query(`
+          const result = await db.query(`
             INSERT INTO investigations (
               patient_id, doctor_id, test_name, test_code, type, priority,
               scheduled_date, notes, normal_range, unit, cost, status,
@@ -642,7 +642,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
               scheduled_date, notes, normal_range, unit, cost, requestedBy]);
           
           // Create notification for patient
-          await pool.query(
+          await db.query(
             `INSERT INTO notifications (phone, title, body, type, created_at, read, created_by)
              VALUES ($1, $2, $3, $4, NOW(), false, $5)`,
             [
@@ -700,13 +700,13 @@ wrapAutoRBAC(router, 'investigationRoutes', {
             });
           }
 
-          const result = await pool.query(
+          const result = await db.query(
             'INSERT INTO investigations (phone, test_name, file_key, created_by) VALUES ($1, $2, $3, $4) RETURNING *',
             [phone, test_name, file_key || null, requestedBy]
           );
 
           // Save in-app notification
-          await pool.query(
+          await db.query(
             `INSERT INTO notifications (phone, title, body, type, created_at, read, created_by)
              VALUES ($1, $2, $3, $4, NOW(), false, $5)`,
             [
@@ -779,7 +779,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
             updateFields = 'status = $1, notes = COALESCE($2, notes), completed_date = NOW(), updated_at = NOW(), updated_by = $4';
           }
           
-          const result = await pool.query(`
+          const result = await db.query(`
             UPDATE investigations SET ${updateFields}
             WHERE id = $3
             RETURNING *
@@ -844,7 +844,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
             });
           }
           
-          const result = await pool.query(`
+          const result = await db.query(`
             UPDATE investigations SET 
               results = $1,
               interpretation = COALESCE($2, interpretation),
@@ -893,7 +893,7 @@ wrapAutoRBAC(router, 'ALL', {
           
           const [totalStats, typeStats, statusStats, dailyActivity] = await Promise.all([
             // Total investigation statistics
-            pool.query(`
+            db.query(`
               SELECT 
                 COUNT(*) as total_investigations,
                 COUNT(CASE WHEN status = 'PENDING' THEN 1 END) as pending,
@@ -905,7 +905,7 @@ wrapAutoRBAC(router, 'ALL', {
             `),
             
             // Type breakdown
-            pool.query(`
+            db.query(`
               SELECT type, COUNT(*) as count
               FROM investigations 
               WHERE ordered_date >= CURRENT_DATE - INTERVAL '${days} days'
@@ -914,7 +914,7 @@ wrapAutoRBAC(router, 'ALL', {
             `),
             
             // Status distribution
-            pool.query(`
+            db.query(`
               SELECT status, COUNT(*) as count
               FROM investigations 
               WHERE ordered_date >= CURRENT_DATE - INTERVAL '${days} days'
@@ -923,7 +923,7 @@ wrapAutoRBAC(router, 'ALL', {
             `),
             
             // Daily activity
-            pool.query(`
+            db.query(`
               SELECT DATE(ordered_date) as date, COUNT(*) as investigations_ordered
               FROM investigations 
               WHERE ordered_date >= CURRENT_DATE - INTERVAL '${days} days'
