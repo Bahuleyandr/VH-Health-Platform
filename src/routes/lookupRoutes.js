@@ -2,7 +2,7 @@
 import express from 'express';
 import { validationResult } from 'express-validator';
 import * as userController from '../controllers/userController.js';
-import pool from '../db.js';
+import db from '../config/database.js';
 import { success, error } from '../utils/responseHelper.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import logger from '../logging/logger.js';
@@ -59,7 +59,7 @@ wrapAutoRBAC(router, 'lookupRoutes', {
           }
 
           // Rate limiting for lookup requests to prevent enumeration
-          const recentLookups = await pool.query(
+          const recentLookups = await db.query(
             'SELECT COUNT(*) FROM audit_logs WHERE uid = $1 AND action = $2 AND created_at > NOW() - INTERVAL \'1 hour\'',
             [requestedBy, 'user-lookup']
           );
@@ -115,7 +115,7 @@ wrapAutoRBAC(router, 'lookupRoutes', {
           query += ` ORDER BY registered_at DESC LIMIT $${params.length + 1}`;
           params.push(Math.min(parseInt(limit), userRole === 'ADMIN' ? 50 : 20));
 
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
 
           // Additional privacy filtering for non-admin users
           const filteredResults = result.rows.map(user => {
@@ -251,7 +251,7 @@ wrapAutoRBAC(router, 'lookupRoutes', {
           query += ` ORDER BY u.${sortField} ${order} LIMIT $${params.length + 1}`;
           params.push(Math.min(parseInt(limit), 100));
 
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
 
           await logAudit(req, 'user-advanced-search', {
             criteria: { role, registeredAfter, registeredBefore, lastLoginAfter, ageMin, ageMax, department },
@@ -289,7 +289,7 @@ wrapAutoRBAC(router, 'lookupRoutes', {
           const { detailed = false } = req.query;
 
           // Basic statistics available to all authorized users
-          const basicStats = await pool.query(`
+          const basicStats = await db.query(`
             SELECT 
               COUNT(*) as total_users,
               COUNT(*) FILTER (WHERE registered_at > NOW() - INTERVAL '30 days') as new_users_30d,
@@ -301,7 +301,7 @@ wrapAutoRBAC(router, 'lookupRoutes', {
             FROM users
           `);
 
-          const roleDistribution = await pool.query(`
+          const roleDistribution = await db.query(`
             SELECT role, COUNT(*) as count
             FROM users 
             GROUP BY role 
@@ -320,7 +320,7 @@ wrapAutoRBAC(router, 'lookupRoutes', {
           if (detailed === 'true' && userRole === 'ADMIN') {
             const [registrationTrends, loginActivity, ageDistribution, departmentStats] = await Promise.all([
               // Registration trends (last 30 days)
-              pool.query(`
+              db.query(`
                 SELECT DATE(registered_at) as date, COUNT(*) as registrations
                 FROM users 
                 WHERE registered_at > NOW() - INTERVAL '30 days'
@@ -329,7 +329,7 @@ wrapAutoRBAC(router, 'lookupRoutes', {
               `),
               
               // Login activity analysis
-              pool.query(`
+              db.query(`
                 SELECT 
                   COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '1 day') as logins_1d,
                   COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '7 days') as logins_7d,
@@ -340,7 +340,7 @@ wrapAutoRBAC(router, 'lookupRoutes', {
               `),
               
               // Age distribution (for patients)
-              pool.query(`
+              db.query(`
                 SELECT 
                   CASE 
                     WHEN DATE_PART('year', AGE(birthday)) < 18 THEN 'Under 18'
@@ -358,7 +358,7 @@ wrapAutoRBAC(router, 'lookupRoutes', {
               `),
               
               // Department statistics
-              pool.query(`
+              db.query(`
                 SELECT d.department, d.specialization, COUNT(u.uid) as staff_count
                 FROM doctors d
                 LEFT JOIN users u ON d.user_uid = u.uid
@@ -412,7 +412,7 @@ wrapAutoRBAC(router, 'lookupRoutes', {
             params = [normalizePhone(phone)];
           }
 
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
 
           if (result.rows.length === 0) {
             await logAudit(req, 'user-verification-failed', { phone, uid });
@@ -467,7 +467,7 @@ wrapAutoRBAC(router, 'lookupRoutes', {
 
           const { days = 7, limit = 50 } = req.query;
 
-          const recentActivity = await pool.query(`
+          const recentActivity = await db.query(`
             SELECT 
               u.uid, u.phone, u.name, u.role,
               u.last_login,
@@ -569,7 +569,7 @@ wrapAutoRBAC(router, 'lookupRoutes', {
           query += ` ORDER BY ${sortField} ${order} LIMIT $${params.length + 1}`;
           params.push(Math.min(parseInt(limit), 500));
 
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
 
           await logAudit(req, 'user-bulk-search', {
             criteria,

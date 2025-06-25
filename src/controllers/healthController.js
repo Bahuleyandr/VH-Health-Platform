@@ -1,6 +1,6 @@
 // src/controllers/healthController.js
 
-import pool from '../db.js';
+import db from '../config/database.js';
 import logger from '../logging/logger.js';
 
 /**
@@ -13,7 +13,7 @@ export async function healthCheck(req, res) {
     let retries = 3;
     while (retries) {
       try {
-        await pool.query('SELECT 1');
+        await db.query('SELECT 1');
         break;
       } catch (err) {
         retries -= 1;

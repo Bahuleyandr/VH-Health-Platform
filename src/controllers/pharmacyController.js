@@ -1,7 +1,6 @@
 // src/controllers/pharmacyController.js
 
-import pool from '../db.js';
-import db from '../db.js';
+import db from '../config/database.js';
 import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
 import { resolvePhoneFromUID } from '../utils/resolveIdentity.js';
@@ -15,7 +14,7 @@ export async function placePharmacyOrder(req, res) {
   }
 
   try {
-    const result = await pool.query(
+    const result = await db.query(
       `INSERT INTO pharmacy_orders (phone, order_note, file_key)
        VALUES ($1, $2, $3) RETURNING *`,
       [phone, order_note, file_key || null]
@@ -36,7 +35,7 @@ export async function getPharmacyOrdersByPhone(req, res) {
   }
 
   try {
-    const result = await pool.query(
+    const result = await db.query(
       `SELECT * FROM pharmacy_orders WHERE phone = $1 ORDER BY created_at DESC`,
       [phone]
     );

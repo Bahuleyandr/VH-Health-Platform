@@ -1,7 +1,7 @@
-// src/routes/staffRoutes.js - Enhanced Staff Management System with Full RBAC
+﻿// src/routes/staffRoutes.js - Enhanced Staff Management System with Full RBAC
 
 import express from 'express';
-import pool from '../db.js';
+import db from '../config/database.js';
 import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
@@ -196,7 +196,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
             LIMIT $2 OFFSET $3
           `;
 
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
 
           // Get total count for pagination
           const countQuery = `
@@ -206,7 +206,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
             LEFT JOIN users sup ON s.supervisor_id = sup.id
             ${whereClause}
           `;
-          const countResult = await pool.query(countQuery, params.slice(3));
+          const countResult = await db.query(countQuery, params.slice(3));
           const totalStaff = parseInt(countResult.rows[0].count);
 
           // Add computed fields
@@ -222,7 +222,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           }));
 
           // Generate department and role statistics
-          const departmentStats = await pool.query(`
+          const departmentStats = await db.query(`
             SELECT s.department, COUNT(*) as count
             FROM users u 
             LEFT JOIN staff s ON u.id = s.user_id 
@@ -231,7 +231,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
             ORDER BY count DESC
           `, [allowedRoles]);
 
-          const roleStats = await pool.query(`
+          const roleStats = await db.query(`
             SELECT u.role, COUNT(*) as count
             FROM users u 
             LEFT JOIN staff s ON u.id = s.user_id 
@@ -266,7 +266,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           
           // Graceful fallback if staff table doesn't exist
           try {
-            const fallbackResult = await pool.query(`
+            const fallbackResult = await db.query(`
               SELECT id, uid, phone, name, email, role, registered_at 
               FROM users 
               WHERE role = ANY($1)
@@ -320,7 +320,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
           const column = isUUID ? 'u.uid' : 'u.id';
 
-          const result = await pool.query(`
+          const result = await db.query(`
             SELECT 
               u.*, 
               s.employee_id, s.position, s.department, s.shift, s.salary,
@@ -364,7 +364,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           // Get recent attendance if available
           let recentAttendance = [];
           try {
-            const attendanceResult = await pool.query(`
+            const attendanceResult = await db.query(`
               SELECT 
                 DATE(check_in_time) as date,
                 check_in_time, check_out_time,
@@ -392,7 +392,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           let performanceMetrics = null;
           if (canViewPrivate) {
             try {
-              const performanceResult = await pool.query(`
+              const performanceResult = await db.query(`
                 SELECT 
                   AVG(rating) as average_rating,
                   COUNT(*) as total_reviews,
@@ -496,7 +496,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
             ORDER BY s.position, u.name
           `;
 
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
 
           // Calculate department statistics
           const stats = {
@@ -601,7 +601,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           `;
 
           params.push(date);
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
 
           // Calculate shift statistics
           const shiftDetails = SHIFT_TYPES[shift];
@@ -648,7 +648,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           
           // Graceful fallback without attendance data
           try {
-            const fallbackResult = await pool.query(`
+            const fallbackResult = await db.query(`
               SELECT 
                 u.id, u.name, u.phone, u.role,
                 s.employee_id, s.position, s.department, s.is_active
@@ -683,7 +683,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           const { timeframe = 'current' } = req.query;
 
           // Basic staff statistics
-          const totalStats = await pool.query(`
+          const totalStats = await db.query(`
             SELECT 
               COUNT(*) as total_staff,
               COUNT(CASE WHEN s.is_active = true THEN 1 END) as active_staff,
@@ -696,7 +696,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           `, [allowedRoles]);
 
           // Department breakdown
-          const departmentStats = await pool.query(`
+          const departmentStats = await db.query(`
             SELECT 
               s.department, 
               COUNT(*) as total_count,
@@ -710,7 +710,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           `, [allowedRoles]);
 
           // Role distribution
-          const roleStats = await pool.query(`
+          const roleStats = await db.query(`
             SELECT 
               u.role, 
               COUNT(*) as count,
@@ -723,7 +723,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           `, [allowedRoles]);
 
           // Shift distribution
-          const shiftStats = await pool.query(`
+          const shiftStats = await db.query(`
             SELECT 
               s.shift, 
               COUNT(*) as count,
@@ -738,7 +738,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           // Attendance statistics (if available)
           let attendanceStats = null;
           try {
-            const attendanceResult = await pool.query(`
+            const attendanceResult = await db.query(`
               SELECT 
                 COUNT(DISTINCT staff_id) as staff_with_attendance,
                 COUNT(*) as total_attendance_records,
@@ -823,7 +823,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           const userRole = req.user?.role;
 
           // Verify staff member exists and access permission
-          const staffCheck = await pool.query(`
+          const staffCheck = await db.query(`
             SELECT u.uid, u.name, s.employee_id, s.department
             FROM users u
             JOIN staff s ON u.id = s.user_id
@@ -856,7 +856,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           }
 
           // Get attendance records
-          const attendanceResult = await pool.query(`
+          const attendanceResult = await db.query(`
             SELECT 
               DATE(check_in_time) as date,
               check_in_time, check_out_time,
@@ -971,7 +971,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           }
 
           // Verify user exists and has appropriate role
-          const userCheck = await pool.query(
+          const userCheck = await db.query(
             'SELECT id, role, name, phone FROM users WHERE id = $1',
             [user_id]
           );
@@ -988,7 +988,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           }
 
           // Check if staff profile already exists
-          const existingProfile = await pool.query(
+          const existingProfile = await db.query(
             'SELECT user_id FROM staff WHERE user_id = $1',
             [user_id]
           );
@@ -998,7 +998,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           }
 
           // Check employee_id uniqueness
-          const employeeIdCheck = await pool.query(
+          const employeeIdCheck = await db.query(
             'SELECT user_id FROM staff WHERE employee_id = $1',
             [employee_id]
           );
@@ -1009,7 +1009,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
 
           // Validate supervisor if provided
           if (supervisor_id) {
-            const supervisorCheck = await pool.query(
+            const supervisorCheck = await db.query(
               'SELECT id FROM users WHERE id = $1 AND role IN ($2, $3, $4)',
               [supervisor_id, 'ADMIN', 'DOCTOR', 'HR_STAFF']
             );
@@ -1020,7 +1020,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           }
 
           // Create staff profile
-          const result = await pool.query(`
+          const result = await db.query(`
             INSERT INTO staff (
               user_id, employee_id, position, department, shift, salary,
               hire_date, supervisor_id, emergency_contact, skills, 
@@ -1036,7 +1036,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           ]);
 
           // Log staff creation activity
-          await pool.query(
+          await db.query(
             `INSERT INTO admin_activity_logs (
               admin_uid, action, description, affected_user_id,
               details, ip_address, created_at
@@ -1104,7 +1104,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           }
 
           // Insert consultation record
-          const result = await pool.query(`
+          const result = await db.query(`
             INSERT INTO consultations (
               phone, file_key, file_name, file_type, consultation_type,
               doctor_notes, diagnosis, treatment_plan, follow_up_date,
@@ -1120,7 +1120,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           ]);
 
           // Create notification for patient
-          await pool.query(
+          await db.query(
             `INSERT INTO notifications (
               phone, title, body, type, related_id, created_at
             ) VALUES ($1, $2, $3, $4, $5, NOW())`,
@@ -1134,7 +1134,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           );
 
           // Log consultation upload
-          await pool.query(
+          await db.query(
             `INSERT INTO medical_activity_logs (
               staff_uid, action, patient_phone, description,
               consultation_id, created_at
@@ -1204,7 +1204,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           }
 
           // Insert investigation record
-          const result = await pool.query(`
+          const result = await db.query(`
             INSERT INTO investigations (
               phone, test_name, file_key, file_name, file_type,
               result_status, lab_values, reference_ranges, technician_notes,
@@ -1223,14 +1223,14 @@ wrapAutoRBAC(router, 'staffRoutes', {
           const notificationTitle = urgent_flag ? 
             '🚨 URGENT: Investigation Results Available' :
             result_status === 'critical' ?
-            ⚠️ Critical Investigation Results' :
+            "⚠️ Critical Investigation Results'" :
             'Investigation Results Available';
 
           const notificationBody = urgent_flag ?
             `URGENT: Your ${test_name} results require immediate attention. Please contact your doctor.` :
             `Your ${test_name} investigation results are now available for review.`;
 
-          await pool.query(
+          await db.query(
             `INSERT INTO notifications (
               phone, title, body, type, priority, related_id, created_at
             ) VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
@@ -1245,7 +1245,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           // Send push notification for urgent/critical results
           if (urgent_flag || result_status === 'critical') {
             try {
-              const userTokens = await pool.query(
+              const userTokens = await db.query(
                 'SELECT fcm_token FROM user_devices WHERE phone = $1 AND fcm_token IS NOT NULL',
                 [phone]
               );
@@ -1269,7 +1269,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           }
 
           // Log investigation upload
-          await pool.query(
+          await db.query(
             `INSERT INTO medical_activity_logs (
               staff_uid, action, patient_phone, description,
               investigation_id, urgent_flag, created_at
@@ -1338,7 +1338,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           }
 
           // Update pharmacy order
-          const result = await pool.query(`
+          const result = await db.query(`
             UPDATE pharmacy_orders SET 
               status = $1, 
               order_note = COALESCE($2, order_note),
@@ -1371,7 +1371,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
             cancelled: 'Your pharmacy order has been cancelled.'
           };
 
-          await pool.query(
+          await db.query(
             `INSERT INTO notifications (
               phone, title, body, type, related_id, created_at
             ) VALUES ($1, $2, $3, $4, $5, NOW())`,
@@ -1385,7 +1385,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           );
 
           // Log pharmacy activity
-          await pool.query(
+          await db.query(
             `INSERT INTO pharmacy_activity_logs (
               staff_uid, action, patient_phone, order_id,
               old_status, new_status, notes, created_at
@@ -1453,7 +1453,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           }
 
           // Verify staff member exists
-          const staffCheck = await pool.query(
+          const staffCheck = await db.query(
             'SELECT u.id, u.name, s.shift, s.department FROM users u JOIN staff s ON u.id = s.user_id WHERE u.id = $1',
             [staff_id]
           );
@@ -1466,7 +1466,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
 
           // Check if attendance already exists for today
           const today = new Date().toISOString().split('T')[0];
-          const existingAttendance = await pool.query(
+          const existingAttendance = await db.query(
             'SELECT id FROM staff_attendance WHERE staff_id = $1 AND DATE(check_in_time) = $2',
             [staff_id, today]
           );
@@ -1474,7 +1474,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           let result;
           if (existingAttendance.rows.length > 0) {
             // Update existing attendance
-            result = await pool.query(`
+            result = await db.query(`
               UPDATE staff_attendance SET
                 check_out_time = COALESCE($1, check_out_time),
                 location = COALESCE($2, location),
@@ -1487,7 +1487,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
             `, [check_out_time, location ? JSON.stringify(location) : null, notes, break_duration_minutes, markedBy, staff_id, today]);
           } else {
             // Create new attendance record
-            result = await pool.query(`
+            result = await db.query(`
               INSERT INTO staff_attendance (
                 staff_id, check_in_time, check_out_time, location,
                 notes, break_duration_minutes, attendance_type, marked_by, created_at
@@ -1503,7 +1503,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           }
 
           // Update staff's last check-in/out times
-          await pool.query(`
+          await db.query(`
             UPDATE staff SET 
               last_check_in = CASE WHEN $1 IS NOT NULL THEN $1 ELSE last_check_in END,
               last_check_out = CASE WHEN $2 IS NOT NULL THEN $2 ELSE last_check_out END
@@ -1518,7 +1518,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           }
 
           // Log attendance activity
-          await pool.query(
+          await db.query(
             `INSERT INTO attendance_logs (
               staff_id, action, marked_by, location, hours_worked, created_at
             ) VALUES ($1, $2, $3, $4, $5, NOW())`,
@@ -1608,7 +1608,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           }
 
           // Verify staff profile exists
-          const staffCheck = await pool.query(
+          const staffCheck = await db.query(
             'SELECT s.*, u.name FROM staff s JOIN users u ON s.user_id = u.id WHERE s.user_id = $1',
             [id]
           );
@@ -1621,7 +1621,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
 
           // Validate supervisor if provided
           if (supervisor_id) {
-            const supervisorCheck = await pool.query(
+            const supervisorCheck = await db.query(
               'SELECT id FROM users WHERE id = $1 AND role IN ($2, $3, $4)',
               [supervisor_id, 'ADMIN', 'DOCTOR', 'HR_STAFF']
             );
@@ -1632,7 +1632,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           }
 
           // Update staff profile
-          const result = await pool.query(`
+          const result = await db.query(`
             UPDATE staff SET 
               position = COALESCE($1, position),
               department = COALESCE($2, department),
@@ -1665,7 +1665,7 @@ wrapAutoRBAC(router, 'staffRoutes', {
           if (is_active !== undefined && is_active !== currentStaff.is_active) changes.is_active = { from: currentStaff.is_active, to: is_active };
 
           // Log staff update activity
-          await pool.query(
+          await db.query(
             `INSERT INTO admin_activity_logs (
               admin_uid, action, description, affected_user_id,
               details, ip_address, created_at
@@ -1712,7 +1712,7 @@ wrapAutoRBAC(router, 'hrStaffRoutes', {
           const { timeframe = 'current_month' } = req.query;
 
           // Staff overview statistics
-          const staffOverview = await pool.query(`
+          const staffOverview = await db.query(`
             SELECT 
               COUNT(*) as total_staff,
               COUNT(CASE WHEN s.is_active = true THEN 1 END) as active_staff,
@@ -1726,7 +1726,7 @@ wrapAutoRBAC(router, 'hrStaffRoutes', {
           `, [Object.values(STAFF_ROLES)]);
 
           // Department staffing levels
-          const departmentStats = await pool.query(`
+          const departmentStats = await db.query(`
             SELECT 
               s.department,
               COUNT(*) as total_staff,
@@ -1743,7 +1743,7 @@ wrapAutoRBAC(router, 'hrStaffRoutes', {
           // Recent attendance trends
           let attendanceTrends = [];
           try {
-            const attendanceResult = await pool.query(`
+            const attendanceResult = await db.query(`
               SELECT 
                 DATE(check_in_time) as date,
                 COUNT(DISTINCT staff_id) as unique_staff,
@@ -1768,7 +1768,7 @@ wrapAutoRBAC(router, 'hrStaffRoutes', {
           // Performance metrics
           let performanceMetrics = null;
           try {
-            const performanceResult = await pool.query(`
+            const performanceResult = await db.query(`
               SELECT 
                 AVG(performance_rating) as avg_performance_rating,
                 COUNT(CASE WHEN performance_rating >= 4.0 THEN 1 END) as high_performers,
@@ -1790,7 +1790,7 @@ wrapAutoRBAC(router, 'hrStaffRoutes', {
           // Upcoming reviews and tasks
           let upcomingTasks = [];
           try {
-            const tasksResult = await pool.query(`
+            const tasksResult = await db.query(`
               SELECT 
                 'performance_review' as task_type,
                 u.name as staff_name,
@@ -1891,7 +1891,7 @@ wrapAutoRBAC(router, 'hrStaffRoutes', {
           params.push(...dateParams);
 
           // Performance summary by staff
-          const performanceData = await pool.query(`
+          const performanceData = await db.query(`
             SELECT 
               u.id, u.name, s.employee_id, s.position, s.department,
               s.performance_rating as current_rating,
@@ -1908,7 +1908,7 @@ wrapAutoRBAC(router, 'hrStaffRoutes', {
           `, params);
 
           // Department performance averages
-          const departmentPerformance = await pool.query(`
+          const departmentPerformance = await db.query(`
             SELECT 
               s.department,
               COUNT(DISTINCT s.user_id) as staff_count,
@@ -1923,7 +1923,7 @@ wrapAutoRBAC(router, 'hrStaffRoutes', {
           `, dateParams);
 
           // Performance distribution
-          const performanceDistribution = await pool.query(`
+          const performanceDistribution = await db.query(`
             SELECT 
               CASE 
                 WHEN performance_rating >= 4.5 THEN 'excellent'
@@ -2006,7 +2006,7 @@ wrapAutoRBAC(router, 'hrStaffRoutes', {
           const { staff_id } = req.params;
 
           // Get staff information
-          const staffInfo = await pool.query(`
+          const staffInfo = await db.query(`
             SELECT u.name, u.email, u.phone, s.employee_id, s.position, 
                    s.department, s.hire_date, s.supervisor_id
             FROM users u
@@ -2023,7 +2023,7 @@ wrapAutoRBAC(router, 'hrStaffRoutes', {
           // Get onboarding checklist
           let onboardingTasks = [];
           try {
-            const tasksResult = await pool.query(`
+            const tasksResult = await db.query(`
               SELECT task_name, description, completed, completed_date, 
                      assigned_to, due_date, priority
               FROM staff_onboarding_tasks
@@ -2122,7 +2122,7 @@ wrapAutoRBAC(router, 'hrStaffRoutes', {
           }
 
           // Verify staff member exists
-          const staffCheck = await pool.query(
+          const staffCheck = await db.query(
             'SELECT u.name, s.employee_id FROM users u JOIN staff s ON u.id = s.user_id WHERE u.id = $1',
             [staff_id]
           );
@@ -2134,7 +2134,7 @@ wrapAutoRBAC(router, 'hrStaffRoutes', {
           const staff = staffCheck.rows[0];
 
           // Create performance review
-          const reviewResult = await pool.query(`
+          const reviewResult = await db.query(`
             INSERT INTO staff_performance_reviews (
               staff_id, reviewer_id, rating, review_period, reviewer_comments,
               goals_achieved, areas_for_improvement, future_goals,
@@ -2150,13 +2150,13 @@ wrapAutoRBAC(router, 'hrStaffRoutes', {
           ]);
 
           // Update staff's current performance rating
-          await pool.query(
+          await db.query(
             'UPDATE staff SET performance_rating = $1, last_review_date = CURRENT_DATE WHERE user_id = $2',
             [rating, staff_id]
           );
 
           // Create notification for staff member
-          await pool.query(
+          await db.query(
             `INSERT INTO notifications (
               user_id, title, body, type, related_id, created_at
             ) VALUES ($1, $2, $3, $4, $5, NOW())`,
@@ -2170,7 +2170,7 @@ wrapAutoRBAC(router, 'hrStaffRoutes', {
           );
 
           // Log review activity
-          await pool.query(
+          await db.query(
             `INSERT INTO hr_activity_logs (
               hr_staff_uid, action, staff_id, description, created_at
             ) VALUES ($1, $2, $3, $4, NOW())`,

@@ -1,4 +1,5 @@
-// src/routes/authRoutes.js - COMPLETE PRODUCTION VERSION WITH RBAC
+// src/routes/authRoutes.js - COMPLETE PRODUCTION VERSION WITH RBAC (No Magic-Link)
+
 import express from 'express';
 import { validationResult } from 'express-validator';
 import { phoneValidator, otpValidator } from '../config/validationSchemas.js';
@@ -13,7 +14,7 @@ import { normalizePhone } from '../utils/phoneUtils.js';
 import crypto from 'crypto';
 
 const router = express.Router();
-console.log('✅ authRoutes loaded with enhanced security');
+console.log('✅ authRoutes loaded with enhanced security (no magic-link)');
 
 // ✅ OTP Storage (In production, use Redis or database)
 const otpStore = new Map();
@@ -64,7 +65,7 @@ wrapRoutesWithValidation(
       // 📱 Request OTP for Login/Registration (Enhanced)
       [
         '/request-otp',
-        phoneValidator,
+        ...phoneValidator,
         async (req, res) => {
           const errors = validationResult(req);
           if (!errors.isEmpty()) {
@@ -125,7 +126,8 @@ wrapRoutesWithValidation(
       // 🔐 Verify OTP and Login/Register (Enhanced)
       [
         '/verify-otp',
-        [phoneValidator, otpValidator],
+        ...phoneValidator,
+        otpValidator,
         async (req, res) => {
           const errors = validationResult(req);
           if (!errors.isEmpty()) {
@@ -320,7 +322,7 @@ wrapRoutesWithValidation(
       // Legacy routes from deprecated version (maintained for backward compatibility)
       [
         '/login',
-        phoneValidator,
+        ...phoneValidator,
         (req, res) => {
           const errors = validationResult(req);
           if (!errors.isEmpty()) {
@@ -334,7 +336,7 @@ wrapRoutesWithValidation(
       ],
       [
         '/register',
-        phoneValidator,
+        ...phoneValidator,
         (req, res) => {
           const errors = validationResult(req);
           if (!errors.isEmpty()) {
@@ -344,20 +346,6 @@ wrapRoutesWithValidation(
             });
           }
           authController.register(req, res);
-        }
-      ],
-      [
-        '/send-magic-link',
-        phoneValidator,
-        (req, res) => {
-          const errors = validationResult(req);
-          if (!errors.isEmpty()) {
-            return res.status(HTTP_STATUS.BAD_REQUEST).json({
-              errors: errors.array(),
-              message: RESPONSE_MESSAGES.VALIDATION_FAILED
-            });
-          }
-          authController.sendMagicLink(req, res);
         }
       ],
 
@@ -399,14 +387,6 @@ wrapRoutesWithValidation(
             logger.error('Auth Health Check Error:', err);
             error(res, 'Authentication service unhealthy', HTTP_STATUS.INTERNAL_SERVER_ERROR);
           }
-        }
-      ],
-
-      // Legacy verify token route (from deprecated)
-      [
-        '/verify-token',
-        (req, res) => {
-          authController.verifyMagicToken(req, res);
         }
       ]
     ]

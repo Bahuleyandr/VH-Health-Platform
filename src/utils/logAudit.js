@@ -1,6 +1,6 @@
 // src/utils/logAudit.js
 
-import db from '../db.js';
+import db from '../config/database.js';
 import logger from '../logging/logger.js';
 
 /**

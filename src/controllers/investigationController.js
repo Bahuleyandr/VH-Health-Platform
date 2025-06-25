@@ -1,7 +1,6 @@
 // src/controllers/investigationController.js
 
-import pool from '../db.js';
-import db from '../db.js';
+import db from '../config/database.js';
 import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
 import { resolvePhoneFromUID } from '../utils/resolveIdentity.js';
@@ -15,7 +14,7 @@ export async function addInvestigation(req, res) {
   }
 
   try {
-    const result = await pool.query(
+    const result = await db.query(
       `INSERT INTO investigations (phone, test_name, file_key)
        VALUES ($1, $2, $3) RETURNING *`,
       [phone, test_name, file_key || null]
@@ -36,7 +35,7 @@ export async function getInvestigationsByPhone(req, res) {
   }
 
   try {
-    const result = await pool.query(
+    const result = await db.query(
       `SELECT * FROM investigations WHERE phone = $1 ORDER BY requested_at DESC`,
       [phone]
     );

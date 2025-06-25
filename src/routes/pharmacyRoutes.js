@@ -1,7 +1,7 @@
 // src/routes/pharmacyRoutes.js - ENHANCED VERSION WITH FULL RBAC
 import express from 'express';
 import { validationResult } from 'express-validator';
-import pool from '../db.js';
+import db from '../config/database.js';
 import { success, error } from '../utils/responseHelper.js';
 import logger from '../logging/logger.js';
 import * as pharmacyController from '../controllers/pharmacyController.js';
@@ -69,7 +69,7 @@ wrapAutoRBAC(router, 'pharmacyRoutes', {
         }
 
         try {
-          const result = await pool.query(
+          const result = await db.query(
             `INSERT INTO pharmacy_orders (phone, order_note, file_key, prescription_id, urgent, status, requested_by, requested_by_role, created_at)
              VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, NOW()) RETURNING *`,
             [phone, order_note, file_key || null, prescription_id || null, urgent || false, requestedBy, requestedByRole]
@@ -123,7 +123,7 @@ wrapAutoRBAC(router, 'pharmacyRoutes', {
           query += ' ORDER BY created_at DESC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2);
           params.push(parseInt(limit), parseInt(offset));
 
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
           
           success(res, {
             orders: result.rows,
@@ -189,7 +189,7 @@ wrapAutoRBAC(router, 'pharmacyStaffRoutes', {
           query += ' ORDER BY m.name LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2);
           params.push(limit, offset);
           
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
           
           // Get total count for pagination
           let countQuery = 'SELECT COUNT(*) FROM medications m WHERE m.is_active = true';
@@ -209,7 +209,7 @@ wrapAutoRBAC(router, 'pharmacyStaffRoutes', {
             countQuery += ' AND m.stock_quantity = 0';
           }
           
-          const countResult = await pool.query(countQuery, countParams);
+          const countResult = await db.query(countQuery, countParams);
           const totalMedications = parseInt(countResult.rows[0].count);
           
           success(res, {
@@ -249,7 +249,7 @@ wrapAutoRBAC(router, 'pharmacyStaffRoutes', {
           const { id } = req.params;
           const requestedBy = req.user?.uid || 'anonymous';
           
-          const result = await pool.query(`
+          const result = await db.query(`
             SELECT m.*, 
                    TO_CHAR(m.expiry_date, 'DD-MM-YYYY') as expiry_date_formatted,
                    TO_CHAR(m.created_at, 'DD-MM-YYYY HH24:MI') as created_at_formatted,
@@ -310,7 +310,7 @@ wrapAutoRBAC(router, 'pharmacyStaffRoutes', {
           
           query += ' ORDER BY name';
           
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
           
           success(res, {
             medications: result.rows,
@@ -334,7 +334,7 @@ wrapAutoRBAC(router, 'pharmacyStaffRoutes', {
           const threshold = parseInt(req.query.threshold) || 10;
           const requestedBy = req.user?.uid || 'anonymous';
           
-          const result = await pool.query(`
+          const result = await db.query(`
             SELECT id, name, generic_name, brand, category, stock_quantity, 
                    price, TO_CHAR(expiry_date, 'DD-MM-YYYY') as expiry_date, manufacturer
             FROM medications 
@@ -362,7 +362,7 @@ wrapAutoRBAC(router, 'pharmacyStaffRoutes', {
         try {
           const requestedBy = req.user?.uid || 'anonymous';
           
-          const result = await pool.query(`
+          const result = await db.query(`
             SELECT id, name, generic_name, brand, category, stock_quantity, 
                    TO_CHAR(expiry_date, 'DD-MM-YYYY') as expiry_date, manufacturer, price
             FROM medications 
@@ -391,7 +391,7 @@ wrapAutoRBAC(router, 'pharmacyStaffRoutes', {
           const days = parseInt(req.query.days) || 30;
           const requestedBy = req.user?.uid || 'anonymous';
           
-          const result = await pool.query(`
+          const result = await db.query(`
             SELECT id, name, generic_name, brand, category, stock_quantity, 
                    TO_CHAR(expiry_date, 'DD-MM-YYYY') as expiry_date, manufacturer, price,
                    expiry_date - CURRENT_DATE as days_to_expiry
@@ -421,7 +421,7 @@ wrapAutoRBAC(router, 'pharmacyStaffRoutes', {
         try {
           const requestedBy = req.user?.uid || 'anonymous';
           
-          const result = await pool.query(`
+          const result = await db.query(`
             SELECT category, 
                    COUNT(*) as medication_count,
                    SUM(stock_quantity) as total_stock,
@@ -499,7 +499,7 @@ wrapAutoRBAC(router, 'pharmacyStaffRoutes', {
           
           query += ' ORDER BY name LIMIT 50';
           
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
           
           success(res, {
             medications: result.rows,
@@ -532,7 +532,7 @@ wrapAutoRBAC(router, 'pharmacyStaffRoutes', {
           
           const [totalStats, categoryStats, stockStats] = await Promise.all([
             // Total inventory statistics
-            pool.query(`
+            db.query(`
               SELECT 
                 COUNT(*) as total_medications,
                 SUM(stock_quantity) as total_stock_items,
@@ -543,7 +543,7 @@ wrapAutoRBAC(router, 'pharmacyStaffRoutes', {
             `),
             
             // Category breakdown
-            pool.query(`
+            db.query(`
               SELECT category, COUNT(*) as count
               FROM medications 
               WHERE is_active = true
@@ -552,7 +552,7 @@ wrapAutoRBAC(router, 'pharmacyStaffRoutes', {
             `),
             
             // Stock status
-            pool.query(`
+            db.query(`
               SELECT 
                 COUNT(CASE WHEN stock_quantity = 0 THEN 1 END) as out_of_stock,
                 COUNT(CASE WHEN stock_quantity > 0 AND stock_quantity <= 10 THEN 1 END) as low_stock,
@@ -609,7 +609,7 @@ wrapAutoRBAC(router, 'pharmacyStaffRoutes', {
             });
           }
 
-          const result = await pool.query(
+          const result = await db.query(
             `UPDATE pharmacy_orders 
              SET status = $1, notes = $2, updated_by = $3, updated_by_role = $4, updated_at = NOW()
              WHERE id = $5 RETURNING *`,
@@ -664,7 +664,7 @@ wrapAutoRBAC(router, 'pharmacyStaffRoutes', {
               params = [quantity, id, updatedBy];
           }
           
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
           
           if (result.rows.length === 0) {
             return res.status(404).json({ message: 'Medication not found' });
@@ -713,7 +713,7 @@ wrapAutoRBAC(router, 'pharmacyAdminRoutes', {
           }
           
           // Check if medication already exists
-          const existingMed = await pool.query(
+          const existingMed = await db.query(
             'SELECT id FROM medications WHERE name = $1 AND generic_name = $2', 
             [name, generic_name]
           );
@@ -724,7 +724,7 @@ wrapAutoRBAC(router, 'pharmacyAdminRoutes', {
             });
           }
           
-          const result = await pool.query(`
+          const result = await db.query(`
             INSERT INTO medications (
               name, generic_name, brand, category, dosage, form, 
               price, stock_quantity, expiry_date, manufacturer, 
@@ -761,7 +761,7 @@ wrapAutoRBAC(router, 'pharmacyAdminRoutes', {
           } = req.body;
           const updatedBy = req.user?.uid || 'system';
           
-          const result = await pool.query(`
+          const result = await db.query(`
             UPDATE medications SET 
               name = COALESCE($1, name),
               generic_name = COALESCE($2, generic_name),
@@ -808,7 +808,7 @@ wrapAutoRBAC(router, 'pharmacyAdminRoutes', {
           const { id } = req.params;
           const deletedBy = req.user?.uid || 'system';
           
-          const result = await pool.query(
+          const result = await db.query(
             'UPDATE medications SET is_active = false, updated_at = NOW(), updated_by = $2 WHERE id = $1 RETURNING name, generic_name',
             [id, deletedBy]
           );
@@ -861,7 +861,7 @@ wrapAutoRBAC(router, 'pharmacyAdminRoutes', {
           query += ' ORDER BY po.created_at DESC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2);
           params.push(parseInt(limit), parseInt(offset));
 
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
 
           success(res, {
             orders: result.rows,
@@ -885,7 +885,7 @@ wrapAutoRBAC(router, 'pharmacyAdminRoutes', {
 
           const [orderStats, revenueStats, popularMeds] = await Promise.all([
             // Order statistics
-            pool.query(`
+            db.query(`
               SELECT 
                 COUNT(*) as total_orders,
                 COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_orders,
@@ -898,7 +898,7 @@ wrapAutoRBAC(router, 'pharmacyAdminRoutes', {
             `),
 
             // Revenue statistics (if order values are tracked)
-            pool.query(`
+            db.query(`
               SELECT 
                 TO_CHAR(created_at, 'DD-MM-YYYY') as order_date,
                 COUNT(*) as orders_count
@@ -909,7 +909,7 @@ wrapAutoRBAC(router, 'pharmacyAdminRoutes', {
             `),
 
             // Most requested medications (mock data)
-            pool.query(`
+            db.query(`
               SELECT category, COUNT(*) as request_count
               FROM pharmacy_orders po
               JOIN medications m ON po.order_note ILIKE '%' || m.name || '%'

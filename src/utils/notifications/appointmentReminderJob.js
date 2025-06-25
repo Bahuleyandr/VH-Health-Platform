@@ -1,4 +1,4 @@
-import pool from '../../db.js';
+import db from '../../config/database.js';
 import logger from '../../logging/logger.js';
 import { sendPushNotification } from './sendPushNotification.js';
 import { NotificationTemplates } from './templates.js';
@@ -12,7 +12,7 @@ export async function sendAppointmentReminders() {
     const tomorrow = new Date(today);
     tomorrow.setDate(today.getDate() + 1);
 
-    const result = await pool.query(
+    const result = await db.query(
       `SELECT a.id, a.uid, a.phone, a.appointment_date, a.doctor_id, u.device_token, u.name AS user_name,
               d.name AS doctor_name, dept.name AS department_name
        FROM appointments a
@@ -60,7 +60,7 @@ export async function sendAppointmentReminders() {
         logger.info(`✅ Reminder sent to ${appt.phone}`);
 
         // Store as in-app notification
-        await pool.query(
+        await db.query(
           `INSERT INTO notifications (phone, title, body, type, created_at, read)
            VALUES ($1, $2, $3, $4, NOW(), false)`,
           [appt.phone, notification.title, notification.body, 'reminder']

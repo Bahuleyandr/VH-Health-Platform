@@ -1,5 +1,5 @@
 // src/controllers/firebaseAuthController.js
-import pool from '../db.js';
+import db from '../config/database.js';
 import admin from '../utils/firebaseAdmin.js';
 import { generateToken } from '../utils/jwtUtils.js';
 
@@ -27,11 +27,11 @@ export async function firebaseLogin(req, res) {
       return res.status(400).json({ success: false, message: 'Phone number missing in ID token' });
     }
 
-    const result = await pool.query('SELECT * FROM users WHERE phone = $1', [phone]);
+    const result = await db.query('SELECT * FROM users WHERE phone = $1', [phone]);
     let user;
 
     if (result.rows.length === 0) {
-      const insert = await pool.query(
+      const insert = await db.query(
         `INSERT INTO users (phone, created_at) VALUES ($1, NOW()) RETURNING *`,
         [phone]
       );
@@ -70,7 +70,7 @@ export async function registerUser(req, res) {
   }
 
   try {
-    const existing = await pool.query('SELECT * FROM users WHERE phone = $1', [phone]);
+    const existing = await db.query('SELECT * FROM users WHERE phone = $1', [phone]);
     
     if (existing.rows.length > 0) {
       // ✅ FIXED: Use the existing user data, not undefined 'user' variable
@@ -96,7 +96,7 @@ export async function registerUser(req, res) {
       RETURNING *;
     `;
     const values = [phone, name, gender, email, birthday, anniversary, address];
-    const result = await pool.query(insertQuery, values);
+    const result = await db.query(insertQuery, values);
     const newUser = result.rows[0];
 
     // ✅ FIXED: Generate access token for new user

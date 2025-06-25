@@ -2,13 +2,15 @@
 
 // src/bin/www.js
 
+// ✅ Load environment variables
 import dotenv from 'dotenv';
+dotenv.config();
+
 import http from 'http';
 import app from '../app.js';
 import { runAllScheduledTasksNow } from '../utils/scheduler.js';
 
-// ✅ Load environment variables
-dotenv.config();
+
 
 // ✅ Normalize port
 function normalizePort(val) {

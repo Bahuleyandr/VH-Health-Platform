@@ -1,6 +1,6 @@
 // src/utils/notifications/investigationNotificationJob.js
 
-import pool from '../../db.js';
+import db from '../../config/database.js';
 import logger from '../../logging/logger.js';
 import { NotificationTemplates } from './templates.js';
 
@@ -8,7 +8,7 @@ export async function sendInvestigationNotifications() {
   logger.info('🔬 Sending investigation report notifications...');
 
   try {
-    const result = await pool.query(
+    const result = await db.query(
       `SELECT i.id, i.phone, i.test_name, u.name
        FROM investigations i
        JOIN users u ON i.phone = u.phone
@@ -27,13 +27,13 @@ export async function sendInvestigationNotifications() {
       });
 
       try {
-        await pool.query(
+        await db.query(
           `INSERT INTO notifications (phone, title, body, type, created_at, read)
            VALUES ($1, $2, $3, $4, NOW(), false)`,
           [row.phone, 'Investigation Report Ready', message, 'investigation']
         );
 
-        await pool.query(
+        await db.query(
           `UPDATE investigations SET notified = true WHERE id = $1`,
           [row.id]
         );

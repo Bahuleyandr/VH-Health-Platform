@@ -1,6 +1,6 @@
 // src/config/validationSchemas.js
 
-import { body } from 'express-validator';
+import { body, param } from 'express-validator'; // ✅ Added 'param'
 
 /**
  * ✅ Reusable Phone Validator (accepts 'phone' and 'phoneNumber' — flexible input)
@@ -135,4 +135,12 @@ export const sosAlertValidator = [
   ...phoneValidator,
   body('latitude').optional().isFloat().withMessage('Latitude must be a number'),
   body('longitude').optional().isFloat().withMessage('Longitude must be a number')
+];
+
+
+/**
+ * ✅ Reusable ID Validator for URL parameters
+ */
+export const idValidator = [
+    param('id').notEmpty().withMessage('ID parameter cannot be empty').trim().isMongoId().withMessage('A valid ID is required in the URL parameter')
 ];

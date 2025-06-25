@@ -1,7 +1,6 @@
 // src/utils/resolveIdentity.js
 
-import db from '../db.js';
-
+import db from '../config/database.js';
 /**
  * Resolve phone number from UID using users table
  * @param {string} uid - The unique user ID

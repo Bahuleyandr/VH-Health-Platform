@@ -1,7 +1,7 @@
 // src/routes/notificationRoutes.js - ENHANCED VERSION WITH FULL RBAC
 import express from 'express';
 import { validationResult } from 'express-validator';
-import pool from '../db.js';
+import db from '../config/database.js';
 import { success, error } from '../utils/responseHelper.js';
 import logger from '../logging/logger.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
@@ -82,7 +82,7 @@ wrapAutoRBAC(router, 'notificationRoutes', {
 
           // Access control: patients can only view their own notifications
           if (userRole === 'PATIENT') {
-            const userResult = await pool.query('SELECT phone FROM users WHERE uid = $1', [req.user.uid]);
+            const userResult = await db.query('SELECT phone FROM users WHERE uid = $1', [req.user.uid]);
             if (userResult.rows.length === 0 || userResult.rows[0].phone !== phone) {
               return res.status(403).json({ 
                 message: 'Access denied: Cannot view other user notifications',
@@ -91,7 +91,7 @@ wrapAutoRBAC(router, 'notificationRoutes', {
             }
           }
 
-          const result = await pool.query(
+          const result = await db.query(
             `SELECT * FROM notifications WHERE phone = $1 ORDER BY created_at DESC`,
             [phone]
           );
@@ -137,7 +137,7 @@ wrapAutoRBAC(router, 'notificationRoutes', {
 
           // Access control: users can only view their own notifications unless staff
           if (userRole === 'PATIENT') {
-            const userResult = await pool.query('SELECT id FROM users WHERE uid = $1', [req.user.uid]);
+            const userResult = await db.query('SELECT id FROM users WHERE uid = $1', [req.user.uid]);
             if (userResult.rows.length === 0 || userResult.rows[0].id !== parseInt(user_id)) {
               return res.status(403).json({ 
                 message: 'Access denied: Cannot view other user notifications',
@@ -173,10 +173,10 @@ wrapAutoRBAC(router, 'notificationRoutes', {
           query += ` ORDER BY n.created_at DESC LIMIT $${params.length + 1}`;
           params.push(Math.min(parseInt(limit), 100));
 
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
 
           // Get unread count
-          const unreadResult = await pool.query(
+          const unreadResult = await db.query(
             'SELECT COUNT(*) as unread_count FROM notifications WHERE user_id = $1 AND is_read = false',
             [user_id]
           );
@@ -227,7 +227,7 @@ wrapAutoRBAC(router, 'notificationRoutes', {
 
           // Patients can only view their own notifications
           if (userRole === 'PATIENT') {
-            const userResult = await pool.query('SELECT id FROM users WHERE uid = $1', [req.user.uid]);
+            const userResult = await db.query('SELECT id FROM users WHERE uid = $1', [req.user.uid]);
             if (userResult.rows.length === 0) {
               return res.status(404).json({ message: 'User not found' });
             }
@@ -235,7 +235,7 @@ wrapAutoRBAC(router, 'notificationRoutes', {
             params.push(userResult.rows[0].id);
           }
 
-          const result = await pool.query(`
+          const result = await db.query(`
             SELECT n.*, 
                    u.name as recipient_name, u.phone as recipient_phone,
                    ${userRole === 'ADMIN' ? 'u.email as recipient_email, sender.name as sender_name, sender.phone as sender_phone' : ''}
@@ -255,7 +255,7 @@ wrapAutoRBAC(router, 'notificationRoutes', {
 
           // Auto-mark as read when viewed (optional feature)
           if (!result.rows[0].is_read) {
-            await pool.query(
+            await db.query(
               'UPDATE notifications SET is_read = true, read_at = NOW() WHERE id = $1',
               [id]
             );
@@ -303,7 +303,7 @@ wrapAutoRBAC(router, 'notificationRoutes', {
 
           // Patients can only see their own notifications
           if (userRole === 'PATIENT') {
-            const userResult = await pool.query('SELECT id FROM users WHERE uid = $1', [req.user.uid]);
+            const userResult = await db.query('SELECT id FROM users WHERE uid = $1', [req.user.uid]);
             if (userResult.rows.length === 0) {
               return res.status(404).json({ message: 'User not found' });
             }
@@ -347,11 +347,11 @@ wrapAutoRBAC(router, 'notificationRoutes', {
           `;
 
           params.push(limit, offset);
-          const result = await pool.query(query, params);
+          const result = await db.query(query, params);
 
           // Get total count for pagination
           const countQuery = `SELECT COUNT(*) FROM notifications n WHERE ${baseConditions}`;
-          const countResult = await pool.query(countQuery, params.slice(0, -2));
+          const countResult = await db.query(countQuery, params.slice(0, -2));
           const totalNotifications = parseInt(countResult.rows[0].count);
 
           await logAudit(req, 'notifications-list-view', {
@@ -412,7 +412,7 @@ wrapAutoRBAC(router, 'notificationRoutes', {
 
           // Patients can only mark their own notifications as read
           if (userRole === 'PATIENT') {
-            const userResult = await pool.query('SELECT id FROM users WHERE uid = $1', [req.user.uid]);
+            const userResult = await db.query('SELECT id FROM users WHERE uid = $1', [req.user.uid]);
             if (userResult.rows.length === 0) {
               return res.status(404).json({ message: 'User not found' });
             }
@@ -420,7 +420,7 @@ wrapAutoRBAC(router, 'notificationRoutes', {
             params.push(userResult.rows[0].id);
           }
 
-          const result = await pool.query(`
+          const result = await db.query(`
             UPDATE notifications SET 
               is_read = true,
               read_at = NOW()
@@ -459,7 +459,7 @@ wrapAutoRBAC(router, 'notificationRoutes', {
 
           // Access control: patients can only mark their own notifications as read
           if (userRole === 'PATIENT') {
-            const userResult = await pool.query('SELECT phone FROM users WHERE uid = $1', [req.user.uid]);
+            const userResult = await db.query('SELECT phone FROM users WHERE uid = $1', [req.user.uid]);
             if (userResult.rows.length === 0 || userResult.rows[0].phone !== phone) {
               return res.status(403).json({ 
                 message: 'Access denied: Cannot modify other user notifications',
@@ -468,7 +468,7 @@ wrapAutoRBAC(router, 'notificationRoutes', {
             }
           }
 
-          const result = await pool.query(`
+          const result = await db.query(`
             UPDATE notifications SET is_read = TRUE, read_at = NOW() 
             WHERE phone = $1 AND is_read = FALSE
             RETURNING COUNT(*) as updated_count
@@ -510,7 +510,7 @@ wrapAutoRBAC(router, 'notificationRoutes', {
 
           // Access control: users can only mark their own notifications as read
           if (userRole === 'PATIENT') {
-            const userResult = await pool.query('SELECT id FROM users WHERE uid = $1', [req.user.uid]);
+            const userResult = await db.query('SELECT id FROM users WHERE uid = $1', [req.user.uid]);
             if (userResult.rows.length === 0 || userResult.rows[0].id !== parseInt(user_id)) {
               return res.status(403).json({ 
                 message: 'Access denied: Cannot modify other user notifications',
@@ -519,7 +519,7 @@ wrapAutoRBAC(router, 'notificationRoutes', {
             }
           }
 
-          const result = await pool.query(`
+          const result = await db.query(`
             UPDATE notifications SET 
               is_read = true,
               read_at = NOW()
@@ -594,7 +594,7 @@ wrapAutoRBAC(router, 'ALL', {
           }
 
           // Verify recipient user exists
-          const userCheck = await pool.query('SELECT id, name, phone FROM users WHERE id = $1', [user_id]);
+          const userCheck = await db.query('SELECT id, name, phone FROM users WHERE id = $1', [user_id]);
           if (userCheck.rows.length === 0) {
             return res.status(404).json({ 
               message: 'Recipient user not found',
@@ -604,7 +604,7 @@ wrapAutoRBAC(router, 'ALL', {
 
           // Verify sender exists if provided
           if (sender_id) {
-            const senderCheck = await pool.query('SELECT id FROM users WHERE id = $1', [sender_id]);
+            const senderCheck = await db.query('SELECT id FROM users WHERE id = $1', [sender_id]);
             if (senderCheck.rows.length === 0) {
               return res.status(404).json({ 
                 message: 'Sender user not found',
@@ -613,7 +613,7 @@ wrapAutoRBAC(router, 'ALL', {
             }
           }
 
-          const result = await pool.query(`
+          const result = await db.query(`
             INSERT INTO notifications (
               user_id, title, message, type, priority, sender_id,
               scheduled_for, data, is_read, created_at, created_by, phone
@@ -676,7 +676,7 @@ wrapAutoRBAC(router, 'ALL', {
           }
 
           // Verify all users exist
-          const userCheck = await pool.query(
+          const userCheck = await db.query(
             'SELECT id, name, phone FROM users WHERE id = ANY($1)',
             [user_ids]
           );
@@ -704,7 +704,7 @@ wrapAutoRBAC(router, 'ALL', {
 
           const flatParams = notifications.flat();
 
-          const result = await pool.query(`
+          const result = await db.query(`
             INSERT INTO notifications (user_id, title, message, type, priority, sender_id, is_read, created_at, created_by, phone)
             VALUES ${placeholders}
             RETURNING id, user_id
@@ -750,7 +750,7 @@ wrapAutoRBAC(router, 'ALL', {
 
           const [totalStats, typeStats, priorityStats, recentActivity] = await Promise.all([
             // Total notification statistics
-            pool.query(`
+            db.query(`
               SELECT 
                 COUNT(*) as total_notifications,
                 COUNT(CASE WHEN is_read = false THEN 1 END) as unread_notifications,
@@ -761,7 +761,7 @@ wrapAutoRBAC(router, 'ALL', {
             `),
 
             // Type breakdown
-            pool.query(`
+            db.query(`
               SELECT type, COUNT(*) as count
               FROM notifications 
               WHERE created_at >= CURRENT_DATE - INTERVAL '${days} days'
@@ -770,7 +770,7 @@ wrapAutoRBAC(router, 'ALL', {
             `),
 
             // Priority breakdown
-            pool.query(`
+            db.query(`
               SELECT priority, COUNT(*) as count
               FROM notifications 
               WHERE created_at >= CURRENT_DATE - INTERVAL '${days} days'
@@ -784,7 +784,7 @@ wrapAutoRBAC(router, 'ALL', {
             `),
 
             // Recent activity (daily counts)
-            pool.query(`
+            db.query(`
               SELECT DATE(created_at) as date, COUNT(*) as count,
                      COUNT(CASE WHEN is_read = true THEN 1 END) as read_count
               FROM notifications 
@@ -836,7 +836,7 @@ wrapAutoRBAC(router, 'ALL', {
             return error(res, 'Access denied: Medical staff privileges required', HTTP_STATUS.FORBIDDEN);
           }
 
-          const result = await pool.query(`
+          const result = await db.query(`
             SELECT n.id, n.user_id, n.title, n.message, n.type, n.priority,
                    n.scheduled_for, n.data,
                    u.name as recipient_name, u.phone, u.email
@@ -874,7 +874,7 @@ wrapAutoRBAC(router, 'ALL', {
             return error(res, 'Access denied: Medical staff privileges required', HTTP_STATUS.FORBIDDEN);
           }
 
-          const result = await pool.query(`
+          const result = await db.query(`
             SELECT n.id, n.title, n.message, n.created_at, n.data,
                    u.name as recipient_name, u.phone
             FROM notifications n
@@ -924,7 +924,7 @@ wrapAutoRBAC(router, 'ALL', {
             return error(res, 'Access denied: Admin privileges required', HTTP_STATUS.FORBIDDEN);
           }
 
-          const result = await pool.query(
+          const result = await db.query(
             'DELETE FROM notifications WHERE id = $1 RETURNING id, title, user_id',
             [id]
           );

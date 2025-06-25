@@ -3,31 +3,31 @@
   "name": "vh-health-backend",
   "version": "1.0.0",
   "description": "VH Health API for managing patients, appointments, records, investigations, pharmacy orders, and feedback.",
-  "main": "src/app.js",
+  "main": "src/bin/www.js",
   "scripts": {
-  "start": "node src/server.js",
-  "dev": "nodemon src/server.js",
-  "lint": "eslint .",
-  "test": "dotenv -e .env.local -- node --experimental-vm-modules node_modules/jest/bin/jest.js",
-  "start:local": "dotenv -e .env.local -- node src/server.js",
-  "start:render": "node src/server.js",
-  "r2:migrate-archive": "node src/scripts/r2/r2-migrate-archive.js",
-  "r2:cleanup-old": "node src/scripts/r2/r2-cleanup-old.js",
-  "r2:list-files": "node src/scripts/r2/r2-list-files.js",
-  "db:backup": "node src/scripts/backup-db.js",
-  "db:restore": "node src/scripts/restore-db.js",
-  "swagger:validate": "node src/scripts/validate-swagger.js",
-  "swagger:generate": "node src/scripts/generate-swagger.js",
-  "logs:cleanup": "node src/scripts/cleanup-logs.js",
-  "logs:list": "node src/scripts/list-logs.js",
-  "logs:purge": "node src/scripts/purge-logs.js",
-  "fix:permissions": "node src/scripts/fix-permissions.js",
-  "scheduler:run-now": "node -e \"import('./src/utils/scheduler.js').then(m => m.runAllScheduledTasksNow())\"",
-  "generate-admin-token": "node src/scripts/development/generateAdminToken.js",
-  "convert-to-relative": "node src/scripts/development/convert-aliases-to-relative.js",
-  "convert-to-aliases": "node src/scripts/development/convert-relative-to-aliases.js",
-  "dev:setup": "npm run generate-admin-token && echo 'Development environment ready'"
-},
+    "start": "node src/bin/www.js",
+    "dev": "nodemon src/bin/www.js",
+    "lint": "eslint .",
+    "test": "dotenv -e .env.local -- node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "start:local": "dotenv -e .env.local -- node src/bin/www.js",
+    "start:render": "node src/bin/www.js",
+    "r2:migrate-archive": "node src/scripts/r2/r2-migrate-archive.js",
+    "r2:cleanup-old": "node src/scripts/r2/r2-cleanup-old.js",
+    "r2:list-files": "node src/scripts/r2/r2-list-files.js",
+    "db:backup": "node src/scripts/backup-db.js",
+    "db:restore": "node src/scripts/restore-db.js",
+    "swagger:validate": "node src/scripts/validate-swagger.js",
+    "swagger:generate": "node src/scripts/generate-swagger.js",
+    "logs:cleanup": "node src/scripts/cleanup-logs.js",
+    "logs:list": "node src/scripts/list-logs.js",
+    "logs:purge": "node src/scripts/purge-logs.js",
+    "fix:permissions": "node src/scripts/fix-permissions.js",
+    "scheduler:run-now": "node -e \"import('./src/utils/scheduler.js').then(m => m.runAllScheduledTasksNow())\"",
+    "generate-admin-token": "node src/scripts/development/generateAdminToken.js",
+    "convert-to-relative": "node src/scripts/development/convert-aliases-to-relative.js",
+    "convert-to-aliases": "node src/scripts/development/convert-relative-to-aliases.js",
+    "dev:setup": "npm run generate-admin-token && echo 'Development environment ready'"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/your-org/vh-health-backend.git"
@@ -90,10 +90,10 @@
     "api"
   ],
   "jest": {
-  "testEnvironment": "node", 
-  "setupFiles": [
-    "<rootDir>/src/scripts/testing/jest.setup.js"
-  ],
+    "testEnvironment": "node", 
+    "setupFiles": [
+      "<rootDir>/src/scripts/testing/jest.setup.js"
+    ],
     "moduleNameMapper": {
       "^@utils/(.*)$": "<rootDir>/src/utils/$1",
       "^@controllers/(.*)$": "<rootDir>/src/controllers/$1",

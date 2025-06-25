@@ -28,6 +28,9 @@ import notificationRoutes from './routes/notificationRoutes.js';  // ✅ Added m
 import deviceRoutes from './routes/deviceRoutes.js';  // ✅ Added missing
 import firebaseAuthRoutes from './routes/firebaseAuthRoutes.js';  // ✅ Added missing
 
+// Import the admin routes
+// import otpAdminRoutes from './routes/otpAdminRoutes.js';
+
 import { attachUserContext } from './middleware/attachUserContext.js';
 import { patientRateLimiter, genericLimiter } from './middleware/rateLimitMiddleware.js';
 import swaggerLoader from './utils/swaggerLoader.js';
@@ -110,6 +113,7 @@ app.use('/api/v1/notifications', notificationRoutes);  // ✅ Added missing
 app.use('/api/v1/devices', deviceRoutes);  // ✅ Added missing
 
 // ✅ JWT-Protected Admin/Staff Routes - Keep your existing approach
+// app.use('/api/v1/admin/otp', jwtAuth, otpAdminRoutes);
 app.use('/api/v1/admin/rbac', jwtAuth, rbacRoutes);
 app.use('/api/v1/admin/analytics', jwtAuth, analyticsRoutes);
 app.use('/api/v1/admin', jwtAuth, adminRoutes);

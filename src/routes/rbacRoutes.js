@@ -3,7 +3,7 @@ import express from 'express';
 import { validationResult } from 'express-validator';
 import * as rbacController from '../controllers/rbacController.js';
 import { wrapAutoRBAC, wrapRoutes, wrapRoutesWithValidation } from '../config/routeWrapper.js';
-import pool from '../db.js';
+import db from '../config/database.js';
 import { success, error } from '../utils/responseHelper.js';
 import logger from '../logging/logger.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
@@ -192,7 +192,7 @@ wrapAutoRBAC(router, 'rbacRoutes', {
           const userRole = req.user?.role;
           
           // Get current role distribution
-          const roleStats = await pool.query(`
+          const roleStats = await db.query(`
             SELECT role, COUNT(*) as user_count, 
                    COUNT(CASE WHEN is_active = true THEN 1 END) as active_count
             FROM users 
@@ -260,7 +260,7 @@ wrapAutoRBAC(router, 'rbacRoutes', {
             }
           }
 
-          const result = await pool.query(`
+          const result = await db.query(`
             SELECT 
               u.role,
               COUNT(*) as user_count,
@@ -385,7 +385,7 @@ wrapAutoRBAC(router, 'rbacRoutes', {
 
           const [roleDistribution, recentRoleChanges, activeUsersByRole, newRegistrations] = await Promise.all([
             // Role distribution
-            pool.query(`
+            db.query(`
               SELECT role, COUNT(*) as count,
                      COUNT(CASE WHEN is_active = true THEN 1 END) as active_count
               FROM users 
@@ -393,7 +393,7 @@ wrapAutoRBAC(router, 'rbacRoutes', {
             `),
 
             // Recent role changes
-            pool.query(`
+            db.query(`
               SELECT 
                 ura.phone, ura.old_role, ura.new_role, 
                 TO_CHAR(ura.changed_at, 'DD-MM-YYYY HH24:MI') as changed_at,
@@ -405,7 +405,7 @@ wrapAutoRBAC(router, 'rbacRoutes', {
             `).catch(() => ({ rows: [] })),
 
             // Active users by role (last 7 days)
-            pool.query(`
+            db.query(`
               SELECT role, COUNT(*) as active_count
               FROM users 
               WHERE last_login > NOW() - INTERVAL '7 days'
@@ -414,7 +414,7 @@ wrapAutoRBAC(router, 'rbacRoutes', {
             `).catch(() => ({ rows: [] })),
 
             // New registrations by role (configurable days)
-            pool.query(`
+            db.query(`
               SELECT role, COUNT(*) as new_count,
                      array_agg(TO_CHAR(registered_at, 'DD-MM-YYYY')) as registration_dates
               FROM users 
@@ -491,7 +491,7 @@ wrapAutoRBAC(router, 'rbacRoutes', {
           // Check role capacity
           const roleData = ROLE_HIERARCHY[targetRole];
           if (roleData.maxUsers) {
-            const currentCount = await pool.query(
+            const currentCount = await db.query(
               'SELECT COUNT(*) FROM users WHERE role = $1 AND is_active = true',
               [targetRole]
             );
@@ -502,7 +502,7 @@ wrapAutoRBAC(router, 'rbacRoutes', {
           }
 
           // Check if user exists
-          const userResult = await pool.query(
+          const userResult = await db.query(
             'SELECT uid, role, name FROM users WHERE phone = $1',
             [normalizedPhone]
           );
@@ -523,13 +523,13 @@ wrapAutoRBAC(router, 'rbacRoutes', {
           }
 
           // Update user role
-          await pool.query(
+          await db.query(
             'UPDATE users SET role = $1, role_updated_at = NOW() WHERE phone = $2',
             [targetRole, normalizedPhone]
           );
 
           // Log role change in audit table
-          await pool.query(
+          await db.query(
             `INSERT INTO user_role_audit (
               phone, old_role, new_role, changed_by_uid, reason, changed_at
             ) VALUES ($1, $2, $3, $4, $5, NOW())`,
@@ -584,7 +584,7 @@ wrapAutoRBAC(router, 'rbacRoutes', {
             const roleData = ROLE_HIERARCHY[targetRole];
             
             if (roleData.maxUsers && !roleCapacityCheck[targetRole]) {
-              const currentCount = await pool.query(
+              const currentCount = await db.query(
                 'SELECT COUNT(*) FROM users WHERE role = $1 AND is_active = true',
                 [targetRole]
               );
@@ -618,7 +618,7 @@ wrapAutoRBAC(router, 'rbacRoutes', {
               }
 
               // Get current user
-              const userResult = await pool.query(
+              const userResult = await db.query(
                 'SELECT uid, role, name FROM users WHERE phone = $1',
                 [normalizedPhone]
               );
@@ -637,13 +637,13 @@ wrapAutoRBAC(router, 'rbacRoutes', {
               }
 
               // Update role
-              await pool.query(
+              await db.query(
                 'UPDATE users SET role = $1, role_updated_at = NOW() WHERE phone = $2',
                 [targetRole, normalizedPhone]
               );
 
               // Log audit
-              await pool.query(
+              await db.query(
                 `INSERT INTO user_role_audit (
                   phone, old_role, new_role, changed_by_uid, reason, changed_at
                 ) VALUES ($1, $2, $3, $4, $5, NOW())`,
@@ -737,7 +737,7 @@ wrapRoutes(
               paramIndex++;
             }
 
-            const auditLog = await pool.query(`
+            const auditLog = await db.query(`
               SELECT 
                 ura.id, ura.phone, ura.old_role, ura.new_role, 
                 ura.changed_by_uid, ura.reason, 
@@ -755,7 +755,7 @@ wrapRoutes(
               params
             ).catch(() => ({ rows: [] }));
 
-            const total = await pool.query(
+            const total = await db.query(
               `SELECT COUNT(*) FROM user_role_audit ura ${whereClause}`,
               params.slice(2)
             ).catch(() => ({ rows: [{ count: 0 }] }));
@@ -788,7 +788,7 @@ wrapRoutes(
 
             const [suspiciousChanges, privilegeEscalations, nonAdminChanges, capacityAlerts] = await Promise.all([
               // Suspicious role changes (multiple changes in short time)
-              pool.query(`
+              db.query(`
                 SELECT 
                   phone, COUNT(*) as change_count,
                   array_agg(DISTINCT new_role) as roles_assigned,
@@ -803,7 +803,7 @@ wrapRoutes(
               `).catch(() => ({ rows: [] })),
 
               // Privilege escalations to high-level roles
-              pool.query(`
+              db.query(`
                 SELECT 
                   ura.phone, ura.old_role, ura.new_role, 
                   TO_CHAR(ura.changed_at, 'DD-MM-YYYY HH24:MI') as changed_at,
@@ -816,7 +816,7 @@ wrapRoutes(
               `).catch(() => ({ rows: [] })),
 
               // Role changes by non-admin users
-              pool.query(`
+              db.query(`
                 SELECT 
                   ura.phone, ura.old_role, ura.new_role, 
                   TO_CHAR(ura.changed_at, 'DD-MM-YYYY HH24:MI') as changed_at,
@@ -829,7 +829,7 @@ wrapRoutes(
               `).catch(() => ({ rows: [] })),
 
               // Role capacity alerts
-              pool.query(`
+              db.query(`
                 SELECT 
                   role, 
                   COUNT(*) as current_count,
@@ -883,7 +883,7 @@ wrapRoutes(
 
             const [roleChanges, commonTransitions, frequentChanges, trendAnalysis] = await Promise.all([
               // Role changes over time
-              pool.query(`
+              db.query(`
                 SELECT 
                   TO_CHAR(changed_at, 'DD-MM-YYYY') as change_date,
                   old_role, new_role,
@@ -895,7 +895,7 @@ wrapRoutes(
               `).catch(() => ({ rows: [] })),
 
               // Most common role transitions
-              pool.query(`
+              db.query(`
                 SELECT 
                   old_role, new_role,
                   COUNT(*) as transition_count,
@@ -909,7 +909,7 @@ wrapRoutes(
               `).catch(() => ({ rows: [] })),
 
               // Users with most role changes
-              pool.query(`
+              db.query(`
                 SELECT 
                   ura.phone, u.name,
                   COUNT(*) as change_count,
@@ -930,7 +930,7 @@ wrapRoutes(
               `).catch(() => ({ rows: [] })),
 
               // Trend analysis
-              pool.query(`
+              db.query(`
                 SELECT 
                   new_role,
                   COUNT(*) as assignment_count,
@@ -994,7 +994,7 @@ wrapRoutes(
             const isActive = action === 'unlock';
 
             // Update user status
-            const result = await pool.query(
+            const result = await db.query(
               `UPDATE users SET 
                 is_active = $1, 
                 status_updated_at = NOW(),
@@ -1012,7 +1012,7 @@ wrapRoutes(
             const user = result.rows[0];
 
             // Log the action
-            await pool.query(
+            await db.query(
               `INSERT INTO user_role_audit (
                 phone, old_role, new_role, changed_by_uid, reason, changed_at, action_type
               ) VALUES ($1, $2, $3, $4, $5, NOW(), $6)`,
@@ -1069,7 +1069,7 @@ wrapRoutes(
             const targetRole = toRole.toUpperCase();
 
             // Get affected users
-            const affectedUsers = await pool.query(
+            const affectedUsers = await db.query(
               'SELECT uid, phone, name FROM users WHERE role = $1 AND is_active = true',
               [sourceRole]
             );
@@ -1099,14 +1099,14 @@ wrapRoutes(
             }
 
             // Perform mass update
-            const updateResult = await pool.query(
+            const updateResult = await db.query(
               'UPDATE users SET role = $1, role_updated_at = NOW() WHERE role = $2 AND is_active = true',
               [targetRole, sourceRole]
             );
 
             // Log each change
             for (const user of affectedUsers.rows) {
-              await pool.query(
+              await db.query(
                 `INSERT INTO user_role_audit (
                   phone, old_role, new_role, changed_by_uid, reason, changed_at, action_type
                 ) VALUES ($1, $2, $3, $4, $5, NOW(), $6)`,
@@ -1162,7 +1162,7 @@ wrapRoutes(
 
             userQuery += ' ORDER BY role, registered_at';
 
-            const users = await pool.query(userQuery);
+            const users = await db.query(userQuery);
 
             const exportData = {
               exportedAt: new Date().toLocaleDateString('en-GB'),
@@ -1175,7 +1175,7 @@ wrapRoutes(
 
             // Include audit log if requested
             if (includeAudit) {
-              const auditLog = await pool.query(`
+              const auditLog = await db.query(`
                 SELECT 
                   phone, old_role, new_role, changed_by_uid, reason, 
                   TO_CHAR(changed_at, 'DD-MM-YYYY HH24:MI') as changed_at,
@@ -1238,7 +1238,7 @@ wrapRoutes(
             const roleInfo = ROLE_HIERARCHY[userRole];
             
             // Get recent role changes for this user
-            const roleHistory = await pool.query(
+            const roleHistory = await db.query(
               `SELECT old_role, new_role, 
                       TO_CHAR(changed_at, 'DD-MM-YYYY HH24:MI') as changed_at, 
                       reason 
@@ -1250,7 +1250,7 @@ wrapRoutes(
             ).catch(() => ({ rows: [] }));
 
             // Get role statistics
-            const roleStats = await pool.query(
+            const roleStats = await db.query(
               'SELECT COUNT(*) as total_users FROM users WHERE role = $1 AND is_active = true',
               [userRole]
             ).catch(() => ({ rows: [{ total_users: 0 }] }));
