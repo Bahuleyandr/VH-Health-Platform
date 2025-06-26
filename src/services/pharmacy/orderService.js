@@ -1,0 +1,131 @@
+import db from '../../config/database.js';
+import { ORDER_STATUS } from '../../config/pharmacyConfig.js';
+import logger from '../../logging/logger.js';
+
+export const createOrder = async (orderData) => {
+  const { phone, order_note, file_key, prescription_id, urgent, requestedBy, requestedByRole } = orderData;
+
+  const result = await db.query(
+    `INSERT INTO pharmacy_orders (
+      phone, order_note, file_key, prescription_id, urgent, 
+      status, requested_by, requested_by_role, created_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW()) 
+    RETURNING *`,
+    [
+      phone, 
+      order_note, 
+      file_key || null, 
+      prescription_id || null, 
+      urgent || false, 
+      ORDER_STATUS.PENDING,
+      requestedBy, 
+      requestedByRole
+    ]
+  );
+
+  logger.info(`Pharmacy order created: ${result.rows[0].id} for ${phone}`);
+
+  return {
+    ...result.rows[0],
+    requestedBy,
+    requestedByRole
+  };
+};
+
+export const getOrdersByPhone = async (phone, filters) => {
+  const { status, limit, offset } = filters;
+
+  let query = 'SELECT * FROM pharmacy_orders WHERE phone = $1';
+  let params = [phone];
+
+  if (status) {
+    query += ' AND status = $2';
+    params.push(status);
+  }
+
+  query += ' ORDER BY created_at DESC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2);
+  params.push(limit, offset);
+
+  const result = await db.query(query, params);
+
+  return {
+    orders: result.rows,
+    filters: { status, limit, offset }
+  };
+};
+
+export const getOrdersByUID = async (uid, filters) => {
+  const { status, limit, offset } = filters;
+
+  // First get phone number from UID
+  const userResult = await db.query('SELECT phone FROM users WHERE uid = $1', [uid]);
+  
+  if (userResult.rows.length === 0) {
+    return { orders: [], filters: { status, limit, offset } };
+  }
+
+  const phone = userResult.rows[0].phone;
+  return getOrdersByPhone(phone, filters);
+};
+
+export const updateOrderStatus = async (orderId, status, notes, updatedBy, updatedByRole) => {
+  // Validate status
+  const validStatuses = Object.values(ORDER_STATUS);
+  if (!validStatuses.includes(status)) {
+    throw new Error('INVALID_STATUS');
+  }
+
+  const result = await db.query(
+    `UPDATE pharmacy_orders 
+     SET status = $1, notes = $2, updated_by = $3, updated_by_role = $4, updated_at = NOW()
+     WHERE id = $5 
+     RETURNING *`,
+    [status, notes || null, updatedBy, updatedByRole, orderId]
+  );
+
+  if (result.rows.length === 0) {
+    return null;
+  }
+
+  logger.info(`Order ${orderId} status updated to ${status} by ${updatedBy}`);
+
+  return {
+    order: result.rows[0],
+    updatedBy,
+    updatedByRole
+  };
+};
+
+export const getAllOrders = async (filters) => {
+  const { status, limit, offset, urgent_only } = filters;
+
+  let query = `
+    SELECT po.*, 
+           TO_CHAR(po.created_at, 'DD-MM-YYYY HH24:MI') as created_at_formatted,
+           u.name as patient_name
+    FROM pharmacy_orders po
+    LEFT JOIN users u ON po.phone = u.phone
+    WHERE 1=1
+  `;
+  let params = [];
+
+  if (status) {
+    query += ' AND po.status = $' + (params.length + 1);
+    params.push(status);
+  }
+
+  if (urgent_only) {
+    query += ' AND po.urgent = true';
+  }
+
+  query += ' ORDER BY po.created_at DESC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2);
+  params.push(limit, offset);
+
+  const result = await db.query(query, params);
+
+  return {
+    orders: result.rows,
+    count: result.rows.length,
+    filters: { status, limit, offset, urgent_only }
+  };
+};

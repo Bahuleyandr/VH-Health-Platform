@@ -259,10 +259,10 @@ export const ROUTE_FILES = {
   // Core Patient Management
   users: '../routes/userRoutes.js',
   lookup: '../routes/lookupRoutes.js',
-  appointments: '../routes/appointmentRoutes.js',
-  healthRecords: '../routes/recordRoutes.js',
-  investigations: '../routes/investigationRoutes.js',
-  pharmacy: '../routes/pharmacyRoutes.js',
+  appointments: '../routes/appointment/index.js',
+  healthRecords: '../routes/record/index.js',
+  investigations: '../routes/investigation/index.js',
+  pharmacy: '../routes/pharmacy/index.js',
   feedback: '../routes/feedbackRoutes.js',
   sos: '../routes/sosRoutes.js',
   
@@ -270,7 +270,7 @@ export const ROUTE_FILES = {
   departments: '../routes/departmentRoutes.js',
   doctors: '../routes/doctorRoutes.js',
   version: '../routes/versionRoutes.js',
-  health: '../routes/healthRoutes.js',
+  health: '../routes/health/index.js',
   
   // File Management & Media
   upload: '../routes/uploadRoutes.js',
@@ -281,7 +281,7 @@ export const ROUTE_FILES = {
   adminNotifications: '../routes/adminNotificationRoutes.js',
   admin: '../routes/adminRoutes.js',
   analytics: '../routes/analyticsRoutes.js',
-  staff: '../routes/staffRoutes.js',
+  staff: '../routes/staff/index.js',
   
   // Technical & System
   debug: '../routes/debugRoutes.js',
