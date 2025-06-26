@@ -56,9 +56,9 @@ async function loadRouteModule(routeName, filePath, metadata) {
     
     // For development routes, don't throw in production
     if (metadata.developmentOnly && !getCurrentEnvironmentConfig().enableDevRoutes) {
-      logger.warn(`⚠️ ${errorMessage} (non-critical in production)`);
-      return createDevelopmentStub();
-    }
+  logger.info(`ℹ️ ${routeName} skipped in production (dev only)`);
+  return createDevelopmentStub();
+}
 
     // For critical routes, throw error
     if (metadata.priority === 'critical') {

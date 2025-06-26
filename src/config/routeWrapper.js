@@ -84,13 +84,12 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
       }
 
       try {
-        // ✅ FIX: Apply the flattened handlers directly.
-        // This removes the unnecessary and problematic 'typeof' check.
-        // Express itself will handle the validator objects correctly.
-        router[method](path, ...middlewareStack, ...flattenedHandlers);
-      } catch (error) {
-        console.error(`[routeWrapper] Error registering route ${method} ${path}:`, error);
-      }
+  router[method](path, ...middlewareStack, ...flattenedHandlers);
+} catch (error) {
+  console.error(`❌ routeWrapper failed at: method=${method}, path="${path}"`);
+  console.error(`❌ Handler stack:`, flattenedHandlers.map(f => typeof f).join(', '));
+  throw error; // re-throw to preserve original behavior
+}
     });
   }
 
