@@ -1,16 +1,20 @@
 // src/utils/record/recordHelpers.js
+import { formatDateDDMMYYYY } from '../dateUtils.js';
+
 export function formatDateForDisplay(date) {
-  if (!date) return null;
-  return new Date(date).toLocaleDateString('en-GB');
+  return formatDateDDMMYYYY(date);
 }
 
 export function formatDateTimeForDisplay(date) {
   if (!date) return null;
+  const dateStr = formatDateDDMMYYYY(date);
   const d = new Date(date);
-  return d.toLocaleDateString('en-GB') + ' ' + d.toLocaleTimeString('en-GB', { 
+  const timeStr = d.toLocaleTimeString('en-GB', { 
     hour: '2-digit', 
-    minute: '2-digit' 
+    minute: '2-digit',
+    hour12: false 
   });
+  return `${dateStr} ${timeStr}`;
 }
 
 export function calculateRecordAge(createdAt) {
@@ -28,7 +32,6 @@ export function calculateRecordAge(createdAt) {
 }
 
 export function sanitizeRecordData(data) {
-  // Remove any potentially sensitive fields that shouldn't be exposed
   const sanitized = { ...data };
   delete sanitized.deleted_by;
   delete sanitized.internal_notes;

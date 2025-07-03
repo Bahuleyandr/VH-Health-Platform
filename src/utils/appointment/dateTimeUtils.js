@@ -2,11 +2,20 @@ import moment from 'moment';
 import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
 
 export const formatDate = (date) => {
-  return moment(date).format(APPOINTMENT_CONFIG.DATE_FORMAT);
+  const d = new Date(date);
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  return `${day}-${month}-${year}`;
 };
 
 export const parseDate = (dateString) => {
-  return moment(dateString, APPOINTMENT_CONFIG.DATE_FORMAT).toDate();
+  const ddmmyyyyRegex = /^(\d{2})-(\d{2})-(\d{4})$/;
+  if (ddmmyyyyRegex.test(dateString)) {
+    const [, day, month, year] = dateString.match(ddmmyyyyRegex);
+    return new Date(`${year}-${month}-${day}`);
+  }
+  return new Date(dateString);
 };
 
 export const formatTime = (time) => {

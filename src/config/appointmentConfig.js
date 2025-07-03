@@ -39,7 +39,16 @@ export const APPOINTMENT_CONFIG = {
     APPOINTMENT_BOOKED: 'Appointment booked successfully',
     APPOINTMENT_UPDATED: 'Appointment updated successfully',
     APPOINTMENT_CANCELLED: 'Appointment cancelled successfully'
-  }
+  },
+
+BUSINESS_HOURS: {
+    START: '09:00',
+    END: '18:00',
+    BREAK_START: '13:00',
+    BREAK_END: '14:00'
+  },
+  
+  APPOINTMENT_DURATION: 30, // minutes
 };
 
 export const APPOINTMENT_QUERIES = {

@@ -21,8 +21,8 @@ export function checkDataAccess(userRole, patientData, recordData) {
     case PHARMACY_STAFF:
       return recordData?.record_type === 'PRESCRIPTION'; // Only prescriptions
     case PATIENT:
-      return patientData?.uid === userRole || 
-             patientData?.phone === normalizePhone(userRole);
+      return patientData?.uid === recordData?.patient_uid || 
+         normalizePhone(patientData?.phone) === normalizePhone(recordData?.patient_phone);
     default:
       return false;
   }

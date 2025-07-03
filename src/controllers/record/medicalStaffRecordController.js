@@ -4,6 +4,7 @@ import * as accessControl from '../../services/record/accessControlService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { RECORD_MESSAGES } from '../../config/recordConfig.js';
 import logger from '../../logging/logger.js';
+import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 
 export async function getMedicalRecords(req, res) {
   try {
@@ -37,11 +38,10 @@ export async function getMedicalRecords(req, res) {
 
   } catch (err) {
     logger.error(`[MedicalRecords] ${err.message}`);
-    res.status(500).json({
-      message: 'Failed to retrieve medical records',
-      error: err.message,
-      suggestion: 'Create medical_records table or check database schema'
-    });
+    error(res, 'Failed to retrieve medical records', {
+  details: err.message,
+  suggestion: 'Ensure medical_records table exists with proper structure'
+});
   }
 }
 
@@ -175,9 +175,9 @@ export async function getPatientSummary(req, res) {
     success(res, {
       patient: summary.patient,
       record_statistics: summary.recordStats.map(stat => ({
-        ...stat,
-        last_record: stat.last_record ? new Date(stat.last_record).toLocaleDateString('en-GB') : null
-      })),
+  ...stat,
+  last_record: stat.last_record ? formatDateDDMMYYYY(stat.last_record) : null
+})),
       recent_records: summary.recentRecords,
       total_records: totalRecords,
       accessLevel: userRole,
@@ -188,5 +188,25 @@ export async function getPatientSummary(req, res) {
   } catch (err) {
     logger.error(`[PatientSummary] ${err.message}`);
     error(res, 'Failed to retrieve patient summary');
+  }
+}
+export async function searchMedicalRecords(req, res) {
+  try {
+    const { q, limit = 50 } = req.query;
+    const userRole = req.user?.role;
+    const requestedBy = req.user?.uid || 'anonymous';
+    
+    const records = await recordService.searchMedicalRecords(q, userRole, limit);
+    
+    success(res, {
+      records,
+      count: records.length,
+      searchTerm: q,
+      accessLevel: userRole,
+      requestedBy
+    }, 'Search completed successfully');
+  } catch (err) {
+    logger.error(`[SearchRecords] ${err.message}`);
+    error(res, 'Failed to search medical records');
   }
 }

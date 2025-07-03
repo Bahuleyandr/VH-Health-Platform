@@ -12,7 +12,19 @@ export const investigationRequestValidator = [
   body('test_code').optional().trim().isLength({ max: 50 }).withMessage('Test code too long'),
   body('type').optional().isIn(Object.values(INVESTIGATION_TYPES)).withMessage('Invalid investigation type'),
   body('priority').optional().isIn(Object.values(PRIORITY_LEVELS)).withMessage('Invalid priority level'),
-  body('scheduled_date').optional().isISO8601().withMessage('Valid scheduled date required'),
+  body('scheduled_date')
+  .optional()
+  .isISO8601()
+  .withMessage('Valid scheduled date required')
+  .custom((value) => {
+    const scheduledDate = new Date(value);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (scheduledDate < today) {
+      throw new Error('Scheduled date cannot be in the past');
+    }
+    return true;
+  }),
   body('notes').optional().trim().isLength({ max: 1000 }).withMessage('Notes too long'),
   body('cost').optional().isFloat({ min: 0 }).withMessage('Valid cost required'),
   // Legacy fields

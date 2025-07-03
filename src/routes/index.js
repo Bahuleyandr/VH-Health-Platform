@@ -82,7 +82,6 @@ async function initializeRoutes() {
       // ===== ADMINISTRATIVE & MANAGEMENT =====
       adminDepartments: routes.adminDepartments,
       adminDoctors: routes.adminDoctors,
-      adminNotifications: routes.adminNotifications,
       admin: routes.admin,
       analytics: routes.analytics,
       staff: routes.staff,

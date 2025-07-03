@@ -1,5 +1,6 @@
 import db from '../../config/database.js';
 import logger from '../../logging/logger.js';
+import { formatDateDDMMYYYY } from '../../utils/investigation/investigationHelpers.js';
 
 export const getInvestigationStats = async (days) => {
   const [totalStats, typeStats, statusStats, dailyActivity] = await Promise.all([
@@ -48,12 +49,8 @@ export const getInvestigationStats = async (days) => {
     by_type: typeStats.rows,
     by_status: statusStats.rows,
     daily_activity: dailyActivity.rows.map(row => ({
-      ...row,
-      date: new Date(row.date).toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      })
-    }))
+  ...row,
+  date: formatDateDDMMYYYY(row.date)
+}))
   };
 };

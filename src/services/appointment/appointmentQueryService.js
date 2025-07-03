@@ -191,6 +191,20 @@ export class AppointmentQueryService {
       throw error;
     }
   }
+
+  // Get appointment by ID
+  async getAppointmentById(id) {
+    try {
+      const result = await db.query(
+        APPOINTMENT_QUERIES.APPOINTMENT_DETAIL + ' WHERE a.id = $1',
+        [id]
+      );
+      return result.rows.length > 0 ? result.rows[0] : null;
+    } catch (error) {
+      logger.error('Error getting appointment by ID:', error);
+      throw error;
+    }
+  }
 }
 
 export default new AppointmentQueryService();

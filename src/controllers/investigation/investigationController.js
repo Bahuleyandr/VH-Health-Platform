@@ -348,7 +348,7 @@ export const getInvestigationsByPhone = async (req, res) => {
     const userRole = req.user?.role?.toUpperCase();
     const requestedBy = req.user?.uid;
     
-    // Access control
+    // Access control FIRST
     if (userRole === 'PATIENT') {
       const userResult = await db.query('SELECT phone FROM users WHERE uid = $1', [req.user.uid]);
       if (userResult.rows.length === 0 || userResult.rows[0].phone !== phone) {
@@ -359,12 +359,43 @@ export const getInvestigationsByPhone = async (req, res) => {
       }
     }
     
-    const result = await db.query('SELECT * FROM investigations WHERE phone = $1', [phone]);
+    // Pagination
+    const page = parseInt(req.query.page) || 1;
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const offset = (page - 1) * limit;
+
+    // Get paginated results
+    const result = await db.query(
+      'SELECT * FROM investigations WHERE phone = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+      [phone, limit, offset]
+    );
+
+    // Get total count for pagination
+    const countResult = await db.query(
+      'SELECT COUNT(*) FROM investigations WHERE phone = $1',
+      [phone]
+    );
     
-    await logAudit(req, 'investigations-phone-lookup', { phone, count: result.rows.length });
+    const totalInvestigations = parseInt(countResult.rows[0].count);
+    const totalPages = Math.ceil(totalInvestigations / limit);
+    
+    await logAudit(req, 'investigations-phone-lookup', { 
+      phone, 
+      count: result.rows.length,
+      page,
+      limit 
+    });
     
     success(res, {
       investigations: result.rows,
+      pagination: {
+        page,
+        limit,
+        total: totalInvestigations,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      },
       requestedBy
     }, 'Investigations fetched successfully');
     
@@ -400,12 +431,44 @@ export const getInvestigationsByUID = async (req, res) => {
     }
     
     const phone = userResult.rows[0].phone;
-    const result = await db.query('SELECT * FROM investigations WHERE phone = $1', [phone]);
     
-    await logAudit(req, 'investigations-uid-lookup', { uid, count: result.rows.length });
+    // Pagination parameters
+    const page = parseInt(req.query.page) || 1;
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const offset = (page - 1) * limit;
+    
+    // Get paginated results
+    const result = await db.query(
+      'SELECT * FROM investigations WHERE phone = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+      [phone, limit, offset]
+    );
+    
+    // Get total count
+    const countResult = await db.query(
+      'SELECT COUNT(*) FROM investigations WHERE phone = $1',
+      [phone]
+    );
+    
+    const totalInvestigations = parseInt(countResult.rows[0].count);
+    const totalPages = Math.ceil(totalInvestigations / limit);
+    
+    await logAudit(req, 'investigations-uid-lookup', { 
+      uid, 
+      count: result.rows.length,
+      page,
+      limit 
+    });
     
     success(res, {
       investigations: result.rows,
+      pagination: {
+        page,
+        limit,
+        total: totalInvestigations,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      },
       requestedBy
     }, 'Investigations retrieved by UID');
     
