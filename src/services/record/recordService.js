@@ -3,6 +3,13 @@ import db from '../../config/database.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { DEFAULT_PAGINATION } from '../../config/recordConfig.js';
 import logger from '../../logging/logger.js';
+import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
+import { getPrivacyFilterForRole } from './accessControlService.js';
+
+function isValidUUID(uuid) {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(uuid);
+}
 
 export async function getRecordsByUID(uid) {
   try {
@@ -52,12 +59,15 @@ export async function createHealthRecord(data, createdBy, createdByRole) {
   try {
     const { phone, file_key, file_name, file_type, privacy_level = 0, notes } = data;
     
+    // Handle UUID - if createdBy is a valid UUID use it, otherwise null
+    const createdByUuid = createdBy && isValidUUID(createdBy) ? createdBy : null;
+    
     const result = await db.query(
       `INSERT INTO health_records (
         phone, file_key, file_name, file_type, privacy_level, notes, 
         created_by, created_by_role, created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW()) RETURNING *`,
-      [normalizePhone(phone), file_key, file_name, file_type, privacy_level, notes, createdBy, createdByRole]
+      [normalizePhone(phone), file_key, file_name, file_type, privacy_level, notes, createdByUuid, createdByRole]
     );
     
     return result.rows[0];
@@ -126,17 +136,27 @@ export async function getMedicalRecords(filters = {}, userRole) {
     query += ` ORDER BY mr.created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex}`;
     params.push(limit, offset);
     
-    const [records, countResult] = await Promise.all([
-      db.query(query, params),
-      db.query(
-        `SELECT COUNT(*) FROM medical_records mr WHERE 1=1` +
-        (patient_id ? ` AND mr.patient_id = ${patient_id}` : '') +
-        (doctor_id ? ` AND mr.doctor_id = ${doctor_id}` : '') +
-        (record_type ? ` AND mr.record_type = '${record_type.toUpperCase()}'` : '') +
-        (date_from ? ` AND DATE(mr.created_at) >= '${date_from}'` : '') +
-        (date_to ? ` AND DATE(mr.created_at) <= '${date_to}'` : '')
-      )
-    ]);
+    // Execute queries sequentially
+const records = await db.query(query, params);
+
+// Build count query
+const countQuery = `
+  SELECT COUNT(*) FROM medical_records mr 
+  WHERE 1=1
+  ${patient_id ? ' AND mr.patient_id = $1' : ''}
+  ${doctor_id ? ' AND mr.doctor_id = $2' : ''}
+  ${record_type ? ' AND mr.record_type = $3' : ''}
+  ${date_from ? ' AND DATE(mr.created_at) >= $4' : ''}
+  ${date_to ? ' AND DATE(mr.created_at) <= $5' : ''}
+`;
+const countParams = [];
+if (patient_id) countParams.push(patient_id);
+if (doctor_id) countParams.push(doctor_id);
+if (record_type) countParams.push(record_type.toUpperCase());
+if (date_from) countParams.push(date_from);
+if (date_to) countParams.push(date_to);
+
+const countResult = await db.query(countQuery, countParams);
     
     const totalRecords = parseInt(countResult.rows[0].count);
     
@@ -182,24 +202,23 @@ export async function getMedicalRecordById(id) {
 }
 
 export async function createMedicalRecord(data, doctorId, createdBy) {
+  const client = await db.pool.connect();
   try {
-    const { 
-      patient_id, record_type, title, description,
-      diagnosis, treatment, medications, lab_results, 
-      attachments, privacy_level = 1
-    } = data;
+    await client.query('BEGIN');
     
     // Verify patient exists
-    const patientCheck = await db.query(
+    const patientCheck = await client.query(
       'SELECT id, name, phone FROM users WHERE id = $1', 
-      [patient_id]
+      [data.patient_id]
     );
     
     if (patientCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
       throw new Error('Patient not found');
     }
     
-    const result = await db.query(`
+    // Insert record
+    const result = await client.query(`
       INSERT INTO medical_records (
         patient_id, doctor_id, record_type, title, description,
         diagnosis, treatment, medications, lab_results, attachments, 
@@ -207,18 +226,24 @@ export async function createMedicalRecord(data, doctorId, createdBy) {
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
       RETURNING *
     `, [
-      patient_id, doctorId, record_type.toUpperCase(), title, description,
-      diagnosis, treatment, medications, lab_results, attachments, 
-      privacy_level, createdBy
+      data.patient_id, doctorId, data.record_type.toUpperCase(), 
+      data.title, data.description, data.diagnosis, data.treatment, 
+      data.medications, data.lab_results, data.attachments, 
+      data.privacy_level || 1, createdBy
     ]);
+    
+    await client.query('COMMIT');
     
     return {
       record: result.rows[0],
       patient: patientCheck.rows[0]
     };
   } catch (error) {
+    await client.query('ROLLBACK');
     logger.error(`[RecordService] Error creating medical record: ${error.message}`);
     throw error;
+  } finally {
+    client.release();
   }
 }
 
@@ -265,20 +290,65 @@ export async function softDeleteRecord(id, deletedBy, reason) {
   }
 }
 
+export async function getPatientInfo(patientId) {
+  try {
+    const result = await db.query(
+      'SELECT id, name, phone, email, birthday, gender, address, uid FROM users WHERE id = $1',
+      [patientId]
+    );
+    return result.rows[0] || null;
+  } catch (error) {
+    logger.error(`[RecordService] Error getting patient info: ${error.message}`);
+    throw error;
+  }
+}
+
+export async function searchMedicalRecords(searchTerm, userRole, limit = 50) {
+  try {
+    const privacyFilter = getPrivacyFilterForRole(userRole);
+    
+    const result = await db.query(`
+      SELECT mr.*, 
+             TO_CHAR(mr.created_at, 'DD-MM-YYYY HH24:MI') as created_at_formatted,
+             p.name as patient_name, p.phone as patient_phone,
+             d.name as doctor_name
+      FROM medical_records mr
+      LEFT JOIN users p ON mr.patient_id = p.id
+      LEFT JOIN users d ON mr.doctor_id = d.id
+      WHERE (
+        mr.title ILIKE $1 OR
+        mr.description ILIKE $1 OR
+        mr.diagnosis ILIKE $1 OR
+        mr.treatment ILIKE $1 OR
+        p.name ILIKE $1 OR
+        d.name ILIKE $1
+      ) ${privacyFilter}
+      ORDER BY mr.created_at DESC
+      LIMIT $2
+    `, [`%${searchTerm}%`, limit]);
+    
+    return result.rows;
+  } catch (error) {
+    logger.error(`[RecordService] Error searching medical records: ${error.message}`);
+    throw error;
+  }
+}
+
 export async function getPatientSummary(patientId, privacyFilter = '') {
   try {
-    const [recordStats, recentRecords, patientInfo] = await Promise.all([
-      // Get record counts by type
-      db.query(`
+    const result = await db.query(`
+      WITH patient_info AS (
+        SELECT name, phone, email, birthday, gender, address 
+        FROM users WHERE id = $1
+      ),
+      record_stats AS (
         SELECT record_type, COUNT(*) as count,
                MAX(created_at) as last_record
         FROM medical_records 
         WHERE patient_id = $1 ${privacyFilter}
         GROUP BY record_type
-      `, [patientId]),
-      
-      // Get recent records
-      db.query(`
+      ),
+      recent_records AS (
         SELECT mr.id, mr.record_type, mr.title, mr.privacy_level,
                TO_CHAR(mr.created_at, 'DD-MM-YYYY HH24:MI') as created_at_formatted,
                d.name as doctor_name, dp.specialization
@@ -288,19 +358,18 @@ export async function getPatientSummary(patientId, privacyFilter = '') {
         WHERE mr.patient_id = $1 ${privacyFilter}
         ORDER BY mr.created_at DESC
         LIMIT 5
-      `, [patientId]),
-      
-      // Get patient basic info
-      db.query(
-        'SELECT name, phone, email, birthday, gender, address FROM users WHERE id = $1',
-        [patientId]
       )
-    ]);
+      SELECT 
+        (SELECT row_to_json(patient_info.*) FROM patient_info) as patient,
+        (SELECT json_agg(record_stats.*) FROM record_stats) as record_stats,
+        (SELECT json_agg(recent_records.*) FROM recent_records) as recent_records
+    `, [patientId]);
     
+    const data = result.rows[0];
     return {
-      patient: patientInfo.rows[0],
-      recordStats: recordStats.rows,
-      recentRecords: recentRecords.rows
+      patient: data.patient,
+      recordStats: data.record_stats || [],
+      recentRecords: data.recent_records || []
     };
   } catch (error) {
     logger.error(`[RecordService] Error getting patient summary: ${error.message}`);

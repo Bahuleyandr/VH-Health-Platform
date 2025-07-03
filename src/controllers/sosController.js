@@ -2,7 +2,7 @@
 import { validationResult } from 'express-validator';
 import * as sosService from '../services/sosService.js';
 import * as emergencyService from '../services/emergencyService.js';
-import * as notificationService from '../services/notificationService.js';
+import * as notificationService from '../services/notification/notificationService.js';
 import { success, error } from '../utils/responseHelper.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
 import { normalizePhone } from '../utils/phoneUtils.js';

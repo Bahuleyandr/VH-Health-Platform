@@ -1,7 +1,7 @@
 // src/services/sosService.js
 import db from '../config/database.js';
 import logger from '../logging/logger.js';
-import * as notificationService from './notificationService.js';
+import * as notificationService from './notification/notificationService.js';
 import * as locationService from './locationService.js';
 import { SOS_SEVERITY, RESPONSE_TIMES } from '../config/sosConfig.js';
 

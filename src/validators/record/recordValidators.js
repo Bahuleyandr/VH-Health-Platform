@@ -26,6 +26,12 @@ export const recordCreateValidator = [
     .withMessage('Invalid privacy level')
 ];
 
+export const doctorIdValidator = [
+  param('doctor_id')
+    .isInt({ min: 1 })
+    .withMessage('Invalid doctor ID')
+];
+
 export const recordUpdateValidator = [
   body('title')
     .optional()

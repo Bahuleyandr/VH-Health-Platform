@@ -9,6 +9,7 @@ import { RECORD_MESSAGES, AUDIT_ACTIONS } from '../../config/recordConfig.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { PATIENT } from '../../utils/roles.js';
 import logger from '../../logging/logger.js';
+import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 
 export async function getRecordsByUID(req, res) {
   try {
@@ -79,7 +80,8 @@ export async function createHealthRecord(req, res) {
 
   try {
     const { phone, file_key, file_name, file_type, privacy_level = 0, notes } = req.body;
-    const createdBy = req.user?.uid || 'system';
+    // Use the user's UUID if available, otherwise null
+    const createdBy = req.user?.id || req.user?.uid || null;
     const createdByRole = req.user?.role || 'unknown';
 
     // Role-based creation check
@@ -109,7 +111,7 @@ export async function createHealthRecord(req, res) {
       record,
       createdBy,
       createdByRole,
-      timestamp: new Date().toLocaleDateString('en-GB')
+      timestamp: formatDateDDMMYYYY(new Date())
     }, RESPONSE_MESSAGES.HEALTH_RECORD_ADDED);
 
   } catch (err) {

@@ -5,19 +5,21 @@ import {
   paginationValidator,
   filterValidator,
   recordIdValidator,
-  patientIdValidator
+  patientIdValidator,
+  doctorIdValidator
 } from '../../validators/record/recordValidators.js';
+import { query } from 'express-validator';
 
 const router = express.Router();
 
 // Get all medical records with filtering
-router.get('/list', 
+router.get('/records', 
   [...paginationValidator, ...filterValidator], 
   medicalStaffController.getMedicalRecords
 );
 
 // Get medical record by ID
-router.get('/record/:id', 
+router.get('/records/:id', 
   recordIdValidator, 
   medicalStaffController.getMedicalRecordById
 );
@@ -30,6 +32,7 @@ router.get('/patient/:patient_id',
 
 // Get doctor records
 router.get('/doctor/:doctor_id', 
+  doctorIdValidator,
   medicalStaffController.getDoctorRecords
 );
 
@@ -37,6 +40,12 @@ router.get('/doctor/:doctor_id',
 router.get('/patient/:patient_id/summary', 
   patientIdValidator, 
   medicalStaffController.getPatientSummary
+);
+
+// Search medical records
+router.get('/search', 
+  query('q').notEmpty().withMessage('Search term required').trim(),
+  medicalStaffController.searchMedicalRecords
 );
 
 export default router;

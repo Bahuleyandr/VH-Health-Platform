@@ -1,157 +1,378 @@
-// src/config/userConfig.js - Hospital User Management Configuration
+// src/config/userConfig.js
 
-export const HOSPITAL_ROLES = {
-  // Administrative
-  'ADMIN': { level: 1, description: 'System Administrator', department: 'Administration' },
-  'HR_MANAGER': { level: 2, description: 'Human Resources Manager', department: 'Human Resources' },
+export const USER_CONFIG = {
+  // Pagination
+  DEFAULT_PAGE_SIZE: 20,
+  MAX_PAGE_SIZE: 100,
+  MAX_BULK_IMPORT: 500,
+  MAX_SEARCH_RESULTS: 50,
   
-  // Medical Staff
-  'CHIEF_DOCTOR': { level: 2, description: 'Chief Medical Officer', department: 'Medical' },
-  'DOCTOR': { level: 3, description: 'Medical Doctor', department: 'Medical' },
-  'SPECIALIST': { level: 3, description: 'Medical Specialist', department: 'Medical' },
-  'RESIDENT': { level: 4, description: 'Medical Resident', department: 'Medical' },
+  // User roles
+  ROLES: {
+    ADMIN: 'ADMIN',
+    PATIENT: 'PATIENT', 
+    DOCTOR: 'DOCTOR',
+    NURSING_STAFF: 'NURSING_STAFF',
+    PHARMACY_STAFF: 'PHARMACY_STAFF',
+    LAB_STAFF: 'LAB_STAFF',
+    HR_STAFF: 'HR_STAFF',
+    GENERAL_STAFF: 'GENERAL_STAFF',
+    RECEPTIONIST: 'RECEPTIONIST',
+    SECURITY: 'SECURITY',
+    EMERGENCY_RESPONDER: 'EMERGENCY_RESPONDER'
+  },
   
-  // Nursing Staff
-  'HEAD_NURSE': { level: 3, description: 'Head of Nursing', department: 'Nursing' },
-  'NURSING_STAFF': { level: 4, description: 'Registered Nurse', department: 'Nursing' },
-  'NURSE_ASSISTANT': { level: 5, description: 'Nursing Assistant', department: 'Nursing' },
+  // Privacy settings
+  PRIVACY: {
+    PHONE_MASK_LENGTH: 4,
+    MAX_LOOKUPS_PER_HOUR: {
+      ADMIN: 1000,
+      DOCTOR: 100,
+      DEFAULT: 50
+    }
+  },
   
-  // Support Staff
-  'PHARMACIST': { level: 4, description: 'Licensed Pharmacist', department: 'Pharmacy' },
-  'PHARMACY_STAFF': { level: 5, description: 'Pharmacy Technician', department: 'Pharmacy' },
-  'LAB_TECHNICIAN': { level: 4, description: 'Laboratory Technician', department: 'Laboratory' },
-  'LAB_STAFF': { level: 5, description: 'Laboratory Assistant', department: 'Laboratory' },
-  'RADIOLOGIST': { level: 3, description: 'Radiologist', department: 'Radiology' },
-  'RADIOLOGY_TECH': { level: 4, description: 'Radiology Technician', department: 'Radiology' },
+  // User status
+  USER_STATUS: {
+    ACTIVE: 'active',
+    INACTIVE: 'inactive',
+    SUSPENDED: 'suspended',
+    DEACTIVATED: 'deactivated'
+  },
   
-  // Other Staff
-  'RECEPTIONIST': { level: 5, description: 'Front Desk Receptionist', department: 'Administration' },
-  'SECURITY': { level: 6, description: 'Security Personnel', department: 'Security' },
-  'MAINTENANCE': { level: 6, description: 'Maintenance Staff', department: 'Facilities' },
-  'CLEANER': { level: 6, description: 'Cleaning Staff', department: 'Housekeeping' },
+  // Search limits
+  SEARCH: {
+    MIN_QUERY_LENGTH: 2,
+    MAX_QUERY_LENGTH: 100,
+    DEFAULT_SORT_BY: 'registered_at',
+    DEFAULT_SORT_ORDER: 'DESC'
+  },
   
-  // Patients and External
-  'PATIENT': { level: 7, description: 'Hospital Patient', department: 'Patient Care' },
-  'VISITOR': { level: 8, description: 'Hospital Visitor', department: 'External' },
-  'CONTRACTOR': { level: 8, description: 'External Contractor', department: 'External' }
+  // Activity tracking
+  ACTIVITY_STATUS: {
+    VERY_ACTIVE: { label: 'Very Active', days: 1 },
+    ACTIVE: { label: 'Active', days: 7 },
+    INACTIVE: { label: 'Inactive', days: 30 },
+    LONG_INACTIVE: { label: 'Long Inactive', days: null }
+  },
+  
+  // Age groups for analytics
+  AGE_GROUPS: [
+    { label: 'Under 18', min: 0, max: 17 },
+    { label: '18-30', min: 18, max: 30 },
+    { label: '31-50', min: 31, max: 50 },
+    { label: '51-70', min: 51, max: 70 },
+    { label: 'Over 70', min: 71, max: null }
+  ]
 };
 
-export const HOSPITAL_DEPARTMENTS = [
-  'Administration', 'Human Resources', 'Medical', 'Nursing', 'Pharmacy', 
-  'Laboratory', 'Radiology', 'Emergency', 'Surgery', 'ICU', 'Pediatrics',
-  'Cardiology', 'Oncology', 'Neurology', 'Orthopedics', 'Security',
-  'Facilities', 'Housekeeping', 'Patient Care', 'External'
-];
+export const ACCESS_MATRIX = {
+  ADMIN: {
+    users: ['create', 'read', 'update', 'delete'],
+    appointments: ['create', 'read', 'update', 'delete'],
+    records: ['create', 'read', 'update', 'delete'],
+    pharmacy: ['create', 'read', 'update', 'delete'],
+    investigations: ['create', 'read', 'update', 'delete']
+  },
+  DOCTOR: {
+    users: ['read'],
+    appointments: ['create', 'read', 'update'],
+    records: ['create', 'read', 'update'],
+    pharmacy: ['create', 'read'],
+    investigations: ['create', 'read', 'update']
+  },
+  NURSING_STAFF: {
+    users: ['read'],
+    appointments: ['read', 'update'],
+    records: ['read', 'update'],
+    pharmacy: ['read'],
+    investigations: ['read', 'update']
+  },
+  PHARMACY_STAFF: {
+    users: ['read'],
+    appointments: ['read'],
+    records: ['read'],
+    pharmacy: ['create', 'read', 'update'],
+    investigations: []
+  },
+  LAB_STAFF: {
+    users: ['read'],
+    appointments: ['read'],
+    records: ['read'],
+    pharmacy: [],
+    investigations: ['create', 'read', 'update']
+  },
+  RECEPTIONIST: {
+    users: ['create', 'read'],
+    appointments: ['create', 'read', 'update'],
+    records: ['read'],
+    pharmacy: [],
+    investigations: ['read']
+  },
+  PATIENT: {
+    users: ['read'], // only own profile
+    appointments: ['read'], // only own appointments
+    records: ['read'], // only own records
+    pharmacy: ['read'], // only own prescriptions
+    investigations: ['read'] // only own results
+  },
+  HR_STAFF: {
+    users: ['create', 'read', 'update'],
+    appointments: [],
+    records: [],
+    pharmacy: [],
+    investigations: []
+  },
+  GENERAL_STAFF: {
+    users: ['read'],
+    appointments: ['read'],
+    records: [],
+    pharmacy: [],
+    investigations: []
+  },
+  SECURITY: {
+    users: ['read'],
+    appointments: [],
+    records: [],
+    pharmacy: [],
+    investigations: []
+  },
+  EMERGENCY_RESPONDER: {
+    users: ['read'],
+    appointments: ['read', 'update'],
+    records: ['read', 'update'],
+    pharmacy: ['read'],
+    investigations: ['read', 'update']
+  }
+};
 
-export const MEDICAL_SPECIALTIES = [
-  'General Medicine', 'Cardiology', 'Neurology', 'Orthopedics', 'Pediatrics',
-  'Oncology', 'Emergency Medicine', 'Anesthesiology', 'Surgery', 'Psychiatry',
-  'Radiology', 'Pathology', 'Dermatology', 'Ophthalmology', 'ENT',
-  'Gynecology', 'Urology', 'Endocrinology', 'Gastroenterology', 'Pulmonology'
-];
+// Gender options
+export const GENDER_OPTIONS = {
+  MALE: 'MALE',
+  FEMALE: 'FEMALE',
+  OTHER: 'OTHER',
+  PREFER_NOT_TO_SAY: 'PREFER_NOT_TO_SAY'
+};
 
+// Blood groups
+export const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+
+// Emergency contact relationship types
+export const RELATIONSHIP_TYPES = {
+  SPOUSE: 'SPOUSE',
+  PARENT: 'PARENT',
+  CHILD: 'CHILD',
+  SIBLING: 'SIBLING',
+  GUARDIAN: 'GUARDIAN',
+  FRIEND: 'FRIEND',
+  OTHER: 'OTHER'
+};
+
+// Appointment status
+export const APPOINTMENT_STATUS = {
+  SCHEDULED: 'SCHEDULED',
+  CONFIRMED: 'CONFIRMED',
+  IN_PROGRESS: 'IN_PROGRESS',
+  COMPLETED: 'COMPLETED',
+  CANCELLED: 'CANCELLED',
+  NO_SHOW: 'NO_SHOW',
+  RESCHEDULED: 'RESCHEDULED'
+};
+
+// User actions for audit logging
+export const USER_ACTIONS = {
+  // Authentication actions
+  LOGIN: 'LOGIN',
+  LOGOUT: 'LOGOUT',
+  LOGIN_FAILED: 'LOGIN_FAILED',
+  PASSWORD_RESET: 'PASSWORD_RESET',
+  PASSWORD_CHANGED: 'PASSWORD_CHANGED',
+  
+  // User management actions
+  USER_CREATED: 'USER_CREATED',
+  USER_UPDATED: 'USER_UPDATED',
+  USER_DELETED: 'USER_DELETED',
+  USER_ACTIVATED: 'USER_ACTIVATED',
+  USER_DEACTIVATED: 'USER_DEACTIVATED',
+  USER_SUSPENDED: 'USER_SUSPENDED',
+  ROLE_CHANGED: 'ROLE_CHANGED',
+  
+  // Patient actions
+  PATIENT_REGISTERED: 'PATIENT_REGISTERED',
+  PATIENT_UPDATED: 'PATIENT_UPDATED',
+  PATIENT_VIEWED: 'PATIENT_VIEWED',
+  
+  // Appointment actions
+  APPOINTMENT_CREATED: 'APPOINTMENT_CREATED',
+  APPOINTMENT_UPDATED: 'APPOINTMENT_UPDATED',
+  APPOINTMENT_CANCELLED: 'APPOINTMENT_CANCELLED',
+  APPOINTMENT_COMPLETED: 'APPOINTMENT_COMPLETED',
+  
+  // Medical record actions
+  RECORD_CREATED: 'RECORD_CREATED',
+  RECORD_UPDATED: 'RECORD_UPDATED',
+  RECORD_VIEWED: 'RECORD_VIEWED',
+  RECORD_DELETED: 'RECORD_DELETED',
+  
+  // Prescription actions
+  PRESCRIPTION_CREATED: 'PRESCRIPTION_CREATED',
+  PRESCRIPTION_UPDATED: 'PRESCRIPTION_UPDATED',
+  PRESCRIPTION_DISPENSED: 'PRESCRIPTION_DISPENSED',
+  
+  // Investigation actions
+  INVESTIGATION_ORDERED: 'INVESTIGATION_ORDERED',
+  INVESTIGATION_COMPLETED: 'INVESTIGATION_COMPLETED',
+  RESULTS_UPLOADED: 'RESULTS_UPLOADED',
+  
+  // Administrative actions
+  SETTINGS_UPDATED: 'SETTINGS_UPDATED',
+  REPORT_GENERATED: 'REPORT_GENERATED',
+  DATA_EXPORTED: 'DATA_EXPORTED',
+  BULK_IMPORT: 'BULK_IMPORT'
+};
+
+// Report types for analytics
+export const REPORT_TYPES = {
+  USER_ACTIVITY: 'USER_ACTIVITY',
+  PATIENT_DEMOGRAPHICS: 'PATIENT_DEMOGRAPHICS',
+  APPOINTMENT_SUMMARY: 'APPOINTMENT_SUMMARY',
+  REVENUE_REPORT: 'REVENUE_REPORT',
+  STAFF_PERFORMANCE: 'STAFF_PERFORMANCE',
+  INVENTORY_STATUS: 'INVENTORY_STATUS',
+  DISEASE_STATISTICS: 'DISEASE_STATISTICS',
+  LAB_UTILIZATION: 'LAB_UTILIZATION',
+  EMERGENCY_RESPONSE: 'EMERGENCY_RESPONSE',
+  AUDIT_LOG: 'AUDIT_LOG'
+};
+
+// Export USER_STATUS as a direct export (in addition to being in USER_CONFIG)
 export const USER_STATUS = {
   ACTIVE: 'active',
   INACTIVE: 'inactive',
   SUSPENDED: 'suspended',
-  TERMINATED: 'terminated'
+  DEACTIVATED: 'deactivated'
 };
 
-export const USER_ACTIONS = {
-  LOGIN: 'user_login',
-  LOGOUT: 'user_logout',
-  CREATED: 'user_created',
-  UPDATED: 'user_updated',
-  DELETED: 'user_deleted',
-  DEACTIVATED: 'user_deactivated',
-  REACTIVATED: 'user_reactivated',
-  STATUS_CHANGED: 'status_changed',
-  ROLE_CHANGED: 'role_changed',
-  PROFILE_VIEWED: 'user_profile_viewed',
-  BULK_CREATED: 'bulk_user_created',
-  REPORT_GENERATED: 'report_generated'
+// Hospital departments
+export const HOSPITAL_DEPARTMENTS = {
+  EMERGENCY: 'EMERGENCY',
+  GENERAL_MEDICINE: 'GENERAL_MEDICINE',
+  SURGERY: 'SURGERY',
+  PEDIATRICS: 'PEDIATRICS',
+  OBSTETRICS_GYNECOLOGY: 'OBSTETRICS_GYNECOLOGY',
+  CARDIOLOGY: 'CARDIOLOGY',
+  NEUROLOGY: 'NEUROLOGY',
+  ORTHOPEDICS: 'ORTHOPEDICS',
+  RADIOLOGY: 'RADIOLOGY',
+  PATHOLOGY: 'PATHOLOGY',
+  PHARMACY: 'PHARMACY',
+  ICU: 'ICU',
+  ONCOLOGY: 'ONCOLOGY',
+  PSYCHIATRY: 'PSYCHIATRY',
+  DERMATOLOGY: 'DERMATOLOGY',
+  ENT: 'ENT',
+  OPHTHALMOLOGY: 'OPHTHALMOLOGY',
+  PHYSIOTHERAPY: 'PHYSIOTHERAPY',
+  ADMINISTRATION: 'ADMINISTRATION'
 };
 
+// Medical specialties
+export const MEDICAL_SPECIALTIES = {
+  GENERAL_PRACTITIONER: 'GENERAL_PRACTITIONER',
+  CARDIOLOGIST: 'CARDIOLOGIST',
+  NEUROLOGIST: 'NEUROLOGIST',
+  SURGEON: 'SURGEON',
+  ORTHOPEDIC_SURGEON: 'ORTHOPEDIC_SURGEON',
+  PEDIATRICIAN: 'PEDIATRICIAN',
+  OBSTETRICIAN_GYNECOLOGIST: 'OBSTETRICIAN_GYNECOLOGIST',
+  PSYCHIATRIST: 'PSYCHIATRIST',
+  RADIOLOGIST: 'RADIOLOGIST',
+  PATHOLOGIST: 'PATHOLOGIST',
+  ANESTHESIOLOGIST: 'ANESTHESIOLOGIST',
+  EMERGENCY_PHYSICIAN: 'EMERGENCY_PHYSICIAN',
+  ONCOLOGIST: 'ONCOLOGIST',
+  DERMATOLOGIST: 'DERMATOLOGIST',
+  ENT_SPECIALIST: 'ENT_SPECIALIST',
+  OPHTHALMOLOGIST: 'OPHTHALMOLOGIST',
+  UROLOGIST: 'UROLOGIST',
+  NEPHROLOGIST: 'NEPHROLOGIST',
+  PULMONOLOGIST: 'PULMONOLOGIST',
+  GASTROENTEROLOGIST: 'GASTROENTEROLOGIST',
+  ENDOCRINOLOGIST: 'ENDOCRINOLOGIST',
+  RHEUMATOLOGIST: 'RHEUMATOLOGIST',
+  HEMATOLOGIST: 'HEMATOLOGIST',
+  INFECTIOUS_DISEASE_SPECIALIST: 'INFECTIOUS_DISEASE_SPECIALIST',
+  PHYSICAL_THERAPIST: 'PHYSICAL_THERAPIST',
+  NURSE_PRACTITIONER: 'NURSE_PRACTITIONER'
+};
+
+// Hospital roles export - mapping role names to their identifiers
+export const HOSPITAL_ROLES = {
+  ADMIN: 'ADMIN',
+  PATIENT: 'PATIENT',
+  DOCTOR: 'DOCTOR',
+  NURSING_STAFF: 'NURSING_STAFF',
+  PHARMACY_STAFF: 'PHARMACY_STAFF',
+  LAB_STAFF: 'LAB_STAFF',
+  HR_STAFF: 'HR_STAFF',
+  GENERAL_STAFF: 'GENERAL_STAFF',
+  RECEPTIONIST: 'RECEPTIONIST',
+  SECURITY: 'SECURITY',
+  EMERGENCY_RESPONDER: 'EMERGENCY_RESPONDER'
+};
+
+// Role hierarchy for permission inheritance
+export const ROLE_HIERARCHY = {
+  ADMIN: ['DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'HR_STAFF', 'RECEPTIONIST', 'GENERAL_STAFF', 'SECURITY', 'EMERGENCY_RESPONDER'],
+  DOCTOR: ['NURSING_STAFF'],
+  HR_STAFF: ['GENERAL_STAFF'],
+  RECEPTIONIST: ['GENERAL_STAFF']
+};
+
+// Default role assignments
+export const DEFAULT_ROLE = 'PATIENT';
+
+// Admin roles that have elevated privileges
+export const ADMIN_ROLES = ['ADMIN', 'HR_STAFF'];
+
+// Medical staff roles
+export const MEDICAL_ROLES = ['DOCTOR', 'NURSING_STAFF', 'EMERGENCY_RESPONDER'];
+
+// Support staff roles
+export const SUPPORT_ROLES = ['PHARMACY_STAFF', 'LAB_STAFF', 'RECEPTIONIST', 'GENERAL_STAFF', 'SECURITY'];
+
+// Risk levels for patient classification
 export const RISK_LEVELS = {
-  CRITICAL: ['ADMIN', 'CHIEF_DOCTOR', 'HEAD_NURSE'],
-  HIGH: ['DOCTOR', 'SPECIALIST', 'PHARMACIST'],
-  MEDIUM: ['NURSING_STAFF', 'LAB_TECHNICIAN'],
-  LOW: ['RECEPTIONIST', 'PATIENT', 'VISITOR']
+  LOW: 'LOW',
+  MEDIUM: 'MEDIUM',
+  HIGH: 'HIGH',
+  CRITICAL: 'CRITICAL'
 };
 
-export const REPORT_TYPES = {
-  DEPARTMENT: 'department',
-  ROLE: 'role',
-  ACTIVITY: 'activity',
-  COMPLIANCE: 'compliance',
-  COMPREHENSIVE: 'comprehensive'
-};
-
-// Access control matrix
-export const ACCESS_MATRIX = {
-  ADMIN: {
-    canView: ['*'],
-    canEdit: ['*'],
-    canDelete: ['*'],
-    canChangeRole: true,
-    canViewSensitive: true,
-    canGenerateReports: true
+// Risk level configurations
+export const RISK_LEVEL_CONFIG = {
+  LOW: {
+    label: 'Low Risk',
+    color: 'green',
+    priority: 1,
+    description: 'Routine care, no immediate concerns'
   },
-  HR_MANAGER: {
-    canView: ['*'],
-    canEdit: ['*'],
-    canDelete: [],
-    canChangeRole: true,
-    canViewSensitive: true,
-    canGenerateReports: true
+  MEDIUM: {
+    label: 'Medium Risk',
+    color: 'yellow',
+    priority: 2,
+    description: 'Requires monitoring, potential complications'
   },
-  CHIEF_DOCTOR: {
-    canView: ['DOCTOR', 'SPECIALIST', 'RESIDENT', 'NURSING_STAFF', 'PATIENT'],
-    canEdit: ['PATIENT'],
-    canDelete: [],
-    canChangeRole: false,
-    canViewSensitive: false,
-    canGenerateReports: false
+  HIGH: {
+    label: 'High Risk',
+    color: 'orange',
+    priority: 3,
+    description: 'Needs frequent monitoring, significant health concerns'
   },
-  DOCTOR: {
-    canView: ['NURSING_STAFF', 'NURSE_ASSISTANT', 'PATIENT'],
-    canEdit: ['PATIENT'],
-    canDelete: [],
-    canChangeRole: false,
-    canViewSensitive: false,
-    canGenerateReports: false
-  },
-  HEAD_NURSE: {
-    canView: ['NURSING_STAFF', 'NURSE_ASSISTANT', 'PATIENT'],
-    canEdit: ['PATIENT'],
-    canDelete: [],
-    canChangeRole: false,
-    canViewSensitive: false,
-    canGenerateReports: false
-  },
-  NURSING_STAFF: {
-    canView: ['PATIENT'],
-    canEdit: ['PATIENT'],
-    canDelete: [],
-    canChangeRole: false,
-    canViewSensitive: false,
-    canGenerateReports: false
-  },
-  DEFAULT: {
-    canView: ['PATIENT'],
-    canEdit: [],
-    canDelete: [],
-    canChangeRole: false,
-    canViewSensitive: false,
-    canGenerateReports: false
+  CRITICAL: {
+    label: 'Critical Risk',
+    color: 'red',
+    priority: 4,
+    description: 'Requires immediate attention, life-threatening conditions'
   }
-};
-
-// Configuration for user profile fields
-export const USER_PROFILE_FIELDS = {
-  basic: ['name', 'email', 'gender', 'birthday', 'phone'],
-  contact: ['address', 'emergency_contact'],
-  professional: ['role', 'department', 'specialty', 'employee_id', 'license_number'],
-  medical: ['blood_group', 'allergies', 'medical_history'],
-  metadata: ['status', 'registered_at', 'last_login', 'updated_at']
 };

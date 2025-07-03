@@ -35,8 +35,12 @@ export default {
   authRoutes: [],
   firebaseAuthRoutes: [],
   otpRoutes: [],
+
   // otpAdminRoutes: [ADMIN],  
   debugRoutes: [ADMIN],
-  departmentRoutes: [GENERAL_STAFF, ADMIN],
-  swaggerRoutes: []
+  versionRoutes: [ADMIN, DOCTOR, NURSING_STAFF, PHARMACY_STAFF, LAB_STAFF, HR_STAFF, GENERAL_STAFF],
+  swaggerRoutes: [],
+  rbacRoutes: [ADMIN, HR_STAFF],
+  adminDocumentationRoutes: [ADMIN],
+  departmentRoutes: [GENERAL_STAFF, ADMIN]
 };

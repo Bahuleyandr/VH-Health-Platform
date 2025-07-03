@@ -12,6 +12,13 @@ import {
   doctorIdValidator,
   typeValidator
 } from '../../validators/investigation/investigationValidators.js';
+import * as uploadController from '../../controllers/investigation/uploadController.js';
+import multer from 'multer';
+
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB
+});
 
 const router = express.Router();
 
@@ -20,6 +27,9 @@ wrapAutoRBAC(router, 'investigationRoutes', {
   get: [
     ['/list', listInvestigationsValidator, investigationController.listInvestigations],
     ['/:id', idValidator, investigationController.getInvestigationById],
+    ['/:id/files', uploadController.getFiles],
+    ['/:id/files/:fileId', uploadController.getFileInfo],
+    ['/:id/files/:fileId/download', uploadController.downloadFile],
     ['/patient/:patient_id', patientIdValidator, investigationController.getPatientInvestigations],
     ['/doctor/:doctor_id', doctorIdValidator, investigationController.getDoctorInvestigations],
     ['/type/:type', typeValidator, investigationController.getInvestigationsByType],
@@ -32,9 +42,14 @@ wrapAutoRBAC(router, 'investigationRoutes', {
   
   post: [
     ['/order', investigationRequestValidator, orderController.orderInvestigation],
+    ['/:id/upload', upload.single('file'), uploadController.uploadResult],    
     ['/', investigationRequestValidator, orderController.legacyInvestigationRequest]
   ],
-  
+
+delete: [
+    ['/:id/files/:fileId', uploadController.removeFile]
+  ],
+
   put: [
     ['/:id/status', updateStatusValidator, investigationController.updateInvestigationStatus],
     ['/:id/results', addResultsValidator, investigationController.addInvestigationResults]

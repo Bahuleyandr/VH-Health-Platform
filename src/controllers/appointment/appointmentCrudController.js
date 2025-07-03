@@ -4,6 +4,7 @@ import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
 import appointmentService from '../../services/appointment/appointmentService.js';
 import appointmentValidationService from '../../services/appointment/appointmentValidationService.js';
 import logger from '../../logging/logger.js';
+import { checkAppointmentPermission } from '../../utils/appointment/appointmentHelpers.js';
 
 export const createAppointment = async (req, res) => {
   try {
@@ -101,11 +102,8 @@ export const deleteAppointment = async (req, res) => {
     }
 
     // Check permissions
-    if (req.user?.role === 'PATIENT' && appointment.patient_id !== req.user.id) {
-      return error(res, 'Can only cancel your own appointments', HTTP_STATUS.FORBIDDEN);
-    }
-    if (req.user?.role === 'DOCTOR' && appointment.doctor_id !== req.user.id) {
-      return error(res, 'Can only cancel your own appointments', HTTP_STATUS.FORBIDDEN);
+    if (!checkAppointmentPermission(req.user, appointment, 'cancel')) {
+      return error(res, 'Insufficient permissions to cancel this appointment', HTTP_STATUS.FORBIDDEN);
     }
 
     // Cancel the appointment

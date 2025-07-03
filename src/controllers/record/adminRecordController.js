@@ -5,6 +5,7 @@ import * as auditService from '../../services/record/auditService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { RECORD_MESSAGES, AUDIT_ACTIONS } from '../../config/recordConfig.js';
 import logger from '../../logging/logger.js';
+import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 
 export async function getRecordAnalytics(req, res) {
   try {
@@ -18,7 +19,7 @@ export async function getRecordAnalytics(req, res) {
       period: `${days} days`,
       totalRecords: analytics.totalRecords,
       recentRecords: analytics.recentRecords,
-      generatedAt: new Date().toLocaleDateString('en-GB'),
+      generatedAt: formatDateDDMMYYYY(new Date()),
       requestedBy
     }, 'Medical records analytics retrieved');
 
@@ -46,7 +47,7 @@ export async function getHipaaAudit(req, res) {
         }
       },
       complianceStatus: 'COMPLIANT',
-      auditGeneratedAt: new Date().toLocaleDateString('en-GB'),
+      auditGeneratedAt: formatDateDDMMYYYY(new Date()),
       requestedBy
     }, 'HIPAA compliance audit completed');
 
@@ -94,7 +95,7 @@ export async function deleteMedicalRecord(req, res) {
       },
       deletedBy,
       reason,
-      timestamp: new Date().toLocaleDateString('en-GB'),
+      timestamp: formatDateDDMMYYYY(new Date()),
       note: 'Record marked as inactive for compliance - data retained in audit logs'
     }, RECORD_MESSAGES.DELETE_SUCCESS);
 

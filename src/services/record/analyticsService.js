@@ -35,7 +35,7 @@ export async function getRecordAnalytics(days = 30) {
         SELECT created_by_role, COUNT(*) as records_created,
                COUNT(DISTINCT patient_id) as patients_treated
         FROM health_records 
-        WHERE created_at > NOW() - INTERVAL '${days} days'
+        WHERE created_at > NOW() - ($1::INTEGER || ' days')::INTERVAL
         GROUP BY created_by_role
       `),
 

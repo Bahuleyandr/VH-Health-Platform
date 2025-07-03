@@ -37,7 +37,11 @@ export const createInvestigationOrder = async (orderData) => {
     throw new Error('DOCTOR_NOT_FOUND');
   }
   
-  const result = await db.query(`
+  const client = await db.getClient();
+try {
+  await client.query('BEGIN');
+  
+  const result = await client.query(`
     INSERT INTO investigations (
       patient_id, doctor_id, test_name, test_code, type, priority,
       scheduled_date, notes, normal_range, unit, cost, status,
@@ -51,15 +55,28 @@ export const createInvestigationOrder = async (orderData) => {
   await db.query(
     `INSERT INTO notifications (phone, title, body, type, created_at, read, created_by)
      VALUES ($1, $2, $3, $4, NOW(), false, $5)`,
-    [
-      patientCheck.rows[0].phone || 'unknown',
+    [ patientCheck.rows[0].phone || 'unknown',
       'New Investigation Ordered',
       `Your doctor has ordered: ${test_name}. Please check your appointments.`,
       'investigation_ordered',
       orderedBy
     ]
   );
+ 
+  await client.query('COMMIT');
   
+  return {
+    investigation: result.rows[0],
+    patient_name: patientCheck.rows[0].name,
+    doctor_name: doctorCheck.rows[0].name
+  };
+} catch (err) {
+  await client.query('ROLLBACK');
+  throw err;
+} finally {
+  client.release();
+  }
+
   logger.info(`Investigation ordered: ${test_name} for patient ${patient_id} by ${orderedBy}`);
   
   return {
