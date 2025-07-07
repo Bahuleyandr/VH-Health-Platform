@@ -1,5 +1,12 @@
 // src/lib/api.ts
 import { cookies } from "next/headers";
+import * as Sentry from "@sentry/nextjs";
+import { 
+  DepartmentSchema, 
+  DoctorSchema, 
+  AdminUserSchema,
+  DashboardDataSchema 
+} from './schemas';
 
 // This file contains API functions that are ONLY for Server Components and Server Actions,
 // because it uses the server-only 'cookies' function.
@@ -130,3 +137,34 @@ export const getNotificationTemplates = () => fetchAdminAPI('/notifications/admi
 // PHARMACY
 export const getPharmacyAnalytics = () => fetchAdminAPI('/pharmacy/analytics');
 export const getPharmacyOrders = (queryParams: URLSearchParams) => fetchAdminAPI(`/pharmacy/orders?${queryParams.toString()}`);
+
+// Add validation to existing functions
+export const getDepartments = async () => {
+  try {
+    const response = await fetchAdminAPI('/departments/manage');
+    // Validate the response
+    const departments = DepartmentSchema.array().parse(response.departments || response);
+    return { departments };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      Sentry.captureException(error, {
+        extra: { validationErrors: error.errors }
+      });
+      throw new Error('Invalid data format received from server');
+    }
+    throw error;
+  }
+};
+
+export const getDashboardData = async () => {
+  try {
+    const response = await fetchAdminAPI('/admin/dashboard');
+    return DashboardDataSchema.parse(response);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      Sentry.captureException(error);
+      throw new Error('Invalid dashboard data format');
+    }
+    throw error;
+  }
+};

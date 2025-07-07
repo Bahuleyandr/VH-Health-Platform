@@ -1,5 +1,7 @@
 // src/app/dashboard/page.tsx
-
+'use client';
+import { useDashboardData } from '@/hooks/api-hooks';
+import { Loader2 } from 'lucide-react';
 import { fetchAdminAPI } from "@/lib/api";
 
 // A simple component to display a stat card
@@ -41,4 +43,31 @@ export default async function DashboardPage() {
         </div>
     );
   }
+}
+
+export default function DashboardPage() {
+  const { data, isLoading, error } = useDashboardData();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <Loader2 className="animate-spin h-8 w-8" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 p-4 rounded">
+        <p className="text-red-600">Failed to load dashboard data</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h1 className="text-3xl font-bold mb-6">Dashboard</h1>
+      {/* Your existing dashboard content using 'data' */}
+    </div>
+  );
 }
