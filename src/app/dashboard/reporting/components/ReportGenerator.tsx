@@ -55,43 +55,85 @@ export function ReportGenerator({ users, doctors }: { users: User[], doctors: Do
   };
 
   return (
-    <div className="p-6 bg-white rounded-lg shadow space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Filter Inputs */}
-        <div>
-            <label htmlFor="patient_id">Patient</label>
-            <select name="patient_id" onChange={handleFilterChange} className="border p-2 rounded w-full">
-                <option value="">All Patients</option>
-                {users.filter(u => u.role === 'PATIENT').map(p => <option key={p.id} value={p.id.toString()}>{p.name}</option>)}
-            </select>
+    <div className="bg-white p-6 rounded-lg shadow">
+      <h3 className="text-lg font-semibold mb-4">Generate Medical Records Report</h3>
+      
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-600 rounded">
+          {error}
         </div>
-         <div>
-            <label htmlFor="doctor_id">Doctor</label>
-            <select name="doctor_id" onChange={handleFilterChange} className="border p-2 rounded w-full">
-                <option value="">All Doctors</option>
-                {doctors.map(d => <option key={d.user_id} value={d.user_id.toString()}>{d.name}</option>)}
-            </select>
-        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-4 mb-6">
         <div>
-            <label htmlFor="date_from">From Date</label>
-            <input type="date" name="date_from" onChange={handleFilterChange} className="border p-2 rounded w-full" />
+          <label className="block text-sm font-medium text-gray-700 mb-1">Patient</label>
+          <select
+            name="patient_id"
+            value={filters.patient_id}
+            onChange={handleFilterChange}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">All Patients</option>
+            {users.map(user => (
+              <option key={user.id} value={user.id}>{user.name}</option>
+            ))}
+          </select>
         </div>
+
         <div>
-            <label htmlFor="date_to">To Date</label>
-            <input type="date" name="date_to" onChange={handleFilterChange} className="border p-2 rounded w-full" />
+          <label className="block text-sm font-medium text-gray-700 mb-1">Doctor</label>
+          <select
+            name="doctor_id"
+            value={filters.doctor_id}
+            onChange={handleFilterChange}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">All Doctors</option>
+            {doctors.map(doctor => (
+              <option key={doctor.user_id} value={doctor.user_id}>{doctor.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">From Date</label>
+          <input
+            type="date"
+            name="date_from"
+            value={filters.date_from}
+            onChange={handleFilterChange}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">To Date</label>
+          <input
+            type="date"
+            name="date_to"
+            value={filters.date_to}
+            onChange={handleFilterChange}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
         </div>
       </div>
 
-      {/* Action Buttons */}
-      <div className="flex items-center gap-4 pt-4">
-        <button onClick={() => handleExport('pdf')} disabled={isLoading} className="bg-red-500 text-white px-4 py-2 rounded-md">
+      <div className="flex gap-4">
+        <button
+          onClick={() => handleExport('pdf')}
+          disabled={isLoading}
+          className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+        >
           {isLoading ? 'Generating...' : 'Export as PDF'}
         </button>
-        <button onClick={() => handleExport('excel')} disabled={isLoading} className="bg-green-500 text-white px-4 py-2 rounded-md">
+        <button
+          onClick={() => handleExport('excel')}
+          disabled={isLoading}
+          className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+        >
           {isLoading ? 'Generating...' : 'Export as Excel'}
         </button>
       </div>
-      {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
     </div>
   );
 }
