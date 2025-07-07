@@ -29,9 +29,13 @@ export default function LoginPage() {
 
       router.push("/dashboard");
 
-    } catch (err: any) {
-      setError(err.message || "Login failed");
-    } finally {
+    } catch (err) {
+  if (err instanceof Error) {
+    setError(err.message || "Login failed");
+  } else {
+    setError("Login failed");
+  }
+} finally {
       setIsLoading(false);
     }
   };

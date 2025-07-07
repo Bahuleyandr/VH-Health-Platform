@@ -15,7 +15,7 @@ function StatCard({ title, value }: { title: string; value: string | number }) {
 export default async function DashboardPage() {
   try {
     const data = await fetchAdminAPI('/admin/dashboard');
-    const { users, appointments, departments, revenue_30d } = data.dashboard;
+    const { users, appointments, departments: _departments, revenue_30d } = data.dashboard;
 
     return (
       <div>
