@@ -98,7 +98,7 @@ app.use(logger.morganMiddleware);
 
 // User context middleware
 app.use(attachUserContext);
-app.use(normalizeIdentityFields);
+// ***** normalizeIdentityFields has been MOVED from here *****
 
 // ====================================
 // PUBLIC ROUTES (No authentication required)
@@ -121,7 +121,7 @@ app.head('/', (req, res) => {
 
 // Public API routes
 app.use('/api/v1/auth', patientRateLimiter, routes.auth); // Patient Auth
-app.use('/api/v1/auth', authRoutes); // ***** MOVED THIS LINE HERE - Admin Auth is now public *****
+app.use('/api/v1/auth', authRoutes); 
 app.use('/api/v1/otp', patientRateLimiter, routes.otp);
 app.use('/api/v1/health', healthRoutes);
 
@@ -135,6 +135,7 @@ app.use('/api/v1', infrastructureRoutes);
 
 app.use(validateApiKey);
 app.use(authMiddleware);
+app.use(normalizeIdentityFields); // ***** MOVED TO HERE. It now runs AFTER authMiddleware. *****
 
 // ====================================
 // AUTHENTICATED ROUTES (API key required)
