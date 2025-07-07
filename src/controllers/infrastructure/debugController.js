@@ -212,3 +212,155 @@ export const triggerSentryError = async (req, res, next) => {
     next(err); // Will be caught by centralized error handler
   }
 };
+
+// In debugController.js, replace the getAllRoutes function with this:
+export const getAllRoutes = async (req, res) => {
+  try {
+    const app = req.app;
+    const routes = [];
+    
+    // Debug: Log app structure
+    console.log('Debug - App has _router:', !!app._router);
+    console.log('Debug - Router stack length:', app._router?.stack?.length || 0);
+    
+    // Function to extract routes
+    function extractRoutes(stack, basePath = '') {
+      if (!stack) return;
+      
+      stack.forEach((layer, index) => {
+        console.log(`Debug - Layer ${index}:`, {
+          name: layer.name,
+          regexp: layer.regexp?.source?.substring(0, 50),
+          hasRoute: !!layer.route,
+          hasHandle: !!layer.handle
+        });
+        
+        if (layer.route) {
+          // This is a route
+          Object.keys(layer.route.methods).forEach(method => {
+            if (layer.route.methods[method]) {
+              routes.push({
+                method: method.toUpperCase(),
+                path: basePath + layer.route.path,
+                middlewareCount: layer.route.stack.length
+              });
+            }
+          });
+        } else if (layer.name === 'router' && layer.handle && layer.handle.stack) {
+          // This is a sub-router
+          let mountPath = '';
+          if (layer.regexp && layer.regexp.source) {
+            // Try to extract mount path
+            const source = layer.regexp.source;
+            // Match patterns like ^\\/api\\/v1\\/users
+            const match = source.match(/\^?\\\/([\w-]+)(?:\\\/([\w-]+))*(?:\\\/([\w-]+))*/);
+            if (match) {
+              mountPath = '/' + match.slice(1).filter(Boolean).join('/');
+            }
+          }
+          console.log(`Debug - Found sub-router at: ${mountPath}`);
+          extractRoutes(layer.handle.stack, basePath + mountPath);
+        }
+      });
+    }
+    
+    // Extract from main router
+    if (app._router && app._router.stack) {
+      extractRoutes(app._router.stack);
+    }
+    
+    console.log(`Debug - Total routes found: ${routes.length}`);
+    
+    // If no routes found, return diagnostic info
+    if (routes.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          summary: {
+            total: 0,
+            message: 'No routes extracted - see console logs'
+          },
+          diagnostic: {
+            hasRouter: !!app._router,
+            stackLength: app._router?.stack?.length || 0,
+            layers: app._router?.stack?.slice(0, 10).map(layer => ({
+              name: layer.name,
+              regexp: layer.regexp?.source?.substring(0, 100),
+              hasRoute: !!layer.route,
+              hasHandle: !!layer.handle,
+              handleName: layer.handle?.name
+            })) || []
+          },
+          routes: []
+        }
+      });
+    }
+    
+    // Remove duplicates and continue with existing logic...
+    const uniqueRoutes = [];
+    const seen = new Set();
+    
+    routes.forEach(route => {
+      const key = `${route.method} ${route.path}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueRoutes.push(route);
+      }
+    });
+    
+    uniqueRoutes.sort((a, b) => {
+      if (a.path !== b.path) return a.path.localeCompare(b.path);
+      return a.method.localeCompare(b.method);
+    });
+    
+    // Create summary
+    const summary = {
+      total: uniqueRoutes.length,
+      byMethod: {},
+      byCategory: {}
+    };
+    
+    uniqueRoutes.forEach(route => {
+      summary.byMethod[route.method] = (summary.byMethod[route.method] || 0) + 1;
+      
+      const categoryMatch = route.path.match(/^\/api\/v\d+\/([^\/]+)/);
+      if (categoryMatch) {
+        const category = categoryMatch[1];
+        summary.byCategory[category] = (summary.byCategory[category] || 0) + 1;
+      }
+    });
+    
+    // Return based on format
+    const format = req.query.format || 'json';
+    
+    if (format === 'csv') {
+      const csv = [
+        'Method,Path',
+        ...uniqueRoutes.map(r => `${r.method},${r.path}`)
+      ].join('\n');
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename="routes.csv"');
+      res.send(csv);
+    } else if (format === 'text') {
+      const text = uniqueRoutes.map(r => `${r.method} ${r.path}`).join('\n');
+      res.setHeader('Content-Type', 'text/plain');
+      res.send(text);
+    } else {
+      res.json({
+        success: true,
+        data: {
+          summary,
+          routes: uniqueRoutes
+        },
+        message: `Found ${uniqueRoutes.length} routes`
+      });
+    }
+  } catch (err) {
+    logger.error('[GetAllRoutes]:', err);
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+};

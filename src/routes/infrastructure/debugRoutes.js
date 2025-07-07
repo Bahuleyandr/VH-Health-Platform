@@ -3,6 +3,7 @@ import express from 'express';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as debugController from '../../controllers/infrastructure/debugController.js';
 import { loadTestValidator, logQueryValidator } from '../../validators/infrastructure/debugValidator.js';
+// Remove ROUTE_METADATA import if not needed
 
 const router = express.Router();
 
@@ -53,9 +54,12 @@ wrapAutoRBAC(
       ['/headers', debugController.getHeaders],
       
       // ⚡ Performance Metrics
-      ['/performance', debugController.getPerformance]
+      ['/performance', debugController.getPerformance],
+
+      // 🗺️ Get All Routes
+      ['/routes', debugController.getAllRoutes]
     ],
-    
+
     post: [
       // 🔧 Trigger Garbage Collection
       ['/gc', debugController.triggerGC],
@@ -65,11 +69,11 @@ wrapAutoRBAC(
     ]
   },
   {
-    requireUID: true,
+    requireUID: true,        // RESTORE TO true
     requirePhone: false,
-    auditLog: true,
-    rateLimiting: true,
-    roles: ['ADMIN']
+    auditLog: true,         // RESTORE TO true
+    rateLimiting: true,     // RESTORE TO true
+    roles: ['ADMIN']        // RESTORE TO ['ADMIN']
   }
 );
 
