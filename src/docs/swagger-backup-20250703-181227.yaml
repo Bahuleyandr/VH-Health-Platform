@@ -1,0 +1,383 @@
+openapi: 3.0.0
+info:
+  title: VH Health API
+  version: "1.1.0"
+  description: >
+    API Documentation for VH Health Application.
+    Secured via API Key in header: `x-api-key`.
+
+servers:
+  - url: https://vh-health-backend.onrender.com/api/v1
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: Server status OK
+
+  /app-version:
+    get:
+      summary: Get app version
+      responses:
+        '200':
+          description: App version details
+
+  /request-otp:
+    post:
+      summary: Request OTP (Mock)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phoneNumber:
+                  type: string
+      responses:
+        '200':
+          description: OTP sent
+
+  /verify-otp:
+    post:
+      summary: Verify OTP (Mock)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phoneNumber:
+                  type: string
+                otp:
+                  type: string
+      responses:
+        '200':
+          description: OTP verification result
+
+  /users:
+    get:
+      summary: List users with optional search and pagination
+      parameters:
+        - in: query
+          name: query
+          schema:
+            type: string
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Paginated list of users
+    post:
+      summary: Create or update a user profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phoneNumber:
+                  type: string
+                name:
+                  type: string
+                gender:
+                  type: string
+                address:
+                  type: string
+                email:
+                  type: string
+                birthday:
+                  type: string
+                anniversary:
+                  type: string
+                profilePicture:
+                  type: string
+      responses:
+        '200':
+          description: User profile saved
+
+  /users/{phone}:
+    get:
+      summary: Get user profile by phone
+      parameters:
+        - in: path
+          name: phone
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User profile details
+    put:
+      summary: Update user profile by phone
+      parameters:
+        - in: path
+          name: phone
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                gender:
+                  type: string
+                address:
+                  type: string
+                email:
+                  type: string
+                birthday:
+                  type: string
+                anniversary:
+                  type: string
+                profilePicture:
+                  type: string
+      responses:
+        '200':
+          description: User profile updated
+
+  /appointments:
+    post:
+      summary: Book an appointment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                doctor_name:
+                  type: string
+                date:
+                  type: string
+                time:
+                  type: string
+      responses:
+        '200':
+          description: Appointment booked
+
+  /appointments/{phone}:
+    get:
+      summary: List appointments with optional filter and pagination
+      parameters:
+        - in: path
+          name: phone
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: filter
+          schema:
+            type: string
+            enum: [upcoming, past]
+        - in: query
+          name: doctor_name
+          schema:
+            type: string
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: List of appointments
+
+  /health-records:
+    post:
+      summary: Add health record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                file_name:
+                  type: string
+                file_type:
+                  type: string
+      responses:
+        '200':
+          description: Health record added
+
+  /health-records/{phone}:
+    get:
+      summary: List health records with optional type filter
+      parameters:
+        - in: path
+          name: phone
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [consultation, investigation, pharmacy]
+      responses:
+        '200':
+          description: List of health records
+
+  /investigations:
+    post:
+      summary: Request investigation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                test_name:
+                  type: string
+      responses:
+        '200':
+          description: Investigation requested
+
+  /investigations/{phone}:
+    get:
+      summary: List investigations by phone
+      parameters:
+        - in: path
+          name: phone
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of investigations
+
+  /pharmacy-orders:
+    post:
+      summary: Place pharmacy order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                order_note:
+                  type: string
+      responses:
+        '200':
+          description: Pharmacy order placed
+
+  /pharmacy-orders/{phone}:
+    get:
+      summary: List pharmacy orders by phone
+      parameters:
+        - in: path
+          name: phone
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of pharmacy orders
+
+  /feedback:
+    post:
+      summary: Submit feedback
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phoneNumber:
+                  type: string
+                rating:
+                  type: integer
+                comment:
+                  type: string
+      responses:
+        '200':
+          description: Feedback received
+
+  /doctors:
+    get:
+      summary: Search or list all doctors
+      parameters:
+        - in: query
+          name: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of doctors
+
+  /doctors/{doctorId}:
+    get:
+      summary: Get doctor profile by ID
+      parameters:
+        - in: path
+          name: doctorId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Doctor profile details
+
+  /departments:
+    get:
+      summary: List all departments
+      responses:
+        '200':
+          description: List of departments
+
+  /departments/{departmentId}:
+    get:
+      summary: Get department details by ID
+      parameters:
+        - in: path
+          name: departmentId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Department details

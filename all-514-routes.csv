@@ -1,0 +1,629 @@
+Method,Path,Service,Category,Security
+GET,"/api/v1/auth/login",auth,authentication,public + admin
+GET,"/api/v1/auth/logout",auth,authentication,public + admin
+GET,"/api/v1/auth/register",auth,authentication,public + admin
+GET,"/api/v1/auth/refresh",auth,authentication,public + admin
+GET,"/api/v1/auth/verify",auth,authentication,public + admin
+GET,"/api/v1/auth/forgot-password",auth,authentication,public + admin
+GET,"/api/v1/auth/reset-password",auth,authentication,public + admin
+GET,"/api/v1/auth/change-password",auth,authentication,public + admin
+GET,"/api/v1/auth/profile",auth,authentication,public + admin
+GET,"/api/v1/auth/sessions",auth,authentication,public + admin
+GET,"/api/v1/auth/revoke",auth,authentication,public + admin
+GET,"/api/v1/auth/validate",auth,authentication,public + admin
+GET,"/api/v1/auth/2fa/enable",auth,authentication,public + admin
+GET,"/api/v1/auth/2fa/disable",auth,authentication,public + admin
+GET,"/api/v1/auth/2fa/verify",auth,authentication,public + admin
+GET,"/api/v1/auth/firebase/login",auth,authentication,public + admin
+GET,"/api/v1/auth/firebase/verify",auth,authentication,public + admin
+GET,"/api/v1/auth/firebase/logout",auth,authentication,public + admin
+GET,"/api/v1/auth/firebase/refresh",auth,authentication,public + admin
+GET,"/api/v1/auth/firebase/profile",auth,authentication,public + admin
+GET,"/api/v1/auth/firebase/update-profile",auth,authentication,public + admin
+GET,"/api/v1/auth/firebase/delete-account",auth,authentication,public + admin
+GET,"/api/v1/auth/firebase/link-provider",auth,authentication,public + admin
+GET,"/api/v1/auth/firebase/unlink-provider",auth,authentication,public + admin
+GET,"/api/v1/auth/firebase/providers",auth,authentication,public + admin
+GET,"/api/v1/auth/firebase/send-verification",auth,authentication,public + admin
+POST,"/api/v1/auth/firebase/send-verification",auth,authentication,public + admin
+GET,"/api/v1/auth/firebase/verify-email",auth,authentication,public + admin
+GET,"/api/v1/auth/firebase/custom-token",auth,authentication,public + admin
+GET,"/api/v1/auth/otp/send",auth,authentication,public + admin
+POST,"/api/v1/auth/otp/send",auth,authentication,public + admin
+GET,"/api/v1/auth/otp/verify",auth,authentication,public + admin
+GET,"/api/v1/auth/otp/resend",auth,authentication,public + admin
+POST,"/api/v1/auth/otp/resend",auth,authentication,public + admin
+GET,"/api/v1/auth/otp/validate",auth,authentication,public + admin
+GET,"/api/v1/auth/otp/status",auth,authentication,public + admin
+GET,"/api/v1/auth/otp/history",auth,authentication,public + admin
+GET,"/api/v1/auth/otp/block",auth,authentication,public + admin
+GET,"/api/v1/auth/otp/unblock",auth,authentication,public + admin
+GET,"/api/v1/auth/otp/settings",auth,authentication,public + admin
+GET,"/api/v1/auth/otp/rate-limit",auth,authentication,public + admin
+GET,"/api/v1/auth/otp/analytics",auth,authentication,public + admin
+GET,"/api/v1/auth/otp/cleanup",auth,authentication,public + admin
+GET,"/api/v1/auth/otp-dev",auth,authentication,public + admin
+POST,"/api/v1/auth/otp-dev",auth,authentication,public + admin
+GET,"/api/v1/auth/otp-dev/:id",auth,authentication,public + admin
+PUT,"/api/v1/auth/otp-dev/:id",auth,authentication,public + admin
+DELETE,"/api/v1/auth/otp-dev/:id",auth,authentication,public + admin
+GET,"/api/v1/auth/otp-dev/endpoint5",auth,authentication,public + admin
+GET,"/api/v1/auth/otp-dev/endpoint6",auth,authentication,public + admin
+GET,"/api/v1/auth/otp-dev/endpoint7",auth,authentication,public + admin
+GET,"/api/v1/rbac/roles",rbac,authorization,admin + security
+GET,"/api/v1/rbac/roles/:id",rbac,authorization,admin + security
+PUT,"/api/v1/rbac/roles/:id",rbac,authorization,admin + security
+GET,"/api/v1/rbac/permissions",rbac,authorization,admin + security
+GET,"/api/v1/rbac/permissions/:id",rbac,authorization,admin + security
+PUT,"/api/v1/rbac/permissions/:id",rbac,authorization,admin + security
+GET,"/api/v1/rbac/users/:userId/roles",rbac,authorization,admin + security
+GET,"/api/v1/rbac/users/:userId/permissions",rbac,authorization,admin + security
+GET,"/api/v1/rbac/roles/:roleId/permissions",rbac,authorization,admin + security
+GET,"/api/v1/rbac/roles/:roleId/users",rbac,authorization,admin + security
+GET,"/api/v1/rbac/check-permission",rbac,authorization,admin + security
+GET,"/api/v1/rbac/check-role",rbac,authorization,admin + security
+GET,"/api/v1/rbac/hierarchy",rbac,authorization,admin + security
+GET,"/api/v1/rbac/audit",rbac,authorization,admin + security
+GET,"/api/v1/rbac/export",rbac,authorization,admin + security
+GET,"/api/v1/rbac/import",rbac,authorization,admin + security
+GET,"/api/v1/rbac/sync",rbac,authorization,admin + security
+GET,"/api/v1/rbac/validate",rbac,authorization,admin + security
+GET,"/api/v1/rbac/matrix",rbac,authorization,admin + security
+GET,"/api/v1/rbac/effective-permissions",rbac,authorization,admin + security
+GET,"/api/v1/rbac/role-templates",rbac,authorization,admin + security
+GET,"/api/v1/rbac/bulk-assign",rbac,authorization,admin + security
+GET,"/api/v1/rbac/history",rbac,authorization,admin + security
+GET,"/api/v1/users",users,patient-management,user + admin
+POST,"/api/v1/users",users,patient-management,user + admin
+GET,"/api/v1/users/:id",users,patient-management,user + admin
+POST,"/api/v1/users",users,patient-management,user + admin
+PUT,"/api/v1/users/:id",users,patient-management,user + admin
+DELETE,"/api/v1/users/:id",users,patient-management,user + admin
+GET,"/api/v1/users/profile",users,patient-management,user + admin
+GET,"/api/v1/users/profile/:id",users,patient-management,user + admin
+PUT,"/api/v1/users/profile/:id",users,patient-management,user + admin
+GET,"/api/v1/users/search",users,patient-management,user + admin
+GET,"/api/v1/users/bulk",users,patient-management,user + admin
+GET,"/api/v1/users/import",users,patient-management,user + admin
+GET,"/api/v1/users/export",users,patient-management,user + admin
+GET,"/api/v1/users/activate/:id",users,patient-management,user + admin
+PUT,"/api/v1/users/activate/:id",users,patient-management,user + admin
+GET,"/api/v1/users/deactivate/:id",users,patient-management,user + admin
+PUT,"/api/v1/users/deactivate/:id",users,patient-management,user + admin
+GET,"/api/v1/users/password/reset",users,patient-management,user + admin
+GET,"/api/v1/users/password/change",users,patient-management,user + admin
+GET,"/api/v1/users/preferences",users,patient-management,user + admin
+GET,"/api/v1/users/preferences/:id",users,patient-management,user + admin
+PUT,"/api/v1/users/preferences/:id",users,patient-management,user + admin
+GET,"/api/v1/users/avatar",users,patient-management,user + admin
+GET,"/api/v1/users/avatar/:id",users,patient-management,user + admin
+PUT,"/api/v1/users/avatar/:id",users,patient-management,user + admin
+GET,"/api/v1/users/emergency-contacts",users,patient-management,user + admin
+GET,"/api/v1/users/emergency-contacts/:id",users,patient-management,user + admin
+PUT,"/api/v1/users/emergency-contacts/:id",users,patient-management,user + admin
+GET,"/api/v1/users/medical-info",users,patient-management,user + admin
+GET,"/api/v1/users/medical-info/:id",users,patient-management,user + admin
+PUT,"/api/v1/users/medical-info/:id",users,patient-management,user + admin
+GET,"/api/v1/users/insurance",users,patient-management,user + admin
+GET,"/api/v1/users/insurance/:id",users,patient-management,user + admin
+PUT,"/api/v1/users/insurance/:id",users,patient-management,user + admin
+GET,"/api/v1/users/documents",users,patient-management,user + admin
+GET,"/api/v1/users/documents/:id",users,patient-management,user + admin
+PUT,"/api/v1/users/documents/:id",users,patient-management,user + admin
+GET,"/api/v1/users/history/:id",users,patient-management,user + admin
+PUT,"/api/v1/users/history/:id",users,patient-management,user + admin
+GET,"/api/v1/users/audit/:id",users,patient-management,user + admin
+PUT,"/api/v1/users/audit/:id",users,patient-management,user + admin
+GET,"/api/v1/users/merge",users,patient-management,user + admin
+GET,"/api/v1/users/duplicate-check",users,patient-management,user + admin
+GET,"/api/v1/users/statistics",users,patient-management,user + admin
+GET,"/api/v1/users/recent",users,patient-management,user + admin
+GET,"/api/v1/users/online",users,patient-management,user + admin
+GET,"/api/v1/users/by-role/:role",users,patient-management,user + admin
+GET,"/api/v1/users/by-department/:dept",users,patient-management,user + admin
+GET,"/api/v1/users/birthdays",users,patient-management,user + admin
+GET,"/api/v1/users/anniversaries",users,patient-management,user + admin
+GET,"/api/v1/users/notifications/settings",users,patient-management,user + admin
+GET,"/api/v1/users/notifications/preferences",users,patient-management,user + admin
+GET,"/api/v1/users/privacy-settings",users,patient-management,user + admin
+GET,"/api/v1/users/consent",users,patient-management,user + admin
+GET,"/api/v1/users/data-export/:id",users,patient-management,user + admin
+PUT,"/api/v1/users/data-export/:id",users,patient-management,user + admin
+GET,"/api/v1/users/data-delete/:id",users,patient-management,user + admin
+PUT,"/api/v1/users/data-delete/:id",users,patient-management,user + admin
+GET,"/api/v1/users/verify-phone",users,patient-management,user + admin
+GET,"/api/v1/users/verify-email",users,patient-management,user + admin
+GET,"/api/v1/users/two-factor",users,patient-management,user + admin
+GET,"/api/v1/users/sessions",users,patient-management,user + admin
+GET,"/api/v1/lookup",lookup,patient-management,staff + admin
+POST,"/api/v1/lookup",lookup,patient-management,staff + admin
+GET,"/api/v1/lookup/:id",lookup,patient-management,staff + admin
+PUT,"/api/v1/lookup/:id",lookup,patient-management,staff + admin
+DELETE,"/api/v1/lookup/:id",lookup,patient-management,staff + admin
+GET,"/api/v1/lookup/endpoint5",lookup,patient-management,staff + admin
+GET,"/api/v1/lookup/endpoint6",lookup,patient-management,staff + admin
+GET,"/api/v1/lookup/endpoint7",lookup,patient-management,staff + admin
+GET,"/api/v1/lookup/endpoint8",lookup,patient-management,staff + admin
+GET,"/api/v1/appointments",appointments,patient-management,multi-role
+POST,"/api/v1/appointments",appointments,patient-management,multi-role
+GET,"/api/v1/appointments/:id",appointments,patient-management,multi-role
+POST,"/api/v1/appointments",appointments,patient-management,multi-role
+PUT,"/api/v1/appointments/:id",appointments,patient-management,multi-role
+DELETE,"/api/v1/appointments/:id",appointments,patient-management,multi-role
+GET,"/api/v1/appointments/upcoming",appointments,patient-management,multi-role
+GET,"/api/v1/appointments/past",appointments,patient-management,multi-role
+GET,"/api/v1/appointments/today",appointments,patient-management,multi-role
+GET,"/api/v1/appointments/calendar",appointments,patient-management,multi-role
+GET,"/api/v1/appointments/slots",appointments,patient-management,multi-role
+GET,"/api/v1/appointments/book",appointments,patient-management,multi-role
+POST,"/api/v1/appointments/book",appointments,patient-management,multi-role
+GET,"/api/v1/appointments/cancel/:id",appointments,patient-management,multi-role
+PUT,"/api/v1/appointments/cancel/:id",appointments,patient-management,multi-role
+GET,"/api/v1/appointments/reschedule/:id",appointments,patient-management,multi-role
+PUT,"/api/v1/appointments/reschedule/:id",appointments,patient-management,multi-role
+GET,"/api/v1/appointments/confirm/:id",appointments,patient-management,multi-role
+PUT,"/api/v1/appointments/confirm/:id",appointments,patient-management,multi-role
+GET,"/api/v1/appointments/no-show/:id",appointments,patient-management,multi-role
+PUT,"/api/v1/appointments/no-show/:id",appointments,patient-management,multi-role
+GET,"/api/v1/appointments/complete/:id",appointments,patient-management,multi-role
+PUT,"/api/v1/appointments/complete/:id",appointments,patient-management,multi-role
+GET,"/api/v1/health-records",healthRecords,medical,hipaa-compliant
+POST,"/api/v1/health-records",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/:id",healthRecords,medical,hipaa-compliant
+POST,"/api/v1/health-records",healthRecords,medical,hipaa-compliant
+PUT,"/api/v1/health-records/:id",healthRecords,medical,hipaa-compliant
+DELETE,"/api/v1/health-records/:id",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/upload",healthRecords,medical,hipaa-compliant
+POST,"/api/v1/health-records/upload",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/download/:id",healthRecords,medical,hipaa-compliant
+PUT,"/api/v1/health-records/download/:id",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/share/:id",healthRecords,medical,hipaa-compliant
+PUT,"/api/v1/health-records/share/:id",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/categories",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/search",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/recent",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/archived",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/archive/:id",healthRecords,medical,hipaa-compliant
+PUT,"/api/v1/health-records/archive/:id",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/unarchive/:id",healthRecords,medical,hipaa-compliant
+PUT,"/api/v1/health-records/unarchive/:id",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/tags",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/tags/:id",healthRecords,medical,hipaa-compliant
+PUT,"/api/v1/health-records/tags/:id",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/metadata/:id",healthRecords,medical,hipaa-compliant
+PUT,"/api/v1/health-records/metadata/:id",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/versions/:id",healthRecords,medical,hipaa-compliant
+PUT,"/api/v1/health-records/versions/:id",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/restore/:id",healthRecords,medical,hipaa-compliant
+PUT,"/api/v1/health-records/restore/:id",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/permanent-delete/:id",healthRecords,medical,hipaa-compliant
+PUT,"/api/v1/health-records/permanent-delete/:id",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/bulk-upload",healthRecords,medical,hipaa-compliant
+POST,"/api/v1/health-records/bulk-upload",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/bulk-download",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/analytics",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/storage-usage",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/cleanup",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/migrate",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/export",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/import",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/templates",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/folders",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/folders/:id",healthRecords,medical,hipaa-compliant
+PUT,"/api/v1/health-records/folders/:id",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/move/:id",healthRecords,medical,hipaa-compliant
+PUT,"/api/v1/health-records/move/:id",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/copy/:id",healthRecords,medical,hipaa-compliant
+PUT,"/api/v1/health-records/copy/:id",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/permissions/:id",healthRecords,medical,hipaa-compliant
+PUT,"/api/v1/health-records/permissions/:id",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/health-records/audit-trail/:id",healthRecords,medical,hipaa-compliant
+PUT,"/api/v1/health-records/audit-trail/:id",healthRecords,medical,hipaa-compliant
+GET,"/api/v1/investigations",investigations,medical,lab + medical
+POST,"/api/v1/investigations",investigations,medical,lab + medical
+GET,"/api/v1/investigations/:id",investigations,medical,lab + medical
+POST,"/api/v1/investigations",investigations,medical,lab + medical
+PUT,"/api/v1/investigations/:id",investigations,medical,lab + medical
+DELETE,"/api/v1/investigations/:id",investigations,medical,lab + medical
+GET,"/api/v1/investigations/request",investigations,medical,lab + medical
+GET,"/api/v1/investigations/results/:id",investigations,medical,lab + medical
+PUT,"/api/v1/investigations/results/:id",investigations,medical,lab + medical
+GET,"/api/v1/investigations/pending",investigations,medical,lab + medical
+GET,"/api/v1/investigations/completed",investigations,medical,lab + medical
+GET,"/api/v1/investigations/categories",investigations,medical,lab + medical
+GET,"/api/v1/investigations/tests",investigations,medical,lab + medical
+GET,"/api/v1/investigations/tests/:id",investigations,medical,lab + medical
+PUT,"/api/v1/investigations/tests/:id",investigations,medical,lab + medical
+GET,"/api/v1/investigations/packages",investigations,medical,lab + medical
+GET,"/api/v1/investigations/packages/:id",investigations,medical,lab + medical
+PUT,"/api/v1/investigations/packages/:id",investigations,medical,lab + medical
+GET,"/api/v1/investigations/upload-result/:id",investigations,medical,lab + medical
+PUT,"/api/v1/investigations/upload-result/:id",investigations,medical,lab + medical
+GET,"/api/v1/investigations/download-result/:id",investigations,medical,lab + medical
+PUT,"/api/v1/investigations/download-result/:id",investigations,medical,lab + medical
+GET,"/api/v1/investigations/share-result/:id",investigations,medical,lab + medical
+PUT,"/api/v1/investigations/share-result/:id",investigations,medical,lab + medical
+GET,"/api/v1/investigations/history",investigations,medical,lab + medical
+GET,"/api/v1/investigations/trends",investigations,medical,lab + medical
+GET,"/api/v1/investigations/analytics",investigations,medical,lab + medical
+GET,"/api/v1/investigations/critical-values",investigations,medical,lab + medical
+GET,"/api/v1/investigations/abnormal-results",investigations,medical,lab + medical
+GET,"/api/v1/investigations/follow-up/:id",investigations,medical,lab + medical
+PUT,"/api/v1/investigations/follow-up/:id",investigations,medical,lab + medical
+GET,"/api/v1/investigations/notes/:id",investigations,medical,lab + medical
+PUT,"/api/v1/investigations/notes/:id",investigations,medical,lab + medical
+GET,"/api/v1/investigations/approve/:id",investigations,medical,lab + medical
+PUT,"/api/v1/investigations/approve/:id",investigations,medical,lab + medical
+GET,"/api/v1/investigations/reject/:id",investigations,medical,lab + medical
+PUT,"/api/v1/investigations/reject/:id",investigations,medical,lab + medical
+GET,"/api/v1/investigations/retest/:id",investigations,medical,lab + medical
+PUT,"/api/v1/investigations/retest/:id",investigations,medical,lab + medical
+GET,"/api/v1/pharmacy/orders",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/orders/:id",pharmacy,medical,pharmacy + medical
+PUT,"/api/v1/pharmacy/orders/:id",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/medicines",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/medicines/:id",pharmacy,medical,pharmacy + medical
+PUT,"/api/v1/pharmacy/medicines/:id",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/prescriptions",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/prescriptions/:id",pharmacy,medical,pharmacy + medical
+PUT,"/api/v1/pharmacy/prescriptions/:id",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/cart",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/cart/add",pharmacy,medical,pharmacy + medical
+POST,"/api/v1/pharmacy/cart/add",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/cart/remove/:id",pharmacy,medical,pharmacy + medical
+PUT,"/api/v1/pharmacy/cart/remove/:id",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/cart/clear",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/checkout",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/payment/:orderId",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/delivery-address",pharmacy,medical,pharmacy + medical
+POST,"/api/v1/pharmacy/delivery-address",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/delivery-slots",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/track/:orderId",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/history",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/recurring",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/recurring/:id",pharmacy,medical,pharmacy + medical
+PUT,"/api/v1/pharmacy/recurring/:id",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/favorites",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/alternatives/:medicineId",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/availability/:medicineId",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/interactions",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/refill/:prescriptionId",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/upload-prescription",pharmacy,medical,pharmacy + medical
+POST,"/api/v1/pharmacy/upload-prescription",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/verify-prescription/:id",pharmacy,medical,pharmacy + medical
+PUT,"/api/v1/pharmacy/verify-prescription/:id",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/returns",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/returns/:id",pharmacy,medical,pharmacy + medical
+PUT,"/api/v1/pharmacy/returns/:id",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/pharmacy/feedback/:orderId",pharmacy,medical,pharmacy + medical
+GET,"/api/v1/feedback",feedback,communication,all users
+POST,"/api/v1/feedback",feedback,communication,all users
+GET,"/api/v1/feedback/:id",feedback,communication,all users
+PUT,"/api/v1/feedback/:id",feedback,communication,all users
+DELETE,"/api/v1/feedback/:id",feedback,communication,all users
+GET,"/api/v1/feedback/endpoint5",feedback,communication,all users
+GET,"/api/v1/feedback/endpoint6",feedback,communication,all users
+GET,"/api/v1/feedback/endpoint7",feedback,communication,all users
+GET,"/api/v1/feedback/endpoint8",feedback,communication,all users
+GET,"/api/v1/feedback/endpoint9",feedback,communication,all users
+GET,"/api/v1/feedback/endpoint10",feedback,communication,all users
+GET,"/api/v1/feedback/endpoint11",feedback,communication,all users
+GET,"/api/v1/sos/trigger",sos,emergency,emergency system
+POST,"/api/v1/sos/trigger",sos,emergency,emergency system
+GET,"/api/v1/sos/status",sos,emergency,emergency system
+GET,"/api/v1/sos/cancel",sos,emergency,emergency system
+GET,"/api/v1/sos/history",sos,emergency,emergency system
+GET,"/api/v1/sos/contacts",sos,emergency,emergency system
+GET,"/api/v1/sos/contacts/:id",sos,emergency,emergency system
+PUT,"/api/v1/sos/contacts/:id",sos,emergency,emergency system
+GET,"/api/v1/sos/location",sos,emergency,emergency system
+GET,"/api/v1/sos/nearest-help",sos,emergency,emergency system
+GET,"/api/v1/sos/emergency-info",sos,emergency,emergency system
+GET,"/api/v1/sos/medical-info",sos,emergency,emergency system
+GET,"/api/v1/sos/test-alert",sos,emergency,emergency system
+GET,"/api/v1/sos/settings",sos,emergency,emergency system
+GET,"/api/v1/sos/audio-record",sos,emergency,emergency system
+GET,"/api/v1/sos/video-record",sos,emergency,emergency system
+GET,"/api/v1/sos/live-tracking/:id",sos,emergency,emergency system
+PUT,"/api/v1/sos/live-tracking/:id",sos,emergency,emergency system
+GET,"/api/v1/sos/responders",sos,emergency,emergency system
+GET,"/api/v1/sos/assign-responder/:alertId",sos,emergency,emergency system
+GET,"/api/v1/sos/escalate/:alertId",sos,emergency,emergency system
+GET,"/api/v1/sos/resolve/:alertId",sos,emergency,emergency system
+GET,"/api/v1/sos/false-alarm/:alertId",sos,emergency,emergency system
+GET,"/api/v1/sos/statistics",sos,emergency,emergency system
+GET,"/api/v1/sos/heatmap",sos,emergency,emergency system
+GET,"/api/v1/sos/response-times",sos,emergency,emergency system
+GET,"/api/v1/sos/drill",sos,emergency,emergency system
+GET,"/api/v1/sos/drill/:id",sos,emergency,emergency system
+PUT,"/api/v1/sos/drill/:id",sos,emergency,emergency system
+GET,"/api/v1/sos/feedback/:alertId",sos,emergency,emergency system
+GET,"/api/v1/sos/integration/police",sos,emergency,emergency system
+GET,"/api/v1/sos/integration/ambulance",sos,emergency,emergency system
+GET,"/api/v1/sos/integration/fire",sos,emergency,emergency system
+GET,"/api/v1/sos/bulk-alert",sos,emergency,emergency system
+GET,"/api/v1/sos/zone-alert",sos,emergency,emergency system
+GET,"/api/v1/sos/evacuation",sos,emergency,emergency system
+GET,"/api/v1/sos/all-clear",sos,emergency,emergency system
+GET,"/api/v1/sos/incident-report/:alertId",sos,emergency,emergency system
+GET,"/api/v1/sos/follow-up/:alertId",sos,emergency,emergency system
+GET,"/api/v1/sos/training",sos,emergency,emergency system
+GET,"/api/v1/sos/resources",sos,emergency,emergency system
+GET,"/api/v1/sos/protocols",sos,emergency,emergency system
+GET,"/api/v1/sos/emergency-codes",sos,emergency,emergency system
+GET,"/api/v1/sos/panic-button/activate",sos,emergency,emergency system
+GET,"/api/v1/sos/panic-button/deactivate",sos,emergency,emergency system
+GET,"/api/v1/sos/safe-word",sos,emergency,emergency system
+GET,"/api/v1/sos/geofence",sos,emergency,emergency system
+GET,"/api/v1/departments",departments,hospital-structure,staff + admin
+POST,"/api/v1/departments",departments,hospital-structure,staff + admin
+GET,"/api/v1/departments/:id",departments,hospital-structure,staff + admin
+PUT,"/api/v1/departments/:id",departments,hospital-structure,staff + admin
+DELETE,"/api/v1/departments/:id",departments,hospital-structure,staff + admin
+GET,"/api/v1/departments/endpoint5",departments,hospital-structure,staff + admin
+GET,"/api/v1/departments/endpoint6",departments,hospital-structure,staff + admin
+GET,"/api/v1/departments/endpoint7",departments,hospital-structure,staff + admin
+GET,"/api/v1/departments/endpoint8",departments,hospital-structure,staff + admin
+GET,"/api/v1/departments/endpoint9",departments,hospital-structure,staff + admin
+GET,"/api/v1/departments/endpoint10",departments,hospital-structure,staff + admin
+GET,"/api/v1/departments/endpoint11",departments,hospital-structure,staff + admin
+GET,"/api/v1/departments/endpoint12",departments,hospital-structure,staff + admin
+GET,"/api/v1/departments/endpoint13",departments,hospital-structure,staff + admin
+GET,"/api/v1/doctors",doctors,hospital-structure,multi-role
+POST,"/api/v1/doctors",doctors,hospital-structure,multi-role
+GET,"/api/v1/doctors/:id",doctors,hospital-structure,multi-role
+PUT,"/api/v1/doctors/:id",doctors,hospital-structure,multi-role
+DELETE,"/api/v1/doctors/:id",doctors,hospital-structure,multi-role
+GET,"/api/v1/doctors/endpoint5",doctors,hospital-structure,multi-role
+GET,"/api/v1/doctors/endpoint6",doctors,hospital-structure,multi-role
+GET,"/api/v1/doctors/endpoint7",doctors,hospital-structure,multi-role
+GET,"/api/v1/doctors/endpoint8",doctors,hospital-structure,multi-role
+GET,"/api/v1/doctors/endpoint9",doctors,hospital-structure,multi-role
+GET,"/api/v1/doctors/endpoint10",doctors,hospital-structure,multi-role
+GET,"/api/v1/doctors/endpoint11",doctors,hospital-structure,multi-role
+GET,"/api/v1/doctors/endpoint12",doctors,hospital-structure,multi-role
+GET,"/api/v1/doctors/endpoint13",doctors,hospital-structure,multi-role
+GET,"/api/v1/version",version,system,public + admin
+POST,"/api/v1/version",version,system,public + admin
+GET,"/api/v1/version/:id",version,system,public + admin
+PUT,"/api/v1/version/:id",version,system,public + admin
+DELETE,"/api/v1/version/:id",version,system,public + admin
+GET,"/api/v1/version/endpoint5",version,system,public + admin
+GET,"/api/v1/version/endpoint6",version,system,public + admin
+GET,"/api/v1/version/endpoint7",version,system,public + admin
+GET,"/api/v1/version/endpoint8",version,system,public + admin
+GET,"/api/v1/version/endpoint9",version,system,public + admin
+GET,"/api/v1/health",health,system,public + protected
+POST,"/api/v1/health",health,system,public + protected
+GET,"/api/v1/health/:id",health,system,public + protected
+PUT,"/api/v1/health/:id",health,system,public + protected
+DELETE,"/api/v1/health/:id",health,system,public + protected
+GET,"/api/v1/health/endpoint5",health,system,public + protected
+GET,"/api/v1/health/endpoint6",health,system,public + protected
+GET,"/api/v1/health/endpoint7",health,system,public + protected
+GET,"/api/v1/health/endpoint8",health,system,public + protected
+GET,"/api/v1/health/endpoint9",health,system,public + protected
+GET,"/api/v1/health/endpoint10",health,system,public + protected
+GET,"/api/v1/health/endpoint11",health,system,public + protected
+GET,"/api/v1/health/endpoint12",health,system,public + protected
+GET,"/api/v1/health/endpoint13",health,system,public + protected
+GET,"/api/v1/upload",upload,file-management,role-based
+POST,"/api/v1/upload",upload,file-management,role-based
+GET,"/api/v1/upload/single",upload,file-management,role-based
+GET,"/api/v1/upload/multiple",upload,file-management,role-based
+GET,"/api/v1/upload/chunk",upload,file-management,role-based
+GET,"/api/v1/upload/chunk/:uploadId",upload,file-management,role-based
+GET,"/api/v1/upload/resume/:uploadId",upload,file-management,role-based
+GET,"/api/v1/upload/cancel/:uploadId",upload,file-management,role-based
+GET,"/api/v1/upload/status/:uploadId",upload,file-management,role-based
+GET,"/api/v1/upload/validate",upload,file-management,role-based
+GET,"/api/v1/upload/scan/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/process/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/thumbnail/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/preview/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/download/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/share/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/delete/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/archive/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/restore/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/metadata/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/tags/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/move/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/copy/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/rename/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/compress",upload,file-management,role-based
+GET,"/api/v1/upload/decompress/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/convert/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/merge",upload,file-management,role-based
+GET,"/api/v1/upload/split/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/watermark/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/encrypt/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/decrypt/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/sign/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/verify-signature/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/ocr/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/extract-text/:fileId",upload,file-management,role-based
+GET,"/api/v1/upload/folders",upload,file-management,role-based
+GET,"/api/v1/upload/folders/:id",upload,file-management,role-based
+PUT,"/api/v1/upload/folders/:id",upload,file-management,role-based
+GET,"/api/v1/upload/recent",upload,file-management,role-based
+GET,"/api/v1/upload/shared",upload,file-management,role-based
+GET,"/api/v1/upload/trash",upload,file-management,role-based
+GET,"/api/v1/upload/storage-stats",upload,file-management,role-based
+GET,"/api/v1/upload/cleanup",upload,file-management,role-based
+GET,"/api/v1/upload/policies",upload,file-management,role-based
+GET,"/api/v1/admin/departments",adminDepartments,administration,admin only
+POST,"/api/v1/admin/departments",adminDepartments,administration,admin only
+GET,"/api/v1/admin/departments/:id",adminDepartments,administration,admin only
+PUT,"/api/v1/admin/departments/:id",adminDepartments,administration,admin only
+DELETE,"/api/v1/admin/departments/:id",adminDepartments,administration,admin only
+GET,"/api/v1/admin/departments/endpoint5",adminDepartments,administration,admin only
+GET,"/api/v1/admin/departments/endpoint6",adminDepartments,administration,admin only
+GET,"/api/v1/admin/departments/endpoint7",adminDepartments,administration,admin only
+GET,"/api/v1/admin/doctors",adminDoctors,administration,admin only
+POST,"/api/v1/admin/doctors",adminDoctors,administration,admin only
+GET,"/api/v1/admin/doctors/:id",adminDoctors,administration,admin only
+PUT,"/api/v1/admin/doctors/:id",adminDoctors,administration,admin only
+DELETE,"/api/v1/admin/doctors/:id",adminDoctors,administration,admin only
+GET,"/api/v1/admin/doctors/endpoint5",adminDoctors,administration,admin only
+GET,"/api/v1/admin/notifications",adminNotifications,administration,admin only
+POST,"/api/v1/admin/notifications",adminNotifications,administration,admin only
+GET,"/api/v1/admin/notifications/:id",adminNotifications,administration,admin only
+PUT,"/api/v1/admin/notifications/:id",adminNotifications,administration,admin only
+DELETE,"/api/v1/admin/notifications/:id",adminNotifications,administration,admin only
+GET,"/api/v1/admin/notifications/endpoint5",adminNotifications,administration,admin only
+GET,"/api/v1/admin/notifications/endpoint6",adminNotifications,administration,admin only
+GET,"/api/v1/admin/notifications/endpoint7",adminNotifications,administration,admin only
+GET,"/api/v1/admin/notifications/endpoint8",adminNotifications,administration,admin only
+GET,"/api/v1/admin/notifications/endpoint9",adminNotifications,administration,admin only
+GET,"/api/v1/admin/notifications/endpoint10",adminNotifications,administration,admin only
+GET,"/api/v1/admin/notifications/endpoint11",adminNotifications,administration,admin only
+GET,"/api/v1/admin",admin,administration,admin only
+POST,"/api/v1/admin",admin,administration,admin only
+GET,"/api/v1/admin/:id",admin,administration,admin only
+PUT,"/api/v1/admin/:id",admin,administration,admin only
+DELETE,"/api/v1/admin/:id",admin,administration,admin only
+GET,"/api/v1/admin/endpoint5",admin,administration,admin only
+GET,"/api/v1/admin/endpoint6",admin,administration,admin only
+GET,"/api/v1/admin/endpoint7",admin,administration,admin only
+GET,"/api/v1/admin/endpoint8",admin,administration,admin only
+GET,"/api/v1/admin/endpoint9",admin,administration,admin only
+GET,"/api/v1/admin/endpoint10",admin,administration,admin only
+GET,"/api/v1/admin/endpoint11",admin,administration,admin only
+GET,"/api/v1/admin/endpoint12",admin,administration,admin only
+GET,"/api/v1/admin/endpoint13",admin,administration,admin only
+GET,"/api/v1/admin/endpoint14",admin,administration,admin only
+GET,"/api/v1/admin/endpoint15",admin,administration,admin only
+GET,"/api/v1/admin/endpoint16",admin,administration,admin only
+GET,"/api/v1/admin/endpoint17",admin,administration,admin only
+GET,"/api/v1/admin/endpoint18",admin,administration,admin only
+GET,"/api/v1/admin/endpoint19",admin,administration,admin only
+GET,"/api/v1/admin/endpoint20",admin,administration,admin only
+GET,"/api/v1/admin/endpoint21",admin,administration,admin only
+GET,"/api/v1/analytics",analytics,administration,admin + manager
+POST,"/api/v1/analytics",analytics,administration,admin + manager
+GET,"/api/v1/analytics/:id",analytics,administration,admin + manager
+PUT,"/api/v1/analytics/:id",analytics,administration,admin + manager
+DELETE,"/api/v1/analytics/:id",analytics,administration,admin + manager
+GET,"/api/v1/analytics/endpoint5",analytics,administration,admin + manager
+GET,"/api/v1/analytics/endpoint6",analytics,administration,admin + manager
+GET,"/api/v1/analytics/endpoint7",analytics,administration,admin + manager
+GET,"/api/v1/analytics/endpoint8",analytics,administration,admin + manager
+GET,"/api/v1/analytics/endpoint9",analytics,administration,admin + manager
+GET,"/api/v1/staff",staff,administration,hr + management
+POST,"/api/v1/staff",staff,administration,hr + management
+GET,"/api/v1/staff/:id",staff,administration,hr + management
+POST,"/api/v1/staff",staff,administration,hr + management
+PUT,"/api/v1/staff/:id",staff,administration,hr + management
+DELETE,"/api/v1/staff/:id",staff,administration,hr + management
+GET,"/api/v1/staff/profile/:id",staff,administration,hr + management
+PUT,"/api/v1/staff/profile/:id",staff,administration,hr + management
+GET,"/api/v1/staff/departments",staff,administration,hr + management
+GET,"/api/v1/staff/departments/:id",staff,administration,hr + management
+PUT,"/api/v1/staff/departments/:id",staff,administration,hr + management
+GET,"/api/v1/staff/shifts",staff,administration,hr + management
+GET,"/api/v1/staff/shifts/:id",staff,administration,hr + management
+PUT,"/api/v1/staff/shifts/:id",staff,administration,hr + management
+GET,"/api/v1/staff/attendance",staff,administration,hr + management
+GET,"/api/v1/staff/attendance/:id",staff,administration,hr + management
+PUT,"/api/v1/staff/attendance/:id",staff,administration,hr + management
+GET,"/api/v1/staff/attendance/check-in",staff,administration,hr + management
+GET,"/api/v1/staff/attendance/check-out",staff,administration,hr + management
+GET,"/api/v1/staff/leaves",staff,administration,hr + management
+GET,"/api/v1/staff/leaves/:id",staff,administration,hr + management
+PUT,"/api/v1/staff/leaves/:id",staff,administration,hr + management
+GET,"/api/v1/staff/leaves/apply",staff,administration,hr + management
+POST,"/api/v1/staff/leaves/apply",staff,administration,hr + management
+GET,"/api/v1/staff/leaves/approve/:id",staff,administration,hr + management
+PUT,"/api/v1/staff/leaves/approve/:id",staff,administration,hr + management
+GET,"/api/v1/staff/leaves/reject/:id",staff,administration,hr + management
+PUT,"/api/v1/staff/leaves/reject/:id",staff,administration,hr + management
+GET,"/api/v1/staff/payroll",staff,administration,hr + management
+GET,"/api/v1/staff/payroll/:id",staff,administration,hr + management
+PUT,"/api/v1/staff/payroll/:id",staff,administration,hr + management
+GET,"/api/v1/staff/documents",staff,administration,hr + management
+GET,"/api/v1/staff/documents/:id",staff,administration,hr + management
+PUT,"/api/v1/staff/documents/:id",staff,administration,hr + management
+GET,"/api/v1/staff/performance",staff,administration,hr + management
+GET,"/api/v1/staff/performance/:id",staff,administration,hr + management
+PUT,"/api/v1/staff/performance/:id",staff,administration,hr + management
+GET,"/api/v1/staff/training",staff,administration,hr + management
+GET,"/api/v1/staff/training/:id",staff,administration,hr + management
+PUT,"/api/v1/staff/training/:id",staff,administration,hr + management
+GET,"/api/v1/staff/certifications",staff,administration,hr + management
+GET,"/api/v1/staff/certifications/:id",staff,administration,hr + management
+PUT,"/api/v1/staff/certifications/:id",staff,administration,hr + management
+GET,"/api/v1/staff/schedule",staff,administration,hr + management
+GET,"/api/v1/staff/schedule/:id",staff,administration,hr + management
+PUT,"/api/v1/staff/schedule/:id",staff,administration,hr + management
+GET,"/api/v1/staff/overtime",staff,administration,hr + management
+GET,"/api/v1/staff/overtime/:id",staff,administration,hr + management
+PUT,"/api/v1/staff/overtime/:id",staff,administration,hr + management
+GET,"/api/v1/staff/benefits",staff,administration,hr + management
+GET,"/api/v1/staff/benefits/:id",staff,administration,hr + management
+PUT,"/api/v1/staff/benefits/:id",staff,administration,hr + management
+GET,"/api/v1/staff/emergency-contacts/:id",staff,administration,hr + management
+PUT,"/api/v1/staff/emergency-contacts/:id",staff,administration,hr + management
+GET,"/api/v1/staff/announcements",staff,administration,hr + management
+GET,"/api/v1/staff/policies",staff,administration,hr + management
+GET,"/api/v1/debug",debug,technical,admin only
+POST,"/api/v1/debug",debug,technical,admin only
+GET,"/api/v1/debug/:id",debug,technical,admin only
+PUT,"/api/v1/debug/:id",debug,technical,admin only
+DELETE,"/api/v1/debug/:id",debug,technical,admin only
+GET,"/api/v1/debug/endpoint5",debug,technical,admin only
+GET,"/api/v1/debug/endpoint6",debug,technical,admin only
+GET,"/api/v1/debug/endpoint7",debug,technical,admin only
+GET,"/api/v1/debug/endpoint8",debug,technical,admin only
+GET,"/api/v1/debug/endpoint9",debug,technical,admin only
+GET,"/api/v1/debug/endpoint10",debug,technical,admin only
+GET,"/api/v1/devices",devices,technical,user-based
+POST,"/api/v1/devices",devices,technical,user-based
+GET,"/api/v1/devices/:id",devices,technical,user-based
+PUT,"/api/v1/devices/:id",devices,technical,user-based
+DELETE,"/api/v1/devices/:id",devices,technical,user-based
+GET,"/api/v1/devices/endpoint5",devices,technical,user-based
+GET,"/api/v1/devices/endpoint6",devices,technical,user-based
+GET,"/api/v1/devices/endpoint7",devices,technical,user-based
+GET,"/api/v1/devices/endpoint8",devices,technical,user-based
+GET,"/api/v1/devices/endpoint9",devices,technical,user-based
+GET,"/api/v1/devices/endpoint10",devices,technical,user-based
+GET,"/api/v1/notifications",notifications,communication,role-based
+POST,"/api/v1/notifications",notifications,communication,role-based
+GET,"/api/v1/notifications/:id",notifications,communication,role-based
+POST,"/api/v1/notifications",notifications,communication,role-based
+PUT,"/api/v1/notifications/:id",notifications,communication,role-based
+DELETE,"/api/v1/notifications/:id",notifications,communication,role-based
+GET,"/api/v1/notifications/send",notifications,communication,role-based
+POST,"/api/v1/notifications/send",notifications,communication,role-based
+GET,"/api/v1/notifications/bulk-send",notifications,communication,role-based
+POST,"/api/v1/notifications/bulk-send",notifications,communication,role-based
+GET,"/api/v1/notifications/templates",notifications,communication,role-based
+GET,"/api/v1/notifications/templates/:id",notifications,communication,role-based
+PUT,"/api/v1/notifications/templates/:id",notifications,communication,role-based
+GET,"/api/v1/notifications/schedule",notifications,communication,role-based
+GET,"/api/v1/notifications/schedule/:id",notifications,communication,role-based
+PUT,"/api/v1/notifications/schedule/:id",notifications,communication,role-based
+GET,"/api/v1/notifications/cancel/:id",notifications,communication,role-based
+PUT,"/api/v1/notifications/cancel/:id",notifications,communication,role-based
+GET,"/api/v1/notifications/history",notifications,communication,role-based
+GET,"/api/v1/notifications/unread",notifications,communication,role-based
+GET,"/api/v1/notifications/mark-read/:id",notifications,communication,role-based
+PUT,"/api/v1/notifications/mark-read/:id",notifications,communication,role-based
+GET,"/api/v1/notifications/mark-all-read",notifications,communication,role-based
+GET,"/api/v1/notifications/preferences",notifications,communication,role-based
+GET,"/api/v1/notifications/preferences/:userId",notifications,communication,role-based
+GET,"/api/v1/notifications/subscribe/:topic",notifications,communication,role-based
+GET,"/api/v1/notifications/unsubscribe/:topic",notifications,communication,role-based
+GET,"/api/v1/notifications/topics",notifications,communication,role-based
+GET,"/api/v1/notifications/devices",notifications,communication,role-based
+GET,"/api/v1/notifications/test",notifications,communication,role-based
+GET,"/api-docs",swagger,documentation,public
+POST,"/api-docs",swagger,documentation,public
+GET,"/api-docs/:id",swagger,documentation,public
+PUT,"/api-docs/:id",swagger,documentation,public
+DELETE,"/api-docs/:id",swagger,documentation,public
+GET,"/api-docs/endpoint5",swagger,documentation,public
+GET,"/api-docs/endpoint6",swagger,documentation,public
+GET,"/api-docs/endpoint7",swagger,documentation,public
+GET,"/api-docs/endpoint8",swagger,documentation,public
