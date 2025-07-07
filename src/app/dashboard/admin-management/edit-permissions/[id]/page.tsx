@@ -24,7 +24,16 @@ const mockAdmin: AdminUser = {
     permissions: ["adminManagement", "userManagement"], last_login: new Date().toISOString(), is_active: true
 };
 
+// BETTER SOLUTION - Actually use the params.id:
 export default function EditPermissionsPage({ params }: { params: { id: string } }) {
+    const [state, formAction] = useFormState(updatePermissionsAction, initialState);
+    
+    // Use the id from params
+    const adminId = params.id;
+    console.log(`Editing permissions for admin ${adminId}`);
+    
+    // In a real app, you would fetch the admin user based on params.id
+    const admin = mockAdmin;
     const [state, formAction] = useFormState(updatePermissionsAction, initialState);
     
     // In a real app, you would fetch the admin user based on params.id
