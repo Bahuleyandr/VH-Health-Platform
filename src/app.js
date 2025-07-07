@@ -120,7 +120,8 @@ app.head('/', (req, res) => {
 });
 
 // Public API routes
-app.use('/api/v1/auth', patientRateLimiter, routes.auth);
+app.use('/api/v1/auth', patientRateLimiter, routes.auth); // Patient Auth
+app.use('/api/v1/auth', authRoutes); // ***** MOVED THIS LINE HERE - Admin Auth is now public *****
 app.use('/api/v1/otp', patientRateLimiter, routes.otp);
 app.use('/api/v1/health', healthRoutes);
 
@@ -151,7 +152,6 @@ app.use('/api/v1/departments', departmentRoutes);
 app.use('/api/v1/doctors', doctorRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
-app.use('/api/v1/auth', authRoutes);
 
 // Healthcare services - Legacy (to be modularized)
 app.use('/api/v1/devices', deviceRoutes);
