@@ -4,6 +4,7 @@
 import { createAdminUser } from '@/lib/api';
 import { deactivateAdmin, reactivateAdmin, updateAdminPermissions } from '@/lib/api';
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 
 interface FormState {
   message: string;
@@ -51,17 +52,16 @@ export async function toggleAdminStatusAction(formData: FormData) {
   }
 }
 
-export async function updatePermissionsAction(prevState: FormState, formData: FormData) {
+export async function updatePermissionsAction(prevState: FormState, formData: FormData): Promise<FormState> {
     const adminId = parseInt(formData.get('adminId') as string, 10);
     const permissions = formData.getAll('permissions') as string[];
 
     try {
         await updateAdminPermissions({ adminId, permissions });
         revalidatePath('/dashboard/admin-management');
+        redirect('/dashboard/admin-management');
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
         return { message: errorMessage, success: false };
     }
-
-    redirect('/dashboard/admin-management');
 }

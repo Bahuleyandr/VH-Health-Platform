@@ -34,10 +34,6 @@ export default function EditPermissionsPage({ params }: { params: { id: string }
     
     // In a real app, you would fetch the admin user based on params.id
     const admin = mockAdmin;
-    const [state, formAction] = useFormState(updatePermissionsAction, initialState);
-    
-    // In a real app, you would fetch the admin user based on params.id
-    const admin = mockAdmin; 
 
     return (
         <div>
@@ -65,7 +61,7 @@ export default function EditPermissionsPage({ params }: { params: { id: string }
                     <SubmitButton />
                     <Link href="/dashboard/admin-management">Cancel</Link>
                 </div>
-                 {state?.message && <p className="mt-2">{state.message}</p>}
+                {state?.message && <p className="mt-2">{state.message}</p>}
             </form>
         </div>
     );

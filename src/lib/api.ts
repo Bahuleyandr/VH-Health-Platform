@@ -87,6 +87,8 @@ async function deleteAdminAPI(path: string) {
 // ============================================================================
 
 // AUTH
+export { fetchAdminAPI, postAdminAPI, putAdminAPI, deleteAdminAPI };
+
 export const getAdminProfile = () => fetchAdminAPI('/auth/admin/profile');
 export const changeAdminPassword = (data: object) => postAdminAPI('/auth/admin/change-password', data);
 export const createAdminUser = (data: object) => postAdminAPI('/auth/admin/create-admin', data);

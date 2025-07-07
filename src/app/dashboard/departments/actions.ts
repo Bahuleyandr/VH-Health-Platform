@@ -1,10 +1,8 @@
 // src/app/dashboard/departments/actions.ts
 'use server';
 
-import { postAdminAPI } from '@/lib/api';
-import { deleteAdminAPI } from '@/lib/api';
-import { revalidatePath } from 'next/cache';
 import { postAdminAPI, deleteAdminAPI, putAdminAPI } from '@/lib/api';
+import { revalidatePath } from 'next/cache';
 
 interface FormState {
   message: string;
