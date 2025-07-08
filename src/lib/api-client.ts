@@ -1,19 +1,13 @@
-// src/lib/api-client.ts
-
-// This MUST be at the top of the file
 const API_BASE = "https://vh-health-backend.onrender.com/api/v1";
 
-/**
- * Logs in an admin user. This is a public route and can be called from the client.
- */
-export async function adminLogin(email: string, password: string) {
+export async function adminLogin(username: string, password: string) {
   const res = await fetch(`${API_BASE}/auth/admin/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ 
-      username: email.includes('@') ? email.split('@')[0] : email,
-      password 
-    }),
+    headers: { 
+      "Content-Type": "application/json",
+      "x-api-key": "vhhealth123"  // THIS IS REQUIRED!
+    },
+    body: JSON.stringify({ username, password }),
   });
 
   if (!res.ok) {
