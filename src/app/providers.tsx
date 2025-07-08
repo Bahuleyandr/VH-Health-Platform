@@ -1,10 +1,9 @@
-// src/app/providers.tsx
 'use client';
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { useState } from 'react';
-// import { Toaster } from 'react-hot-toast'; // Uncomment if you install react-hot-toast
+import { Toaster } from 'react-hot-toast';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -22,7 +21,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       {children}
-      {/* <Toaster 
+      <Toaster 
         position="top-right"
         toastOptions={{
           duration: 4000,
@@ -41,7 +40,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
             },
           },
         }}
-      /> */}
+      />
       <ReactQueryDevtools initialIsOpen={false} />
     </QueryClientProvider>
   );

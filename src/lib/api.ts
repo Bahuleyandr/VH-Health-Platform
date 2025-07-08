@@ -131,54 +131,30 @@ export const getDashboardData = async (): Promise<DashboardData> => {
   }
 };
 
-// Department functions
-export const getDepartments = async (): Promise<Department[]> => {
-  try {
-    const response = await fetchAdminAPI('/departments/manage');
-    const departments = response.departments || response;
-    return departments.map((dept: unknown) => DepartmentSchema.parse(dept));
-  } catch (error) {
-    Sentry.captureException(error);
-    throw error;
-  }
-};
+// Departments
+export async function getDepartments() {
+  return fetchAdminAPI('/departments');
+}
 
-export const createDepartment = async (data: { name: string; description?: string }) => {
-  try {
-    const response = await fetchAdminAPI('/departments/manage', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-    return DepartmentSchema.parse(response);
-  } catch (error) {
-    Sentry.captureException(error);
-    throw error;
-  }
-};
+export async function createDepartment(data: { name: string; description?: string }) {
+  return fetchAdminAPI('/departments', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
 
-export const updateDepartment = async (id: string, data: { name?: string; description?: string }) => {
-  try {
-    const response = await fetchAdminAPI(`/departments/manage/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
-    return DepartmentSchema.parse(response);
-  } catch (error) {
-    Sentry.captureException(error);
-    throw error;
-  }
-};
+export async function updateDepartment(id: string, data: { name: string; description?: string }) {
+  return fetchAdminAPI(`/departments/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
 
-export const deleteDepartment = async (id: string) => {
-  try {
-    await fetchAdminAPI(`/departments/manage/${id}`, {
-      method: 'DELETE',
-    });
-  } catch (error) {
-    Sentry.captureException(error);
-    throw error;
-  }
-};
+export async function deleteDepartment(id: string) {
+  return fetchAdminAPI(`/departments/${id}`, {
+    method: 'DELETE',
+  });
+}
 
 // Doctor functions
 export const getDoctors = async (): Promise<Doctor[]> => {

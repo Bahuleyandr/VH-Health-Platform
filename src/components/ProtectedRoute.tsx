@@ -1,7 +1,9 @@
-// src/components/ProtectedRoute.tsx
+'use client';
+
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/router';
+import { useRouter } from 'next/navigation';
 import { getAuthToken } from '@/lib/api';
+import { Spinner } from '@/components/ui/spinner';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -31,7 +33,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <Spinner />
       </div>
     );
   }

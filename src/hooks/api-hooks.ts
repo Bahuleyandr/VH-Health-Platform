@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as api from '@/lib/api';
-import { toast } from 'react-hot-toast'; // Optional: install react-hot-toast
+import toast from 'react-hot-toast';
 
 // Departments Hooks
 export const useDepartments = () => {
