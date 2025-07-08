@@ -39,8 +39,31 @@ export const DoctorSchema = z.object({
   rating: z.number().optional(),
 });
 
-// API Response Schemas
-export const DashboardDataSchema = z.object({
+// Patient Schema
+export const PatientSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  email: z.string().email(),
+  phone: z.string(),
+  date_of_birth: z.string().optional(),
+  address: z.string().optional(),
+  created_at: z.string(),
+});
+
+// Appointment Schema
+export const AppointmentSchema = z.object({
+  id: z.number(),
+  patient_id: z.number(),
+  doctor_id: z.number(),
+  appointment_date: z.string(),
+  appointment_time: z.string(),
+  status: z.enum(['SCHEDULED', 'COMPLETED', 'CANCELLED']),
+  notes: z.string().optional(),
+  created_at: z.string(),
+});
+
+// Backend API Response Schema
+export const DashboardDataBackendSchema = z.object({
   totalUsers: z.number(),
   activeUsers: z.number(),
   totalDoctors: z.number(),
@@ -50,12 +73,20 @@ export const DashboardDataSchema = z.object({
     action: z.string(),
     timestamp: z.string(),
     user: z.string(),
-  })),
+  })).optional(),
+});
+
+// Frontend Dashboard Schema (what the UI expects)
+export const DashboardDataSchema = z.object({
+  totalPatients: z.number(),
+  totalAppointments: z.number(),
+  activeDepartments: z.number(),
+  totalStaff: z.number(),
 });
 
 // Form Schemas
 export const LoginFormSchema = z.object({
-  username: z.string().min(1, 'Username is required'),  // Changed from email
+  username: z.string().min(1, 'Username is required'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
 });
 
@@ -68,3 +99,11 @@ export const CreateDoctorFormSchema = z.object({
   specialization: z.string().min(1, 'Specialization is required'),
   consultation_fee: z.number().min(0, 'Fee must be positive'),
 });
+
+// Type exports
+export type Department = z.infer<typeof DepartmentSchema>;
+export type Patient = z.infer<typeof PatientSchema>;
+export type Appointment = z.infer<typeof AppointmentSchema>;
+export type User = z.infer<typeof UserSchema>;
+export type Doctor = z.infer<typeof DoctorSchema>;
+export type DashboardData = z.infer<typeof DashboardDataSchema>;

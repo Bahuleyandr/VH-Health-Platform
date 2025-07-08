@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useCreateDepartment } from '@/hooks/api-hooks';
-import { useEffect } from 'react';
+import { useState } from 'react';
 
 const DepartmentFormSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -66,3 +66,4 @@ export function CreateDepartmentForm() {
     </form>
   );
 }
+
