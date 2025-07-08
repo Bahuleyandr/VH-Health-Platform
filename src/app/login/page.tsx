@@ -26,7 +26,7 @@ export default function LoginPage() {
   const onSubmit = async (data: LoginFormData) => {
     try {
       setError('');
-      const { token } = await adminLogin(data.email, data.password);
+      const { token } = await adminLogin(data.username, data.password);  // Changed from email
 
       await fetch('/api/login', {
         method: 'POST',
@@ -50,18 +50,18 @@ export default function LoginPage() {
         
         <form className="space-y-6" onSubmit={handleSubmit(onSubmit)}>
           <div>
-            <label htmlFor="email" className="text-sm font-medium text-gray-700">
-              Email
+            <label htmlFor="username" className="text-sm font-medium text-gray-700">
+              Username
             </label>
             <input
-              {...register('email')}
-              type="email"
-              autoComplete="email"
+              {...register('username')}
+              type="text"
+              autoComplete="username"
               className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
-              placeholder="Email"
+              placeholder="Enter your username"
             />
-            {errors.email && (
-              <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>
+            {errors.username && (
+              <p className="mt-1 text-sm text-red-600">{errors.username.message}</p>
             )}
           </div>
           
@@ -86,7 +86,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full py-2 px-4 bg-indigo-600 text-white rounded-md disabled:opacity-50"
+            className="w-full py-2 px-4 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
           >
             {isSubmitting ? 'Signing in...' : 'Sign in'}
           </button>

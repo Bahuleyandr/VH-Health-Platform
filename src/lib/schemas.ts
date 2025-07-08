@@ -55,7 +55,7 @@ export const DashboardDataSchema = z.object({
 
 // Form Schemas
 export const LoginFormSchema = z.object({
-  email: z.string().email('Invalid email address'),
+  username: z.string().min(1, 'Username is required'),  // Changed from email
   password: z.string().min(8, 'Password must be at least 8 characters'),
 });
 
