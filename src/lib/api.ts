@@ -1,170 +1,340 @@
 // src/lib/api.ts
-import { cookies } from "next/headers";
 import * as Sentry from "@sentry/nextjs";
-import { 
-  DepartmentSchema, 
-  DoctorSchema, 
-  AdminUserSchema,
-  DashboardDataSchema 
+import {
+  DepartmentSchema,
+  PatientSchema,
+  AppointmentSchema,
+  UserSchema,
+  DashboardDataSchema,
+  type Department,
+  type Patient,
+  type Appointment,
+  type User,
+  type DashboardData,
 } from './schemas';
 
-// This file contains API functions that are ONLY for Server Components and Server Actions,
-// because it uses the server-only 'cookies' function.
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://vh-health-backend.onrender.com/api/v1';
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY || 'vhhealth123';
 
-const API_BASE = "https://api.vhhealth.app/api/v1";
+// Client-side token management
+export const getAuthToken = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem('adminToken');
+};
 
-// ============================================================================
-// GENERIC API HELPERS (SERVER-ONLY)
-// ============================================================================
+export const setAuthToken = (token: string): void => {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem('adminToken', token);
+};
 
-async function fetchAdminAPI(path: string, options: RequestInit = {}) {
-  const token = cookies().get("auth_token")?.value;
-  if (!token) throw new Error("Authentication token not found.");
+export const removeAuthToken = (): void => {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem('adminToken');
+};
 
-  const config: RequestInit = {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...options.headers,
-    },
-  };
-
-  const res = await fetch(`${API_BASE}${path}`, config);
-  if (!res.ok) {
-    const errorData = await res.json();
-    throw new Error(errorData.message || `API request failed for path: ${path}`);
+// Base fetch function for client-side requests
+export const fetchAdminAPI = async (endpoint: string, options: RequestInit = {}) => {
+  const authToken = getAuthToken();
+  
+  if (!authToken && !endpoint.includes('/auth/login')) {
+    throw new Error('No authentication token');
   }
-  return res.json();
-}
 
-async function postAdminAPI(path: string, body: object) {
-  const token = cookies().get("auth_token")?.value;
-  if (!token) throw new Error("Authentication token not found.");
-
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const errorData = await res.json();
-    throw new Error(errorData.message || "API POST request failed");
-  }
-  return res.json();
-}
-
-async function putAdminAPI(path: string, body: object) {
-    const token = cookies().get("auth_token")?.value;
-    if (!token) throw new Error("Authentication token not found.");
-
-    const res = await fetch(`${API_BASE}${path}`, {
-        method: 'PUT',
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.message || "API PUT request failed");
-    }
-    return res.json();
-}
-
-async function deleteAdminAPI(path: string) {
-    const token = cookies().get("auth_token")?.value;
-    if (!token) throw new Error("Authentication token not found.");
-
-    const res = await fetch(`${API_BASE}${path}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.message || "API DELETE request failed");
-    }
-    if (res.status === 204) return { success: true };
-    return res.json();
-}
-
-// ============================================================================
-// SPECIFIC API FUNCTIONS (SERVER-ONLY)
-// ============================================================================
-
-// AUTH
-export { fetchAdminAPI, postAdminAPI, putAdminAPI, deleteAdminAPI };
-
-export const getAdminProfile = () => fetchAdminAPI('/auth/admin/profile');
-export const changeAdminPassword = (data: object) => postAdminAPI('/auth/admin/change-password', data);
-export const createAdminUser = (data: object) => postAdminAPI('/auth/admin/create-admin', data);
-export const listAdmins = () => fetchAdminAPI('/auth/admin/list');
-export const deactivateAdmin = (data: { adminId: number; reason: string }) => postAdminAPI('/auth/admin/deactivate', data);
-export const reactivateAdmin = (data: { adminId: number }) => postAdminAPI('/auth/admin/reactivate', data);
-export const updateAdminPermissions = (data: { adminId: number; permissions: string[] }) => putAdminAPI('/auth/admin/update-permissions', data);
-
-// CORE
-export const getDashboardData = () => fetchAdminAPI('/admin/dashboard');
-export const getAnalyticsData = (days: number = 30) => fetchAdminAPI(`/admin/analytics?days=${days}`);
-export const getUsers = (queryParams: URLSearchParams) => fetchAdminAPI(`/admin/users?${queryParams.toString()}`);
-export const updateUserStatus = (userId: number, data: { is_active: boolean; reason?: string }) => putAdminAPI(`/admin/users/${userId}/status`, data);
-export const getSystemSettings = () => fetchAdminAPI('/admin/settings');
-export const updateSystemSetting = (key: string, data: object) => putAdminAPI(`/admin/settings/${key}`, data);
-export const getAppointments = (queryParams: URLSearchParams) => fetchAdminAPI(`/admin/appointments?${queryParams.toString()}`);
-export const getAuditLogs = (queryParams: URLSearchParams) => fetchAdminAPI(`/admin/audit/logs?${queryParams.toString()}`);
-export const getSystemLogs = (queryParams: URLSearchParams) => fetchAdminAPI(`/admin/logs/list?${queryParams.toString()}`);
-
-// DEPARTMENTS
-export const getDepartments = () => fetchAdminAPI('/departments/manage');
-export const getDepartmentById = (id: string | number) => fetchAdminAPI(`/departments/${id}`);
-export const createDepartment = (data: { name: string; description?: string }) => postAdminAPI('/departments/create', data);
-export const updateDepartment = (id: string | number, data: { name: string; description?: string }) => putAdminAPI(`/departments/${id}`, data);
-export const deleteDepartment = (id: string | number) => deleteAdminAPI(`/departments/${id}`);
-
-// DOCTORS
-export const getDoctors = () => fetchAdminAPI('/doctors/manage');
-export const createDoctor = (data: object) => postAdminAPI('/doctors/create', data);
-export const updateDoctorProfile = (id: number, data: object) => putAdminAPI(`/doctors/${id}/profile`, data);
-export const deleteDoctor = (id: number) => deleteAdminAPI(`/doctors/${id}/account`);
-
-// NOTIFICATIONS
-export const getNotifications = () => fetchAdminAPI('/notifications/admin/manage');
-export const sendAnnouncement = (data: { title: string; body: string }) => postAdminAPI('/notifications/admin/announcement', data);
-export const createNotificationTemplate = (data: object) => postAdminAPI('/notifications/admin/templates', data);
-export const getNotificationTemplates = () => fetchAdminAPI('/notifications/admin/templates');
-
-// PHARMACY
-export const getPharmacyAnalytics = () => fetchAdminAPI('/pharmacy/analytics');
-export const getPharmacyOrders = (queryParams: URLSearchParams) => fetchAdminAPI(`/pharmacy/orders?${queryParams.toString()}`);
-
-// Add validation to existing functions
-export const getDepartments = async () => {
   try {
-    const response = await fetchAdminAPI('/departments/manage');
-    // Validate the response
-    const departments = DepartmentSchema.array().parse(response.departments || response);
-    return { departments };
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      Sentry.captureException(error, {
-        extra: { validationErrors: error.errors }
-      });
-      throw new Error('Invalid data format received from server');
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': API_KEY,
+        ...(authToken && { 'Authorization': `Bearer ${authToken}` }),
+        ...options.headers,
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        removeAuthToken();
+        // Redirect to login page
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
+      }
+      throw new Error(`API Error: ${response.statusText}`);
     }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    Sentry.captureException(error);
     throw error;
   }
 };
 
-export const getDashboardData = async () => {
+// Auth functions
+export const login = async (username: string, password: string) => {
+  try {
+    const response = await fetchAdminAPI('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+    
+    if (response.token) {
+      setAuthToken(response.token);
+    }
+    
+    return response;
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+export const logout = async () => {
+  try {
+    await fetchAdminAPI('/auth/logout', {
+      method: 'POST',
+    });
+    removeAuthToken();
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+// Dashboard data
+export const getDashboardData = async (): Promise<DashboardData> => {
   try {
     const response = await fetchAdminAPI('/admin/dashboard');
     return DashboardDataSchema.parse(response);
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      Sentry.captureException(error);
-      throw new Error('Invalid dashboard data format');
-    }
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+// Department functions
+export const getDepartments = async (): Promise<Department[]> => {
+  try {
+    const response = await fetchAdminAPI('/departments/manage');
+    // Validate the response
+    const departments = response.departments || response;
+    return departments.map((dept: any) => DepartmentSchema.parse(dept));
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+export const createDepartment = async (data: { name: string; description?: string }) => {
+  try {
+    const response = await fetchAdminAPI('/departments/manage', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return DepartmentSchema.parse(response);
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+export const updateDepartment = async (id: string, data: { name?: string; description?: string }) => {
+  try {
+    const response = await fetchAdminAPI(`/departments/manage/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+    return DepartmentSchema.parse(response);
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+export const deleteDepartment = async (id: string) => {
+  try {
+    await fetchAdminAPI(`/departments/manage/${id}`, {
+      method: 'DELETE',
+    });
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+// Patient functions
+export const getPatients = async (): Promise<Patient[]> => {
+  try {
+    const response = await fetchAdminAPI('/patients/manage');
+    const patients = response.patients || response;
+    return patients.map((patient: any) => PatientSchema.parse(patient));
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+export const getPatient = async (id: string): Promise<Patient> => {
+  try {
+    const response = await fetchAdminAPI(`/patients/manage/${id}`);
+    return PatientSchema.parse(response);
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+export const createPatient = async (data: any) => {
+  try {
+    const response = await fetchAdminAPI('/patients/manage', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return PatientSchema.parse(response);
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+export const updatePatient = async (id: string, data: any) => {
+  try {
+    const response = await fetchAdminAPI(`/patients/manage/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+    return PatientSchema.parse(response);
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+export const deletePatient = async (id: string) => {
+  try {
+    await fetchAdminAPI(`/patients/manage/${id}`, {
+      method: 'DELETE',
+    });
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+// Appointment functions
+export const getAppointments = async (): Promise<Appointment[]> => {
+  try {
+    const response = await fetchAdminAPI('/appointments/manage');
+    const appointments = response.appointments || response;
+    return appointments.map((apt: any) => AppointmentSchema.parse(apt));
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+export const getAppointment = async (id: string): Promise<Appointment> => {
+  try {
+    const response = await fetchAdminAPI(`/appointments/manage/${id}`);
+    return AppointmentSchema.parse(response);
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+export const createAppointment = async (data: any) => {
+  try {
+    const response = await fetchAdminAPI('/appointments/manage', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return AppointmentSchema.parse(response);
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+export const updateAppointment = async (id: string, data: any) => {
+  try {
+    const response = await fetchAdminAPI(`/appointments/manage/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+    return AppointmentSchema.parse(response);
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+export const deleteAppointment = async (id: string) => {
+  try {
+    await fetchAdminAPI(`/appointments/manage/${id}`, {
+      method: 'DELETE',
+    });
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+// User functions
+export const getUsers = async (): Promise<User[]> => {
+  try {
+    const response = await fetchAdminAPI('/admin/users');
+    const users = response.users || response;
+    return users.map((user: any) => UserSchema.parse(user));
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+export const getUser = async (id: string): Promise<User> => {
+  try {
+    const response = await fetchAdminAPI(`/admin/users/${id}`);
+    return UserSchema.parse(response);
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+export const createUser = async (data: any) => {
+  try {
+    const response = await fetchAdminAPI('/admin/users', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return UserSchema.parse(response);
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+export const updateUser = async (id: string, data: any) => {
+  try {
+    const response = await fetchAdminAPI(`/admin/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+    return UserSchema.parse(response);
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+};
+
+export const deleteUser = async (id: string) => {
+  try {
+    await fetchAdminAPI(`/admin/users/${id}`, {
+      method: 'DELETE',
+    });
+  } catch (error) {
+    Sentry.captureException(error);
     throw error;
   }
 };
