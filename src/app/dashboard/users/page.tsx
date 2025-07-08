@@ -1,45 +1,70 @@
-// src/app/dashboard/users/page.tsx
+'use client';
 
+// src/app/dashboard/users/page.tsx
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { UsersAPIResponse } from "@/lib/types";
 import { UsersTable } from "./components/UsersTable";
 import { PaginationControls } from "./components/PaginationControls";
-import { UserFilters } from "./components/UserFilters"; // Import the new component
-import { Suspense } from "react";
+import { UserFilters } from "./components/UserFilters";
 
-export default async function UsersPage({
-  searchParams,
-}: {
-  searchParams: { [key: string]: string | string[] | undefined };
-}) {
+function UsersContent() {
+  const searchParams = useSearchParams();
+  
+  // Build query string from search params
   const queryParams = new URLSearchParams();
-  if (searchParams.page) queryParams.set('page', searchParams.page as string);
-  if (searchParams.role) queryParams.set('role', searchParams.role as string);
-  if (searchParams.search) queryParams.set('search', searchParams.search as string);
+  const page = searchParams.get('page') || '1';
+  const role = searchParams.get('role');
+  const search = searchParams.get('search');
+  
+  queryParams.set('page', page);
+  if (role) queryParams.set('role', role);
+  if (search) queryParams.set('search', search);
 
-  if (!queryParams.has('page')) {
-    queryParams.set('page', '1');
+  const { data, isLoading, error } = useQuery<UsersAPIResponse>({
+    queryKey: ['users', page, role, search],
+    queryFn: () => fetchAdminAPI(`/admin/users?${queryParams.toString()}`),
+    staleTime: 30000, // 30 seconds
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
   }
 
-  const path = `/admin/users?${queryParams.toString()}`;
+  if (error) {
+    return (
+      <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+        Error: {error instanceof Error ? error.message : 'Failed to fetch users'}
+      </div>
+    );
+  }
 
-  const data: UsersAPIResponse = await fetchAdminAPI(path);
-  const { users, pagination } = data;
+  if (!data) {
+    return <div>No data available</div>;
+  }
 
   return (
-    <div>
+    <>
+      <UserFilters />
+      <UsersTable users={data.users} />
+      <PaginationControls pagination={data.pagination} />
+    </>
+  );
+}
+
+export default function UsersPage() {
+  return (
+    <div className="p-6">
       <h2 className="text-2xl font-bold mb-4">User Management</h2>
-      
-      {/* Add the UserFilters component here */}
-      <Suspense fallback={<div>Loading filters...</div>}>
-          <UserFilters />
+      <Suspense fallback={<div>Loading...</div>}>
+        <UsersContent />
       </Suspense>
-      
-      <Suspense fallback={<div>Loading table...</div>}>
-        <UsersTable users={users} />
-      </Suspense>
-      
-      <PaginationControls pagination={pagination} />
     </div>
   );
 }

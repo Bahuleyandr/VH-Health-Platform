@@ -1,59 +1,53 @@
 // src/app/dashboard/users/components/UserFilters.tsx
 'use client';
 
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useState, useEffect } from 'react';
-
-// A simple debounce utility to avoid spamming requests while typing
-function useDebounce(value: string, delay: number) {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [value, delay]);
-  return debouncedValue;
-}
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
+import { useState, useCallback } from 'react';
+import { useDebouncedCallback } from 'use-debounce'; // npm install use-debounce
 
 export function UserFilters() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // State for our inputs
+  // Initialize state from URL params
   const [role, setRole] = useState(searchParams.get('role') || '');
   const [search, setSearch] = useState(searchParams.get('search') || '');
-  
-  // Debounce the search term to avoid excessive API calls
-  const debouncedSearch = useDebounce(search, 500);
 
-  useEffect(() => {
+  // Create a debounced search handler
+  const debouncedSearch = useDebouncedCallback((value: string) => {
     const params = new URLSearchParams(searchParams);
     
-    // Update role if it changes
-    if (role) {
-      params.set('role', role);
-    } else {
-      params.delete('role');
-    }
-
-    // Update search if debounced search term changes
-    if (debouncedSearch) {
-      params.set('search', debouncedSearch);
+    if (value) {
+      params.set('search', value);
     } else {
       params.delete('search');
     }
-
-    // Reset to page 1 whenever filters change
-    params.set('page', '1');
-
-    // Push the new URL
-    router.push(`/dashboard/users?${params.toString()}`);
     
-  }, [role, debouncedSearch, router, searchParams]);
+    params.set('page', '1'); // Reset to page 1
+    router.push(`${pathname}?${params.toString()}`);
+  }, 500);
 
+  // Handle role change immediately
+  const handleRoleChange = useCallback((value: string) => {
+    setRole(value);
+    const params = new URLSearchParams(searchParams);
+    
+    if (value) {
+      params.set('role', value);
+    } else {
+      params.delete('role');
+    }
+    
+    params.set('page', '1'); // Reset to page 1
+    router.push(`${pathname}?${params.toString()}`);
+  }, [pathname, router, searchParams]);
+
+  // Handle search input change
+  const handleSearchChange = useCallback((value: string) => {
+    setSearch(value);
+    debouncedSearch(value);
+  }, [debouncedSearch]);
 
   return (
     <div className="mb-4 flex gap-4 items-center bg-white p-3 rounded-lg shadow">
@@ -62,12 +56,12 @@ export function UserFilters() {
         placeholder="Search by name, email, phone..."
         className="border p-2 rounded w-full"
         value={search}
-        onChange={(e) => setSearch(e.target.value)}
+        onChange={(e) => handleSearchChange(e.target.value)}
       />
       <select
         className="border p-2 rounded"
         value={role}
-        onChange={(e) => setRole(e.target.value)}
+        onChange={(e) => handleRoleChange(e.target.value)}
       >
         <option value="">All Roles</option>
         <option value="DOCTOR">Doctor</option>

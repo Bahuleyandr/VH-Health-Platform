@@ -58,16 +58,18 @@ export interface Notification {
   id: number;
   title: string;
   body: string;
-  type: 'general' | 'announcement' | 'targeted';
-  created_at: string; // ISO date string
-  read: boolean;
+  type: string;
+  created_at: string;
+  recipient_id?: number;
+  is_read?: boolean;
 }
 
 export interface SystemSetting {
   setting_key: string;
   setting_value: string;
-  description: string;
-  updated_at: string;
+  description?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Doctor {

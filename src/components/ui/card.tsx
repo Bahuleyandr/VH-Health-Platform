@@ -1,7 +1,8 @@
-// src/components/ui/card.tsx
+﻿// src/components/ui/card.tsx
 import * as React from "react"
 
-interface CardProps extends React.HTMLAttributes<HTMLDivElement> {}
+// Using type alias instead of empty interface
+type CardProps = React.HTMLAttributes<HTMLDivElement>
 
 export function Card({ className, ...props }: CardProps) {
   return (

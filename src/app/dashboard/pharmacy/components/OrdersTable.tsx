@@ -1,35 +1,171 @@
 // src/app/dashboard/pharmacy/components/OrdersTable.tsx
-import { PharmacyOrder } from "@/lib/types";
+'use client';
 
-export function OrdersTable({ orders }: { orders: PharmacyOrder[] }) {
+import { PharmacyOrder } from "@/lib/types";
+import { useState, useEffect } from "react";
+import { fetchAdminAPI } from "@/lib/api";
+import { OrderDetailsModal } from "./OrderDetailsModal";
+
+export function OrdersTable({ orders: initialOrders, onOrderUpdated }: { 
+  orders: PharmacyOrder[];
+  onOrderUpdated?: () => void;
+}) {
+  const [orders, setOrders] = useState(initialOrders);
+  const [updatingOrderId, setUpdatingOrderId] = useState<number | null>(null);
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // Update local state when props change
+  useEffect(() => {
+    setOrders(initialOrders);
+  }, [initialOrders]);
+
+  const getStatusColor = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'pending':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'processing':
+        return 'bg-blue-100 text-blue-800';
+      case 'completed':
+        return 'bg-green-100 text-green-800';
+      case 'cancelled':
+        return 'bg-red-100 text-red-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const handleStatusUpdate = async (orderId: number, newStatus: string) => {
+    setUpdatingOrderId(orderId);
+    try {
+      await fetchAdminAPI(`/pharmacy/orders/${orderId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: newStatus }),
+      });
+      
+      // Update the local state
+      setOrders(orders.map(order => 
+        order.id === orderId ? { ...order, status: newStatus } : order
+      ));
+      
+      // Notify parent to refresh data if needed
+      if (onOrderUpdated) {
+        onOrderUpdated();
+      }
+    } catch (error) {
+      console.error("Failed to update order status:", error);
+      alert("Failed to update order status. Please try again.");
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  const handleViewOrder = (orderId: number) => {
+    setSelectedOrderId(orderId);
+    setIsModalOpen(true);
+  };
+
   return (
-    <div className="bg-white shadow rounded-lg overflow-x-auto">
-      <table className="min-w-full divide-y divide-gray-200">
-        <thead className="bg-gray-50">
-          <tr>
-            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Order Details</th>
-            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Patient & Doctor</th>
-            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
-          </tr>
-        </thead>
-        <tbody className="bg-white divide-y divide-gray-200">
-          {orders.map((order) => (
-            <tr key={order.id}>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                <div>Order #{order.id}</div>
-                <div className="text-xs text-gray-500">{new Date(order.order_date).toLocaleDateString('en-GB')}</div>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm">
-                <div>{order.patient_name}</div>
-                <div className="text-xs text-gray-500">Prescribed by Dr. {order.doctor_name}</div>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{order.status}</td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">₹{order.total_amount.toLocaleString('en-IN')}</td>
+    <>
+      <div className="bg-white shadow rounded-lg overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Order ID
+              </th>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Date
+              </th>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Patient
+              </th>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Doctor
+              </th>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Status
+              </th>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Amount
+              </th>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Actions
+              </th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {orders.map((order) => (
+              <tr key={order.id} className="hover:bg-gray-50">
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                  #{order.id}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  {new Date(order.order_date).toLocaleDateString('en-GB', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric'
+                  })}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="text-sm font-medium text-gray-900">{order.patient_name}</div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="text-sm text-gray-900">Dr. {order.doctor_name}</div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(order.status)}`}>
+                    {order.status}
+                  </span>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
+                  ₹{order.total_amount.toLocaleString('en-IN')}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => handleViewOrder(order.id)}
+                      className="text-blue-600 hover:text-blue-900 transition-colors"
+                      title="View Details"
+                    >
+                      View
+                    </button>
+                    {order.status === 'pending' && (
+                      <select
+                        value={order.status}
+                        onChange={(e) => handleStatusUpdate(order.id, e.target.value)}
+                        disabled={updatingOrderId === order.id}
+                        className={`text-sm border border-gray-300 rounded px-2 py-1 ${
+                          updatingOrderId === order.id ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
+                      >
+                        <option value="pending">Pending</option>
+                        <option value="processing">Processing</option>
+                        <option value="completed">Completed</option>
+                        <option value="cancelled">Cancelled</option>
+                      </select>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
+    
+    {/* Order Details Modal */}
+    {selectedOrderId && (
+      <OrderDetailsModal
+        orderId={selectedOrderId}
+        isOpen={isModalOpen}
+        onClose={() => {
+          setIsModalOpen(false);
+          setSelectedOrderId(null);
+        }}
+      />
+    )}
+  </>
   );
 }
