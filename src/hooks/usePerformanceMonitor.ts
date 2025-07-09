@@ -1,4 +1,16 @@
 // src/hooks/usePerformanceMonitor.ts
+import { useEffect } from 'react';
+
+declare global {
+  interface Window {
+    gtag?: (
+      command: string,
+      action: string,
+      parameters: Record<string, any>
+    ) => void;
+  }
+}
+
 export function usePerformanceMonitor(componentName: string) {
   useEffect(() => {
     const startTime = performance.now();

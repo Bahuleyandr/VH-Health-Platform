@@ -77,13 +77,9 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
                 <input
                   type="checkbox"
                   checked={isAllSelected}
-                  ref={input => {
-                    if (input) {
-                      input.indeterminate = isPartiallySelected;
-                    }
-                  }}
+                  indeterminate={isPartiallySelected}
                   onChange={toggleAll}
-                  className="h-4 w-4 text-blue-600 rounded border-gray-300 dark:border-gray-600 focus:ring-blue-500"
+                  className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
                 />
               </th>
               <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
@@ -116,7 +112,7 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
                     type="checkbox"
                     checked={isSelected(user.id)}
                     onChange={() => toggleSelection(user.id)}
-                    className="h-4 w-4 text-blue-600 rounded border-gray-300 dark:border-gray-600 focus:ring-blue-500"
+                    className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
                   />
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
@@ -142,7 +138,7 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
                   {user.role || 'User'}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                  <button className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300">
+                  <button className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400">
                     Edit
                   </button>
                 </td>
@@ -192,7 +188,7 @@ function convertToCSV(users: User[]): string {
     user.name,
     user.email,
     user.isActive ? 'Active' : 'Inactive',
-    user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A',
+    new Date(user.createdAt).toLocaleDateString(),
   ]);
   
   return [

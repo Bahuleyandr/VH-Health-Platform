@@ -1,3 +1,4 @@
+// src/lib/api-client.ts
 // This file contains client-side only API functions that don't need auth tokens
 
 const API_BASE_URL = 'https://vh-health-backend.onrender.com/api/v1';
@@ -18,12 +19,22 @@ export async function adminLogin(username: string, password: string) {
     throw new Error(error.message || 'Login failed');
   }
 
-  const data = await response.json();
+  const responseData = await response.json();
   
-  // Store token in localStorage for client-side use
-  if (data.token) {
-    localStorage.setItem('adminToken', data.token);
+  // The backend returns: { success: true, message: "...", data: { token: "...", admin: {...} } }
+  if (responseData.success && responseData.data && responseData.data.token) {
+    const { token, admin } = responseData.data;
+    
+    // Store token in localStorage for client-side use
+    localStorage.setItem('adminToken', token);
+    
+    // Store admin info if needed
+    if (admin) {
+      localStorage.setItem('adminUser', JSON.stringify(admin));
+    }
+    
+    return { token, admin };
   }
 
-  return data;
+  throw new Error('Invalid response from server');
 }
