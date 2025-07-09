@@ -13,7 +13,7 @@ export async function POST(request: Request) {
   const response = NextResponse.json({ success: true });
 
   response.cookies.set("auth_token", token, {
-    httpOnly: true, // Makes it inaccessible to client-side JS
+    httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
     path: "/",

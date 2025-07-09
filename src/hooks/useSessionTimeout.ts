@@ -1,11 +1,25 @@
 // src/hooks/useSessionTimeout.ts
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { logout } from '@/lib/api';
+import toast from 'react-hot-toast';
+
 export function useSessionTimeout() {
   const [showWarning, setShowWarning] = useState(false);
   const router = useRouter();
   
+  const handleLogout = async () => {
+    try {
+      await logout();
+      router.push('/login');
+    } catch (error) {
+      toast.error('Failed to logout');
+    }
+  };
+  
   useEffect(() => {
-    let warningTimer: NodeJS.Timeout;
-    let logoutTimer: NodeJS.Timeout;
+    let warningTimer: ReturnType<typeof setTimeout>;
+    let logoutTimer: ReturnType<typeof setTimeout>;
     
     const resetTimers = () => {
       clearTimeout(warningTimer);

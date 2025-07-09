@@ -1,4 +1,3 @@
-
 // src/lib/api.ts
 import * as Sentry from "@sentry/nextjs";
 import {
@@ -17,11 +16,20 @@ import {
   type DashboardData,
 } from './schemas';
 
-// Add these type definitions to the top of your api.ts file, after the imports
-
-// Type definitions for API data
+// API Configuration with proper URL handling
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://vh-health-backend.onrender.com/api/v1';
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || 'vhhealth123';
+
+// Ensure URL is properly formatted
+const getApiUrl = (endpoint: string) => {
+  // Remove any leading slash from endpoint
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : '/' + endpoint;
+  
+  // Ensure base URL doesn't end with a slash
+  const cleanBaseUrl = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+  
+  return `${cleanBaseUrl}${cleanEndpoint}`;
+};
 
 // Client-side token management
 export const getAuthToken = (): string | null => {
@@ -48,7 +56,10 @@ export const fetchAdminAPI = async (endpoint: string, options: RequestInit = {})
   }
 
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const url = getApiUrl(endpoint);
+    console.log('Fetching from URL:', url); // Debug log
+    
+    const response = await fetch(url, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -66,12 +77,16 @@ export const fetchAdminAPI = async (endpoint: string, options: RequestInit = {})
           window.location.href = '/login';
         }
       }
-      throw new Error(`API Error: ${response.statusText}`);
+      
+      const errorText = await response.text();
+      console.error('API Error:', response.status, errorText);
+      throw new Error(`API Error: ${response.status} ${response.statusText}`);
     }
 
     const data = await response.json();
     return data;
   } catch (error) {
+    console.error('Fetch error:', error);
     Sentry.captureException(error);
     throw error;
   }
@@ -108,32 +123,82 @@ export const logout = async () => {
   }
 };
 
-// Dashboard data - transforms backend response to match UI expectations
-export const getDashboardData = async (): Promise<DashboardData> => {
+// Dashboard data - with better error handling
+export const getDashboardData = async () => {
   try {
-    const response = await fetchAdminAPI('/admin/dashboard');
+    console.log('Fetching dashboard data...'); // Debug log
     
-    // Validate backend response
-    const backendData = DashboardDataBackendSchema.parse(response);
+    // Try the main endpoint
+    let response;
+    try {
+      response = await fetchAdminAPI('/admin/dashboard');
+    } catch (err) {
+      console.log('Dashboard endpoint failed, trying alternative...');
+      // Try without /admin prefix
+      try {
+        response = await fetchAdminAPI('/dashboard');
+      } catch (err2) {
+        console.error('Both dashboard endpoints failed');
+        throw err; // Throw original error
+      }
+    }
     
-    // Transform to match UI expectations
-    const transformedData = {
-      totalPatients: backendData.totalUsers,
-      totalAppointments: backendData.totalAppointments,
-      activeDepartments: backendData.totalDoctors, // Using doctors count as departments for now
-      totalStaff: backendData.activeUsers,
+    console.log('Dashboard response:', response); // Debug log
+    
+    // Handle wrapped response
+    if (response.success && response.data) {
+      response = response.data;
+    }
+    
+    // Handle different response formats
+    if (response.stats) {
+      // If stats are nested
+      return {
+        stats: {
+          totalUsers: response.stats.totalUsers || 0,
+          totalDoctors: response.stats.totalDoctors || 0,
+          totalAppointments: response.stats.totalAppointments || 0,
+          revenue: response.stats.revenue || 0,
+        },
+        recentActivity: response.recentActivity || []
+      };
+    }
+    
+    // Direct response format - transform to match UI expectations
+    return {
+      stats: {
+        totalUsers: response.totalUsers || 0,
+        totalDoctors: response.totalDoctors || 0,
+        totalAppointments: response.totalAppointments || 0,
+        revenue: response.revenue || 0,
+      },
+      recentActivity: response.recentActivity || []
     };
-    
-    return DashboardDataSchema.parse(transformedData);
   } catch (error) {
+    console.error('Dashboard data fetch error:', error);
     Sentry.captureException(error);
-    throw error;
+    
+    // Return default data on error
+    return {
+      stats: {
+        totalUsers: 0,
+        totalDoctors: 0,
+        totalAppointments: 0,
+        revenue: 0,
+      },
+      recentActivity: []
+    };
   }
 };
 
 // Departments
 export async function getDepartments() {
-  return fetchAdminAPI('/departments');
+  const response = await fetchAdminAPI('/departments');
+  // Handle wrapped response
+  if (response.success && response.data) {
+    return response.data;
+  }
+  return response;
 }
 
 export async function createDepartment(data: { name: string; description?: string }) {
@@ -160,6 +225,11 @@ export async function deleteDepartment(id: string) {
 export const getDoctors = async (): Promise<Doctor[]> => {
   try {
     const response = await fetchAdminAPI('/doctors');
+    // Handle wrapped response
+    if (response.success && response.data) {
+      const doctors = response.data.doctors || response.data;
+      return doctors.map((doc: unknown) => DoctorSchema.parse(doc));
+    }
     const doctors = response.doctors || response;
     return doctors.map((doc: unknown) => DoctorSchema.parse(doc));
   } catch (error) {
@@ -301,6 +371,11 @@ export const deleteAppointment = async (id: string) => {
 export const getUsers = async (): Promise<User[]> => {
   try {
     const response = await fetchAdminAPI('/admin/users');
+    // Handle wrapped response
+    if (response.success && response.data) {
+      const users = response.data.users || response.data;
+      return users.map((user: unknown) => UserSchema.parse(user));
+    }
     const users = response.users || response;
     return users.map((user: unknown) => UserSchema.parse(user));
   } catch (error) {
@@ -355,8 +430,6 @@ export const deleteUser = async (id: string) => {
     throw error;
   }
 };
-
-// Add these functions to your src/lib/api.ts file
 
 // Admin Management functions
 export const listAdmins = async () => {

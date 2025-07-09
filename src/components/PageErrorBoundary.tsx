@@ -1,7 +1,14 @@
-// src/components/PageErrorBoundary.tsx
-import { ErrorBoundary } from 'react-error-boundary';
+'use client';
 
-function ErrorFallback({ error, resetErrorBoundary }) {
+import { ErrorBoundary } from 'react-error-boundary';
+import { ReactNode } from 'react';
+
+interface ErrorFallbackProps {
+  error: Error;
+  resetErrorBoundary: () => void;
+}
+
+function ErrorFallback({ error, resetErrorBoundary }: ErrorFallbackProps) {
   return (
     <div className="min-h-[400px] flex items-center justify-center">
       <div className="text-center">
@@ -20,13 +27,17 @@ function ErrorFallback({ error, resetErrorBoundary }) {
   );
 }
 
-export function PageErrorBoundary({ children }) {
+interface PageErrorBoundaryProps {
+  children: ReactNode;
+}
+
+export function PageErrorBoundary({ children }: PageErrorBoundaryProps) {
   return (
     <ErrorBoundary
       FallbackComponent={ErrorFallback}
       onError={(error) => {
-        // Log to Sentry
-        Sentry.captureException(error);
+        // Log to your error tracking service
+        console.error('Page error:', error);
       }}
     >
       {children}
