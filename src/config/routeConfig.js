@@ -1,6 +1,8 @@
 // src/config/routeConfig.js
 // Route Metadata and Configuration Management
 
+import logger from '../logging/logger.js';
+
 /**
  * Route metadata configuration
  * Defines all routes, their properties, and monitoring settings
@@ -378,8 +380,22 @@ export function getCurrentEnvironmentConfig() {
   const env = process.env.NODE_ENV || 'development';
   const config = ENVIRONMENT_CONFIG[env] || ENVIRONMENT_CONFIG.development;
 
+  export function getCurrentEnvironmentConfig() {
+  const env = process.env.NODE_ENV || 'development';
+  const config = ENVIRONMENT_CONFIG[env] || ENVIRONMENT_CONFIG.development;
+
+  const rawModularFlag = process.env.USE_MODULAR_PATHS;
+  let useModularPaths;
+
+  if (rawModularFlag === undefined) {
+    logger.warn('⚠️ USE_MODULAR_PATHS is not set in environment. Defaulting to flat file mode (false).');
+    useModularPaths = false;
+  } else {
+    useModularPaths = rawModularFlag === 'true';
+  }
+
   return {
     ...config,
-    useModularPaths: process.env.USE_MODULAR_PATHS === 'true'
+    useModularPaths
   };
 }
