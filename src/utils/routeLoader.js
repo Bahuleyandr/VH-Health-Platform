@@ -32,7 +32,9 @@ async function loadRouteModule(routeName, filePath, metadata) {
     }
 
     // Normalize paths for modular structure
-    const modularPath = filePath.replace(/Routes\.js$/, '/index.js');
+    const modularPath = filePath.endsWith('Routes.js')
+      ? filePath.replace(/Routes\.js$/, '/index.js')
+      : filePath;
 
     const module = await import(modularPath);
     const routeModule = module.default;
@@ -61,27 +63,9 @@ async function loadRouteModule(routeName, filePath, metadata) {
   }
 }
 
-export async function loadRoutesByCategory(category) {
-  const routes = {};
-  const categoryRoutes = Object.entries(ROUTE_METADATA)
-    .filter(([, metadata]) => metadata.category === category);
-
-  logger.info(`📁 Loading ${category} routes...`);
-
-  for (const [routeName, metadata] of categoryRoutes) {
-    const filePath = ROUTE_FILES[routeName];
-    if (!filePath) {
-      logger.warn(`⚠️ No file path defined for route: ${routeName}`);
-      continue;
-    }
-
-    routes[routeName] = await loadRouteModule(routeName, filePath, metadata);
-  }
-
-  logger.info(`✅ ${category} routes loaded successfully`);
-  return routes;
-}
-
+/**
+ * Loads all routes grouped by category
+ */
 export async function loadAllRoutes() {
   const allRoutes = {};
   const categories = [...new Set(Object.values(ROUTE_METADATA).map(meta => meta.category))];
@@ -105,9 +89,15 @@ export async function loadAllRoutes() {
     }
   }
 
+  const stats = validateLoadedRoutes(allRoutes);
+  logger.info(`📊 Route Health: ${stats.healthPercentage}% (${stats.validRoutes} valid, ${stats.stubRoutes} stubs, ${stats.invalidRoutes.length} invalid)`);
+
   return allRoutes;
 }
 
+/**
+ * Loads routes grouped by priority
+ */
 export async function loadRoutesByPriority() {
   const allRoutes = {};
   const routeEntries = Object.entries(ROUTE_METADATA);
@@ -139,6 +129,49 @@ export async function loadRoutesByPriority() {
   return allRoutes;
 }
 
+/**
+ * Loads routes by category
+ */
+export async function loadRoutesByCategory(category) {
+  const routes = {};
+  const categoryRoutes = Object.entries(ROUTE_METADATA)
+    .filter(([, metadata]) => metadata.category === category);
+
+  logger.info(`📁 Loading ${category} routes...`);
+
+  for (const [routeName, metadata] of categoryRoutes) {
+    const filePath = ROUTE_FILES[routeName];
+    if (!filePath) {
+      logger.warn(`⚠️ No file path defined for route: ${routeName}`);
+      continue;
+    }
+
+    routes[routeName] = await loadRouteModule(routeName, filePath, metadata);
+  }
+
+  logger.info(`✅ ${category} routes loaded successfully`);
+  return routes;
+}
+
+/**
+ * Warns if ROUTE_FILES has unused entries
+ */
+export function warnUnusedRouteFiles() {
+  const declaredFiles = Object.keys(ROUTE_FILES);
+  const definedRoutes = Object.keys(ROUTE_METADATA);
+
+  const unused = declaredFiles.filter(name => !definedRoutes.includes(name));
+
+  if (unused.length > 0) {
+    logger.warn(`⚠️ Unused ROUTE_FILES entries: ${unused.join(', ')}`);
+  } else {
+    logger.info('✅ All ROUTE_FILES entries are mapped in ROUTE_METADATA.');
+  }
+}
+
+/**
+ * Validates loaded route set
+ */
 export function validateLoadedRoutes(routes) {
   const validation = {
     totalRoutes: Object.keys(routes).length,
@@ -172,6 +205,9 @@ export function validateLoadedRoutes(routes) {
   return validation;
 }
 
+/**
+ * Reload a specific route dynamically
+ */
 export async function reloadRoute(routeName) {
   const metadata = ROUTE_METADATA[routeName];
   const filePath = ROUTE_FILES[routeName];
@@ -185,6 +221,9 @@ export async function reloadRoute(routeName) {
   return await loadRouteModule(routeName, filePath, metadata);
 }
 
+/**
+ * Returns categorized route loading stats
+ */
 export function getRouteLoadingStats(routes) {
   const stats = {
     timestamp: new Date().toISOString(),

@@ -20,6 +20,7 @@ import { patientRateLimiter, genericLimiter } from './middleware/rateLimitMiddle
 
 // Utility imports
 import swaggerLoader from './utils/swaggerLoader.js';
+import internalRoutes from './routes/internalRoutes.js';
 
 // ====================================
 // ROUTE IMPORTS - Organized by category
@@ -111,6 +112,8 @@ app.use(attachUserContext);
 
 // API Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+
+app.use('/api/v1/internal', internalRoutes);
 
 // Root health check
 app.get('/', (req, res) => {
