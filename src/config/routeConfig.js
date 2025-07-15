@@ -356,17 +356,17 @@ export const ENVIRONMENT_CONFIG = {
   development: {
     enableDevRoutes: true,
     enableDebugLogging: true,
-    healthCheckInterval: 30000 // 30 seconds
+    healthCheckInterval: 30000 // 30 seconds
   },
   test: {
     enableDevRoutes: true,
     enableDebugLogging: false,
-    healthCheckInterval: 60000 // 1 minute
+    healthCheckInterval: 60000 // 1 minute
   },
   production: {
     enableDevRoutes: false,
     enableDebugLogging: false,
-    healthCheckInterval: 300000 // 5 minutes
+    healthCheckInterval: 300000 // 5 minutes
   }
 };
 
@@ -375,6 +375,11 @@ export const ENVIRONMENT_CONFIG = {
  * @returns {Object} Environment configuration
  */
 export function getCurrentEnvironmentConfig() {
-  const env = process.env.NODE_ENV || 'development';
-  return ENVIRONMENT_CONFIG[env] || ENVIRONMENT_CONFIG.development;
+  const env = process.env.NODE_ENV || 'development';
+  const config = ENVIRONMENT_CONFIG[env] || ENVIRONMENT_CONFIG.development;
+
+  return {
+    ...config,
+    useModularPaths: process.env.USE_MODULAR_PATHS === 'true'
+  };
 }
