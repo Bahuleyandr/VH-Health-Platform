@@ -107,6 +107,10 @@ export const getSafeEnvironmentVars = () => {
     PORT: process.env.PORT,
     API_VERSION: process.env.API_VERSION,
     CORS_ORIGIN: process.env.CORS_ORIGIN,
+    ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS || 'Not configured',
+    PATIENT_APP_ORIGINS: process.env.PATIENT_APP_ORIGINS || 'Not configured',
+    ADMIN_APP_ORIGINS: process.env.ADMIN_APP_ORIGINS || 'Not configured',
+    DEBUG_CORS: process.env.DEBUG_CORS || 'false',
     LOG_LEVEL: process.env.LOG_LEVEL,
     BUILD_DATE: process.env.BUILD_DATE || formatDateDDMMYYYY(new Date())
   };
@@ -150,6 +154,12 @@ export const checkSystemHealth = () => {
   const issues = [];
   let status = 'healthy';
   
+// Check CORS configuration
+if (!process.env.ALLOWED_ORIGINS && !process.env.PATIENT_APP_ORIGINS && !process.env.ADMIN_APP_ORIGINS) {
+  issues.push('No CORS origins configured');
+  status = status === 'healthy' ? 'warning' : status;
+}
+
   // Check memory usage
   if (metrics.memory.used.percentage > 90) {
     issues.push('Critical memory usage (>90%)');

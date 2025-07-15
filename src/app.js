@@ -12,7 +12,7 @@ import loggingMiddleware from './middleware/loggingMiddleware.js';
 import errorHandlerMiddleware from './middleware/errorHandlerMiddleware.js';
 import validateApiKey from './middleware/validateApiKey.js';
 import jwtAuth from './middleware/jwtMiddleware.js';
-import corsMiddleware from './middleware/corsMiddleware.js';
+import corsMiddleware, { corsErrorHandler } from './middleware/corsMiddleware.js';
 import authMiddleware from './middleware/authMiddleware.js';
 import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
 import { attachUserContext } from './middleware/attachUserContext.js';
@@ -178,6 +178,9 @@ app.use('/api/v1/admin/analytics', jwtAuth, analyticsRoutes);
 
 // Fallback rate limiter
 app.use(genericLimiter);
+
+// CORS error handler (ADD THIS LINE)
+app.use(corsErrorHandler);
 
 // Sentry error handler (must be before other error handlers)
 app.use(Sentry.Handlers.errorHandler());
