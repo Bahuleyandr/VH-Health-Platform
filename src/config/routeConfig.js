@@ -208,8 +208,32 @@ export const ROUTE_METADATA = {
     security: 'hr + management',
     healthCheck: true
   },
+adminRecords: {
+  category: 'administration',
+  priority: 'high',
+  description: 'Admin access to medical record exports and deletion',
+  endpoints: 3,
+  security: 'admin only',
+  healthCheck: true
+},
+adminInvestigations: {
+  category: 'administration',
+  priority: 'medium',
+  description: 'Investigation analytics for admins',
+  endpoints: 1,
+  security: 'admin only',
+  healthCheck: true
+},
+adminPharmacy: {
+  category: 'administration',
+  priority: 'medium',
+  description: 'Pharmacy admin operations and analytics',
+  endpoints: 2,
+  security: 'admin only',
+  healthCheck: true
+},
 
-  // ===== TECHNICAL & SYSTEM =====
+// ===== TECHNICAL & SYSTEM =====
   debug: {
     category: 'technical',
     priority: 'low',
@@ -250,14 +274,14 @@ export const ROUTE_METADATA = {
  */
 export const ROUTE_FILES = {
   // Authentication & Authorization
-  auth: '../routes/auth/authRoutes.js',
+  auth: '../routes/auth/index.js',
   firebaseAuth: '../routes/auth/firebaseAuthRoutes.js',
   otp: '../routes/auth/otpRoutes.js',
   otpDev: '../routes/otpDevRoutes.js',
   rbac: '../routes/infrastructure/rbacRoutes.js',
   
   // Core Patient Management
-  users: '../routes/userRoutes.js',
+  users: '../routes/user/index.js',
   lookup: '../routes/lookupRoutes.js',
   appointments: '../routes/appointment/index.js',
   healthRecords: '../routes/record/index.js',
@@ -267,8 +291,8 @@ export const ROUTE_FILES = {
   sos: '../routes/sosRoutes.js',
   
   // Hospital Structure & Information
-  departments: '../routes/department/departmentRoutes.js',
-  doctors: '../routes/doctor/doctorRoutes.js',
+  departments: '../routes/department/index.js',
+  doctors: '../routes/doctor/index.js',
   version: '../routes/infrastructure/versionRoutes.js',
   health: '../routes/health/index.js',
   
@@ -279,14 +303,19 @@ export const ROUTE_FILES = {
   adminDepartments: '../routes/department/adminDepartmentRoutes.js',
   adminDoctors: '../routes/doctor/adminDoctorRoutes.js',
   adminNotifications: '../routes/notification/adminNotificationRoutes.js',
-  admin: '../routes/adminRoutes.js',
   analytics: '../routes/analyticsRoutes.js',
   staff: '../routes/staff/index.js',
+  
+
+  adminRecords: '../routes/record/adminRoutes.js',
+  adminInvestigations: '../routes/investigation/adminRoutes.js',
+  adminPharmacy: '../routes/pharmacy/adminRoutes.js',
   
+
   // Technical & System
   debug: '../routes/infrastructure/debugRoutes.js',
   devices: '../routes/deviceRoutes.js',
-  notifications: '../routes/notification/notificationRoutes.js',
+  notifications: '../routes/notification/index.js',
   swagger: '../routes/infrastructure/swaggerRoutes.js',
 };
 
