@@ -32,9 +32,11 @@ async function loadRouteModule(routeName, filePath, metadata) {
     }
 
     // Normalize paths for modular structure
-    const modularPath = filePath.endsWith('Routes.js')
-      ? filePath.replace(/Routes\.js$/, '/index.js')
-      : filePath;
+    const envConfig = getCurrentEnvironmentConfig();
+const modularPath = (envConfig.useModularPaths && filePath.endsWith('Routes.js'))
+  ? filePath.replace(/Routes\.js$/, '/index.js')
+  : filePath;
+
 
     const module = await import(modularPath);
     const routeModule = module.default;
