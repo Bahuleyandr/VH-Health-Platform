@@ -47,6 +47,11 @@ import infrastructureRoutes from './routes/infrastructure/index.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
 import deviceRoutes from './routes/deviceRoutes.js';
 
+// Adminroutes
+import adminRecordRoutes from './routes/record/adminRoutes.js';
+import adminInvestigationRoutes from './routes/investigation/adminRoutes.js';
+import adminPharmacyRoutes from './routes/pharmacy/adminRoutes.js';
+
 // ====================================
 // ENVIRONMENT AND INITIALIZATION
 // ====================================
@@ -171,6 +176,9 @@ app.use('/api/v1/staff', jwtAuth, staffRoutes);
 
 // Admin routes
 app.use('/api/v1/admin/analytics', jwtAuth, analyticsRoutes);
+app.use('/api/v1/admin/records', jwtAuth, adminRecordRoutes);
+app.use('/api/v1/admin/investigations', jwtAuth, adminInvestigationRoutes);
+app.use('/api/v1/admin/pharmacy', jwtAuth, adminPharmacyRoutes);
 
 // ====================================
 // ERROR HANDLING

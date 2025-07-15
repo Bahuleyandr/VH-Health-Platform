@@ -1,3 +1,5 @@
+// src/routes/pharmacy/adminRoutes.js
+
 import express from 'express';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as orderController from '../../controllers/pharmacy/orderController.js';

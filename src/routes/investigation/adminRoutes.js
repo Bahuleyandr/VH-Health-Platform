@@ -1,3 +1,5 @@
+// src/routes/investigation/Adminroutes.js
+
 import express from 'express';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as analyticsController from '../../controllers/investigation/analyticsController.js';
