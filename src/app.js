@@ -27,7 +27,6 @@ import swaggerLoader from './utils/swaggerLoader.js';
 
 // Legacy routes (for backward compatibility)
 import routes from './routes/index.js';
-import adminRoutes from './routes/adminRoutes.js';
 
 // Modularized routes
 import staffRoutes from './routes/staff/index.js';
