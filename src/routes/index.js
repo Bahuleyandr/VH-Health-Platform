@@ -3,7 +3,12 @@
 // Refactored for maintainability and clean architecture
 
 import logger from '../logging/logger.js';
-import { loadAllRoutes, validateLoadedRoutes, getRouteLoadingStats } from '../utils/routeLoader.js';
+import {
+  loadAllRoutes,
+  validateLoadedRoutes,
+  getRouteLoadingStats,
+  warnUnusedRouteFiles
+} from '../utils/routeLoader.js';
 import { routeHealthService } from '../services/routeHealthService.js';
 import { routeDocumentationService } from '../services/routeDocumentationService.js';
 import { ROUTE_METADATA } from '../config/routeConfig.js';
@@ -16,6 +21,10 @@ async function initializeRoutes() {
   logger.info('🚀 Initializing VH Health Route System...');
   
   try {
+
+    // Check unused routes first
+    warnUnusedRouteFiles();
+
     // Load all routes using the route loader utility
     const routes = await loadAllRoutes();
     
@@ -51,6 +60,13 @@ async function initializeRoutes() {
     
     logger.info('✅ VH Health Route System initialized successfully');
     
+if (process.env.NODE_ENV === 'development') {
+  setInterval(() => {
+    const stats = getSystemStatistics();
+    logger.info(`📊 [DEV] Route Health: ${stats.health?.overallHealth} | Routes: ${stats.health?.healthyRoutes}/${stats.health?.totalRoutes}`);
+  }, 1000 * 60 * 5); // every 5 minutes
+}
+
     // Return routes with system utilities
     return {
       // ===== AUTHENTICATION & AUTHORIZATION =====
