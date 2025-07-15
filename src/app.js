@@ -141,7 +141,7 @@ app.use(normalizeIdentityFields); // ***** MOVED TO HERE. It now runs AFTER auth
 // ====================================
 
 // User management
-app.use('/api/v1/users', patientRateLimiter, routes.users);
+// app.use('/api/v1/users', patientRateLimiter, routes.users);
 
 // Healthcare services - Modularized
 app.use('/api/v1/appointments', patientRateLimiter, appointmentRoutes);
