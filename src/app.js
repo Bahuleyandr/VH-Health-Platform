@@ -27,6 +27,7 @@ import swaggerLoader from './utils/swaggerLoader.js';
 
 // Legacy routes (for backward compatibility)
 import routes from './routes/index.js';
+import adminRoutes from './routes/adminRoutes.js';
 
 // Modularized routes
 import staffRoutes from './routes/staff/index.js';
@@ -141,7 +142,7 @@ app.use(normalizeIdentityFields); // ***** MOVED TO HERE. It now runs AFTER auth
 // ====================================
 
 // User management
-// app.use('/api/v1/users', patientRateLimiter, routes.users);
+app.use('/api/v1/users', patientRateLimiter, routes.users);
 
 // Healthcare services - Modularized
 app.use('/api/v1/appointments', patientRateLimiter, appointmentRoutes);
