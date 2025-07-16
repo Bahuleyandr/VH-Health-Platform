@@ -136,7 +136,7 @@ export const discoverEndpoints = async (req, res) => {
 };
 
 // Get documentation analytics (Admin only)
-export const getAnalytics = async (req, res) => {
+export const getSwaggerAnalytics = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(HTTP_STATUS.BAD_REQUEST).json({

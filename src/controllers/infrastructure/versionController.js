@@ -45,7 +45,7 @@ export const getHealthStatus = async (req, res) => {
 };
 
 // Get system information (Staff/Admin)
-export const getSystemInfo = async (req, res) => {
+export const getVersionSystemInfo = async (req, res) => {
   try {
     const userInfo = {
       uid: req.user?.uid || 'unknown',

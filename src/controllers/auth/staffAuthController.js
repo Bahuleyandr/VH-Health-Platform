@@ -3,8 +3,7 @@
 
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
-// ✅ FIX: Changed the import to get the class directly
-import StaffAuthService from '../../services/auth/staffAuthService.js';
+import { StaffAuthService } from '../../services/auth/staffAuthService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 // Staff login with employee ID and password

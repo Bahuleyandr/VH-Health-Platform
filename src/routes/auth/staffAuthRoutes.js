@@ -7,7 +7,7 @@ import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
 import * as staffAuthController from '../../controllers/auth/staffAuthController.js';
 import {
-  staffLoginValidator,
+  staffPasswordLoginValidator,
   deviceRegistrationValidator,
   pinSetupValidator,
   quickLoginValidator,
@@ -39,7 +39,7 @@ wrapRoutesWithValidation(
       // Initial staff login with Employee ID + Password
       [
         '/login',
-        ...staffLoginValidator,
+        ...staffPasswordLoginValidator,
         handleValidation,
         staffAuthController.login
       ],

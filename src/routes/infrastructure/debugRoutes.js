@@ -33,7 +33,7 @@ wrapAutoRBAC(
       ['/info', debugController.getDebugInfo],
       
       // 💻 System Information
-      ['/system', debugController.getSystemInfo],
+      ['/system', debugController.getDebugSystemInfo],
       
       // 🔍 Database Connection Test
       ['/db-test', debugController.testDatabase],

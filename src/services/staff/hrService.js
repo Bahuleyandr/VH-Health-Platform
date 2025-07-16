@@ -1,8 +1,6 @@
 // services/staff/hrService.js
 import db from '../../config/database.js';
-import { STAFF_ROLES, SHIFT_TYPES } from '../../config/staffConfig.js';
 import logger from '../../logging/logger.js';
-import { getStaffHierarchy } from '../../utils/staff/staffHelpers.js';
 
 // Get HR Dashboard Data
 export const getHRDashboardData = async (timeframe) => {
@@ -142,8 +140,8 @@ export const getHRDashboardData = async (timeframe) => {
 };
 
 // Generate Performance Report
-export const generatePerformanceReport = async (params) => {
-  const { department, timeframe, start_date, end_date, userRole } = params;
+export const generatePerformanceReport = async (queryParams) => {
+  const { department, timeframe, start_date, end_date, userRole } = queryParams;
 
   let dateFilter = '';
   let dateParams = [];
@@ -158,7 +156,7 @@ export const generatePerformanceReport = async (params) => {
   }
 
   let whereClause = 'WHERE s.is_active = true';
-  const queryparams = [];
+  const queryParams = [];
   let paramIndex = 1;
 
   if (department) {
@@ -835,8 +833,8 @@ export const getDepartmentStaffSummary = async (department) => {
 };
 
 // Get Attendance Analytics
-export const getAttendanceAnalytics = async (params) => {
-  const { department, start_date, end_date, group_by } = params;
+export const getAttendanceAnalytics = async (queryParams) => {
+  const { department, start_date, end_date, group_by } = queryParams;
 
   let whereClause = 'WHERE sa.check_in_time IS NOT NULL';
   const queryParams = [];
@@ -1067,17 +1065,17 @@ export const generateStaffReport = async (reportParams) => {
 // Helper function to generate attendance report data
 const generateAttendanceReport = async (department, start_date, end_date) => {
   let whereClause = 'WHERE sa.check_in_time IS NOT NULL';
-  const queryparams = [];
+  const queryParams = [];
   
   if (department) {
     whereClause += ' AND s.department = $1';
-    params.push(department);
+    queryParams.push(department);
   }
   
   if (start_date && end_date) {
-    const paramOffset = params.length;
+    const paramOffset = queryParams.length;
     whereClause += ` AND DATE(sa.check_in_time) BETWEEN $${paramOffset + 1} AND $${paramOffset + 2}`;
-    params.push(start_date, end_date);
+    queryParams.push(start_date, end_date);
   }
 
   const result = await db.query(`
@@ -1138,11 +1136,11 @@ const convertToCSV = (data) => {
 // Helper function to generate performance report data
 const generatePerformanceReportData = async (department, start_date, end_date) => {
   let whereClause = 'WHERE s.is_active = true';
-  const queryparams = [];
+  const queryParams = [];
   
   if (department) {
     whereClause += ' AND s.department = $1';
-    params.push(department);
+    queryParams.push(department);
   }
 
   const result = await db.query(`
@@ -1175,17 +1173,17 @@ const generatePerformanceReportData = async (department, start_date, end_date) =
 // Helper function to generate leave report data
 const generateLeaveReport = async (department, start_date, end_date) => {
   let whereClause = 'WHERE la.staff_id IS NOT NULL';
-  const queryparams = [];
+  const queryParams = [];
   
   if (department) {
     whereClause += ' AND s.department = $1';
-    params.push(department);
+    queryParams.push(department);
   }
   
   if (start_date && end_date) {
-    const paramOffset = params.length;
+    const paramOffset = queryParams.length;
     whereClause += ` AND la.start_date BETWEEN $${paramOffset + 1} AND $${paramOffset + 2}`;
-    params.push(start_date, end_date);
+    queryParams.push(start_date, end_date);
   }
 
   const result = await db.query(`
@@ -1224,11 +1222,11 @@ const generateLeaveReport = async (department, start_date, end_date) => {
 // Helper function to generate payroll report data
 const generatePayrollReport = async (department, start_date, end_date) => {
   let whereClause = 'WHERE s.is_active = true';
-  const queryparams = [];
+  const queryParams = [];
   
   if (department) {
     whereClause += ' AND s.department = $1';
-    params.push(department);
+    queryParams.push(department);
   }
 
   const result = await db.query(`

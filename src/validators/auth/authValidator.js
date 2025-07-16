@@ -266,7 +266,7 @@ export const changePasswordValidator = [
 ];
 
 // Staff login validators
-export const staffLoginValidator = [
+export const staffPasswordLoginValidator = [
   body('employeeId')
     .notEmpty()
     .withMessage('Employee ID is required')

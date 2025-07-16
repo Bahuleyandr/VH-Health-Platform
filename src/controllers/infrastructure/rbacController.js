@@ -83,7 +83,7 @@ export const getPermissions = async (req, res) => {
 };
 
 // Get RBAC analytics
-export const getAnalytics = async (req, res) => {
+export const getRBACAnalytics = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(HTTP_STATUS.BAD_REQUEST).json({

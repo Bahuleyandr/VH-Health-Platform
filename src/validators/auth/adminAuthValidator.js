@@ -19,7 +19,7 @@ export const adminLoginValidator = [
 ];
 
 // Staff login validation
-export const staffLoginValidator = [
+export const staffPinLoginValidator = [
   body('employeeId')
     .trim()
     .notEmpty()

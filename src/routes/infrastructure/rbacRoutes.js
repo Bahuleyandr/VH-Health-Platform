@@ -48,7 +48,7 @@ wrapAutoRBAC(
       ['/permissions', rbacController.getPermissions],
       
       // 📊 Role Statistics and Analytics
-      ['/analytics', rbacAnalyticsQueryValidator, rbacController.getAnalytics]
+      ['/analytics', rbacAnalyticsQueryValidator, rbacController.getRBACAnalytics]
     ],
     
     post: [

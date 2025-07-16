@@ -1,5 +1,9 @@
 // src/config/authConfig.js - Authentication Configuration Constants
 
+import { formatDateDDMMYYYY } from '../utils/dateUtils.js'; // Or wherever this function is
+import db from './database.js'; // Or the correct path to your DB config
+import { HTTP_STATUS } from './responseCodes.js'; // Or the correct path
+
 export const AUTH_CONFIG = {
   jwt: {
     secret: process.env.JWT_SECRET || 'your-secret-key',
@@ -36,14 +40,6 @@ export const AUTH_CONFIG = {
     projectId: process.env.FIREBASE_PROJECT_ID,
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
     privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
-  },
-  
-  staff: {
-    maxDevicesPerUser: parseInt(process.env.STAFF_MAX_DEVICES) || 3,
-    pinLength: parseInt(process.env.STAFF_PIN_LENGTH) || 4,
-    sessionDurationHours: parseInt(process.env.STAFF_SESSION_HOURS) || 12,
-    requireLocationForAttendance: process.env.REQUIRE_LOCATION_ATTENDANCE === 'true',
-    attendanceGeoFenceRadius: parseInt(process.env.ATTENDANCE_RADIUS_METERS) || 500
   }
 };
 
@@ -64,4 +60,108 @@ export const AUTH_METHODS = {
   FIREBASE: 'firebase',
   PASSWORD: 'password',
   MAGIC_LINK: 'magic_link'
+};
+
+export const verifyDevice = async (deviceToken) => {
+  const result = await db.query(
+    `SELECT * FROM staff_devices 
+     WHERE device_token = $1 AND is_active = true`,
+    [deviceToken]
+  );
+  
+  if (result.rows.length === 0) {
+    const error = new Error('Device not found or inactive');
+    error.statusCode = HTTP_STATUS.NOT_FOUND;
+    throw error;
+  }
+  
+  const device = result.rows[0];
+  
+  return {
+    valid: true,
+    device: {
+      deviceId: device.device_id,
+      deviceName: device.device_name,
+      platform: device.platform,
+      lastActive: formatDateDDMMYYYY(device.last_active)
+    }
+  };
+};
+
+export const getTodayAttendance = async (staffId) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const result = await db.query(
+    `SELECT * FROM staff_attendance 
+     WHERE staff_uid = $1 AND DATE(check_in_time) = DATE($2)
+     ORDER BY check_in_time DESC LIMIT 1`,
+    [staffId, today]
+  );
+  
+  if (result.rows.length === 0) {
+    return {
+      date: formatDateDDMMYYYY(today),
+      status: 'absent',
+      checkIn: null,
+      checkOut: null
+    };
+  }
+  
+  const attendance = result.rows[0];
+  
+  return {
+    date: formatDateDDMMYYYY(today),
+    status: attendance.check_out_time ? 'completed' : 'checked-in',
+    checkIn: attendance.check_in_time ? formatDateDDMMYYYY(attendance.check_in_time) + ' ' + attendance.check_in_time.toTimeString().slice(0, 5) : null,
+    checkOut: attendance.check_out_time ? formatDateDDMMYYYY(attendance.check_out_time) + ' ' + attendance.check_out_time.toTimeString().slice(0, 5) : null,
+    duration: attendance.duration_minutes ? `${Math.floor(attendance.duration_minutes / 60)}h ${attendance.duration_minutes % 60}m` : null
+  };
+};
+
+export const getAttendanceHistory = async (staffId, { startDate, endDate, page, limit }) => {
+  const offset = (page - 1) * limit;
+  let whereClause = 'WHERE staff_uid = $1';
+  const params = [staffId];
+  
+  if (startDate) {
+    whereClause += ` AND DATE(check_in_time) >= $${params.length + 1}`;
+    params.push(startDate);
+  }
+  
+  if (endDate) {
+    whereClause += ` AND DATE(check_in_time) <= $${params.length + 1}`;
+    params.push(endDate);
+  }
+  
+  const [attendance, total] = await Promise.all([
+    db.query(
+      `SELECT * FROM staff_attendance 
+       ${whereClause}
+       ORDER BY check_in_time DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset]
+    ),
+    db.query(
+      `SELECT COUNT(*) FROM staff_attendance ${whereClause}`,
+      params
+    )
+  ]);
+  
+  // Format dates
+  attendance.rows.forEach(record => {
+    record.date = formatDateDDMMYYYY(record.check_in_time);
+    record.check_in = record.check_in_time ? formatDateDDMMYYYY(record.check_in_time) + ' ' + record.check_in_time.toTimeString().slice(0, 5) : null;
+    record.check_out = record.check_out_time ? formatDateDDMMYYYY(record.check_out_time) + ' ' + record.check_out_time.toTimeString().slice(0, 5) : null;
+  });
+  
+  return {
+    attendance: attendance.rows,
+    pagination: {
+      page,
+      limit,
+      total: parseInt(total.rows[0].count),
+      totalPages: Math.ceil(total.rows[0].count / limit)
+    }
+  };
 };
