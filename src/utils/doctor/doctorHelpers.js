@@ -5,7 +5,7 @@ import { DOCTOR_CONFIG } from '../../config/doctorConfig.js';
  * Format doctor data for response
  */
 export const formatDoctorResponse = (doctor, userRole = 'PATIENT') => {
-  if (!doctor) return null;
+  if (!doctor) {return null;}
   
   // Create base response
   const response = {
@@ -74,10 +74,10 @@ export const getExperienceLevel = (years) => {
  * Parse working hours
  */
 export const parseWorkingHours = (hoursString) => {
-  if (!hoursString) return null;
+  if (!hoursString) {return null;}
   
   const match = hoursString.match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
-  if (!match) return null;
+  if (!match) {return null;}
   
   return {
     start: { hour: parseInt(match[1]), minute: parseInt(match[2]) },
@@ -89,7 +89,7 @@ export const parseWorkingHours = (hoursString) => {
  * Check if doctor is available now
  */
 export const isDoctorAvailableNow = (doctor) => {
-  if (!doctor.is_available) return false;
+  if (!doctor.is_available) {return false;}
   
   const now = new Date();
   const currentDay = now.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
@@ -104,7 +104,7 @@ export const isDoctorAvailableNow = (doctor) => {
   // Check time
   if (doctor.available_hours) {
     const hours = parseWorkingHours(doctor.available_hours);
-    if (!hours) return true; // If can't parse, assume available
+    if (!hours) {return true;} // If can't parse, assume available
     
     const currentTime = currentHour * 60 + currentMinute;
     const startTime = hours.start.hour * 60 + hours.start.minute;
@@ -133,7 +133,7 @@ export const calculateWorkloadLevel = (appointmentCount) => {
  */
 export const isValidSpecialization = (department, specialization) => {
   const validSpecializations = DOCTOR_CONFIG.SPECIALIZATIONS[department];
-  if (!validSpecializations) return false;
+  if (!validSpecializations) {return false;}
   
   return validSpecializations.includes(specialization);
 };
@@ -142,7 +142,7 @@ export const isValidSpecialization = (department, specialization) => {
  * Format date to DD-MM-YYYY
  */
 export const formatDate = (date) => {
-  if (!date) return null;
+  if (!date) {return null;}
   
   const d = new Date(date);
   const day = String(d.getDate()).padStart(2, '0');
@@ -156,7 +156,7 @@ export const formatDate = (date) => {
  * Format time to HH:mm
  */
 export const formatTime = (time) => {
-  if (!time) return null;
+  if (!time) {return null;}
   
   if (typeof time === 'string' && time.match(/^\d{2}:\d{2}$/)) {
     return time;

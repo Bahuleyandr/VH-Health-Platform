@@ -1,15 +1,14 @@
 // src/routes/lookupRoutes.js - ENHANCED VERSION WITH FULL RBAC
 import express from 'express';
-import { validationResult } from 'express-validator';
-import * as userController from '../controllers/userController.js';
+import { validationResult , body, query } from 'express-validator';
 import db from '../config/database.js';
-import { success, error } from '../utils/responseHelper.js';
-import { normalizePhone } from '../utils/phoneUtils.js';
-import logger from '../logging/logger.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
 import { wrapAutoRBAC, wrapRoutesWithValidation } from '../config/routeWrapper.js';
+import * as userController from '../controllers/userController.js';
+import logger from '../logging/logger.js';
 import { logAudit } from '../utils/logAudit.js';
-import { body, query } from 'express-validator';
+import { normalizePhone } from '../utils/phoneUtils.js';
+import { success, error } from '../utils/responseHelper.js';
 
 const router = express.Router();
 logger.info('✅ Enhanced lookupRoutes loaded with full RBAC protection and privacy controls');
@@ -308,7 +307,7 @@ wrapAutoRBAC(router, 'lookupRoutes', {
             ORDER BY count DESC
           `);
 
-          let responseData = {
+          const responseData = {
             overallStats: basicStats.rows[0],
             roleDistribution: roleDistribution.rows,
             accessLevel: userRole,

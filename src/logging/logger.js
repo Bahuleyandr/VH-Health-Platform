@@ -1,10 +1,10 @@
 // src/logging/logger.js
 import fs from 'fs';
+import morgan from 'morgan';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createLogger, format, transports } from 'winston';
 import DailyRotateFile from 'winston-daily-rotate-file';
-import morgan from 'morgan';
 
 // ESM __dirname replacement
 const __filename = fileURLToPath(import.meta.url);

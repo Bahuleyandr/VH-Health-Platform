@@ -1,7 +1,7 @@
 // src/utils/userUtils.js - Hospital User Management Utilities
 
-import { HOSPITAL_ROLES, ACCESS_MATRIX, RISK_LEVELS } from '../config/userConfig.js';
 import { format } from 'date-fns';
+import { HOSPITAL_ROLES, ACCESS_MATRIX, RISK_LEVELS } from '../config/userConfig.js';
 
 /**
  * Generate a unique employee ID based on role and department
@@ -109,7 +109,7 @@ export function formatUserData(user, requestingUserRole, requestingUserId) {
  * Mask phone number for privacy
  */
 export function maskPhone(phone) {
-  if (!phone) return 'XXXX';
+  if (!phone) {return 'XXXX';}
   return `***-***-${phone.slice(-4)}`;
 }
 
@@ -245,7 +245,7 @@ export function calculateActivityScore(totalActions, activeDays, lastActivity) {
  * Determine user activity level
  */
 export function getUserActivityLevel(lastLogin, totalActions) {
-  if (!lastLogin) return 'Never Active';
+  if (!lastLogin) {return 'Never Active';}
   
   const daysSinceLogin = Math.floor((new Date() - new Date(lastLogin)) / (1000 * 60 * 60 * 24));
   

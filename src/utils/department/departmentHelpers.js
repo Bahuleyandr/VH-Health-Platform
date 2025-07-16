@@ -8,7 +8,7 @@ import { DEPARTMENT_CONFIG } from '../../config/departmentConfig.js';
  * @returns {string} Formatted date string
  */
 export function formatDate(date, format = 'DD-MM-YYYY') {
-  if (!date) return null;
+  if (!date) {return null;}
   
   const d = new Date(date);
   const day = String(d.getDate()).padStart(2, '0');
@@ -28,7 +28,7 @@ export function formatDate(date, format = 'DD-MM-YYYY') {
  * @returns {string} Formatted time string
  */
 export function formatTime(time) {
-  if (!time) return null;
+  if (!time) {return null;}
   
   // If time is already in HH:mm format, return as is
   if (/^\d{2}:\d{2}$/.test(time)) {
@@ -92,7 +92,7 @@ export function calculatePerformanceScore(stats) {
  * @returns {string} Formatted currency string
  */
 export function formatCurrency(amount, currency = DEPARTMENT_CONFIG.DEFAULT_CURRENCY) {
-  if (isNaN(amount)) return '0.00';
+  if (isNaN(amount)) {return '0.00';}
   
   const formatter = new Intl.NumberFormat('en-IN', {
     style: 'currency',
@@ -148,7 +148,7 @@ export function calculateUtilizationRate(
   workingDays = 22, 
   appointmentsPerDay = 8
 ) {
-  if (doctorCount === 0) return 0;
+  if (doctorCount === 0) {return 0;}
   
   const capacity = doctorCount * workingDays * appointmentsPerDay;
   const utilizationRate = (actualAppointments / capacity) * 100;
@@ -162,7 +162,7 @@ export function calculateUtilizationRate(
  * @returns {Array} Array of day names
  */
 export function parseAvailableDays(availableDays) {
-  if (!availableDays) return [];
+  if (!availableDays) {return [];}
   
   return availableDays
     .split(',')
@@ -179,8 +179,8 @@ export function isDepartmentOperationalToday(department) {
   const today = getCurrentDay();
   
   return department.doctors?.some(doctor => {
-    if (!doctor.is_available) return false;
-    if (!doctor.available_days) return true; // If no specific days, assume all days
+    if (!doctor.is_available) {return false;}
+    if (!doctor.available_days) {return true;} // If no specific days, assume all days
     
     const availableDays = parseAvailableDays(doctor.available_days);
     return availableDays.includes(today);
@@ -193,9 +193,9 @@ export function isDepartmentOperationalToday(department) {
  * @returns {string} Status color code
  */
 export function getDepartmentStatusColor(department) {
-  if (!department.is_active) return '#6B7280'; // Gray for inactive
-  if (department.available_doctors === 0) return '#EF4444'; // Red for no available doctors
-  if (department.available_doctors < 3) return '#F59E0B'; // Amber for low availability
+  if (!department.is_active) {return '#6B7280';} // Gray for inactive
+  if (department.available_doctors === 0) {return '#EF4444';} // Red for no available doctors
+  if (department.available_doctors < 3) {return '#F59E0B';} // Amber for low availability
   return '#10B981'; // Green for good availability
 }
 

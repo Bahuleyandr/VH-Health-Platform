@@ -3,6 +3,8 @@ import express from 'express';
 import swaggerUi from 'swagger-ui-express';
 import { wrapRoutes, wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as swaggerController from '../../controllers/infrastructure/swaggerController.js';
+import { SwaggerService } from '../../services/infrastructure/swaggerService.js';
+import { getSwaggerUIOptions } from '../../utils/infrastructure/swaggerUtils.js';
 import { 
   statsQueryValidator, 
   validationQueryValidator, 
@@ -10,8 +12,6 @@ import {
   regenerateDocValidator,
   analyticsQueryValidator 
 } from '../../validators/infrastructure/swaggerValidator.js';
-import { SwaggerService } from '../../services/infrastructure/swaggerService.js';
-import { getSwaggerUIOptions } from '../../utils/infrastructure/swaggerUtils.js';
 
 const router = express.Router();
 

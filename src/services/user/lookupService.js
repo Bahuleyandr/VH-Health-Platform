@@ -1,8 +1,8 @@
 // src/services/user/lookupService.js
 import db from '../../config/database.js';
-import { normalizePhone } from '../../utils/phoneUtils.js';
 import { USER_CONFIG } from '../../config/userConfig.js';
 import logger from '../../logging/logger.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
 
 export class LookupService {
   // Basic user lookup
@@ -168,7 +168,7 @@ export class LookupService {
       ORDER BY count DESC
     `);
     
-    let responseData = {
+    const responseData = {
       overallStats: basicStats.rows[0],
       roleDistribution: roleDistribution.rows
     };

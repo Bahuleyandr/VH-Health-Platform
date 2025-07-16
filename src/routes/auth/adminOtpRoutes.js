@@ -3,6 +3,8 @@
 
 import express from 'express';
 import { validationResult, body, query } from 'express-validator';
+import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
+import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as adminOtpController from '../../controllers/auth/adminOtpController.js';
 import {
   analyticsValidator,
@@ -12,8 +14,6 @@ import {
   forceSendOtpValidator,
   bulkDeleteValidator
 } from '../../validators/auth/authValidator.js';
-import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
-import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 
 const router = express.Router();
 

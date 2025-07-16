@@ -1,10 +1,10 @@
-import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
+import { HTTP_STATUS } from '../../config/responseCodes.js';
+import logger from '../../logging/logger.js';
 import appointmentService from '../../services/appointment/appointmentService.js';
 import appointmentValidationService from '../../services/appointment/appointmentValidationService.js';
-import logger from '../../logging/logger.js';
 import { checkAppointmentPermission } from '../../utils/appointment/appointmentHelpers.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 export const createAppointment = async (req, res) => {
   try {

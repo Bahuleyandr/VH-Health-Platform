@@ -3,8 +3,8 @@
 
 import fs from 'fs';
 import path from 'path';
-import YAML from 'yamljs';
 import { fileURLToPath } from 'url';
+import YAML from 'yamljs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,7 +30,7 @@ function generateOperationId(path, method, tag) {
   
   // Build operationId
   let baseId = method;
-  if (action) baseId += capitalize(action);
+  if (action) {baseId += capitalize(action);}
   baseId += capitalize(resource);
   
   // Handle path parameters

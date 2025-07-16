@@ -1,12 +1,9 @@
 // src/services/fileService.js - Hospital File Operations Service
 
 import db from '../config/database.js';
-import logger from '../logging/logger.js';
-import { uploadFileToR2, deleteObject, getSignedFileUrl } from '../utils/r2Storage.js';
-import { scanFileWithClamAV } from '../utils/clamavScanHelper.js';
-import { normalizePhone } from '../utils/phoneUtils.js';
 import { HOSPITAL_UPLOAD_CONFIG } from '../config/uploadConfig.js';
-import * as auditService from './auditService.js';
+import logger from '../logging/logger.js';
+import { scanFileWithClamAV } from '../utils/clamavScanHelper.js';
 import { 
   generateSecureFileKey, 
   optimizeImage, 
@@ -14,6 +11,9 @@ import {
   calculateRetentionDate,
   formatFileResponse 
 } from '../utils/fileProcessingUtils.js';
+import { normalizePhone } from '../utils/phoneUtils.js';
+import { uploadFileToR2, deleteObject, getSignedFileUrl } from '../utils/r2Storage.js';
+import * as auditService from './auditService.js';
 
 export async function processAndUploadFile(file, metadata, user) {
   const { 

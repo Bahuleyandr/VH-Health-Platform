@@ -1,7 +1,9 @@
 import express from 'express';
+import multer from 'multer';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as investigationController from '../../controllers/investigation/investigationController.js';
 import * as orderController from '../../controllers/investigation/orderController.js';
+import * as uploadController from '../../controllers/investigation/uploadController.js';
 import { 
   investigationRequestValidator,
   idValidator,
@@ -12,8 +14,6 @@ import {
   doctorIdValidator,
   typeValidator
 } from '../../validators/investigation/investigationValidators.js';
-import * as uploadController from '../../controllers/investigation/uploadController.js';
-import multer from 'multer';
 
 const upload = multer({ 
   storage: multer.memoryStorage(),

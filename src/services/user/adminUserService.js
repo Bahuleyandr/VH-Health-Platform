@@ -87,7 +87,7 @@ export class AdminUserService {
     
     const offset = (page - 1) * limit;
     const params = [];
-    let whereConditions = [];
+    const whereConditions = [];
     
     let query = `
       SELECT 

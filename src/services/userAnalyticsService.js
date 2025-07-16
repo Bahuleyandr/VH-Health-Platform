@@ -1,9 +1,9 @@
 // src/services/userAnalyticsService.js - Hospital User Analytics Service
 
-import db from '../config/database.js';
-import logger from '../logging/logger.js';
-import { HOSPITAL_ROLES, REPORT_TYPES } from '../config/userConfig.js';
 import { format } from 'date-fns';
+import db from '../config/database.js';
+import { HOSPITAL_ROLES, REPORT_TYPES } from '../config/userConfig.js';
+import logger from '../logging/logger.js';
 
 /**
  * Get overall user analytics
@@ -123,7 +123,7 @@ export async function getUserAnalytics(timeframe = '30d', department = null) {
  */
 export async function getInactiveUsersReport(inactiveDays = 90, role = null, includePatients = false) {
   let roleFilter = '';
-  let patientFilter = includePatients ? '' : "AND role != 'PATIENT'";
+  const patientFilter = includePatients ? '' : "AND role != 'PATIENT'";
   const params = [inactiveDays];
   let paramIndex = 2;
 
@@ -219,7 +219,7 @@ export async function getInactiveUsersReport(inactiveDays = 90, role = null, inc
 export async function generateReport(reportType, filters = {}, options = {}) {
   const { includeInactive = false, dateRange } = options;
   
-  let statusFilter = includeInactive ? '' : "AND status = 'active'";
+  const statusFilter = includeInactive ? '' : "AND status = 'active'";
   let dateFilter = '';
   
   if (dateRange && dateRange.from && dateRange.to) {

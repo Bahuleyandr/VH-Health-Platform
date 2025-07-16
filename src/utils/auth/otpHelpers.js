@@ -132,6 +132,6 @@ export const isPhoneSuspicious = (phone, recentActivity) => {
 
 // Format OTP for display (partial masking)
 export const maskOtp = (otp) => {
-  if (!otp || otp.length < 4) return '******';
+  if (!otp || otp.length < 4) {return '******';}
   return otp.substring(0, 2) + '****';
 };

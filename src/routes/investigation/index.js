@@ -1,8 +1,8 @@
 import express from 'express';
-import investigationRoutes from './investigationRoutes.js';
-import adminRoutes from './adminRoutes.js';
 import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
 import { success } from '../../utils/responseHelper.js';
+import adminRoutes from './adminRoutes.js';
+import investigationRoutes from './investigationRoutes.js';
 
 const router = express.Router();
 

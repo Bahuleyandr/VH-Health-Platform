@@ -1,8 +1,8 @@
 // src/services/routeDocumentationService.js
 // Route Documentation Generation Service
 
-import logger from '../logging/logger.js';
 import { ROUTE_METADATA, CATEGORY_DESCRIPTIONS, getCurrentEnvironmentConfig } from '../config/routeConfig.js';
+import logger from '../logging/logger.js';
 
 /**
  * Route Documentation Service
@@ -294,9 +294,9 @@ export class RouteDocumentationService {
 
   // Helper methods
   _getRouteStatus(route) {
-    if (!route) return 'missing';
-    if (route.__isDevelopmentStub) return 'stubbed';
-    if (typeof route === 'object' && (route.stack || typeof route.use === 'function')) return 'healthy';
+    if (!route) {return 'missing';}
+    if (route.__isDevelopmentStub) {return 'stubbed';}
+    if (typeof route === 'object' && (route.stack || typeof route.use === 'function')) {return 'healthy';}
     return 'unhealthy';
   }
 
@@ -304,9 +304,9 @@ export class RouteDocumentationService {
     const healthyCount = routes.filter(r => r.status === 'healthy' || r.status === 'stubbed').length;
     const healthPercentage = (healthyCount / routes.length) * 100;
     
-    if (healthPercentage >= 90) return 'excellent';
-    if (healthPercentage >= 75) return 'good';
-    if (healthPercentage >= 50) return 'fair';
+    if (healthPercentage >= 90) {return 'excellent';}
+    if (healthPercentage >= 75) {return 'good';}
+    if (healthPercentage >= 50) {return 'fair';}
     return 'poor';
   }
 
@@ -328,18 +328,18 @@ export class RouteDocumentationService {
   }
 
   _getAccessLevel(security) {
-    if (security.includes('public')) return 'open';
-    if (security.includes('admin only')) return 'restricted';
-    if (security.includes('development')) return 'development';
+    if (security.includes('public')) {return 'open';}
+    if (security.includes('admin only')) {return 'restricted';}
+    if (security.includes('development')) {return 'development';}
     return 'controlled';
   }
 
   _getSecurityRequirements(security) {
     const requirements = [];
-    if (security.includes('admin')) requirements.push('Admin privileges required');
-    if (security.includes('monitored')) requirements.push('Security monitoring enabled');
-    if (security.includes('hipaa')) requirements.push('HIPAA compliance required');
-    if (security.includes('role-based')) requirements.push('Role-based authorization');
+    if (security.includes('admin')) {requirements.push('Admin privileges required');}
+    if (security.includes('monitored')) {requirements.push('Security monitoring enabled');}
+    if (security.includes('hipaa')) {requirements.push('HIPAA compliance required');}
+    if (security.includes('role-based')) {requirements.push('Role-based authorization');}
     return requirements;
   }
 
@@ -374,8 +374,8 @@ export class RouteDocumentationService {
   }
 
   _analyzeRouteImplementation(route) {
-    if (!route) return { type: 'missing', details: 'Route not implemented' };
-    if (route.__isDevelopmentStub) return { type: 'stub', details: 'Development stub implementation' };
+    if (!route) {return { type: 'missing', details: 'Route not implemented' };}
+    if (route.__isDevelopmentStub) {return { type: 'stub', details: 'Development stub implementation' };}
     
     return {
       type: 'express-router',

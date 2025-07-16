@@ -1,9 +1,9 @@
 // src/routes/user/index.js
 import express from 'express';
 import { wrapAutoRBAC, wrapRoutes } from '../../config/routeWrapper.js';
-import userRoutes from './userRoutes.js';
 import adminUserRoutes from './adminUserRoutes.js';
 import lookupRoutes from './lookupRoutes.js';
+import userRoutes from './userRoutes.js';
 
 const router = express.Router();
 

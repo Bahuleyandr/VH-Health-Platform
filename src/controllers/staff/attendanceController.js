@@ -1,7 +1,7 @@
-import * as attendanceService from '../../services/staff/attendanceService.js';
-import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
+import * as attendanceService from '../../services/staff/attendanceService.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 export const markAttendance = async (req, res) => {
   try {

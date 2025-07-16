@@ -1,8 +1,8 @@
 // src/controllers/appointmentController.js
 
 import db from '../config/database.js';
-import { success, error } from '../utils/responseHelper.js';
 import { resolvePhoneFromUID } from '../utils/resolveIdentity.js';
+import { success, error } from '../utils/responseHelper.js';
 
 /**
  * ✅ Book Appointment

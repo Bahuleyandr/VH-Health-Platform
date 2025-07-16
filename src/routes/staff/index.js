@@ -1,13 +1,13 @@
 // src/routes/staff/
 
 import express from 'express';
-import staffRoutes from './staffRoutes.js';
+import { wrapRoutes } from '../../config/routeWrapper.js';
+import { success } from '../../utils/responseHelper.js';
 import attendanceRoutes from './attendanceRoutes.js';
 import hrRoutes from './hrRoutes.js';
 import medicalRoutes from './medicalRoutes.js';
 import pharmacyRoutes from './pharmacyRoutes.js';
-import { wrapRoutes } from '../../config/routeWrapper.js';
-import { success } from '../../utils/responseHelper.js';
+import staffRoutes from './staffRoutes.js';
 
 const router = express.Router();
 

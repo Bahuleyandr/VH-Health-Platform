@@ -6,7 +6,7 @@
  * Ensures consistent country code handling
  */
 export const normalizePhone = (phone) => {
-  if (!phone) return null;
+  if (!phone) {return null;}
   
   // Remove all non-numeric characters except +
   let normalized = phone.replace(/[^\d+]/g, '');
@@ -31,7 +31,7 @@ export const normalizePhone = (phone) => {
  */
 export const formatPhoneDisplay = (phone) => {
   const normalized = normalizePhone(phone);
-  if (!normalized) return '';
+  if (!normalized) {return '';}
   
   // Format Indian numbers as +91 XXXXX XXXXX
   if (normalized.startsWith('+91') && normalized.length === 13) {
@@ -53,7 +53,7 @@ export const formatPhoneDisplay = (phone) => {
  */
 export const isValidPhone = (phone) => {
   const normalized = normalizePhone(phone);
-  if (!normalized) return false;
+  if (!normalized) {return false;}
   
   // Must start with + and be between 10-15 digits total
   return /^\+\d{10,15}$/.test(normalized);

@@ -1,7 +1,7 @@
-import PDFDocument from 'pdfkit';
 import ExcelJS from 'exceljs';
-import * as recordService from './recordService.js';
+import PDFDocument from 'pdfkit';
 import { formatDateForDisplay } from '../../utils/record/recordHelpers.js';
+import * as recordService from './recordService.js';
 
 export async function exportRecordsToPDF(filters, userRole) {
   const doc = new PDFDocument();

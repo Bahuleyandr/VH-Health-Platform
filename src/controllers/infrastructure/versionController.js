@@ -1,9 +1,9 @@
 // controllers/infrastructure/versionController.js
 import { validationResult } from 'express-validator';
-import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import { VersionService } from '../../services/infrastructure/versionService.js';
 import logger from '../../logging/logger.js';
+import { VersionService } from '../../services/infrastructure/versionService.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 // Get version information (Public)
 export const getVersion = async (req, res) => {

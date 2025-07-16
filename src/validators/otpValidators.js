@@ -11,7 +11,7 @@ export const phoneValidator = [
     .if(body('phone').exists())
     .trim()
     .customSanitizer(value => {
-      if (!value) return value;
+      if (!value) {return value;}
       const digits = value.replace(/\D/g, '');
       return digits.slice(-10);
     })
@@ -24,7 +24,7 @@ export const phoneValidator = [
     .if(body('phoneNumber').exists())
     .trim()
     .customSanitizer(value => {
-      if (!value) return value;
+      if (!value) {return value;}
       const digits = value.replace(/\D/g, '');
       return digits.slice(-10);
     })

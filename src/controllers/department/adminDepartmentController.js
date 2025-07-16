@@ -1,11 +1,11 @@
 // src/controllers/department/adminDepartmentController.js
-import adminDepartmentService from '../../services/department/adminDepartmentService.js';
-import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { DEPARTMENT_MESSAGES } from '../../config/departmentConfig.js';
+import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
+import adminDepartmentService from '../../services/department/adminDepartmentService.js';
 import departmentAuditService from '../../services/department/departmentAuditService.js';
 import departmentExportService from '../../services/department/departmentExportService.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 export const getDepartmentOverview = async (req, res) => {
   try {

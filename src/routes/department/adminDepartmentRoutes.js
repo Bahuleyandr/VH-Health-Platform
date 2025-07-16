@@ -8,9 +8,9 @@ import { createAdminDepartmentValidation,
   bulkOperationValidation,
   deactivateWithReassignmentValidation,
   getManagementDataValidation } from '../../validators/department/adminDepartmentValidator.js';
-import { checkAdminPermission } from '../../validators/department/departmentValidator.js';
 import {  getDepartmentHistoryValidation
 } from '../../validators/department/departmentAuditValidator.js';
+import { checkAdminPermission } from '../../validators/department/departmentValidator.js';
 
 const router = express.Router();
 

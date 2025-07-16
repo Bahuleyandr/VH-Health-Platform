@@ -1,5 +1,5 @@
 export function calculateWorkingHours(checkIn, checkOut, breakMinutes = 0) {
-  if (!checkIn || !checkOut) return 0;
+  if (!checkIn || !checkOut) {return 0;}
   const diff = new Date(checkOut) - new Date(checkIn);
   const hours = diff / (1000 * 60 * 60);
   const breakHours = breakMinutes / 60;
@@ -20,7 +20,7 @@ export function isLateCheckIn(checkIn, shiftStart) {
 }
 
 export function formatAttendanceTime(date) {
-  if (!date) return null;
+  if (!date) {return null;}
   return new Date(date).toLocaleString('en-IN', {
     day: '2-digit',
     month: '2-digit',

@@ -1,8 +1,8 @@
 // src/services/user/userService.js
 import db from '../../config/database.js';
-import { normalizePhone } from '../../utils/phoneUtils.js';
 import { USER_CONFIG } from '../../config/userConfig.js';
 import logger from '../../logging/logger.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
 
 export class UserService {
   // Create or update user profile
@@ -81,7 +81,7 @@ export class UserService {
     
     const offset = (page - 1) * limit;
     const params = [];
-    let whereConditions = [];
+    const whereConditions = [];
     
     let query = `
       SELECT 
@@ -359,7 +359,7 @@ export class UserService {
     
     const offset = (page - 1) * limit;
     const params = [];
-    let whereConditions = [];
+    const whereConditions = [];
     
     let query = `
       SELECT 

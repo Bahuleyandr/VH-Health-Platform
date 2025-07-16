@@ -2,16 +2,16 @@
 // Simplified Route Index - Hospital-Grade Route Management System
 // Refactored for maintainability and clean architecture
 
+import { ROUTE_METADATA } from '../config/routeConfig.js';
 import logger from '../logging/logger.js';
+import { routeDocumentationService } from '../services/routeDocumentationService.js';
+import { routeHealthService } from '../services/routeHealthService.js';
 import {
   loadAllRoutes,
   validateLoadedRoutes,
   getRouteLoadingStats,
   warnUnusedRouteFiles
 } from '../utils/routeLoader.js';
-import { routeHealthService } from '../services/routeHealthService.js';
-import { routeDocumentationService } from '../services/routeDocumentationService.js';
-import { ROUTE_METADATA } from '../config/routeConfig.js';
 
 /**
  * Load and initialize all route modules

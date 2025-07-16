@@ -85,7 +85,7 @@ export const updateAppointmentValidators = [
   body('appointment_date')
     .optional()
     .custom((value) => {
-      if (!value) return true; // Optional field
+      if (!value) {return true;} // Optional field
       
       let appointmentDate;
       const ddmmyyyyRegex = /^(\d{2})-(\d{2})-(\d{4})$/;
@@ -114,7 +114,7 @@ export const updateAppointmentValidators = [
       return true;
     })
     .customSanitizer((value) => {
-      if (!value) return value;
+      if (!value) {return value;}
       const ddmmyyyyRegex = /^(\d{2})-(\d{2})-(\d{4})$/;
       if (ddmmyyyyRegex.test(value)) {
         const [, day, month, year] = value.match(ddmmyyyyRegex);

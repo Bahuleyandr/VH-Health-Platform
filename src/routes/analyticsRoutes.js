@@ -1,11 +1,11 @@
 // src/routes/analyticsRoutes.js - COMPLETE PRODUCTION VERSION WITH RBAC
 import express from 'express';
-import * as analyticsController from '../controllers/analyticsController.js';
-import { wrapAutoRBAC } from '../config/routeWrapper.js';
 import db from '../config/database.js';
-import { success, error } from '../utils/responseHelper.js';
-import logger from '../logging/logger.js';
 import { HTTP_STATUS } from '../config/responseCodes.js';
+import { wrapAutoRBAC } from '../config/routeWrapper.js';
+import * as analyticsController from '../controllers/analyticsController.js';
+import logger from '../logging/logger.js';
+import { success, error } from '../utils/responseHelper.js';
 
 const router = express.Router();
 console.log('✅ analyticsRoutes loaded with RBAC protection');

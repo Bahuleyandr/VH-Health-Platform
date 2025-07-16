@@ -1,5 +1,5 @@
-import logger from '../logging/logger.js';
 import { ROUTE_METADATA, getCurrentEnvironmentConfig } from '../config/routeConfig.js';
+import logger from '../logging/logger.js';
 
 /**
  * Route Health Monitoring Service
@@ -267,7 +267,7 @@ export class RouteHealthService {
       healthReport.totalRoutes : 
       healthReport.totalRoutes - healthReport.developmentRoutes;
     
-    if (relevantRoutes === 0) return 'excellent'; // Avoid division by zero
+    if (relevantRoutes === 0) {return 'excellent';} // Avoid division by zero
     
     const healthyCount = healthReport.healthyRoutes + healthReport.stubRoutes;
     const healthPercentage = (healthyCount / relevantRoutes) * 100;
@@ -276,9 +276,9 @@ export class RouteHealthService {
       return 'critical';
     }
     
-    if (healthPercentage >= 95) return 'excellent';
-    if (healthPercentage >= 85) return 'good';
-    if (healthPercentage >= 70) return 'degraded';
+    if (healthPercentage >= 95) {return 'excellent';}
+    if (healthPercentage >= 85) {return 'good';}
+    if (healthPercentage >= 70) {return 'degraded';}
     return 'poor';
   }
 

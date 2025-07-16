@@ -1,9 +1,9 @@
 // src/routes/doctor/index.js
 import express from 'express';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
+import adminDoctorRoutes from './adminDoctorRoutes.js';
 import doctorRoutes from './doctorRoutes.js';
 import doctorStatsRoutes from './doctorStatsRoutes.js';
-import adminDoctorRoutes from './adminDoctorRoutes.js';
 
 const router = express.Router();
 

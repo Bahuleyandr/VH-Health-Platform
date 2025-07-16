@@ -1,6 +1,6 @@
 import db from '../../config/database.js';
-import logger from '../../logging/logger.js';
 import { INVESTIGATION_STATUS } from '../../config/investigationConfig.js';
+import logger from '../../logging/logger.js';
 
 export const bulkUpdateStatus = async (investigationIds, status, notes, updatedBy) => {
   if (!Object.values(INVESTIGATION_STATUS).includes(status)) {

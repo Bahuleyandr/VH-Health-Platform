@@ -1,8 +1,6 @@
 // src/services/notification/adminNotificationService.js
 
 import db from '../../config/database.js';
-import logger from '../../logging/logger.js';
-import { normalizePhone } from '../../utils/phoneUtils.js';
 import { 
   NOTIFICATION_TYPES, 
   NOTIFICATION_PRIORITIES,
@@ -10,12 +8,14 @@ import {
   VALID_OPERATIONS,
   NOTIFICATION_LIMITS
 } from '../../config/notificationConfig.js';
+import logger from '../../logging/logger.js';
 import { 
   buildNotificationQuery,
   buildUserTargetingQuery,
   processTemplate,
   formatNotificationResponse 
 } from '../../utils/notification/notificationHelpers.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
 
 export const adminNotificationService = {
   /**
@@ -283,8 +283,8 @@ export const adminNotificationService = {
       
       // Build user targeting query
       let targetQuery = 'SELECT DISTINCT u.id, u.name, u.phone FROM users u';
-      let targetParams = [];
-      let whereConditions = [];
+      const targetParams = [];
+      const whereConditions = [];
       
       if (target_roles.length > 0) {
         whereConditions.push(`u.role = ANY($${targetParams.length + 1})`);
@@ -618,7 +618,7 @@ export const adminNotificationService = {
       const keep_unread = params.keep_unread === 'true';
       
       let deleteQuery = 'DELETE FROM notifications WHERE created_at < CURRENT_DATE - INTERVAL $1';
-      let queryParams = [`${days} days`];
+      const queryParams = [`${days} days`];
       
       if (keep_unread) {
         deleteQuery += ' AND is_read = true';

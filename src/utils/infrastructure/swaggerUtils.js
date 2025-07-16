@@ -1,8 +1,8 @@
 // utils/infrastructure/swaggerUtils.js
-import YAML from 'yamljs';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import YAML from 'yamljs';
 import logger from '../../logging/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);

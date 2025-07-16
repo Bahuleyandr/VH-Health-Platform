@@ -1,13 +1,13 @@
-import db from '../../config/database.js';
-import logger from '../../logging/logger.js';
 import bcrypt from 'bcrypt';
+import { v4 as uuidv4 } from 'uuid';
+import { AUTH_CONFIG, AUTH_ACTIONS } from '../../config/authConfig.js';
+import db from '../../config/database.js';
+import { HTTP_STATUS } from '../../config/responseCodes.js';
+import logger from '../../logging/logger.js';
+import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import { generateToken, verifyToken } from '../../utils/jwtUtils.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
-import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
-import { v4 as uuidv4 } from 'uuid';
 import * as otpService from './otpService.js';
-import { AUTH_CONFIG, AUTH_ACTIONS } from '../../config/authConfig.js';
-import { HTTP_STATUS } from '../../config/responseCodes.js';
 
 export class AuthService {
   // Patient Firebase authentication

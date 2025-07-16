@@ -1,7 +1,7 @@
 // src/utils/auth/authHelpers.js - Authentication Helper Functions
 
-import { AUTH_CONFIG } from '../../config/authConfig.js';
 import bcrypt from 'bcrypt';
+import { AUTH_CONFIG } from '../../config/authConfig.js';
 import logger from '../../logging/logger.js';
 
 // Hash password

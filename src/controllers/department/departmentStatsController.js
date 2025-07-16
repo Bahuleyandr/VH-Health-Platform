@@ -1,9 +1,9 @@
 // src/controllers/department/departmentStatsController.js
+import { DEPARTMENT_MESSAGES } from '../../config/departmentConfig.js';
+import { HTTP_STATUS } from '../../config/responseCodes.js';
+import logger from '../../logging/logger.js';
 import departmentStatsService from '../../services/department/departmentStatsService.js';
 import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS } from '../../config/responseCodes.js';
-import { DEPARTMENT_MESSAGES } from '../../config/departmentConfig.js';
-import logger from '../../logging/logger.js';
 
 export const getDepartmentStats = async (req, res) => {
   try {

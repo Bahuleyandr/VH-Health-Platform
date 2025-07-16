@@ -1,12 +1,12 @@
-import db from '../../config/database.js';
 import { APPOINTMENT_CONFIG, APPOINTMENT_QUERIES } from '../../config/appointmentConfig.js';
+import db from '../../config/database.js';
 import logger from '../../logging/logger.js';
 import { buildPaginationMeta } from '../../utils/appointment/appointmentHelpers.js';
 
 export class AppointmentQueryService {
   // Build filter conditions for queries
   buildFilterConditions(filters, params = [], startIndex = 1) {
-    let conditions = [];
+    const conditions = [];
     let currentIndex = startIndex;
 
     if (filters.status) {
@@ -44,7 +44,7 @@ export class AppointmentQueryService {
       const offset = (page - 1) * limit;
 
       let query = APPOINTMENT_QUERIES.LIST_ALL + ' WHERE 1=1';
-      let params = [];
+      const params = [];
       let paramIndex = 1;
 
       // Apply role-based filtering
@@ -104,7 +104,7 @@ export class AppointmentQueryService {
         LEFT JOIN users p ON a.patient_id = p.id
         WHERE a.doctor_id = $1
       `;
-      let params = [doctorId];
+      const params = [doctorId];
       let paramIndex = 2;
 
       const status = filters.status || APPOINTMENT_CONFIG.STATUSES.SCHEDULED;
@@ -140,7 +140,7 @@ export class AppointmentQueryService {
         LEFT JOIN doctors dp ON d.id = dp.user_id
         WHERE a.patient_id = $1
       `;
-      let params = [patientId];
+      const params = [patientId];
 
       if (filters.status) {
         query += ' AND a.status = $2';
@@ -172,7 +172,7 @@ export class AppointmentQueryService {
         LEFT JOIN doctors dp ON d.id = dp.user_id
         WHERE DATE(a.appointment_date) = $1
       `;
-      let params = [today];
+      const params = [today];
 
       if (userRole === 'DOCTOR') {
         query += ' AND a.doctor_id = $2';

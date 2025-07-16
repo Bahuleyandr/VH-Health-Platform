@@ -1,14 +1,14 @@
 // src/controllers/adminUploadController.js - Hospital Admin Upload Controller
 
 import { validationResult } from 'express-validator';
-import { success, error } from '../utils/responseHelper.js';
+import db from '../config/database.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
+import logger from '../logging/logger.js';
 import * as auditService from '../services/auditService.js';
+import { scanFileWithClamAV } from '../utils/clamavScanHelper.js';
 import { formatFileResponse } from '../utils/fileProcessingUtils.js';
 import { deleteObject as deleteFileFromR2 } from '../utils/r2Storage.js';
-import { scanFileWithClamAV } from '../utils/clamavScanHelper.js';
-import logger from '../logging/logger.js';
-import db from '../config/database.js';
+import { success, error } from '../utils/responseHelper.js';
 
 export async function getFileStats(req, res) {
   const errors = validationResult(req);
@@ -303,7 +303,7 @@ export async function cleanupExpiredFiles(req, res) {
 
         deletedCount++;
         freedBytes += file.file_size;
-        if (file.is_hipaa_protected) hipaaDeleted++;
+        if (file.is_hipaa_protected) {hipaaDeleted++;}
 
       } catch (deleteError) {
         logger.error(`Failed to delete expired file ${file.id}:`, deleteError);
@@ -521,7 +521,7 @@ export async function purgeQuarantinedFiles(req, res) {
 
         purgedCount++;
         freedBytes += file.file_size;
-        if (file.is_hipaa_protected) hipaaCount++;
+        if (file.is_hipaa_protected) {hipaaCount++;}
 
       } catch (purgeError) {
         logger.error(`Failed to purge quarantined file ${file.id}:`, purgeError);

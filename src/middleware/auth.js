@@ -1,9 +1,9 @@
 // src/middleware/auth.js - Authentication Middleware
 
-import { verifyToken } from '../utils/jwtUtils.js';
-import { error } from '../utils/responseHelper.js';
 import { HTTP_STATUS } from '../config/responseCodes.js';
 import logger from '../logging/logger.js';
+import { verifyToken } from '../utils/jwtUtils.js';
+import { error } from '../utils/responseHelper.js';
 
 // Authenticate JWT token
 export const authenticateToken = (req, res, next) => {

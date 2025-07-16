@@ -2,9 +2,9 @@
 
 import express from 'express';
 import { wrapAutoRBAC, wrapRoutesWithValidation } from '../../config/routeWrapper.js';
-import notificationRoutes from './notificationRoutes.js';
-import adminNotificationRoutes from './adminNotificationRoutes.js';
 import logger from '../../logging/logger.js';
+import adminNotificationRoutes from './adminNotificationRoutes.js';
+import notificationRoutes from './notificationRoutes.js';
 
 const router = express.Router();
 logger.info('✅ Notification Module loaded with RBAC protection');

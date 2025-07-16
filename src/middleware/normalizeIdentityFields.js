@@ -3,7 +3,7 @@
 import { parse, isValid, format } from 'date-fns';
 
 function getLast10Digits(phone) {
-  if (!phone) return phone;
+  if (!phone) {return phone;}
   const digits = phone.replace(/\D/g, '');
   return digits.slice(-10);
 }
@@ -17,11 +17,11 @@ function normalizeValue(val) {
 }
 
 function parseFlexibleDate(input) {
-  if (!input || typeof input !== 'string') return null;
+  if (!input || typeof input !== 'string') {return null;}
   const formatsToTry = ['dd-MM-yyyy', 'yyyy-MM-dd', 'dd/MM/yyyy'];
   for (const fmt of formatsToTry) {
     const parsed = parse(input, fmt, new Date());
-    if (isValid(parsed)) return format(parsed, 'yyyy-MM-dd');
+    if (isValid(parsed)) {return format(parsed, 'yyyy-MM-dd');}
   }
   return null;
 }
@@ -30,7 +30,7 @@ function normalizeDates(obj, fields = []) {
   for (const field of fields) {
     if (obj?.[field]) {
       const parsed = parseFlexibleDate(obj[field]);
-      if (parsed) obj[field] = parsed;
+      if (parsed) {obj[field] = parsed;}
     }
   }
 }

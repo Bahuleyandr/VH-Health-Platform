@@ -1,7 +1,7 @@
 // src/services/doctor/doctorStatsService.js
 import db from '../../config/database.js';
-import logger from '../../logging/logger.js';
 import { DOCTOR_CONFIG, DOCTOR_MESSAGES } from '../../config/doctorConfig.js';
+import logger from '../../logging/logger.js';
 
 export class DoctorStatsService {
   // Get doctor statistics
@@ -137,7 +137,7 @@ export class DoctorStatsService {
           AND a.appointment_date >= CURRENT_DATE - INTERVAL '${days} days'
         WHERE u.role = 'DOCTOR' AND d.is_available = true
       `;
-      let params = [days];
+      const params = [days];
       
       if (department) {
         query += ' AND d.department = $2';

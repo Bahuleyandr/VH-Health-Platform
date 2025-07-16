@@ -1,8 +1,8 @@
 // src/services/department/adminDepartmentService.js
 import db from '../../config/database.js';
+import { DEPARTMENT_CONFIG } from '../../config/departmentConfig.js';
 import logger from '../../logging/logger.js';
 import { formatDate } from '../../utils/department/departmentHelpers.js';
-import { DEPARTMENT_CONFIG } from '../../config/departmentConfig.js';
 import departmentAuditService from './departmentAuditService.js';
 
 class AdminDepartmentService {
@@ -111,7 +111,7 @@ class AdminDepartmentService {
         LEFT JOIN staff s ON s.department = d.name AND s.is_active = true
         WHERE 1=1
       `;
-      let params = [];
+      const params = [];
       
       if (status === 'active') {
         query += ' AND d.is_active = true';

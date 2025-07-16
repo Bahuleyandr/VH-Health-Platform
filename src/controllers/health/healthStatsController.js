@@ -1,9 +1,9 @@
 // src/controllers/health/healthStatsController.js
+import { MEDICAL_ROLES } from '../../config/healthConfig.js';
+import { HTTP_STATUS } from '../../config/responseCodes.js';
+import logger from '../../logging/logger.js';
 import * as healthStatsService from '../../services/health/healthStatsService.js';
 import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS } from '../../config/responseCodes.js';
-import { MEDICAL_ROLES } from '../../config/healthConfig.js';
-import logger from '../../logging/logger.js';
 
 export async function getHealthStatistics(req, res) {
   try {

@@ -1,11 +1,11 @@
-import * as investigationService from '../../services/investigation/investigationService.js';
-import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
+import db from '../../config/database.js';
 import { PAGINATION, INVESTIGATION_STATUS } from '../../config/investigationConfig.js';
+import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
+import * as investigationService from '../../services/investigation/investigationService.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
-import db from '../../config/database.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 // List investigations with filtering
 export const listInvestigations = async (req, res) => {

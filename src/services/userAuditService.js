@@ -1,8 +1,8 @@
 // src/services/userAuditService.js - Hospital User Audit Service
 
 import db from '../config/database.js';
-import logger from '../logging/logger.js';
 import { USER_ACTIONS } from '../config/userConfig.js';
+import logger from '../logging/logger.js';
 
 /**
  * Log user action

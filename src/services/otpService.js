@@ -2,8 +2,8 @@
 
 import crypto from 'crypto';
 import db from '../config/database.js';
-import logger from '../logging/logger.js';
 import { OTP_CONFIG } from '../config/otpConfig.js';
+import logger from '../logging/logger.js';
 
 export class OTPService {
   static generateOTP(length = OTP_CONFIG.length) {
@@ -126,7 +126,7 @@ export class OTPService {
 
   static async checkDailyLimit(phone) {
     const isConnected = await this.ensureConnection();
-    if (!isConnected) return true;
+    if (!isConnected) {return true;}
 
     try {
       const result = await db.query(`
@@ -145,7 +145,7 @@ export class OTPService {
 
   static async checkResendCooldown(phone, purpose = 'general') {
     const isConnected = await this.ensureConnection();
-    if (!isConnected) return true;
+    if (!isConnected) {return true;}
 
     try {
       const result = await db.query(`
@@ -154,7 +154,7 @@ export class OTPService {
         ORDER BY created_at DESC LIMIT 1
       `, [phone, purpose]);
       
-      if (result.rows.length === 0) return true;
+      if (result.rows.length === 0) {return true;}
       
       const lastCreated = new Date(result.rows[0].created_at);
       const cooldownMs = OTP_CONFIG.resendCooldownMinutes * 60 * 1000;

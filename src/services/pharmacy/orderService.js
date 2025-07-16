@@ -36,7 +36,7 @@ export const getOrdersByPhone = async (phone, filters) => {
   const { status, limit, offset } = filters;
 
   let query = 'SELECT * FROM pharmacy_orders WHERE phone = $1';
-  let params = [phone];
+  const params = [phone];
 
   if (status) {
     query += ' AND status = $2';
@@ -107,7 +107,7 @@ export const getAllOrders = async (filters) => {
     LEFT JOIN users u ON po.phone = u.phone
     WHERE 1=1
   `;
-  let params = [];
+  const params = [];
 
   if (status) {
     query += ' AND po.status = $' + (params.length + 1);

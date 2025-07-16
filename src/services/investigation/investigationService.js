@@ -14,7 +14,7 @@ export const getInvestigations = async (page, limit, filters, userRole, userId) 
   
   // Build base conditions
   let baseConditions = '1=1';
-  let params = [];
+  const params = [];
   
   // Role-based filtering for patients
   if (userRole === 'PATIENT') {
@@ -96,7 +96,7 @@ export const getInvestigations = async (page, limit, filters, userRole, userId) 
 // Get single investigation by ID
 export const getInvestigationById = async (id, userRole, userId) => {
   let accessCondition = '1=1';
-  let params = [id];
+  const params = [id];
   
   // Patients can only view their own investigations
   if (userRole === 'PATIENT') {
@@ -158,7 +158,7 @@ export const getPatientInvestigations = async (patientId, filters, userRole, use
     LEFT JOIN doctors dept ON d.id = dept.user_id
     WHERE i.patient_id = $1
   `;
-  let params = [patientId];
+  const params = [patientId];
   
   if (type) {
     query += ` AND i.type = $${params.length + 1}`;
@@ -202,7 +202,7 @@ export const getDoctorInvestigations = async (doctorId, filters) => {
     LEFT JOIN users p ON i.patient_id = p.id
     WHERE i.doctor_id = $1 AND i.status = $2
   `;
-  let params = [doctorId, status.toUpperCase()];
+  const params = [doctorId, status.toUpperCase()];
   
   if (date) {
     query += ` AND DATE(i.ordered_date) = $${params.length + 1}`;
@@ -235,7 +235,7 @@ export const getInvestigationsByType = async (type, filters) => {
     LEFT JOIN users d ON i.doctor_id = d.id
     WHERE i.type = $1
   `;
-  let params = [type.toUpperCase()];
+  const params = [type.toUpperCase()];
   
   if (status) {
     query += ` AND i.status = $${params.length + 1}`;
@@ -274,7 +274,7 @@ export const getPendingInvestigations = async (filters) => {
     LEFT JOIN doctors dept ON d.id = dept.user_id
     WHERE i.status = 'PENDING'
   `;
-  let params = [];
+  const params = [];
   
   if (type) {
     query += ` AND i.type = $${params.length + 1}`;
@@ -305,7 +305,7 @@ export const updateStatus = async (id, status, notes, userId) => {
   }
   
   let updateFields = 'status = $1, notes = COALESCE($2, notes), updated_at = NOW(), updated_by = $4';
-  let params = [status.toUpperCase(), notes, id, userId];
+  const params = [status.toUpperCase(), notes, id, userId];
   
   // Set completed_date if status is COMPLETED
   if (status.toUpperCase() === 'COMPLETED') {

@@ -1,7 +1,7 @@
 // src/utils/jwtUtils.js
 
-import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
+import jwt from 'jsonwebtoken';
 
 // ✅ Aggressively try to load environment variables from multiple sources
 if (!process.env.JWT_SECRET) {

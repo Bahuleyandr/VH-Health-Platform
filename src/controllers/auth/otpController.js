@@ -2,11 +2,11 @@
 // NOTE: This controller is NOT for patient OTP (patients use Firebase)
 // This is for: admin override, testing, special OTP needs
 
-import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import * as otpService from '../../services/auth/otpService.js';
 import { logAudit } from '../../utils/logAudit.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 // Request OTP (stores in database, doesn't send SMS)
 export const requestOtp = async (req, res) => {

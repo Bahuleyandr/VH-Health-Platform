@@ -1,9 +1,9 @@
 // src/services/auth/adminOtpService.js - Admin OTP Service
 
 import db from '../../config/database.js';
+import { OTP_CONFIG } from '../../config/otpConfig.js';
 import logger from '../../logging/logger.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
-import { OTP_CONFIG } from '../../config/otpConfig.js';
 import * as otpService from './otpService.js';
 
 // Get OTP analytics

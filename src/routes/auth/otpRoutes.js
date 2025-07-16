@@ -4,10 +4,10 @@
 
 import express from 'express';
 import { validationResult } from 'express-validator';
+import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
+import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
 import * as otpController from '../../controllers/auth/otpController.js';
 import { phoneValidator, phoneOtpValidator } from '../../validators/auth/authValidator.js';
-import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
-import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 
 const router = express.Router();
 

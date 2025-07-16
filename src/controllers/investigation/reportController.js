@@ -1,10 +1,10 @@
 // controllers/investigation/reportController.js
-import * as reportService from '../../services/investigation/reportService.js';
-import * as investigationService from '../../services/investigation/investigationService.js';
-import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
+import * as investigationService from '../../services/investigation/investigationService.js';
+import * as reportService from '../../services/investigation/reportService.js';
 import { logAudit } from '../../utils/logAudit.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 // Generate investigation report PDF
 export const generateReport = async (req, res) => {

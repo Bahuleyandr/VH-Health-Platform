@@ -2,7 +2,9 @@
 // Employee ID + Password/PIN based authentication for staff mobile app
 
 import express from 'express';
-import { validationResult } from 'express-validator';
+import { validationResult , body } from 'express-validator';
+import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
+import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
 import * as staffAuthController from '../../controllers/auth/staffAuthController.js';
 import {
   staffLoginValidator,
@@ -11,9 +13,7 @@ import {
   quickLoginValidator,
   attendanceValidator
 } from '../../validators/auth/authValidator.js';
-import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
-import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
-import { body } from 'express-validator';
+
 
 const router = express.Router();
 

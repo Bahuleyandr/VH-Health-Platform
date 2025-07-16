@@ -2,7 +2,7 @@
 
 export function validateUID(req, res, next) {
   const userRole = req.user?.role;
-  if (userRole === 'ADMIN') return next(); // ✅ Superuser override
+  if (userRole === 'ADMIN') {return next();} // ✅ Superuser override
 
   const uid = req.body?.uid || req.query?.uid || req.params?.uid;
   if (!uid || typeof uid !== 'string' || uid.length < 6) {
@@ -13,7 +13,7 @@ export function validateUID(req, res, next) {
 
 export function validatePhone(req, res, next) {
   const userRole = req.user?.role;
-  if (userRole === 'ADMIN') return next(); // ✅ Superuser override
+  if (userRole === 'ADMIN') {return next();} // ✅ Superuser override
 
   const phone =
     req.body?.phone ||

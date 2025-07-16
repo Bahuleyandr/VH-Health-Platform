@@ -1,18 +1,18 @@
 // src/services/notification/notificationService.js
 
 import db from '../../config/database.js';
-import logger from '../../logging/logger.js';
-import { normalizePhone } from '../../utils/phoneUtils.js';
 import { 
   NOTIFICATION_TYPES, 
   NOTIFICATION_PRIORITIES,
   NOTIFICATION_LIMITS 
 } from '../../config/notificationConfig.js';
+import logger from '../../logging/logger.js';
 import { 
   hasNotificationAccess, 
   buildNotificationQuery,
   formatNotificationResponse 
 } from '../../utils/notification/notificationHelpers.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
 
 // Keep the original service object
 const notificationService = {
@@ -70,7 +70,7 @@ const notificationService = {
         ${userRole === 'ADMIN' ? 'LEFT JOIN users sender ON n.sender_id = sender.id' : ''}
         WHERE n.user_id = $1
       `;
-      let params = [userId];
+      const params = [userId];
 
       // Apply filters
       if (filters.unread_only === 'true') {
@@ -118,7 +118,7 @@ const notificationService = {
     try {
       const userRole = user?.role?.toUpperCase();
       let accessQuery = '';
-      let params = [notificationId];
+      const params = [notificationId];
 
       // Patients can only view their own notifications
       if (userRole === 'PATIENT') {
@@ -172,7 +172,7 @@ const notificationService = {
       const userRole = user?.role?.toUpperCase();
 
       let baseConditions = '1=1';
-      let params = [];
+      const params = [];
 
       // Patients can only see their own notifications
       if (userRole === 'PATIENT') {
@@ -241,7 +241,7 @@ const notificationService = {
     try {
       const userRole = user?.role?.toUpperCase();
       let accessCondition = '';
-      let params = [notificationId];
+      const params = [notificationId];
 
       // Patients can only mark their own notifications as read
       if (userRole === 'PATIENT') {

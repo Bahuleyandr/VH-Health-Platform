@@ -1,10 +1,10 @@
 // src/controllers/record/medicalStaffRecordController.js
-import * as recordService from '../../services/record/recordService.js';
-import * as accessControl from '../../services/record/accessControlService.js';
-import { success, error } from '../../utils/responseHelper.js';
 import { RECORD_MESSAGES } from '../../config/recordConfig.js';
 import logger from '../../logging/logger.js';
+import * as accessControl from '../../services/record/accessControlService.js';
+import * as recordService from '../../services/record/recordService.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 export async function getMedicalRecords(req, res) {
   try {

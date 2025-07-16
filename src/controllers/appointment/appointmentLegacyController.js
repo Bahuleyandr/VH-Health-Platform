@@ -1,9 +1,9 @@
-import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import db from '../../config/database.js';
+import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
-import { normalizePhone } from '../../utils/phoneUtils.js';
 import { combineDateAndTime } from '../../utils/appointment/dateTimeUtils.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 // Legacy appointment creation (backward compatibility)
 export const createLegacyAppointment = async (req, res) => {

@@ -1,7 +1,7 @@
 // src/services/emergencyService.js
 import db from '../config/database.js';
-import logger from '../logging/logger.js';
 import { RESPONSE_TIMES } from '../config/sosConfig.js';
+import logger from '../logging/logger.js';
 
 export const getActiveAlerts = async () => {
   const result = await db.query(`

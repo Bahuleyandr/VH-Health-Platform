@@ -1,10 +1,10 @@
 // src/controllers/health/patientHealthController.js
-import * as patientHealthService from '../../services/health/patientHealthService.js';
-import * as healthRecordService from '../../services/health/healthRecordService.js';
-import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { HEALTH_MESSAGES, MEDICAL_ROLES } from '../../config/healthConfig.js';
+import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
+import * as healthRecordService from '../../services/health/healthRecordService.js';
+import * as patientHealthService from '../../services/health/patientHealthService.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 export async function getPatientSummary(req, res) {
   try {

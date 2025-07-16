@@ -1,16 +1,16 @@
 // services/infrastructure/swaggerService.js
-import db from '../../config/database.js';
-import logger from '../../logging/logger.js';
-import YAML from 'yamljs';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import YAML from 'yamljs';
+import db from '../../config/database.js';
+import logger from '../../logging/logger.js';
+import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import { 
   loadSwaggerDocument, 
   analyzeSwaggerDocument, 
   validateSwaggerDocument 
 } from '../../utils/infrastructure/swaggerUtils.js';
-import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -220,7 +220,7 @@ export class SwaggerService {
       
       // Sort endpoints by path and method
       endpoints.sort((a, b) => {
-        if (a.path !== b.path) return a.path.localeCompare(b.path);
+        if (a.path !== b.path) {return a.path.localeCompare(b.path);}
         return a.method.localeCompare(b.method);
       });
       
@@ -333,7 +333,7 @@ export class SwaggerService {
   // Regenerate documentation
   static async regenerateDocumentation(source = 'file', force = false, adminInfo) {
     try {
-      let regenerationResult = {
+      const regenerationResult = {
         success: false,
         source: 'unknown',
         oldEndpointCount: 0,

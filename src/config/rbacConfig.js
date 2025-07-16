@@ -31,7 +31,6 @@ export default {
   uploadRoutes: [LAB_STAFF, NURSING_STAFF, DOCTOR, ADMIN],
   medicalStaffRoutes: [DOCTOR, NURSING_STAFF, LAB_STAFF, ADMIN],
   userRoutes: [PATIENT, GENERAL_STAFF, ADMIN],
-  versionRoutes: [],
   authRoutes: [],
   firebaseAuthRoutes: [],
   otpRoutes: [],

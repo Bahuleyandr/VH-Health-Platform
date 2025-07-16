@@ -1,7 +1,7 @@
 // src/services/health/healthStatsService.js
 import db from '../../config/database.js';
-import logger from '../../logging/logger.js';
 import { TREND_PERIODS } from '../../config/healthConfig.js';
+import logger from '../../logging/logger.js';
 
 export async function getHealthStatistics(days = TREND_PERIODS.WEEK) {
   try {

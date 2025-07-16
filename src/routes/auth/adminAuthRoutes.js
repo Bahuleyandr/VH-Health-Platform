@@ -3,16 +3,16 @@
 
 import express from 'express';
 import { validationResult, body } from 'express-validator';
+import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
+import { wrapRoutesWithValidation, wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as adminAuthController from '../../controllers/auth/adminAuthController.js';
+import { authenticateToken } from '../../middleware/auth.js';
 import {
   usernamePasswordValidator,
   adminRegistrationValidator,
   passwordResetValidator,
   changePasswordValidator
 } from '../../validators/auth/authValidator.js';
-import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
-import { wrapRoutesWithValidation, wrapAutoRBAC } from '../../config/routeWrapper.js';
-import { authenticateToken } from '../../middleware/auth.js';
 
 const router = express.Router();
 

@@ -1,9 +1,9 @@
 // src/controllers/health/systemHealthController.js
-import * as systemHealthService from '../../services/health/systemHealthService.js';
-import { success, error } from '../../utils/responseHelper.js';
 import { HEALTH_MESSAGES } from '../../config/healthConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
+import * as systemHealthService from '../../services/health/systemHealthService.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 export async function getBasicHealth(req, res) {
   success(res, { message: HEALTH_MESSAGES.SERVICE_RUNNING }, 'Service reachable');
