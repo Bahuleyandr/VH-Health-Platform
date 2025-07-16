@@ -1,6 +1,6 @@
 import { body, param, query, validationResult } from 'express-validator';
 import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
-import { isValidTimeSlot } from '../../utils/appointment/dateTimeUtils.js';
+// import { isValidTimeSlot } from '../../utils/appointment/dateTimeUtils.js';
 
 // Middleware to handle validation errors
 export const handleValidationErrors = (req, res, next) => {
@@ -177,21 +177,3 @@ export const legacyAppointmentValidators = [
     .withMessage('Time must be in HH:mm format'),
   handleValidationErrors
 ];
-
-body('appointment_date')
-  .custom((value) => {
-    // Accept both DD-MM-YYYY and YYYY-MM-DD
-    const ddmmyyyy = moment(value, 'DD-MM-YYYY', true);
-    const yyyymmdd = moment(value, 'YYYY-MM-DD', true);
-    
-    if (!ddmmyyyy.isValid() && !yyyymmdd.isValid()) {
-      throw new Error('Date must be in DD-MM-YYYY or YYYY-MM-DD format');
-    }
-    
-    const date = ddmmyyyy.isValid() ? ddmmyyyy : yyyymmdd;
-    if (date.isBefore(moment().startOf('day'))) {
-      throw new Error('Appointment date cannot be in the past');
-    }
-    
-    return true;
-  })

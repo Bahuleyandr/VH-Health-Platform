@@ -444,27 +444,27 @@ export const adminNotificationService = {
           const readResult = await db.query(
             'UPDATE notifications SET is_read = true, read_at = NOW() WHERE id = ANY($1) RETURNING id, title',
             [notification_ids]
-          );
-          results = readResult.rows;
-          break;
-          
-        case VALID_OPERATIONS.MARK_UNREAD:
+           );
+      results = readResult.rows;
+      break;
+    }
+    case VALID_OPERATIONS.MARK_UNREAD: {
           const unreadResult = await db.query(
             'UPDATE notifications SET is_read = false, read_at = NULL WHERE id = ANY($1) RETURNING id, title',
             [notification_ids]
           );
           results = unreadResult.rows;
           break;
-          
-        case VALID_OPERATIONS.DELETE:
+          }
+        case VALID_OPERATIONS.DELETE: {
           const deleteResult = await db.query(
             'DELETE FROM notifications WHERE id = ANY($1) RETURNING id, title',
             [notification_ids]
           );
           results = deleteResult.rows;
           break;
-          
-        case VALID_OPERATIONS.UPDATE_PRIORITY:
+         } 
+        case VALID_OPERATIONS.UPDATE_PRIORITY: {
           if (!operationData?.priority) {
             throw new Error('priority is required for update_priority operation');
           }
