@@ -40,7 +40,7 @@ wrapAutoRBAC(
   {
     get: [
       // 🔍 Detailed System Information (Staff/Admin)
-      ['/system', versionController.getSystemInfo],
+      ['/system', versionController.getVersionSystemInfo],
       
       // 📋 Complete API Catalog (Staff/Admin)
       ['/api-catalog', versionController.getAPICatalog],

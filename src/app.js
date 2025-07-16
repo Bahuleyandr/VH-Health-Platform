@@ -1,7 +1,6 @@
 // src/app.js - FULLY MODULAR VERSION with all routes properly organized
 
-import * as Sentry from '@sentry/node'; // Retain if you use any Sentry static APIs/options!
-import { requestHandler, errorHandler } from '@sentry/node';
+import * as Sentry from '@sentry/node';
 import dotenv from 'dotenv';
 import express from 'express';
 import helmet from 'helmet';
@@ -85,7 +84,7 @@ try {
 // ====================================
 
 // Sentry request handler (must be first)
-app.use(requestHandler());
+app.use(Sentry.requestHandler());
 
 // Security and parsing middleware
 app.use(helmet());
@@ -188,7 +187,7 @@ app.use(genericLimiter);
 app.use(corsErrorHandler);
 
 // Sentry error handler (must be before other error handlers)
-app.use(errorHandler());
+app.use(Sentry.errorHandler());
 
 // Global error handler
 app.use(errorHandlerMiddleware);

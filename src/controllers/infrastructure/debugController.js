@@ -188,7 +188,7 @@ export const runLoadTest = async (req, res) => {
 };
 
 // Get system information
-export const getSystemInfo = async (req, res) => {
+export const getDebugSystemInfo = async (req, res) => {
   try {
     const systemInfo = await DebugService.getDebugInfo({
       uid: req.user?.uid,
@@ -253,7 +253,7 @@ export const getAllRoutes = async (req, res) => {
             // Try to extract mount path
             const source = layer.regexp.source;
             // Match patterns like ^\\/api\\/v1\\/users
-            const match = source.match(/\^?\\\/([\w-]+)(?:\\\/([\w-]+))*(?:\\\/([\w-]+))*/);
+            const match = source.match(/\^?\/([\w-]+)(?:\/([\w-]+))*(?:\/([\w-]+))*/);
             if (match) {
               mountPath = '/' + match.slice(1).filter(Boolean).join('/');
             }

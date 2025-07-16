@@ -65,7 +65,7 @@ wrapAutoRBAC(
   {
     get: [
       // 📊 Documentation Usage Analytics
-      ['/admin/analytics', analyticsQueryValidator, swaggerController.getAnalytics]
+      ['/admin/analytics', analyticsQueryValidator, swaggerController.getSwaggerAnalytics]
     ],
     
     post: [
