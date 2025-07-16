@@ -1,6 +1,5 @@
 // src/app.js - FULLY MODULAR VERSION with all routes properly organized
 
-import * as Sentry from '@sentry/node';
 import dotenv from 'dotenv';
 import express from 'express';
 import helmet from 'helmet';
@@ -82,9 +81,6 @@ try {
 // ====================================
 // GLOBAL MIDDLEWARE
 // ====================================
-
-// Sentry request handler (must be first)
-app.use(Sentry.requestHandler());
 
 // Security and parsing middleware
 app.use(helmet());
@@ -185,9 +181,6 @@ app.use(genericLimiter);
 
 // CORS error handler (ADD THIS LINE)
 app.use(corsErrorHandler);
-
-// Sentry error handler (must be before other error handlers)
-app.use(Sentry.errorHandler());
 
 // Global error handler
 app.use(errorHandlerMiddleware);
