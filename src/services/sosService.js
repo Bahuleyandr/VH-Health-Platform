@@ -148,3 +148,79 @@ function formatAlertResponse(alert, nearbyServices, severity, isTestAlert) {
     nearby_police: nearbyServices.police_stations || []
   };
 }
+
+// Add this function to your sosService.js file after the other functions
+
+/**
+ * Updates emergency contacts for a user
+ * @param {string} phone - The user's phone number
+ * @param {object} contactData - The emergency contact data to update
+ * @returns {Promise<object>} Updated contact information
+ */
+export const updateEmergencyContacts = async (phone, contactData) => {
+  try {
+    const {
+      primary_contact_name,
+      primary_contact_phone,
+      primary_contact_relationship,
+      secondary_contact_name,
+      secondary_contact_phone,
+      secondary_contact_relationship,
+      emergency_notes
+    } = contactData;
+
+    // Check if user exists
+    const userCheck = await db.query('SELECT id FROM users WHERE phone = $1', [phone]);
+    if (userCheck.rows.length === 0) {
+      throw new Error('User not found');
+    }
+
+    // Update emergency contact information
+    const result = await db.query(`
+      UPDATE users 
+      SET 
+        emergency_contact = $2,
+        emergency_contact_name = $3,
+        emergency_contact_relationship = $4,
+        secondary_contact_phone = $5,
+        secondary_contact_name = $6,
+        secondary_contact_relationship = $7,
+        emergency_notes = $8,
+        updated_at = NOW()
+      WHERE phone = $1
+      RETURNING 
+        phone,
+        emergency_contact as primary_contact_phone,
+        emergency_contact_name as primary_contact_name,
+        emergency_contact_relationship as primary_contact_relationship,
+        secondary_contact_phone,
+        secondary_contact_name,
+        secondary_contact_relationship,
+        emergency_notes
+    `, [
+      phone,
+      primary_contact_phone,
+      primary_contact_name,
+      primary_contact_relationship,
+      secondary_contact_phone,
+      secondary_contact_name,
+      secondary_contact_relationship,
+      emergency_notes
+    ]);
+
+    if (result.rows.length === 0) {
+      throw new Error('Failed to update emergency contacts');
+    }
+
+    logger.info(`Emergency contacts updated for user: ${phone}`);
+
+    return {
+      success: true,
+      message: 'Emergency contacts updated successfully',
+      data: result.rows[0]
+    };
+  } catch (error) {
+    logger.error('Error updating emergency contacts:', error);
+    throw error;
+  }
+};

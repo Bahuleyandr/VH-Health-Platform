@@ -41,4 +41,62 @@ export const findNearbyHospitals = async (latitude, longitude, radius) => {
   })).filter(h => h.distance_km <= radius);
 };
 
-// ... other location methods
+// Add these functions after the findNearbyHospitals function in locationService.js
+
+export const findNearbyPharmacies = async (latitude, longitude, radius) => {
+  const result = await db.query(`
+    SELECT 
+      id, name, phone, address, 
+      latitude as pharmacy_lat, longitude as pharmacy_lon,
+      is_24_hours, has_emergency_meds, delivery_available,
+      operating_hours, contact_person
+    FROM pharmacies 
+    WHERE status = 'active'
+    ORDER BY 
+      (6371 * acos(cos(radians($1)) * cos(radians(latitude)) * 
+      cos(radians(longitude) - radians($2)) + sin(radians($1)) * 
+      sin(radians(latitude)))) ASC
+    LIMIT 10
+  `, [latitude, longitude]);
+
+  return result.rows.map(pharmacy => ({
+    ...pharmacy,
+    distance_km: parseFloat(calculateDistance(
+      latitude, longitude, 
+      pharmacy.pharmacy_lat, pharmacy.pharmacy_lon
+    ).toFixed(1)),
+    estimated_travel_time_minutes: Math.round(calculateDistance(
+      latitude, longitude, 
+      pharmacy.pharmacy_lat, pharmacy.pharmacy_lon
+    ) * 2)
+  })).filter(p => p.distance_km <= radius);
+};
+
+export const findNearbyBloodBanks = async (latitude, longitude, radius) => {
+  const result = await db.query(`
+    SELECT 
+      id, name, phone, address, 
+      latitude as blood_bank_lat, longitude as blood_bank_lon,
+      available_blood_types, emergency_contact,
+      operating_hours, is_24_hours, contact_person
+    FROM blood_banks 
+    WHERE status = 'active'
+    ORDER BY 
+      (6371 * acos(cos(radians($1)) * cos(radians(latitude)) * 
+      cos(radians(longitude) - radians($2)) + sin(radians($1)) * 
+      sin(radians(latitude)))) ASC
+    LIMIT 5
+  `, [latitude, longitude]);
+
+  return result.rows.map(bloodBank => ({
+    ...bloodBank,
+    distance_km: parseFloat(calculateDistance(
+      latitude, longitude, 
+      bloodBank.blood_bank_lat, bloodBank.blood_bank_lon
+    ).toFixed(1)),
+    estimated_travel_time_minutes: Math.round(calculateDistance(
+      latitude, longitude, 
+      bloodBank.blood_bank_lat, bloodBank.blood_bank_lon
+    ) * 2)
+  })).filter(b => b.distance_km <= radius);
+};

@@ -264,86 +264,91 @@ export class AdminDoctorService {
   }
 
   // Bulk doctor operations
-  async performBulkOperation(operation, doctorIds, data = {}) {
-    try {
-      const validOperations = ['activate', 'deactivate', 'update_fee', 'change_department', 'update_schedule'];
-      if (!validOperations.includes(operation)) {
-        throw new Error('Invalid operation');
-      }
-      
-      let results = [];
-      
-      switch (operation) {
-        case 'activate': {
-          const activateResult = await db.query(
-            'UPDATE doctors SET is_available = true, updated_at = NOW() WHERE user_id = ANY($1) RETURNING user_id',
-            [doctorIds]
-          );
-          results = activateResult.rows;
-          break;
-          
-        case 'deactivate': {
-          const deactivateResult = await db.query(
-            'UPDATE doctors SET is_available = false, updated_at = NOW() WHERE user_id = ANY($1) RETURNING user_id',
-            [doctorIds]
-          );
-          
-          // Cancel future appointments for deactivated doctors
-          await db.query(`
-            UPDATE appointments SET 
-              status = 'CANCELLED',
-              notes = COALESCE(notes || ' ', '') || 'Doctor deactivated by admin',
-              updated_at = NOW()
-            WHERE doctor_id = ANY($1) AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
-          `, [doctorIds]);
-          
-          results = deactivateResult.rows;
-          break;
-          
-        case 'update_fee': {
-          if (!data.consultation_fee) {
-            throw new Error('consultation_fee is required for update_fee operation');
-          }
-          const feeResult = await db.query(
-            'UPDATE doctors SET consultation_fee = $1, updated_at = NOW() WHERE user_id = ANY($2) RETURNING user_id, consultation_fee',
-            [data.consultation_fee, doctorIds]
-          );
-          results = feeResult.rows;
-          break;
-          
-        case 'change_department': {
-          if (!data.department) {
-            throw new Error('department is required for change_department operation');
-          }
-          const deptResult = await db.query(
-            'UPDATE doctors SET department = $1, updated_at = NOW() WHERE user_id = ANY($2) RETURNING user_id, department',
-            [data.department, doctorIds]
-          );
-          results = deptResult.rows;
-          break;
-          
-        case 'update_schedule': {
-          if (!data.available_days || !data.available_hours) {
-            throw new Error('available_days and available_hours are required for update_schedule operation');
-          }
-          const scheduleResult = await db.query(
-            'UPDATE doctors SET available_days = $1, available_hours = $2, updated_at = NOW() WHERE user_id = ANY($3) RETURNING user_id, available_days, available_hours',
-            [data.available_days, data.available_hours, doctorIds]
-          );
-          results = scheduleResult.rows;
-          break;
-       }
-      }
-      return {
-        operation,
-        affected_doctors: results,
-        count: results.length
-      };
-    } catch (error) {
-      logger.error('Error performing bulk operation:', error);
-      throw error;
+async performBulkOperation(operation, doctorIds, data = {}) {
+  try {
+    const validOperations = ['activate', 'deactivate', 'update_fee', 'change_department', 'update_schedule'];
+    if (!validOperations.includes(operation)) {
+      throw new Error('Invalid operation');
     }
+    
+    let results = [];
+    
+    switch (operation) {
+      case 'activate': {
+        const activateResult = await db.query(
+          'UPDATE doctors SET is_available = true, updated_at = NOW() WHERE user_id = ANY($1) RETURNING user_id',
+          [doctorIds]
+        );
+        results = activateResult.rows;
+        break;
+      }
+        
+      case 'deactivate': {
+        const deactivateResult = await db.query(
+          'UPDATE doctors SET is_available = false, updated_at = NOW() WHERE user_id = ANY($1) RETURNING user_id',
+          [doctorIds]
+        );
+        
+        // Cancel future appointments for deactivated doctors
+        await db.query(`
+          UPDATE appointments SET 
+            status = 'CANCELLED',
+            notes = COALESCE(notes || ' ', '') || 'Doctor deactivated by admin',
+            updated_at = NOW()
+          WHERE doctor_id = ANY($1) AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
+        `, [doctorIds]);
+        
+        results = deactivateResult.rows;
+        break;
+      }
+        
+      case 'update_fee': {
+        if (!data.consultation_fee) {
+          throw new Error('consultation_fee is required for update_fee operation');
+        }
+        const feeResult = await db.query(
+          'UPDATE doctors SET consultation_fee = $1, updated_at = NOW() WHERE user_id = ANY($2) RETURNING user_id, consultation_fee',
+          [data.consultation_fee, doctorIds]
+        );
+        results = feeResult.rows;
+        break;
+      }
+        
+      case 'change_department': {
+        if (!data.department) {
+          throw new Error('department is required for change_department operation');
+        }
+        const deptResult = await db.query(
+          'UPDATE doctors SET department = $1, updated_at = NOW() WHERE user_id = ANY($2) RETURNING user_id, department',
+          [data.department, doctorIds]
+        );
+        results = deptResult.rows;
+        break;
+      }
+        
+      case 'update_schedule': {
+        if (!data.available_days || !data.available_hours) {
+          throw new Error('available_days and available_hours are required for update_schedule operation');
+        }
+        const scheduleResult = await db.query(
+          'UPDATE doctors SET available_days = $1, available_hours = $2, updated_at = NOW() WHERE user_id = ANY($3) RETURNING user_id, available_days, available_hours',
+          [data.available_days, data.available_hours, doctorIds]
+        );
+        results = scheduleResult.rows;
+        break;
+      }
+    }
+    
+    return {
+      operation,
+      affected_doctors: results,
+      count: results.length
+    };
+  } catch (error) {
+    logger.error('Error performing bulk operation:', error);
+    throw error;
   }
+}
 
   // Update doctor availability with appointment handling
   async updateDoctorAvailability(id, availabilityData) {

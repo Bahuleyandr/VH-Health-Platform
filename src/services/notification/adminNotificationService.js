@@ -431,66 +431,71 @@ export const adminNotificationService = {
   },
 
   /**
-   * Perform bulk operations on notifications
-   */
-  async performBulkOperations(data, user) {
-    try {
-      const { operation, notification_ids, data: operationData } = data;
-      
-      let results = [];
-      
-      switch (operation) {
-        case VALID_OPERATIONS.MARK_READ:
-          const readResult = await db.query(
-            'UPDATE notifications SET is_read = true, read_at = NOW() WHERE id = ANY($1) RETURNING id, title',
-            [notification_ids]
-           );
-      results = readResult.rows;
-      break;
-    }
-    case VALID_OPERATIONS.MARK_UNREAD: {
-          const unreadResult = await db.query(
-            'UPDATE notifications SET is_read = false, read_at = NULL WHERE id = ANY($1) RETURNING id, title',
-            [notification_ids]
-          );
-          results = unreadResult.rows;
-          break;
-          }
-        case VALID_OPERATIONS.DELETE: {
-          const deleteResult = await db.query(
-            'DELETE FROM notifications WHERE id = ANY($1) RETURNING id, title',
-            [notification_ids]
-          );
-          results = deleteResult.rows;
-          break;
-         } 
-        case VALID_OPERATIONS.UPDATE_PRIORITY: {
-          if (!operationData?.priority) {
-            throw new Error('priority is required for update_priority operation');
-          }
-          const priorityResult = await db.query(
-            'UPDATE notifications SET priority = $1 WHERE id = ANY($2) RETURNING id, title, priority',
-            [operationData.priority.toUpperCase(), notification_ids]
-          );
-          results = priorityResult.rows;
-          break;
-          
-        default:
-          throw new Error('Invalid operation');
+  /**
+ * Perform bulk operations on notifications
+ */
+async performBulkOperations(data, user) {
+  try {
+    const { operation, notification_ids, data: operationData } = data;
+    
+    let results = [];
+    
+    switch (operation) {
+      case VALID_OPERATIONS.MARK_READ: {
+        const readResult = await db.query(
+          'UPDATE notifications SET is_read = true, read_at = NOW() WHERE id = ANY($1) RETURNING id, title',
+          [notification_ids]
+        );
+        results = readResult.rows;
+        break;
       }
       
-      logger.info(`Bulk ${operation} performed on ${notification_ids.length} notifications by ${user?.uid}`);
+      case VALID_OPERATIONS.MARK_UNREAD: {
+        const unreadResult = await db.query(
+          'UPDATE notifications SET is_read = false, read_at = NULL WHERE id = ANY($1) RETURNING id, title',
+          [notification_ids]
+        );
+        results = unreadResult.rows;
+        break;
+      }
       
-      return {
-        operation,
-        affected_notifications: results,
-        count: results.length
-      };
-    } catch (error) {
-      logger.error('Error performing bulk operations:', error.message);
-      throw error;
+      case VALID_OPERATIONS.DELETE: {
+        const deleteResult = await db.query(
+          'DELETE FROM notifications WHERE id = ANY($1) RETURNING id, title',
+          [notification_ids]
+        );
+        results = deleteResult.rows;
+        break;
+      }
+      
+      case VALID_OPERATIONS.UPDATE_PRIORITY: {
+        if (!operationData?.priority) {
+          throw new Error('priority is required for update_priority operation');
+        }
+        const priorityResult = await db.query(
+          'UPDATE notifications SET priority = $1 WHERE id = ANY($2) RETURNING id, title, priority',
+          [operationData.priority.toUpperCase(), notification_ids]
+        );
+        results = priorityResult.rows;
+        break;
+      }
+      
+      default:
+        throw new Error('Invalid operation');
     }
-  },
+    
+    logger.info(`Bulk ${operation} performed on ${notification_ids.length} notifications by ${user?.uid}`);
+    
+    return {
+      operation,
+      affected_notifications: results,
+      count: results.length
+    };
+  } catch (error) {
+    logger.error('Error performing bulk operations:', error.message);
+    throw error;
+  }
+},
 
   /**
    * Create notification template

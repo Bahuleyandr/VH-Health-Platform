@@ -4,7 +4,7 @@ import { validationResult , body, query } from 'express-validator';
 import db from '../config/database.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
 import { wrapAutoRBAC, wrapRoutesWithValidation } from '../config/routeWrapper.js';
-import * as userController from '../controllers/userController.js';
+import * as userController from '../controllers/user/userController.js';
 import logger from '../logging/logger.js';
 import { logAudit } from '../utils/logAudit.js';
 import { normalizePhone } from '../utils/phoneUtils.js';

@@ -12,6 +12,7 @@ const fileFilter = (req, file, cb) => {
   }
   
   // Check file name for malicious patterns
+  // eslint-disable-next-line no-control-regex
   const dangerousPatterns = /[<>:"/\\|?*\x00-\x1f]/;
   if (dangerousPatterns.test(file.originalname)) {
     return cb(new Error('File name contains invalid characters'));
