@@ -1,10 +1,10 @@
 // src/services/record/accessControlService.js
 import { PRIVACY_LEVELS } from '../../config/recordConfig.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
 import { 
   ADMIN, PATIENT, NURSING_STAFF, PHARMACY_STAFF, 
   LAB_STAFF, DOCTOR, GENERAL_STAFF 
 } from '../../utils/roles.js';
-import { normalizePhone } from '../../utils/phoneUtils.js';
 
 export function checkDataAccess(userRole, patientData, recordData) {
   const privacyLevel = recordData?.privacy_level || 0;
@@ -59,7 +59,7 @@ export function canCreateRecord(userRole, patientPhone, userPhone) {
 }
 
 export function canUpdateRecord(userRole, recordDoctorId, userId) {
-  if (userRole === ADMIN) return true;
-  if (userRole === DOCTOR && recordDoctorId === userId) return true;
+  if (userRole === ADMIN) {return true;}
+  if (userRole === DOCTOR && recordDoctorId === userId) {return true;}
   return false;
 }

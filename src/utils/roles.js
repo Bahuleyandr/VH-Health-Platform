@@ -17,7 +17,7 @@ export const HR_STAFF = 'HR_STAFF';
  * @returns {boolean} - True if user role matches any allowed role
  */
 export function hasRole(user, allowedRoles) {
-  if (!user || !user.role) return false;
+  if (!user || !user.role) {return false;}
 
   const userRole = user.role.trim().toUpperCase();
   const allowedRolesUpper = allowedRoles.map(role => role.trim().toUpperCase());

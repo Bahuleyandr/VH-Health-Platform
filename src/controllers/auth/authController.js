@@ -1,20 +1,18 @@
 // src/controllers/auth/authController.js - Core Authentication Controller
 
-import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
-import * as authService from '../../services/auth/authService.js';
+// ✅ FIX: Changed the import to get the class directly
+import { AuthService } from '../../services/auth/authService.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 // Request OTP for login/registration
-// NOTE: This is NOT for patient login (patients use Firebase)
-// This is for: admin override, testing, non-patient users
 export const requestOtp = async (req, res) => {
   try {
     const { phone, purpose = 'general' } = req.body;
-
-    const result = await authService.requestOtp(phone, purpose, req);
-
+    // ✅ FIX: Called the static method on the AuthService class
+    const result = await AuthService.requestOtp(phone, purpose, req);
     success(res, result, 'OTP sent successfully');
   } catch (err) {
     logger.error('Request OTP Error:', err);
@@ -23,14 +21,11 @@ export const requestOtp = async (req, res) => {
 };
 
 // Verify OTP and authenticate
-// NOTE: This is NOT for patient login (patients use Firebase)
-// This is for: admin override, testing, non-patient users
 export const verifyOtp = async (req, res) => {
   try {
     const { phone, otp } = req.body;
-
-    const result = await authService.verifyOtpAndAuthenticate(phone, otp, req);
-
+    // ✅ FIX: Called the static method on the AuthService class
+    const result = await AuthService.verifyOtpAndAuthenticate(phone, otp, req);
     success(res, result, result.isNewUser ? 'User registered and logged in' : 'Login successful');
   } catch (err) {
     logger.error('Verify OTP Error:', err);
@@ -42,14 +37,12 @@ export const verifyOtp = async (req, res) => {
 export const refreshToken = async (req, res) => {
   try {
     const authHeader = req.headers['authorization'];
-
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return error(res, 'Authorization token required', HTTP_STATUS.UNAUTHORIZED);
     }
-
     const token = authHeader.split(' ')[1];
-    const result = await authService.refreshToken(token);
-
+    // ✅ FIX: Called the static method on the AuthService class
+    const result = await AuthService.refreshToken(token);
     success(res, result, 'Token refreshed successfully');
   } catch (err) {
     logger.error('Token Refresh Error:', err);
@@ -62,30 +55,24 @@ export const logout = async (req, res) => {
   try {
     const authHeader = req.headers['authorization'];
     let userPhone = null;
-
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.split(' ')[1];
-      const result = await authService.logout(token, req);
+      // ✅ FIX: Called the static method on the AuthService class
+      const result = await AuthService.logout(token, req);
       userPhone = result.phone;
     }
-
-    success(res, {
-      message: 'Logged out successfully. Please discard your token.',
-      phone: userPhone
-    }, 'Logout successful');
+    success(res, { message: 'Logged out successfully. Please discard your token.', phone: userPhone }, 'Logout successful');
   } catch (err) {
     logger.error('Logout Error:', err);
-    // Don't fail logout even if there's an error
-    success(res, {
-      message: 'Logged out successfully. Please discard your token.'
-    }, 'Logout successful');
+    success(res, { message: 'Logged out successfully. Please discard your token.' }, 'Logout successful');
   }
 };
 
 // Get authentication health status
 export const getHealthStatus = async (req, res) => {
   try {
-    const healthData = await authService.getHealthStatus();
+    // ✅ FIX: Called the static method on the AuthService class
+    const healthData = await AuthService.getHealthStatus();
     success(res, healthData, 'Authentication service is healthy');
   } catch (err) {
     logger.error('Auth Health Check Error:', err);
@@ -93,16 +80,14 @@ export const getHealthStatus = async (req, res) => {
   }
 };
 
-// Get public authentication statistics (with DD-MM-YYYY date formatting)
+// Get public authentication statistics
 export const getPublicStats = async (req, res) => {
   try {
-    const stats = await authService.getPublicStats();
-
-    // Format dates to DD-MM-YYYY
+    // ✅ FIX: Called the static method on the AuthService class
+    const stats = await AuthService.getPublicStats();
     if (stats.lastUpdated) {
       stats.lastUpdated = formatDateDDMMYYYY(stats.lastUpdated);
     }
-
     success(res, stats, 'Authentication statistics');
   } catch (err) {
     logger.error('Auth Stats Error:', err);
@@ -110,11 +95,12 @@ export const getPublicStats = async (req, res) => {
   }
 };
 
-// Legacy login handler (maintained for backward compatibility)
+// Legacy login handler
 export const login = async (req, res) => {
   try {
     const { phone } = req.body;
-    const result = await authService.legacyLogin(phone, req);
+    // ✅ FIX: Called the static method on the AuthService class
+    const result = await AuthService.legacyLogin(phone, req);
     success(res, result, 'Login successful');
   } catch (err) {
     logger.error('Legacy Login Error:', err);
@@ -122,14 +108,16 @@ export const login = async (req, res) => {
   }
 };
 
-// Legacy register handler (maintained for backward compatibility)
+// Legacy register handler
 export const register = async (req, res) => {
   try {
     const { phone } = req.body;
-    const result = await authService.legacyRegister(phone, req);
+    // ✅ FIX: Called the static method on the AuthService class
+    const result = await AuthService.legacyRegister(phone, req);
     success(res, result, 'Registration successful');
   } catch (err) {
     logger.error('Legacy Register Error:', err);
     error(res, err.message || 'Registration failed', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
+// ✅ FIX: Removed extra closing brace from the end of the file

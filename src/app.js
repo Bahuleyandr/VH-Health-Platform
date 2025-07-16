@@ -1,57 +1,58 @@
 // src/app.js - FULLY MODULAR VERSION with all routes properly organized
 
+import * as Sentry from '@sentry/node'; // Retain if you use any Sentry static APIs/options!
+import { requestHandler, errorHandler } from '@sentry/node';
 import dotenv from 'dotenv';
 import express from 'express';
 import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
-import * as Sentry from '@sentry/node';
 
 // Logging and middleware imports
 import logger from './logging/logger.js';
-import loggingMiddleware from './middleware/loggingMiddleware.js';
-import errorHandlerMiddleware from './middleware/errorHandlerMiddleware.js';
-import validateApiKey from './middleware/validateApiKey.js';
-import jwtAuth from './middleware/jwtMiddleware.js';
-import corsMiddleware, { corsErrorHandler } from './middleware/corsMiddleware.js';
-import authMiddleware from './middleware/authMiddleware.js';
-import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
 import { attachUserContext } from './middleware/attachUserContext.js';
+import authMiddleware from './middleware/authMiddleware.js';
+import corsMiddleware, { corsErrorHandler } from './middleware/corsMiddleware.js';
+import errorHandlerMiddleware from './middleware/errorHandlerMiddleware.js';
+import jwtAuth from './middleware/jwtMiddleware.js';
+import loggingMiddleware from './middleware/loggingMiddleware.js';
+import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
 import { patientRateLimiter, genericLimiter } from './middleware/rateLimitMiddleware.js';
+import validateApiKey from './middleware/validateApiKey.js';
 
 // Utility imports
-import swaggerLoader from './utils/swaggerLoader.js';
-import internalRoutes from './routes/internalRoutes.js';
 
 // ====================================
 // ROUTE IMPORTS - Organized by category
 // ====================================
 
 // Legacy routes (for backward compatibility)
-import routes from './routes/index.js';
 // import adminRoutes from './routes/adminRoutes.js';
 
 // Modularized routes
-import staffRoutes from './routes/staff/index.js';
-import pharmacyRoutes from './routes/pharmacy/index.js';
-import investigationRoutes from './routes/investigation/index.js';
-import appointmentRoutes from './routes/appointment/index.js';
-import recordRoutes from './routes/record/index.js';
-import healthRoutes from './routes/health/index.js';
-import departmentRoutes from './routes/department/index.js';
-import doctorRoutes from './routes/doctor/index.js';
-import userRoutes from './routes/user/index.js';
-import notificationRoutes from './routes/notification/index.js';
-import authRoutes from './routes/auth/index.js';
-import infrastructureRoutes from './routes/infrastructure/index.js';
 
 // Non-modularized routes (to be modularized in future)
 import analyticsRoutes from './routes/analyticsRoutes.js';
+import appointmentRoutes from './routes/appointment/index.js';
+import authRoutes from './routes/auth/index.js';
+import departmentRoutes from './routes/department/index.js';
 import deviceRoutes from './routes/deviceRoutes.js';
+import doctorRoutes from './routes/doctor/index.js';
+import healthRoutes from './routes/health/index.js';
+import routes from './routes/index.js';
+import infrastructureRoutes from './routes/infrastructure/index.js';
+import internalRoutes from './routes/internalRoutes.js';
 
 // Adminroutes
-import adminRecordRoutes from './routes/record/adminRoutes.js';
 import adminInvestigationRoutes from './routes/investigation/adminRoutes.js';
+import investigationRoutes from './routes/investigation/index.js';
+import notificationRoutes from './routes/notification/index.js';
 import adminPharmacyRoutes from './routes/pharmacy/adminRoutes.js';
+import pharmacyRoutes from './routes/pharmacy/index.js';
+import adminRecordRoutes from './routes/record/adminRoutes.js';
+import recordRoutes from './routes/record/index.js';
+import staffRoutes from './routes/staff/index.js';
+import userRoutes from './routes/user/index.js';
+import swaggerLoader from './utils/swaggerLoader.js';
 
 // ====================================
 // ENVIRONMENT AND INITIALIZATION
@@ -60,13 +61,6 @@ import adminPharmacyRoutes from './routes/pharmacy/adminRoutes.js';
 // Load environment variables
 dotenv.config();
 import './utils/validateEnv.js';
-
-// Initialize Sentry for error tracking
-Sentry.init({
-  dsn: process.env.SENTRY_DSN,
-  tracesSampleRate: 1.0,
-  environment: process.env.NODE_ENV || 'development'
-});
 
 // Create Express app
 const app = express();
@@ -79,7 +73,7 @@ app.set('trust proxy', 1); // Required for Render or Cloudflare
 let swaggerDocument;
 try {
   swaggerDocument = swaggerLoader();
-  if (!swaggerDocument) throw new Error('Failed to load Swagger documentation.');
+  if (!swaggerDocument) {throw new Error('Failed to load Swagger documentation.');}
   console.log('✅ Swagger documentation validated and loaded.');
 } catch (err) {
   console.error('❌ Swagger load failed:', err.message);
@@ -91,7 +85,7 @@ try {
 // ====================================
 
 // Sentry request handler (must be first)
-app.use(Sentry.Handlers.requestHandler());
+app.use(requestHandler());
 
 // Security and parsing middleware
 app.use(helmet());
@@ -194,7 +188,7 @@ app.use(genericLimiter);
 app.use(corsErrorHandler);
 
 // Sentry error handler (must be before other error handlers)
-app.use(Sentry.Handlers.errorHandler());
+app.use(errorHandler());
 
 // Global error handler
 app.use(errorHandlerMiddleware);

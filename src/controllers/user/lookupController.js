@@ -1,9 +1,9 @@
 // src/controllers/user/lookupController.js
 import { validationResult } from 'express-validator';
-import { LookupService } from '../../services/user/lookupService.js';
-import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
+import { LookupService } from '../../services/user/lookupService.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 export class LookupController {
   // Basic user lookup

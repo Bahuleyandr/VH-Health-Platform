@@ -114,7 +114,7 @@ export const ROLE_HIERARCHY = {
 
 // Check if user can manage role
 export const canUserManageRole = (userRole, targetRole) => {
-  if (userRole === ADMIN) return true;
+  if (userRole === ADMIN) {return true;}
   const roleData = ROLE_HIERARCHY[userRole];
   return roleData?.canManageRoles?.includes(targetRole) || false;
 };
@@ -122,7 +122,7 @@ export const canUserManageRole = (userRole, targetRole) => {
 // Check if role has capacity
 export const checkRoleCapacity = async (role, db) => {
   const roleData = ROLE_HIERARCHY[role];
-  if (!roleData.maxUsers) return { hasCapacity: true, current: 0, max: null };
+  if (!roleData.maxUsers) {return { hasCapacity: true, current: 0, max: null };}
   
   const result = await db.query(
     'SELECT COUNT(*) FROM users WHERE role = $1 AND is_active = true',
@@ -149,8 +149,8 @@ export const getManageableRoles = (userRole) => {
 // Check permission
 export const hasPermission = (userRole, permission) => {
   const roleData = ROLE_HIERARCHY[userRole];
-  if (!roleData) return false;
-  if (roleData.permissions.includes('*')) return true;
+  if (!roleData) {return false;}
+  if (roleData.permissions.includes('*')) {return true;}
   return roleData.permissions.includes(permission);
 };
 
@@ -175,7 +175,7 @@ export const formatRole = (role) => {
 // Generate role badge HTML
 export const generateRoleBadge = (role) => {
   const roleData = ROLE_HIERARCHY[role];
-  if (!roleData) return '';
+  if (!roleData) {return '';}
   
   return `<span style="
     background: ${roleData.color}; 

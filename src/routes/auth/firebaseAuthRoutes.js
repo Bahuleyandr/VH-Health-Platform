@@ -4,6 +4,8 @@
 
 import express from 'express';
 import { validationResult } from 'express-validator';
+import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
+import { wrapRoutesWithValidation, wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as firebaseAuthController from '../../controllers/auth/firebaseAuthController.js';
 import {
   firebaseLoginValidator,
@@ -11,8 +13,6 @@ import {
   userRegistrationValidator,
   phoneValidator
 } from '../../validators/auth/authValidator.js';
-import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
-import { wrapRoutesWithValidation, wrapAutoRBAC } from '../../config/routeWrapper.js';
 
 const router = express.Router();
 

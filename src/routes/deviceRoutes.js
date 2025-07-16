@@ -1,14 +1,14 @@
 // src/routes/deviceRoutes.js - COMPLETE PRODUCTION VERSION WITH RBAC
 import express from 'express';
+import db from '../config/database.js';
+import { HTTP_STATUS } from '../config/responseCodes.js';
 import { wrapAutoRBAC } from '../config/routeWrapper.js';
 import { registerDevice } from '../controllers/deviceController.js';
-import validateApiKey from '../middleware/validateApiKey.js';
-import jwtMiddleware from '../middleware/jwtMiddleware.js';
-import db from '../config/database.js';
-import { success, error } from '../utils/responseHelper.js';
 import logger from '../logging/logger.js';
+import jwtMiddleware from '../middleware/jwtMiddleware.js';
+import validateApiKey from '../middleware/validateApiKey.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
-import { HTTP_STATUS } from '../config/responseCodes.js';
+import { success, error } from '../utils/responseHelper.js';
 
 const router = express.Router();
 console.log('✅ deviceRoutes loaded with RBAC protection');

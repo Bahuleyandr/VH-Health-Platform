@@ -2,6 +2,7 @@
 import express from 'express';
 import { wrapAutoRBAC, wrapRoutes } from '../../config/routeWrapper.js';
 import * as rbacController from '../../controllers/infrastructure/rbacController.js';
+import { ADMIN } from '../../utils/roles.js';
 import { 
   roleAssignmentValidator,
   bulkAssignmentValidator,
@@ -12,7 +13,6 @@ import {
   rbacAnalyticsQueryValidator,
   migrationReportQueryValidator
 } from '../../validators/infrastructure/rbacValidator.js';
-import { ADMIN } from '../../utils/roles.js';
 
 const router = express.Router();
 

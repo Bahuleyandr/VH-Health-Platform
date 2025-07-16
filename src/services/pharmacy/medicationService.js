@@ -15,7 +15,7 @@ export const getAllMedications = async (filters) => {
     FROM medications m
     WHERE m.is_active = true
   `;
-  let params = [];
+  const params = [];
 
   if (search) {
     query += ' AND (m.name ILIKE $' + (params.length + 1) + ' OR m.generic_name ILIKE $' + (params.length + 1) + ')';
@@ -42,7 +42,7 @@ export const getAllMedications = async (filters) => {
 
   // Get total count
   let countQuery = 'SELECT COUNT(*) FROM medications m WHERE m.is_active = true';
-  let countParams = [];
+  const countParams = [];
 
   if (search) {
     countQuery += ' AND (m.name ILIKE $1 OR m.generic_name ILIKE $1)';
@@ -109,7 +109,7 @@ export const getMedicationsByCategory = async (category, inStockOnly) => {
     FROM medications 
     WHERE category = $1 AND is_active = true
   `;
-  let params = [category];
+  const params = [category];
 
   if (inStockOnly) {
     query += ' AND stock_quantity > 0';
@@ -137,7 +137,7 @@ export const searchMedications = async (searchParams) => {
     FROM medications 
     WHERE is_active = true
   `;
-  let params = [];
+  const params = [];
 
   if (q) {
     query += ` AND (name ILIKE $${params.length + 1} OR generic_name ILIKE $${params.length + 1} OR brand ILIKE $${params.length + 1})`;

@@ -1,8 +1,8 @@
-import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
-import appointmentQueryService from '../../services/appointment/appointmentQueryService.js';
+import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
+import appointmentQueryService from '../../services/appointment/appointmentQueryService.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 export const listAppointments = async (req, res) => {
   try {

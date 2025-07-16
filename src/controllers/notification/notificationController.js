@@ -1,12 +1,12 @@
 // src/controllers/notification/notificationController.js
 
 import { validationResult } from 'express-validator';
-import { notificationService } from '../../services/notification/notificationService.js';
-import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
-import { logAudit } from '../../utils/logAudit.js';
-import logger from '../../logging/logger.js';
 import { NOTIFICATION_TYPES } from '../../config/notificationConfig.js';
+import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
+import logger from '../../logging/logger.js';
+import { notificationService } from '../../services/notification/notificationService.js';
+import { logAudit } from '../../utils/logAudit.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 export const notificationController = {
   /**

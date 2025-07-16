@@ -1,7 +1,7 @@
 // src/services/health/healthRecordService.js
 import db from '../../config/database.js';
-import logger from '../../logging/logger.js';
 import { DEFAULT_PAGINATION } from '../../config/healthConfig.js';
+import logger from '../../logging/logger.js';
 
 export async function getHealthRecords(filters, userRole, userId) {
   try {
@@ -26,7 +26,7 @@ export async function getHealthRecords(filters, userRole, userId) {
       LEFT JOIN users r ON h.recorded_by = r.id
       WHERE 1=1
     `;
-    let params = [];
+    const params = [];
     let paramIndex = 1;
     
     // Apply role-based filtering for doctors
@@ -91,7 +91,7 @@ async function getHealthRecordsCount(filters, userRole, userId) {
   const { patient_id, type, date_from, date_to } = filters;
   
   let query = 'SELECT COUNT(*) FROM health_records h WHERE 1=1';
-  let params = [];
+  const params = [];
   let paramIndex = 1;
   
   if (userRole === 'DOCTOR') {
@@ -139,7 +139,7 @@ export async function getHealthRecordById(id, userRole, userId) {
     LEFT JOIN users r ON h.recorded_by = r.id
     WHERE h.id = $1
   `;
-  let params = [id];
+  const params = [id];
   
   if (userRole === 'DOCTOR') {
     query += ' AND (h.recorded_by = $2 OR EXISTS (SELECT 1 FROM appointments WHERE doctor_id = $2 AND patient_id = h.patient_id))';

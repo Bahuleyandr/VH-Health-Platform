@@ -1,8 +1,8 @@
 // src/routes/doctor/adminDoctorRoutes.js
 import express from 'express';
 import { adminDoctorController } from '../../controllers/doctor/adminDoctorController.js';
-import { adminDoctorValidators } from '../../validators/doctor/adminDoctorValidator.js';
 import { doctorStatsController } from '../../controllers/doctor/doctorStatsController.js';
+import { adminDoctorValidators } from '../../validators/doctor/adminDoctorValidator.js';
 
 const router = express.Router();
 

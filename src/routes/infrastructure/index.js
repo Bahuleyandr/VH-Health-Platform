@@ -1,10 +1,10 @@
 // routes/infrastructure/index.js
 import express from 'express';
+import logger from '../../logging/logger.js';
 import debugRoutes from './debugRoutes.js';
+import rbacRoutes from './rbacRoutes.js';
 import swaggerRoutes from './swaggerRoutes.js';
 import versionRoutes from './versionRoutes.js';
-import rbacRoutes from './rbacRoutes.js';
-import logger from '../../logging/logger.js';
 
 const router = express.Router();
 

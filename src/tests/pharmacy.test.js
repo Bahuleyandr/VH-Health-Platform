@@ -1,6 +1,6 @@
 // src/tests/pharmacy.test.js
-import client, { API_KEY, AUTH_TOKEN } from './testClient.js';
 import db from '../config/database.js';
+import client, { API_KEY, AUTH_TOKEN } from './testClient.js';
 // for direct DB seeding
 
 describe('Pharmacy Orders API', () => {

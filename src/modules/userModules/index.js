@@ -33,7 +33,7 @@ export * as userUtils from '../../utils/userUtils.js';
 export * as validators from '../../validators/userValidators.js';
 
 // Routes (default export)
-export { default as userRoutes } from '../../routes/userRoutes.js';
+export { default as userRoutes } from '../../routes/user/index.js';
 
 /**
  * Usage Examples:

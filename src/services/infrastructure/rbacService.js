@@ -1,7 +1,6 @@
 // services/infrastructure/rbacService.js
 import db from '../../config/database.js';
 import logger from '../../logging/logger.js';
-import { normalizePhone } from '../../utils/phoneUtils.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import { 
   ROLE_HIERARCHY,
@@ -12,6 +11,7 @@ import {
   validateRoleTransition,
   calculateRoleStatistics
 } from '../../utils/infrastructure/rbacUtils.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
 import { 
   ADMIN, PATIENT, NURSING_STAFF, PHARMACY_STAFF, 
   LAB_STAFF, DOCTOR, GENERAL_STAFF, HR_STAFF 
@@ -557,8 +557,8 @@ export class RBACService {
                          capacityAlerts.rows.length;
                          
       let alertLevel = 'low';
-      if (totalAlerts > 10) alertLevel = 'high';
-      else if (totalAlerts > 5) alertLevel = 'medium';
+      if (totalAlerts > 10) {alertLevel = 'high';}
+      else if (totalAlerts > 5) {alertLevel = 'medium';}
       
       return {
         securityAlerts: {

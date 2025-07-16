@@ -2,13 +2,13 @@
 
 import express from 'express';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
+import logger from '../../logging/logger.js';
+import adminAuthRoutes from './adminAuthRoutes.js';
+import adminOtpRoutes from './adminOtpRoutes.js';
 import authRoutes from './authRoutes.js';
 import firebaseAuthRoutes from './firebaseAuthRoutes.js';
 import otpRoutes from './otpRoutes.js';
-import adminOtpRoutes from './adminOtpRoutes.js';
-import adminAuthRoutes from './adminAuthRoutes.js';
 import staffAuthRoutes from './staffAuthRoutes.js';
-import logger from '../../logging/logger.js';
 
 const router = express.Router();
 

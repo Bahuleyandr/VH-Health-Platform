@@ -1,7 +1,7 @@
 // src/services/record/auditService.js
 import db from '../../config/database.js';
-import logger from '../../logging/logger.js';
 import { AUDIT_ACTIONS } from '../../config/recordConfig.js';
+import logger from '../../logging/logger.js';
 
 export async function logAuditEntry(action, tableName, recordId, userId, userRole, changes) {
   try {

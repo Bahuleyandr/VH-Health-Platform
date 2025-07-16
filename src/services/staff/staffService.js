@@ -1,7 +1,7 @@
 import db from '../../config/database.js';
 import { STAFF_ROLES, SHIFT_TYPES } from '../../config/staffConfig.js';
-import { getStaffHierarchy } from '../../utils/staff/staffHelpers.js';
 import logger from '../../logging/logger.js';
+import { getStaffHierarchy } from '../../utils/staff/staffHelpers.js';
 
 export const getStaffList = async (filters, userRole) => {
   const allowedRoles = getStaffHierarchy(userRole);
@@ -432,10 +432,10 @@ export const updateStaffProfile = async (id, data, updatedBy, updaterName, ipAdd
 
   // Track changes for audit log
   const changes = {};
-  if (position && position !== currentStaff.position) changes.position = { from: currentStaff.position, to: position };
-  if (department && department !== currentStaff.department) changes.department = { from: currentStaff.department, to: department };
-  if (salary && salary !== currentStaff.salary) changes.salary = { from: currentStaff.salary, to: salary };
-  if (is_active !== undefined && is_active !== currentStaff.is_active) changes.is_active = { from: currentStaff.is_active, to: is_active };
+  if (position && position !== currentStaff.position) {changes.position = { from: currentStaff.position, to: position };}
+  if (department && department !== currentStaff.department) {changes.department = { from: currentStaff.department, to: department };}
+  if (salary && salary !== currentStaff.salary) {changes.salary = { from: currentStaff.salary, to: salary };}
+  if (is_active !== undefined && is_active !== currentStaff.is_active) {changes.is_active = { from: currentStaff.is_active, to: is_active };}
 
   // Log staff update activity
   await db.query(

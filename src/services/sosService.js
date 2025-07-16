@@ -1,9 +1,9 @@
 // src/services/sosService.js
 import db from '../config/database.js';
-import logger from '../logging/logger.js';
-import * as notificationService from './notification/notificationService.js';
-import * as locationService from './locationService.js';
 import { SOS_SEVERITY, RESPONSE_TIMES } from '../config/sosConfig.js';
+import logger from '../logging/logger.js';
+import * as locationService from './locationService.js';
+import * as notificationService from './notification/notificationService.js';
 
 export const createAlert = async (alertData) => {
   const {

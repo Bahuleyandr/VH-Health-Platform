@@ -1,9 +1,9 @@
 // src/controllers/auth/firebaseAuthController.js - Firebase Authentication Controller
 
-import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import * as firebaseAuthService from '../../services/auth/firebaseAuthService.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 // Firebase ID Token Authentication
 export const firebaseLogin = async (req, res) => {

@@ -1,9 +1,9 @@
 // src/utils/routeLoader.js
 // Dynamic Route Loading Utilities
 
-import logger from '../logging/logger.js';
-import { ROUTE_FILES, ROUTE_METADATA, getCurrentEnvironmentConfig } from '../config/routeConfig.js';
 import path from 'path';
+import { ROUTE_FILES, ROUTE_METADATA, getCurrentEnvironmentConfig } from '../config/routeConfig.js';
+import logger from '../logging/logger.js';
 
 /**
  * Creates a development stub router for production environments
@@ -242,7 +242,7 @@ export function getRouteLoadingStats(routes) {
 
   for (const [routeName, route] of Object.entries(routes)) {
     const metadata = ROUTE_METADATA[routeName];
-    if (!metadata) continue;
+    if (!metadata) {continue;}
 
     stats.byCategory[metadata.category] = (stats.byCategory[metadata.category] || 0) + 1;
     stats.byPriority[metadata.priority] = (stats.byPriority[metadata.priority] || 0) + 1;

@@ -1,8 +1,8 @@
 // src/services/department/departmentStatsService.js
 import db from '../../config/database.js';
+import { DEPARTMENT_CONFIG } from '../../config/departmentConfig.js';
 import logger from '../../logging/logger.js';
 import { formatDate } from '../../utils/department/departmentHelpers.js';
-import { DEPARTMENT_CONFIG } from '../../config/departmentConfig.js';
 
 class DepartmentStatsService {
   async getDepartmentStats(id) {

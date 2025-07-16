@@ -4,8 +4,8 @@ import express from 'express';
 import { wrapAutoRBAC, wrapRoutes } from '../config/routeWrapper.js';
 
 // Import controllers
-import * as uploadController from '../controllers/uploadController.js';
 import * as adminController from '../controllers/adminUploadController.js';
+import * as uploadController from '../controllers/uploadController.js';
 
 // Import middleware
 import { 

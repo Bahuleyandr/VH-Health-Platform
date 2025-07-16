@@ -1,9 +1,9 @@
 import express from 'express';
-import orderRoutes from './orderRoutes.js';
-import medicationRoutes from './medicationRoutes.js';
-import inventoryRoutes from './inventoryRoutes.js';
-import adminRoutes from './adminRoutes.js';
 import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
+import adminRoutes from './adminRoutes.js';
+import inventoryRoutes from './inventoryRoutes.js';
+import medicationRoutes from './medicationRoutes.js';
+import orderRoutes from './orderRoutes.js';
 
 const router = express.Router();
 

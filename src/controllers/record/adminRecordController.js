@@ -1,11 +1,11 @@
 // src/controllers/record/adminRecordController.js
-import * as recordService from '../../services/record/recordService.js';
-import * as analyticsService from '../../services/record/analyticsService.js';
-import * as auditService from '../../services/record/auditService.js';
-import { success, error } from '../../utils/responseHelper.js';
 import { RECORD_MESSAGES, AUDIT_ACTIONS } from '../../config/recordConfig.js';
 import logger from '../../logging/logger.js';
+import * as analyticsService from '../../services/record/analyticsService.js';
+import * as auditService from '../../services/record/auditService.js';
+import * as recordService from '../../services/record/recordService.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 export async function getRecordAnalytics(req, res) {
   try {

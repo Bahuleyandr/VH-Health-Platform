@@ -1,15 +1,15 @@
 // src/controllers/record/doctorRecordController.js
 import { validationResult } from 'express-validator';
-import * as recordService from '../../services/record/recordService.js';
+import db from '../../config/database.js';
+import { RECORD_MESSAGES, AUDIT_ACTIONS } from '../../config/recordConfig.js';
+import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
+import logger from '../../logging/logger.js';
 import * as accessControl from '../../services/record/accessControlService.js';
 import * as auditService from '../../services/record/auditService.js';
-import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
-import { RECORD_MESSAGES, AUDIT_ACTIONS } from '../../config/recordConfig.js';
-import { ADMIN } from '../../utils/roles.js';
-import logger from '../../logging/logger.js';
+import * as recordService from '../../services/record/recordService.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
-import db from '../../config/database.js';
+import { success, error } from '../../utils/responseHelper.js';
+import { ADMIN } from '../../utils/roles.js';
 
 async function getDoctorUserId(uid) {
   try {

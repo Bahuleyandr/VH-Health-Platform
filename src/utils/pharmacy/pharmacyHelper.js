@@ -1,6 +1,6 @@
 // Format date to DD-MM-YYYY
 export function formatDateDDMMYYYY(date) {
-  if (!date) return null;
+  if (!date) {return null;}
   const d = new Date(date);
   const day = String(d.getDate()).padStart(2, '0');
   const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -10,7 +10,7 @@ export function formatDateDDMMYYYY(date) {
 
 // Format datetime to DD-MM-YYYY HH:mm
 export function formatDateTimeDDMMYYYY(date) {
-  if (!date) return null;
+  if (!date) {return null;}
   const d = new Date(date);
   const day = String(d.getDate()).padStart(2, '0');
   const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -22,7 +22,7 @@ export function formatDateTimeDDMMYYYY(date) {
 
 // Calculate days until expiry
 export function calculateDaysToExpiry(expiryDate) {
-  if (!expiryDate) return null;
+  if (!expiryDate) {return null;}
   const today = new Date();
   const expiry = new Date(expiryDate);
   const diffTime = expiry - today;
@@ -32,15 +32,15 @@ export function calculateDaysToExpiry(expiryDate) {
 
 // Determine stock status
 export function getStockStatus(quantity) {
-  if (quantity === 0) return 'OUT_OF_STOCK';
-  if (quantity <= 10) return 'LOW_STOCK';
+  if (quantity === 0) {return 'OUT_OF_STOCK';}
+  if (quantity <= 10) {return 'LOW_STOCK';}
   return 'IN_STOCK';
 }
 
 // Determine expiry status
 export function getExpiryStatus(expiryDate) {
   const daysToExpiry = calculateDaysToExpiry(expiryDate);
-  if (daysToExpiry < 0) return 'EXPIRED';
-  if (daysToExpiry <= 30) return 'EXPIRING_SOON';
+  if (daysToExpiry < 0) {return 'EXPIRED';}
+  if (daysToExpiry <= 30) {return 'EXPIRING_SOON';}
   return 'VALID';
 }

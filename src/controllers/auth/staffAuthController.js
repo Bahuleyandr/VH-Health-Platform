@@ -1,18 +1,18 @@
 // src/controllers/auth/staffAuthController.js - Staff Authentication Controller
 // Handles employee ID + password/PIN authentication for staff mobile app
 
-import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
-import * as staffAuthService from '../../services/auth/staffAuthService.js';
+// ✅ FIX: Changed the import to get the class directly
+import StaffAuthService from '../../services/auth/staffAuthService.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 // Staff login with employee ID and password
 export const login = async (req, res) => {
   try {
     const { employeeId, password } = req.body;
-    
-    const result = await staffAuthService.authenticateStaff(employeeId, password, req);
-    
+    // ✅ FIX: Called the static method on the StaffAuthService class
+    const result = await StaffAuthService.authenticateStaff(employeeId, password, req);
     success(res, result, 'Staff login successful');
   } catch (err) {
     logger.error('Staff Login Error:', err);
@@ -24,9 +24,8 @@ export const login = async (req, res) => {
 export const registerDevice = async (req, res) => {
   try {
     const { employeeId, password, deviceInfo } = req.body;
-    
-    const result = await staffAuthService.registerStaffDevice(employeeId, password, deviceInfo, req);
-    
+    // ✅ FIX: All subsequent calls are updated to use StaffAuthService
+    const result = await StaffAuthService.registerStaffDevice(employeeId, password, deviceInfo, req);
     success(res, result, 'Device registered successfully');
   } catch (err) {
     logger.error('Device Registration Error:', err);
@@ -38,9 +37,7 @@ export const registerDevice = async (req, res) => {
 export const quickLogin = async (req, res) => {
   try {
     const { deviceToken, pin, biometric, location } = req.body;
-    
-    const result = await staffAuthService.quickLogin(deviceToken, pin, biometric, location, req);
-    
+    const result = await StaffAuthService.quickLogin(deviceToken, pin, biometric, location, req);
     success(res, result, 'Quick login successful');
   } catch (err) {
     logger.error('Quick Login Error:', err);
@@ -53,9 +50,7 @@ export const setupPin = async (req, res) => {
   try {
     const { deviceToken, pin } = req.body;
     const staffId = req.user.uid;
-    
-    const result = await staffAuthService.setupPin(staffId, deviceToken, pin);
-    
+    const result = await StaffAuthService.setupPin(staffId, deviceToken, pin);
     success(res, result, 'PIN setup successful');
   } catch (err) {
     logger.error('PIN Setup Error:', err);
@@ -68,9 +63,7 @@ export const toggleBiometric = async (req, res) => {
   try {
     const { deviceToken, enabled } = req.body;
     const staffId = req.user.uid;
-    
-    const result = await staffAuthService.toggleBiometric(staffId, deviceToken, enabled);
-    
+    const result = await StaffAuthService.toggleBiometric(staffId, deviceToken, enabled);
     success(res, result, `Biometric ${enabled ? 'enabled' : 'disabled'}`);
   } catch (err) {
     logger.error('Toggle Biometric Error:', err);
@@ -82,9 +75,7 @@ export const toggleBiometric = async (req, res) => {
 export const refreshSession = async (req, res) => {
   try {
     const { refreshToken, deviceToken } = req.body;
-    
-    const result = await staffAuthService.refreshStaffSession(refreshToken, deviceToken);
-    
+    const result = await StaffAuthService.refreshStaffSession(refreshToken, deviceToken);
     success(res, result, 'Session refreshed successfully');
   } catch (err) {
     logger.error('Refresh Session Error:', err);
@@ -97,9 +88,7 @@ export const logout = async (req, res) => {
   try {
     const staffId = req.user.uid;
     const { deviceToken } = req.body;
-    
-    const result = await staffAuthService.logoutStaff(staffId, deviceToken, req);
-    
+    const result = await StaffAuthService.logoutStaff(staffId, deviceToken, req);
     success(res, result, 'Logged out successfully');
   } catch (err) {
     logger.error('Logout Error:', err);
@@ -111,9 +100,7 @@ export const logout = async (req, res) => {
 export const getProfile = async (req, res) => {
   try {
     const staffId = req.user.uid;
-    
-    const profile = await staffAuthService.getStaffProfile(staffId);
-    
+    const profile = await StaffAuthService.getStaffProfile(staffId);
     success(res, profile, 'Staff profile retrieved');
   } catch (err) {
     logger.error('Get Profile Error:', err);
@@ -121,14 +108,12 @@ export const getProfile = async (req, res) => {
   }
 };
 
-// List registered devices
-export const listDevices = async (req, res) => {
+// Get registered devices
+export const getDevices = async (req, res) => {
   try {
     const staffId = req.user.uid;
-    
-    const devices = await staffAuthService.listStaffDevices(staffId);
-    
-    success(res, devices, 'Devices retrieved');
+    const devices = await StaffAuthService.listStaffDevices(staffId);
+    success(res, { devices }, 'Devices retrieved successfully');
   } catch (err) {
     logger.error('List Devices Error:', err);
     error(res, err.message || 'Failed to list devices', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -140,9 +125,7 @@ export const removeDevice = async (req, res) => {
   try {
     const staffId = req.user.uid;
     const { deviceId } = req.params;
-    
-    const result = await staffAuthService.removeDevice(staffId, deviceId);
-    
+    const result = await StaffAuthService.removeDevice(staffId, deviceId);
     success(res, result, 'Device removed successfully');
   } catch (err) {
     logger.error('Remove Device Error:', err);
@@ -150,18 +133,29 @@ export const removeDevice = async (req, res) => {
   }
 };
 
-// Mark attendance (integrated with auth)
-export const markAttendance = async (req, res) => {
+// Check-in
+export const checkIn = async (req, res) => {
   try {
     const staffId = req.user.uid;
-    const { type, location } = req.body;
-    
-    const result = await staffAuthService.markAttendance(staffId, type, location, req);
-    
-    success(res, result, `Attendance ${type} marked successfully`);
+    const { location } = req.body;
+    const result = await StaffAuthService.markAttendance(staffId, 'check-in', location, req);
+    success(res, result, 'Check-in successful');
   } catch (err) {
-    logger.error('Mark Attendance Error:', err);
-    error(res, err.message || 'Failed to mark attendance', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    logger.error('Check-in Error:', err);
+    error(res, err.message || 'Failed to check-in', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// Check-out
+export const checkOut = async (req, res) => {
+  try {
+    const staffId = req.user.uid;
+    const { location } = req.body;
+    const result = await StaffAuthService.markAttendance(staffId, 'check-out', location, req);
+    success(res, result, 'Check-out successful');
+  } catch (err) {
+    logger.error('Check-out Error:', err);
+    error(res, err.message || 'Failed to check-out', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -169,9 +163,7 @@ export const markAttendance = async (req, res) => {
 export const getAttendanceStatus = async (req, res) => {
   try {
     const staffId = req.user.uid;
-    
-    const status = await staffAuthService.getAttendanceStatus(staffId);
-    
+    const status = await StaffAuthService.getAttendanceStatus(staffId);
     success(res, status, 'Attendance status retrieved');
   } catch (err) {
     logger.error('Get Attendance Status Error:', err);
@@ -183,9 +175,7 @@ export const getAttendanceStatus = async (req, res) => {
 export const checkDeviceStatus = async (req, res) => {
   try {
     const { deviceToken } = req.params;
-    
-    const status = await staffAuthService.checkDeviceStatus(deviceToken);
-    
+    const status = await StaffAuthService.checkDeviceStatus(deviceToken);
     success(res, status, 'Device status retrieved');
   } catch (err) {
     logger.error('Check Device Status Error:', err);
@@ -196,7 +186,7 @@ export const checkDeviceStatus = async (req, res) => {
 // Get health status
 export const getHealthStatus = async (req, res) => {
   try {
-    const healthData = await staffAuthService.getHealthStatus();
+    const healthData = await StaffAuthService.getHealthStatus();
     success(res, healthData, 'Staff authentication service is healthy');
   } catch (err) {
     logger.error('Staff Auth Health Check Error:', err);
@@ -208,12 +198,7 @@ export const getHealthStatus = async (req, res) => {
 export const adminListAllDevices = async (req, res) => {
   try {
     const { page = 1, limit = 50 } = req.query;
-    
-    const result = await staffAuthService.adminListAllDevices({
-      page: parseInt(page),
-      limit: parseInt(limit)
-    });
-    
+    const result = await StaffAuthService.adminListAllDevices({ page: parseInt(page), limit: parseInt(limit) });
     success(res, result, 'All staff devices retrieved');
   } catch (err) {
     logger.error('Admin List Devices Error:', err);
@@ -225,12 +210,7 @@ export const getStaffLoginActivity = async (req, res) => {
   try {
     const { staffId } = req.params;
     const { page = 1, limit = 100 } = req.query;
-    
-    const result = await staffAuthService.getStaffLoginActivity(staffId, {
-      page: parseInt(page),
-      limit: parseInt(limit)
-    });
-    
+    const result = await StaffAuthService.getStaffLoginActivity(staffId, { page: parseInt(page), limit: parseInt(limit) });
     success(res, result, 'Login activity retrieved');
   } catch (err) {
     logger.error('Get Login Activity Error:', err);
@@ -242,9 +222,7 @@ export const adminForceLogout = async (req, res) => {
   try {
     const { staffId, reason } = req.body;
     const adminId = req.user.uid;
-    
-    const result = await staffAuthService.adminForceLogout(staffId, reason, adminId, req);
-    
+    const result = await StaffAuthService.adminForceLogout(staffId, reason, adminId, req);
     success(res, result, 'Staff member logged out successfully');
   } catch (err) {
     logger.error('Admin Force Logout Error:', err);
@@ -256,9 +234,7 @@ export const adminResetPin = async (req, res) => {
   try {
     const { staffId } = req.body;
     const adminId = req.user.uid;
-    
-    const result = await staffAuthService.adminResetPin(staffId, adminId, req);
-    
+    const result = await StaffAuthService.adminResetPin(staffId, adminId, req);
     success(res, result, 'PIN reset successfully');
   } catch (err) {
     logger.error('Admin Reset PIN Error:', err);
@@ -270,22 +246,19 @@ export const adminRemoveAllDevices = async (req, res) => {
   try {
     const { staffId } = req.params;
     const adminId = req.user.uid;
-    
-    const result = await staffAuthService.adminRemoveAllDevices(staffId, adminId, req);
-    
+    const result = await StaffAuthService.adminRemoveAllDevices(staffId, adminId, req);
     success(res, result, 'All devices removed successfully');
   } catch (err) {
     logger.error('Admin Remove Devices Error:', err);
     error(res, err.message || 'Failed to remove devices', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
-// Verify device - NEW FUNCTION
+
+// Verify device
 export const verifyDevice = async (req, res) => {
   try {
     const { deviceToken } = req.body;
-    
-    const result = await staffAuthService.verifyDevice(deviceToken);
-    
+    const result = await StaffAuthService.verifyDevice(deviceToken);
     success(res, result, 'Device verified successfully');
   } catch (err) {
     logger.error('Verify Device Error:', err);
@@ -293,57 +266,11 @@ export const verifyDevice = async (req, res) => {
   }
 };
 
-// Get registered devices - FIXED FUNCTION NAME
-export const getDevices = async (req, res) => {
-  try {
-    const staffId = req.user.uid;
-    
-    const devices = await staffAuthService.listStaffDevices(staffId);
-    
-    success(res, { devices }, 'Devices retrieved successfully');
-  } catch (err) {
-    logger.error('List Devices Error:', err);
-    error(res, err.message || 'Failed to list devices', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  }
-};
-
-// Check-in - NEW FUNCTION
-export const checkIn = async (req, res) => {
-  try {
-    const staffId = req.user.uid;
-    const { location } = req.body;
-    
-    const result = await staffAuthService.markAttendance(staffId, 'check-in', location, req);
-    
-    success(res, result, 'Check-in successful');
-  } catch (err) {
-    logger.error('Check-in Error:', err);
-    error(res, err.message || 'Failed to check-in', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  }
-};
-
-// Check-out - NEW FUNCTION
-export const checkOut = async (req, res) => {
-  try {
-    const staffId = req.user.uid;
-    const { location } = req.body;
-    
-    const result = await staffAuthService.markAttendance(staffId, 'check-out', location, req);
-    
-    success(res, result, 'Check-out successful');
-  } catch (err) {
-    logger.error('Check-out Error:', err);
-    error(res, err.message || 'Failed to check-out', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  }
-};
-
-// Get today's attendance - NEW FUNCTION
+// Get today's attendance
 export const getTodayAttendance = async (req, res) => {
   try {
     const staffId = req.user.uid;
-    
-    const attendance = await staffAuthService.getTodayAttendance(staffId);
-    
+    const attendance = await StaffAuthService.getTodayAttendance(staffId);
     success(res, attendance, 'Today\'s attendance retrieved');
   } catch (err) {
     logger.error('Get Today Attendance Error:', err);
@@ -351,22 +278,24 @@ export const getTodayAttendance = async (req, res) => {
   }
 };
 
-// Get attendance history - NEW FUNCTION
+// Get attendance history
 export const getAttendanceHistory = async (req, res) => {
   try {
     const staffId = req.user.uid;
     const { startDate, endDate, page = 1, limit = 30 } = req.query;
-    
-    const history = await staffAuthService.getAttendanceHistory(staffId, {
+    const history = await StaffAuthService.getAttendanceHistory(staffId, {
       startDate,
       endDate,
       page: parseInt(page),
       limit: parseInt(limit)
     });
-    
     success(res, history, 'Attendance history retrieved');
   } catch (err) {
     logger.error('Get Attendance History Error:', err);
     error(res, err.message || 'Failed to get attendance history', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
+
+// ✅ CLEANUP: Removed duplicate/unused functions like 'markAttendance' and 'listDevices'
+// 'getDevices' is used instead of 'listDevices' for consistency.
+// 'checkIn' and 'checkOut' are used instead of a generic 'markAttendance'.

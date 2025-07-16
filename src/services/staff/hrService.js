@@ -1,7 +1,7 @@
 // services/staff/hrService.js
 import db from '../../config/database.js';
-import logger from '../../logging/logger.js';
 import { STAFF_ROLES, SHIFT_TYPES } from '../../config/staffConfig.js';
+import logger from '../../logging/logger.js';
 import { getStaffHierarchy } from '../../utils/staff/staffHelpers.js';
 
 // Get HR Dashboard Data
@@ -1116,7 +1116,7 @@ const generateAttendanceReport = async (department, start_date, end_date) => {
 
 // Helper function to convert data to CSV
 const convertToCSV = (data) => {
-  if (!data || data.length === 0) return '';
+  if (!data || data.length === 0) {return '';}
   
   const headers = Object.keys(data[0]);
   const csvHeaders = headers.join(',');

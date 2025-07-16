@@ -1,9 +1,9 @@
 // src/config/routeWrapper.js
-import rbac from '../middleware/rbacMiddleware.js';
-import { dynamicRoleRateLimiter, getRateLimiter } from '../middleware/rateLimitMiddleware.js';
-import rbacConfig from './rbacConfig.js';
 import { auditLogger } from '../middleware/auditLogger.js';
 import { validateUID, validatePhone } from '../middleware/identityValidator.js';
+import { dynamicRoleRateLimiter, getRateLimiter } from '../middleware/rateLimitMiddleware.js';
+import rbac from '../middleware/rbacMiddleware.js';
+import rbacConfig from './rbacConfig.js';
 import { ROUTE_RATE_PROFILES, ROUTE_AUDIT_DISABLED } from './routeWrapperSettings.js';
 
 /**

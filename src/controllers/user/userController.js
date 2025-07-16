@@ -1,9 +1,9 @@
 // src/controllers/user/userController.js
 import { validationResult } from 'express-validator';
-import { UserService } from '../../services/user/userService.js';
-import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
+import { UserService } from '../../services/user/userService.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 export class UserController {
   // Create or update user profile

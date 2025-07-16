@@ -1,7 +1,7 @@
 // src/services/doctor/doctorService.js
 import db from '../../config/database.js';
-import logger from '../../logging/logger.js';
 import { DOCTOR_CONFIG, DOCTOR_MESSAGES } from '../../config/doctorConfig.js';
+import logger from '../../logging/logger.js';
 
 export class DoctorService {
   // Get all doctors with filters
@@ -19,7 +19,7 @@ export class DoctorService {
         LEFT JOIN doctors d ON u.id = d.user_id 
         WHERE u.role = 'DOCTOR'
       `;
-      let params = [];
+      const params = [];
       
       if (department) {
         query += ' AND UPPER(d.department) = UPPER($' + (params.length + 1) + ')';
@@ -63,7 +63,7 @@ export class DoctorService {
       const { department, available, search } = filters;
       
       let query = 'SELECT COUNT(*) FROM users u LEFT JOIN doctors d ON u.id = d.user_id WHERE u.role = \'DOCTOR\'';
-      let params = [];
+      const params = [];
       
       if (department) {
         query += ' AND UPPER(d.department) = UPPER($' + (params.length + 1) + ')';
@@ -124,7 +124,7 @@ export class DoctorService {
         JOIN doctors d ON u.id = d.user_id 
         WHERE u.role = 'DOCTOR' AND UPPER(d.department) = UPPER($1)
       `;
-      let params = [department];
+      const params = [department];
       
       if (availableOnly) {
         query += ' AND d.is_available = true';
@@ -160,7 +160,7 @@ export class DoctorService {
       
       // Filter by current time
       const availableNow = result.rows.filter(doctor => {
-        if (!doctor.available_hours) return true;
+        if (!doctor.available_hours) {return true;}
         
         try {
           const hours = doctor.available_hours.split('-');

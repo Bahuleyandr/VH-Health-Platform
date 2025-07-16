@@ -1,8 +1,8 @@
-import * as medicalService from '../../services/staff/medicalService.js';
-import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
+import * as medicalService from '../../services/staff/medicalService.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 // Upload consultation document
 export const uploadConsultation = async (req, res) => {

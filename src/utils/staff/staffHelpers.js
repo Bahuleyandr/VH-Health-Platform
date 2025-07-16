@@ -21,14 +21,14 @@ export function getStaffHierarchy(userRole) {
 
 // Calculate working hours
 export function calculateWorkingHours(checkIn, checkOut) {
-  if (!checkIn || !checkOut) return 0;
+  if (!checkIn || !checkOut) {return 0;}
   const diff = new Date(checkOut) - new Date(checkIn);
   return Math.max(0, diff / (1000 * 60 * 60)); // Hours
 }
 
 // Format date to DD-MM-YYYY
 export function formatDateDDMMYYYY(date) {
-  if (!date) return null;
+  if (!date) {return null;}
   const d = new Date(date);
   const day = String(d.getDate()).padStart(2, '0');
   const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -38,7 +38,7 @@ export function formatDateDDMMYYYY(date) {
 
 // Format date time to DD-MM-YYYY HH:mm
 export function formatDateTimeDDMMYYYY(date) {
-  if (!date) return null;
+  if (!date) {return null;}
   const d = new Date(date);
   const day = String(d.getDate()).padStart(2, '0');
   const month = String(d.getMonth() + 1).padStart(2, '0');

@@ -1,10 +1,10 @@
 // src/controllers/doctor/doctorStatsController.js
 import { validationResult } from 'express-validator';
-import { doctorStatsService } from '../../services/doctor/doctorStatsService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { DOCTOR_CONFIG } from '../../config/doctorConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
-import { DOCTOR_CONFIG } from '../../config/doctorConfig.js';
+import { doctorStatsService } from '../../services/doctor/doctorStatsService.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 export const doctorStatsController = {
   // Get doctor statistics

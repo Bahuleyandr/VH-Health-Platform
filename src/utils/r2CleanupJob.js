@@ -1,8 +1,8 @@
 // src/utils/r2CleanupJob.js
 
 import cron from 'node-cron';
-import { listObjectsV2, deleteObject } from './r2Storage.js';
 import logger from '../logging/logger.js';
+import { listObjectsV2, deleteObject } from './r2Storage.js';
 
 // Configuration: Cleanup files older than 2 years (730 days)
 const MAX_FILE_AGE_DAYS = 730;

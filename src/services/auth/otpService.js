@@ -3,12 +3,12 @@
 // This is for: admin override, testing, special OTP needs
 // OTPs are stored in database only, no SMS sending
 
+import crypto from 'crypto';
 import db from '../../config/database.js';
+import { OTP_CONFIG, OTP_ERRORS } from '../../config/otpConfig.js';
+import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
-import { OTP_CONFIG, OTP_ERRORS } from '../../config/otpConfig.js';
-import crypto from 'crypto';
-import { HTTP_STATUS } from '../../config/responseCodes.js';
 
 // Generate secure OTP
 export const generateOTP = () => {

@@ -1,7 +1,7 @@
 // src/services/doctor/adminDoctorService.js
 import db from '../../config/database.js';
-import logger from '../../logging/logger.js';
 import { DOCTOR_CONFIG, DOCTOR_MESSAGES } from '../../config/doctorConfig.js';
+import logger from '../../logging/logger.js';
 
 export class AdminDoctorService {
   // Get doctor management overview
@@ -92,7 +92,7 @@ export class AdminDoctorService {
         LEFT JOIN appointments a ON u.id = a.doctor_id
         WHERE u.role = 'DOCTOR'
       `;
-      let params = [];
+      const params = [];
       
       if (department) {
         query += ' AND d.department = $' + (params.length + 1);
@@ -160,7 +160,7 @@ export class AdminDoctorService {
       const { department, specialization, status, experience_min, experience_max, search } = filters;
       
       let query = 'SELECT COUNT(*) FROM users u JOIN doctors d ON u.id = d.user_id WHERE u.role = \'DOCTOR\'';
-      let params = [];
+      const params = [];
       
       if (department) {
         query += ' AND d.department = $' + (params.length + 1);

@@ -2,7 +2,7 @@
 import { VITAL_SIGNS } from '../../config/healthConfig.js';
 
 export function parseVitalSigns(vitalSignsData) {
-  if (!vitalSignsData) return {};
+  if (!vitalSignsData) {return {};}
   
   try {
     return typeof vitalSignsData === 'string' 
@@ -14,7 +14,7 @@ export function parseVitalSigns(vitalSignsData) {
 }
 
 export function parseMeasurements(measurementsData) {
-  if (!measurementsData) return {};
+  if (!measurementsData) {return {};}
   
   try {
     return typeof measurementsData === 'string' 
@@ -49,7 +49,7 @@ export function formatVitalSign(type, value) {
 }
 
 export function calculateBMI(weightKg, heightCm) {
-  if (!weightKg || !heightCm || heightCm === 0) return null;
+  if (!weightKg || !heightCm || heightCm === 0) {return null;}
   
   const heightM = heightCm / 100;
   const bmi = weightKg / (heightM * heightM);
@@ -61,9 +61,9 @@ export function calculateBMI(weightKg, heightCm) {
 }
 
 function getBMICategory(bmi) {
-  if (bmi < 18.5) return 'Underweight';
-  if (bmi < 25) return 'Normal weight';
-  if (bmi < 30) return 'Overweight';
+  if (bmi < 18.5) {return 'Underweight';}
+  if (bmi < 25) {return 'Normal weight';}
+  if (bmi < 30) {return 'Overweight';}
   return 'Obese';
 }
 
@@ -76,18 +76,18 @@ export function isVitalSignCritical(type, value) {
   };
   
   const range = criticalRanges[type];
-  if (!range) return false;
+  if (!range) {return false;}
   
   return value < range.min || value > range.max;
 }
 
 export function formatDateForDisplay(date) {
-  if (!date) return null;
+  if (!date) {return null;}
   return new Date(date).toLocaleDateString('en-GB');
 }
 
 export function formatDateTimeForDisplay(date) {
-  if (!date) return null;
+  if (!date) {return null;}
   const d = new Date(date);
   return d.toLocaleDateString('en-GB') + ' ' + d.toLocaleTimeString('en-GB', { 
     hour: '2-digit', 

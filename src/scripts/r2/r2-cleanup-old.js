@@ -1,7 +1,7 @@
 // src/scripts/r2-cleanup-old.js
 
-import path from 'path';
 import dotenv from 'dotenv';
+import path from 'path';
 import { fileURLToPath } from 'url';
 import { executeCleanup } from '../../utils/r2CleanupJob.js';
 

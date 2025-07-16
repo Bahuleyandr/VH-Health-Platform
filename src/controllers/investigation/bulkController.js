@@ -1,9 +1,9 @@
 // controllers/investigation/bulkController.js
-import * as bulkService from '../../services/investigation/bulkService.js';
-import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
+import * as bulkService from '../../services/investigation/bulkService.js';
 import { logAudit } from '../../utils/logAudit.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 // Bulk update investigation status
 export const updateStatus = async (req, res) => {

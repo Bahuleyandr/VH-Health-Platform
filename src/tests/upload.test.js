@@ -1,7 +1,7 @@
+import fs from 'fs';
+import path from 'path';
 import request from 'supertest';
 import app from '../app.js';
-import path from 'path';
-import fs from 'fs';
 
 import testClient from './testClient.js';
 describe('File Upload API', () => {

@@ -8,7 +8,7 @@ import { format } from 'date-fns';
  * @returns {string} Formatted date string
  */
 export const formatNotificationDate = (date) => {
-  if (!date) return null;
+  if (!date) {return null;}
   return format(new Date(date), 'dd-MM-yyyy');
 };
 
@@ -18,7 +18,7 @@ export const formatNotificationDate = (date) => {
  * @returns {string} Formatted time string
  */
 export const formatNotificationTime = (date) => {
-  if (!date) return null;
+  if (!date) {return null;}
   return format(new Date(date), 'HH:mm');
 };
 
@@ -53,8 +53,8 @@ export const hasNotificationAccess = (user, targetUserId, userDbId) => {
 export const buildNotificationQuery = (filters) => {
   const { type, priority, read_status, user_role, date_from, date_to, search } = filters;
   let query = '';
-  let params = [];
-  let conditions = [];
+  const params = [];
+  const conditions = [];
   
   if (type) {
     conditions.push(`n.type = $${params.length + 1}`);
@@ -123,9 +123,9 @@ export const processTemplate = (template, values) => {
  */
 export const buildUserTargetingQuery = (criteria) => {
   let query = 'SELECT DISTINCT u.id, u.name, u.phone FROM users u';
-  let joins = [];
-  let conditions = [];
-  let params = [];
+  const joins = [];
+  const conditions = [];
+  const params = [];
   
   if (criteria.role) {
     conditions.push(`u.role = $${params.length + 1}`);

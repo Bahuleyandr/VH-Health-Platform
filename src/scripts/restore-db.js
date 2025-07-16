@@ -1,9 +1,9 @@
 // src/scripts/restore-db.js
 
-import fs from 'fs';
-import path from 'path';
 import { execSync } from 'child_process';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
 import { fileURLToPath } from 'url';
 import zlib from 'zlib';
 

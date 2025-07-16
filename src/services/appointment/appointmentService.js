@@ -1,5 +1,5 @@
-import db from '../../config/database.js';
 import { APPOINTMENT_CONFIG, APPOINTMENT_QUERIES } from '../../config/appointmentConfig.js';
+import db from '../../config/database.js';
 import logger from '../../logging/logger.js';
 
 export class AppointmentService {

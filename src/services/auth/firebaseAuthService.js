@@ -1,12 +1,12 @@
 // src/services/auth/firebaseAuthService.js - Firebase Authentication Service
 
+import { AUTH_ACTIONS } from '../../config/authConfig.js';
 import db from '../../config/database.js';
+import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import admin from '../../utils/firebaseAdmin.js';
 import { generateToken } from '../../utils/jwtUtils.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
-import { AUTH_ACTIONS } from '../../config/authConfig.js';
-import { HTTP_STATUS } from '../../config/responseCodes.js';
 
 // Authenticate with Firebase ID token
 export const authenticateWithFirebase = async (idToken, deviceInfo, req) => {
@@ -24,7 +24,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req) => {
   const firebaseUid = decodedToken.uid;
   
   // Check if user exists in our database
-  let userResult = await db.query(
+  const userResult = await db.query(
     'SELECT * FROM users WHERE phone = $1 OR firebase_uid = $2',
     [phone, firebaseUid]
   );

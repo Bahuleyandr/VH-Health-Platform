@@ -1,12 +1,12 @@
 // src/utils/fileProcessingUtils.js - Hospital File Processing Utilities
 
+import { exec } from 'child_process';
 import crypto from 'crypto';
+import fs from 'fs/promises';
 import path from 'path';
 import sharp from 'sharp';
-import { exec } from 'child_process';
-import fs from 'fs/promises';
-import logger from '../logging/logger.js';
 import { HOSPITAL_UPLOAD_CONFIG } from '../config/uploadConfig.js';
+import logger from '../logging/logger.js';
 
 export function generateSecureFileKey(originalName, category = 'general', patientPhone = null) {
   const timestamp = Date.now();

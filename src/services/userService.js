@@ -1,12 +1,12 @@
 // src/services/userService.js - Hospital User Operations Service
 
+import crypto from 'crypto';
 import db from '../config/database.js';
+import { HOSPITAL_ROLES, USER_STATUS } from '../config/userConfig.js';
 import logger from '../logging/logger.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
-import { HOSPITAL_ROLES, USER_STATUS } from '../config/userConfig.js';
 import * as userUtils from '../utils/userUtils.js';
 import * as auditService from './userAuditService.js';
-import crypto from 'crypto';
 
 /**
  * Create or update user profile

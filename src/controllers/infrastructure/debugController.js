@@ -1,9 +1,9 @@
 // controllers/infrastructure/debugController.js
 import { validationResult } from 'express-validator';
-import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import { DebugService } from '../../services/infrastructure/debugService.js';
 import logger from '../../logging/logger.js';
+import { DebugService } from '../../services/infrastructure/debugService.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 // Get debug information
 export const getDebugInfo = async (req, res) => {
@@ -225,7 +225,7 @@ export const getAllRoutes = async (req, res) => {
     
     // Function to extract routes
     function extractRoutes(stack, basePath = '') {
-      if (!stack) return;
+      if (!stack) {return;}
       
       stack.forEach((layer, index) => {
         console.log(`Debug - Layer ${index}:`, {
@@ -309,7 +309,7 @@ export const getAllRoutes = async (req, res) => {
     });
     
     uniqueRoutes.sort((a, b) => {
-      if (a.path !== b.path) return a.path.localeCompare(b.path);
+      if (a.path !== b.path) {return a.path.localeCompare(b.path);}
       return a.method.localeCompare(b.method);
     });
     

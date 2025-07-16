@@ -1,6 +1,6 @@
+import dotenv from 'dotenv';
 import request from 'supertest';
 import app from '../app.js';
-import dotenv from 'dotenv';
 
 // ✅ Ensure .env.local is loaded first
 dotenv.config({ path: '.env.local' });

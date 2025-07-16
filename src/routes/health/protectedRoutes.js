@@ -1,8 +1,8 @@
 // src/routes/health/protectedRoutes.js
 import express from 'express';
 import * as healthRecordController from '../../controllers/health/healthRecordController.js';
-import * as patientHealthController from '../../controllers/health/patientHealthController.js';
 import * as healthStatsController from '../../controllers/health/healthStatsController.js';
+import * as patientHealthController from '../../controllers/health/patientHealthController.js';
 import {
   healthRecordCreateValidator,
   healthRecordUpdateValidator,

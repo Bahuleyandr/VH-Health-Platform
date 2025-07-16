@@ -1,7 +1,7 @@
 // src/services/health/systemHealthService.js
 import db from '../../config/database.js';
-import logger from '../../logging/logger.js';
 import { REQUIRED_ENV_VARS, SYSTEM_INFO } from '../../config/healthConfig.js';
+import logger from '../../logging/logger.js';
 
 export async function checkDatabaseHealth() {
   let retries = 3;

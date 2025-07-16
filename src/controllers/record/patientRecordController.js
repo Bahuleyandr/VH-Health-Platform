@@ -1,15 +1,15 @@
 // src/controllers/record/patientRecordController.js
 import { validationResult } from 'express-validator';
-import * as recordService from '../../services/record/recordService.js';
+import { RECORD_MESSAGES, AUDIT_ACTIONS } from '../../config/recordConfig.js';
+import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
+import logger from '../../logging/logger.js';
 import * as accessControl from '../../services/record/accessControlService.js';
 import * as auditService from '../../services/record/auditService.js';
-import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
-import { RECORD_MESSAGES, AUDIT_ACTIONS } from '../../config/recordConfig.js';
-import { normalizePhone } from '../../utils/phoneUtils.js';
-import { PATIENT } from '../../utils/roles.js';
-import logger from '../../logging/logger.js';
+import * as recordService from '../../services/record/recordService.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
+import { success, error } from '../../utils/responseHelper.js';
+import { PATIENT } from '../../utils/roles.js';
 
 export async function getRecordsByUID(req, res) {
   try {

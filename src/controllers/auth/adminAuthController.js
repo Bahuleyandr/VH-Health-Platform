@@ -1,9 +1,9 @@
 // src/controllers/auth/adminAuthController.js
 import { validationResult } from 'express-validator';
-import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
-import { AuthService } from '../../services/auth/authService.js';
 import logger from '../../logging/logger.js';
+import { AuthService } from '../../services/auth/authService.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 // Admin login with username/password - FIXED: Changed from adminLogin to login
 export const login = async (req, res) => {

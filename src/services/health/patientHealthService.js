@@ -1,7 +1,7 @@
 // src/services/health/patientHealthService.js
 import db from '../../config/database.js';
-import logger from '../../logging/logger.js';
 import { TREND_PERIODS } from '../../config/healthConfig.js';
+import logger from '../../logging/logger.js';
 
 export async function getPatientSummary(patientId, days = TREND_PERIODS.MONTH) {
   try {
@@ -161,7 +161,7 @@ export async function getPatientConditions(patientId, activeOnly = false) {
       LEFT JOIN users r ON h.recorded_by = r.id
       WHERE h.patient_id = $1 AND h.record_type = 'CONDITION'
     `;
-    let params = [patientId];
+    const params = [patientId];
     
     if (activeOnly) {
       query += ' AND h.recorded_date >= CURRENT_DATE - INTERVAL \'180 days\'';

@@ -15,8 +15,8 @@ import { runAllScheduledTasksNow } from '../utils/scheduler.js';
 // ✅ Normalize port
 function normalizePort(val) {
   const port = parseInt(val, 10);
-  if (isNaN(port)) return val; // Named pipe
-  if (port >= 0) return port; // Port number
+  if (isNaN(port)) {return val;} // Named pipe
+  if (port >= 0) {return port;} // Port number
   return false;
 }
 
@@ -28,7 +28,7 @@ const server = http.createServer(app);
 
 // ✅ Handle server errors
 function onError(error) {
-  if (error.syscall !== 'listen') throw error;
+  if (error.syscall !== 'listen') {throw error;}
 
   const bind = typeof PORT === 'string' ? 'Pipe ' + PORT : 'Port ' + PORT;
   switch (error.code) {

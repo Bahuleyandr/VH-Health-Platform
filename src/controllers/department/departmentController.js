@@ -1,9 +1,9 @@
 // src/controllers/department/departmentController.js
+import { DEPARTMENT_MESSAGES } from '../../config/departmentConfig.js';
+import { HTTP_STATUS } from '../../config/responseCodes.js';
+import logger from '../../logging/logger.js';
 import departmentService from '../../services/department/departmentService.js';
 import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS } from '../../config/responseCodes.js';
-import { DEPARTMENT_MESSAGES } from '../../config/departmentConfig.js';
-import logger from '../../logging/logger.js';
 
 // For backward compatibility with existing routes
 export const getAllDepartments = async (req, res) => {

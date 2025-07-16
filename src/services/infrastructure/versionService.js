@@ -1,15 +1,15 @@
 // services/infrastructure/versionService.js
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import db from '../../config/database.js';
 import logger from '../../logging/logger.js';
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
+import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import { 
   getSystemMetrics, 
   getProcessMemory, 
   formatUptime 
 } from '../../utils/infrastructure/systemUtils.js';
-import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 
 export class VersionService {
   static packageInfo = null;
@@ -296,9 +296,9 @@ export class VersionService {
         },
         services: {
           api: 'operational',
-          fileStorage: !!process.env.CF_R2_BUCKET ? 'operational' : 'disabled',
+          fileStorage: process.env.CF_R2_BUCKET ? 'operational' : 'disabled',
           notifications: 'operational',
-          virusScanning: !!process.env.CLAMAV_API_URL ? 'operational' : 'disabled'
+          virusScanning: process.env.CLAMAV_API_URL ? 'operational' : 'disabled'
         },
         performance: {
           requestsPerMinute: 'N/A',

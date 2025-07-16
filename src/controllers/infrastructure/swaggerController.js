@@ -1,10 +1,10 @@
 // controllers/infrastructure/swaggerController.js
 import { validationResult } from 'express-validator';
-import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS } from '../../config/responseCodes.js';
-import { SwaggerService } from '../../services/infrastructure/swaggerService.js';
-import logger from '../../logging/logger.js';
 import YAML from 'yamljs';
+import { HTTP_STATUS } from '../../config/responseCodes.js';
+import logger from '../../logging/logger.js';
+import { SwaggerService } from '../../services/infrastructure/swaggerService.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 // Get OpenAPI specification (JSON)
 export const getSpecJSON = async (req, res) => {

@@ -2,8 +2,8 @@
 
 import fs from 'fs';
 import path from 'path';
-import YAML from 'yamljs';
 import { fileURLToPath } from 'url';
+import YAML from 'yamljs';
 
 // ESM __dirname replacement
 const __filename = fileURLToPath(import.meta.url);

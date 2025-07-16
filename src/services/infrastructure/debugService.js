@@ -1,6 +1,7 @@
 // services/infrastructure/debugService.js
 import db from '../../config/database.js';
 import logger from '../../logging/logger.js';
+import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import { 
   getSystemMetrics, 
   getProcessMemory, 
@@ -8,7 +9,6 @@ import {
   getSafeEnvironmentVars,
   checkSystemHealth 
 } from '../../utils/infrastructure/systemUtils.js';
-import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 
 export class DebugService {
   // Get debug information

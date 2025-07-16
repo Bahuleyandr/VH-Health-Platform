@@ -1,6 +1,6 @@
 // generateAdminToken.js
-import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
+import jwt from 'jsonwebtoken';
 
 dotenv.config({ path: '.env.local' }); // or adjust as needed
 

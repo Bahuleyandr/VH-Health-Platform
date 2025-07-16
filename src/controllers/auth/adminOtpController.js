@@ -1,10 +1,10 @@
 // src/controllers/auth/adminOtpController.js - Admin OTP Controller
 
-import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import * as adminOtpService from '../../services/auth/adminOtpService.js';
 import { logAudit } from '../../utils/logAudit.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 // Get OTP analytics
 export const getAnalytics = async (req, res) => {

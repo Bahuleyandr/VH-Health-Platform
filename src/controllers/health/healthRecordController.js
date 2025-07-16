@@ -1,10 +1,10 @@
 // src/controllers/health/healthRecordController.js
 import { validationResult } from 'express-validator';
+import { HEALTH_MESSAGES, MEDICAL_ROLES } from '../../config/healthConfig.js';
+import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
+import logger from '../../logging/logger.js';
 import * as healthRecordService from '../../services/health/healthRecordService.js';
 import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
-import { HEALTH_MESSAGES, MEDICAL_ROLES } from '../../config/healthConfig.js';
-import logger from '../../logging/logger.js';
 
 export async function testRoute(req, res) {
   success(res, { 

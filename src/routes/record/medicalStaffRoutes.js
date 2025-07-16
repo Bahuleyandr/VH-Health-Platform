@@ -1,5 +1,6 @@
 // src/routes/record/medicalStaffRoutes.js
 import express from 'express';
+import { query } from 'express-validator';
 import * as medicalStaffController from '../../controllers/record/medicalStaffRecordController.js';
 import {
   paginationValidator,
@@ -8,7 +9,6 @@ import {
   patientIdValidator,
   doctorIdValidator
 } from '../../validators/record/recordValidators.js';
-import { query } from 'express-validator';
 
 const router = express.Router();
 

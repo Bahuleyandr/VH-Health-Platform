@@ -2,8 +2,8 @@
 
 import express from 'express';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
-import * as orderController from '../../controllers/pharmacy/orderController.js';
 import * as analyticsController from '../../controllers/pharmacy/analyticsController.js';
+import * as orderController from '../../controllers/pharmacy/orderController.js';
 import { getOrdersValidation } from '../../validators/pharmacy/orderValidators.js';
 
 const router = express.Router();

@@ -1,9 +1,9 @@
 // src/services/record/recordService.js
 import db from '../../config/database.js';
-import { normalizePhone } from '../../utils/phoneUtils.js';
 import { DEFAULT_PAGINATION } from '../../config/recordConfig.js';
 import logger from '../../logging/logger.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
 import { getPrivacyFilterForRole } from './accessControlService.js';
 
 function isValidUUID(uuid) {
@@ -37,7 +37,7 @@ export async function getHealthRecordsByPhone(phone, filters = {}) {
       LEFT JOIN users u ON hr.phone = u.phone
       WHERE hr.phone = $1
     `;
-    let params = [normalizedPhone];
+    const params = [normalizedPhone];
 
     if (type && typeof type === 'string') {
       query += ' AND LOWER(hr.file_type) = LOWER($2)';
@@ -105,7 +105,7 @@ export async function getMedicalRecords(filters = {}, userRole) {
       LEFT JOIN doctors dp ON d.id = dp.user_id
       WHERE 1=1
     `;
-    let params = [];
+    const params = [];
     let paramIndex = 1;
     
     if (patient_id) {
@@ -150,11 +150,11 @@ const countQuery = `
   ${date_to ? ' AND DATE(mr.created_at) <= $5' : ''}
 `;
 const countParams = [];
-if (patient_id) countParams.push(patient_id);
-if (doctor_id) countParams.push(doctor_id);
-if (record_type) countParams.push(record_type.toUpperCase());
-if (date_from) countParams.push(date_from);
-if (date_to) countParams.push(date_to);
+if (patient_id) {countParams.push(patient_id);}
+if (doctor_id) {countParams.push(doctor_id);}
+if (record_type) {countParams.push(record_type.toUpperCase());}
+if (date_from) {countParams.push(date_from);}
+if (date_to) {countParams.push(date_to);}
 
 const countResult = await db.query(countQuery, countParams);
     

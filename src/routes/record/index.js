@@ -1,11 +1,11 @@
 // src/routes/record/index.js
 import express from 'express';
-import { wrapAutoRBAC, wrapRoutesWithValidation } from '../../config/routeWrapper.js';
-import patientRoutes from './patientRoutes.js';
-import medicalStaffRoutes from './medicalStaffRoutes.js';
-import doctorRoutes from './doctorRoutes.js';
-import adminRoutes from './adminRoutes.js';
 import { VALID_RECORD_TYPES } from '../../config/recordConfig.js';
+import { wrapAutoRBAC, wrapRoutesWithValidation } from '../../config/routeWrapper.js';
+import adminRoutes from './adminRoutes.js';
+import doctorRoutes from './doctorRoutes.js';
+import medicalStaffRoutes from './medicalStaffRoutes.js';
+import patientRoutes from './patientRoutes.js';
 
 const router = express.Router();
 console.log('✅ Enhanced recordRoutes loaded');

@@ -1,8 +1,8 @@
 // src/scripts/generate-complete-swagger.js
 import fs from 'fs';
 import path from 'path';
-import YAML from 'yamljs';
 import { fileURLToPath } from 'url';
+import YAML from 'yamljs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -253,7 +253,7 @@ function generateOperationId(route) {
   
   return parts
     .map((part, index) => {
-      if (index === 0) return part;
+      if (index === 0) {return part;}
       return part.charAt(0).toUpperCase() + part.slice(1);
     })
     .join('')

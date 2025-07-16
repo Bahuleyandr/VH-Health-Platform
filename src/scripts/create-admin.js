@@ -1,9 +1,9 @@
 // src/scripts/create-admin.js
 import bcrypt from 'bcrypt';
-import pg from 'pg';
 import dotenv from 'dotenv';
-import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import pg from 'pg';
+import { fileURLToPath } from 'url';
 
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
@@ -110,7 +110,7 @@ async function createTestAdmin() {
       console.log('Current DATABASE_URL:', process.env.DATABASE_URL ? '[SET]' : '[NOT SET]');
     }
   } finally {
-    if (client) client.release();
+    if (client) {client.release();}
     await pool.end();
     process.exit();
   }

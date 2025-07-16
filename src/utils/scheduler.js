@@ -2,19 +2,19 @@
 
 import cron from 'node-cron';
 import path from 'path';
-import logger from '../logging/logger.js';
-import purgeLogs from '../scripts/cleanup-logs.js';
-import purgeArchives from '../../admin/purge-archives.js';
 import backupDb from '../../admin/backup-db.js';
 import { cleanupOldBackups as cleanupBackups } from '../../admin/cleanup-backups.js';
-import loadSwaggerDocument from './swaggerLoader.js';
+import purgeArchives from '../../admin/purge-archives.js';
+import logger from '../logging/logger.js';
+import purgeLogs from '../scripts/cleanup-logs.js';
 
 // R2 Maintenance Jobs
-import { scheduleCleanupJob as scheduleR2CleanupJob, executeCleanup } from './r2CleanupJob.js';
 import { scheduleArchiveMigrationJob } from './archiveMigrationJob.js';
 
 // Notifications
 import { sendAppointmentReminders } from './notifications/appointmentReminderJob.js';
+import { scheduleCleanupJob as scheduleR2CleanupJob, executeCleanup } from './r2CleanupJob.js';
+import loadSwaggerDocument from './swaggerLoader.js';
 // import { sendInvestigationNotifications } from './notifications/investigationNotificationJob.js'; // 🔕 Disabled for now
 
 // 🗓️ Daily at 00:00 - Purge old logs
@@ -32,7 +32,7 @@ cron.schedule('0 0 * * *', () => {
   logger.info('Scheduled Task: Validating Swagger...');
   try {
     const swaggerDocument = loadSwaggerDocument();
-    if (!swaggerDocument) throw new Error('Swagger document not loaded');
+    if (!swaggerDocument) {throw new Error('Swagger document not loaded');}
     logger.info('✅ Swagger documentation validated.');
   } catch (err) {
     logger.error('Swagger validation failed:', err.message || err);
@@ -106,7 +106,7 @@ export async function runAllScheduledTasksNow() {
     purgeArchives();
 
     const swaggerDocument = loadSwaggerDocument();
-    if (!swaggerDocument) throw new Error('Swagger document not loaded');
+    if (!swaggerDocument) {throw new Error('Swagger document not loaded');}
     logger.info('✅ Swagger documentation validated.');
 
     backupDb();

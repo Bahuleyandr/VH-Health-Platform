@@ -1,6 +1,6 @@
 // Format date to DD-MM-YYYY
 export function formatDateDDMMYYYY(date) {
-  if (!date) return null;
+  if (!date) {return null;}
   const d = new Date(date);
   const day = String(d.getDate()).padStart(2, '0');
   const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -10,7 +10,7 @@ export function formatDateDDMMYYYY(date) {
 
 // Format datetime to DD-MM-YYYY HH:mm
 export function formatDateTimeDDMMYYYY(date) {
-  if (!date) return null;
+  if (!date) {return null;}
   const d = new Date(date);
   const day = String(d.getDate()).padStart(2, '0');
   const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -46,7 +46,7 @@ export function isOverdue(scheduledDate, status) {
 
 // Calculate turnaround time
 export function calculateTurnaroundTime(orderedDate, completedDate) {
-  if (!orderedDate || !completedDate) return null;
+  if (!orderedDate || !completedDate) {return null;}
   
   const diff = new Date(completedDate) - new Date(orderedDate);
   const hours = diff / (1000 * 60 * 60);

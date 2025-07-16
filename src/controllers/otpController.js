@@ -1,8 +1,8 @@
 // src/controllers/otpController.js
 
 import { validationResult } from 'express-validator';
-import { success, error } from '../utils/responseHelper.js';
 import logger from '../logging/logger.js';
+import { success, error } from '../utils/responseHelper.js';
 
 /**
  * ✅ Request OTP (Mock)
