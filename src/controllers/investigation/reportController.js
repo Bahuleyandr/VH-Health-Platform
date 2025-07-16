@@ -1,4 +1,5 @@
 // controllers/investigation/reportController.js
+import db from '../../config/database.js'; // <-- ADD THIS LINE
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import * as investigationService from '../../services/investigation/investigationService.js';

@@ -1,6 +1,5 @@
 // src/services/department/adminDepartmentService.js
 import db from '../../config/database.js';
-import { DEPARTMENT_CONFIG } from '../../config/departmentConfig.js';
 import logger from '../../logging/logger.js';
 import { formatDate } from '../../utils/department/departmentHelpers.js';
 import departmentAuditService from './departmentAuditService.js';
@@ -387,23 +386,23 @@ class AdminDepartmentService {
       let results = [];
       
       switch (operation) {
-        case 'activate':
+        case 'activate': {
           const activateResult = await db.query(
             'UPDATE departments SET is_active = true, updated_at = NOW() WHERE id = ANY($1) RETURNING id, name',
             [departmentIds]
           );
           results = activateResult.rows;
           break;
-          
-        case 'deactivate':
+          }
+        case 'deactivate': {
           const deactivateResult = await db.query(
             'UPDATE departments SET is_active = false, updated_at = NOW() WHERE id = ANY($1) RETURNING id, name',
             [departmentIds]
           );
           results = deactivateResult.rows;
           break;
-          
-        case 'update_budget':
+          }
+        case 'update_budget': {
           if (!data.budget) {
             throw new Error('Budget is required for update_budget operation');
           }
@@ -416,8 +415,8 @@ class AdminDepartmentService {
             budget: parseFloat(row.budget)
           }));
           break;
-          
-        case 'reassign_head':
+          }
+        case 'reassign_head': {
           if (!data.head_doctor_id) {
             throw new Error('Head doctor ID is required for reassign_head operation');
           }
@@ -437,7 +436,7 @@ class AdminDepartmentService {
           );
           results = reassignResult.rows;
           break;
-          
+          }
         default:
           throw new Error('Invalid operation');
       }

@@ -277,6 +277,85 @@ export class StaffAuthService {
     }
   }
 
+// Add this new method right after the 'authenticateStaff' method
+
+  static async authenticateStaffWithPin(employeeId, pin, req) {
+    try {
+      // Check if account is locked (same logic as password auth)
+      const lockCheck = await db.query(`
+        SELECT failure_reason FROM auth_logs 
+        WHERE phone = $1 AND success = false AND action = 'STAFF_PIN_LOGIN'
+        AND created_at > NOW() - INTERVAL '15 minutes'
+        ORDER BY created_at DESC LIMIT $2
+      `, [employeeId, MAX_LOGIN_ATTEMPTS]);
+
+      if (lockCheck.rows.length >= MAX_LOGIN_ATTEMPTS) {
+        throw new Error('Account temporarily locked due to multiple failed attempts');
+      }
+
+      // Find staff member by employee ID
+      const result = await db.query(`
+        SELECT 
+          u.id, u.uid, u.name, u.email, u.phone, u.role,
+          s.employee_id, s.department, s.position, s.is_active,
+          s.pin_hash -- Assumes a PIN hash is stored on the staff table
+        FROM staff s
+        JOIN users u ON s.user_id = u.id
+        WHERE s.employee_id = $1
+      `, [employeeId]);
+
+      if (result.rows.length === 0) {
+        await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'Invalid employee ID', 'pin', req);
+        throw new Error('Invalid employee ID or PIN');
+      }
+
+      const staff = result.rows[0];
+
+      if (!staff.is_active) {
+        await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'Account deactivated', 'pin', req);
+        throw new Error('Account deactivated');
+      }
+
+      // Check if PIN hash exists and is valid
+      if (!staff.pin_hash) {
+        await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'PIN not set', 'pin', req);
+        throw new Error('PIN not set for this account.');
+      }
+      
+      const isPinValid = await bcrypt.compare(pin, staff.pin_hash);
+      if (!isPinValid) {
+        await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'Invalid PIN', 'pin', req);
+        throw new Error('Invalid employee ID or PIN');
+      }
+
+      await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', true, null, 'pin', req);
+
+      const accessToken = this.generateAccessToken(staff);
+      const refreshToken = this.generateRefreshToken(staff);
+
+      await db.query('UPDATE users SET last_sign_in_at = NOW() WHERE id = $1', [staff.id]);
+      await this.logActivity(staff.uid, 'STAFF_PIN_LOGIN', 'Staff login with PIN successful', req);
+
+      return {
+        accessToken,
+        refreshToken,
+        staff: {
+          id: staff.id,
+          uid: staff.uid,
+          employeeId: staff.employee_id,
+          name: staff.name,
+          email: staff.email,
+          department: staff.department,
+          role: staff.role,
+          position: staff.position,
+        },
+      };
+    } catch (error) {
+      logger.error('Staff PIN authentication error:', error);
+      throw error;
+    }
+  }
+
   static async logoutStaff(staffUid, deviceToken, req) {
     try {
       const userResult = await db.query('SELECT id FROM users WHERE uid = $1', [staffUid]);
