@@ -2,8 +2,6 @@
 import { validationResult } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
 import logger from '../logging/logger.js';
-import * as emergencyService from '../services/emergencyService.js';
-import * as notificationService from '../services/notification/notificationService.js';
 import * as sosService from '../services/sosService.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import { success, error } from '../utils/responseHelper.js';
@@ -60,7 +58,8 @@ export const updateEmergencyContact = async (req, res) => {
       return error(res, 'Phone number required', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const result = await sosService.updateEmergencyContact(phone, req.body, req.user?.uid);
+    // FIX: Corrected function name from updateEmergencyContact to updateEmergencyContacts
+    const result = await sosService.updateEmergencyContacts(phone, req.body, req.user?.uid);
     success(res, result, 'Emergency contact information updated successfully');
 
   } catch (err) {

@@ -274,7 +274,7 @@ export class AdminDoctorService {
       let results = [];
       
       switch (operation) {
-        case 'activate':
+        case 'activate': {
           const activateResult = await db.query(
             'UPDATE doctors SET is_available = true, updated_at = NOW() WHERE user_id = ANY($1) RETURNING user_id',
             [doctorIds]
@@ -282,7 +282,7 @@ export class AdminDoctorService {
           results = activateResult.rows;
           break;
           
-        case 'deactivate':
+        case 'deactivate': {
           const deactivateResult = await db.query(
             'UPDATE doctors SET is_available = false, updated_at = NOW() WHERE user_id = ANY($1) RETURNING user_id',
             [doctorIds]
@@ -300,7 +300,7 @@ export class AdminDoctorService {
           results = deactivateResult.rows;
           break;
           
-        case 'update_fee':
+        case 'update_fee': {
           if (!data.consultation_fee) {
             throw new Error('consultation_fee is required for update_fee operation');
           }
@@ -311,7 +311,7 @@ export class AdminDoctorService {
           results = feeResult.rows;
           break;
           
-        case 'change_department':
+        case 'change_department': {
           if (!data.department) {
             throw new Error('department is required for change_department operation');
           }
@@ -322,7 +322,7 @@ export class AdminDoctorService {
           results = deptResult.rows;
           break;
           
-        case 'update_schedule':
+        case 'update_schedule': {
           if (!data.available_days || !data.available_hours) {
             throw new Error('available_days and available_hours are required for update_schedule operation');
           }
@@ -332,8 +332,8 @@ export class AdminDoctorService {
           );
           results = scheduleResult.rows;
           break;
+       }
       }
-      
       return {
         operation,
         affected_doctors: results,

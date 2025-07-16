@@ -1,6 +1,6 @@
 // src/services/user/adminUserService.js
 import db from '../../config/database.js';
-import { USER_CONFIG } from '../../config/userConfig.js';
+// import { USER_CONFIG } from '../../config/userConfig.js';
 import logger from '../../logging/logger.js';
 
 export class AdminUserService {
@@ -229,7 +229,7 @@ export class AdminUserService {
         reportData = await this.getInactiveUsersReport(filters.inactiveDays);
         break;
         
-      case 'role-distribution':
+      case 'role-distribution': {
         const roleData = await db.query(`
           SELECT 
             role,
@@ -243,8 +243,9 @@ export class AdminUserService {
         `);
         reportData = { roleDistribution: roleData.rows };
         break;
-        
-      case 'user-growth':
+      }
+  
+      case 'user-growth': {
         const growthData = await db.query(`
           SELECT 
             DATE_TRUNC('month', registered_at) as month,
@@ -259,7 +260,8 @@ export class AdminUserService {
         `);
         reportData = { userGrowth: growthData.rows };
         break;
-        
+      }
+  
       default:
         throw new Error('Invalid report type');
     }

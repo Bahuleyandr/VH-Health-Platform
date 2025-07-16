@@ -255,7 +255,7 @@ export const emailReport = async (req, res) => {
     success(res, {
       message: 'Report sent successfully',
       sent_to: email,
-      sentBy
+      sentBy,
       result: result
     }, 'Report emailed successfully');
     
