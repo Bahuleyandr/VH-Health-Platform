@@ -16,6 +16,48 @@ import { normalizePhone } from '../../utils/phoneUtils.js';
 
 // Keep the original service object
 const notificationService = {
+async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
+    try {
+      // 1. Find all emergency responders
+      const respondersResult = await db.query(
+        "SELECT id, name, phone FROM users WHERE role = 'EMERGENCY_RESPONDER' AND is_active = true"
+      );
+      const responders = respondersResult.rows;
+
+      // In a real app, you might also find staff at nearby hospitals
+      // For now, we'll just notify the central emergency team.
+
+      const title = `SOS Alert: ${alertData.severity} - ${alertData.user_name || alertData.phone}`;
+      const message = `SOS alert triggered by ${alertData.user_name || alertData.phone}. Message: "${alertData.message || 'No message'}". Location: ${alertData.latitude}, ${alertData.longitude}.`;
+
+      // 2. Create a notification for each responder
+      const notificationPromises = responders.map(responder => {
+        return this.createNotification({
+          user_id: responder.id,
+          title: title,
+          message: message,
+          type: NOTIFICATION_TYPES.EMERGENCY,
+          priority: NOTIFICATION_PRIORITIES.HIGH,
+          data: { 
+            sos_alert_id: alertData.id,
+            latitude: alertData.latitude,
+            longitude: alertData.longitude,
+            user_phone: alertData.phone
+          }
+        }, { role: 'ADMIN' }); // Create as an admin to bypass permissions
+      });
+
+      await Promise.all(notificationPromises);
+      logger.info(`Notified ${responders.length} emergency responders for SOS alert ${alertData.id}`);
+      
+      return { success: true, notified_count: responders.length };
+
+    } catch (error) {
+      logger.error('Error notifying emergency team:', error.message);
+      throw error;
+    }
+  },
+
   /**
    * Get notifications by phone number
    */
@@ -616,6 +658,7 @@ const notificationService = {
   }
 };
 export class NotificationService {
+  static notifyEmergencyTeam = notificationService.notifyEmergencyTeam;
   static getNotificationsByPhone = notificationService.getNotificationsByPhone;
   static getNotificationsByUserId = notificationService.getNotificationsByUserId;
   static getNotificationById = notificationService.getNotificationById;

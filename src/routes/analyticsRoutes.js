@@ -1,3 +1,5 @@
+
+
 // src/routes/analyticsRoutes.js - COMPLETE PRODUCTION VERSION WITH RBAC
 import express from 'express';
 import db from '../config/database.js';
@@ -24,9 +26,10 @@ wrapAutoRBAC(
       [
         '/dashboard',
         async (req, res) => {
+          // ✅ FIX: 'timeframe' is now declared here, outside the try block.
+          const { timeframe = '30d' } = req.query;
+          
           try {
-            const { timeframe = '30d' } = req.query;
-            
             let interval;
             switch (timeframe) {
               case '7d': interval = '7 days'; break;
@@ -237,9 +240,9 @@ wrapAutoRBAC(
       [
         '/trends',
         async (req, res) => {
-          try {
-            const { metric = 'users', period = 'daily', days = 30 } = req.query;
-            
+        const { metric = 'users', period = 'daily', days = 30 } = req.query;
+  
+        try {
             let dateFormat, groupBy;
             switch (period) {
               case 'hourly': 
@@ -351,8 +354,9 @@ wrapAutoRBAC(
       [
         '/departments',
         async (req, res) => {
+         const { timeframe = '30d' } = req.query;
+
           try {
-            const { timeframe = '30d' } = req.query;
             
             let interval;
             switch (timeframe) {
@@ -420,9 +424,9 @@ wrapAutoRBAC(
       [
         '/pharmacy',
         async (req, res) => {
+          const { timeframe = '30d' } = req.query;
+
           try {
-            const { timeframe = '30d' } = req.query;
-            
             let interval;
             switch (timeframe) {
               case '7d': interval = '7 days'; break;
@@ -535,8 +539,8 @@ wrapAutoRBAC(
       [
         '/satisfaction',
         async (req, res) => {
+          const { timeframe = '30d' } = req.query;
           try {
-            const { timeframe = '30d' } = req.query;
             
             let interval;
             switch (timeframe) {
@@ -656,9 +660,8 @@ wrapAutoRBAC(
       [
         '/usage',
         async (req, res) => {
-          try {
-            const { timeframe = '30d' } = req.query;
-            
+        const { timeframe = '30d' } = req.query;
+            try {
             let interval;
             switch (timeframe) {
               case '7d': interval = '7 days'; break;

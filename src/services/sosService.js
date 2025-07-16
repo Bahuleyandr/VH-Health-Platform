@@ -1,6 +1,6 @@
 // src/services/sosService.js
 import db from '../config/database.js';
-import { SOS_SEVERITY, RESPONSE_TIMES } from '../config/sosConfig.js';
+import { SOS_SEVERITY } from '../config/sosConfig.js';
 import logger from '../logging/logger.js';
 import * as locationService from './locationService.js';
 import * as notificationService from './notification/notificationService.js';
@@ -83,4 +83,68 @@ const insertAlert = async (data) => {
   return result.rows[0];
 };
 
-// ... other service methods
+// Add these new helper functions to the bottom of sosService.js
+
+/**
+ * Retrieves essential medical and contact info for a user by their phone number.
+ * @param {string} phone - The user's phone number.
+ * @returns {Promise<object>} An object with user details.
+ */
+async function getUserMedicalInfo(phone) {
+  const result = await db.query(
+    `SELECT uid, name, blood_group, allergies, emergency_contact, insurance_details, preferred_hospital 
+     FROM users WHERE phone = $1`,
+    [phone]
+  );
+  if (result.rows.length === 0) {
+    // Return a default object if the user is not found to allow guest alerts
+    return { name: 'Unknown User', phone };
+  }
+  return result.rows[0];
+}
+
+/**
+ * Schedules an escalation task for an SOS alert.
+ * (This is a placeholder; a real implementation would use a job queue).
+ * @param {number} alertId - The ID of the SOS alert.
+ * @param {string} severity - The severity level of the alert.
+ */
+async function scheduleEscalation(alertId, severity) {
+  // In a real app, this would add a job to a queue (e.g., BullMQ)
+  // to check if the alert is addressed within a certain time.
+  console.log(`Escalation scheduled for alert ${alertId} with severity ${severity}.`);
+}
+
+/**
+ * Logs a security event related to an SOS alert.
+ * @param {object} alert - The created alert object.
+ * @param {object} user - The user object associated with the alert.
+ * @param {string} ip_address - The IP address of the request.
+ */
+async function logSecurityEvent(alert, user, ip_address) {
+  // This would insert a record into a security_events or audit_logs table.
+  console.log(`Security event logged for SOS alert ${alert.id} from user ${user.uid || user.phone} at IP ${ip_address}`);
+}
+
+/**
+ * Formats the final response object for the created SOS alert.
+ * @param {object} alert - The created alert object from the database.
+ * @param {object} nearbyServices - The object containing nearby hospitals/services.
+ * @param {string} severity - The severity of the alert.
+ * @param {boolean} isTestAlert - Flag indicating if it's a test.
+ * @returns {object} A structured response object.
+ */
+function formatAlertResponse(alert, nearbyServices, severity, isTestAlert) {
+  return {
+    alert_id: alert.id,
+    status: 'active',
+    severity: severity,
+    timestamp: alert.created_at,
+    is_test: isTestAlert,
+    message: isTestAlert 
+      ? "Test alert created successfully. No notifications were sent." 
+      : "SOS alert created successfully. Emergency teams have been notified.",
+    nearby_hospitals: nearbyServices.hospitals || [],
+    nearby_police: nearbyServices.police_stations || []
+  };
+}
