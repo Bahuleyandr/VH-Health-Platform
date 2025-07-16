@@ -19,6 +19,19 @@ export const login = async (req, res) => {
   }
 };
 
+// Staff login with employee ID and PIN
+export const pinLogin = async (req, res) => {
+  try {
+    const { employeeId, pin } = req.body;
+    // This will call a new method in your service for PIN authentication
+    const result = await StaffAuthService.authenticateStaffWithPin(employeeId, pin, req);
+    success(res, result, 'Staff login with PIN successful');
+  } catch (err) {
+    logger.error('Staff PIN Login Error:', err);
+    error(res, err.message || 'Login failed', err.statusCode || HTTP_STATUS.UNAUTHORIZED);
+  }
+};
+
 // Register device for quick access
 export const registerDevice = async (req, res) => {
   try {

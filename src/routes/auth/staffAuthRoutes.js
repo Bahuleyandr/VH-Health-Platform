@@ -6,6 +6,7 @@ import { validationResult , body } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
 import * as staffAuthController from '../../controllers/auth/staffAuthController.js';
+import { staffPinLoginValidator } from '../../validators/auth/adminAuthValidator.js';
 import {
   staffPasswordLoginValidator,
   deviceRegistrationValidator,
@@ -13,7 +14,6 @@ import {
   quickLoginValidator,
   attendanceValidator
 } from '../../validators/auth/authValidator.js';
-
 
 const router = express.Router();
 
@@ -43,7 +43,14 @@ wrapRoutesWithValidation(
         handleValidation,
         staffAuthController.login
       ],
-      
+
+      [
+        '/login-pin',
+        ...staffPinLoginValidator,
+        handleValidation,
+        staffAuthController.pinLogin // Note: You'll need to create this controller function
+      ],
+
       // Register device for trusted access
       [
         '/register-device',
