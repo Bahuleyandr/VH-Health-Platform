@@ -1,6 +1,6 @@
 import db from '../config/database.js';
 import logger from '../logging/logger.js';
-import { sendPushNotification } from '../services/sendPushNotification.js';
+import { sendPushNotification } from '../utils/notifications/sendPushNotification.js';
 
 const sendAppointmentReminders = async () => {
   try {
