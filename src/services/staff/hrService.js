@@ -156,7 +156,6 @@ export const generatePerformanceReport = async (queryParams) => {
   }
 
   let whereClause = 'WHERE s.is_active = true';
-  const queryParams = [];
   let paramIndex = 1;
 
   if (department) {
@@ -837,7 +836,6 @@ export const getAttendanceAnalytics = async (queryParams) => {
   const { department, start_date, end_date, group_by } = queryParams;
 
   let whereClause = 'WHERE sa.check_in_time IS NOT NULL';
-  const queryParams = [];
   let paramIndex = 1;
 
   if (department) {

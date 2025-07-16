@@ -168,6 +168,53 @@ export const RELATIONSHIP_TYPES = {
   OTHER: 'OTHER'
 };
 
+export const USER_PROFILE_FIELDS = [
+  'address',
+  'anniversary',
+  'available_days',
+  'available_hours',
+  'bank_details',
+  'bio',
+  'birthday',
+  'certifications',
+  'consultation_fee',
+  'department',
+  'designation',
+  'education',
+  'email',
+  'email_verified',
+  'employee_id',
+  'employment_type',
+  'experience_years',
+  'firebase_tokens_revoked_at',
+  'firebase_uid',
+  'gender',
+  'hire_date',
+  'image_url',
+  'intro',
+  'is_active',
+  'is_available',
+  'last_check_in',
+  'last_check_out',
+  'last_review_date',
+  'name',
+  'notes',
+  'performance_rating',
+  'phone',
+  'position',
+  'profile_completed_at',
+  'profile_picture',
+  'registered_at',
+  'reporting_manager_id',
+  'role',
+  'salary',
+  'shift_timing',
+  'shift_type',
+  'specialization',
+  'timing',
+  'token_revocation_reason'
+];
+
 // Appointment status
 export const APPOINTMENT_STATUS = {
   SCHEDULED: 'SCHEDULED',

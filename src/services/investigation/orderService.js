@@ -1,3 +1,4 @@
+// src/services/investigation/orderService.js
 import db from '../../config/database.js';
 import { 
   INVESTIGATION_TYPES, 
@@ -38,52 +39,48 @@ export const createInvestigationOrder = async (orderData) => {
   }
   
   const client = await db.getClient();
-try {
-  await client.query('BEGIN');
-  
-  const result = await client.query(`
-    INSERT INTO investigations (
-      patient_id, doctor_id, test_name, test_code, type, priority,
-      scheduled_date, notes, normal_range, unit, cost, status,
-      ordered_date, created_at, created_by
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PENDING', NOW(), NOW(), $12)
-    RETURNING *
-  `, [patient_id, doctor_id, test_name, test_code, type.toUpperCase(), priority.toUpperCase(),
-      scheduled_date, notes, normal_range, unit, cost, orderedBy]);
-  
-  // Create notification for patient
-  await db.query(
-    `INSERT INTO notifications (phone, title, body, type, created_at, read, created_by)
-     VALUES ($1, $2, $3, $4, NOW(), false, $5)`,
-    [ patientCheck.rows[0].phone || 'unknown',
-      'New Investigation Ordered',
-      `Your doctor has ordered: ${test_name}. Please check your appointments.`,
-      'investigation_ordered',
-      orderedBy
-    ]
-  );
- 
-  await client.query('COMMIT');
-  
-  return {
-    investigation: result.rows[0],
-    patient_name: patientCheck.rows[0].name,
-    doctor_name: doctorCheck.rows[0].name
-  };
-} catch (err) {
-  await client.query('ROLLBACK');
-  throw err;
-} finally {
-  client.release();
-  }
+  try {
+    await client.query('BEGIN');
+    
+    const result = await client.query(`
+      INSERT INTO investigations (
+        patient_id, doctor_id, test_name, test_code, type, priority,
+        scheduled_date, notes, normal_range, unit, cost, status,
+        ordered_date, created_at, created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PENDING', NOW(), NOW(), $12)
+      RETURNING *
+    `, [patient_id, doctor_id, test_name, test_code, type.toUpperCase(), priority.toUpperCase(),
+        scheduled_date, notes, normal_range, unit, cost, orderedBy]);
+    
+    // Create notification for patient
+    await db.query(
+      `INSERT INTO notifications (phone, title, body, type, created_at, read, created_by)
+       VALUES ($1, $2, $3, $4, NOW(), false, $5)`,
+      [ patientCheck.rows[0].phone || 'unknown',
+        'New Investigation Ordered',
+        `Your doctor has ordered: ${test_name}. Please check your appointments.`,
+        'investigation_ordered',
+        orderedBy
+      ]
+    );
+   
+    // ✅ FIX: Logger moved here from the end of the function
+    logger.info(`Investigation ordered: ${test_name} for patient ${patient_id} by ${orderedBy}`);
 
-  logger.info(`Investigation ordered: ${test_name} for patient ${patient_id} by ${orderedBy}`);
-  
-  return {
-    investigation: result.rows[0],
-    patient_name: patientCheck.rows[0].name,
-    doctor_name: doctorCheck.rows[0].name
-  };
+    await client.query('COMMIT');
+    
+    return {
+      investigation: result.rows[0],
+      patient_name: patientCheck.rows[0].name,
+      doctor_name: doctorCheck.rows[0].name
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+  // ✅ FIX: The unreachable logger and return statements that were here have been removed.
 };
 
 export const createLegacyInvestigation = async ({ phone, test_name, file_key, createdBy }) => {
