@@ -8,10 +8,6 @@ import logger from '../logging/logger.js';
 import { executeCleanup } from '../utils/r2CleanupJob.js';
 import { listObjectsV2 } from '../utils/r2Storage.js';
 
-// ESM __dirname replacement
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 // Utility to extract UID and IP
 function getAdminAuditContext(req) {
   const uid = req?.user?.uid || 'unknown';
@@ -79,7 +75,7 @@ export const restoreDatabase = (req, res) => {
 
 // ✅ List Logs
 export const listLogs = (req, res) => {
-  const logDir = path.join(__dirname, '../logs');
+  const logDir = path.join(process.cwd(), 'logs');
 
   if (!fs.existsSync(logDir)) {
     return res.json({ success: true, logs: [] });
