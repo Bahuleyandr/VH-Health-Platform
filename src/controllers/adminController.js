@@ -10,7 +10,7 @@ import { listObjectsV2 } from '../utils/r2Storage.js';
 
 // Utility to extract UID and IP
 function getAdminAuditContext(req) {
-  const uid = req?.user?.uid || 'unknown';
+  const uid = (req && req.user && req.user.uid) || 'unknown';
   const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
   return { uid, ip };
 }
