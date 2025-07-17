@@ -8,8 +8,7 @@ module.exports = {
   ],
   plugins: [
     '@babel/plugin-transform-optional-chaining',
-    '@babel/plugin-transform-nullish-coalescing-operator',
-    '@babel/plugin-syntax-import-meta'
+    '@babel/plugin-transform-nullish-coalescing-operator'
   ],
   sourceMaps: true,
   retainLines: true,
@@ -19,7 +18,6 @@ module.exports = {
     },
     production: {
       sourceMaps: true
-      ]
     }
   }
 };
