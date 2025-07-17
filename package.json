@@ -9,7 +9,7 @@
     "dev": "nodemon --exec \"npx babel-node\" src/app.js",
     "build": "npx babel src -d dist --source-maps",
     "build:dev": "NODE_ENV=development npx babel src -d dist --source-maps inline",
-    "build:prod": "cross-env NODE_ENV=production babel src -d dist --source-maps",
+    "build:prod": "cross-env NODE_ENV=production npx babel src -d dist --source-maps",
     "build:sentry": "node src/scripts/build-production.js",
     "start:built": "node -r source-map-support/register dist/app.js",
     "debug": "node --inspect -r source-map-support/register src/app.js",
@@ -82,7 +82,6 @@
     "yamljs": "^0.3.0"
   },
   "devDependencies": {
-    "@babel/cli": "^7.28.0",
     "@babel/core": "^7.28.0",
     "@babel/plugin-transform-nullish-coalescing-operator": "^7.27.1",
     "@babel/plugin-transform-optional-chaining": "^7.27.1",
