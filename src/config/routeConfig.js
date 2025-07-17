@@ -72,7 +72,7 @@ export const ROUTE_METADATA = {
     category: 'patient-management',
     priority: 'critical',
     description: 'Appointment scheduling and management',
-    endpoints: 13,
+    endpoints: 25,
     security: 'multi-role',
     healthCheck: true
   },
@@ -190,7 +190,7 @@ export const ROUTE_METADATA = {
     category: 'administration',
     priority: 'high',
     description: 'System administration and management',
-    endpoints: 22,
+    endpoints: 20,
     security: 'admin only',
     healthCheck: true
   },
@@ -302,6 +302,7 @@ export const ROUTE_FILES = {
   upload: '../routes/uploadRoutes.js',
   
   // Administrative & Management
+  admin: '../routes/admin/index.js',
   adminDepartments: '../routes/department/adminDepartmentRoutes.js',
   adminDoctors: '../routes/doctor/adminDoctorRoutes.js',
   adminNotifications: '../routes/notification/adminNotificationRoutes.js',

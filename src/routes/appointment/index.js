@@ -1,5 +1,7 @@
+// src/routes/appointment/index.js
 import express from 'express';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
+import appointmentAdminRoutes from './appointmentAdminRoutes.js';
 import appointmentCrudRoutes from './appointmentCrudRoutes.js';
 import appointmentLegacyRoutes from './appointmentLegacyRoutes.js';
 import appointmentListRoutes from './appointmentListRoutes.js';
@@ -31,5 +33,6 @@ wrapAutoRBAC(
 router.use('/', appointmentListRoutes);
 router.use('/', appointmentCrudRoutes);
 router.use('/', appointmentLegacyRoutes);
+router.use('/admin', appointmentAdminRoutes); // Admin routes under /admin prefix
 
 export default router;
