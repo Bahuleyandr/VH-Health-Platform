@@ -5,8 +5,8 @@
   "description": "VH Health API for managing patients, appointments, records, investigations, pharmacy orders, and feedback.",
   "main": "src/bin/www.js",
   "scripts": {
-    "start": "node -r source-map-support/register dist/server.js",
-    "dev": "nodemon --exec \"npx babel-node\" src/server.js",
+    "start": "node -r source-map-support/register dist/app.js",
+    "dev": "nodemon --exec \"npx babel-node\" src/app.js",
     "build": "npx babel src -d dist --source-maps",
     "build:dev": "NODE_ENV=development npx babel src -d dist --source-maps inline",
     "build:prod": "cross-env NODE_ENV=production npx babel src -d dist --source-maps",
