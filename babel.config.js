@@ -6,7 +6,10 @@ module.exports = {
       }
     }]
   ],
-  plugins: ['@babel/plugin-transform-optional-chaining'],
+  plugins: [
+    '@babel/plugin-transform-optional-chaining',
+    '@babel/plugin-transform-nullish-coalescing-operator'
+  ],
   sourceMaps: true,
   retainLines: true,
   env: {
@@ -14,7 +17,11 @@ module.exports = {
       sourceMaps: 'inline'
     },
     production: {
-      sourceMaps: true
+      sourceMaps: true,
+      plugins: [
+        '@babel/plugin-transform-optional-chaining',
+        '@babel/plugin-transform-nullish-coalescing-operator'
+      ]
     }
   }
 };
