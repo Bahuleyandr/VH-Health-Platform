@@ -49,8 +49,8 @@
     "@aws-sdk/client-s3": "^3.844.0",
     "@aws-sdk/s3-request-presigner": "^3.844.0",
     "@aws-sdk/util-create-request": "^3.844.0",
-    "@babel/plugin-transform-optional-chaining": "^7.27.1",
     "@babel/plugin-transform-nullish-coalescing-operator": "^7.27.1",
+    "@babel/plugin-transform-optional-chaining": "^7.27.1",
     "@prisma/client": "^6.11.1",
     "@sentry/node": "^9.39.0",
     "axios": "^1.10.0",
@@ -85,6 +85,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.28.0",
+    "@babel/plugin-syntax-import-meta": "^7.10.4",
     "@babel/preset-env": "^7.28.0",
     "@eslint/eslintrc": "^3.3.1",
     "@sentry/cli": "^2.47.1",
