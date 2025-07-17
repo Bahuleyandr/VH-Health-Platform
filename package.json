@@ -9,7 +9,7 @@
     "dev": "nodemon --exec \"npx babel-node\" src/app.js",
     "build": "npx babel src -d dist --source-maps",
     "build:dev": "NODE_ENV=development npx babel src -d dist --source-maps inline",
-    "build:prod": "cross-env NODE_ENV=production ./node_modules/.bin/babel src -d dist --source-maps --config-file ./babel.config.js",
+    "build:prod": "cross-env NODE_ENV=production ./node_modules/.bin/babel src -d dist --source-maps --config-file ./babel.config.js --verbose",
     "build:sentry": "node src/scripts/build-production.js",
     "start:built": "node -r source-map-support/register dist/app.js",
     "debug": "node --inspect -r source-map-support/register src/app.js",
