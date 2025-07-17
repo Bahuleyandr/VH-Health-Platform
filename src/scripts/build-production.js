@@ -1,8 +1,13 @@
 #!/usr/bin/env node
-const { execSync } = require('child_process');
-const fs = require('fs');
-const path = require('path');
-const dotenv = require('dotenv');
+import { execSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+
+// ES Module equivalent of __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Correctly load .env file from the project root, two levels up from src/scripts/
 dotenv.config({ path: path.join(__dirname, '../../.env') });
@@ -43,7 +48,7 @@ const buildForProduction = () => {
   console.log('✅ Sentry release finalized.');
 
   // 7. Securely move source maps to a non-public directory
-  // PATHS UPDATED to reflect the script's new location inside src/scripts/
+  // Paths are updated to reflect the script's new location inside src/scripts/
   const distPath = path.join(__dirname, '../../dist');
   const mapsPath = path.join(__dirname, '../../.sourcemaps');
   if (!fs.existsSync(mapsPath)) {
