@@ -17,8 +17,11 @@ const compat = new FlatCompat({ baseDirectory: __dirname });
 export default [
   // 1. Global ignores
   {
-    ignores: ['node_modules/'],
-  },
+  ignores: [
+    "node_modules/", 
+    "dist/"
+  ],
+},
 
   // 2. Base modern configuration
   eslintRecommended.configs.recommended,

@@ -1,3 +1,13 @@
+import dotenv from 'dotenv';
+import { execSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// Helper to get __dirname in ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const buildForProduction = () => {
   console.log('🚀 Building VH-health-backend for production...');
 
@@ -56,3 +66,6 @@ const buildForProduction = () => {
 
   console.log('\n🎉 Production build and Sentry upload complete!');
 };
+
+// --- Execute the build function ---
+buildForProduction();
