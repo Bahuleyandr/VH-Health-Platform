@@ -7,6 +7,7 @@ import attendanceRoutes from './attendanceRoutes.js';
 import hrRoutes from './hrRoutes.js';
 import medicalRoutes from './medicalRoutes.js';
 import pharmacyRoutes from './pharmacyRoutes.js';
+import staffAdminRoutes from './staffAdminRoutes.js';
 import staffRoutes from './staffRoutes.js';
 
 const router = express.Router();
@@ -17,6 +18,7 @@ router.use('/attendance', attendanceRoutes);  // Attendance operations
 router.use('/hr', hrRoutes);            // HR management
 router.use('/medical', medicalRoutes);  // Medical document uploads
 router.use('/pharmacy', pharmacyRoutes); // Pharmacy order updates
+router.use('/admin', staffAdminRoutes);  // Staff admin operations
 
 // Legacy compatibility routes
 router.get('/attendance', (req, res) => {
