@@ -1,4 +1,8 @@
-// src/app.js - FULLY MODULAR VERSION with all routes properly organized
+// src/app.js
+import { initializeSourceMaps } from './config/sourceMapConfig.js';
+
+// Initialize source maps before anything else
+initializeSourceMaps();
 
 import dotenv from 'dotenv';
 import express from 'express';
@@ -10,7 +14,7 @@ import logger from './logging/logger.js';
 import { attachUserContext } from './middleware/attachUserContext.js';
 import authMiddleware from './middleware/authMiddleware.js';
 import corsMiddleware, { corsErrorHandler } from './middleware/corsMiddleware.js';
-import errorHandlerMiddleware from './middleware/errorHandlerMiddleware.js';
+import { errorHandlerMiddleware } from './middleware/errorHandlerMiddleware.js';
 import jwtAuth from './middleware/jwtMiddleware.js';
 import loggingMiddleware from './middleware/loggingMiddleware.js';
 import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
