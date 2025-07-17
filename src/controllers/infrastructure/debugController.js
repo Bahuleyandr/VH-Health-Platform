@@ -253,7 +253,8 @@ export const getAllRoutes = async (req, res) => {
             // Try to extract mount path
             const source = layer.regexp.source;
             // Match patterns like ^\\/api\\/v1\\/users
-            const match = source.match(/\^?\/([\w-]+)(?:\/([\w-]+))*(?:\/([\w-]+))*/);
+             
+           const match = source.match(/\^?[/]([\w-]+)(?:[/]([\w-]+))*(?:[/]([\w-]+))*/);
             if (match) {
               mountPath = '/' + match.slice(1).filter(Boolean).join('/');
             }
@@ -323,7 +324,7 @@ export const getAllRoutes = async (req, res) => {
     uniqueRoutes.forEach(route => {
       summary.byMethod[route.method] = (summary.byMethod[route.method] || 0) + 1;
       
-      const categoryMatch = route.path.match(/^\/api\/v\d+\/([^\/]+)/);
+      const categoryMatch = route.path.match(/^[/]api[/]v\d+[/]([^/]+)/);
       if (categoryMatch) {
         const category = categoryMatch[1];
         summary.byCategory[category] = (summary.byCategory[category] || 0) + 1;
