@@ -1,8 +1,8 @@
 // src/middleware/errorHandlerMiddleware.js
 
 import * as Sentry from '@sentry/node';
-import logger from '../logging/logger.js';
 import sourceMapSupport from 'source-map-support';
+import logger from '../logging/logger.js';
 
 /**
  * Centralized error handling middleware.
