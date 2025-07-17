@@ -3,7 +3,8 @@ module.exports = {
   presets: [
     ['@babel/preset-env', {
       targets: {
-        node: '18' // or your Node version
+        // Align this with your package.json "engines" field
+        node: '18'
       }
     }]
   ],
