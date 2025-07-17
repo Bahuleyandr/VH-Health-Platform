@@ -1,20 +1,33 @@
 // src/utils/firebaseAdmin.js
-
 import admin from 'firebase-admin';
-import fs from 'fs';
-import path from 'path';
 
-const serviceAccountPath = path.resolve('firebase-service-account.json');
-
-// Create a default admin object to export
 let firebaseAdmin;
 
-// ✅ Make Firebase optional - don't crash if missing
-if (!fs.existsSync(serviceAccountPath)) {
-  console.log('⚠️ Firebase service account not found - Firebase features disabled');
-  console.log('💡 To enable Firebase: Add firebase-service-account.json to project root');
-  
-  // Create a mock admin object to prevent import errors
+try {
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+
+  if (!projectId || !clientEmail || !privateKey) {
+    throw new Error('Missing Firebase credentials in environment variables');
+  }
+
+  if (!admin.apps.length) {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId,
+        clientEmail,
+        privateKey
+      })
+    });
+    console.log('✅ Firebase Admin initialized from .env');
+  }
+
+  firebaseAdmin = admin;
+} catch (error) {
+  console.warn('⚠️ Firebase Admin not initialized:', error.message);
+
+  // Provide mock fallback to avoid breaking imports
   firebaseAdmin = {
     auth: () => ({
       verifyIdToken: () => Promise.reject(new Error('Firebase not configured')),
@@ -24,34 +37,6 @@ if (!fs.existsSync(serviceAccountPath)) {
       send: () => Promise.reject(new Error('Firebase not configured'))
     })
   };
-} else {
-  // ✅ Firebase is available - configure normally
-  try {
-    const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf-8'));
-
-    if (!admin.apps.length) {
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
-      });
-      console.log('✅ Firebase Admin initialized successfully');
-    }
-
-    firebaseAdmin = admin;
-  } catch (error) {
-    console.error('❌ Firebase initialization failed:', error.message);
-    
-    // Create mock admin on error
-    firebaseAdmin = {
-      auth: () => ({
-        verifyIdToken: () => Promise.reject(new Error('Firebase initialization failed')),
-        createUser: () => Promise.reject(new Error('Firebase initialization failed'))
-      }),
-      messaging: () => ({
-        send: () => Promise.reject(new Error('Firebase initialization failed'))
-      })
-    };
-  }
 }
 
-// ✅ Single export statement at the end
 export default firebaseAdmin;

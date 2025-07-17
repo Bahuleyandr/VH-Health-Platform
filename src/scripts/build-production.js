@@ -1,54 +1,44 @@
-#!/usr/bin/env node
-import { execSync } from 'child_process';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
-
-// ES Module equivalent of __dirname
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Correctly load .env file from the project root, two levels up from src/scripts/
-dotenv.config({ path: path.join(__dirname, '../../.env') });
-
 const buildForProduction = () => {
   console.log('🚀 Building VH-health-backend for production...');
 
-  // 1. Check for required Sentry environment variables
+  // 1. Load and verify environment variables
+  const envPath = path.join(__dirname, '../../.env');
+  const envLoaded = dotenv.config({ path: envPath });
+
+  if (envLoaded.error) {
+    console.warn(`⚠️ Failed to load .env file at ${envPath}: ${envLoaded.error}`);
+  }
+
   if (!process.env.SENTRY_AUTH_TOKEN || !process.env.SENTRY_ORG || !process.env.SENTRY_PROJECT) {
-    console.error('❌ Error: SENTRY_AUTH_TOKEN, SENTRY_ORG, and SENTRY_PROJECT must be set in your environment variables.');
+    console.error('❌ Missing required Sentry env vars (SENTRY_AUTH_TOKEN, SENTRY_ORG, SENTRY_PROJECT).');
     process.exit(1);
   }
 
-  // 2. Set production environment and build with source maps using the npm script.
-  // This command runs from the project root, so it doesn't need path changes.
+  // 2. Run production build with source maps
   process.env.NODE_ENV = 'production';
   execSync('npm run build:prod', { stdio: 'inherit' });
   console.log('✅ Babel build complete.');
 
-  // 3. Create a unique Sentry release name (using the latest git commit hash)
+  // 3. Get git commit hash as release ID
   const release = execSync('git rev-parse HEAD').toString().trim();
   console.log(`📦 Creating Sentry release: ${release}`);
 
-  // 4. Create the new release in Sentry
-  execSync(`npx sentry-cli releases new "${release}"`, { stdio: 'inherit' });
+  // 4. Create release
+  execSync(`npx sentry-cli releases new ${release}`, { stdio: 'inherit' });
 
-  // 5. Upload source maps from the root 'dist' directory to the Sentry release.
-  // The --url-prefix tells Sentry how to match files in the stack trace to the source maps.
-  // '~/dist' is a common convention for Node.js apps where the app root is considered '~'.
-  console.log('🗺️  Uploading source maps to Sentry...');
+  // 5. Upload sourcemaps using recommended syntax
+  console.log('🗺️  Uploading source maps to Sentry using `sourcemaps upload`...');
   execSync(
-    `npx sentry-cli releases files "${release}" upload-sourcemaps ./dist --url-prefix "~/dist"`,
+    `npx sentry-cli sourcemaps upload --release ${release} ./dist ` +
+    `--url-prefix "~/dist" --validate --rewrite --ext js --ext map`,
     { stdio: 'inherit' }
   );
 
-  // 6. Finalize the release, marking it as complete
-  execSync(`npx sentry-cli releases finalize "${release}"`, { stdio: 'inherit' });
+  // 6. Finalize the release
+  execSync(`npx sentry-cli releases finalize ${release}`, { stdio: 'inherit' });
   console.log('✅ Sentry release finalized.');
 
-  // 7. Securely move source maps to a non-public directory
-  // Paths are updated to reflect the script's new location inside src/scripts/
+  // 7. Move sourcemaps to secure location
   const distPath = path.join(__dirname, '../../dist');
   const mapsPath = path.join(__dirname, '../../.sourcemaps');
   if (!fs.existsSync(mapsPath)) {
@@ -66,5 +56,3 @@ const buildForProduction = () => {
 
   console.log('\n🎉 Production build and Sentry upload complete!');
 };
-
-buildForProduction();
