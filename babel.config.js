@@ -3,7 +3,8 @@ module.exports = {
   presets: [
     ['@babel/preset-env', {
       targets: {
-        // Align this with your package.json "engines" field
+        // This is the critical change.
+        // It tells Babel to support features available in Node.js 18 and newer.
         node: '18'
       }
     }]
