@@ -657,6 +657,7 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
     }
   }
 };
+// Export the NotificationService class
 export class NotificationService {
   static notifyEmergencyTeam = notificationService.notifyEmergencyTeam;
   static getNotificationsByPhone = notificationService.getNotificationsByPhone;
@@ -673,6 +674,22 @@ export class NotificationService {
   static getEmergencyActive = notificationService.getEmergencyActive;
   static deleteNotification = notificationService.deleteNotification;
 }
+
+// Export individual methods directly for easier imports
+export const notifyEmergencyTeam = notificationService.notifyEmergencyTeam;
+export const getNotificationsByPhone = notificationService.getNotificationsByPhone;
+export const getNotificationsByUserId = notificationService.getNotificationsByUserId;
+export const getNotificationById = notificationService.getNotificationById;
+export const getNotificationList = notificationService.getNotificationList;
+export const markNotificationAsRead = notificationService.markNotificationAsRead;
+export const markAllAsReadByPhone = notificationService.markAllAsReadByPhone;
+export const markAllAsReadByUserId = notificationService.markAllAsReadByUserId;
+export const createNotification = notificationService.createNotification;
+export const sendBulkNotifications = notificationService.sendBulkNotifications;
+export const getNotificationStats = notificationService.getNotificationStats;
+export const getScheduledPending = notificationService.getScheduledPending;
+export const getEmergencyActive = notificationService.getEmergencyActive;
+export const deleteNotification = notificationService.deleteNotification;
 
 // Also export the original service for backward compatibility
 export { notificationService };

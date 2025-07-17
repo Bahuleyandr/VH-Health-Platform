@@ -4,7 +4,7 @@ import { validationResult , body, query } from 'express-validator';
 import db from '../config/database.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
 import { wrapAutoRBAC, wrapRoutesWithValidation } from '../config/routeWrapper.js';
-import * as userController from '../controllers/user/userController.js';
+import { LookupController } from '../controllers/user/lookupController.js'; // Import LookupController
 import logger from '../logging/logger.js';
 import { logAudit } from '../utils/logAudit.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
@@ -608,8 +608,8 @@ wrapRoutesWithValidation(
         lookupValidator,
         async (req, res) => {
           try {
-            // Delegate to the enhanced userController for backward compatibility
-            await userController.lookupUser(req, res);
+            // Delegate to the enhanced LookupController for backward compatibility
+            await LookupController.lookupUser(req, res);
           } catch (error) {
             logger.error('Legacy lookup error:', error);
             error(res, 'Legacy lookup failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
