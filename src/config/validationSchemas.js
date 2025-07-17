@@ -72,7 +72,7 @@ export const userProfileValidator = [
   body('role')
     .optional()
     .custom((value, { req }) => {
-      if (req.user?.role !== 'ADMIN') {
+      if (req.user && req.user.role !== 'ADMIN') {
         throw new Error('Only admins can assign role');
       }
       return true;
