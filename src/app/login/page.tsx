@@ -3,123 +3,90 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { LoginFormSchema } from '@/lib/schemas';
-import { adminLogin } from '@/lib/api-client';
-import * as Sentry from "@sentry/nextjs";
-import type { z } from 'zod';
-
-type LoginFormData = z.infer<typeof LoginFormSchema>;
+import { useUser } from '@/contexts/UserContext';
 
 export default function LoginPage() {
-  const router = useRouter();
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<LoginFormData>({
-    resolver: zodResolver(LoginFormSchema),
-  });
+  const [loading, setLoading] = useState(false);
+  const { login } = useUser();
+  const router = useRouter();
 
-  const onSubmit = async (data: LoginFormData) => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
     try {
-      setError('');
-      console.log('Attempting login with:', data.username); // Debug log
-      
-      // First, login to the backend
-      const response = await adminLogin(data.username, data.password);
-      console.log('Backend login response:', response); // Debug log
-      
-      if (!response.token) {
-        throw new Error('No token received from backend');
+      const success = await login(username, password);
+      if (success) {
+        router.push('/dashboard');
+      } else {
+        setError('Invalid username or password');
       }
-
-      // Then set the cookie via our API route
-      const cookieResponse = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: response.token }),
-      });
-
-      console.log('Cookie response status:', cookieResponse.status); // Debug log
-
-      if (!cookieResponse.ok) {
-        const errorText = await cookieResponse.text();
-        console.error('Cookie setting failed:', errorText);
-        throw new Error('Failed to set authentication cookie');
-      }
-
-      // If everything is successful, redirect to dashboard
-      router.push('/dashboard');
-      
     } catch (err) {
-      console.error('Login error:', err); // Debug log
-      Sentry.captureException(err);
-      setError(err instanceof Error ? err.message : 'Login failed');
+      setError('An error occurred. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-      <div className="w-full max-w-md p-8 space-y-6 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg shadow-md">
-        <h2 className="text-2xl font-bold text-center text-gray-900 dark:text-white">
-          VH Health Admin Login
-        </h2>
-        
-        <form className="space-y-6" onSubmit={handleSubmit(onSubmit)}>
-          <div>
-            <label htmlFor="username" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Username
-            </label>
-            <input
-              {...register('username')}
-              type="text"
-              autoComplete="username"
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              placeholder="Enter your username"
-            />
-            {errors.username && (
-              <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.username.message}</p>
-            )}
-          </div>
-          
-          <div>
-            <label htmlFor="password" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Password
-            </label>
-            <input
-              {...register('password')}
-              type="password"
-              autoComplete="current-password"
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              placeholder="Password"
-            />
-            {errors.password && (
-              <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.password.message}</p>
-            )}
-          </div>
-          
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="max-w-md w-full space-y-8">
+        <div>
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+            Admin Login
+          </h2>
+        </div>
+        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           {error && (
-            <div className="text-red-600 dark:text-red-400 text-sm bg-red-50 dark:bg-red-900/20 p-3 rounded">
-              {error}
+            <div className="rounded-md bg-red-50 p-4">
+              <p className="text-sm text-red-800">{error}</p>
             </div>
           )}
-          
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full py-2 px-4 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {isSubmitting ? 'Signing in...' : 'Sign in'}
-          </button>
-          
-          <div className="text-sm text-gray-600 dark:text-gray-400 text-center">
-            <p>Default credentials:</p>
-            <p>Username: <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">admin</code></p>
-            <p>Password: <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded"><admin-bootstrap-password></code></p>
+          <div className="rounded-md shadow-sm -space-y-px">
+            <div>
+              <label htmlFor="username" className="sr-only">
+                Username
+              </label>
+              <input
+                id="username"
+                name="username"
+                type="text"
+                required
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                placeholder="Username"
+              />
+            </div>
+            <div>
+              <label htmlFor="password" className="sr-only">
+                Password
+              </label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                placeholder="Password"
+              />
+            </div>
+          </div>
+
+          <div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? 'Logging in...' : 'Sign in'}
+            </button>
           </div>
         </form>
       </div>

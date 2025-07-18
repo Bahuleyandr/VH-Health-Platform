@@ -1,21 +1,24 @@
+// src/hooks/use-dashboard.ts
 import { useQuery } from '@tanstack/react-query';
-import { getDashboardData } from '@/lib/api';
-import * as Sentry from "@sentry/nextjs";
+import { API_ENDPOINTS } from '@/lib/api-config';
 
 export function useDashboardData() {
   return useQuery({
     queryKey: ['dashboard'],
     queryFn: async () => {
-      try {
-        const data = await getDashboardData();
-        return data;
-      } catch (error) {
-        Sentry.captureException(error);
-        throw error;
+      // Use the correct endpoint
+      const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.users.dashboard}`, {
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json',
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Dashboard fetch failed: ${response.status}`);
       }
+      
+      return response.json();
     },
-    refetchInterval: 30 * 1000, // Refetch every 30 seconds
-    retry: 3, // Retry failed requests 3 times
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
   });
 }
