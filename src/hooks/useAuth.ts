@@ -1,22 +1,23 @@
 // src/hooks/useAuth.ts
-'use client';
-
+import { useUser } from '@/contexts/UserContext';
+import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation'; // Changed from 'next/router'
-import { getAuthToken } from '@/lib/api';
 
-export const useAuth = (redirectTo: string = '/login') => {
+export function useAuth(redirectTo = '/login', redirectIfFound = false) {
+  const { user, loading } = useUser();
   const router = useRouter();
 
   useEffect(() => {
-    const token = getAuthToken();
-    
-    if (!token) {
-      router.push(redirectTo);
+    if (!loading) {
+      if (!user && !redirectIfFound) {
+        router.push(redirectTo);
+      }
+      
+      if (user && redirectIfFound) {
+        router.push(redirectTo);
+      }
     }
-  }, [router, redirectTo]);
+  }, [user, loading, redirectTo, redirectIfFound, router]);
 
-  return {
-    isAuthenticated: !!getAuthToken(),
-  };
-};
+  return { user, loading };
+}

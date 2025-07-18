@@ -109,6 +109,9 @@ export default function PharmacyPage() {
     };
     fetchPharmacyData(currentPage, filters);
   };
+
+  // This function was missing in your code
+  const handlePageChange = (newPage: number) => {
     const url = new URL(window.location.href);
     url.searchParams.set('page', newPage.toString());
     router.push(url.pathname + url.search);
