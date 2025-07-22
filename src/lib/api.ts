@@ -1,7 +1,7 @@
 // src/lib/api.ts
-// Updated API functions using the correct endpoints from your backend
 
 import { toast } from 'react-hot-toast';
+import { authenticatedFetch } from './api-client';
 import { API_BASE_URL, API_ENDPOINTS, ENDPOINT_MAPPING } from './api-config';
 
 // Enhanced error handling
@@ -17,7 +17,18 @@ class APIError extends Error {
   }
 }
 
-// Enhanced fetch wrapper
+export async function getUsers() {
+  const response = await authenticatedFetch(API_ENDPOINTS.users.list);
+  if (!response.ok) throw new Error('Failed to fetch users');
+  return response.json();
+}
+
+export async function getDoctors() {
+  const response = await authenticatedFetch(API_ENDPOINTS.doctors.list);
+  if (!response.ok) throw new Error('Failed to fetch doctors');
+  return response.json();
+}
+
 export async function fetchAdminAPI<T = any>(
   endpoint: string, 
   options: RequestInit = {}

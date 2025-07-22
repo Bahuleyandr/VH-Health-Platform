@@ -8,6 +8,8 @@ import { Spinner } from '@/components/ui/spinner';
 import { CommandPalette } from '@/components/CommandPalette';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
+import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
+import { AuthDebugger } from '@/components/auth/AuthDebugger';
 import toast from 'react-hot-toast';
 
 const navigation = [
@@ -24,11 +26,26 @@ const navigation = [
   { name: 'Settings', href: '/dashboard/settings' },
 ];
 
+export default function DashboardLayout({ children }) {
+  return (
+    <ProtectedRoute>
+      <div className="min-h-screen bg-gray-100">
+        {children}
+        <AuthDebugger /> {/* Add this line */}
+      </div>
+    </ProtectedRoute>
+  );
+}
+
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+return (
+    <ProtectedRoute requiredRole="ADMIN">
+      <div className="min-h-screen bg-gray-100">
+{
   const router = useRouter();
   const pathname = usePathname();
   const [isLoading, setIsLoading] = useState(true);
@@ -175,5 +192,6 @@ export default function DashboardLayout({
         </main>
       </div>
     </div>
+    </ProtectedRoute>
   );
 }
