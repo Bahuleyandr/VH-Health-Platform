@@ -5,6 +5,11 @@ const { withSentryConfig } = require("@sentry/nextjs");
 const nextConfig = {
   reactStrictMode: true,
   
+  // Enable instrumentation hook for Sentry
+  experimental: {
+    instrumentationHook: true,
+  },
+  
   // Add this at the root level, not in experimental
   devIndicators: {
     appIsrStatus: false,
@@ -12,6 +17,19 @@ const nextConfig = {
   
   // This is the correct place for crossOriginLoading
   crossOrigin: 'anonymous',
+  
+  // Add webpack configuration to handle polyfills
+  webpack: (config, { isServer }) => {
+    // Provide polyfills for Node.js built-ins in the browser
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        url: require.resolve('url/'),
+      };
+    }
+    
+    return config;
+  },
   
   async rewrites() {
     return [
@@ -48,8 +66,8 @@ module.exports = withSentryConfig(nextConfig, {
   // https://www.npmjs.com/package/@sentry/webpack-plugin#options
   
   // Use environment variables so you can switch between orgs if needed
-  org: process.env.SENTRY_ORG || "venkataeswara-hospital",
-  project: process.env.SENTRY_PROJECT || "vh-admin-portal",
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
   authToken: process.env.SENTRY_AUTH_TOKEN,
   
   // Only print logs for uploading source maps in CI
