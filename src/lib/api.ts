@@ -1,10 +1,21 @@
 // src/lib/api.ts
 
-"use server";
-
 import { toast } from 'react-hot-toast';
 import { authenticatedFetch } from './api-client';
 import { API_BASE_URL, API_ENDPOINTS, ENDPOINT_MAPPING } from './api-config';
+
+// Helper function to build query strings without URLSearchParams
+function buildQueryString(params: Record<string, any>): string {
+  const parts: string[] = [];
+  
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
+      parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
+    }
+  }
+  
+  return parts.length > 0 ? `?${parts.join('&')}` : '';
+}
 
 // Enhanced error handling
 class APIError extends Error {
@@ -17,18 +28,6 @@ class APIError extends Error {
     this.status = status;
     this.data = data;
   }
-}
-
-export async function getUsers() {
-  const response = await authenticatedFetch(API_ENDPOINTS.users.list);
-  if (!response.ok) throw new Error('Failed to fetch users');
-  return response.json();
-}
-
-export async function getDoctors() {
-  const response = await authenticatedFetch(API_ENDPOINTS.doctors.list);
-  if (!response.ok) throw new Error('Failed to fetch doctors');
-  return response.json();
 }
 
 export async function fetchAdminAPI<T = any>(
@@ -161,13 +160,13 @@ export async function getUsers(params?: {
   search?: string;
   role?: string;
 }) {
-  const queryParams = new URLSearchParams();
-  if (params?.page) queryParams.append('page', params.page.toString());
-  if (params?.limit) queryParams.append('limit', params.limit.toString());
-  if (params?.search) queryParams.append('search', params.search);
-  if (params?.role) queryParams.append('role', params.role);
+  const query = buildQueryString({
+    page: params?.page,
+    limit: params?.limit,
+    search: params?.search,
+    role: params?.role
+  });
   
-  const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
   return fetchAdminAPI(`${API_ENDPOINTS.users.list}${query}`);
 }
 
@@ -212,14 +211,14 @@ export async function getDoctors(params?: {
   department?: string;
   status?: string;
 }) {
-  const queryParams = new URLSearchParams();
-  if (params?.page) queryParams.append('page', params.page.toString());
-  if (params?.limit) queryParams.append('limit', params.limit.toString());
-  if (params?.search) queryParams.append('search', params.search);
-  if (params?.department) queryParams.append('department', params.department);
-  if (params?.status) queryParams.append('status', params.status);
+  const query = buildQueryString({
+    page: params?.page,
+    limit: params?.limit,
+    search: params?.search,
+    department: params?.department,
+    status: params?.status
+  });
   
-  const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
   return fetchAdminAPI(`${API_ENDPOINTS.doctors.list}${query}`);
 }
 
@@ -274,58 +273,36 @@ export async function getDepartmentStats(departmentId: string) {
   return fetchAdminAPI(API_ENDPOINTS.departments.stats.replace(':id', departmentId));
 }
 
-export async function getDepartmentAnalytics(departmentId: string) {
-  return fetchAdminAPI(API_ENDPOINTS.departments.analytics.replace(':id', departmentId));
-}
-
-export async function getDepartmentsOverview() {
-  return fetchAdminAPI(API_ENDPOINTS.departments.overview);
-}
-
-// ===== PHARMACY =====
-
-export async function getPharmacyCategories() {
-  return fetchAdminAPI(API_ENDPOINTS.pharmacy.categories);
-}
-
-// Note: These pharmacy endpoints are protected and might need special handling
-export async function getPharmacyAdminData() {
-  return fetchAdminAPI(API_ENDPOINTS.pharmacy.adminRoutes);
-}
-
-export async function getPharmacyOrders() {
-  return fetchAdminAPI(API_ENDPOINTS.pharmacy.orderRoutes);
-}
-
-export async function createPharmacyOrder(orderData: any) {
-  return fetchAdminAPI(API_ENDPOINTS.pharmacy.orderRoutes, {
-    method: 'POST',
-    body: JSON.stringify(orderData),
-  });
-}
-
-export async function getPharmacyInventory() {
-  return fetchAdminAPI(API_ENDPOINTS.pharmacy.inventoryRoutes);
-}
-
-export async function getPharmacyMedications() {
-  return fetchAdminAPI(API_ENDPOINTS.pharmacy.medicationRoutes.staff);
-}
-
 // ===== APPOINTMENTS =====
 
-export async function getAppointments() {
-  return fetchAdminAPI(API_ENDPOINTS.appointments.list);
+export async function getAppointmentList(params?: {
+  page?: number;
+  limit?: number;
+  status?: string;
+  date?: string;
+}) {
+  const query = buildQueryString({
+    page: params?.page,
+    limit: params?.limit,
+    status: params?.status,
+    date: params?.date
+  });
+  
+  return fetchAdminAPI(`${API_ENDPOINTS.appointments.list}${query}`);
 }
 
 export async function getTodaysAppointments() {
-  return fetchAdminAPI(API_ENDPOINTS.appointments.todayList);
+  return fetchAdminAPI(API_ENDPOINTS.appointments.today);
 }
 
-export async function bookAppointment(appointmentData: any) {
-  return fetchAdminAPI(API_ENDPOINTS.appointments.book, {
-    method: 'POST',
-    body: JSON.stringify(appointmentData),
+export async function getAppointmentAnalytics() {
+  return fetchAdminAPI(API_ENDPOINTS.appointments.analytics);
+}
+
+export async function updateDoctorSchedule(doctorId: string, scheduleData: any) {
+  return fetchAdminAPI(API_ENDPOINTS.appointments.schedule.replace(':doctorId', doctorId), {
+    method: 'PUT',
+    body: JSON.stringify(scheduleData),
   });
 }
 
