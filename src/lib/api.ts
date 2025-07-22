@@ -1,5 +1,7 @@
 // src/lib/api.ts
 
+"use server";
+
 import { toast } from 'react-hot-toast';
 import { authenticatedFetch } from './api-client';
 import { API_BASE_URL, API_ENDPOINTS, ENDPOINT_MAPPING } from './api-config';
