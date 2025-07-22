@@ -1,6 +1,4 @@
-﻿# Complete file replacement to ensure it's correct
-$content = @"
-// instrumentation-client.ts
+﻿// instrumentation-client.ts
 import * as Sentry from "@sentry/nextjs";
 
 export function register() {
@@ -30,6 +28,3 @@ register();
 
 // Export navigation instrumentation hook (required for Sentry with Next.js)
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;
-"@
-
-Set-Content -Path instrumentation-client.ts -Value $content -Encoding UTF8
