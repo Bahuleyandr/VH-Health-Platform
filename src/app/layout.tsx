@@ -1,4 +1,5 @@
 // src/app/layout.tsx
+import '../../instrumentation-client';
 import { AuthProvider } from '@/contexts/AuthContext';
 
 export default function RootLayout({
