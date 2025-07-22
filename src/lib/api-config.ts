@@ -1,5 +1,5 @@
 // src/lib/api-config.ts
-// Correct API endpoint mapping based on your backend routes
+// Complete API endpoint mapping for VH Health Admin Portal
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://vh-health-backend.onrender.com';
 
@@ -12,9 +12,19 @@ export const API_ENDPOINTS = {
     appVersion: '/api/v1/app-version',          // GET - App version
   },
 
-  // Authentication - These seem to be OTP-based
+  // Authentication
   auth: {
-    // OTP-based auth endpoints
+    // Admin authentication endpoints
+    admin: {
+      login: '/api/v1/auth/admin/login',        // POST - Admin username/password login
+      profile: '/api/v1/auth/admin/profile',    // GET - Get admin profile
+      logout: '/api/v1/auth/admin/logout',      // POST - Admin logout
+      forgotPassword: '/api/v1/auth/admin/forgot-password', // POST
+      resetPassword: '/api/v1/auth/admin/reset-password',   // POST
+      changePassword: '/api/v1/auth/admin/change-password', // POST
+    },
+    
+    // OTP-based auth endpoints (for testing/secondary)
     generateOtp: '/api/v1/auth/generate-test-otp',  // POST
     verifyOtp: '/api/v1/auth/verify-test-otp',      // POST
     stats: '/api/v1/auth/stats',                     // GET
@@ -22,8 +32,42 @@ export const API_ENDPOINTS = {
     // Admin management (protected)
     adminManagement: '/api/v1/auth/adminManagement', // GET, POST, PUT (protected)
     
+    // Token management
+    refreshToken: '/api/v1/auth/refresh-token',      // POST
+    
     // User verification
     verify: '/api/v1/verify',                        // GET
+  },
+
+  // Main Admin Dashboard Routes
+  admin: {
+    test: '/api/v1/admin/test',                      // GET - Test route
+    dashboard: '/api/v1/admin/dashboard',            // GET - Main dashboard overview
+    quickStats: '/api/v1/admin/stats/quick',         // GET - Quick statistics
+    recentActivity: '/api/v1/admin/activity/recent', // GET - Recent activity feed
+    alerts: '/api/v1/admin/alerts',                  // GET - System alerts
+    moduleHealth: '/api/v1/admin/health/modules',    // GET - Module health status
+    staffSummary: '/api/v1/admin/staff/summary',     // GET - Staff summary
+    appointmentsSummary: '/api/v1/admin/appointments/summary', // GET - Appointments summary
+    refreshCache: '/api/v1/admin/refresh-cache',     // POST - Refresh dashboard cache
+    exportReport: '/api/v1/admin/export/report',     // POST - Export dashboard report
+    
+    // Admin module endpoints
+    modules: {
+      appointments: '/api/v1/appointments/admin',     // Admin appointment management
+      departments: '/api/v1/admin/departments',       // Admin department management
+      doctors: '/api/v1/admin/doctors',               // Admin doctor management
+      users: '/api/v1/users/admin',                   // Admin user management
+      notifications: '/api/v1/notifications/admin',   // Admin notification management
+      records: '/api/v1/health-records/admin',        // Admin health records
+      investigations: '/api/v1/investigations/admin', // Admin investigations
+      pharmacy: '/api/v1/pharmacy/admin',             // Admin pharmacy management
+      sos: '/api/v1/sos/admin',                       // Admin SOS/emergency
+      staff: '/api/v1/staff/admin',                   // Admin staff management
+      analytics: '/api/v1/analytics',                 // Analytics module
+      devices: '/api/v1/devices',                     // Device management
+      feedback: '/api/v1/feedback',                   // Feedback management
+    }
   },
 
   // User Management
@@ -35,7 +79,7 @@ export const API_ENDPOINTS = {
     status: '/api/v1/users/:identifier/status',      // PUT
     
     // Admin user endpoints
-    dashboard: '/api/v1/users/dashboard',            // GET - This is your dashboard!
+    dashboard: '/api/v1/users/dashboard',            // GET - User dashboard
     analytics: '/api/v1/users/analytics',            // GET
     systemInfo: '/api/v1/users/system-info',         // GET
     activityAudit: '/api/v1/users/activity-audit',   // GET
@@ -108,6 +152,14 @@ export const API_ENDPOINTS = {
     byPatient: '/api/v1/patient/:patient_id',        // GET
     byPhone: '/api/v1/phone/:phone',                 // GET
     byUid: '/api/v1/uid/:uid',                       // GET
+    
+    // Admin appointment endpoints
+    admin: {
+      analytics: '/api/v1/appointments/admin/analytics',
+      conflicts: '/api/v1/appointments/admin/conflicts',
+      capacity: '/api/v1/appointments/admin/capacity',
+      noShows: '/api/v1/appointments/admin/no-shows',
+    }
   },
 
   // Pharmacy - Note: Many are protected routes
@@ -182,6 +234,21 @@ export const API_ENDPOINTS = {
     attendanceRoutes: '/api/v1/staffAttendanceRoutes',// GET, POST (protected)
     hrRoutes: '/api/v1/staffHRRoutes',               // GET, POST, PUT (protected)
     medicalRoutes: '/api/v1/staffMedicalRoutes',     // POST (protected)
+    
+    // Admin staff endpoints
+    admin: {
+      analytics: {
+        attendance: '/api/v1/staff/admin/analytics/attendance',
+      },
+      dashboard: '/api/v1/staff/admin/dashboard',
+      hr: {
+        pendingReviews: '/api/v1/staff/admin/hr/pending-reviews',
+      },
+      attendance: {
+        anomalies: '/api/v1/staff/admin/attendance/anomalies',
+        absentReport: '/api/v1/staff/admin/attendance/absent-report',
+      }
+    }
   },
 
   // Investigations
@@ -194,6 +261,32 @@ export const API_ENDPOINTS = {
     routes: '/api/v1/sos/sosRoutes',                  // GET, POST (protected)
     adminRoutes: '/api/v1/sos/adminSosRoutes',       // GET, POST (protected)
     emergencyRoutes: '/api/v1/sos/emergencyResponderRoutes', // GET, POST (protected)
+  },
+
+  // Analytics
+  analytics: {
+    dashboard: '/api/v1/analytics',                   // GET - Main analytics
+    userGrowth: '/api/v1/analytics/user-growth',      // GET
+    appointmentTrends: '/api/v1/analytics/appointment-trends', // GET
+    departmentUtilization: '/api/v1/analytics/department-utilization', // GET
+    revenue: '/api/v1/analytics/revenue',             // GET
+  },
+
+  // Device Management
+  devices: {
+    list: '/api/v1/devices',                          // GET
+    register: '/api/v1/devices/register',             // POST
+    byId: '/api/v1/devices/:deviceId',                // GET, PUT, DELETE
+    userDevices: '/api/v1/devices/user/:userId',      // GET
+  },
+
+  // Feedback
+  feedback: {
+    list: '/api/v1/feedback',                         // GET
+    create: '/api/v1/feedback',                       // POST
+    byId: '/api/v1/feedback/:feedbackId',             // GET, PUT
+    byUser: '/api/v1/feedback/user/:userId',          // GET
+    statistics: '/api/v1/feedback/statistics',        // GET
   },
 
   // Infrastructure
@@ -209,6 +302,7 @@ export const API_ENDPOINTS = {
 
 // Helper to identify protected routes
 export const PROTECTED_ROUTES = [
+  '/api/v1/admin/*',
   '/api/v1/admin/pharmacyAdminRoutes',
   '/api/v1/pharmacyOrderRoutes',
   '/api/v1/pharmacyStaffMedicationRoutes',
@@ -227,20 +321,53 @@ export const PROTECTED_ROUTES = [
   '/api/v1/debug/debugRoutes',
   '/api/v1/rbac/rbacRoutes',
   '/api-docs/adminDocumentationRoutes',
-  // Add more as needed
+  '/api/v1/users/admin',
+  '/api/v1/appointments/admin/*',
+  '/api/v1/notifications/admin',
+  '/api/v1/health-records/admin',
+  '/api/v1/investigations/admin',
+  '/api/v1/pharmacy/admin',
+  '/api/v1/staff/admin/*',
+  '/api/v1/analytics',
+  '/api/v1/devices',
+  '/api/v1/feedback',
 ];
 
-// Mapping of what your frontend expects vs what actually exists
-export const ENDPOINT_MAPPING = {
-  // What you're trying → What actually exists
-  '/api/v1/admin/dashboard': '/api/v1/users/dashboard',
-  '/api/v1/admin/statistics': '/api/v1/users/analytics',
-  '/api/v1/admin/me': '/api/v1/users/system-info', // or use OTP verification
-  '/api/v1/admin/users': '/api/v1/users',
-  '/api/v1/admin/doctors': '/api/v1/doctors',
-  '/api/v1/admin/departments': '/api/v1/departments',
-  '/api/v1/pharmacy/analytics': '/api/v1/admin/pharmacyAdminRoutes',
-  '/api/v1/pharmacy/orders': '/api/v1/pharmacyOrderRoutes',
-  '/api/v1/pharmacy/inventory': '/api/v1/pharmacyStaffInventoryRoutes',
-  '/api/v1/pharmacy/medicines': '/api/v1/pharmacyStaffMedicationRoutes',
+// API configuration helpers
+export const getHeaders = (token?: string) => {
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    'x-api-key': 'vhhealth123',
+    'Origin': typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
+  };
+  
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
+  return headers;
+};
+
+// Helper function to build full URL
+export const buildUrl = (endpoint: string, params?: Record<string, string>) => {
+  let url = `${API_BASE_URL}${endpoint}`;
+  
+  // Replace path parameters
+  if (params) {
+    Object.entries(params).forEach(([key, value]) => {
+      url = url.replace(`:${key}`, value);
+    });
+  }
+  
+  return url;
+};
+
+// Helper function to check if a route requires authentication
+export const requiresAuth = (endpoint: string): boolean => {
+  return PROTECTED_ROUTES.some(route => {
+    if (route.endsWith('*')) {
+      return endpoint.startsWith(route.slice(0, -1));
+    }
+    return endpoint === route;
+  });
 };

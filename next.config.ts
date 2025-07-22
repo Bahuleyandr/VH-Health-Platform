@@ -5,25 +5,38 @@ const { withSentryConfig } = require("@sentry/nextjs");
 const nextConfig = {
   reactStrictMode: true,
   
+  // Add this at the root level, not in experimental
+  devIndicators: {
+    appIsrStatus: false,
+  },
+  
+  // This is the correct place for crossOriginLoading
+  crossOrigin: 'anonymous',
+  
   async rewrites() {
     return [
       {
-        source: '/api/v1/:path*',  // Match /api/v1/* (not /api/*)
+        source: '/api/proxy/:path*',
         destination: 'https://vh-health-backend.onrender.com/api/v1/:path*',
       },
     ];
   },
   
-  // Add CORS headers for backend integration
   async headers() {
     return [
+      {
+        source: '/api/proxy/:path*',
+        headers: [
+          { key: 'Origin', value: 'https://vh-health-portal.vercel.app' },
+        ],
+      },
       {
         source: '/:path*',
         headers: [
           { key: 'Access-Control-Allow-Credentials', value: 'true' },
-          { key: 'Access-Control-Allow-Origin', value: 'https://vh-health-backend.onrender.com' },
-          { key: 'Access-Control-Allow-Methods', value: 'GET,OPTIONS,PATCH,DELETE,POST,PUT' },
-          { key: 'Access-Control-Allow-Headers', value: 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization' },
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET,DELETE,PATCH,POST,PUT' },
+          { key: 'Access-Control-Allow-Headers', value: 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, x-api-key, Origin' },
         ],
       },
     ];

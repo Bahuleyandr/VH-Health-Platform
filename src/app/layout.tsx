@@ -1,5 +1,5 @@
 // src/app/layout.tsx
-import { AuthProvider } from '@/providers/AuthProvider';
+import { AuthProvider } from '@/contexts/AuthContext';
 
 export default function RootLayout({
   children,
