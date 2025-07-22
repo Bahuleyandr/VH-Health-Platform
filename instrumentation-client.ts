@@ -1,17 +1,35 @@
-// This file configures the initialization of Sentry on the client.
-// The added config here will be used whenever a users loads a page in their browser.
-// https://docs.sentry.io/platforms/javascript/guides/nextjs/
-
+// instrumentation-client.ts
 import * as Sentry from "@sentry/nextjs";
 
-Sentry.init({
-  dsn: "https://6840bf624ec8642d251c23fd7d552fc3@o4509340382265344.ingest.us.sentry.io/4509632211845120",
+export function register() {
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    return;
+  }
 
-  // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
-  tracesSampleRate: 1,
-
-  // Setting this option to true will print useful information to the console while you're setting up Sentry.
-  debug: false,
-});
-
-export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;
+  Sentry.init({
+    dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+    
+    integrations: [
+      Sentry.replayIntegration({
+        maskAllText: false,
+        blockAllMedia: false,
+      }),
+    ],
+    
+    // Performance Monitoring
+    tracesSampleRate: process.env.NODE_ENV === "production" ? 0.1 : 1.0,
+    
+    // Session Replay
+    replaysSessionSampleRate: 0.1, // This sets the sample rate at 10%. You may want to change it to 100% while in development and then sample at a lower rate in production.
+    replaysOnErrorSampleRate: 1.0, // If you're not already sampling the entire session, change the sample rate to 100% when sampling sessions where errors occur.
+    
+    // Release tracking
+    environment: process.env.NODE_ENV,
+    
+    // Disable in development
+    enabled: process.env.NODE_ENV === "production",
+    
+    // Disable telemetry
+    telemetry: false,
+  });
+}
