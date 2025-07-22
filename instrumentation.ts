@@ -1,14 +1,10 @@
 // instrumentation.ts
-import * as Sentry from '@sentry/nextjs';
-
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
-    await import('./sentry.server.config');
+    await import('./instrumentation-server');
   }
-  
+
   if (process.env.NEXT_RUNTIME === 'edge') {
-    await import('./sentry.edge.config');
+    // Edge runtime configuration if needed
   }
 }
-
-export const onRequestError = Sentry.captureRequestError;
