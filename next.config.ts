@@ -1,6 +1,19 @@
 // next.config.js
 const { withSentryConfig } = require("@sentry/nextjs");
 
+// Only import PWA in production
+const withPWAInit = require("@ducanh2912/next-pwa").default;
+
+const withPWA = withPWAInit({
+  dest: "public",
+  disable: process.env.NODE_ENV === "development",
+  register: true,
+  skipWaiting: true,
+  // Remove deprecated workbox-google-analytics
+  runtimeCaching: [],
+  buildExcludes: [/middleware-manifest\.json$/],
+});
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -51,7 +64,11 @@ const nextConfig = {
   },
 };
 
-module.exports = withSentryConfig(nextConfig, {
+// Apply PWA configuration only in production
+const configWithPWA = process.env.NODE_ENV === 'production' ? withPWA(nextConfig) : nextConfig;
+
+// Apply Sentry configuration
+module.exports = withSentryConfig(configWithPWA, {
   // For all available options, see:
   // https://www.npmjs.com/package/@sentry/webpack-plugin#options
   
