@@ -5,16 +5,6 @@ const { withSentryConfig } = require("@sentry/nextjs");
 const nextConfig = {
   reactStrictMode: true,
   
-  // Enable instrumentation hook for Sentry
-  experimental: {
-    instrumentationHook: true,
-  },
-  
-  // Add this at the root level, not in experimental
-  devIndicators: {
-    appIsrStatus: false,
-  },
-  
   // This is the correct place for crossOriginLoading
   crossOrigin: 'anonymous',
   
