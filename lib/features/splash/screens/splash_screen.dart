@@ -1,0 +1,131 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:local_auth/local_auth.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _pulse;
+
+  final _localAuth = LocalAuthentication();
+  final _secureStorage = const FlutterSecureStorage();
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    )..repeat(reverse: true);
+
+    _pulse = Tween<double>(begin: 0.9, end: 1.1).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleSplashTap() async {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final jwt = await _secureStorage.read(key: 'jwt');
+    final phone = await _secureStorage.read(key: 'phone');
+    final biometricEnabled = await _secureStorage.read(key: 'biometric_enabled');
+
+    // ── 1. Firebase + JWT available → go to dashboard ──
+    if (firebaseUser != null && jwt != null && mounted) {
+      Navigator.of(context).pushReplacementNamed('/dashboard');
+      return;
+    }
+
+    // ── 2. Try biometric auth if enabled ──
+    if (biometricEnabled == 'true' && phone != null) {
+      final canAuth = await _localAuth.canCheckBiometrics;
+      final supported = await _localAuth.isDeviceSupported();
+
+      if (canAuth && supported) {
+        final didAuth = await _localAuth.authenticate(
+          localizedReason: 'Please authenticate to continue',
+          options: const AuthenticationOptions(biometricOnly: true),
+        );
+
+        if (didAuth && mounted) {
+          Navigator.of(context).pushReplacementNamed(
+            '/dashboard',
+            arguments: {'phone': phone},
+          );
+          return;
+        }
+      }
+    }
+
+    // ── 3. Default fallback → Login ──
+    if (mounted) {
+      Navigator.of(context).pushReplacementNamed('/login');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _handleSplashTap,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ColorFiltered(
+              colorFilter: ColorFilter.mode(
+                Colors.black.withOpacity(0.4),
+                BlendMode.darken,
+              ),
+              child: Image.asset(
+                'assets/images/hospital_bg.jpg',
+                fit: BoxFit.cover,
+              ),
+            ),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ScaleTransition(
+                  scale: _pulse,
+                  child: Image.asset(
+                    'assets/images/logo.png',
+                    width: 120,
+                    height: 120,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'VH Health',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontFamily: 'VHFont',
+                    color: Colors.white,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Tap anywhere to continue',
+                  style: TextStyle(color: Colors.white70, fontSize: 14),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

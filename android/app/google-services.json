@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "155620159512",
+    "project_id": "vhhealth",
+    "storage_bucket": "vhhealth.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:155620159512:android:6b4839756b9f099a9d136d",
+        "android_client_info": {
+          "package_name": "com.vh.vhhealth"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDiY5ya9Ji0nWXqzNuJIprUQm-t0FVex_8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
