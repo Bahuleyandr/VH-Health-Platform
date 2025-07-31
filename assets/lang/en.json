@@ -1,0 +1,373 @@
+{
+  "languageName": "English",
+  "welcome": "Welcome to VH Health!",
+  "dashboard": "Dashboard",
+  "lastAppointment": "Last Appointment",
+  "upcomingAppointment": "Upcoming Appointment",
+  "yourHealth": "Your Health",
+  "appointments": "Appointments",
+  "investigations": "Investigations",
+  "pharmacy": "Pharmacy",
+  "askDoubt": "Ask a Doubt",
+
+  "common": {
+    "submit": "Submit",
+    "cancel": "Cancel",
+    "success": "Success",
+    "failed": "Failed",
+    "error": "Error",
+    "invalid": "Invalid",
+    "skipButton": "Skip",
+    "submitButton": "Submit",
+    "back": "Back",
+    "confirm": "Confirm",
+    "send": "Send",
+    "terms": "Terms",
+    "conditions": "Conditions",
+    "and": "and",
+    "privacyPolicy": "Privacy Policy",
+    "networkError": "Network error. Please check your connection.",
+    "termsConditionsDisclaimerTitle": "Terms, Conditions & Disclaimer",
+    "termsOfUse": "Terms of Use",
+    "backToLogin": "Back to Login",
+    "permissions": {
+      "required": "Permissions are required to proceed."
+    }
+  },
+
+  "trivia": {
+    "title": "Health Trivia",
+    "didYouKnow": "Did You Know?",
+    "newTrivia": "New Trivia",
+    "newTriviaButton": "New Trivia",
+    "fact1": "Drinking water first thing in the morning helps jumpstart your metabolism.",
+    "fact2": "Walking 30 minutes a day reduces the risk of heart disease.",
+    "fact3": "Laughter boosts the immune system.",
+    "fact4": "Handwashing is one of the best ways to prevent illness.",
+    "fact5": "Sleep is as important to health as diet and exercise.",
+    "fact6": "Dark chocolate is rich in antioxidants and heart-healthy.",
+    "fact7": "Your brain uses more energy than any other organ.",
+    "fact8": "Eating fiber-rich foods helps digestion and heart health.",
+    "fact9": "Good posture improves breathing and energy levels.",
+    "fact10": "Sunlight helps your body produce Vitamin D naturally."
+  },
+
+  "departments": "Departments",
+
+  "aboutUs": {
+    "title": "Venkataeswara Hospitals",
+    "para1": "Founded in 2003 by the renowned interventional cardiologist Dr. Thillai Vallal, Venkataeswara Hospitals is a trusted multi-specialty healthcare institution located in the heart of Chennai at Nandanam.",
+    "para2": "Our 130-bed facility, including advanced ICU care, is equipped with state-of-the-art diagnostic and surgical infrastructure such as MRI, CT, digital X-ray, and fully integrated labs.",
+    "para3": "Our team of highly experienced doctors, nurses, and staff work in harmony to provide personalized treatment plans across various specialties.",
+    "para4": "We are particularly proud of our leadership in lifestyle disease management and preventive cardiology."
+  },
+
+  "calendar": "Calendar",
+  "hello": "Hello",
+
+  "settings": {
+    "title": "Settings",
+    "editProfile": "Edit Profile",
+    "language": "Language",
+    "accessibility": "Accessibility",
+    "fontSize": "Font Size",
+    "fontSizeChanged": "Font size set to",
+    "theme": "Theme",
+    "darkTheme": "Dark",
+    "lightTheme": "Light",
+    "switchToDark": "Switch to Dark Mode",
+    "switchToLight": "Switch to Light Mode",
+    "biometricLogin": "Biometric Login",
+    "biometricNotSupported": "Biometric authentication is not supported on this device.",
+    "enableBiometricLogin": "Enable biometric login",
+    "disableBiometricLogin": "Disable biometric login",
+    "logout": "Logout",
+    "logoutConfirmation": "Confirm Logout",
+    "areYouSureLogout": "Are you sure you want to log out?",
+    "confirmLogout": "Logout",
+    "security": "Security"
+  },
+
+  "auth": {
+    "loginToView": "Please login to view your health records.",
+    "pleaseAuthenticate": "Please authenticate to access VH Health",
+    "enterYourPhone": "Enter Your Phone Number",
+    "phoneNumber": "Phone Number",
+    "phoneNumber.label": "Phone Number",
+    "phoneNumber.hint": "Enter your phone number",
+    "enterValidPhone": "Please enter a valid 10-digit phone number.",
+    "loginAgreement": "By logging in, you agree to our Terms, Conditions, and Privacy Policy.",
+    "loginTitle": "Welcome to VH Health",
+    "getOtp": "Get OTP",
+    "continueAsGuest": "Continue as Guest",
+    "byContinuingYouAgree": "By continuing, you agree to our",
+    "biometricNotAvailable": "Biometric authentication is not available on this device.",
+    "biometricError": "Biometric authentication failed.",
+    "logoutFailed": "Logout failed."
+  },
+
+  "otp": {
+    "verifyOtpTitle": "Enter OTP",
+    "otpSentTo": "OTP sent to",
+    "enterOtp": "Enter 6-digit OTP",
+    "verify": "Verify",
+    "otpFailed": "OTP verification failed, please try again",
+    "loginFailed": "Login failed",
+    "getOtp": "Get OTP",
+    "continueAsGuest": "Continue as Guest",
+    "byLoggingIn": "By logging in, you agree to our",
+    "terms": "Terms",
+    "conditions": "Conditions",
+    "and": "and",
+    "privacyPolicy": "Privacy Policy",
+    "pleaseEnterPhone": "Please enter phone number",
+    "sendingOtp": "Sending OTP...",
+    "autoSignInSuccess": "Automatic sign-in successful!",
+    "loginSuccessful": "Login Successful!",
+    "invalidOtp": "Invalid OTP. Please check and try again.",
+    "otpSessionExpired": "OTP session has expired. Please request a new OTP.",
+    "errorOccurred": "An error occurred",
+    "otpResendFailed": "Failed to resend OTP. Please try again.",
+    "otpResentSuccessfully": "OTP has been resent successfully.",
+    "pleaseEnterOtp": "Please enter the OTP.",
+    "otpMustBe6Digits": "OTP must be 6 digits.",
+    "resendOtpIn": "Resend OTP in",
+    "resendOtp": "Resend OTP"
+  },
+
+  "profile": {
+    "title": "Profile",
+    "editScreen": {
+      "title": "Edit Profile"
+    },
+    "updatedSuccessfully": "Profile updated successfully.",
+    "updateFailed": "Failed to update profile. Please try again.",
+    "setup": {
+      "title": "Complete Your Profile",
+      "saved": "Profile saved successfully!",
+      "saveFailed": "Failed to save profile. Please try again.",
+      "addPhoto": "Add Photo"
+    },
+    "name": {
+      "label": "Full Name",
+      "hint": "Enter your full name",
+      "validation": {
+        "required": "Name is required."
+      }
+    },
+    "gender": {
+      "label": "Gender",
+      "male": "Male",
+      "female": "Female",
+      "other": "Other",
+      "validation": {
+        "required": "Gender is required."
+      }
+    },
+    "email": {
+      "label": "Email Address",
+      "hint": "Enter your email address",
+      "hintOptional": "Enter your email (optional)",
+      "validation": {
+        "invalid": "Enter a valid email address."
+      }
+    },
+    "birthday": {
+      "label": "Date of Birth",
+      "hint": "Select your date of birth",
+      "selectLabel": "Select Date of Birth",
+      "labelShort": "Birthday"
+    },
+    "anniversary": {
+      "selectLabel": "Select Anniversary (Optional)",
+      "labelShort": "Anniversary"
+    },
+    "saveChangesButton": "Save Changes",
+    "header": "Hello! Tell us about yourself:",
+    "namePlaceholder": "Your Name *",
+    "genderPlaceholder": "Gender (Male/Female/Other) *",
+    "addressPlaceholder": "Address",
+    "emailPlaceholder": "Email ID (optional)",
+    "birthdayPlaceholder": "Birthday (DD-MM-YYYY)",
+    "anniversaryPlaceholder": "Anniversary (DD-MM-YYYY)",
+    "heightPlaceholder": "Height (cm)",
+    "weightPlaceholder": "Weight (kg)",
+    "submitProfile": "Submit Profile",
+    "savingProfile": "Saving profile...",
+    "nameGenderRequired": "Name and gender are required.",
+    "saveFailed": "Failed to save profile.",
+    "editProfile": "Edit Profile",
+    "uploadProfilePic": "Upload Profile Picture 📷",
+    "saveProfile": "Save Profile",
+    "saved": "Profile saved successfully!"
+  },
+
+  "records": {
+    "noRecords": "No records found.",
+    "loginToView": "Please login to view your health records.",
+    "sortNewest": "Newest First 🔽",
+    "sortOldest": "Oldest First 🔼",
+    "filters": {
+      "allTypes": "All Types",
+      "consultation": "Consultation",
+      "investigation": "Investigation",
+      "report": "Report",
+      "record": "Record",
+      "uploaded": "Uploaded",
+      "couldNotOpenFile": "Could not open file"
+    }
+  },
+
+  "appointmentsSection": {
+    "title": "Appointments",
+    "request": "Request an Appointment",
+    "chooseDepartmentOrDoctor": "Choose Department or Doctor",
+    "selectDoctorPlaceholder": "Select Department or Doctor",
+    "preferredDate": "Preferred Date:",
+    "submitRequest": "Submit Request",
+    "success": "Appointment requested successfully!",
+    "confirmationNote": "Our staff will call you to confirm your appointment time.",
+    "failed": "Failed to submit appointment. Please try again.",
+    "selectDoctorAndDate": "Please select both doctor and preferred date.",
+    "next": "Next Appointment"
+  },
+
+  "pharmacySection": {
+    "title": "Pharmacy",
+    "uploadPrescription": "Upload Prescription",
+    "uploadPDF": "Upload PDF / Image",
+    "uploadInstructions": "How to get your medicines:\n1. Upload your prescription or take a picture\n2. Confirm or Edit your delivery address\n3. We'll take care of the rest, our team will contact you!",
+    "enterDeliveryAddress": "Enter Delivery Address",
+    "submitOrder": "Order Medicine",
+    "call": "Call Pharmacy",
+    "prescriptionAndAddressRequired": "Please upload a prescription and enter delivery address.",
+    "confirmationNote": "We will call you to confirm your order and delivery address."
+  },
+
+  "files": {
+    "file": "File",
+    "noValidFiles": "No valid files selected. Try again.",
+    "uploadFailed": "Upload failed.",
+    "permissionDenied": "Camera access denied.",
+    "photoError": "Could not take photo.",
+    "pickerError": "Could not select file.",
+    "largeFileWarning": "File exceeds 5MB. Upload may fail.",
+    "permissionsRequired": "Permissions are required to pick a photo."
+  },
+
+  "chatbot": {
+    "greeting": "Hi! I'm VH Health Assistant. How can I help you today?",
+    "replyAppointment": "You can book an appointment from the Appointments section.",
+    "replyFever": "Stay hydrated, rest well, monitor your fever, and consult a doctor.",
+    "replyPharmacy": "Use the Pharmacy section to upload your prescription or request delivery.",
+    "replySOS": "Use the red SOS button in the bottom corner for emergencies.",
+    "replyRecords": "You can view your records in the Your Health section.",
+    "replyDefault": "Thank you for your question. We'll get back to you if needed.",
+    "chatPlaceholder": "Type your question..."
+  },
+
+  "search": {
+    "placeholder": "Search Department or Doctor",
+    "bookDepartment": "Book Department Appointment",
+    "bookDoctor": "Book Doctor Appointment"
+  },
+
+  "doctorIntros": {
+    "cardio1": "Senior cardiologist with 15 years of experience.",
+    "cardio2": "Specialist in interventional cardiology and heart failure.",
+    "neuro1": "Expert in stroke and neuromuscular disorders.",
+    "neuro2": "Focus on epilepsy and neurocritical care.",
+    "ortho1": "Specialist in joint replacements and sports injuries.",
+    "ortho2": "Expert in spinal surgeries and fractures.",
+    "pedia1": "Dedicated to child care and development.",
+    "pedia2": "Focus on neonatal and adolescent health.",
+    "derma1": "Expert in skin allergies and cosmetic treatments.",
+    "derma2": "Specialist in acne, psoriasis, and dermatology.",
+    "med1": "Experienced general physician for complex cases.",
+    "med2": "Specialist in preventive medicine and diabetes care."
+  },
+
+  "investigationsSection": {
+    "title": "Investigations",
+    "requestTest": "Request New Test",
+    "viewReports": "View My Reports",
+    "requestInvestigation": "Request Investigation",
+    "enterTestName": "Enter Test Name (e.g., CBC, Lipid Profile)",
+    "success": "Investigation request submitted!",
+    "confirmationNote": "A staff member will call you to confirm your test slot.",
+    "failed": "Failed to submit investigation request.",
+    "testNameRequired": "Test name is required."
+  },
+
+  "feedback": {
+    "prompt": "How was your consultation?",
+    "placeholder": "Any comments (optional)",
+    "submit": "Submit Feedback",
+    "success": "Feedback submitted successfully!",
+    "failed": "Could not submit feedback.",
+    "selectRatingPrompt": "Please select a rating before submitting.",
+    "thankYou": "Thank you!",
+    "submitting": "Submitting..."
+  },
+
+  "sos": {
+    "triggered": "SOS triggered",
+    "sent": "SOS sent to hospital",
+    "sosSent": "Emergency alert sent!",
+    "buttonTooltip": "SOS Emergency",
+    "cardiology": "Cardiology",
+    "neurology": "Neurology",
+    "orthopedics": "Orthopedics",
+    "dermatology": "Dermatology",
+    "pediatrics": "Pediatrics",
+    "general_medicine": "General Medicine"
+  },
+
+  "departmentsDetails": {
+    "title": "Departments & Doctors",
+    "loadFailed": "Failed to load departments",
+    "book": "Book",
+    "doctor": "Doctor",
+    "unknown": "Department"
+  },
+
+  "termsConditions": {},
+
+  "labels": {
+    "trivia": "Health Trivia",
+    "aboutUs": "About Us"
+  },
+
+  "departmentNames": {
+    "cardiology": "Cardiology",
+    "neurology": "Neurology",
+    "orthopedics": "Orthopedics",
+    "dermatology": "Dermatology",
+    "pediatrics": "Pediatrics",
+    "general_medicine": "General Medicine"
+  },
+
+  "phoneNumber": "Phone Number",
+  "getOtp": "Get OTP",
+  "continueAsGuest": "Continue as Guest",
+  "byContinuingYouAgree": "By continuing, you agree to our",
+  "terms": "Terms",
+  "conditions": "Conditions",
+  "and": "and",
+  "privacyPolicy": "Privacy Policy",
+  "sosButtonTooltip": "SOS Emergency",
+  "changeLanguage": "Change Language",
+  "triviaLabel": "Health Trivia",
+  "aboutUsLabel": "About Us",
+  "login": "Login",
+  "requestAppointment": "Request Appointment",
+  "enterYourPhone": "Enter Your Phone Number",
+  "chooseDepartmentOrDoctor": "Choose Department or Doctor",
+  "submitRequest": "Submit Request",
+  "feedbackPlaceholder": "Any comments (optional)",
+  "feedbackHint": "Share your feedback...",
+  "submit": "Submit",
+  "networkError": "Network error. Please check your connection.",
+  "guestUser": "Guest User",
+  "notAvailable": "Not Available"
+}

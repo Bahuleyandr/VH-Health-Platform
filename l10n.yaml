@@ -1,0 +1,17 @@
+arb-dir: lib/l10n
+template-arb-file: intl_en.arb
+
+# ▶ Where to place the generated file
+output-dir: lib/generated
+output-localization-file: app_localizations.dart
+output-class: AppLocalizations
+
+# ▶ Prevent gen-l10n from using the synthetic-package path
+synthetic-package: false
+
+preferred-supported-locales:
+  - en
+  - ta
+  - hi
+  - te
+  - ml
