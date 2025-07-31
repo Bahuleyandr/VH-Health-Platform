@@ -8,9 +8,13 @@ import 'package:vhhealth/core/theme/app_theme.dart';
 class ThemeProvider extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.system;
   double _fontSize = 16.0;
+  Color? _dynamicAccentColor;
+  bool _enableDynamicColors = true;
 
   static const String _themeModeKey = 'theme_mode';
   static const String _fontSizeKey = 'font_size';
+  static const String _dynamicColorsKey = 'enable_dynamic_colors';
+  static const String _accentColorKey = 'accent_color';
 
   ThemeProvider() {
     _loadPreferences();
@@ -19,9 +23,11 @@ class ThemeProvider extends ChangeNotifier {
   // --- Getters ---
   ThemeMode get themeMode => _themeMode;
   double get fontSize => _fontSize;
+  Color? get dynamicAccentColor => _dynamicAccentColor;
+  bool get enableDynamicColors => _enableDynamicColors;
 
-  ThemeData get lightTheme => AppTheme.getLightTheme(_fontSize);
-  ThemeData get darkTheme => AppTheme.getDarkTheme(_fontSize);
+  ThemeData get lightTheme => _buildTheme(Brightness.light);
+  ThemeData get darkTheme => _buildTheme(Brightness.dark);
 
   bool get isDarkMode {
     if (_themeMode == ThemeMode.system) {
@@ -31,14 +37,60 @@ class ThemeProvider extends ChangeNotifier {
     return _themeMode == ThemeMode.dark;
   }
 
+  // --- Build theme with dynamic colors ---
+  ThemeData _buildTheme(Brightness brightness) {
+    final baseTheme = brightness == Brightness.light 
+        ? AppTheme.getLightTheme(_fontSize)
+        : AppTheme.getDarkTheme(_fontSize);
+
+    if (!_enableDynamicColors || _dynamicAccentColor == null) {
+      return baseTheme;
+    }
+
+    // Apply dynamic accent color
+    return baseTheme.copyWith(
+      colorScheme: baseTheme.colorScheme.copyWith(
+        primary: _dynamicAccentColor,
+        secondary: _dynamicAccentColor,
+      ),
+      primaryColor: _dynamicAccentColor,
+      // Update other color properties as needed
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: baseTheme.elevatedButtonTheme.style?.copyWith(
+          backgroundColor: WidgetStateProperty.all(_dynamicAccentColor),
+        ),
+      ),
+      floatingActionButtonTheme: baseTheme.floatingActionButtonTheme.copyWith(
+        backgroundColor: _dynamicAccentColor,
+      ),
+      // Update app bar theme
+      appBarTheme: baseTheme.appBarTheme.copyWith(
+        backgroundColor: brightness == Brightness.light 
+            ? _dynamicAccentColor?.withValues(alpha: 0.1)
+            : _dynamicAccentColor?.withValues(alpha: 0.05),
+        iconTheme: IconThemeData(
+          color: brightness == Brightness.light 
+              ? _dynamicAccentColor 
+              : _dynamicAccentColor?.withValues(alpha: 0.9),
+        ),
+      ),
+    );
+  }
+
   // --- Load preferences on startup ---
   Future<void> _loadPreferences() async {
     final prefs = await SharedPreferences.getInstance();
     final themeString = prefs.getString(_themeModeKey) ?? 'system';
     final storedFontSize = prefs.getDouble(_fontSizeKey) ?? 16.0;
+    final enableDynamic = prefs.getBool(_dynamicColorsKey) ?? true;
+    final accentColorValue = prefs.getInt(_accentColorKey);
 
     _themeMode = _stringToThemeMode(themeString);
     _fontSize = storedFontSize;
+    _enableDynamicColors = enableDynamic;
+    if (accentColorValue != null) {
+      _dynamicAccentColor = Color(accentColorValue);
+    }
     notifyListeners();
   }
 
@@ -61,6 +113,35 @@ class ThemeProvider extends ChangeNotifier {
     await prefs.setDouble(_fontSizeKey, size);
   }
 
+  Future<void> setDynamicAccentColor(Color? color) async {
+    if (_dynamicAccentColor == color) return;
+    _dynamicAccentColor = color;
+    notifyListeners();
+
+    final prefs = await SharedPreferences.getInstance();
+    if (color != null) {
+      await prefs.setInt(_accentColorKey, color.value);
+    } else {
+      await prefs.remove(_accentColorKey);
+    }
+  }
+
+  Future<void> setEnableDynamicColors(bool enable) async {
+    if (_enableDynamicColors == enable) return;
+    _enableDynamicColors = enable;
+    notifyListeners();
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_dynamicColorsKey, enable);
+  }
+
+  // --- Update from circular dial ---
+  void updateAccentFromDial(Color color) {
+    if (_enableDynamicColors) {
+      setDynamicAccentColor(color);
+    }
+  }
+
   // --- Toggles ---
   void toggleTheme() {
     final isCurrentlyDark = isDarkMode;
@@ -72,6 +153,18 @@ class ThemeProvider extends ChangeNotifier {
     final currentIndex = sizes.indexOf(_fontSize);
     final nextIndex = (currentIndex != -1 ? currentIndex + 1 : 1) % sizes.length;
     await setFontSize(sizes[nextIndex]);
+  }
+
+  void toggleDynamicColors() {
+    setEnableDynamicColors(!_enableDynamicColors);
+  }
+
+  // --- Reset ---
+  Future<void> resetToDefaults() async {
+    await setThemeMode(ThemeMode.system);
+    await setFontSize(16.0);
+    await setDynamicAccentColor(null);
+    await setEnableDynamicColors(true);
   }
 
   // --- Helpers ---
@@ -97,7 +190,7 @@ class ThemeProvider extends ChangeNotifier {
     }
   }
 
-  // --- Access from anywhere (used in SettingsController) ---
+  // --- Access from anywhere ---
   static ThemeProvider of(BuildContext context) =>
       context.read<ThemeProvider>();
 }

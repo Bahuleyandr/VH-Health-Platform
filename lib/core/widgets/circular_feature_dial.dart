@@ -1,9 +1,197 @@
-// Fixed circular_feature_dial.dart with proper animation initialization
+// Enhanced circular_feature_dial.dart with all suggested improvements
 import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:vhhealth/core/widgets/heartbeat_logo.dart';
+
+// Feature Preview Dialog
+class FeaturePreviewDialog extends StatelessWidget {
+  final FeatureIconData feature;
+
+  const FeaturePreviewDialog({super.key, required this.feature});
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.9),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: feature.color.withValues(alpha: 0.3),
+              width: 2,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: feature.color.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  feature.icon,
+                  size: 48,
+                  color: feature.color,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                feature.label,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: feature.color,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Long press to access quick actions',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Particle System for selection effects
+class ParticleSystem extends StatefulWidget {
+  final Offset position;
+  final Color color;
+  final int count;
+  final VoidCallback onComplete;
+
+  const ParticleSystem({
+    super.key,
+    required this.position,
+    required this.color,
+    required this.count,
+    required this.onComplete,
+  });
+
+  @override
+  State<ParticleSystem> createState() => _ParticleSystemState();
+}
+
+class _ParticleSystemState extends State<ParticleSystem>
+    with SingleTickerProviderStateMixin {
+  late AnimationController controller;
+  late List<Particle> particles;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+    
+    particles = List.generate(widget.count, (index) {
+      final angle = (2 * pi / widget.count) * index;
+      return Particle(
+        angle: angle,
+        speed: 100 + Random().nextDouble() * 50,
+        size: 4 + Random().nextDouble() * 4,
+      );
+    });
+    
+    controller.forward().then((_) {
+      widget.onComplete();
+    });
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, child) {
+        return CustomPaint(
+          painter: ParticlePainter(
+            particles: particles,
+            progress: controller.value,
+            color: widget.color,
+            origin: widget.position,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class Particle {
+  final double angle;
+  final double speed;
+  final double size;
+
+  Particle({
+    required this.angle,
+    required this.speed,
+    required this.size,
+  });
+}
+
+class ParticlePainter extends CustomPainter {
+  final List<Particle> particles;
+  final double progress;
+  final Color color;
+  final Offset origin;
+
+  ParticlePainter({
+    required this.particles,
+    required this.progress,
+    required this.color,
+    required this.origin,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..style = PaintingStyle.fill;
+    
+    for (final particle in particles) {
+      final opacity = 1.0 - progress;
+      paint.color = color.withValues(alpha: opacity * 0.8);
+      
+      final distance = particle.speed * progress;
+      final x = origin.dx + cos(particle.angle) * distance;
+      final y = origin.dy + sin(particle.angle) * distance;
+      
+      final currentSize = particle.size * (1.0 - progress * 0.5);
+      canvas.drawCircle(Offset(x, y), currentSize, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+}
+
+// Custom Animation Curves
+class ElasticInOutCurve extends Curve {
+  @override
+  double transform(double t) {
+    if (t < 0.5) {
+      return 0.5 * Curves.elasticIn.transform(t * 2);
+    } else {
+      return 0.5 + 0.5 * Curves.elasticOut.transform((t - 0.5) * 2);
+    }
+  }
+}
 
 class FeatureIconData {
   final IconData icon;
@@ -12,6 +200,7 @@ class FeatureIconData {
   final Color color;
   final bool hasNew;
   final String? badge;
+  final String? description;
 
   FeatureIconData({
     required this.icon,
@@ -20,6 +209,7 @@ class FeatureIconData {
     required this.color,
     this.hasNew = false,
     this.badge,
+    this.description,
   });
 }
 
@@ -28,6 +218,9 @@ class CircularFeatureDial extends StatefulWidget {
   final void Function(Color)? onFocusColorChanged;
   final double? size;
   final bool enableHaptics;
+  final bool autoRotateToTop;
+  final bool enableParticles;
+  final bool enableAccessibility;
 
   const CircularFeatureDial({
     super.key,
@@ -35,6 +228,9 @@ class CircularFeatureDial extends StatefulWidget {
     this.onFocusColorChanged,
     this.size,
     this.enableHaptics = true,
+    this.autoRotateToTop = true,
+    this.enableParticles = true,
+    this.enableAccessibility = true,
   });
 
   @override
@@ -50,7 +246,6 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
   static const double _iconSizeSmall = 28.0;
   static const double _iconSizeLarge = 32.0;
   static const double _vibrateInterval = pi / 20;
-  static const double _radiusOffset = 55.0;
   static const double _itemCenterOffset = 40.0;
   static const double _parallaxMultiplier = 15.0;
   static const double _watermarkSize = 140.0;
@@ -60,30 +255,42 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
   static const double _velocityDamping = 8.0;
   static const double _friction = 0.0001;
   static const double _velocityMultiplier = 0.5;
+  static const double _snapVelocityThreshold = 0.5;
   static const int _minSpinDuration = 300;
   static const int _maxSpinDuration = 2000;
-  static const int _snapDuration = 400;
-  static const Duration _updateThreshold = Duration(milliseconds: 16); // 60 FPS
+  static const int _snapDuration = 600;
+  static const Duration _updateThreshold = Duration(milliseconds: 16);
 
   // State
   double rotation = 0.0;
   double velocity = 0.0;
+  double dialScale = 1.0;
   int? selectedIndex;
   int? hoveredIndex;
+  int? focusedIndex;
   double _lastVibrateAngle = 0.0;
   DateTime _lastUpdateTime = DateTime.now();
   Color _currentColor = Colors.transparent;
   bool _isDragging = false;
+  bool _isAnimating = false;
+  List<Widget> particles = [];
 
   // Animation controllers
   late AnimationController spinController;
   late AnimationController pulseController;
   late AnimationController glowController;
+  late AnimationController selectionController;
+  late AnimationController scaleController;
   
   // Animations
   late Animation<double> spinAnimation = AlwaysStoppedAnimation(rotation);
   late Animation<double> pulseAnimation;
   late Animation<double> glowAnimation;
+  late Animation<double> selectionAnimation;
+  late Animation<double> scaleAnimation;
+
+  // Custom curves
+  final elasticCurve = ElasticInOutCurve();
 
   @override
   bool get wantKeepAlive => true;
@@ -123,12 +330,38 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
       parent: glowController,
       curve: Curves.easeInOut,
     ));
+
+    selectionController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    
+    selectionAnimation = CurvedAnimation(
+      parent: selectionController,
+      curve: Curves.easeOutBack,
+    );
+
+    scaleController = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+    
+    scaleAnimation = Tween<double>(
+      begin: 1.0,
+      end: dialScale,
+    ).animate(CurvedAnimation(
+      parent: scaleController,
+      curve: Curves.easeOutCubic,
+    ));
   }
 
   void _scheduleInitialAnimation() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        _animateSelectedToTop(0);
+        setState(() {
+          focusedIndex = 0;
+        });
+        _animateSelectedToTop(0, immediate: true);
       }
     });
   }
@@ -138,6 +371,8 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
     spinController.dispose();
     pulseController.dispose();
     glowController.dispose();
+    selectionController.dispose();
+    scaleController.dispose();
     super.dispose();
   }
 
@@ -158,6 +393,8 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
   }
 
   void _updateRotation(double delta) {
+    if (_isAnimating) return;
+    
     final now = DateTime.now();
     if (now.difference(_lastUpdateTime) < _updateThreshold) return;
     _lastUpdateTime = now;
@@ -169,14 +406,40 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
         _hapticFeedback(HapticType.light);
         _lastVibrateAngle = rotation;
       }
-      _updateFocusedColor();
+      _updateFocusedItem();
     });
   }
 
+  void _updateFocusedItem() {
+    final reordered = _getReordered();
+    if (reordered.isEmpty) return;
+    
+    final anglePerItem = (2 * pi / reordered.length);
+    final normalized = (rotation + pi / 2) % (2 * pi);
+    final index = (normalized / anglePerItem).round() % reordered.length;
+    
+    if (focusedIndex != index) {
+      setState(() {
+        focusedIndex = index;
+      });
+      _updateFocusedColor();
+    }
+  }
+
   void _startInertialSpin(double velocity) {
+    if (_isAnimating) return;
+    
+    // Check for momentum-based snapping
+    if (velocity.abs() < _snapVelocityThreshold) {
+      _snapToNearest();
+      return;
+    }
+    
     final duration = Duration(
       milliseconds: (velocity.abs() / _friction).clamp(_minSpinDuration, _maxSpinDuration).toInt()
     );
+
+    setState(() => _isAnimating = true);
 
     spinAnimation = Tween<double>(
       begin: rotation,
@@ -199,13 +462,14 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
     if (mounted) {
       setState(() {
         rotation = spinAnimation.value;
-        _updateFocusedColor();
+        _updateFocusedItem();
       });
     }
   }
 
   void _onSpinStatusChanged(AnimationStatus status) {
     if (status == AnimationStatus.completed && mounted) {
+      setState(() => _isAnimating = false);
       _snapToNearest();
     }
   }
@@ -215,48 +479,83 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
     final anglePerItem = (2 * pi / reordered.length);
     final normalized = (rotation + pi / 2) % (2 * pi);
     final index = (normalized / anglePerItem).round() % reordered.length;
-    _animateSelectedToTop(index);
-    _hapticFeedback(HapticType.medium);
+    _animateSelectedToTop(index, isSnap: true);
   }
 
-  void _animateSelectedToTop(int index) {
-    final anglePerItem = (2 * pi / widget.features.length);
-    final targetAngle = index * anglePerItem - pi / 2;
+  void _animateSelectedToTop(int index, {bool immediate = false, bool isSnap = false}) {
+    if (_isAnimating && !immediate) return;
     
-    double diff = targetAngle - rotation;
+    setState(() => _isAnimating = true);
+    
+    final anglePerItem = (2 * pi / widget.features.length);
+    final currentNormalized = rotation % (2 * pi);
+    final targetAngle = -index * anglePerItem + pi / 2;
+    
+    double diff = targetAngle - currentNormalized;
     while (diff > pi) diff -= 2 * pi;
     while (diff < -pi) diff += 2 * pi;
+    
     final finalAngle = rotation + diff;
+
+    final curve = immediate 
+        ? Curves.easeOut 
+        : (isSnap ? Curves.easeInOutCubic : elasticCurve);
+    
+    final duration = immediate 
+        ? 200 
+        : (isSnap ? _snapDuration ~/ 2 : _snapDuration);
 
     spinAnimation = Tween<double>(
       begin: rotation,
       end: finalAngle,
     ).animate(CurvedAnimation(
       parent: spinController,
-      curve: Curves.easeInOutCubic,
+      curve: curve,
     ));
 
     spinController
-      ..duration = Duration(milliseconds: _snapDuration)
+      ..duration = Duration(milliseconds: duration)
       ..reset()
       ..forward();
 
     spinAnimation.addListener(_onSpinUpdate);
+    spinAnimation.addStatusListener((status) {
+      if (status == AnimationStatus.completed && mounted) {
+        setState(() {
+          rotation = finalAngle;
+          _isAnimating = false;
+          focusedIndex = index;
+        });
+        _updateFocusedColor();
+        if (!isSnap) {
+          _hapticFeedback(HapticType.medium);
+        }
+      }
+    });
   }
 
   void _updateFocusedColor() {
     final reordered = _getReordered();
-    if (reordered.isEmpty) return;
+    if (reordered.isEmpty || focusedIndex == null) return;
     
-    final anglePerItem = (2 * pi / reordered.length);
-    final normalized = (rotation + pi / 2) % (2 * pi);
-    final index = (normalized / anglePerItem).round() % reordered.length;
-    final newColor = reordered[index].color;
+    final newColor = reordered[focusedIndex!].color;
     
     if (_currentColor != newColor) {
       _currentColor = newColor;
       widget.onFocusColorChanged?.call(newColor);
     }
+  }
+
+  double _calculateOptimalRadius(int itemCount) {
+    final size = MediaQuery.of(context).size;
+    final diameter = widget.size ?? size.width * 0.85;
+    final center = diameter / 2;
+    
+    final minRadius = center * 0.5;
+    final maxRadius = center * 0.8;
+    final factor = min(1.0, itemCount / 8.0);
+    
+    return minRadius + (maxRadius - minRadius) * factor;
   }
 
   List<FeatureIconData> _getReordered() {
@@ -270,54 +569,172 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
     }
   }
 
+  void _showParticles(Offset position, Color color) {
+    if (!widget.enableParticles) return;
+    
+    final particle = ParticleSystem(
+      position: position,
+      color: color,
+      count: 10,
+      onComplete: () {
+        setState(() {
+          particles.removeWhere((p) => (p as ParticleSystem).position == position);
+        });
+      },
+    );
+    
+    setState(() {
+      particles.add(particle);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
     final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
     final size = MediaQuery.of(context).size;
     final diameter = widget.size ?? size.width * 0.85;
     final center = diameter / 2;
-    final radius = center - _radiusOffset;
 
     final reordered = _getReordered();
     if (reordered.isEmpty) {
       return const SizedBox.shrink();
     }
 
+    final radius = _calculateOptimalRadius(reordered.length);
+
     return Center(
-      child: GestureDetector(
-        onPanStart: (_) => _onPanStart(),
-        onPanUpdate: (details) => _onPanUpdate(details),
-        onPanEnd: (_) => _onPanEnd(),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            _buildBackgroundGradient(diameter),
-            _buildParallaxWatermark(reordered),
-            _buildMainDial(diameter, center, radius, reordered, theme),
-          ],
+      child: Stack(
+        children: [
+          GestureDetector(
+            onPanStart: (_) => _onPanStart(),
+            onPanUpdate: (details) => _onPanUpdate(details),
+            onPanEnd: (_) => _onPanEnd(),
+            onDoubleTap: () => _onDoubleTap(),
+            onScaleUpdate: (details) => _onScaleUpdate(details),
+            onScaleEnd: (_) => _onScaleEnd(),
+            child: AnimatedBuilder(
+              animation: scaleAnimation,
+              builder: (context, child) {
+                return Transform.scale(
+                  scale: scaleAnimation.value,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      _buildBackgroundGradient(diameter, isDarkMode),
+                      _buildParallaxWatermark(reordered),
+                      _buildMainDial(diameter, center, radius, reordered, theme, isDarkMode),
+                      _buildTopIndicator(theme, isDarkMode),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+          ...particles,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTopIndicator(ThemeData theme, bool isDarkMode) {
+    final glowIntensity = isDarkMode ? 0.6 : 0.3;
+    
+    return Positioned(
+      top: 20,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 300),
+        opacity: _isAnimating ? 1.0 : 0.7,
+        child: Container(
+          width: 40,
+          height: 4,
+          decoration: BoxDecoration(
+            color: _currentColor,
+            borderRadius: BorderRadius.circular(2),
+            boxShadow: [
+              BoxShadow(
+                color: _currentColor.withValues(alpha: glowIntensity),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
   void _onPanStart() {
+    if (_isAnimating) return;
+    
     spinController.stop();
     _lastVibrateAngle = rotation;
     setState(() => _isDragging = true);
   }
 
   void _onPanUpdate(DragUpdateDetails details) {
+    if (_isAnimating) return;
+    
     _updateRotation(details.delta.dx / _rotationSensitivity);
     velocity = details.delta.dx / _velocityDamping;
   }
 
   void _onPanEnd() {
     setState(() => _isDragging = false);
-    _startInertialSpin(velocity);
+    if (!_isAnimating) {
+      _startInertialSpin(velocity);
+    }
   }
 
-  Widget _buildBackgroundGradient(double diameter) {
+  void _onDoubleTap() {
+    if (focusedIndex != null) {
+      _animateSelectedToTop(focusedIndex!, immediate: true);
+      _hapticFeedback(HapticType.medium);
+    }
+  }
+
+  void _onScaleUpdate(ScaleUpdateDetails details) {
+    setState(() {
+      dialScale = details.scale.clamp(0.8, 1.2);
+    });
+    
+    scaleAnimation = Tween<double>(
+      begin: scaleAnimation.value,
+      end: dialScale,
+    ).animate(CurvedAnimation(
+      parent: scaleController,
+      curve: Curves.easeOutCubic,
+    ));
+    
+    scaleController
+      ..duration = const Duration(milliseconds: 100)
+      ..reset()
+      ..forward();
+  }
+
+  void _onScaleEnd() {
+    scaleAnimation = Tween<double>(
+      begin: dialScale,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: scaleController,
+      curve: Curves.elasticOut,
+    ));
+    
+    scaleController
+      ..duration = const Duration(milliseconds: 500)
+      ..reset()
+      ..forward();
+    
+    setState(() {
+      dialScale = 1.0;
+    });
+  }
+
+  Widget _buildBackgroundGradient(double diameter, bool isDarkMode) {
+    final glowIntensity = isDarkMode ? 0.08 : 0.05;
+    
     return AnimatedContainer(
       duration: const Duration(milliseconds: 800),
       curve: Curves.easeInOut,
@@ -325,7 +742,7 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
         shape: BoxShape.circle,
         gradient: RadialGradient(
           colors: [
-            _currentColor.withValues(alpha: 0.05),
+            _currentColor.withValues(alpha: glowIntensity),
             Colors.transparent,
           ],
           radius: 1.5,
@@ -337,21 +754,29 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
   }
 
   Widget _buildParallaxWatermark(List<FeatureIconData> reordered) {
+    if (focusedIndex == null || focusedIndex! >= reordered.length) {
+      return const SizedBox.shrink();
+    }
+    
     return Positioned(
       bottom: _watermarkBottom,
-      child: Transform.translate(
-        offset: Offset(rotation * _parallaxMultiplier, 0),
-        child: Icon(
-          reordered[(rotation.round().abs()) % reordered.length].icon,
-          size: _watermarkSize,
-          color: _currentColor.withValues(alpha: 0.08),
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 400),
+        child: Transform.translate(
+          key: ValueKey(focusedIndex),
+          offset: Offset(rotation * _parallaxMultiplier, 0),
+          child: Icon(
+            reordered[focusedIndex!].icon,
+            size: _watermarkSize,
+            color: _currentColor.withValues(alpha: 0.08),
+          ),
         ),
       ),
     );
   }
 
   Widget _buildMainDial(double diameter, double center, double radius, 
-      List<FeatureIconData> reordered, ThemeData theme) {
+      List<FeatureIconData> reordered, ThemeData theme, bool isDarkMode) {
     return SizedBox(
       height: diameter,
       width: diameter,
@@ -364,66 +789,119 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
             child: const HeartbeatLogo(),
           ),
           ...List.generate(reordered.length, (i) => 
-            _buildFeatureItem(i, reordered, radius, center, theme)),
+            _buildFeatureItem(i, reordered, radius, center, theme, isDarkMode)),
         ],
       ),
     );
   }
 
   Widget _buildFeatureItem(int index, List<FeatureIconData> reordered, 
-      double radius, double center, ThemeData theme) {
+      double radius, double center, ThemeData theme, bool isDarkMode) {
     final angle = (2 * pi / reordered.length) * index - pi / 2 + rotation;
     final x = radius * cos(angle);
     final y = radius * sin(angle);
     final isSelected = index == selectedIndex;
     final isHovered = index == hoveredIndex;
+    final isFocused = index == focusedIndex;
     final feature = reordered[index];
+
+    final normalizedAngle = (angle + pi / 2) % (2 * pi);
+    final distanceFromTop = min(normalizedAngle, 2 * pi - normalizedAngle);
+    final scaleFactor = 1.0 + (0.15 * (1 - distanceFromTop / pi));
+
+    final itemWidget = MouseRegion(
+      onEnter: (_) => setState(() => hoveredIndex = index),
+      onExit: (_) => setState(() => hoveredIndex = null),
+      child: GestureDetector(
+        onTap: () => _onFeatureTap(index, feature, Offset(center + x, center + y)),
+        onLongPress: () => _onLongPress(feature),
+        onDoubleTap: () => _onItemDoubleTap(index),
+        child: Transform.scale(
+          scale: isFocused ? scaleFactor : 1.0,
+          child: _buildFeatureContent(
+            feature, 
+            isSelected, 
+            isHovered, 
+            isFocused,
+            theme,
+            isDarkMode,
+          ),
+        ),
+      ),
+    );
 
     return Positioned(
       left: center + x - _itemCenterOffset,
       top: center + y - _itemCenterOffset,
-      child: MouseRegion(
-        onEnter: (_) => setState(() => hoveredIndex = index),
-        onExit: (_) => setState(() => hoveredIndex = null),
-        child: GestureDetector(
-          onTap: () => _onFeatureTap(index, feature),
-          child: _buildFeatureContent(feature, isSelected, isHovered, theme),
-        ),
-      ),
+      child: widget.enableAccessibility
+          ? Semantics(
+              button: true,
+              label: '${feature.label}${isFocused ? ", currently selected" : ""}${feature.badge != null ? ", ${feature.badge} notifications" : ""}',
+              hint: 'Double tap to select and rotate to top',
+              child: itemWidget,
+            )
+          : itemWidget,
     );
   }
 
-  void _onFeatureTap(int index, FeatureIconData feature) {
-    setState(() => selectedIndex = index);
-    _hapticFeedback(HapticType.selection);
-    _animateSelectedToTop(index);
-    Future.delayed(Duration(milliseconds: _snapDuration), () {
-      if (mounted) {
-        feature.onTap(context);
-      }
+  void _onFeatureTap(int index, FeatureIconData feature, Offset position) {
+    if (_isAnimating) return;
+    
+    setState(() {
+      selectedIndex = index;
     });
+    
+    selectionController.forward().then((_) {
+      selectionController.reverse();
+    });
+    
+    _hapticFeedback(HapticType.selection);
+    _showParticles(position, feature.color);
+    
+    feature.onTap(context);
+    
+    if (widget.autoRotateToTop) {
+      _animateSelectedToTop(index);
+    }
+  }
+
+  void _onLongPress(FeatureIconData feature) {
+    _hapticFeedback(HapticType.medium);
+    showDialog(
+      context: context,
+      builder: (_) => FeaturePreviewDialog(feature: feature),
+    );
+  }
+
+  void _onItemDoubleTap(int index) {
+    _animateSelectedToTop(index, immediate: true);
+    _hapticFeedback(HapticType.medium);
   }
 
   Widget _buildFeatureContent(FeatureIconData feature, bool isSelected, 
-      bool isHovered, ThemeData theme) {
+      bool isHovered, bool isFocused, ThemeData theme, bool isDarkMode) {
     return AnimatedBuilder(
-      animation: Listenable.merge([pulseAnimation, glowAnimation]),
+      animation: Listenable.merge([pulseAnimation, glowAnimation, selectionAnimation]),
       builder: (context, child) {
+        final scale = isSelected 
+            ? pulseAnimation.value * (1 + selectionAnimation.value * 0.2)
+            : (isHovered ? 1.1 : 1.0);
+            
         return AnimatedContainer(
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeOutBack,
-          transform: Matrix4.identity()
-            ..scale(isSelected ? pulseAnimation.value : (isHovered ? 1.1 : 1.0)),
+          transform: Matrix4.identity()..scale(scale),
           child: Stack(
             alignment: Alignment.center,
             children: [
-              if (feature.hasNew) _buildGlowEffect(feature),
+              if (feature.hasNew || isFocused) 
+                _buildGlowEffect(feature, isFocused, isDarkMode),
               Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _buildIconContainer(feature, isSelected, theme),
+                  _buildIconContainer(feature, isSelected, isFocused, theme, isDarkMode),
                   const SizedBox(height: 8),
-                  _buildLabel(feature, isSelected, theme),
+                  _buildLabel(feature, isSelected, isFocused, theme),
                 ],
               ),
             ],
@@ -433,10 +911,12 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
     );
   }
 
-  Widget _buildGlowEffect(FeatureIconData feature) {
+  Widget _buildGlowEffect(FeatureIconData feature, bool isFocused, bool isDarkMode) {
+    final glowIntensity = isDarkMode ? 0.6 : 0.4;
+    
     return AnimatedOpacity(
       duration: const Duration(milliseconds: 300),
-      opacity: glowAnimation.value,
+      opacity: isFocused ? 0.8 : glowAnimation.value,
       child: Container(
         width: _glowSize,
         height: _glowSize,
@@ -444,7 +924,7 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
           shape: BoxShape.circle,
           gradient: RadialGradient(
             colors: [
-              feature.color.withValues(alpha: 0.4),
+              feature.color.withValues(alpha: isFocused ? glowIntensity : glowIntensity * 0.8),
               feature.color.withValues(alpha: 0.0),
             ],
           ),
@@ -453,34 +933,41 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
     );
   }
 
-  Widget _buildIconContainer(FeatureIconData feature, bool isSelected, ThemeData theme) {
+  Widget _buildIconContainer(FeatureIconData feature, bool isSelected, 
+      bool isFocused, ThemeData theme, bool isDarkMode) {
+    final shadowOpacity = isDarkMode ? 0.4 : 0.2;
+    
     return Stack(
       children: [
         AnimatedContainer(
           duration: const Duration(milliseconds: 300),
-          width: isSelected ? _selectedIconSize : _iconSize,
-          height: isSelected ? _selectedIconSize : _iconSize,
+          width: isSelected || isFocused ? _selectedIconSize : _iconSize,
+          height: isSelected || isFocused ? _selectedIconSize : _iconSize,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: theme.colorScheme.surface,
             boxShadow: [
               BoxShadow(
-                color: feature.color.withValues(alpha: isSelected ? 0.3 : 0.15),
-                blurRadius: isSelected ? 12 : 8,
+                color: feature.color.withValues(
+                  alpha: (isSelected || isFocused) ? shadowOpacity : shadowOpacity * 0.75
+                ),
+                blurRadius: isSelected || isFocused ? 12 : 8,
                 offset: const Offset(0, 4),
               ),
             ],
             border: Border.all(
-              color: isSelected 
+              color: isSelected || isFocused
                 ? feature.color 
                 : theme.colorScheme.outline.withValues(alpha: 0.2),
-              width: isSelected ? 2 : 1,
+              width: isSelected || isFocused ? 2 : 1,
             ),
           ),
           child: Icon(
             feature.icon,
-            size: isSelected ? _iconSizeLarge : _iconSizeSmall,
-            color: isSelected ? feature.color : theme.colorScheme.primary,
+            size: isSelected || isFocused ? _iconSizeLarge : _iconSizeSmall,
+            color: isSelected || isFocused 
+                ? feature.color 
+                : theme.colorScheme.primary,
           ),
         ),
         if (feature.badge != null) _buildBadge(feature.badge!, theme),
@@ -519,13 +1006,14 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
     );
   }
 
-  Widget _buildLabel(FeatureIconData feature, bool isSelected, ThemeData theme) {
+  Widget _buildLabel(FeatureIconData feature, bool isSelected, 
+      bool isFocused, ThemeData theme) {
     return AnimatedDefaultTextStyle(
       duration: const Duration(milliseconds: 200),
       style: theme.textTheme.bodySmall!.copyWith(
-        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-        color: isSelected ? feature.color : theme.colorScheme.onSurface,
-        fontSize: isSelected ? 13 : 12,
+        fontWeight: isSelected || isFocused ? FontWeight.bold : FontWeight.w500,
+        color: isSelected || isFocused ? feature.color : theme.colorScheme.onSurface,
+        fontSize: isSelected || isFocused ? 13 : 12,
       ),
       child: Text(
         feature.label,

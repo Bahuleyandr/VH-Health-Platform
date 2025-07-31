@@ -63,25 +63,127 @@ List<Widget> buildSettingsSections(SettingsController c) {
 
     _sectionTitle(c.loc.settingsTheme.toUpperCase()),
     _card(
-      SwitchListTile(
-  value: c.tp.isDarkMode,
-  onChanged: (value) {
-    // Defer theme change to next frame
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      c.toggleTheme(value);
-    });
-  },
-  title: Text(c.loc.settingsTheme, style: txt.titleMedium),
-  subtitle: Text(
-    c.tp.isDarkMode ? c.loc.settingsDarkTheme : c.loc.settingsLightTheme,
-    style: txt.bodySmall,
-  ),
-  secondary: Icon(
-    c.tp.isDarkMode ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
-    color: cs.primary,
-  ),
-  activeColor: cs.primary,
-),
+      Column(
+        children: [
+          // Dark Mode Toggle
+          SwitchListTile(
+            value: c.tp.isDarkMode,
+            onChanged: (value) {
+              // Defer theme change to next frame
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                c.toggleTheme(value);
+              });
+            },
+            title: Text(c.loc.settingsTheme, style: txt.titleMedium),
+            subtitle: Text(
+              c.tp.isDarkMode ? c.loc.settingsDarkTheme : c.loc.settingsLightTheme,
+              style: txt.bodySmall,
+            ),
+            secondary: Icon(
+              c.tp.isDarkMode ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
+              color: cs.primary,
+            ),
+            activeColor: cs.primary,
+          ),
+          
+          const Divider(height: 1),
+          
+          // Dynamic Colors Toggle
+          SwitchListTile(
+            value: c.tp.enableDynamicColors,
+            onChanged: (value) {
+              c.tp.toggleDynamicColors();
+            },
+            title: Text(
+              c.loc.settingsDynamicColors,
+              style: txt.titleMedium,
+            ),
+            subtitle: Text(
+              c.loc.settingsDynamicColorsDesc,
+              style: txt.bodySmall,
+            ),
+            secondary: Icon(
+              Icons.palette_outlined,
+              color: cs.primary,
+            ),
+            activeColor: cs.primary,
+          ),
+          
+          // Current Color Preview
+          if (c.tp.enableDynamicColors && c.tp.dynamicAccentColor != null) ...[
+            const Divider(height: 1),
+            ListTile(
+              leading: Icon(Icons.color_lens_outlined, color: cs.primary),
+              title: Text(c.loc.settingsCurrentAccentColor, style: txt.titleMedium),
+              subtitle: Text(
+                c.loc.settingsAccentColorDesc,
+                style: txt.bodySmall,
+              ),
+              trailing: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: c.tp.dynamicAccentColor,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: cs.outline.withAlpha(128),
+                    width: 2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: c.tp.dynamicAccentColor!.withAlpha(76),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+          
+          // Reset Theme Button
+          const Divider(height: 1),
+          ListTile(
+            leading: Icon(Icons.restore_outlined, color: cs.primary),
+            title: Text(c.loc.settingsResetTheme, style: txt.titleMedium),
+            subtitle: Text(
+              c.loc.settingsResetThemeDesc,
+              style: txt.bodySmall,
+            ),
+            onTap: () async {
+              final confirmed = await showDialog<bool>(
+                context: c.context,
+                builder: (ctx) => AlertDialog(
+                  title: Text(c.loc.settingsResetTheme),
+                  content: Text(c.loc.settingsResetThemeConfirm),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      child: Text(c.loc.commonCancelButton),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.of(ctx).pop(true),
+                      child: Text(c.loc.commonResetButton ?? 'Reset'),
+                    ),
+                  ],
+                ),
+              );
+              
+              if (confirmed == true) {
+                await c.tp.resetToDefaults();
+                if (c.context.mounted) {
+                  ScaffoldMessenger.of(c.context).showSnackBar(
+                    SnackBar(
+                      content: Text(c.loc.settingsThemeResetSuccess ?? 'Theme settings reset to defaults'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              }
+            },
+          ),
+        ],
+      ),
     ),
     const SizedBox(height: 16),
 

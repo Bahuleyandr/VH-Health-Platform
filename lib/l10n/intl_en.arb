@@ -462,6 +462,43 @@
 "@settingsPermissionGranted": { "description": "Label showing permission is granted" },
 "settingsPermissionDenied": "Denied",
 "@settingsPermissionDenied": { "description": "Label showing permission is denied" },
+{
+  "settingsDynamicColors": "Dynamic Theme Colors",
+  "@settingsDynamicColors": {
+    "description": "Label for the dynamic theme colors option"
+  },
+  "settingsDynamicColorsDesc": "Update app colors based on selected feature",
+  "@settingsDynamicColorsDesc": {
+    "description": "Description for the dynamic colors feature"
+  },
+  "settingsCurrentAccentColor": "Current Accent Color",
+  "@settingsCurrentAccentColor": {
+    "description": "Label for the current accent color display"
+  },
+  "settingsAccentColorDesc": "Applied from circular dial",
+  "@settingsAccentColorDesc": {
+    "description": "Description explaining where the accent color is applied from"
+  },
+  "settingsResetTheme": "Reset Theme Settings",
+  "@settingsResetTheme": {
+    "description": "Label for the option to reset theme settings"
+  },
+  "settingsResetThemeDesc": "Restore default theme configuration",
+  "@settingsResetThemeDesc": {
+    "description": "Description for the reset theme option"
+  },
+  "settingsResetThemeConfirm": "This will reset theme mode, font size, and dynamic colors to defaults.",
+  "@settingsResetThemeConfirm": {
+    "description": "Confirmation message shown when user taps the reset theme option"
+  },
+  "settingsThemeResetSuccess": "Theme settings reset to defaults",
+  "@settingsThemeResetSuccess": {
+    "description": "Snackbar message shown after theme settings have been reset"
+  },
+  "commonResetButton": "Reset",
+  "@commonResetButton": {
+    "description": "Generic label for a reset button"
+  },
   "refreshCalendar": "Refresh events",
   "@refreshCalendar": { "description": "Tooltip on refresh icon" },
   "calendarLoadFailed": "Unable to load calendar events.",

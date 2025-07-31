@@ -470,6 +470,43 @@
 "@settingsPermissionGranted": { "description": "अनुमति दी गई है यह दिखाने वाला लेबल" },
 "settingsPermissionDenied": "अस्वीकृत",
 "@settingsPermissionDenied": { "description": "अनुमति अस्वीकार कर दी गई है यह दिखाने वाला लेबल" },
+{
+  "settingsDynamicColors": "डायनामिक थीम रंग",
+  "@settingsDynamicColors": {
+    "description": "Label for the dynamic theme colors option"
+  },
+  "settingsDynamicColorsDesc": "चयनित सुविधा के आधार पर ऐप के रंग अपडेट करें",
+  "@settingsDynamicColorsDesc": {
+    "description": "Description for the dynamic colors feature"
+  },
+  "settingsCurrentAccentColor": "वर्तमान एक्सेंट रंग",
+  "@settingsCurrentAccentColor": {
+    "description": "Label for the current accent color display"
+  },
+  "settingsAccentColorDesc": "सर्कुलर डायल से लागू किया गया",
+  "@settingsAccentColorDesc": {
+    "description": "Description explaining where the accent color is applied from"
+  },
+  "settingsResetTheme": "थीम सेटिंग्स रीसेट करें",
+  "@settingsResetTheme": {
+    "description": "Label for the option to reset theme settings"
+  },
+  "settingsResetThemeDesc": "डिफ़ॉल्ट थीम कॉन्फ़िगरेशन पुनर्स्थापित करें",
+  "@settingsResetThemeDesc": {
+    "description": "Description for the reset theme option"
+  },
+  "settingsResetThemeConfirm": "यह थीम मोड, फ़ॉन्ट आकार और डायनामिक रंगों को डिफ़ॉल्ट पर रीसेट कर देगा।",
+  "@settingsResetThemeConfirm": {
+    "description": "Confirmation message shown when user taps the reset theme option"
+  },
+  "settingsThemeResetSuccess": "थीम सेटिंग्स डिफ़ॉल्ट पर रीसेट हो गईं",
+  "@settingsThemeResetSuccess": {
+    "description": "Snackbar message shown after theme settings have been reset"
+  },
+  "commonResetButton": "रीसेट",
+  "@commonResetButton": {
+    "description": "Generic label for a reset button"
+  },
   "refreshCalendar": "ईवेंट ताज़ा करें",
   "@refreshCalendar": { "description": "ताज़ा करें आइकन पर टूलटिप" },
   "calendarLoadFailed": "कैलेंडर ईवेंट लोड करने में असमर्थ।",

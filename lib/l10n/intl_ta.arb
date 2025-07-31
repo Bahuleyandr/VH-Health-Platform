@@ -469,6 +469,43 @@
 "@settingsPermissionGranted": { "description": "அனுமதி வழங்கப்பட்டதைக் காட்டும் லேபிள்" },
 "settingsPermissionDenied": "மறுக்கப்பட்டது",
 "@settingsPermissionDenied": { "description": "அனுமதி மறுக்கப்பட்டதைக் காட்டும் லேபிள்" },
+{
+  "settingsDynamicColors": "டைனமிக் தீம் நிறங்கள்",
+  "@settingsDynamicColors": {
+    "description": "Label for the dynamic theme colors option"
+  },
+  "settingsDynamicColorsDesc": "தேர்ந்தெடுக்கப்பட்ட அம்சத்தின் அடிப்படையில் பயன்பாட்டு நிறங்களைப் புதுப்பிக்கவும்",
+  "@settingsDynamicColorsDesc": {
+    "description": "Description for the dynamic colors feature"
+  },
+  "settingsCurrentAccentColor": "தற்போதைய ஆக்சென்ட் நிறம்",
+  "@settingsCurrentAccentColor": {
+    "description": "Label for the current accent color display"
+  },
+  "settingsAccentColorDesc": "வட்டவடிவ டயலில் இருந்து பயன்படுத்தப்பட்டது",
+  "@settingsAccentColorDesc": {
+    "description": "Description explaining where the accent color is applied from"
+  },
+  "settingsResetTheme": "தீம் அமைப்புகளை மீட்டமை",
+  "@settingsResetTheme": {
+    "description": "Label for the option to reset theme settings"
+  },
+  "settingsResetThemeDesc": "இயல்புநிலை தீம் உள்ளமைவை மீட்டெடு",
+  "@settingsResetThemeDesc": {
+    "description": "Description for the reset theme option"
+  },
+  "settingsResetThemeConfirm": "இது தீம் மோடு, எழுத்துரு அளவு மற்றும் டைனமிக் நிறங்களை இயல்புநிலைகளுக்கு மீட்டமைக்கும்.",
+  "@settingsResetThemeConfirm": {
+    "description": "Confirmation message shown when user taps the reset theme option"
+  },
+  "settingsThemeResetSuccess": "தீம் அமைப்புகள் இயல்புநிலைகளுக்கு மீட்டமைக்கப்பட்டன",
+  "@settingsThemeResetSuccess": {
+    "description": "Snackbar message shown after theme settings have been reset"
+  },
+  "commonResetButton": "மீட்டமை",
+  "@commonResetButton": {
+    "description": "Generic label for a reset button"
+  },
   "refreshCalendar": "நிகழ்வுகளைப் புதுப்பிக்கவும்",
   "@refreshCalendar": { "description": "புதுப்பிப்பு ஐகானில் உள்ள உதவிக்குறிப்பு" },
   "calendarLoadFailed": "நாட்காட்டி நிகழ்வுகளை ஏற்ற முடியவில்லை.",

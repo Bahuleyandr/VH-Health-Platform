@@ -470,6 +470,43 @@
 "@settingsPermissionGranted": { "description": "അനുമതി നൽകിയിട്ടുണ്ടെന്ന് കാണിക്കുന്ന ലേബൽ" },
 "settingsPermissionDenied": "നിരസിച്ചു",
 "@settingsPermissionDenied": { "description": "അനുമതി നിഷേധിച്ചുവെന്ന് കാണിക്കുന്ന ലേബൽ" },
+{
+  "settingsDynamicColors": "ഡൈനാമിക് തീം നിറങ്ങൾ",
+  "@settingsDynamicColors": {
+    "description": "Label for the dynamic theme colors option"
+  },
+  "settingsDynamicColorsDesc": "തിരഞ്ഞെടുത്ത ഫീച്ചറിനെ അടിസ്ഥാനമാക്കി ആപ്പ് നിറങ്ങൾ അപ്ഡേറ്റ് ചെയ്യുക",
+  "@settingsDynamicColorsDesc": {
+    "description": "Description for the dynamic colors feature"
+  },
+  "settingsCurrentAccentColor": "നിലവിലെ ആക്സന്റ് നിറം",
+  "@settingsCurrentAccentColor": {
+    "description": "Label for the current accent color display"
+  },
+  "settingsAccentColorDesc": "വൃത്താകൃതിയിലുള്ള ഡയലിൽ നിന്ന് പ്രയോഗിച്ചു",
+  "@settingsAccentColorDesc": {
+    "description": "Description explaining where the accent color is applied from"
+  },
+  "settingsResetTheme": "തീം ക്രമീകരണങ്ങൾ പുനഃസജ്ജമാക്കുക",
+  "@settingsResetTheme": {
+    "description": "Label for the option to reset theme settings"
+  },
+  "settingsResetThemeDesc": "ഡിഫോൾട്ട് തീം കോൺഫിഗറേഷൻ പുനഃസ്ഥാപിക്കുക",
+  "@settingsResetThemeDesc": {
+    "description": "Description for the reset theme option"
+  },
+  "settingsResetThemeConfirm": "ഇത് തീം മോഡ്, ഫോണ്ട് വലുപ്പം, ഡൈനാമിക് നിറങ്ങൾ എന്നിവ ഡിഫോൾട്ടുകളിലേക്ക് പുനഃസജ്ജമാക്കും.",
+  "@settingsResetThemeConfirm": {
+    "description": "Confirmation message shown when user taps the reset theme option"
+  },
+  "settingsThemeResetSuccess": "തീം ക്രമീകരണങ്ങൾ ഡിഫോൾട്ടിലേക്ക് പുനഃസജ്ജമാക്കി",
+  "@settingsThemeResetSuccess": {
+    "description": "Snackbar message shown after theme settings have been reset"
+  },
+  "commonResetButton": "പുനഃസജ്ജമാക്കുക",
+  "@commonResetButton": {
+    "description": "Generic label for a reset button"
+  },
   "refreshCalendar": "ഇവന്റുകൾ പുതുക്കുക",
   "@refreshCalendar": { "description": "പുതുക്കുക ഐക്കണിലെ ടൂൾടിപ്പ്" },
   "calendarLoadFailed": "കലണ്ടർ ഇവന്റുകൾ ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല.",

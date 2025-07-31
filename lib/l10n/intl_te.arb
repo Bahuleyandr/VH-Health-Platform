@@ -470,6 +470,43 @@
 "@settingsPermissionGranted": { "description": "అనుమతి మంజూరు చేయబడినట్లు చూపే లేబుల్" },
 "settingsPermissionDenied": "నిరాకరించబడింది",
 "@settingsPermissionDenied": { "description": "అనుమతి నిరాకరించబడినట్లు చూపే లేబుల్" },
+{
+  "settingsDynamicColors": "డైనమిక్ థీమ్ రంగులు",
+  "@settingsDynamicColors": {
+    "description": "Label for the dynamic theme colors option"
+  },
+  "settingsDynamicColorsDesc": "ఎంచుకున్న ఫీచర్ ఆధారంగా యాప్ రంగులను అప్‌డేట్ చేయండి",
+  "@settingsDynamicColorsDesc": {
+    "description": "Description for the dynamic colors feature"
+  },
+  "settingsCurrentAccentColor": "ప్రస్తుత యాస రంగు",
+  "@settingsCurrentAccentColor": {
+    "description": "Label for the current accent color display"
+  },
+  "settingsAccentColorDesc": "వృత్తాకార డయల్ నుండి వర్తించబడింది",
+  "@settingsAccentColorDesc": {
+    "description": "Description explaining where the accent color is applied from"
+  },
+  "settingsResetTheme": "థీమ్ సెట్టింగ్‌లను రీసెట్ చేయండి",
+  "@settingsResetTheme": {
+    "description": "Label for the option to reset theme settings"
+  },
+  "settingsResetThemeDesc": "డిఫాల్ట్ థీమ్ కాన్ఫిగరేషన్‌ను పునరుద్ధరించండి",
+  "@settingsResetThemeDesc": {
+    "description": "Description for the reset theme option"
+  },
+  "settingsResetThemeConfirm": "ఇది థీమ్ మోడ్, ఫాంట్ పరిమాణం మరియు డైనమిక్ రంగులను డిఫాల్ట్‌లకు రీసెట్ చేస్తుంది.",
+  "@settingsResetThemeConfirm": {
+    "description": "Confirmation message shown when user taps the reset theme option"
+  },
+  "settingsThemeResetSuccess": "థీమ్ సెట్టింగ్‌లు డిఫాల్ట్‌లకు రీసెట్ చేయబడ్డాయి",
+  "@settingsThemeResetSuccess": {
+    "description": "Snackbar message shown after theme settings have been reset"
+  },
+  "commonResetButton": "రీసెట్ చేయండి",
+  "@commonResetButton": {
+    "description": "Generic label for a reset button"
+  },
   "refreshCalendar": "ఈవెంట్‌లను రిఫ్రెష్ చేయండి",
   "@refreshCalendar": { "description": "రిఫ్రెష్ ఐకాన్‌పై టూల్‌టిప్" },
   "calendarLoadFailed": "క్యాలెండర్ ఈవెంట్‌లను లోడ్ చేయలేకపోయింది.",
