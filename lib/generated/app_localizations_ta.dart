@@ -707,6 +707,37 @@ class AppLocalizationsTa extends AppLocalizations {
   String get settingsPermissionDenied => 'மறுக்கப்பட்டது';
 
   @override
+  String get settingsDynamicColors => 'டைனமிக் தீம் நிறங்கள்';
+
+  @override
+  String get settingsDynamicColorsDesc =>
+      'தேர்ந்தெடுக்கப்பட்ட அம்சத்தின் அடிப்படையில் பயன்பாட்டு நிறங்களைப் புதுப்பிக்கவும்';
+
+  @override
+  String get settingsCurrentAccentColor => 'தற்போதைய ஆக்சென்ட் நிறம்';
+
+  @override
+  String get settingsAccentColorDesc =>
+      'வட்டவடிவ டயலில் இருந்து பயன்படுத்தப்பட்டது';
+
+  @override
+  String get settingsResetTheme => 'தீம் அமைப்புகளை மீட்டமை';
+
+  @override
+  String get settingsResetThemeDesc => 'இயல்புநிலை தீம் உள்ளமைவை மீட்டெடு';
+
+  @override
+  String get settingsResetThemeConfirm =>
+      'இது தீம் மோடு, எழுத்துரு அளவு மற்றும் டைனமிக் நிறங்களை இயல்புநிலைகளுக்கு மீட்டமைக்கும்.';
+
+  @override
+  String get settingsThemeResetSuccess =>
+      'தீம் அமைப்புகள் இயல்புநிலைகளுக்கு மீட்டமைக்கப்பட்டன';
+
+  @override
+  String get commonResetButton => 'மீட்டமை';
+
+  @override
   String get refreshCalendar => 'நிகழ்வுகளைப் புதுப்பிக்கவும்';
 
   @override

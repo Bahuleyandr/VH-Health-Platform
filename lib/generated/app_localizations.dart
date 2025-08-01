@@ -1394,6 +1394,60 @@ abstract class AppLocalizations {
   /// **'Denied'**
   String get settingsPermissionDenied;
 
+  /// Label for the dynamic theme colors option
+  ///
+  /// In en, this message translates to:
+  /// **'Dynamic Theme Colors'**
+  String get settingsDynamicColors;
+
+  /// Description for the dynamic colors feature
+  ///
+  /// In en, this message translates to:
+  /// **'Update app colors based on selected feature'**
+  String get settingsDynamicColorsDesc;
+
+  /// Label for the current accent color display
+  ///
+  /// In en, this message translates to:
+  /// **'Current Accent Color'**
+  String get settingsCurrentAccentColor;
+
+  /// Description explaining where the accent color is applied from
+  ///
+  /// In en, this message translates to:
+  /// **'Applied from circular dial'**
+  String get settingsAccentColorDesc;
+
+  /// Label for the option to reset theme settings
+  ///
+  /// In en, this message translates to:
+  /// **'Reset Theme Settings'**
+  String get settingsResetTheme;
+
+  /// Description for the reset theme option
+  ///
+  /// In en, this message translates to:
+  /// **'Restore default theme configuration'**
+  String get settingsResetThemeDesc;
+
+  /// Confirmation message shown when user taps the reset theme option
+  ///
+  /// In en, this message translates to:
+  /// **'This will reset theme mode, font size, and dynamic colors to defaults.'**
+  String get settingsResetThemeConfirm;
+
+  /// Snackbar message shown after theme settings have been reset
+  ///
+  /// In en, this message translates to:
+  /// **'Theme settings reset to defaults'**
+  String get settingsThemeResetSuccess;
+
+  /// Generic label for a reset button
+  ///
+  /// In en, this message translates to:
+  /// **'Reset'**
+  String get commonResetButton;
+
   /// Tooltip on refresh icon
   ///
   /// In en, this message translates to:

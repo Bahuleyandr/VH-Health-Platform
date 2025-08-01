@@ -701,6 +701,37 @@ class AppLocalizationsTe extends AppLocalizations {
   String get settingsPermissionDenied => 'నిరాకరించబడింది';
 
   @override
+  String get settingsDynamicColors => 'డైనమిక్ థీమ్ రంగులు';
+
+  @override
+  String get settingsDynamicColorsDesc =>
+      'ఎంచుకున్న ఫీచర్ ఆధారంగా యాప్ రంగులను అప్‌డేట్ చేయండి';
+
+  @override
+  String get settingsCurrentAccentColor => 'ప్రస్తుత యాస రంగు';
+
+  @override
+  String get settingsAccentColorDesc => 'వృత్తాకార డయల్ నుండి వర్తించబడింది';
+
+  @override
+  String get settingsResetTheme => 'థీమ్ సెట్టింగ్‌లను రీసెట్ చేయండి';
+
+  @override
+  String get settingsResetThemeDesc =>
+      'డిఫాల్ట్ థీమ్ కాన్ఫిగరేషన్‌ను పునరుద్ధరించండి';
+
+  @override
+  String get settingsResetThemeConfirm =>
+      'ఇది థీమ్ మోడ్, ఫాంట్ పరిమాణం మరియు డైనమిక్ రంగులను డిఫాల్ట్‌లకు రీసెట్ చేస్తుంది.';
+
+  @override
+  String get settingsThemeResetSuccess =>
+      'థీమ్ సెట్టింగ్‌లు డిఫాల్ట్‌లకు రీసెట్ చేయబడ్డాయి';
+
+  @override
+  String get commonResetButton => 'రీసెట్ చేయండి';
+
+  @override
   String get refreshCalendar => 'ఈవెంట్‌లను రిఫ్రెష్ చేయండి';
 
   @override

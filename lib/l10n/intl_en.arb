@@ -462,8 +462,8 @@
 "@settingsPermissionGranted": { "description": "Label showing permission is granted" },
 "settingsPermissionDenied": "Denied",
 "@settingsPermissionDenied": { "description": "Label showing permission is denied" },
-{
-  "settingsDynamicColors": "Dynamic Theme Colors",
+  
+"settingsDynamicColors": "Dynamic Theme Colors",
   "@settingsDynamicColors": {
     "description": "Label for the dynamic theme colors option"
   },

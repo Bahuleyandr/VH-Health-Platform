@@ -470,7 +470,6 @@
 "@settingsPermissionGranted": { "description": "अनुमति दी गई है यह दिखाने वाला लेबल" },
 "settingsPermissionDenied": "अस्वीकृत",
 "@settingsPermissionDenied": { "description": "अनुमति अस्वीकार कर दी गई है यह दिखाने वाला लेबल" },
-{
   "settingsDynamicColors": "डायनामिक थीम रंग",
   "@settingsDynamicColors": {
     "description": "Label for the dynamic theme colors option"

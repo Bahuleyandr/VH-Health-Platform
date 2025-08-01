@@ -469,7 +469,6 @@
 "@settingsPermissionGranted": { "description": "அனுமதி வழங்கப்பட்டதைக் காட்டும் லேபிள்" },
 "settingsPermissionDenied": "மறுக்கப்பட்டது",
 "@settingsPermissionDenied": { "description": "அனுமதி மறுக்கப்பட்டதைக் காட்டும் லேபிள்" },
-{
   "settingsDynamicColors": "டைனமிக் தீம் நிறங்கள்",
   "@settingsDynamicColors": {
     "description": "Label for the dynamic theme colors option"

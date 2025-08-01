@@ -692,6 +692,37 @@ class AppLocalizationsHi extends AppLocalizations {
   String get settingsPermissionDenied => 'अस्वीकृत';
 
   @override
+  String get settingsDynamicColors => 'डायनामिक थीम रंग';
+
+  @override
+  String get settingsDynamicColorsDesc =>
+      'चयनित सुविधा के आधार पर ऐप के रंग अपडेट करें';
+
+  @override
+  String get settingsCurrentAccentColor => 'वर्तमान एक्सेंट रंग';
+
+  @override
+  String get settingsAccentColorDesc => 'सर्कुलर डायल से लागू किया गया';
+
+  @override
+  String get settingsResetTheme => 'थीम सेटिंग्स रीसेट करें';
+
+  @override
+  String get settingsResetThemeDesc =>
+      'डिफ़ॉल्ट थीम कॉन्फ़िगरेशन पुनर्स्थापित करें';
+
+  @override
+  String get settingsResetThemeConfirm =>
+      'यह थीम मोड, फ़ॉन्ट आकार और डायनामिक रंगों को डिफ़ॉल्ट पर रीसेट कर देगा।';
+
+  @override
+  String get settingsThemeResetSuccess =>
+      'थीम सेटिंग्स डिफ़ॉल्ट पर रीसेट हो गईं';
+
+  @override
+  String get commonResetButton => 'रीसेट';
+
+  @override
   String get refreshCalendar => 'ईवेंट ताज़ा करें';
 
   @override

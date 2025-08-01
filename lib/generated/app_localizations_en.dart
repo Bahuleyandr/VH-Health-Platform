@@ -692,6 +692,35 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsPermissionDenied => 'Denied';
 
   @override
+  String get settingsDynamicColors => 'Dynamic Theme Colors';
+
+  @override
+  String get settingsDynamicColorsDesc =>
+      'Update app colors based on selected feature';
+
+  @override
+  String get settingsCurrentAccentColor => 'Current Accent Color';
+
+  @override
+  String get settingsAccentColorDesc => 'Applied from circular dial';
+
+  @override
+  String get settingsResetTheme => 'Reset Theme Settings';
+
+  @override
+  String get settingsResetThemeDesc => 'Restore default theme configuration';
+
+  @override
+  String get settingsResetThemeConfirm =>
+      'This will reset theme mode, font size, and dynamic colors to defaults.';
+
+  @override
+  String get settingsThemeResetSuccess => 'Theme settings reset to defaults';
+
+  @override
+  String get commonResetButton => 'Reset';
+
+  @override
   String get refreshCalendar => 'Refresh events';
 
   @override

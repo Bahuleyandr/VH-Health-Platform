@@ -470,7 +470,6 @@
 "@settingsPermissionGranted": { "description": "అనుమతి మంజూరు చేయబడినట్లు చూపే లేబుల్" },
 "settingsPermissionDenied": "నిరాకరించబడింది",
 "@settingsPermissionDenied": { "description": "అనుమతి నిరాకరించబడినట్లు చూపే లేబుల్" },
-{
   "settingsDynamicColors": "డైనమిక్ థీమ్ రంగులు",
   "@settingsDynamicColors": {
     "description": "Label for the dynamic theme colors option"

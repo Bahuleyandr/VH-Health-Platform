@@ -705,6 +705,38 @@ class AppLocalizationsMl extends AppLocalizations {
   String get settingsPermissionDenied => 'നിരസിച്ചു';
 
   @override
+  String get settingsDynamicColors => 'ഡൈനാമിക് തീം നിറങ്ങൾ';
+
+  @override
+  String get settingsDynamicColorsDesc =>
+      'തിരഞ്ഞെടുത്ത ഫീച്ചറിനെ അടിസ്ഥാനമാക്കി ആപ്പ് നിറങ്ങൾ അപ്ഡേറ്റ് ചെയ്യുക';
+
+  @override
+  String get settingsCurrentAccentColor => 'നിലവിലെ ആക്സന്റ് നിറം';
+
+  @override
+  String get settingsAccentColorDesc =>
+      'വൃത്താകൃതിയിലുള്ള ഡയലിൽ നിന്ന് പ്രയോഗിച്ചു';
+
+  @override
+  String get settingsResetTheme => 'തീം ക്രമീകരണങ്ങൾ പുനഃസജ്ജമാക്കുക';
+
+  @override
+  String get settingsResetThemeDesc =>
+      'ഡിഫോൾട്ട് തീം കോൺഫിഗറേഷൻ പുനഃസ്ഥാപിക്കുക';
+
+  @override
+  String get settingsResetThemeConfirm =>
+      'ഇത് തീം മോഡ്, ഫോണ്ട് വലുപ്പം, ഡൈനാമിക് നിറങ്ങൾ എന്നിവ ഡിഫോൾട്ടുകളിലേക്ക് പുനഃസജ്ജമാക്കും.';
+
+  @override
+  String get settingsThemeResetSuccess =>
+      'തീം ക്രമീകരണങ്ങൾ ഡിഫോൾട്ടിലേക്ക് പുനഃസജ്ജമാക്കി';
+
+  @override
+  String get commonResetButton => 'പുനഃസജ്ജമാക്കുക';
+
+  @override
   String get refreshCalendar => 'ഇവന്റുകൾ പുതുക്കുക';
 
   @override
