@@ -33,6 +33,9 @@ android {
             // This tells the release build to use the same debug key.
             signingConfig = signingConfigs.getByName("debug")
         }
+   }
+lint {
+        baseline = file("lint-baseline.xml")
     }
 }
 
@@ -41,7 +44,7 @@ flutter {
 }
 
 dependencies {
-    implementation(platform("com.google.firebase:firebase-bom:33.1.2"))
-    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation(platform("com.google.firebase:firebase-bom:34.0.0"))
+    implementation("com.google.firebase:firebase-auth")
     implementation("androidx.core:core-ktx:1.13.1")
 }
