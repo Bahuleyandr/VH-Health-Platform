@@ -1,3 +1,5 @@
+// settings_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/features/settings/widgets/settings_sections.dart';
@@ -24,14 +26,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    controller = SettingsController(widget.phone, widget.name, context, refresh);
+    // ✅ Fixed: No context passed to constructor
+    controller = SettingsController(widget.phone, widget.name, refresh);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!_initialized) {
-      controller.initialize();
+      // ✅ Fixed: Pass context to initialize when it's ready
+      controller.initialize(context);
       controller.loadAll(); // handles biometric, permissions etc.
       _initialized = true;
     }
@@ -43,6 +47,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ Guard against uninitialized controller
+    if (!_initialized) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Text(controller.loc.settingsTitle),

@@ -1,11 +1,12 @@
-// Updated dashboard_screen.dart - Compliant with your routes.dart
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 
 import 'package:vhhealth/core/widgets/language_dropdown.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
@@ -14,6 +15,7 @@ import 'package:vhhealth/core/providers/theme_provider.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/widgets/logout_button.dart';
+import 'package:vhhealth/core/theme/theme_colors.dart';
 
 class DashboardScreen extends StatefulWidget {
   final String name;
@@ -33,57 +35,127 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen>
-    with SingleTickerProviderStateMixin {
+class _DashboardScreenState extends State<DashboardScreen> {
   final _secureStorage = const FlutterSecureStorage();
   String? lastAppointment;
   String? nextAppointment;
   String? cachedName;
-
-  late final AnimationController _controller;
-  Color _focusColor = Colors.transparent;
+  Color _focusColor = Colors.blue;
+  
+  // Features list - initialized once
+  late final List<FeatureIconData> _features;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    )..forward();
-
-    _loadCachedData();
-    _maybeFetchFromBackend();
+    
+    // Initialize features immediately
+    _features = _initializeFeatures();
+    
+    // Set initial appointments
+    lastAppointment = widget.lastAppointment;
+    nextAppointment = widget.nextAppointment;
+    cachedName = widget.name;
+    
+    // Defer data loading to avoid blocking UI
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _loadCachedData();
+      _maybeFetchFromBackend();
+    });
   }
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  List<FeatureIconData> _initializeFeatures() {
+    return [
+      FeatureIconData(
+        icon: LucideIcons.stethoscope,
+        label: 'Your Health',
+        color: const Color(0xFFA8E6CF),
+        onTap: (ctx) => _openFeature(ctx, '/your-health'),
+      ),
+      FeatureIconData(
+        icon: LucideIcons.calendarCheck,
+        label: 'Appointments',
+        color: const Color(0xFFB3E5FC),
+        onTap: (ctx) => _openFeature(ctx, '/appointments'),
+      ),
+      FeatureIconData(
+        icon: LucideIcons.pill,
+        label: 'Pharmacy',
+        color: const Color(0xFFD1C4E9),
+        onTap: (ctx) => _openFeature(ctx, '/pharmacy'),
+      ),
+      FeatureIconData(
+        icon: LucideIcons.flaskConical,
+        label: 'Investigations',
+        color: const Color(0xFF80DEEA),
+        onTap: (ctx) => _openFeature(ctx, '/investigations'),
+      ),
+      FeatureIconData(
+        icon: LucideIcons.helpCircle,
+        label: 'Ask a Doubt',
+        color: const Color(0xFFFFE082),
+        onTap: (ctx) => _openFeature(ctx, '/ask-a-doubt'),
+      ),
+      FeatureIconData(
+        icon: LucideIcons.brainCircuit,
+        label: 'Trivia',
+        color: const Color(0xFF9FA8DA),
+        onTap: (ctx) => _openFeature(ctx, '/trivia'),
+      ),
+      FeatureIconData(
+        icon: LucideIcons.building2,
+        label: 'Departments',
+        color: const Color(0xFFC5E1A5),
+        onTap: (ctx) => _openFeature(ctx, '/departments'),
+      ),
+      FeatureIconData(
+        icon: LucideIcons.info,
+        label: 'About Us',
+        color: const Color(0xFFFFCCBC),
+        onTap: (ctx) => _openFeature(ctx, '/about-us'),
+      ),
+    ];
   }
 
   Future<void> _loadCachedData() async {
-    final last = await _secureStorage.read(key: 'lastAppointment');
-    final next = await _secureStorage.read(key: 'nextAppointment');
-    final name = await _secureStorage.read(key: 'userName');
-    if (mounted) {
-      setState(() {
-        lastAppointment = last ?? widget.lastAppointment;
-        nextAppointment = next ?? widget.nextAppointment;
-        cachedName = name ?? widget.name;
-      });
+    try {
+      final results = await Future.wait([
+        _secureStorage.read(key: 'lastAppointment'),
+        _secureStorage.read(key: 'nextAppointment'),
+        _secureStorage.read(key: 'userName'),
+      ]);
+      
+      if (mounted) {
+        setState(() {
+          lastAppointment = results[0] ?? widget.lastAppointment;
+          nextAppointment = results[1] ?? widget.nextAppointment;
+          cachedName = results[2] ?? widget.name;
+        });
+      }
+    } catch (_) {
+      // Silent fail
     }
   }
 
   Future<void> _maybeFetchFromBackend() async {
-    final fetched = await _secureStorage.read(key: 'fetched_dashboard');
-    if (!mounted || fetched == 'true') return;
-    await _fetchAndStoreDashboard();
+    try {
+      final fetched = await _secureStorage.read(key: 'fetched_dashboard');
+      if (!mounted || fetched == 'true') return;
+      
+      // Delay network call to avoid blocking initial render
+      await Future.delayed(const Duration(seconds: 1));
+      if (mounted) {
+        _fetchAndStoreDashboard();
+      }
+    } catch (_) {
+      // Silent fail
+    }
   }
 
   Future<void> _fetchAndStoreDashboard() async {
     try {
       final uri = Uri.parse('https://your-api.com/dashboard?phone=${widget.phone}');
-      final res = await http.get(uri);
+      final res = await http.get(uri).timeout(const Duration(seconds: 10));
       if (!mounted) return;
 
       if (res.statusCode == 200) {
@@ -92,10 +164,13 @@ class _DashboardScreenState extends State<DashboardScreen>
         final last = data['lastAppointment'];
         final next = data['nextAppointment'];
 
-        await _secureStorage.write(key: 'userName', value: name);
-        await _secureStorage.write(key: 'lastAppointment', value: last);
-        await _secureStorage.write(key: 'nextAppointment', value: next);
-        await _secureStorage.write(key: 'fetched_dashboard', value: 'true');
+        // Batch write operations
+        await Future.wait([
+          _secureStorage.write(key: 'userName', value: name),
+          _secureStorage.write(key: 'lastAppointment', value: last),
+          _secureStorage.write(key: 'nextAppointment', value: next),
+          _secureStorage.write(key: 'fetched_dashboard', value: 'true'),
+        ]);
 
         if (mounted) {
           setState(() {
@@ -105,26 +180,18 @@ class _DashboardScreenState extends State<DashboardScreen>
           });
         }
       }
-    } on SocketException {
-      // silent
     } catch (_) {
-      // silent
+      // Silent fail
     }
   }
 
-  Future<void> _onRefresh() async {
-    await _fetchAndStoreDashboard();
-  }
-
   void _openFeature(BuildContext context, String routeName) {
-    // Prepare arguments for the route
-    final args = <String, dynamic>{  // Changed to dynamic to support Color
+    final args = <String, dynamic>{
       'phone': widget.phone,
       'name': cachedName ?? widget.name,
-      'color': _focusColor,  // Pass Color object directly
+      'color': _focusColor,
     };
 
-    // Navigate outside of tab context using rootNavigator
     Navigator.of(context, rootNavigator: true).pushNamed(
       routeName, 
       arguments: args,
@@ -133,13 +200,14 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   void _toggleTheme() =>
       Provider.of<ThemeProvider>(context, listen: false).toggleTheme();
+      
   void _toggleAccessibility() =>
       Provider.of<ThemeProvider>(context, listen: false).toggleFontSize();
 
   Future<void> _triggerSOS() async {
     final l10n = AppLocalizations.of(context)!;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(l10n.authSosTriggered)),
+      SnackBar(content: Text(l10n.authSosTriggered ?? 'SOS Triggered')),
     );
     await SOSService.triggerSOS();
   }
@@ -148,142 +216,343 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final bgColor = theme.scaffoldBackgroundColor;
     final nameToShow = cachedName ?? widget.name;
-
-    final features = [
-      FeatureIconData(
-        icon: LucideIcons.stethoscope,
-        label: l10n.yourHealth,
-        color: const Color(0xFFA8E6CF),
-        onTap: (ctx) => _openFeature(ctx, '/your-health'),
-      ),
-      FeatureIconData(
-        icon: LucideIcons.calendarCheck,
-        label: l10n.appointments,
-        color: const Color(0xFFB3E5FC),
-        onTap: (ctx) => _openFeature(ctx, '/appointments'),
-      ),
-      FeatureIconData(
-        icon: LucideIcons.pill,
-        label: l10n.pharmacy,
-        color: const Color(0xFFD1C4E9),
-        onTap: (ctx) => _openFeature(ctx, '/pharmacy'),
-      ),
-      FeatureIconData(
-        icon: LucideIcons.flaskConical,
-        label: l10n.investigations,
-        color: const Color(0xFF80DEEA),
-        onTap: (ctx) => _openFeature(ctx, '/investigations'),
-      ),
-      FeatureIconData(
-        icon: LucideIcons.helpCircle,
-        label: l10n.askDoubt,
-        color: const Color(0xFFFFE082),
-        onTap: (ctx) => _openFeature(ctx, '/ask-a-doubt'),
-      ),
-      FeatureIconData(
-        icon: LucideIcons.brainCircuit,
-        label: l10n.triviaLabel,
-        color: const Color(0xFF9FA8DA),
-        onTap: (ctx) => _openFeature(ctx, '/trivia'),
-      ),
-      FeatureIconData(
-        icon: LucideIcons.building2,
-        label: l10n.departments,
-        color: const Color(0xFFC5E1A5),
-        onTap: (ctx) => _openFeature(ctx, '/departments'),
-      ),
-      FeatureIconData(
-        icon: LucideIcons.info,
-        label: l10n.aboutUsLabel,
-        color: const Color(0xFFFFCCBC),
-        onTap: (ctx) => _openFeature(ctx, '/about-us'),
-      ),
-    ];
+    final screenHeight = MediaQuery.of(context).size.height;
+    final isGuest = nameToShow == 'Guest';
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('${l10n.hello}, ${nameToShow == 'Guest' ? nameToShow : '$nameToShow!'}'),
+        title: Text('Hello, ${nameToShow == 'Guest' ? nameToShow : '$nameToShow!'}'),
         actions: [
-          IconButton(icon: const Icon(Icons.brightness_6), onPressed: _toggleTheme),
-          IconButton(icon: const Icon(Icons.accessibility), onPressed: _toggleAccessibility),
-          PopupMenuButton<int>(
-            tooltip: 'Change Language',
-            offset: const Offset(0, 40),
-            icon: const Icon(Icons.language),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            itemBuilder: (_) => [
-              const PopupMenuItem<int>(
-                value: 0,
-                enabled: false,
-                padding: EdgeInsets.zero,
-                child: SizedBox(width: 150, child: LanguageDropdown()),
-              ),
-            ],
+          IconButton(
+            icon: const Icon(Icons.brightness_6), 
+            onPressed: _toggleTheme,
           ),
-          LogoutButton(style: LogoutButtonStyle.iconOnly),
+          IconButton(
+            icon: const Icon(Icons.accessibility), 
+            onPressed: _toggleAccessibility,
+          ),
+          const _LanguageMenuButton(),
+          const LogoutButton(style: LogoutButtonStyle.iconOnly),
         ],
       ),
-      body: AnimatedContainer(
-        duration: const Duration(milliseconds: 500),
-        decoration: BoxDecoration(
-          gradient: RadialGradient(
-            center: Alignment.center,
-            radius: 1.0,
-            colors: [bgColor, _focusColor.withAlpha(102)],
-          ),
-        ),
-        child: LogoBackground(
-          child: SafeArea(
-            child: RefreshIndicator(
-              onRefresh: _onRefresh,
-              child: ListView(
-                shrinkWrap: true,
-                physics: const AlwaysScrollableScrollPhysics(), 
-                padding: const EdgeInsets.all(16),
-                children: [
-                  if (nameToShow != 'Guest') ...[
-                    Container(
-                      margin: const EdgeInsets.only(top: 4, bottom: 20),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                      decoration: BoxDecoration(
-                        color: cs.surfaceContainerHighest.withAlpha(77),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(l10n.lastAppointment, style: theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 4),
-                          Text(lastAppointment ?? l10n.notAvailable, style: theme.textTheme.bodySmall),
-                          const SizedBox(height: 12),
-                          Text(l10n.upcomingAppointment, style: theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 4),
-                          Text(nextAppointment ?? l10n.notAvailable, style: theme.textTheme.bodySmall),
-                        ],
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  CircularFeatureDial(
-                    features: features,
-                    onFocusColorChanged: (color) => setState(() => _focusColor = color),
+      body: LogoBackground(
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Upper section with dial (75% of available space)
+              Expanded(
+                flex: 3,
+                child: Padding(
+                  padding: const EdgeInsets.all(24), // Increased padding for safety
+                  child: CircularFeatureDial(
+                    features: _features,
+                    size: MediaQuery.of(context).size.width * 0.75, // Conservative size
+                    onFocusColorChanged: (color) {
+                      setState(() => _focusColor = color);
+                    },
                   ),
-                ],
+                ),
               ),
-            ),
+              
+              // Lower section with appointment widget (25% of available space)
+              if (!isGuest)
+                Container(
+                  constraints: BoxConstraints(
+                    minHeight: 120,
+                    maxHeight: screenHeight * 0.25,
+                  ),
+                  child: _AppointmentCard(
+                    lastAppointment: lastAppointment,
+                    nextAppointment: nextAppointment,
+                    onViewHistory: () => _openFeature(context, '/appointments'),
+                    onScheduleNew: () => _openFeature(context, '/appointments'),
+                  ),
+                ),
+            ],
           ),
         ),
       ),
       floatingActionButton: FloatingActionButton(
         heroTag: 'sos',
-        tooltip: l10n.authSosTooltip,
+        tooltip: l10n.authSosTooltip ?? 'Emergency SOS',
         backgroundColor: Colors.red,
         onPressed: _triggerSOS,
         child: const Icon(Icons.favorite),
       ),
     );
+  }
+}
+
+// Language Menu Button Widget
+class _LanguageMenuButton extends StatelessWidget {
+  const _LanguageMenuButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<int>(
+      tooltip: 'Change Language',
+      offset: const Offset(0, 40),
+      icon: const Icon(Icons.language),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      itemBuilder: (_) => [
+        const PopupMenuItem<int>(
+          value: 0,
+          enabled: false,
+          padding: EdgeInsets.zero,
+          child: SizedBox(width: 150, child: LanguageDropdown()),
+        ),
+      ],
+    );
+  }
+}
+
+// Enhanced Appointment Card Widget
+class _AppointmentCard extends StatelessWidget {
+  final String? lastAppointment;
+  final String? nextAppointment;
+  final VoidCallback? onViewHistory;
+  final VoidCallback? onScheduleNew;
+
+  const _AppointmentCard({
+    this.lastAppointment,
+    this.nextAppointment,
+    this.onViewHistory,
+    this.onScheduleNew,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return Container(
+      margin: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: theme.colorScheme.primary.withValues(alpha: 0.1),
+            blurRadius: 20,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withValues(alpha: 0.1),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  LucideIcons.calendar,
+                  color: theme.colorScheme.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Appointments',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Appointments Content
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                // Last Appointment
+                Expanded(
+                  child: _buildAppointmentInfo(
+                    context,
+                    icon: LucideIcons.checkCircle,
+                    iconColor: ThemeColors.getSuccessColor(context), // ✅ Fixed
+                    label: 'Last Visit',
+                    date: lastAppointment,
+                    isPast: true,
+                  ),
+                ),
+                
+                // Divider
+                Container(
+                  height: 50,
+                  width: 1,
+                  color: theme.colorScheme.outline.withValues(alpha: 0.2),
+                  margin: const EdgeInsets.symmetric(horizontal: 16),
+                ),
+                
+                // Next Appointment
+                Expanded(
+                  child: _buildAppointmentInfo(
+                    context,
+                    icon: LucideIcons.clock,
+                    iconColor: ThemeColors.getInfoColor(context), // ✅ Fixed
+                    label: 'Next Visit',
+                    date: nextAppointment,
+                    isPast: false,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Action buttons
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              border: Border(
+                top: BorderSide(
+                  color: theme.colorScheme.outline.withValues(alpha: 0.2),
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextButton.icon(
+                    onPressed: onViewHistory,
+                    icon: const Icon(LucideIcons.history, size: 16),
+                    label: const Text('History'),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: onScheduleNew,
+                    icon: const Icon(LucideIcons.plus, size: 16),
+                    label: const Text('Schedule'),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAppointmentInfo(
+    BuildContext context, {
+    required IconData icon,
+    required Color iconColor,
+    required String label,
+    required String? date,
+    required bool isPast,
+  }) {
+    final theme = Theme.of(context);
+    final hasDate = date != null && date.isNotEmpty && date != 'Not Available';
+    
+    return Column(
+      children: [
+        Icon(
+          icon,
+          color: iconColor,
+          size: 28,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          label,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          hasDate ? _formatDate(date) : 'Not Scheduled',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: hasDate 
+              ? theme.colorScheme.onSurface 
+              : theme.colorScheme.onSurface.withValues(alpha: 0.5),
+          ),
+          textAlign: TextAlign.center,
+        ),
+        if (hasDate && !isPast) ...[
+          const SizedBox(height: 2),
+          Text(
+            _getDaysUntil(date),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.primary,
+              fontSize: 11,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  String _formatDate(String date) {
+    try {
+      // Try parsing different date formats
+      DateTime? parsedDate;
+      
+      // Try dd/MM/yyyy format first
+      try {
+        parsedDate = DateFormat('dd/MM/yyyy').parse(date);
+      } catch (_) {
+        // Try yyyy-MM-dd format
+        try {
+          parsedDate = DateFormat('yyyy-MM-dd').parse(date);
+        } catch (_) {
+          // Try other formats
+          parsedDate = DateTime.tryParse(date);
+        }
+      }
+      
+      if (parsedDate != null) {
+        return DateFormat('dd/MM/yyyy').format(parsedDate);
+      }
+    } catch (_) {
+      // Return original if parsing fails
+    }
+    return date;
+  }
+
+  String _getDaysUntil(String date) {
+    try {
+      DateTime? parsedDate;
+      
+      try {
+        parsedDate = DateFormat('dd/MM/yyyy').parse(date);
+      } catch (_) {
+        try {
+          parsedDate = DateFormat('yyyy-MM-dd').parse(date);
+        } catch (_) {
+          parsedDate = DateTime.tryParse(date);
+        }
+      }
+      
+      if (parsedDate != null) {
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day);
+        final appointmentDate = DateTime(parsedDate.year, parsedDate.month, parsedDate.day);
+        final difference = appointmentDate.difference(today).inDays;
+        
+        if (difference == 0) return 'Today';
+        if (difference == 1) return 'Tomorrow';
+        if (difference > 0) return 'In $difference days';
+        return '';
+      }
+    } catch (_) {
+      // Silent fail
+    }
+    return '';
   }
 }

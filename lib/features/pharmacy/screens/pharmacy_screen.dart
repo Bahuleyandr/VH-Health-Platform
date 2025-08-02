@@ -11,6 +11,7 @@ import 'package:vhhealth/core/utils/permissions_service.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
+import 'package:vhhealth/core/theme/theme_colors.dart';
 
 class PharmacyScreen extends StatefulWidget {
   final String phone;
@@ -202,6 +203,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final isDarkMode = theme.brightness == Brightness.dark;
 
     return FeatureScreenScaffold(
       title: l10n.pharmacyTitle,
@@ -223,7 +225,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
             Container(
               padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
               decoration: BoxDecoration(
-                color: cs.primaryContainer.withAlpha(178),
+                color: cs.primaryContainer.withAlpha(
+                  isDarkMode ? 102 : 178  // ✅ Fixed: Lower alpha in dark mode
+                ),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(

@@ -52,9 +52,9 @@ class LogoutButton extends StatelessWidget {
       const storage = FlutterSecureStorage();
       await storage.deleteAll();
       
-      // Navigate BEFORE signOut to avoid auth listener interference
+      // ✅ FIXED: Use root navigator to navigate to login
       if (context.mounted) {
-        Navigator.of(context).pushNamedAndRemoveUntil(
+        Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil(
           '/login',
           (route) => false,
         );
@@ -66,24 +66,38 @@ class LogoutButton extends StatelessWidget {
       
     } catch (e) {
       debugPrint('Logout error: $e');
+      // If navigation fails, show error
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Logout failed: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
     switch (style) {
       case LogoutButtonStyle.iconOnly:
         return IconButton(
           tooltip: label,
-          icon: Icon(icon, color: color ?? Colors.white),
+          icon: Icon(icon, color: color ?? theme.colorScheme.onSurface),
           onPressed: () => _confirmAndLogout(context),
         );
       
       case LogoutButtonStyle.listTile:
       default:
         return ListTile(
-          leading: Icon(icon, color: Colors.red),
-          title: Text(label),
+          leading: Icon(icon, color: theme.colorScheme.error),
+          title: Text(
+            label,
+            style: TextStyle(color: theme.colorScheme.error),
+          ),
           onTap: () => _confirmAndLogout(context),
         );
     }

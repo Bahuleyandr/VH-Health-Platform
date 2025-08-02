@@ -1,3 +1,5 @@
+// settings_sections.dart
+
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -11,7 +13,7 @@ List<Widget> buildSettingsSections(SettingsController c) {
   final txt = Theme.of(c.context).textTheme;
 
   return [
-    _sectionTitle(c.loc.settingsEditProfile.toUpperCase()),
+    _sectionTitle(c.loc.settingsEditProfile.toUpperCase(), c.context),
     _card(
       ListTile(
         leading: CircleAvatar(
@@ -33,11 +35,11 @@ List<Widget> buildSettingsSections(SettingsController c) {
     ),
     const SizedBox(height: 16),
 
-    _sectionTitle(c.loc.settingsLanguage.toUpperCase()),
+    _sectionTitle(c.loc.settingsLanguage.toUpperCase(), c.context),
     _card(const LanguageDropdown()),
     const SizedBox(height: 16),
 
-    _sectionTitle(c.loc.settingsAccessibility.toUpperCase()),
+    _sectionTitle(c.loc.settingsAccessibility.toUpperCase(), c.context),
     _card(
       Column(
         children: [
@@ -61,7 +63,7 @@ List<Widget> buildSettingsSections(SettingsController c) {
     ),
     const SizedBox(height: 16),
 
-    _sectionTitle(c.loc.settingsTheme.toUpperCase()),
+    _sectionTitle(c.loc.settingsTheme.toUpperCase(), c.context),
     _card(
       Column(
         children: [
@@ -187,7 +189,7 @@ List<Widget> buildSettingsSections(SettingsController c) {
     ),
     const SizedBox(height: 16),
 
-    _sectionTitle(c.loc.settingsSecurity.toUpperCase()),
+    _sectionTitle(c.loc.settingsSecurity.toUpperCase(), c.context),
     _card(
       SwitchListTile(
         value: c.biometricEnabled,
@@ -213,7 +215,7 @@ List<Widget> buildSettingsSections(SettingsController c) {
     ),
     const SizedBox(height: 16),
 
-    _sectionTitle(c.loc.settingsPermissionsTitle.toUpperCase()),
+    _sectionTitle(c.loc.settingsPermissionsTitle.toUpperCase(), c.context),
     _card(Column(children: [
       _permissionTile(
         Icons.calendar_today_outlined,
@@ -250,14 +252,16 @@ List<Widget> buildSettingsSections(SettingsController c) {
   ];
 }
 
-Widget _sectionTitle(String t) {
+// ✅ Fixed: Now accepts context parameter and uses theme colors
+Widget _sectionTitle(String t, BuildContext context) {
+  final theme = Theme.of(context);
   return Padding(
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
     child: Text(
       t,
-      style: const TextStyle(
+      style: TextStyle(
         fontWeight: FontWeight.bold,
-        color: Colors.blue,
+        color: theme.colorScheme.primary, // ✅ Uses theme color instead of hardcoded blue
         letterSpacing: .8,
       ),
     ),

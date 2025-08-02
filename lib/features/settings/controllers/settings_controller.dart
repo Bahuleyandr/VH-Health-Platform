@@ -1,3 +1,5 @@
+// setttings_controller.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
@@ -9,7 +11,6 @@ import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 class SettingsController {
-  final BuildContext context;
   final void Function() refresh;
   final String phone;
   final String name;
@@ -17,6 +18,8 @@ class SettingsController {
   final LocalAuthentication _auth = LocalAuthentication();
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
 
+  // These will be initialized with proper context
+  late BuildContext context;
   late AppLocalizations loc;
   late ThemeProvider tp;
   late LanguageProvider lang;
@@ -29,10 +32,13 @@ class SettingsController {
 
   bool _initialized = false;
 
-  SettingsController(this.phone, this.name, this.context, this.refresh);
+  // ✅ Fixed: Removed context from constructor
+  SettingsController(this.phone, this.name, this.refresh);
 
-  void initialize() {
+  // ✅ Fixed: Pass context when actually needed
+  void initialize(BuildContext ctx) {
     if (_initialized) return;
+    context = ctx;
     loc = AppLocalizations.of(context)!;
     tp = ThemeProvider.of(context);
     lang = LanguageProvider.of(context);
