@@ -1,4 +1,5 @@
 // settings_sections.dart
+import 'package:go_router/go_router.dart';
 
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -24,12 +25,10 @@ List<Widget> buildSettingsSections(SettingsController c) {
         subtitle: Text(c.name, style: txt.bodySmall),
         trailing: Icon(Icons.arrow_forward_ios, size: 16, color: cs.onSurfaceVariant),
         onTap: () {
-          Navigator.push(
-            c.context,
-            MaterialPageRoute<void>(
-              builder: (_) => ProfileEditScreen(phone: c.phone, name: c.name),
-            ),
-          );
+          c.context.push('/profile-edit', extra: {
+  'phone': c.phone,
+  'name': c.name,
+});
         },
       ),
     ),

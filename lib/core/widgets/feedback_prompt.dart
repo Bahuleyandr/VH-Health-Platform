@@ -2,6 +2,7 @@ import 'dart:async'; // Add this import for TimeoutException
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:go_router/go_router.dart';
 
 class FeedbackPrompt extends StatefulWidget {
   final String phone;
@@ -74,7 +75,7 @@ class _FeedbackPromptState extends State<FeedbackPrompt> {
 
       if (response.statusCode == 200) {
         _showSnackBar('Thank you for your feedback!', isSuccess: true);
-        Navigator.pop(context);
+        context.pop();
       } else {
         _showSnackBar('Failed to submit feedback. Please try again.');
       }

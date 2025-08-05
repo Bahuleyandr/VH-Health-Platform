@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:vhhealth/features/auth/screens/terms_disclaimer_screen.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:go_router/go_router.dart';
 
 class TermsAgreementNotice extends StatelessWidget {
   const TermsAgreementNotice({super.key});
@@ -25,12 +26,7 @@ class TermsAgreementNotice extends StatelessWidget {
               // Ensure navigation happens after current frame
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (context.mounted) {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute<void>(
-                      builder: (_) => TermsDisclaimerScreen(section: section),
-                    ),
-                  );
+                  context.push('/terms', extra: {'section': section});
                 }
               });
             },

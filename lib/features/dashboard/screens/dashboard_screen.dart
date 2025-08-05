@@ -1,5 +1,7 @@
+import 'package:go_router/go_router.dart';
+import 'package:vhhealth/core/navigation/app_router.dart';
+
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -186,16 +188,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _openFeature(BuildContext context, String routeName) {
-    final args = <String, dynamic>{
-      'phone': widget.phone,
-      'name': cachedName ?? widget.name,
-      'color': _focusColor,
-    };
-
-    Navigator.of(context, rootNavigator: true).pushNamed(
-      routeName, 
-      arguments: args,
-    );
+    // Store user data if navigating to departments
+    if (routeName == '/departments') {
+      AppRouter.setUserData(widget.phone, cachedName ?? widget.name);
+    }
+    
+    // For routes that need the health route alias
+    if (routeName == '/your-health') {
+      context.push('/health');
+    } else {
+      context.push(routeName);
+    }
   }
 
   void _toggleTheme() =>
@@ -207,7 +210,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _triggerSOS() async {
     final l10n = AppLocalizations.of(context)!;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(l10n.authSosTriggered ?? 'SOS Triggered')),
+      SnackBar(content: Text(l10n.authSosTriggered)),
     );
     await SOSService.triggerSOS();
   }
@@ -275,7 +278,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         heroTag: 'sos',
-        tooltip: l10n.authSosTooltip ?? 'Emergency SOS',
+        tooltip: l10n.authSosTooltip,
         backgroundColor: Colors.red,
         onPressed: _triggerSOS,
         child: const Icon(Icons.favorite),
@@ -377,7 +380,7 @@ class _AppointmentCard extends StatelessWidget {
                   child: _buildAppointmentInfo(
                     context,
                     icon: LucideIcons.checkCircle,
-                    iconColor: ThemeColors.getSuccessColor(context), // ✅ Fixed
+                    iconColor: ThemeColors.getSuccessColor(context),
                     label: 'Last Visit',
                     date: lastAppointment,
                     isPast: true,
@@ -397,7 +400,7 @@ class _AppointmentCard extends StatelessWidget {
                   child: _buildAppointmentInfo(
                     context,
                     icon: LucideIcons.clock,
-                    iconColor: ThemeColors.getInfoColor(context), // ✅ Fixed
+                    iconColor: ThemeColors.getInfoColor(context),
                     label: 'Next Visit',
                     date: nextAppointment,
                     isPast: false,

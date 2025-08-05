@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 class FeatureScreenScaffold extends StatefulWidget {
   final String title;
@@ -90,7 +91,7 @@ class _FeatureScreenScaffoldState extends State<FeatureScreenScaffold>
                       // Back button
                       IconButton(
                         icon: const Icon(Icons.arrow_back),
-                        onPressed: () => Navigator.of(context).pop(),
+                        onPressed: () => context.pop(),
                         color: widget.color,
                       ),
                       const SizedBox(width: 8),

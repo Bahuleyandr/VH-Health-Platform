@@ -1,3 +1,5 @@
+import 'package:go_router/go_router.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -146,7 +148,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen> {
           backgroundColor: theme.colorScheme.primary,
           behavior: SnackBarBehavior.floating,
         ));
-        if (mounted) Navigator.pop(context);
+        if (mounted) context.pop();
       } else {
         final msg = (jsonDecode(apiRes.body)['message'] ?? l10n.investigationsFailed).toString();
         messenger.showSnackBar(SnackBar(
@@ -167,10 +169,9 @@ class _InvestigationsScreenState extends State<InvestigationsScreen> {
   }
 
   void _viewReports() {
-    Navigator.pushNamed(context, '/your-health', arguments: {
-      'phone': widget.phone,
-      'defaultFilter': 'Investigation',
-    });
+    context.push('/health', extra: {
+  'defaultFilter': 'Investigation',
+});
   }
 
   @override

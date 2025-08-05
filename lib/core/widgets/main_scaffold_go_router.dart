@@ -2,8 +2,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
-import 'package:provider/provider.dart';
 import 'package:badges/badges.dart' as badges;
+import 'package:provider/provider.dart';
 import 'package:vhhealth/core/providers/notification_provider.dart';
 
 class MainScaffoldGoRouter extends StatefulWidget {
@@ -22,11 +22,30 @@ class MainScaffoldGoRouter extends StatefulWidget {
   State<MainScaffoldGoRouter> createState() => _MainScaffoldGoRouterState();
 }
 
-class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter> {
+class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter> 
+    with WidgetsBindingObserver {
+  
   @override
   void initState() {
     super.initState();
-    // Fetch notifications
+    WidgetsBinding.instance.addObserver(this);
+    _fetchNotifications();
+  }
+  
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+  
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      context.read<NotificationProvider>().fetchUnreadCount(widget.phone);
+    }
+  }
+  
+  void _fetchNotifications() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         context.read<NotificationProvider>().fetchUnreadCount(widget.phone);
@@ -43,7 +62,7 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter> {
     return 0;
   }
 
-  void _onItemTapped(int index, BuildContext context) {
+  void _onItemTapped(int index) {
     switch (index) {
       case 0:
         context.go('/home');
@@ -53,7 +72,7 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter> {
         break;
       case 2:
         context.go('/notifications');
-        // Mark as read
+        // Mark notifications as read
         context.read<NotificationProvider>().markAllAsRead(widget.phone);
         break;
       case 3:
@@ -64,69 +83,81 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final unread = context.watch<NotificationProvider>().unreadCount;
     final selectedIndex = _calculateSelectedIndex(context);
 
     return Scaffold(
       body: widget.child,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: selectedIndex,
-        onDestinationSelected: (index) => _onItemTapped(index, context),
-        destinations: [
-          const NavigationDestination(
-            icon: Icon(LucideIcons.home),
-            selectedIcon: Icon(LucideIcons.home, size: 26),
-            label: 'Home',
-          ),
-          const NavigationDestination(
-            icon: Icon(LucideIcons.heartPulse),
-            selectedIcon: Icon(LucideIcons.heartPulse, size: 26),
-            label: 'Your Health',
-          ),
-          NavigationDestination(
-            icon: badges.Badge(
-              position: badges.BadgePosition.topEnd(top: -12, end: -8),
-              showBadge: unread > 0,
-              badgeStyle: badges.BadgeStyle(
-                badgeColor: theme.colorScheme.error,
-                padding: const EdgeInsets.all(4),
-              ),
-              badgeContent: Text(
-                unread > 99 ? '99+' : unread.toString(),
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              child: const Icon(LucideIcons.bell),
+      bottomNavigationBar: Theme(
+        data: Theme.of(context).copyWith(
+          splashColor: Colors.transparent,
+          highlightColor: Colors.transparent,
+        ),
+        child: BottomNavigationBar(
+          currentIndex: selectedIndex,
+          onTap: _onItemTapped,
+          type: BottomNavigationBarType.fixed,
+          selectedItemColor: Colors.teal,
+          unselectedItemColor: Colors.grey,
+          selectedFontSize: 12,
+          unselectedFontSize: 12,
+          items: [
+            const BottomNavigationBarItem(
+              icon: Icon(LucideIcons.home),
+              activeIcon: Icon(LucideIcons.home, size: 28),
+              label: 'Home',
             ),
-            selectedIcon: badges.Badge(
-              position: badges.BadgePosition.topEnd(top: -12, end: -8),
-              showBadge: unread > 0,
-              badgeStyle: badges.BadgeStyle(
-                badgeColor: theme.colorScheme.error,
-                padding: const EdgeInsets.all(4),
-              ),
-              badgeContent: Text(
-                unread > 99 ? '99+' : unread.toString(),
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              child: const Icon(LucideIcons.bell, size: 26),
+            const BottomNavigationBarItem(
+              icon: Icon(LucideIcons.heartPulse),
+              activeIcon: Icon(LucideIcons.heartPulse, size: 28),
+              label: 'Your Health',
             ),
-            label: 'Notifications',
-          ),
-          const NavigationDestination(
-            icon: Icon(LucideIcons.settings),
-            selectedIcon: Icon(LucideIcons.settings, size: 26),
-            label: 'Settings',
-          ),
-        ],
+            BottomNavigationBarItem(
+              icon: badges.Badge(
+                position: badges.BadgePosition.topEnd(top: -8, end: -4),
+                showBadge: unread > 0,
+                badgeStyle: const badges.BadgeStyle(
+                  badgeColor: Colors.red,
+                  elevation: 0,
+                  padding: EdgeInsets.all(4),
+                ),
+                badgeContent: Text(
+                  unread > 99 ? '99+' : unread.toString(),
+                  style: const TextStyle(
+                    fontSize: 10, 
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                child: const Icon(LucideIcons.bell),
+              ),
+              activeIcon: badges.Badge(
+                position: badges.BadgePosition.topEnd(top: -8, end: -4),
+                showBadge: unread > 0,
+                badgeStyle: const badges.BadgeStyle(
+                  badgeColor: Colors.red,
+                  elevation: 0,
+                  padding: EdgeInsets.all(4),
+                ),
+                badgeContent: Text(
+                  unread > 99 ? '99+' : unread.toString(),
+                  style: const TextStyle(
+                    fontSize: 10, 
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                child: const Icon(LucideIcons.bell, size: 28),
+              ),
+              label: 'Notifications',
+            ),
+            const BottomNavigationBarItem(
+              icon: Icon(LucideIcons.settings),
+              activeIcon: Icon(LucideIcons.settings, size: 28),
+              label: 'Settings',
+            ),
+          ],
+        ),
       ),
     );
   }

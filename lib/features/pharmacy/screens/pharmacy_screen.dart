@@ -1,3 +1,5 @@
+import 'package:go_router/go_router.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -151,7 +153,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
           backgroundColor: theme.colorScheme.primary,
           behavior: SnackBarBehavior.floating,
         ));
-        if (mounted && Navigator.canPop(context)) Navigator.pop(context);
+        if (mounted) context.pop();
       } else {
         final msg = (jsonDecode(apiRes.body)['message'] ?? l10n.pharmacySubmissionFailed).toString();
         messenger.showSnackBar(SnackBar(

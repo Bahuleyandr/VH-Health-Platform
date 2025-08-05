@@ -1,4 +1,6 @@
 // lib/features/profile/screens/profile_edit_screen.dart
+import 'package:go_router/go_router.dart';
+
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -91,7 +93,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       ),
     );
 
-    if (success) Navigator.pop(context);
+    if (success) context.pop();
     setState(() => _isSubmitting = false);
   }
 

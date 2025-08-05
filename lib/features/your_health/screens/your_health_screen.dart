@@ -1,4 +1,6 @@
 // Refactored your_health_screen.dart using FeatureScreenScaffold
+import 'package:go_router/go_router.dart';
+
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -31,12 +33,15 @@ class _YourHealthScreenState extends State<YourHealthScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final raw = ModalRoute.of(context)?.settings.arguments;
-    final args = raw is Map ? raw : <String, dynamic>{};
-    _color = args['color'] ?? FeatureScreenScaffold.featureColors['your-health']!;
-    if (args['defaultFilter'] == 'Investigation') {
+    
+    // Get extra data from GoRouter
+    final extra = GoRouterState.of(context).extra as Map<String, dynamic>?;
+    _color = extra?['color'] ?? FeatureScreenScaffold.featureColors['your-health']!;
+    
+    if (extra?['defaultFilter'] == 'Investigation') {
       _selectedType = 'Investigation';
     }
+    
     _isGuest = widget.phone.trim().isEmpty || widget.phone.toLowerCase() == 'guest';
     _isGuest ? setState(() => _isLoading = false) : _fetchRecords();
   }
@@ -186,7 +191,7 @@ class _YourHealthScreenState extends State<YourHealthScreen> {
 
     return FeatureScreenScaffold(
       title: l10n.yourHealthTitle,
-      icon: Icons.monitor_heart_outlined, // ✅ valid alternative icon
+      icon: Icons.monitor_heart_outlined,
       color: _color,
       heroTag: 'yourHealth',
       child: _isGuest
@@ -202,7 +207,7 @@ class _YourHealthScreenState extends State<YourHealthScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.lock_outline, size: 60, color: cs.onSurface.withAlpha(153)), // 60% opacity
+            Icon(Icons.lock_outline, size: 60, color: cs.onSurface.withAlpha(153)),
             const SizedBox(height: 16),
             Text(
               l10n.yourHealthLoginToView,
@@ -213,7 +218,7 @@ class _YourHealthScreenState extends State<YourHealthScreen> {
             ElevatedButton.icon(
               icon: const Icon(Icons.arrow_back_outlined),
               label: Text(l10n.backToDashboard),
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: () => context.pop(),
             ),
           ],
         ),

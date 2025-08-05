@@ -1,3 +1,6 @@
+import 'package:go_router/go_router.dart';
+import 'package:vhhealth/core/navigation/app_router.dart';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -38,7 +41,8 @@ class _LoginFormState extends State<LoginForm> {
 
   void _continueAsGuest() {
     if (_isLoading) return;
-    Navigator.pushNamed(context, '/dashboard', arguments: {'phone': 'guest'});
+    AppRouter.setUserData('guest', 'Guest');
+context.go('/home');
   }
 
   Future<void> _triggerSOS() async {
@@ -113,11 +117,15 @@ class _LoginFormState extends State<LoginForm> {
       print("🧭 Navigating to: $targetRoute");
 
       if (mounted) {
-        Navigator.pushReplacementNamed(
-          context,
-          targetRoute,
-          arguments: {'phone': user.phoneNumber},
-        );
+        // Store user data before navigation
+final phoneNumber = user.phoneNumber ?? '';
+AppRouter.setUserData(phoneNumber, 'User'); // Name will be set later in profile setup
+
+if (targetRoute == '/profile-setup') {
+  context.go('/profile-setup', extra: phoneNumber);
+} else {
+  context.go('/home');
+}
       }
 
     } catch (e) {

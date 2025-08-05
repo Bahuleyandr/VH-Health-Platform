@@ -1,3 +1,5 @@
+import 'package:go_router/go_router.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:markdown_widget/markdown_widget.dart';
@@ -141,7 +143,7 @@ class _TermsDisclaimerScreenState extends State<TermsDisclaimerScreen> {
                       child: ElevatedButton.icon(
                         icon: const Icon(Icons.arrow_back),
                         label: Text(l10n.commonBackToLogin),
-                        onPressed: () => Navigator.of(context).pop(),
+                        onPressed: () => context.pop(),
                       ),
                     ),
                     const SizedBox(height: 24),

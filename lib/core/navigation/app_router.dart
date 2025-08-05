@@ -9,6 +9,7 @@ import 'package:vhhealth/features/splash/screens/splash_screen.dart';
 import 'package:vhhealth/features/auth/screens/login_screen.dart';
 import 'package:vhhealth/features/auth/screens/terms_disclaimer_screen.dart';
 import 'package:vhhealth/features/profile/screens/profile_setup_screen.dart';
+import 'package:vhhealth/features/profile/screens/profile_edit_screen.dart';
 import 'package:vhhealth/features/dashboard/screens/dashboard_screen.dart';
 import 'package:vhhealth/features/your_health/screens/your_health_screen.dart';
 import 'package:vhhealth/features/notifications/screens/notifications_screen.dart';
@@ -20,6 +21,7 @@ import 'package:vhhealth/features/feedback/screens/ask_a_doubt_screen.dart';
 import 'package:vhhealth/features/trivia/screens/trivia_screen.dart';
 import 'package:vhhealth/features/departments/screens/departments_screen.dart';
 import 'package:vhhealth/features/about/screens/about_us_screen.dart';
+import 'package:vhhealth/features/calendar/screens/calendar_screen.dart';
 import 'package:vhhealth/core/widgets/main_scaffold_go_router.dart';
 
 class AppRouter {
@@ -40,6 +42,9 @@ class AppRouter {
     _userName = null;
   }
   
+  static String? get userPhone => _userPhone;
+  static String? get userName => _userName;
+  
   static final router = GoRouter(
     navigatorKey: _rootNavigatorKey,
     initialLocation: '/',
@@ -47,18 +52,35 @@ class AppRouter {
     
     // Handle auth redirects
     redirect: (context, state) async {
-      final isLoggedIn = FirebaseAuth.instance.currentUser != null;
-      final isAuthRoute = state.matchedLocation == '/login' || 
-                         state.matchedLocation == '/terms' ||
-                         state.matchedLocation == '/';
+      final currentUser = FirebaseAuth.instance.currentUser;
+      final isLoggedIn = currentUser != null;
+      final location = state.matchedLocation;
+      
+      // Skip redirect on splash screen to let it handle navigation
+      if (location == '/') {
+        return null;
+      }
+      
+      final isAuthRoute = location == '/login' || 
+                         location == '/terms' ||
+                         location == '/profile-setup';
       
       // If not logged in and not on auth route, redirect to login
       if (!isLoggedIn && !isAuthRoute) {
         return '/login';
       }
       
-      // If logged in and on login, redirect to dashboard
-      if (isLoggedIn && state.matchedLocation == '/login') {
+      // If logged in and on login, load user data and redirect to home
+      if (isLoggedIn && location == '/login') {
+        // Load user data from secure storage if not already loaded
+        if (_userPhone == null || _userName == null) {
+          const storage = FlutterSecureStorage();
+          final phone = await storage.read(key: 'user_phone') ?? '';
+          final name = await storage.read(key: 'user_name') ?? 'User';
+          if (phone.isNotEmpty) {
+            setUserData(phone, name);
+          }
+        }
         return '/home';
       }
       
@@ -79,13 +101,28 @@ class AppRouter {
       ),
       GoRoute(
         path: '/terms',
-        builder: (context, state) => const TermsDisclaimerScreen(),
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>?;
+          return TermsDisclaimerScreen(
+            section: extra?['section'],
+          );
+        },
       ),
       GoRoute(
         path: '/profile-setup',
         builder: (context, state) {
           final phone = state.extra as String? ?? '';
           return ProfileSetupScreen(phone: phone);
+        },
+      ),
+      GoRoute(
+        path: '/profile-edit',
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>?;
+          return ProfileEditScreen(
+            phone: extra?['phone'] ?? _userPhone ?? '',
+            name: extra?['name'] ?? _userName ?? 'User',
+          );
         },
       ),
       
@@ -136,9 +173,12 @@ class AppRouter {
       // Feature routes (outside shell for full screen)
       GoRoute(
         path: '/appointments',
-        builder: (context, state) => AppointmentsScreen(
-          phone: _userPhone ?? '',
-        ),
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>?;
+          return AppointmentsScreen(
+            phone: extra?['phone'] ?? _userPhone ?? '',
+          );
+        },
       ),
       GoRoute(
         path: '/pharmacy',
@@ -172,6 +212,22 @@ class AppRouter {
       GoRoute(
         path: '/about-us',
         builder: (context, state) => const AboutUsScreen(),
+      ),
+      GoRoute(
+        path: '/calendar',
+        builder: (context, state) => CalendarScreen(
+          uid: _userPhone ?? '',
+        ),
+      ),
+      
+      // Alternative route names for backward compatibility
+      GoRoute(
+        path: '/your-health',
+        redirect: (_, __) => '/health',
+      ),
+      GoRoute(
+        path: '/dashboard',
+        redirect: (_, __) => '/home',
       ),
     ],
     

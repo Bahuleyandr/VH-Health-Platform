@@ -1,4 +1,7 @@
 // setttings_controller.dart
+import 'package:go_router/go_router.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:vhhealth/core/navigation/app_router.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -165,7 +168,9 @@ class SettingsController {
     if (confirmed == true) {
       await _secureStorage.deleteAll();
       if (context.mounted) {
-        nav.pushNamedAndRemoveUntil('/login', (_) => false);
+        await FirebaseAuth.instance.signOut();
+AppRouter.clearUserData();
+context.go('/login');
       }
     }
   }

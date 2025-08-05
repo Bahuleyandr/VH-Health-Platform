@@ -1,3 +1,6 @@
+import 'package:go_router/go_router.dart';
+import 'package:vhhealth/core/navigation/app_router.dart';
+
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -99,11 +102,17 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       ),
     );
 
-    if (success) Navigator.pushReplacementNamed(context, '/dashboard');
+    if (success) {
+  AppRouter.setUserData(widget.phone, _nameController.text.trim());
+  context.go('/home');
+}
     if (mounted) setState(() => _isSubmitting = false);
   }
 
-  void _skip() => Navigator.pushReplacementNamed(context, '/dashboard');
+  void _skip() {
+  AppRouter.setUserData(widget.phone, 'User');
+  context.go('/home');
+}
 
   String _formatDate(DateTime? date) =>
       date == null ? '' : MaterialLocalizations.of(context).formatFullDate(date);

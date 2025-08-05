@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:go_router/go_router.dart';
+import 'package:vhhealth/core/navigation/app_router.dart';
 
 enum LogoutButtonStyle {
   iconOnly,   // for AppBar
@@ -54,10 +56,8 @@ class LogoutButton extends StatelessWidget {
       
       // ✅ FIXED: Use root navigator to navigate to login
       if (context.mounted) {
-        Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil(
-          '/login',
-          (route) => false,
-        );
+        AppRouter.clearUserData();
+context.go('/login');
       }
       
       // Sign out after navigation

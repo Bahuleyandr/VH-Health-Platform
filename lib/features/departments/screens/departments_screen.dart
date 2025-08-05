@@ -1,3 +1,5 @@
+import 'package:go_router/go_router.dart';
+
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -100,12 +102,10 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
   }
 
   void _bookDoctor(String dept, String doctor) {
-    Navigator.pushNamed(context, '/appointments', arguments: {
-      'phone': widget.phone,
-      'name': widget.name ?? _loc.guestUser,
-      'department': dept,
-      'doctor': doctor,
-    });
+    context.push('/appointments', extra: {
+  'department': dept,
+  'doctor': doctor,
+});
   }
 
   Future<void> _triggerSOS() async {

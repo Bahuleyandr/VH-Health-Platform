@@ -1,3 +1,5 @@
+import 'package:go_router/go_router.dart';
+
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -153,7 +155,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           );
         }
 
-        if (mounted) Navigator.pop(context);
+        if (mounted) context.pop();
       } else {
         String err = l10n.appointmentFailed;
         try {

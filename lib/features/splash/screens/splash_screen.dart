@@ -1,3 +1,6 @@
+import 'package:go_router/go_router.dart';
+import 'package:vhhealth/core/navigation/app_router.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
@@ -45,7 +48,8 @@ class _SplashScreenState extends State<SplashScreen>
 
     // ── 1. Firebase + JWT available → go to dashboard ──
     if (firebaseUser != null && jwt != null && mounted) {
-      Navigator.of(context).pushReplacementNamed('/dashboard');
+      AppRouter.setUserData(phone ?? '', 'User');
+context.go('/home');
       return;
     }
 
@@ -61,10 +65,8 @@ class _SplashScreenState extends State<SplashScreen>
         );
 
         if (didAuth && mounted) {
-          Navigator.of(context).pushReplacementNamed(
-            '/dashboard',
-            arguments: {'phone': phone},
-          );
+          AppRouter.setUserData(phone, 'User');
+context.go('/home');
           return;
         }
       }
@@ -72,7 +74,7 @@ class _SplashScreenState extends State<SplashScreen>
 
     // ── 3. Default fallback → Login ──
     if (mounted) {
-      Navigator.of(context).pushReplacementNamed('/login');
+      context.go('/login');
     }
   }
 

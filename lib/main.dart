@@ -3,7 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 
-// Firebase Options (do not modify)
+// Firebase Options
 import 'firebase_options.dart';
 
 // Core App Providers
@@ -11,15 +11,11 @@ import 'package:vhhealth/core/providers/theme_provider.dart';
 import 'package:vhhealth/core/providers/language_provider.dart';
 import 'package:vhhealth/core/providers/notification_provider.dart';
 
+// App Router
+import 'package:vhhealth/core/navigation/app_router.dart';
+
 // App Utilities
 import 'package:vhhealth/generated/app_localizations.dart';
-import 'package:vhhealth/app/routes.dart';
-
-// Screens
-import 'package:vhhealth/features/splash/screens/splash_screen.dart';
-
-// Optional: for direct OTP testing during development
-// import 'otp_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -42,7 +38,7 @@ class VHRoot extends StatelessWidget {
       ],
       child: Consumer2<ThemeProvider, LanguageProvider>(
         builder: (context, themeProv, langProv, _) {
-          return MaterialApp(
+          return MaterialApp.router(
             debugShowCheckedModeBanner: false,
             title: 'VH Health',
             themeMode: themeProv.themeMode,
@@ -56,15 +52,7 @@ class VHRoot extends StatelessWidget {
               GlobalWidgetsLocalizations.delegate,
               GlobalCupertinoLocalizations.delegate,
             ],
-            initialRoute: '/',
-            routes: appRoutes,
-            onGenerateInitialRoutes: (_) =>
-                [MaterialPageRoute(builder: (_) => const SplashScreen())],
-            onUnknownRoute: (_) => MaterialPageRoute(
-              builder: (_) => const Scaffold(
-                body: Center(child: Text('404 - Page not found')),
-              ),
-            ),
+            routerConfig: AppRouter.router,
           );
         },
       ),

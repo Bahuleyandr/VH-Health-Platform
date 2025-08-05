@@ -1,3 +1,5 @@
+import 'package:go_router/go_router.dart';
+
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -65,7 +67,7 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
           backgroundColor: Theme.of(context).colorScheme.primary,
           behavior: SnackBarBehavior.floating,
         ));
-        Navigator.pop(context);
+        context.pop();
       } else {
         var msg = loc.feedbackFailed;
         try {
