@@ -1,5 +1,5 @@
 // src/app/layout.tsx
-import '../instrumentation-client';  // Fixed path - one level up since instrumentation-client.ts is in root
+import '../../instrumentation-client';  // Fixed path - one level up since instrumentation-client.ts is in root
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';  // Import your existing globals.css
