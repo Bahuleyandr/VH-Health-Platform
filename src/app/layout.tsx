@@ -1,6 +1,16 @@
 // src/app/layout.tsx
-import '../../instrumentation-client';
-import { AuthProvider } from '@/contexts/AuthContext';
+import '../instrumentation-client';  // Fixed path - one level up since instrumentation-client.ts is in root
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+import './globals.css';  // Import your existing globals.css
+import { Providers } from './providers';
+
+const inter = Inter({ subsets: ['latin'] });
+
+export const metadata: Metadata = {
+  title: 'VH Admin Portal',
+  description: 'Virtual Hospital Admin Portal',
+};
 
 export default function RootLayout({
   children,
@@ -9,10 +19,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>
-        <AuthProvider>
+      <body className={inter.className}>
+        <Providers>
           {children}
-        </AuthProvider>
+        </Providers>
       </body>
     </html>
   );

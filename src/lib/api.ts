@@ -362,3 +362,17 @@ export async function getAppVersion() {
 // Export types and constants
 export type { APIError };
 export { API_ENDPOINTS, ENDPOINT_MAPPING };
+// Helper function to get auth token
+export function getAuthToken(): string | null {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('adminToken');
+  }
+  return null;
+}
+
+// Delete doctor function
+export async function deleteDoctor(doctorId: string) {
+  return fetchAdminAPI(API_ENDPOINTS.doctors.delete?.replace(':id', doctorId) || /doctors/, {
+    method: 'DELETE',
+  });
+}
