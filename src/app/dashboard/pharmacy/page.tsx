@@ -9,6 +9,13 @@ import { OrdersTable } from "./components/OrdersTable";
 import { PharmacyFilters } from "./components/PharmacyFilters";
 import { useSearchParams, useRouter } from "next/navigation";
 
+// Define proper type for filters
+interface PharmacyFilters {
+  status?: string;
+  dateRange?: string;
+  search?: string;
+}
+
 export default function PharmacyPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -22,7 +29,7 @@ export default function PharmacyPage() {
   const [totalPages, setTotalPages] = useState(1);
   const itemsPerPage = 10;
 
-  const fetchPharmacyData = async (page: number, filters?: any) => {
+  const fetchPharmacyData = async (page: number, filters?: PharmacyFilters) => {
     try {
       setLoading(true);
       setError(null);
@@ -63,16 +70,16 @@ export default function PharmacyPage() {
     const pageNumber = page ? parseInt(page) : 1;
     
     // Get filters from URL params
-    const filters = {
+    const filters: PharmacyFilters = {
       status: searchParams.get('status') || '',
       dateRange: searchParams.get('dateRange') || '',
       search: searchParams.get('search') || ''
     };
     
     fetchPharmacyData(pageNumber, filters);
-  }, [searchParams]);
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleFilterChange = (filters: any) => {
+  const handleFilterChange = (filters: PharmacyFilters) => {
     const url = new URL(window.location.href);
     
     // Reset to page 1 when filters change
@@ -102,7 +109,7 @@ export default function PharmacyPage() {
 
   const handleRefresh = () => {
     // Get current filters from URL params
-    const filters = {
+    const filters: PharmacyFilters = {
       status: searchParams.get('status') || '',
       dateRange: searchParams.get('dateRange') || '',
       search: searchParams.get('search') || ''
@@ -110,7 +117,6 @@ export default function PharmacyPage() {
     fetchPharmacyData(currentPage, filters);
   };
 
-  // This function was missing in your code
   const handlePageChange = (newPage: number) => {
     const url = new URL(window.location.href);
     url.searchParams.set('page', newPage.toString());
