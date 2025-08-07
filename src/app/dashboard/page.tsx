@@ -4,6 +4,28 @@
 import { useEffect, useState } from 'react';
 import { API_ENDPOINTS, API_BASE_URL, getHeaders } from '@/lib/api-config';
 
+// Define proper types for the dashboard data
+interface ChartDataPoint {
+  date: string;
+  value: number;
+  label?: string;
+}
+
+interface ActivityItem {
+  id: string;
+  action: string;
+  user: string;
+  timestamp: string;
+  details?: string;
+}
+
+interface SystemHealth {
+  status: 'healthy' | 'warning' | 'critical';
+  uptime: string;
+  responseTime: number;
+  errorRate: number;
+}
+
 interface DashboardData {
   overview: {
     totalUsers: number;
@@ -22,12 +44,12 @@ interface DashboardData {
     pendingHRActions: number;
   };
   charts: {
-    userGrowth: any[];
-    appointmentTrends: any[];
-    departmentUtilization: any[];
+    userGrowth: ChartDataPoint[];
+    appointmentTrends: ChartDataPoint[];
+    departmentUtilization: ChartDataPoint[];
   };
-  recentActivity: any[];
-  systemHealth: any;
+  recentActivity: ActivityItem[];
+  systemHealth: SystemHealth;
 }
 
 export default function DashboardPage() {
@@ -51,7 +73,7 @@ export default function DashboardPage() {
       const data = await response.json();
       setDashboardData(data.data);
     } catch (err) {
-      setError(err.message);
+      setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setLoading(false);
     }

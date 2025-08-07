@@ -1,7 +1,7 @@
 // src/app/dashboard/reporting/components/ReportsOverview.tsx
 'use client';
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";  // Add useCallback import
 import { fetchAdminAPI } from "@/lib/api";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -24,11 +24,8 @@ export function ReportsOverview() {
     to: new Date().toISOString().split('T')[0] // today
   });
 
-  useEffect(() => {
-    fetchReportData();
-  }, [dateRange]);
-
-  const fetchReportData = async () => {
+  // Wrap fetchReportData in useCallback to prevent recreation on every render
+  const fetchReportData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -46,12 +43,17 @@ export function ReportsOverview() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [dateRange]); // Add dateRange as dependency since it's used inside
+
+  useEffect(() => {
+    fetchReportData();
+  }, [fetchReportData]); // Now include fetchReportData in the dependency array
 
   const handleDateChange = (field: 'from' | 'to', value: string) => {
     setDateRange(prev => ({ ...prev, [field]: value }));
   };
 
+  // Rest of the component remains exactly the same...
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">

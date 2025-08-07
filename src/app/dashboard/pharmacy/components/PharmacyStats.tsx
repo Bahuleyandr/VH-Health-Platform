@@ -30,8 +30,7 @@ function StatCard({
 }
 
 export function PharmacyStats({ analytics }: { analytics: PharmacyAnalytics }) {
-  // Calculate additional stats
-  const completedOrders = analytics.total_orders - analytics.pending_orders;
+  // Calculate average order value - removed unused completedOrders
   const averageOrderValue = analytics.total_orders > 0 
     ? (analytics.total_revenue / analytics.total_orders).toFixed(2)
     : '0';

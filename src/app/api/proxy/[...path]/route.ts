@@ -56,10 +56,12 @@ export async function POST(
 }
 
 // Add similar handlers for PUT, DELETE, PATCH
-export async function PUT(request: NextRequest, { params }: { params: { path: string[] } }) {
+export async function PUT(_request: NextRequest, { params: _params }: { params: { path: string[] } }) {
   // Similar implementation
+  return NextResponse.json({ error: 'Not implemented' }, { status: 501 });
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { path: string[] } }) {
+export async function DELETE(_request: NextRequest, { params: _params }: { params: { path: string[] } }) {
   // Similar implementation
+  return NextResponse.json({ error: 'Not implemented' }, { status: 501 });
 }

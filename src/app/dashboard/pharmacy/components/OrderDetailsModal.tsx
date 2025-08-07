@@ -1,9 +1,29 @@
 // src/app/dashboard/pharmacy/components/OrderDetailsModal.tsx
 'use client';
 
-import { PharmacyOrder } from "@/lib/types";
+// Removed unused import: PharmacyOrder
 import { useEffect, useState } from "react";
 import { fetchAdminAPI } from "@/lib/api";
+
+// Define proper types for order details
+interface OrderItem {
+  medicine_name: string;
+  quantity: number;
+  price: number;
+  total: number;
+}
+
+interface OrderDetails {
+  order_date: string;
+  status: 'pending' | 'processing' | 'completed' | 'cancelled';
+  total_amount: number;
+  patient_name: string;
+  patient_email?: string;
+  patient_phone?: string;
+  doctor_name: string;
+  doctor_department?: string;
+  items: OrderItem[];
+}
 
 interface OrderDetailsModalProps {
   orderId: number;
@@ -12,15 +32,9 @@ interface OrderDetailsModalProps {
 }
 
 export function OrderDetailsModal({ orderId, isOpen, onClose }: OrderDetailsModalProps) {
-  const [orderDetails, setOrderDetails] = useState<any>(null);
+  const [orderDetails, setOrderDetails] = useState<OrderDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (isOpen && orderId) {
-      fetchOrderDetails();
-    }
-  }, [isOpen, orderId]);
 
   const fetchOrderDetails = async () => {
     try {
@@ -34,6 +48,12 @@ export function OrderDetailsModal({ orderId, isOpen, onClose }: OrderDetailsModa
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (isOpen && orderId) {
+      fetchOrderDetails();
+    }
+  }, [isOpen, orderId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!isOpen) return null;
 
@@ -138,7 +158,7 @@ export function OrderDetailsModal({ orderId, isOpen, onClose }: OrderDetailsModa
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {orderDetails.items.map((item: any, index: number) => (
+                      {orderDetails.items.map((item: OrderItem, index: number) => (
                         <tr key={index}>
                           <td className="px-4 py-2 text-sm">{item.medicine_name}</td>
                           <td className="px-4 py-2 text-sm">{item.quantity}</td>

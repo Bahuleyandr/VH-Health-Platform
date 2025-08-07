@@ -11,7 +11,7 @@ export function AdminStats({ admins }: AdminStatsProps) {
   const activeAdmins = admins.filter(admin => admin.is_active).length;
   const inactiveAdmins = admins.filter(admin => !admin.is_active).length;
   const superAdmins = admins.filter(admin => admin.role === 'SUPER_ADMIN').length;
-  const regularAdmins = admins.filter(admin => admin.role === 'ADMIN').length;
+  // Removed unused regularAdmins variable
   
   // Calculate recently active (logged in within last 7 days)
   const recentlyActive = admins.filter(admin => {

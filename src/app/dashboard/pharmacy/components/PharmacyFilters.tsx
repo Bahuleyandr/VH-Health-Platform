@@ -4,8 +4,15 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 
+// Define proper type for filter changes
+interface FilterChangeEvent {
+  status?: string;
+  dateRange?: string;
+  search?: string;
+}
+
 interface PharmacyFiltersProps {
-  onFilterChange: (filters: any) => void;
+  onFilterChange: (filters: FilterChangeEvent) => void;
 }
 
 export function PharmacyFilters({ onFilterChange }: PharmacyFiltersProps) {

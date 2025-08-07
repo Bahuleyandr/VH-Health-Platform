@@ -28,8 +28,9 @@ export function CreateDepartmentForm() {
       // Reset form and close
       setFormData({ name: '', description: '' });
       setIsOpen(false);
-    } catch (error) {
+    } catch (_error) {
       // Error is handled by the mutation hook with toast
+      // Prefixed with underscore to indicate it's intentionally unused
     }
   };
 

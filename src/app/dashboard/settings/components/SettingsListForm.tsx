@@ -15,8 +15,14 @@ interface SettingRowProps {
   onUpdate?: () => void;
 }
 
+// Define proper type for input configuration
+interface InputConfig {
+  type: string;
+  props?: Record<string, unknown>;
+}
+
 // Helper function to determine input type based on setting key or value
-function getInputType(setting: SystemSetting): { type: string; props?: any } {
+function getInputType(setting: SystemSetting): InputConfig {
   const key = setting.setting_key.toLowerCase();
   const value = setting.setting_value.toLowerCase();
 
