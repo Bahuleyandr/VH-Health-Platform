@@ -3,9 +3,10 @@
 
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { LogFilters } from '@/lib/types';
 
 interface LogFiltersProps {
-  onFilterChange: (filters: any) => void;
+  onFilterChange: (filters: LogFilters) => void;
   logType: 'audit' | 'system';
 }
 

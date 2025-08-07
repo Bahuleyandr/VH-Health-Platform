@@ -128,3 +128,24 @@ export interface SystemLog {
   user_id?: number;
   action?: string;
 }
+
+// Extended types for system logs with additional properties
+export interface ExtendedAuditLog extends AuditLog {
+  user_name?: string;
+  ip_address?: string;
+  ipAddress?: string;
+}
+
+export interface ExtendedSystemLog extends SystemLog {
+  service?: string;
+  module?: string;
+  metadata?: Record<string, unknown>;
+}
+
+// Filter types
+export interface LogFilters {
+  dateRange?: string;
+  search?: string;
+  level?: string;
+  action?: string;
+}

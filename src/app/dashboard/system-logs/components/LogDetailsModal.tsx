@@ -1,10 +1,10 @@
 // src/app/dashboard/system-logs/components/LogDetailsModal.tsx
 'use client';
 
-import { AuditLog, SystemLog } from "@/lib/types";
+import { ExtendedAuditLog, ExtendedSystemLog } from "@/lib/types";
 
 interface LogDetailsModalProps {
-  log: AuditLog | SystemLog | null;
+  log: ExtendedAuditLog | ExtendedSystemLog | null;
   type: 'audit' | 'system';
   isOpen: boolean;
   onClose: () => void;
@@ -13,7 +13,7 @@ interface LogDetailsModalProps {
 export function LogDetailsModal({ log, type, isOpen, onClose }: LogDetailsModalProps) {
   if (!isOpen || !log) return null;
 
-  const formatJSON = (data: any) => {
+  const formatJSON = (data: unknown) => {
     try {
       if (typeof data === 'string') {
         return JSON.stringify(JSON.parse(data), null, 2);
@@ -22,6 +22,14 @@ export function LogDetailsModal({ log, type, isOpen, onClose }: LogDetailsModalP
     } catch {
       return data;
     }
+  };
+
+  const isAuditLog = (log: ExtendedAuditLog | ExtendedSystemLog): log is ExtendedAuditLog => {
+    return 'created_at' in log && 'user_id' in log && 'action' in log;
+  };
+
+  const isSystemLog = (log: ExtendedAuditLog | ExtendedSystemLog): log is ExtendedSystemLog => {
+    return 'timestamp' in log && 'level' in log && 'message' in log;
   };
 
   return (
@@ -48,52 +56,52 @@ export function LogDetailsModal({ log, type, isOpen, onClose }: LogDetailsModalP
         </div>
 
         <div className="space-y-4 max-h-[70vh] overflow-y-auto">
-          {type === 'audit' ? (
+          {type === 'audit' && isAuditLog(log) ? (
             <>
               <div>
                 <h4 className="text-sm font-medium text-gray-700">Timestamp</h4>
                 <p className="mt-1 text-sm text-gray-900">
-                  {new Date((log as AuditLog).created_at).toLocaleString('en-GB')}
+                  {new Date(log.created_at).toLocaleString('en-GB')}
                 </p>
               </div>
 
               <div>
                 <h4 className="text-sm font-medium text-gray-700">User</h4>
                 <p className="mt-1 text-sm text-gray-900">
-                  ID: {(log as AuditLog).user_id}
-                  {(log as any).user_name && ` (${(log as any).user_name})`}
+                  ID: {log.user_id}
+                  {log.user_name && ` (${log.user_name})`}
                 </p>
               </div>
 
               <div>
                 <h4 className="text-sm font-medium text-gray-700">Action</h4>
                 <p className="mt-1 text-sm font-mono text-gray-900">
-                  {(log as AuditLog).action}
+                  {log.action}
                 </p>
               </div>
 
               <div>
                 <h4 className="text-sm font-medium text-gray-700">Details</h4>
                 <pre className="mt-1 p-3 bg-gray-100 rounded text-xs overflow-x-auto">
-                  {formatJSON((log as AuditLog).details)}
+                  {formatJSON(log.details)}
                 </pre>
               </div>
 
-              {((log as any).ip_address || (log as any).ipAddress) && (
+              {(log.ip_address || log.ipAddress) && (
                 <div>
                   <h4 className="text-sm font-medium text-gray-700">IP Address</h4>
                   <p className="mt-1 text-sm text-gray-900">
-                    {(log as any).ip_address || (log as any).ipAddress}
+                    {log.ip_address || log.ipAddress}
                   </p>
                 </div>
               )}
             </>
-          ) : (
+          ) : type === 'system' && isSystemLog(log) ? (
             <>
               <div>
                 <h4 className="text-sm font-medium text-gray-700">Timestamp</h4>
                 <p className="mt-1 text-sm text-gray-900">
-                  {new Date((log as SystemLog).timestamp).toLocaleString('en-GB')}
+                  {new Date(log.timestamp).toLocaleString('en-GB')}
                 </p>
               </div>
 
@@ -101,22 +109,22 @@ export function LogDetailsModal({ log, type, isOpen, onClose }: LogDetailsModalP
                 <h4 className="text-sm font-medium text-gray-700">Level</h4>
                 <p className="mt-1 text-sm">
                   <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                    (log as SystemLog).level === 'ERROR' ? 'bg-red-100 text-red-800' :
-                    (log as SystemLog).level === 'WARN' ? 'bg-yellow-100 text-yellow-800' :
-                    (log as SystemLog).level === 'INFO' ? 'bg-blue-100 text-blue-800' :
+                    log.level === 'ERROR' ? 'bg-red-100 text-red-800' :
+                    log.level === 'WARN' ? 'bg-yellow-100 text-yellow-800' :
+                    log.level === 'INFO' ? 'bg-blue-100 text-blue-800' :
                     'bg-gray-100 text-gray-800'
                   }`}>
-                    {(log as SystemLog).level}
+                    {log.level}
                   </span>
                 </p>
               </div>
 
-              {(log as any).service && (
+              {log.service && (
                 <div>
                   <h4 className="text-sm font-medium text-gray-700">Service</h4>
                   <p className="mt-1 text-sm text-gray-900">
-                    {(log as any).service}
-                    {(log as any).module && ` - ${(log as any).module}`}
+                    {log.service}
+                    {log.module && ` - ${log.module}`}
                   </p>
                 </div>
               )}
@@ -124,20 +132,20 @@ export function LogDetailsModal({ log, type, isOpen, onClose }: LogDetailsModalP
               <div>
                 <h4 className="text-sm font-medium text-gray-700">Message</h4>
                 <pre className="mt-1 p-3 bg-gray-100 rounded text-xs overflow-x-auto whitespace-pre-wrap">
-                  {(log as SystemLog).message}
+                  {log.message}
                 </pre>
               </div>
 
-              {(log as any).metadata && (
+              {log.metadata && (
                 <div>
                   <h4 className="text-sm font-medium text-gray-700">Metadata</h4>
                   <pre className="mt-1 p-3 bg-gray-100 rounded text-xs overflow-x-auto">
-                    {formatJSON((log as any).metadata)}
+                    {formatJSON(log.metadata)}
                   </pre>
                 </div>
               )}
             </>
-          )}
+          ) : null}
 
           <div>
             <h4 className="text-sm font-medium text-gray-700">Log ID</h4>

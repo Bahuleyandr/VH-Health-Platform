@@ -1,11 +1,50 @@
 // src/lib/api.ts
 
 import { toast } from 'react-hot-toast';
-import { authenticatedFetch } from './api-client';
+// Remove unused import: authenticatedFetch
 import { API_BASE_URL, API_ENDPOINTS, ENDPOINT_MAPPING } from './api-config';
 
+// Define proper types
+interface QueryParams {
+  [key: string]: string | number | boolean | undefined | null;
+}
+
+interface APIResponse<T = unknown> {
+  message?: string;
+  data?: T;
+  [key: string]: unknown;
+}
+
+interface UserData {
+  users: Array<Record<string, unknown>>;
+}
+
+interface NotificationData {
+  [key: string]: unknown;
+}
+
+interface DoctorData {
+  [key: string]: unknown;
+}
+
+interface DepartmentData {
+  [key: string]: unknown;
+}
+
+interface AppointmentData {
+  [key: string]: unknown;
+}
+
+interface ScheduleData {
+  [key: string]: unknown;
+}
+
+interface TemplateData {
+  [key: string]: unknown;
+}
+
 // Helper function to build query strings without URLSearchParams
-function buildQueryString(params: Record<string, any>): string {
+function buildQueryString(params: QueryParams): string {
   const parts: string[] = [];
   
   for (const [key, value] of Object.entries(params)) {
@@ -20,9 +59,9 @@ function buildQueryString(params: Record<string, any>): string {
 // Enhanced error handling
 class APIError extends Error {
   status: number;
-  data?: any;
+  data?: unknown;
 
-  constructor(message: string, status: number, data?: any) {
+  constructor(message: string, status: number, data?: unknown) {
     super(message);
     this.name = 'APIError';
     this.status = status;
@@ -30,7 +69,7 @@ class APIError extends Error {
   }
 }
 
-export async function fetchAdminAPI<T = any>(
+export async function fetchAdminAPI<T = unknown>(
   endpoint: string, 
   options: RequestInit = {}
 ): Promise<T> {
@@ -59,7 +98,7 @@ export async function fetchAdminAPI<T = any>(
     const contentType = response.headers.get('content-type');
     const isJson = contentType && contentType.includes('application/json');
     
-    let data;
+    let data: unknown;
     if (isJson) {
       data = await response.json();
     } else {
@@ -79,14 +118,15 @@ export async function fetchAdminAPI<T = any>(
         throw new APIError('Forbidden', response.status, data);
       }
       
+      const errorResponse = data as APIResponse;
       throw new APIError(
-        data?.message || `API Error: ${response.status}`,
+        errorResponse?.message || `API Error: ${response.status}`,
         response.status,
         data
       );
     }
 
-    return data;
+    return data as T;
   } catch (error) {
     console.error('Fetch error:', error);
     
@@ -117,7 +157,8 @@ export async function verifyOTP(phoneNumber: string, otp: string) {
 }
 
 // For traditional login (if your backend supports it)
-export async function loginAdmin(username: string, password: string) {
+// Note: Removed unused 'password' parameter
+export async function loginAdmin(username: string) {
   // Your backend might use phone/OTP instead
   // Adjust based on your actual auth flow
   try {
@@ -191,7 +232,7 @@ export async function reactivateUser(userId: string) {
   });
 }
 
-export async function bulkImportUsers(data: any[]) {
+export async function bulkImportUsers(data: UserData['users']) {
   return fetchAdminAPI(API_ENDPOINTS.users.bulkImport, {
     method: 'POST',
     body: JSON.stringify({ users: data }),
@@ -230,14 +271,14 @@ export async function getDoctorsByDepartment(department: string) {
   return fetchAdminAPI(API_ENDPOINTS.doctors.byDepartment.replace(':department', department));
 }
 
-export async function updateDoctorProfile(doctorId: string, data: any) {
+export async function updateDoctorProfile(doctorId: string, data: DoctorData) {
   return fetchAdminAPI(API_ENDPOINTS.doctors.updateProfile.replace(':id', doctorId), {
     method: 'PUT',
     body: JSON.stringify(data),
   });
 }
 
-export async function updateDoctorAvailability(doctorId: string, availability: any) {
+export async function updateDoctorAvailability(doctorId: string, availability: Record<string, unknown>) {
   return fetchAdminAPI(API_ENDPOINTS.doctors.availability.replace(':id', doctorId), {
     method: 'PUT',
     body: JSON.stringify(availability),
@@ -258,7 +299,7 @@ export async function getDepartmentById(departmentId: string) {
   return fetchAdminAPI(API_ENDPOINTS.departments.byId.replace(':identifier', departmentId));
 }
 
-export async function createDepartment(data: any) {
+export async function createDepartment(data: DepartmentData) {
   return fetchAdminAPI(API_ENDPOINTS.departments.create, {
     method: 'POST',
     body: JSON.stringify(data),
@@ -299,7 +340,7 @@ export async function getAppointmentAnalytics() {
   return fetchAdminAPI(API_ENDPOINTS.appointments.analytics);
 }
 
-export async function updateDoctorSchedule(doctorId: string, scheduleData: any) {
+export async function updateDoctorSchedule(doctorId: string, scheduleData: ScheduleData) {
   return fetchAdminAPI(API_ENDPOINTS.appointments.schedule.replace(':doctorId', doctorId), {
     method: 'PUT',
     body: JSON.stringify(scheduleData),
@@ -327,14 +368,14 @@ export async function getNotificationTemplates() {
   return fetchAdminAPI(API_ENDPOINTS.notifications.templates);
 }
 
-export async function createNotificationTemplate(template: any) {
+export async function createNotificationTemplate(template: TemplateData) {
   return fetchAdminAPI(API_ENDPOINTS.notifications.templates, {
     method: 'POST',
     body: JSON.stringify(template),
   });
 }
 
-export async function sendBulkNotification(data: any) {
+export async function sendBulkNotification(data: NotificationData) {
   return fetchAdminAPI(API_ENDPOINTS.notifications.bulk, {
     method: 'POST',
     body: JSON.stringify(data),
@@ -362,6 +403,7 @@ export async function getAppVersion() {
 // Export types and constants
 export type { APIError };
 export { API_ENDPOINTS, ENDPOINT_MAPPING };
+
 // Helper function to get auth token
 export function getAuthToken(): string | null {
   if (typeof window !== 'undefined') {
@@ -372,7 +414,8 @@ export function getAuthToken(): string | null {
 
 // Delete doctor function
 export async function deleteDoctor(doctorId: string) {
-  return fetchAdminAPI(API_ENDPOINTS.doctors.delete?.replace(':id', doctorId) || /doctors/, {
+  const deleteEndpoint = API_ENDPOINTS.doctors.delete?.replace(':id', doctorId) || `/doctors/${doctorId}`;
+  return fetchAdminAPI(deleteEndpoint, {
     method: 'DELETE',
   });
 }

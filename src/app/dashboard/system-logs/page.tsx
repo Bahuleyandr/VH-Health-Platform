@@ -1,14 +1,13 @@
 'use client';
 
 // src/app/dashboard/system-logs/page.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { fetchAdminAPI } from "@/lib/api";
-import { AuditLog, SystemLog } from "@/lib/types";
+import { AuditLog, SystemLog, LogFilters } from "@/lib/types";
 import { useSearchParams, useRouter } from "next/navigation";
-import Link from "next/link";
 import { AuditLogsTable } from "./components/AuditLogsTable";
 import { SystemLogsTable } from "./components/SystemLogsTable";
-import { LogFilters } from "./components/LogFilters";
+import { LogFilters as LogFiltersComponent } from "./components/LogFilters";
 import { LogStats } from "./components/LogStats";
 import { LogMonitor } from "./components/LogMonitor";
 import { KeyboardShortcuts } from "./components/KeyboardShortcuts";
@@ -33,7 +32,7 @@ export default function SystemLogsPage() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [refreshInterval, setRefreshInterval] = useState(30); // seconds
 
-  const fetchLogs = async (page: number, filters?: any) => {
+  const fetchLogs = useCallback(async (page: number, filters?: LogFilters) => {
     try {
       setLoading(true);
       setError(null);
@@ -64,19 +63,19 @@ export default function SystemLogsPage() {
         setTotalPages(response.pagination.totalPages || 1);
         setCurrentPage(response.pagination.currentPage || page);
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch logs');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to fetch logs');
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentTab, itemsPerPage]);
 
   useEffect(() => {
     const page = searchParams.get('page');
     const pageNumber = page ? parseInt(page) : 1;
     
     // Get filters from URL params
-    const filters = {
+    const filters: LogFilters = {
       dateRange: searchParams.get('dateRange') || '',
       search: searchParams.get('search') || '',
       level: searchParams.get('level') || '',
@@ -84,7 +83,7 @@ export default function SystemLogsPage() {
     };
     
     fetchLogs(pageNumber, filters);
-  }, [searchParams, currentTab]);
+  }, [searchParams, currentTab, fetchLogs]);
 
   // Auto-refresh functionality
   useEffect(() => {
@@ -92,7 +91,7 @@ export default function SystemLogsPage() {
     
     if (autoRefresh) {
       interval = setInterval(() => {
-        const filters = {
+        const filters: LogFilters = {
           dateRange: searchParams.get('dateRange') || '',
           search: searchParams.get('search') || '',
           level: searchParams.get('level') || '',
@@ -105,7 +104,42 @@ export default function SystemLogsPage() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [autoRefresh, refreshInterval, currentPage, searchParams]);
+  }, [autoRefresh, refreshInterval, currentPage, searchParams, fetchLogs]);
+
+  const handleTabChange = useCallback((tab: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', tab);
+    url.searchParams.set('page', '1'); // Reset to first page on tab change
+    router.push(url.pathname + url.search);
+  }, [router]);
+
+  const handlePageChange = useCallback((newPage: number) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('page', newPage.toString());
+    router.push(url.pathname + url.search);
+  }, [router]);
+
+  const handleExport = useCallback(async () => {
+    try {
+      const queryParams = new URLSearchParams(window.location.search);
+      const endpoint = currentTab === 'audit' ? '/logs/audit/export' : '/logs/system/export';
+      
+      const response = await fetchAdminAPI(`${endpoint}?${queryParams.toString()}`);
+      
+      // Create a blob and download
+      const blob = new Blob([JSON.stringify(response, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${currentTab}_logs_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      alert('Failed to export logs');
+    }
+  }, [currentTab]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -118,7 +152,7 @@ export default function SystemLogsPage() {
       switch (e.key.toLowerCase()) {
         case 'r':
           e.preventDefault();
-          const filters = {
+          const filters: LogFilters = {
             dateRange: searchParams.get('dateRange') || '',
             search: searchParams.get('search') || '',
             level: searchParams.get('level') || '',
@@ -155,16 +189,9 @@ export default function SystemLogsPage() {
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [autoRefresh, currentPage, totalPages, currentTab, searchParams]);
+  }, [autoRefresh, currentPage, totalPages, currentTab, searchParams, fetchLogs, handleExport, handleTabChange, handlePageChange]);
 
-  const handleTabChange = (tab: string) => {
-    const url = new URL(window.location.href);
-    url.searchParams.set('tab', tab);
-    url.searchParams.set('page', '1'); // Reset to first page on tab change
-    router.push(url.pathname + url.search);
-  };
-
-  const handleFilterChange = (filters: any) => {
+  const handleFilterChange = (filters: LogFilters) => {
     const url = new URL(window.location.href);
     
     // Reset to page 1 when filters change
@@ -172,42 +199,15 @@ export default function SystemLogsPage() {
     
     // Set filter params
     Object.keys(filters).forEach(key => {
-      if (filters[key]) {
-        url.searchParams.set(key, filters[key]);
+      const value = filters[key as keyof LogFilters];
+      if (value) {
+        url.searchParams.set(key, value);
       } else {
         url.searchParams.delete(key);
       }
     });
     
     router.push(url.pathname + url.search);
-  };
-
-  const handlePageChange = (newPage: number) => {
-    const url = new URL(window.location.href);
-    url.searchParams.set('page', newPage.toString());
-    router.push(url.pathname + url.search);
-  };
-
-  const handleExport = async () => {
-    try {
-      const queryParams = new URLSearchParams(window.location.search);
-      const endpoint = currentTab === 'audit' ? '/logs/audit/export' : '/logs/system/export';
-      
-      const response = await fetchAdminAPI(`${endpoint}?${queryParams.toString()}`);
-      
-      // Create a blob and download
-      const blob = new Blob([JSON.stringify(response, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${currentTab}_logs_${new Date().toISOString().split('T')[0]}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      alert('Failed to export logs');
-    }
   };
 
   if (loading && auditLogs.length === 0 && systemLogs.length === 0) {
@@ -303,7 +303,7 @@ export default function SystemLogsPage() {
       />
 
       {/* Filters */}
-      <LogFilters 
+      <LogFiltersComponent 
         onFilterChange={handleFilterChange} 
         logType={currentTab as 'audit' | 'system'} 
       />
