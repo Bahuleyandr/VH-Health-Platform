@@ -1,18 +1,18 @@
 // src/app/dashboard/system-logs/components/AuditLogsTable.tsx
 'use client';
 
-import { AuditLog } from "@/lib/types";
+import { ExtendedAuditLog } from "@/lib/types";
 import { useState } from "react";
 import { LogDetailsModal } from "./LogDetailsModal";
 
 interface AuditLogsTableProps {
-  logs: AuditLog[];
+  logs: ExtendedAuditLog[];
   loading?: boolean;
 }
 
 export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
-  const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
+  const [selectedLog, setSelectedLog] = useState<ExtendedAuditLog | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const getActionColor = (action: string) => {
@@ -101,8 +101,8 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
                   <div className="text-sm font-medium text-gray-900">
                     User #{log.user_id}
                   </div>
-                  {(log as any).user_name && (
-                    <div className="text-sm text-gray-500">{(log as any).user_name}</div>
+                  {log.user_name && (
+                    <div className="text-sm text-gray-500">{log.user_name}</div>
                   )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
@@ -133,7 +133,7 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {(log as any).ip_address || (log as any).ipAddress || 'N/A'}
+                  {log.ip_address || log.ipAddress || 'N/A'}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">
                   <button

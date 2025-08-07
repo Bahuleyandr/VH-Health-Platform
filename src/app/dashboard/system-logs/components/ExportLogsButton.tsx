@@ -9,6 +9,10 @@ interface ExportLogsButtonProps {
   queryParams: URLSearchParams;
 }
 
+interface LogRecord {
+  [key: string]: unknown;
+}
+
 export function ExportLogsButton({ logType, queryParams }: ExportLogsButtonProps) {
   const [exporting, setExporting] = useState(false);
 
@@ -54,13 +58,14 @@ export function ExportLogsButton({ logType, queryParams }: ExportLogsButtonProps
   };
 
   // Helper function to convert logs to CSV format
-  const convertToCSV = (logs: any[]) => {
+  const convertToCSV = (logs: unknown[]) => {
     if (!logs || logs.length === 0) return '';
     
-    const headers = Object.keys(logs[0]);
+    const records = logs as LogRecord[];
+    const headers = Object.keys(records[0]);
     const csvHeaders = headers.join(',');
     
-    const csvRows = logs.map(log => {
+    const csvRows = records.map(log => {
       return headers.map(header => {
         const value = log[header];
         // Escape quotes and wrap in quotes if contains comma
