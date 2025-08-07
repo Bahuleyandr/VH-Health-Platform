@@ -371,11 +371,9 @@ export const requiresAuth = (endpoint: string): boolean => {
     return endpoint === route;
   });
 };
+
 // Endpoint mapping for backward compatibility
 export const ENDPOINT_MAPPING: Record<string, string> = {
   // Add any endpoint mappings here if needed
   // Example: '/old-endpoint': '/new-endpoint'
 };
-
-// Endpoint mapping for backward compatibility
-export const ENDPOINT_MAPPING: Record<string, string> = {};
