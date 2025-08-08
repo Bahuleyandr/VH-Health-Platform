@@ -2,7 +2,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function LoginPage() {
@@ -11,7 +10,6 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const { login } = useAuth();
-  const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,9 +18,13 @@ export default function LoginPage() {
 
     try {
       await login(username, password);
-      // Navigation handled by auth context
+      // Navigation is handled in AuthContext after successful login
     } catch (err) {
-      setError(err.message || 'Login failed. Please check your credentials.');
+      const msg =
+        err instanceof Error
+          ? err.message
+          : 'Login failed. Please check your credentials.';
+      setError(msg);
     } finally {
       setIsLoading(false);
     }
@@ -39,14 +41,14 @@ export default function LoginPage() {
             Sign in to access the admin dashboard
           </p>
         </div>
-        
+
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           {error && (
             <div className="rounded-md bg-red-50 p-4">
               <div className="text-sm text-red-800">{error}</div>
             </div>
           )}
-          
+
           <div className="rounded-md shadow-sm -space-y-px">
             <div>
               <label htmlFor="username" className="sr-only">

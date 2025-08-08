@@ -1,23 +1,14 @@
 // src/app/(protected)/layout.tsx
 'use client';
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { getAuthToken } from '@/lib/api';
+import type { ReactNode } from 'react';
+import { PageErrorBoundary } from '@/components/PageErrorBoundary';
+import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 
-export default function ProtectedLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const router = useRouter();
-
-  useEffect(() => {
-    const token = getAuthToken();
-    if (!token) {
-      router.push('/login');
-    }
-  }, [router]);
-
-  return <>{children}</>;
+export default function ProtectedLayout({ children }: { children: ReactNode }) {
+  return (
+    <PageErrorBoundary>
+      <ProtectedRoute requiredRole="ADMIN">{children}</ProtectedRoute>
+    </PageErrorBoundary>
+  );
 }

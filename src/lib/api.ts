@@ -1,63 +1,26 @@
 // src/lib/api.ts
-
 import { toast } from 'react-hot-toast';
-// Remove unused import: authenticatedFetch
-import { API_BASE_URL, API_ENDPOINTS, ENDPOINT_MAPPING } from './api-config';
+import { API_ENDPOINTS } from './api-config';
+import { apiFetch } from './api-fetch';
 
-// Define proper types
-interface QueryParams {
-  [key: string]: string | number | boolean | undefined | null;
+/* =========================
+ * Types & small helpers
+ * ========================= */
+
+type QueryValue = string | number | boolean | undefined | null;
+
+export interface QueryParams {
+  [key: string]: QueryValue;
 }
 
-interface APIResponse<T = unknown> {
+export interface APIResponse<T = unknown> {
+  success?: boolean;
   message?: string;
   data?: T;
   [key: string]: unknown;
 }
 
-interface UserData {
-  users: Array<Record<string, unknown>>;
-}
-
-interface NotificationData {
-  [key: string]: unknown;
-}
-
-interface DoctorData {
-  [key: string]: unknown;
-}
-
-interface DepartmentData {
-  [key: string]: unknown;
-}
-
-interface AppointmentData {
-  [key: string]: unknown;
-}
-
-interface ScheduleData {
-  [key: string]: unknown;
-}
-
-interface TemplateData {
-  [key: string]: unknown;
-}
-
-// Helper function to build query strings without URLSearchParams
-function buildQueryString(params: QueryParams): string {
-  const parts: string[] = [];
-  
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null && value !== '') {
-      parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
-    }
-  }
-  
-  return parts.length > 0 ? `?${parts.join('&')}` : '';
-}
-
-// Enhanced error handling
-class APIError extends Error {
+export class APIError extends Error {
   status: number;
   data?: unknown;
 
@@ -69,353 +32,286 @@ class APIError extends Error {
   }
 }
 
-export async function fetchAdminAPI<T = unknown>(
-  endpoint: string, 
-  options: RequestInit = {}
+function buildQueryString(params: QueryParams): string {
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') {
+      parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+    }
+  }
+  return parts.length ? `?${parts.join('&')}` : '';
+}
+
+function isBrowser() {
+  return typeof window !== 'undefined';
+}
+
+function getToken(): string | undefined {
+  if (!isBrowser()) return undefined;
+  return localStorage.getItem('adminToken') ?? undefined;
+}
+
+/** Back-compat export used by some components */
+export function getAuthToken(): string | null {
+  if (!isBrowser()) return null;
+  return localStorage.getItem('adminToken');
+}
+
+/* =========================
+ * Core JSON fetch (via apiFetch)
+ * ========================= */
+
+async function requestJSON<T = unknown>(
+  endpoint: string,
+  options: RequestInit & { useAuth?: boolean } = {}
 ): Promise<T> {
-  // Check if we need to map the endpoint
-  const mappedEndpoint = ENDPOINT_MAPPING[endpoint] || endpoint;
-  const url = `${API_BASE_URL}${mappedEndpoint}`;
-  
-  console.log('Fetching from URL:', url);
-  if (endpoint !== mappedEndpoint) {
-    console.log('Endpoint mapped from', endpoint, 'to', mappedEndpoint);
-  }
+  const { useAuth = true, headers, ...rest } = options;
+  const token = useAuth ? getToken() : undefined;
 
-  const defaultOptions: RequestInit = {
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      ...options.headers,
-    },
-    ...options,
-  };
+  // apiFetch adds Origin/x-api-key and Authorization (when token provided)
+  const res = await apiFetch(endpoint, {
+    ...rest,
+    headers: headers as HeadersInit | undefined,
+    token,
+  });
 
-  try {
-    const response = await fetch(url, defaultOptions);
-    
-    const contentType = response.headers.get('content-type');
-    const isJson = contentType && contentType.includes('application/json');
-    
-    let data: unknown;
-    if (isJson) {
-      data = await response.json();
-    } else {
-      data = await response.text();
-    }
+  const contentType = res.headers.get('content-type') ?? '';
+  const isJson = contentType.includes('application/json');
 
-    if (!response.ok) {
-      console.error('API Error:', response.status, data);
-      
-      if (response.status === 401) {
-        // For OTP-based auth, redirect to login
-        toast.error('Session expired. Please login again.');
+  const payload = isJson
+    ? ((await res.json()) as APIResponse<T>)
+    : ((await res.text()) as unknown);
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      if (isBrowser()) {
+        toast.error('Session expired. Please log in again.');
         window.location.href = '/login';
-        throw new APIError('Unauthorized', response.status, data);
-      } else if (response.status === 403) {
-        toast.error('You do not have permission to perform this action');
-        throw new APIError('Forbidden', response.status, data);
       }
-      
-      const errorResponse = data as APIResponse;
-      throw new APIError(
-        errorResponse?.message || `API Error: ${response.status}`,
-        response.status,
-        data
-      );
+      throw new APIError('Unauthorized', 401, payload);
     }
-
-    return data as T;
-  } catch (error) {
-    console.error('Fetch error:', error);
-    
-    if (error instanceof APIError) {
-      throw error;
+    if (res.status === 403) {
+      if (isBrowser()) toast.error('You do not have permission to perform this action.');
+      throw new APIError('Forbidden', 403, payload);
     }
-    
-    toast.error('Network error. Please check your connection.');
-    throw new APIError('Network error', 0, error);
+    const message =
+      isJson && (payload as APIResponse)?.message
+        ? (payload as APIResponse).message!
+        : `API Error: ${res.status}`;
+    throw new APIError(message, res.status, payload);
   }
+
+  // If backend wraps { data }, return it; otherwise return payload as-is
+  if (isJson) {
+    const body = payload as APIResponse<T>;
+    return (('data' in body && body.data !== undefined ? body.data : (body as unknown)) as T);
+  }
+  // Non-JSON (rare): return the raw text
+  return payload as T;
 }
 
-// ===== AUTHENTICATION FUNCTIONS =====
-// Note: Your backend seems to use OTP-based authentication
+/* =========================
+ * Thin helpers
+ * ========================= */
 
-export async function generateOTP(phoneNumber: string) {
-  return fetchAdminAPI(API_ENDPOINTS.auth.generateOtp, {
+export function getJSON<T = unknown>(endpoint: string, params?: QueryParams, useAuth = true) {
+  const qs = params ? buildQueryString(params) : '';
+  return requestJSON<T>(`${endpoint}${qs}`, { method: 'GET', useAuth });
+}
+
+export function postJSON<T = unknown>(endpoint: string, body?: unknown, useAuth = true) {
+  return requestJSON<T>(endpoint, {
     method: 'POST',
-    body: JSON.stringify({ phone: phoneNumber }),
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    headers: { 'Content-Type': 'application/json' },
+    useAuth,
   });
 }
 
-export async function verifyOTP(phoneNumber: string, otp: string) {
-  return fetchAdminAPI(API_ENDPOINTS.auth.verifyOtp, {
-    method: 'POST',
-    body: JSON.stringify({ phone: phoneNumber, otp }),
+export function putJSON<T = unknown>(endpoint: string, body?: unknown, useAuth = true) {
+  return requestJSON<T>(endpoint, {
+    method: 'PUT',
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    headers: { 'Content-Type': 'application/json' },
+    useAuth,
   });
 }
 
-// For traditional login (if your backend supports it)
-// Note: Removed unused 'password' parameter
-export async function loginAdmin(username: string) {
-  // Your backend might use phone/OTP instead
-  // Adjust based on your actual auth flow
+export function deleteJSON<T = unknown>(endpoint: string, useAuth = true) {
+  return requestJSON<T>(endpoint, { method: 'DELETE', useAuth });
+}
+
+/** Back-compat helper used widely across pages */
+export async function fetchAdminAPI<T = unknown>(
+  endpoint: string,
+  init?: { method?: string; body?: unknown; token?: string }
+): Promise<T> {
+  const { method = 'GET', body, token } = init ?? {};
+  const res = await apiFetch(endpoint, {
+    method,
+    token: token ?? getToken(),
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const msg = `HTTP ${res.status} calling ${method} ${endpoint}`;
+    throw new APIError(msg, res.status, await safeReadJson(res));
+  }
+  return (await res.json()) as T;
+}
+
+async function safeReadJson(res: Response) {
   try {
-    const response = await generateOTP(username); // username might be phone number
-    return response;
-  } catch (error) {
-    console.error('Login error:', error);
-    throw error;
+    return await res.json();
+  } catch {
+    return null;
   }
 }
 
-export async function getAuthStats() {
-  return fetchAdminAPI(API_ENDPOINTS.auth.stats);
+/* =========================
+ * Auth (OTP + admin)
+ * ========================= */
+
+export function generateOTP(phoneNumber: string) {
+  return postJSON(API_ENDPOINTS.auth.generateOtp, { phone: phoneNumber }, false);
 }
 
-// ===== DASHBOARD & ANALYTICS =====
-
-export async function getDashboardData() {
-  // Use the correct endpoint: /api/v1/users/dashboard
-  return fetchAdminAPI(API_ENDPOINTS.users.dashboard);
+export function verifyOTP(phoneNumber: string, otp: string) {
+  return postJSON(API_ENDPOINTS.auth.verifyOtp, { phone: phoneNumber, otp }, false);
 }
 
-export async function getUserAnalytics() {
-  return fetchAdminAPI(API_ENDPOINTS.users.analytics);
+export function loginAdmin(username: string, password: string) {
+  // no auth token yet
+  return postJSON(API_ENDPOINTS.auth.admin.login, { username, password }, false);
 }
 
-export async function getSystemInfo() {
-  return fetchAdminAPI(API_ENDPOINTS.users.systemInfo);
+export function getAuthStats() {
+  return getJSON(API_ENDPOINTS.auth.stats);
 }
 
-export async function getActivityAudit() {
-  return fetchAdminAPI(API_ENDPOINTS.users.activityAudit);
+/* =========================
+ * Dashboard & Analytics
+ * ========================= */
+
+export function getDashboardData<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.users.dashboard);
 }
 
-// ===== USER MANAGEMENT =====
+export function getUserAnalytics<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.users.analytics);
+}
 
-export async function getUsers(params?: {
+export function getSystemInfo<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.users.systemInfo);
+}
+
+export function getActivityAudit<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.users.activityAudit);
+}
+
+/** Back-compat: some components call `api.getRecentActivities` */
+export function getRecentActivities<T = unknown>() {
+  return getActivityAudit<T>();
+}
+
+/* =========================
+ * Users
+ * ========================= */
+
+export function getUsers<T = unknown>(params?: {
   page?: number;
   limit?: number;
   search?: string;
   role?: string;
 }) {
-  const query = buildQueryString({
-    page: params?.page,
-    limit: params?.limit,
-    search: params?.search,
-    role: params?.role
-  });
-  
-  return fetchAdminAPI(`${API_ENDPOINTS.users.list}${query}`);
+  return getJSON<T>(API_ENDPOINTS.users.list, params);
 }
 
-export async function getUsersByRole(role: string) {
-  return fetchAdminAPI(API_ENDPOINTS.users.byRole.replace(':role', role));
+export function getUsersByRole<T = unknown>(role: string) {
+  return getJSON<T>(API_ENDPOINTS.users.byRole.replace(':role', role));
 }
 
-export async function updateUserStatus(userId: string, status: string) {
-  return fetchAdminAPI(API_ENDPOINTS.users.status.replace(':identifier', userId), {
-    method: 'PUT',
-    body: JSON.stringify({ status }),
-  });
+export function updateUserStatus<T = unknown>(userId: string, status: string) {
+  return putJSON<T>(API_ENDPOINTS.users.status.replace(':identifier', userId), { status });
 }
 
-export async function getInactiveUsers() {
-  return fetchAdminAPI(API_ENDPOINTS.users.inactiveUsers);
+export function getInactiveUsers<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.users.inactiveUsers);
 }
 
-export async function reactivateUser(userId: string) {
-  return fetchAdminAPI(API_ENDPOINTS.users.reactivate.replace(':userId', userId), {
-    method: 'POST',
-  });
+export function reactivateUser<T = unknown>(userId: string) {
+  return postJSON<T>(API_ENDPOINTS.users.reactivate.replace(':userId', userId));
 }
 
-export async function bulkImportUsers(data: UserData['users']) {
-  return fetchAdminAPI(API_ENDPOINTS.users.bulkImport, {
-    method: 'POST',
-    body: JSON.stringify({ users: data }),
-  });
+/* =========================
+ * Departments
+ * ========================= */
+
+export function getDepartments<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.departments.list);
 }
 
-export async function searchUsers(query: string) {
-  return fetchAdminAPI(`${API_ENDPOINTS.users.search}?q=${encodeURIComponent(query)}`);
+export function createDepartment<T = unknown>(data: { name: string; description?: string }) {
+  return postJSON<T>(API_ENDPOINTS.departments.create, data);
 }
 
-// ===== DOCTORS =====
+/* =========================
+ * Doctors
+ * ========================= */
 
-export async function getDoctors(params?: {
-  page?: number;
-  limit?: number;
-  search?: string;
-  department?: string;
-  status?: string;
+export function getDoctors<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.doctors.list);
+}
+
+export function deleteDoctor<T = unknown>(id: number) {
+  return deleteJSON<T>(`${API_ENDPOINTS.doctors.base}/${id}`);
+}
+
+/* =========================
+ * Admin Management
+ * ========================= */
+
+export function createAdminUser<T = unknown>(payload: {
+  email: string;
+  password: string;
+  role: string;
 }) {
-  const query = buildQueryString({
-    page: params?.page,
-    limit: params?.limit,
-    search: params?.search,
-    department: params?.department,
-    status: params?.status
-  });
-  
-  return fetchAdminAPI(`${API_ENDPOINTS.doctors.list}${query}`);
+  return postJSON<T>(API_ENDPOINTS.admin.create, payload);
 }
 
-export async function getDoctorById(doctorId: string) {
-  return fetchAdminAPI(API_ENDPOINTS.doctors.byId.replace(':doctorId', doctorId));
+export function deactivateAdmin<T = unknown>(id: number) {
+  return postJSON<T>(`${API_ENDPOINTS.admin.base}/${id}/deactivate`);
 }
 
-export async function getDoctorsByDepartment(department: string) {
-  return fetchAdminAPI(API_ENDPOINTS.doctors.byDepartment.replace(':department', department));
+export function reactivateAdmin<T = unknown>(id: number) {
+  return postJSON<T>(`${API_ENDPOINTS.admin.base}/${id}/reactivate`);
 }
 
-export async function updateDoctorProfile(doctorId: string, data: DoctorData) {
-  return fetchAdminAPI(API_ENDPOINTS.doctors.updateProfile.replace(':id', doctorId), {
-    method: 'PUT',
-    body: JSON.stringify(data),
-  });
+export function updateAdminPermissions<T = unknown>(id: number, perms: string[]) {
+  return putJSON<T>(`${API_ENDPOINTS.admin.base}/${id}/permissions`, { permissions: perms });
 }
 
-export async function updateDoctorAvailability(doctorId: string, availability: Record<string, unknown>) {
-  return fetchAdminAPI(API_ENDPOINTS.doctors.availability.replace(':id', doctorId), {
-    method: 'PUT',
-    body: JSON.stringify(availability),
-  });
+/* =========================
+ * Settings
+ * ========================= */
+
+export function updateSystemSetting<T = unknown>(key: string, value: unknown) {
+  return putJSON<T>(`${API_ENDPOINTS.settings.base}/${encodeURIComponent(key)}`, { value });
 }
 
-export async function getDoctorWorkloadAnalysis() {
-  return fetchAdminAPI(API_ENDPOINTS.doctors.workloadAnalysis);
-}
+/* =========================
+ * Named export for convenience + back-compat bucket
+ * ========================= */
 
-// ===== DEPARTMENTS =====
+export const api = {
+  // departments
+  getDepartments,
+  createDepartment,
+  // doctors
+  getDoctors,
+  deleteDoctor,
+  // dashboard & activity
+  getRecentActivities,
+};
 
-export async function getDepartments() {
-  return fetchAdminAPI(API_ENDPOINTS.departments.list);
-}
-
-export async function getDepartmentById(departmentId: string) {
-  return fetchAdminAPI(API_ENDPOINTS.departments.byId.replace(':identifier', departmentId));
-}
-
-export async function createDepartment(data: DepartmentData) {
-  return fetchAdminAPI(API_ENDPOINTS.departments.create, {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-}
-
-export async function getDepartmentsWithDoctors() {
-  return fetchAdminAPI(API_ENDPOINTS.departments.withDoctors);
-}
-
-export async function getDepartmentStats(departmentId: string) {
-  return fetchAdminAPI(API_ENDPOINTS.departments.stats.replace(':id', departmentId));
-}
-
-// ===== APPOINTMENTS =====
-
-export async function getAppointmentList(params?: {
-  page?: number;
-  limit?: number;
-  status?: string;
-  date?: string;
-}) {
-  const query = buildQueryString({
-    page: params?.page,
-    limit: params?.limit,
-    status: params?.status,
-    date: params?.date
-  });
-  
-  return fetchAdminAPI(`${API_ENDPOINTS.appointments.list}${query}`);
-}
-
-export async function getTodaysAppointments() {
-  return fetchAdminAPI(API_ENDPOINTS.appointments.today);
-}
-
-export async function getAppointmentAnalytics() {
-  return fetchAdminAPI(API_ENDPOINTS.appointments.analytics);
-}
-
-export async function updateDoctorSchedule(doctorId: string, scheduleData: ScheduleData) {
-  return fetchAdminAPI(API_ENDPOINTS.appointments.schedule.replace(':doctorId', doctorId), {
-    method: 'PUT',
-    body: JSON.stringify(scheduleData),
-  });
-}
-
-export async function getAppointmentsByDoctor(doctorId: string) {
-  return fetchAdminAPI(API_ENDPOINTS.appointments.byDoctor.replace(':doctor_id', doctorId));
-}
-
-export async function updateAppointmentStatus(appointmentId: string, status: string) {
-  return fetchAdminAPI(API_ENDPOINTS.appointments.updateStatus.replace(':id', appointmentId), {
-    method: 'PUT',
-    body: JSON.stringify({ status }),
-  });
-}
-
-// ===== NOTIFICATIONS =====
-
-export async function getNotificationsByPhone(phone: string) {
-  return fetchAdminAPI(API_ENDPOINTS.notifications.list.replace(':phone', phone));
-}
-
-export async function getNotificationTemplates() {
-  return fetchAdminAPI(API_ENDPOINTS.notifications.templates);
-}
-
-export async function createNotificationTemplate(template: TemplateData) {
-  return fetchAdminAPI(API_ENDPOINTS.notifications.templates, {
-    method: 'POST',
-    body: JSON.stringify(template),
-  });
-}
-
-export async function sendBulkNotification(data: NotificationData) {
-  return fetchAdminAPI(API_ENDPOINTS.notifications.bulk, {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-}
-
-export async function getNotificationStats() {
-  return fetchAdminAPI(API_ENDPOINTS.notifications.statsSummary);
-}
-
-// ===== HEALTH & SYSTEM =====
-
-export async function getHealthCheck() {
-  return fetchAdminAPI(API_ENDPOINTS.health.check);
-}
-
-export async function getSystemStatus() {
-  return fetchAdminAPI(API_ENDPOINTS.health.system);
-}
-
-export async function getAppVersion() {
-  return fetchAdminAPI(API_ENDPOINTS.health.appVersion);
-}
-
-// Export types and constants
-export type { APIError };
-export { API_ENDPOINTS, ENDPOINT_MAPPING };
-
-// Helper function to get auth token
-export function getAuthToken(): string | null {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('adminToken');
-  }
-  return null;
-}
-
-// Delete doctor function
-export async function deleteDoctor(doctorId: string) {
-  const deleteEndpoint = API_ENDPOINTS.doctors.delete?.replace(':id', doctorId) || `/doctors/${doctorId}`;
-  return fetchAdminAPI(deleteEndpoint, {
-    method: 'DELETE',
-  });
-}
+export { API_ENDPOINTS };

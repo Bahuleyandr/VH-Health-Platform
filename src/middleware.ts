@@ -1,12 +1,12 @@
 // src/middleware.ts
 import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
 
-export function middleware(request: NextRequest) {
-  // Client-side authentication check will handle protection
+export function middleware() {
+  // Add logic here later if needed
   return NextResponse.next();
 }
 
+// Keep your matcher if you had one:
 export const config = {
-  matcher: ['/dashboard/:path*', '/login'],
+  matcher: ['/dashboard/:path*', '/api/:path*'],
 };

@@ -1,23 +1,32 @@
+// src/lib/schemas.ts
 import { z } from 'zod';
 
-// User Schemas
+/* =========================
+ * User / Admin Schemas
+ * ========================= */
+
 export const UserSchema = z.object({
   id: z.number(),
   name: z.string(),
   email: z.string().email(),
   phone: z.string(),
   is_active: z.boolean(),
-  created_at: z.string(),
+  created_at: z.string(), // ISO date string
   date_of_birth: z.string().optional(),
 });
 
+export const AdminRoleEnum = z.enum(['ADMIN', 'SUPER_ADMIN']);
+
 export const AdminUserSchema = UserSchema.extend({
-  role: z.enum(['ADMIN', 'SUPER_ADMIN']),
+  role: AdminRoleEnum,
   permissions: z.array(z.string()),
-  last_login: z.string(),
+  last_login: z.string(), // ISO date string
 });
 
-// Department Schema
+/* =========================
+ * Domain Schemas
+ * ========================= */
+
 export const DepartmentSchema = z.object({
   id: z.number(),
   name: z.string(),
@@ -26,7 +35,6 @@ export const DepartmentSchema = z.object({
   created_at: z.string().optional(),
 });
 
-// Doctor Schema
 export const DoctorSchema = z.object({
   user_id: z.number(),
   name: z.string(),
@@ -39,7 +47,6 @@ export const DoctorSchema = z.object({
   rating: z.number().optional(),
 });
 
-// Patient Schema
 export const PatientSchema = z.object({
   id: z.number(),
   name: z.string(),
@@ -50,33 +57,42 @@ export const PatientSchema = z.object({
   created_at: z.string(),
 });
 
-// Appointment Schema
+export const AppointmentStatusEnum = z.enum(['SCHEDULED', 'COMPLETED', 'CANCELLED']);
+
 export const AppointmentSchema = z.object({
   id: z.number(),
   patient_id: z.number(),
   doctor_id: z.number(),
-  appointment_date: z.string(),
-  appointment_time: z.string(),
-  status: z.enum(['SCHEDULED', 'COMPLETED', 'CANCELLED']),
+  appointment_date: z.string(), // ISO date string
+  appointment_time: z.string(), // e.g., "14:30"
+  status: AppointmentStatusEnum,
   notes: z.string().optional(),
   created_at: z.string(),
 });
 
-// Backend API Response Schema
+/* =========================
+ * Dashboard / Backend Schemas
+ * ========================= */
+
+// What the backend returns (example)
 export const DashboardDataBackendSchema = z.object({
   totalUsers: z.number(),
   activeUsers: z.number(),
   totalDoctors: z.number(),
   totalAppointments: z.number(),
-  recentActivity: z.array(z.object({
-    id: z.number(),
-    action: z.string(),
-    timestamp: z.string(),
-    user: z.string(),
-  })).optional(),
+  recentActivity: z
+    .array(
+      z.object({
+        id: z.number(),
+        action: z.string(),
+        timestamp: z.string(), // ISO date string
+        user: z.string(),
+      })
+    )
+    .optional(),
 });
 
-// Frontend Dashboard Schema (what the UI expects)
+// What the frontend UI expects
 export const DashboardDataSchema = z.object({
   totalPatients: z.number(),
   totalAppointments: z.number(),
@@ -84,7 +100,10 @@ export const DashboardDataSchema = z.object({
   totalStaff: z.number(),
 });
 
-// Form Schemas
+/* =========================
+ * Form Schemas
+ * ========================= */
+
 export const LoginFormSchema = z.object({
   username: z.string().min(1, 'Username is required'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
@@ -100,10 +119,17 @@ export const CreateDoctorFormSchema = z.object({
   consultation_fee: z.number().min(0, 'Fee must be positive'),
 });
 
-// Type exports
+/* =========================
+ * Type Exports (from schemas)
+ * ========================= */
+
+export type User = z.infer<typeof UserSchema>;
+export type AdminUser = z.infer<typeof AdminUserSchema>;
 export type Department = z.infer<typeof DepartmentSchema>;
+export type Doctor = z.infer<typeof DoctorSchema>;
 export type Patient = z.infer<typeof PatientSchema>;
 export type Appointment = z.infer<typeof AppointmentSchema>;
-export type User = z.infer<typeof UserSchema>;
-export type Doctor = z.infer<typeof DoctorSchema>;
+export type DashboardDataBackend = z.infer<typeof DashboardDataBackendSchema>;
 export type DashboardData = z.infer<typeof DashboardDataSchema>;
+export type LoginForm = z.infer<typeof LoginFormSchema>;
+export type CreateDoctorForm = z.infer<typeof CreateDoctorFormSchema>;

@@ -19,8 +19,7 @@ export function register() {
     replaysOnErrorSampleRate: 1.0,
     environment: process.env.NODE_ENV,
     enabled: process.env.NODE_ENV === "production",
-    telemetry: false,
-  });
+    });
 }
 
 // Call register immediately

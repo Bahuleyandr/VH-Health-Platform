@@ -1,9 +1,10 @@
 // src/app/layout.tsx
-import '../../instrumentation-client';  // Fixed path - one level up since instrumentation-client.ts is in root
+import '../../instrumentation-client';
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
-import './globals.css';  // Import your existing globals.css
+import './globals.css';
 import { Providers } from './providers';
+import { PageErrorBoundary } from '@/components/PageErrorBoundary';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -12,16 +13,12 @@ export const metadata: Metadata = {
   description: 'Virtual Hospital Admin Portal',
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body className={inter.className}>
         <Providers>
-          {children}
+          <PageErrorBoundary>{children}</PageErrorBoundary>
         </Providers>
       </body>
     </html>

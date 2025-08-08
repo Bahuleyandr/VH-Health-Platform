@@ -1,3 +1,6 @@
+/* eslint-env node */
+/* eslint-disable @typescript-eslint/no-require-imports */
+
 // scripts/clean.js
 // Cross-platform cleaning script that works on Windows, Mac, and Linux
 

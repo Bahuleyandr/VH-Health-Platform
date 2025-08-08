@@ -1,151 +1,136 @@
+// src/app/dashboard/layout.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { getAuthToken } from '@/lib/api';
-import { Spinner } from '@/components/ui/spinner';
 import { CommandPalette } from '@/components/CommandPalette';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
-import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { AuthDebugger } from '@/components/auth/AuthDebugger';
-import toast from 'react-hot-toast';
+import { usePermissions } from '@/hooks/usePermissions';
 
-const navigation = [
+type NavItem = {
+  name: string;
+  href: string;
+  /** Optional role requirement (SUPER_ADMIN always allowed) */
+  requiredRole?: 'ADMIN' | 'SUPER_ADMIN';
+  /** Optional permission requirements (ALL must be present; SUPER_ADMIN always allowed) */
+  requiredPermissions?: string[];
+};
+
+const navigation: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard' },
-  { name: 'Users', href: '/dashboard/users' },
-  { name: 'Doctors', href: '/dashboard/doctors' },
-  { name: 'Departments', href: '/dashboard/departments' },
-  { name: 'Appointments', href: '/dashboard/appointments' },
-  { name: 'Pharmacy', href: '/dashboard/pharmacy' },
-  { name: 'Reporting', href: '/dashboard/reporting' },
-  { name: 'Notifications', href: '/dashboard/notifications' },
-  { name: 'Admin Management', href: '/dashboard/admin-management' },
-  { name: 'System Logs', href: '/dashboard/system-logs' },
-  { name: 'Settings', href: '/dashboard/settings' },
+
+  { name: 'Users', href: '/dashboard/users', requiredPermissions: ['userManagement'] },
+  { name: 'Doctors', href: '/dashboard/doctors', requiredPermissions: ['doctorManagement'] },
+  { name: 'Departments', href: '/dashboard/departments', requiredPermissions: ['departmentManagement'] },
+  { name: 'Appointments', href: '/dashboard/appointments', requiredPermissions: ['appointmentManagement'] },
+  { name: 'Pharmacy', href: '/dashboard/pharmacy', requiredPermissions: ['pharmacyAdminRoutes'] },
+  { name: 'Reporting', href: '/dashboard/reporting', requiredPermissions: ['viewAuditLogs'] }, // adjust if you have a dedicated key
+  { name: 'Notifications', href: '/dashboard/notifications', requiredPermissions: ['notificationManagement'] },
+
+  // Admin-only sections
+  { name: 'Admin Management', href: '/dashboard/admin-management', requiredRole: 'ADMIN', requiredPermissions: ['adminManagement'] },
+  { name: 'System Logs', href: '/dashboard/system-logs', requiredPermissions: ['viewAuditLogs'] },
+  { name: 'Settings', href: '/dashboard/settings', requiredRole: 'ADMIN' },
 ];
 
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [isLoading, setIsLoading] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  useEffect(() => {
-    const checkAuth = () => {
-      const token = getAuthToken();
-      
-      if (!token) {
-        toast.error('Please login to continue');
-        router.push('/login');
-        return;
-      }
-      
-      setIsAuthenticated(true);
-      setIsLoading(false);
-    };
+  // Current user permissions/role
+  const { role, isSuperAdmin, hasAllPermissions } = usePermissions();
 
-    checkAuth();
-  }, [router]);
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Spinner />
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return null;
-  }
+  // Only show links current user can access
+  const visibleNav = useMemo(() => {
+    return navigation.filter((item) => {
+      const roleOk = !item.requiredRole || isSuperAdmin || role === item.requiredRole;
+      const perms = item.requiredPermissions ?? [];
+      const permsOk = perms.length === 0 || isSuperAdmin || hasAllPermissions(perms);
+      return roleOk && permsOk;
+    });
+  }, [role, isSuperAdmin, hasAllPermissions]);
 
   return (
-    <ProtectedRoute requiredRole="ADMIN">
-      <div className="min-h-screen bg-gray-100">
-        {/* Mobile sidebar backdrop */}
-        {isSidebarOpen && (
-          <div
-            className="fixed inset-0 bg-gray-600 bg-opacity-75 z-20 lg:hidden"
-            onClick={() => setIsSidebarOpen(false)}
-          />
-        )}
+    <div className="min-h-screen bg-gray-100">
+      {/* Mobile sidebar backdrop */}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 z-20 bg-gray-600 bg-opacity-75 lg:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
 
-        {/* Sidebar */}
-        <div className={`fixed inset-y-0 left-0 z-30 w-64 bg-gray-900 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 ${
+      {/* Sidebar */}
+      <div
+        className={`fixed inset-y-0 left-0 z-30 w-64 bg-gray-900 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}>
-          <div className="flex items-center justify-center h-16 bg-gray-800">
-            <h1 className="text-white text-xl font-bold">VH Admin Portal</h1>
-          </div>
-          <nav className="mt-5">
-            {navigation.map((item) => {
-              const isActive = pathname === item.href;
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  className={`block px-6 py-3 text-sm font-medium transition-colors ${
-                    isActive
-                      ? 'bg-gray-800 text-white border-l-4 border-blue-500'
-                      : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                  }`}
-                >
-                  {item.name}
-                </Link>
-              );
-            })}
-          </nav>
+        }`}
+      >
+        <div className="flex h-16 items-center justify-center bg-gray-800">
+          <h1 className="text-xl font-bold text-white">VH Admin Portal</h1>
         </div>
+        <nav className="mt-5">
+          {visibleNav.map((item) => {
+            const isActive = pathname === item.href;
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                className={`block px-6 py-3 text-sm font-medium transition-colors ${
+                  isActive
+                    ? 'border-l-4 border-blue-500 bg-gray-800 text-white'
+                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                }`}
+              >
+                {item.name}
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
 
-        {/* Main content */}
-        <div className="lg:pl-64">
-          {/* Top bar */}
-          <div className="sticky top-0 z-10 bg-white shadow">
-            <div className="px-4 sm:px-6 lg:px-8">
-              <div className="flex items-center justify-between h-16">
+      {/* Main content */}
+      <div className="lg:pl-64">
+        {/* Top bar */}
+        <div className="sticky top-0 z-10 bg-white shadow">
+          <div className="px-4 sm:px-6 lg:px-8">
+            <div className="flex h-16 items-center justify-between">
+              <button className="lg:hidden" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+
+              <Breadcrumbs />
+
+              <div className="flex items-center space-x-4">
+                <CommandPalette />
+                <ThemeToggle />
                 <button
-                  className="lg:hidden"
-                  onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                  onClick={() => {
+                    localStorage.removeItem('adminToken');
+                    localStorage.removeItem('adminUser');
+                    router.push('/login');
+                  }}
+                  className="text-sm text-gray-700 hover:text-gray-900"
                 >
-                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                  </svg>
+                  Logout
                 </button>
-                
-                <Breadcrumbs />
-                
-                <div className="flex items-center space-x-4">
-                  <CommandPalette />
-                  <ThemeToggle />
-                  <button
-                    onClick={() => {
-                      localStorage.removeItem('adminToken');
-                      router.push('/login');
-                    }}
-                    className="text-sm text-gray-700 hover:text-gray-900"
-                  >
-                    Logout
-                  </button>
-                </div>
               </div>
             </div>
           </div>
-
-          {/* Page content */}
-          <main className="flex-1">
-            {children}
-          </main>
         </div>
-        
-        <AuthDebugger />
+
+        {/* Page content */}
+        <main className="flex-1">{children}</main>
       </div>
-    </ProtectedRoute>
+
+      {/* Dev-only utility */}
+      <AuthDebugger />
+    </div>
   );
 }

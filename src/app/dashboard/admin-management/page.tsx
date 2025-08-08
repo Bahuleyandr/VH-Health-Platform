@@ -1,51 +1,52 @@
+// src/app/dashboard/admin-management/page.tsx
 'use client';
 
-// src/app/dashboard/admin-management/page.tsx
-import { useEffect, useState } from "react";
-import { fetchAdminAPI } from "@/lib/api";
-import { AdminUser } from "@/lib/types";
-import { CreateAdminForm } from "./components/CreateAdminForm";
-import { AdminsTable } from "./components/AdminsTable";
-import { AdminStats } from "./components/AdminStats";
-import { PermissionsMatrix } from "./components/PermissionsMatrix";
+import { useEffect, useState, useCallback } from 'react';
+import { getJSON } from '@/lib/api';
+import { API_ENDPOINTS } from '@/lib/api-config';
+import type { AdminUser } from '@/lib/types';
+import { CreateAdminForm } from './components/CreateAdminForm';
+import { AdminsTable } from './components/AdminsTable';
+import { AdminStats } from './components/AdminStats';
+import { PermissionsMatrix } from './components/PermissionsMatrix';
+import { RequirePermissions } from '@/components/auth/RequirePermissions';
 
 export default function AdminManagementPage() {
   const [admins, setAdmins] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchAdmins = async () => {
+  const fetchAdmins = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetchAdminAPI('/auth/admin/list');
-      setAdmins(response.admins || []);
+
+      // Backend may return either an array or an object with { admins: [...] }
+      const data = await getJSON<AdminUser[] | { admins: AdminUser[] }>(
+        API_ENDPOINTS.auth.adminManagement
+      );
+      const list = Array.isArray(data) ? data : (data as { admins?: AdminUser[] })?.admins ?? [];
+
+      setAdmins(list);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch administrators');
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchAdmins();
   }, []);
 
-  const handleAdminCreated = () => {
-    // Refresh the list after creating a new admin
-    fetchAdmins();
-  };
+  useEffect(() => {
+    void fetchAdmins();
+  }, [fetchAdmins]);
 
-  const handleAdminUpdated = () => {
-    // Refresh the list after updating an admin
-    fetchAdmins();
-  };
+  const handleAdminCreated = () => void fetchAdmins();
+  const handleAdminUpdated = () => void fetchAdmins();
 
   if (loading) {
     return (
       <div className="p-6">
         <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
         </div>
       </div>
     );
@@ -63,24 +64,29 @@ export default function AdminManagementPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">Administrator Management</h1>
-      
+      <h1 className="mb-6 text-3xl font-bold text-gray-900">Administrator Management</h1>
+
       <AdminStats admins={admins} />
-      
-      <CreateAdminForm onAdminCreated={handleAdminCreated} />
+
+      {/* Only show creation UI to authorized users */}
+      <RequirePermissions requiredRole="ADMIN" requiredPermissions={['admin:create']}>
+        <CreateAdminForm onAdminCreated={handleAdminCreated} />
+      </RequirePermissions>
 
       <div className="mt-8">
-        <h2 className="text-xl font-semibold text-gray-800 mb-4">Current Administrators</h2>
-        
+        <h2 className="mb-4 text-xl font-semibold text-gray-800">Current Administrators</h2>
+
         {admins.length === 0 ? (
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-8 text-center">
             <p className="text-gray-500">No administrators found.</p>
           </div>
         ) : (
           <AdminsTable admins={admins} onAdminUpdated={handleAdminUpdated} />
         )}
-        
-        <PermissionsMatrix admins={admins} />
+
+        <div className="mt-8">
+          <PermissionsMatrix admins={admins} />
+        </div>
       </div>
     </div>
   );
