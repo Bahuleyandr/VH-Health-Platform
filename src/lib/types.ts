@@ -1,15 +1,21 @@
 // src/lib/types.ts
+import { z } from 'zod';
+import {
+  UserSchema,
+  AdminUserSchema,
+  DepartmentSchema,
+  DoctorSchema,
+  PatientSchema,
+  AppointmentSchema,
+  DashboardDataSchema,
+  DashboardDataBackendSchema,
+  AdminRoleEnum,
+  AppointmentStatusEnum,
+} from './schemas';
 
-export interface User {
-  id: number;
-  uid: string;
-  name: string;
-  email: string;
-  phone: string;
-  role: 'PATIENT' | 'DOCTOR' | 'ADMIN' | 'NURSE' | 'PHARMACIST' | 'TECHNICIAN' | 'RECEPTIONIST';
-  is_active: boolean;
-  registered_at: string; // ISO date string
-}
+/* =========================
+ * Shared / Utility Types
+ * ========================= */
 
 export interface Pagination {
   page: number;
@@ -20,46 +26,68 @@ export interface Pagination {
   hasPrev: boolean;
 }
 
-export interface UsersAPIResponse {
+/** Generic list response shape */
+export interface ApiList<T> {
+  items: T[];
+  pagination: Pagination;
+}
+
+/** Common API "message" envelope */
+export interface ApiMessage {
   message: string;
+}
+
+/* =========================
+ * Roles (non-admin domain roles)
+ * ========================= */
+
+export type Role =
+  | 'PATIENT'
+  | 'DOCTOR'
+  | 'ADMIN'
+  | 'NURSE'
+  | 'PHARMACIST'
+  | 'TECHNICIAN'
+  | 'RECEPTIONIST';
+
+/** Admin-only role union (from schemas) */
+export type AdminRole = z.infer<typeof AdminRoleEnum>;
+
+/* =========================
+ * Domain Types (from Zod)
+ * ========================= */
+
+export type User = z.infer<typeof UserSchema>;
+export type AdminUser = z.infer<typeof AdminUserSchema>;
+export type Department = z.infer<typeof DepartmentSchema>;
+export type Doctor = z.infer<typeof DoctorSchema>;
+export type Patient = z.infer<typeof PatientSchema>;
+
+export type Appointment = z.infer<typeof AppointmentSchema>;
+export type AppointmentStatus = z.infer<typeof AppointmentStatusEnum>;
+
+export type DashboardData = z.infer<typeof DashboardDataSchema>;
+export type DashboardDataBackend = z.infer<typeof DashboardDataBackendSchema>;
+
+/* =========================
+ * API Response Helpers
+ * ========================= */
+
+export interface UsersAPIResponse extends ApiMessage {
   users: User[];
   pagination: Pagination;
 }
 
-// Add this interface to src/lib/types.ts
-
-export interface Department {
-  id: number;
-  name: string;
-  description?: string;
-  is_active?: boolean;
-  // Add other fields as you see fit from your DB schema
-  head_of_department_id?: number;
-  staff_count?: number;
-}
-
-export interface Appointment {
-  id: number;
-  appointment_date: string; // ISO date string
-  status: 'SCHEDULED' | 'COMPLETED' | 'CANCELLED' | 'PENDING';
-  patient_name: string; // Assuming the API will provide joined data
-  doctor_name: string;  // Assuming the API will provide joined data
-  department: string;
-  consultation_fee?: number;
-}
-
-export interface AppointmentsAPIResponse {
-  message: string;
-  appointments: Appointment[];
-  pagination: Pagination; // Re-using the pagination type
-}
+/* =========================
+ * Notifications / Settings
+ * ========================= */
 
 export interface Notification {
   id: number;
   title: string;
   body: string;
   type: string;
-  created_at: string;
+  created_at: string; // ISO date string
   recipient_id?: number;
   is_read?: boolean;
 }
@@ -68,20 +96,13 @@ export interface SystemSetting {
   setting_key: string;
   setting_value: string;
   description?: string;
-  created_at?: string;
-  updated_at?: string;
+  created_at?: string; // ISO date string
+  updated_at?: string; // ISO date string
 }
 
-export interface Doctor {
-  user_id: number;
-  name: string;
-  email: string;
-  phone: string;
-  specialization: string;
-  department: string;
-  is_available: boolean;
-  consultation_fee: number;
-}
+/* =========================
+ * Pharmacy (kept as TS-only)
+ * ========================= */
 
 export interface PharmacyOrder {
   id: number;
@@ -100,15 +121,9 @@ export interface PharmacyAnalytics {
   top_selling_medicines: Array<{ name: string; total_quantity: number }>;
 }
 
-export interface AdminUser {
-  id: number;
-  name: string;
-  email: string;
-  role: string; // e.g., 'SUPER_ADMIN', 'ADMIN'
-  permissions: string[];
-  last_login: string; // ISO date string
-  is_active: boolean;
-}
+/* =========================
+ * Logs
+ * ========================= */
 
 export interface AuditLog {
   id: number;
@@ -129,11 +144,9 @@ export interface SystemLog {
   action?: string;
 }
 
-// Extended types for system logs with additional properties
+/** Extended logs used in UI tables */
 export interface ExtendedAuditLog extends AuditLog {
   user_name?: string;
-  ip_address?: string;
-  ipAddress?: string;
 }
 
 export interface ExtendedSystemLog extends SystemLog {
@@ -142,7 +155,10 @@ export interface ExtendedSystemLog extends SystemLog {
   metadata?: Record<string, unknown>;
 }
 
-// Filter types
+/* =========================
+ * Filtering Helpers
+ * ========================= */
+
 export interface LogFilters {
   dateRange?: string;
   search?: string;

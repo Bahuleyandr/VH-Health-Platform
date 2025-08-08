@@ -1,167 +1,132 @@
 // src/lib/api-client.ts
-
 import { API_ENDPOINTS } from './api-config';
-import { apiPost, apiGet } from './api-fetch';
+import {
+  getJSON,
+  postJSON,
+  loginAdmin as apiLoginAdmin,
+  APIError,
+} from './api';
+import type { AdminUser } from './types';
 
-// Admin Authentication Functions
-export async function adminLogin(username: string, password: string) {
-  try {
-    const response = await apiPost(API_ENDPOINTS.auth.admin.login, {
-      username,
-      password
-    });
+/* =========================
+ * Local storage helpers
+ * ========================= */
 
-    const responseData = await response.json();
+const TOKEN_KEY = 'adminToken';
+const USER_KEY = 'adminUser';
 
-    if (!response.ok) {
-      throw new Error(responseData.message || `Login failed with status ${response.status}`);
-    }
-
-    if (responseData.success && responseData.data) {
-      const { token, admin } = responseData.data;
-      
-      if (!token) {
-        throw new Error('No token received from server');
-      }
-      
-      localStorage.setItem('adminToken', token);
-      if (admin) {
-        localStorage.setItem('adminUser', JSON.stringify(admin));
-      }
-      
-      return { token, admin, success: true };
-    }
-
-    throw new Error(responseData.message || 'Invalid response format from server');
-  } catch (error: any) {
-    console.error('Admin login error:', error);
-    throw error;
-  }
-}
-
-// Update getAdminProfile to use apiGet
-export async function getAdminProfile() {
-  const token = localStorage.getItem('adminToken');
-  if (!token) {
-    throw new Error('No authentication token found');
-  }
-
-  try {
-    const response = await apiGet(API_ENDPOINTS.auth.admin.profile, token);
-    const responseData = await response.json();
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        clearAuthData();
-        throw new Error('Session expired. Please login again.');
-      }
-      throw new Error(responseData.message || 'Failed to fetch profile');
-    }
-
-    return responseData.data;
-  } catch (error: any) {
-    console.error('Get profile error:', error);
-    throw error;
-  }
-}
-
-// Update adminLogout to use apiPost
-export async function adminLogout() {
-  const token = localStorage.getItem('adminToken');
-  
-  try {
-    if (token) {
-      await apiPost(API_ENDPOINTS.auth.admin.logout, {}, token);
-    }
-  } catch (error) {
-    console.error('Logout API error:', error);
-  } finally {
-    clearAuthData();
-  }
-}
-
-// Update refreshToken to use apiPost
-export async function refreshToken() {
-  const token = localStorage.getItem('adminToken');
-  if (!token) {
-    throw new Error('No token to refresh');
-  }
-
-  try {
-    const response = await apiPost(API_ENDPOINTS.auth.refreshToken, {}, token);
-    const responseData = await response.json();
-
-    if (!response.ok) {
-      throw new Error(responseData.message || 'Failed to refresh token');
-    }
-
-    if (responseData.data && responseData.data.token) {
-      localStorage.setItem('adminToken', responseData.data.token);
-      return responseData.data.token;
-    }
-
-    throw new Error('No token in refresh response');
-  } catch (error: any) {
-    console.error('Token refresh error:', error);
-    clearAuthData();
-    throw error;
-  }
-}
-
-// Helper functions
 export function getAuthToken(): string | null {
-  return localStorage.getItem('adminToken');
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(TOKEN_KEY);
 }
 
-export function getAdminUser() {
-  const userStr = localStorage.getItem('adminUser');
-  if (!userStr) return null;
-  
+export function getAdminUser(): AdminUser | null {
+  if (typeof window === 'undefined') return null;
+  const raw = localStorage.getItem(USER_KEY);
+  if (!raw) return null;
   try {
-    return JSON.parse(userStr);
+    return JSON.parse(raw) as AdminUser;
   } catch {
     return null;
   }
 }
 
 export function isAuthenticated(): boolean {
-  return !!localStorage.getItem('adminToken');
+  return !!getAuthToken();
 }
 
 export function clearAuthData() {
-  localStorage.removeItem('adminToken');
-  localStorage.removeItem('adminUser');
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
 }
 
-// API helper with auth
-export async function authenticatedFetch(endpoint: string, options: RequestInit = {}) {
-  const token = getAuthToken();
+/* =========================
+ * Auth flows
+ * ========================= */
+
+export async function adminLogin(username: string, password: string): Promise<{
+  token: string;
+  admin?: AdminUser;
+  success: boolean;
+}> {
+  // Uses api.ts -> apiFetch under the hood (no token yet)
+  const result = await apiLoginAdmin(username, password);
+
+  // Expected backend envelope: { data: { token, admin }, ... }
+  // Our api.ts unwraps .data for success responses, so result is { token, admin } here.
+  const { token, admin } = (result as unknown) as { token: string; admin?: AdminUser };
+
   if (!token) {
-    throw new Error('Not authenticated');
+    throw new Error('No token received from server');
   }
 
-  const { headers, ...otherOptions } = options;
-  
-  const response = await apiFetch(endpoint, {
-    ...otherOptions,
-    token,
-    headers: headers as HeadersInit,
-  });
+  // Persist for subsequent authed calls (apiFetch reads from localStorage via our wrappers)
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(TOKEN_KEY, token);
+    if (admin) localStorage.setItem(USER_KEY, JSON.stringify(admin));
+  }
 
-  if (response.status === 401) {
-    try {
-      const newToken = await refreshToken();
-      return apiFetch(endpoint, {
-        ...otherOptions,
-        token: newToken,
-        headers: headers as HeadersInit,
-      });
-    } catch {
+  return { token, admin, success: true };
+}
+
+export async function getAdminProfile(): Promise<AdminUser> {
+  const data = await getJSON<AdminUser>(API_ENDPOINTS.auth.admin.profile);
+  // Optionally refresh the cached copy
+  if (typeof window !== 'undefined' && data) {
+    localStorage.setItem(USER_KEY, JSON.stringify(data));
+  }
+  return data;
+}
+
+export async function adminLogout(): Promise<void> {
+  try {
+    await postJSON(API_ENDPOINTS.auth.admin.logout);
+  } catch (err) {
+    // Non-fatal: we'll still clear local state
+     
+    console.warn('Logout API error:', err);
+  } finally {
+    clearAuthData();
+  }
+}
+
+export async function refreshToken(): Promise<string> {
+  const data = await postJSON<{ token: string }>(API_ENDPOINTS.auth.refreshToken);
+  if (!data?.token) {
+    clearAuthData();
+    throw new Error('No token in refresh response');
+  }
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(TOKEN_KEY, data.token);
+  }
+  return data.token;
+}
+
+/* =========================
+ * Generic authed fetcher (legacy)
+ * Prefer using getJSON/postJSON in new code
+ * ========================= */
+
+export async function authenticatedFetch(
+  endpoint: string,
+  init: RequestInit = {}
+): Promise<Response> {
+  const token = getAuthToken();
+  if (!token) throw new Error('Not authenticated');
+
+  try {
+    const { apiFetch } = await import('./api-fetch');
+    return apiFetch(endpoint, {
+      ...init,
+      headers: init.headers as HeadersInit | undefined,
+      token,
+    });
+  } catch (err) {
+    if (err instanceof APIError && (err.status === 401 || err.status === 403)) {
       clearAuthData();
-      window.location.href = '/login';
-      throw new Error('Session expired');
+      if (typeof window !== 'undefined') window.location.href = '/login';
     }
+    throw err;
   }
-
-  return response;
 }

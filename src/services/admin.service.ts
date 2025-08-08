@@ -1,5 +1,5 @@
 // src/services/admin.service.ts
-import { API_ENDPOINTS, API_BASE_URL, getHeaders, buildUrl } from '@/lib/api-config';
+import { API_ENDPOINTS, API_BASE_URL, getHeaders } from '@/lib/api-config';
 
 class AdminService {
   private getToken(): string | null {

@@ -1,24 +1,24 @@
 // src/contexts/AuthContext.tsx
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  type ReactNode,
+  useCallback,
+} from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-  adminLogin, 
-  adminLogout, 
-  getAdminProfile, 
-  isAuthenticated, 
+import {
+  adminLogin,
+  adminLogout,
+  getAdminProfile,
+  isAuthenticated,
   getAdminUser,
-  clearAuthData
+  clearAuthData,
 } from '@/lib/api-client';
-
-interface AdminUser {
-  id: string;
-  username: string;
-  email?: string;
-  role: string;
-  permissions?: string[];
-}
+import type { AdminUser } from '@/lib/types';
 
 interface AuthContextType {
   user: AdminUser | null;
@@ -37,12 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  // Check authentication on mount
-  useEffect(() => {
-    checkAuth();
-  }, []);
-
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -52,71 +47,77 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Try to get stored user first
-      const storedUser = getAdminUser();
-      if (storedUser) {
-        setUser(storedUser);
-      }
+      // Use cached user first for instant UI
+      const cached = getAdminUser();
+      if (cached) setUser(cached);
 
-      // Then fetch fresh profile data
+      // Then refresh from API (will redirect on 401 via api layer)
       try {
-        const profile = await getAdminProfile();
-        if (profile) {
-          setUser(profile);
-          localStorage.setItem('adminUser', JSON.stringify(profile));
+        const fresh = await getAdminProfile();
+        if (fresh) {
+          setUser(fresh);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('adminUser', JSON.stringify(fresh));
+          }
         }
-      } catch (profileError) {
-        console.error('Failed to fetch profile:', profileError);
-        // If profile fetch fails but we have stored user, continue
-        if (!storedUser) {
-          throw profileError;
+      } catch {
+        // If profile fails and no cached user, treat as unauthenticated
+        if (!cached) {
+          clearAuthData();
+          setUser(null);
         }
+        // keep going; api layer may already have redirected on 401
       }
-    } catch (error) {
-      console.error('Auth check failed:', error);
-      setError((error as Error).message);
+    } catch (e) {
+      console.error('Auth check failed:', e);
+      setError((e as Error).message ?? 'Auth check failed');
       setUser(null);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const login = async (username: string, password: string) => {
+  useEffect(() => {
+    // initial mount
+    void checkAuth();
+  }, [checkAuth]);
+
+  const login = useCallback(async (username: string, password: string) => {
     try {
       setLoading(true);
       setError(null);
 
       const result = await adminLogin(username, password);
-      
-      if (result.success && result.admin) {
+      // api-client persists token/admin to localStorage; we update state & route
+      if (result?.admin) {
         setUser(result.admin);
         router.push('/dashboard');
       } else {
         throw new Error('Login successful but no admin data received');
       }
-    } catch (error) {
-      setError((error as Error).message || 'Login failed');
-      throw error;
+    } catch (e) {
+      const msg = (e as Error).message || 'Login failed';
+      setError(msg);
+      throw e;
     } finally {
       setLoading(false);
     }
-  };
+  }, [router]);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       setLoading(true);
-      await adminLogout();
-      setUser(null);
-      router.push('/login');
-    } catch (error) {
-      console.error('Logout error:', error);
-      // Even if logout fails, clear local data
-      setUser(null);
-      router.push('/login');
+      setError(null);
+      await adminLogout(); // clears local storage inside
+    } catch (e) {
+      console.warn('Logout error:', e);
+      clearAuthData();
     } finally {
+      setUser(null);
       setLoading(false);
+      router.push('/login');
     }
-  };
+  }, [router]);
 
   return (
     <AuthContext.Provider value={{ user, loading, error, login, logout, checkAuth }}>
@@ -125,10 +126,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+export function useAuth(): AuthContextType {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within an AuthProvider');
+  return ctx;
 }

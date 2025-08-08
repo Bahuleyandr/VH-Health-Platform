@@ -1,3 +1,4 @@
+// src/app/dashboard/departments/components/CreateDepartmentForm.tsx
 'use client';
 
 import { useState } from 'react';
@@ -9,12 +10,12 @@ export function CreateDepartmentForm() {
     name: '',
     description: '',
   });
-  
+
   const createDepartment = useCreateDepartment();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!formData.name.trim()) {
       return;
     }
@@ -28,26 +29,28 @@ export function CreateDepartmentForm() {
       // Reset form and close
       setFormData({ name: '', description: '' });
       setIsOpen(false);
-    } catch (_error) {
-      // Error is handled by the mutation hook with toast
-      // Prefixed with underscore to indicate it's intentionally unused
+    } catch {
+      // Errors are surfaced by the mutation hook (toast, etc.)
     }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setFormData(prev => ({
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
+    setFormData((prev) => ({
       ...prev,
-      [e.target.name]: e.target.value
+      [e.target.name]: e.target.value,
     }));
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
-      <div className="flex items-center justify-between mb-4">
+    <div className="rounded-lg bg-white p-6 shadow dark:bg-gray-800">
+      <div className="mb-4 flex items-center justify-between">
         <h2 className="text-xl font-semibold">Create New Department</h2>
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="text-blue-600 hover:text-blue-700 font-medium"
+          className="font-medium text-blue-600 hover:text-blue-700"
+          type="button"
         >
           {isOpen ? 'Cancel' : '+ Add Department'}
         </button>
@@ -56,7 +59,10 @@ export function CreateDepartmentForm() {
       {isOpen && (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
+            <label
+              htmlFor="name"
+              className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Department Name <span className="text-red-500">*</span>
             </label>
             <input
@@ -65,7 +71,7 @@ export function CreateDepartmentForm() {
               name="name"
               value={formData.name}
               onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               placeholder="e.g., Cardiology, Neurology"
               disabled={createDepartment.isPending}
               required
@@ -73,7 +79,10 @@ export function CreateDepartmentForm() {
           </div>
 
           <div>
-            <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
+            <label
+              htmlFor="description"
+              className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Description
             </label>
             <textarea
@@ -82,7 +91,7 @@ export function CreateDepartmentForm() {
               value={formData.description}
               onChange={handleChange}
               rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               placeholder="Brief description of the department..."
               disabled={createDepartment.isPending}
             />
@@ -92,7 +101,7 @@ export function CreateDepartmentForm() {
             <button
               type="submit"
               disabled={createDepartment.isPending}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {createDepartment.isPending ? 'Creating...' : 'Create Department'}
             </button>
@@ -103,7 +112,7 @@ export function CreateDepartmentForm() {
                 setFormData({ name: '', description: '' });
               }}
               disabled={createDepartment.isPending}
-              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 disabled:opacity-50"
+              className="rounded-md border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700/50"
             >
               Cancel
             </button>

@@ -77,7 +77,7 @@ export default function PharmacyPage() {
     };
     
     fetchPharmacyData(pageNumber, filters);
-  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [searchParams]);  
 
   const handleFilterChange = (filters: PharmacyFilters) => {
     const url = new URL(window.location.href);

@@ -1,78 +1,107 @@
 // src/components/auth/ProtectedRoute.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 
+type Role =
+  | 'SUPER_ADMIN'
+  | 'ADMIN'
+  | 'DOCTOR'
+  | 'NURSE'
+  | 'PHARMACIST'
+  | 'TECHNICIAN'
+  | 'RECEPTIONIST'
+  | 'PATIENT';
+
 interface ProtectedRouteProps {
-  children: React.ReactNode;
-  requiredRole?: string;
+  children: ReactNode;
+  requiredRole?: Role;
   requiredPermissions?: string[];
+  /** Where to send the user if they're unauthorized */
+  fallbackPath?: string;
 }
 
-export function ProtectedRoute({ 
-  children, 
-  requiredRole, 
-  requiredPermissions = [] 
+export function ProtectedRoute({
+  children,
+  requiredRole,
+  requiredPermissions = [],
+  fallbackPath = '/dashboard',
 }: ProtectedRouteProps) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userRole, setUserRole] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<Role | null>(null);
+  const [userPerms, setUserPerms] = useState<string[]>([]);
 
   useEffect(() => {
-    const checkAuth = () => {
-      const token = localStorage.getItem('adminToken');
-      const userStr = localStorage.getItem('adminUser');
-      
+    try {
+      const token =
+        typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
+      const userStr =
+        typeof window !== 'undefined' ? localStorage.getItem('adminUser') : null;
+
       if (!token) {
+        setIsAuthenticated(false);
+        setIsLoading(false);
         router.push('/login');
         return;
       }
-      
+
       setIsAuthenticated(true);
-      
-      // Parse user data if available
+
       if (userStr) {
         try {
-          const user = JSON.parse(userStr);
-          setUserRole(user.role);
-        } catch (error) {
-          console.error('Error parsing user data:', error);
+          const user = JSON.parse(userStr) as { role?: Role; permissions?: string[] };
+          if (user?.role) setUserRole(user.role);
+          if (Array.isArray(user?.permissions)) setUserPerms(user.permissions);
+        } catch (err) {
+          // don't crash on bad JSON in storage
+          console.error('Error parsing adminUser:', err);
         }
       }
-      
+    } finally {
       setIsLoading(false);
-    };
-
-    checkAuth();
+    }
   }, [router]);
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600" />
+          <p className="mt-4 text-gray-600">Loading…</p>
         </div>
       </div>
     );
   }
 
   if (!isAuthenticated) {
-    return null; // Will redirect via useEffect
+    // Redirect handled above
+    return null;
   }
 
-  // Check role if required
-  if (requiredRole && userRole && userRole !== requiredRole && userRole !== 'SUPER_ADMIN') {
+  const isSuperAdmin = userRole === 'SUPER_ADMIN';
+  const roleAllowed =
+    !requiredRole || isSuperAdmin || (userRole !== null && userRole === requiredRole);
+
+  const permsAllowed =
+    requiredPermissions.length === 0 ||
+    isSuperAdmin ||
+    requiredPermissions.every((p) => userPerms.includes(p));
+
+  if (!roleAllowed || !permsAllowed) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
-          <h2 className="text-2xl font-bold text-red-600">Access Denied</h2>
-          <p className="mt-2 text-gray-600">You don''t have permission to access this page.</p>
+          <h2 className="text-2xl font-bold text-red-600">Access denied</h2>
+          <p className="mt-2 text-gray-600">
+            You don&apos;t have permission to access this page.
+          </p>
           <button
-            onClick={() => router.push('/dashboard')}
-            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+            type="button"
+            onClick={() => router.push(fallbackPath)}
+            className="mt-4 rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
           >
             Go to Dashboard
           </button>

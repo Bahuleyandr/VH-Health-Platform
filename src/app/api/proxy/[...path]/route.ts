@@ -1,67 +1,78 @@
 // src/app/api/proxy/[...path]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
+import { API_BASE_URL } from '@/lib/api-config';
 
-const API_BASE_URL = 'https://vh-health-backend.onrender.com/api/v1';
-const API_KEY = 'vhhealth123';
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { path: string[] } }
-) {
-  const path = params.path.join('/');
-  const url = `${API_BASE_URL}/${path}${request.nextUrl.search}`;
-  
-  const headers = new Headers(request.headers);
-  headers.set('x-api-key', API_KEY);
-  headers.set('Origin', 'https://vh-health-portal.vercel.app');
-  
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: headers,
-  });
+// NOTE: params must be REQUIRED (not optional) for Next's type check
+type RouteParams = { params: { path: string[] } };
 
-  const data = await response.json();
-  return NextResponse.json(data, { status: response.status });
+const HOP_BY_HOP = new Set([
+  'connection',
+  'keep-alive',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+]);
+
+function buildTargetUrl(req: NextRequest, path: string[]) {
+  const pathname = (path ?? []).join('/');
+  const search = req.nextUrl.search;
+  const base = API_BASE_URL.replace(/\/+$/, '');
+  return `${base}/${pathname}${search}`;
 }
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { path: string[] } }
-) {
-  const path = params.path.join('/');
-  const url = `${API_BASE_URL}/${path}`;
-  
-  const headers = new Headers();
-  headers.set('Content-Type', 'application/json');
-  headers.set('x-api-key', API_KEY);
-  headers.set('Origin', 'https://vh-health-portal.vercel.app');
-  headers.set('Referer', 'https://vh-health-portal.vercel.app');
-  
-  // Add auth token if present
-  const authHeader = request.headers.get('Authorization');
-  if (authHeader) {
-    headers.set('Authorization', authHeader);
+function forwardableHeaders(incoming: Headers): HeadersInit {
+  const out: Record<string, string> = {};
+  incoming.forEach((value, key) => {
+    const k = key.toLowerCase();
+    if (HOP_BY_HOP.has(k) || k === 'host') return;
+    out[key] = value;
+  });
+  return out;
+}
+
+async function handleProxy(req: NextRequest, { params }: RouteParams) {
+  const targetUrl = buildTargetUrl(req, params.path);
+  const method = req.method;
+  const headers = forwardableHeaders(req.headers);
+  const init: RequestInit = { method, headers };
+
+  if (!['GET', 'HEAD'].includes(method)) {
+    const ct = req.headers.get('content-type') ?? '';
+    if (ct.includes('application/json')) {
+      const json = await req.json();
+      init.body = JSON.stringify(json);
+      if (!('Content-Type' in (headers as Record<string, string>))) {
+        (headers as Record<string, string>)['Content-Type'] = 'application/json';
+      }
+    } else if (
+      ct.includes('multipart/form-data') ||
+      ct.includes('application/x-www-form-urlencoded')
+    ) {
+      init.body = await req.formData();
+    } else {
+      init.body = await req.arrayBuffer();
+    }
   }
 
-  const body = await request.json();
-  
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: headers,
-    body: JSON.stringify(body),
+  const upstream = await fetch(targetUrl, init);
+  const respHeaders = new Headers(upstream.headers);
+  HOP_BY_HOP.forEach((h) => respHeaders.delete(h));
+
+  return new NextResponse(upstream.body, {
+    status: upstream.status,
+    headers: respHeaders,
   });
-
-  const data = await response.json();
-  return NextResponse.json(data, { status: response.status });
 }
 
-// Add similar handlers for PUT, DELETE, PATCH
-export async function PUT(_request: NextRequest, { params: _params }: { params: { path: string[] } }) {
-  // Similar implementation
-  return NextResponse.json({ error: 'Not implemented' }, { status: 501 });
-}
-
-export async function DELETE(_request: NextRequest, { params: _params }: { params: { path: string[] } }) {
-  // Similar implementation
-  return NextResponse.json({ error: 'Not implemented' }, { status: 501 });
-}
+export function GET(req: NextRequest, ctx: RouteParams)   { return handleProxy(req, ctx); }
+export function POST(req: NextRequest, ctx: RouteParams)  { return handleProxy(req, ctx); }
+export function PUT(req: NextRequest, ctx: RouteParams)   { return handleProxy(req, ctx); }
+export function PATCH(req: NextRequest, ctx: RouteParams) { return handleProxy(req, ctx); }
+export function DELETE(req: NextRequest, ctx: RouteParams){ return handleProxy(req, ctx); }
+export function OPTIONS(req: NextRequest, ctx: RouteParams){ return handleProxy(req, ctx); }

@@ -1,16 +1,68 @@
 // src/components/navigation/AdminNav.tsx
-const navigationItems = [
-  { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
-  { name: 'Users', href: '/dashboard/users', icon: UsersIcon },
-  { name: 'Doctors', href: '/dashboard/doctors', icon: UserGroupIcon },
-  { name: 'Departments', href: '/dashboard/departments', icon: BuildingOfficeIcon },
-  { name: 'Appointments', href: '/dashboard/appointments', icon: CalendarIcon },
-  { name: 'Medical Records', href: '/dashboard/records', icon: DocumentTextIcon },
-  { name: 'Pharmacy', href: '/dashboard/pharmacy', icon: BeakerIcon },
-  { name: 'Staff', href: '/dashboard/staff', icon: BriefcaseIcon },
-  { name: 'Notifications', href: '/dashboard/notifications', icon: BellIcon },
-  { name: 'Analytics', href: '/dashboard/analytics', icon: ChartBarIcon },
-  { name: 'Emergency/SOS', href: '/dashboard/sos', icon: ExclamationTriangleIcon },
-  { name: 'Feedback', href: '/dashboard/feedback', icon: ChatBubbleIcon },
-  { name: 'System Settings', href: '/dashboard/settings', icon: CogIcon },
+'use client';
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { usePermissions } from '@/hooks/usePermissions';
+
+type NavItem = {
+  name: string;
+  href: string;
+  requiredRole?: 'ADMIN' | 'SUPER_ADMIN';
+  requiredPermissions?: string[]; // all must be present (SUPER_ADMIN bypasses)
+};
+
+// Exported so it’s not “defined but never used”
+export const navigationItems: NavItem[] = [
+  { name: 'Dashboard', href: '/dashboard' },
+
+  { name: 'Users', href: '/dashboard/users', requiredPermissions: ['userManagement'] },
+  { name: 'Doctors', href: '/dashboard/doctors', requiredPermissions: ['doctorManagement'] },
+  { name: 'Departments', href: '/dashboard/departments', requiredPermissions: ['departmentManagement'] },
+  { name: 'Appointments', href: '/dashboard/appointments', requiredPermissions: ['appointmentManagement'] },
+
+  // Not tied to a specific permission key in our matrix—leave open by default
+  { name: 'Medical Records', href: '/dashboard/records' },
+  { name: 'Pharmacy', href: '/dashboard/pharmacy', requiredPermissions: ['pharmacyAdminRoutes'] },
+  { name: 'Staff', href: '/dashboard/staff' },
+
+  { name: 'Notifications', href: '/dashboard/notifications', requiredPermissions: ['notificationManagement'] },
+  { name: 'Analytics', href: '/dashboard/analytics', requiredPermissions: ['viewAuditLogs'] },
+  { name: 'Emergency/SOS', href: '/dashboard/sos' },
+  { name: 'Feedback', href: '/dashboard/feedback' },
+
+  { name: 'System Settings', href: '/dashboard/settings', requiredRole: 'ADMIN' },
 ];
+
+export default function AdminNav() {
+  const pathname = usePathname();
+  const { role, isSuperAdmin, hasAllPermissions } = usePermissions();
+
+  const visible = navigationItems.filter((item) => {
+    const roleOk = !item.requiredRole || isSuperAdmin || role === item.requiredRole;
+    const perms = item.requiredPermissions ?? [];
+    const permsOk = perms.length === 0 || isSuperAdmin || hasAllPermissions(perms);
+    return roleOk && permsOk;
+  });
+
+  return (
+    <nav className="space-y-1">
+      {visible.map((item) => {
+        const active = pathname === item.href;
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={`block rounded px-3 py-2 text-sm transition-colors ${
+              active
+                ? 'bg-gray-900 text-white'
+                : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+            }`}
+          >
+            {item.name}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}

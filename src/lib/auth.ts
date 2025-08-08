@@ -1,153 +1,110 @@
 // src/lib/auth.ts
-import axios from 'axios';
-import { config } from './config';
 
-// Use relative URLs when in browser, full URLs for server-side
-const API_BASE_URL = typeof window !== 'undefined' ? '' : config.apiUrl;
+/**
+ * Auth utilities for the admin portal.
+ * - Type-safe JWT parsing (no `any`)
+ * - LocalStorage helpers for token/user
+ * - Expiry checks with small clock skew
+ */
 
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  withCredentials: true,
-  timeout: config.timeouts.default,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
+const TOKEN_KEY = 'adminToken';
+const USER_KEY = 'adminUser';
 
-// Add request interceptor to include token if stored in localStorage
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('authToken');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
+/* =========================
+ * Local storage helpers
+ * ========================= */
 
-// Add response interceptor to handle token from response
-api.interceptors.response.use(
-  (response) => {
-    // If the response includes a token, store it
-    if (response.data?.token) {
-      localStorage.setItem('authToken', response.data.token);
-    }
-    return response;
-  },
-  (error) => {
-    if (error.response?.status === 401) {
-      // Clear token and redirect to login
-      localStorage.removeItem('authToken');
-      window.location.href = '/login';
-    }
-    return Promise.reject(error);
-  }
-);
-
-export interface LoginCredentials {
-  username: string;
-  password: string;
+export function getToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(TOKEN_KEY);
 }
 
-export interface User {
-  id: string;
-  username: string;
-  email?: string;
+export function setToken(token: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearAuthStorage(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+}
+
+/* =========================
+ * JWT helpers (no `any`)
+ * ========================= */
+
+type JwtBase = {
+  // Standard JWT fields
+  iss?: string;
+  sub?: string;
+  aud?: string | string[];
+  exp?: number; // seconds since epoch
+  nbf?: number;
+  iat?: number;
+  jti?: string;
+
+  // Custom claims we often see on admin tokens
   role?: string;
-  [key: string]: any;
-}
-
-export interface AuthResponse {
-  success: boolean;
-  token?: string;
-  user?: User;
-  message?: string;
-}
-
-export const auth = {
-  async login(credentials: LoginCredentials): Promise<AuthResponse> {
-    try {
-      // Use relative URL - Next.js will rewrite it
-      const response = await api.post('/api/v1/auth/admin/login', credentials);
-      
-      const { data } = response;
-      
-      if (data.token) {
-        localStorage.setItem(config.storage.authToken, data.token);
-      }
-      
-      return {
-        success: true,
-        token: data.token,
-        user: data.user || data.admin || data.data,
-      };
-    } catch (error: any) {
-      console.error('Login error:', error);
-      return {
-        success: false,
-        message: error.response?.data?.message || 'Login failed',
-      };
-    }
-  },
-
-  async getProfile(): Promise<User | null> {
-    try {
-      const response = await api.get(config.endpoints.auth.profile);
-      return response.data.user || response.data.admin || response.data.data || response.data;
-    } catch (error) {
-      console.error('Get profile error:', error);
-      return null;
-    }
-  },
-
-  async logout(): Promise<void> {
-    try {
-      await api.post(config.endpoints.auth.logout).catch(() => {});
-    } finally {
-      localStorage.removeItem(config.storage.authToken);
-    }
-  },
-
-  isAuthenticated(): boolean {
-    return !!localStorage.getItem(config.storage.authToken);
-  },
-
-  getToken(): string | null {
-    return localStorage.getItem(config.storage.authToken);
-  },
+  permissions?: string[];
+  [key: string]: unknown;
 };
 
-export const dashboardApi = {
-  async getDashboardData() {
-    try {
-      const response = await api.get(config.endpoints.users.dashboard);
-      return response.data;
-    } catch (error) {
-      console.error('Dashboard data error:', error);
-      throw error;
-    }
-  },
+/** Base64url decode */
+function b64urlToString(input: string): string {
+  const pad = '==='.slice(0, (4 - (input.length % 4)) % 4);
+  const base64 = (input + pad).replace(/-/g, '+').replace(/_/g, '/');
+  if (typeof window !== 'undefined') {
+    // atob expects base64 (not base64url) — ok after the replacements above
+    return decodeURIComponent(
+      Array.prototype.map
+        .call(atob(base64), (c: string) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+  } else {
+    // Node
+    return Buffer.from(base64, 'base64').toString('utf8');
+  }
+}
 
-  async getUsers() {
-    try {
-      const response = await api.get(config.endpoints.users.list);
-      return response.data;
-    } catch (error) {
-      console.error('Get users error:', error);
-      throw error;
-    }
-  },
+/**
+ * Parse a JWT payload into a typed object.
+ * Usage: const payload = parseJwt<{ role: 'ADMIN' | 'SUPER_ADMIN' }>(token)
+ */
+export function parseJwt<T extends Record<string, unknown> = JwtBase>(token: string): T {
+  const parts = token.split('.');
+  if (parts.length < 2) throw new Error('Invalid JWT');
 
-  async getDoctors() {
-    try {
-      const response = await api.get(config.endpoints.doctors.list);
-      return response.data;
-    } catch (error) {
-      console.error('Get doctors error:', error);
-      throw error;
-    }
-  },
-};
+  const payloadJson = b64urlToString(parts[1] ?? '');
+  const payload = JSON.parse(payloadJson) as unknown;
+
+  // Runtime guard
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Invalid JWT payload');
+  }
+  return payload as T;
+}
+
+/** Get exp (seconds since epoch) from token, or null if missing/invalid */
+export function getTokenExp(token: string): number | null {
+  try {
+    const payload = parseJwt<JwtBase>(token);
+    return typeof payload.exp === 'number' ? payload.exp : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Is token expired (with optional skew seconds, default 30s)? */
+export function isTokenExpired(token: string, skewSeconds = 30): boolean {
+  const exp = getTokenExp(token);
+  if (!exp) return true;
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  return nowSeconds >= exp - skewSeconds;
+}
+
+/** Convenience: return `Authorization` header value for a token */
+export function toBearer(token?: string | null): string | undefined {
+  if (!token) return undefined;
+  return `Bearer ${token}`;
+}

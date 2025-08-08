@@ -1,4 +1,4 @@
-// src/components/BulkActions.tsx =====
+// src/components/BulkActions.tsx
 'use client';
 
 import { useState } from 'react';
@@ -38,7 +38,7 @@ export function BulkActions({
       await onDelete();
       toast.success(`Successfully deleted ${selectedCount} items`);
       onClearSelection();
-    } catch (error) {
+    } catch {
       toast.error('Failed to delete items');
     } finally {
       setIsDeleting(false);
@@ -95,9 +95,9 @@ export function BulkActions({
             Clear
           </button>
         </div>
-        
+
         <div className="h-6 w-px bg-gray-300 dark:bg-gray-600" />
-        
+
         <div className="flex items-center gap-2">
           {allActions.map((action, index) => (
             <button
