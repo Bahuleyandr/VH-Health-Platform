@@ -1,7 +1,7 @@
 // src/app/dashboard/page.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { API_ENDPOINTS, API_BASE_URL, getHeaders } from '@/lib/api-config';
 
 // Define proper types for the dashboard data
@@ -52,32 +52,45 @@ interface DashboardData {
   systemHealth: SystemHealth;
 }
 
+// Some endpoints return { data }, others return the payload directly
+type DashboardAPIResponse = { data?: DashboardData } | DashboardData;
+
 export default function DashboardPage() {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
-
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async () => {
     try {
-      const token = localStorage.getItem('adminToken');
+      setLoading(true);
+      setError('');
+
+      // Ensure token type is string | undefined (not string | null)
+      const token = (localStorage.getItem('adminToken') ?? undefined) as string | undefined;
+
       const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.admin.dashboard}`, {
         headers: getHeaders(token),
       });
 
       if (!response.ok) throw new Error('Failed to fetch dashboard data');
 
-      const data = await response.json();
-      setDashboardData(data.data);
+      const json = (await response.json()) as DashboardAPIResponse;
+      const payload: DashboardData | undefined =
+        (json as any)?.data ?? (json as DashboardData | undefined);
+
+      if (!payload) throw new Error('Malformed dashboard response');
+
+      setDashboardData(payload);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
 
   if (loading) return <div>Loading dashboard...</div>;
   if (error) return <div>Error: {error}</div>;
@@ -86,7 +99,7 @@ export default function DashboardPage() {
   return (
     <div className="p-6">
       <h1 className="text-3xl font-bold mb-6">Admin Dashboard</h1>
-      
+
       {/* Quick Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <StatCard title="Total Users" value={dashboardData.overview.totalUsers} />

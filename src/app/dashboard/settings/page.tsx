@@ -1,31 +1,40 @@
+// src/app/dashboard/settings/page.tsx
 'use client';
 
-// src/app/dashboard/settings/page.tsx
-import { useEffect, useState, Suspense } from "react";
-import { fetchAdminAPI } from "@/lib/api";
-import { SystemSetting } from "@/lib/types";
-import { SettingsListForm } from "./components/SettingsListForm";
+import { useEffect, useState, Suspense } from 'react';
+import { fetchAdminAPI } from '@/lib/api';
+import type { SystemSetting } from '@/lib/types';
+import { SettingsListForm } from './components/SettingsListForm';
 
 function SettingsContent() {
   const [settings, setSettings] = useState<SystemSetting[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchSettings = async () => {
+  async function fetchSettings() {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetchAdminAPI('/system/settings');
-      setSettings(response.settings || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch settings');
+
+      // Tell fetchAdminAPI the response shape
+      const response = await fetchAdminAPI<{ settings: SystemSetting[] }>(
+        '/system/settings',
+        { method: 'GET' }
+      );
+
+      setSettings(response?.settings ?? []);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to fetch settings';
+      setError(msg);
+      setSettings([]);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   useEffect(() => {
     fetchSettings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSettingUpdated = () => {
@@ -36,7 +45,7 @@ function SettingsContent() {
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
       </div>
     );
   }
@@ -49,9 +58,7 @@ function SettingsContent() {
     );
   }
 
-  return (
-    <SettingsListForm settings={settings} onUpdate={handleSettingUpdated} />
-  );
+  return <SettingsListForm settings={settings} onUpdate={handleSettingUpdated} />;
 }
 
 export default function SettingsPage() {
@@ -61,7 +68,7 @@ export default function SettingsPage() {
       <p className="mb-6 text-gray-600">
         Update system-wide configurations. Changes will take effect immediately.
       </p>
-      
+
       <Suspense fallback={<div>Loading settings...</div>}>
         <SettingsContent />
       </Suspense>

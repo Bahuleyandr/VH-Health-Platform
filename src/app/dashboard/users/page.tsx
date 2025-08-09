@@ -1,24 +1,24 @@
 'use client';
 
-// src/app/dashboard/users/page.tsx
-import { Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
-import { fetchAdminAPI } from "@/lib/api";
-import { UsersAPIResponse } from "@/lib/types";
-import { UsersTable } from "./components/UsersTable";
-import { PaginationControls } from "./components/PaginationControls";
-import { UserFilters } from "./components/UserFilters";
+import { Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { fetchAdminAPI } from '@/lib/api';
+import { UsersAPIResponse } from '@/lib/types';
+import { UsersTable } from './components/UsersTable';
+import { PaginationControls } from './components/PaginationControls';
+import { UserFilters } from './components/UserFilters';
 
 function UsersContent() {
   const searchParams = useSearchParams();
-  
+  const queryClient = useQueryClient();
+
   // Build query string from search params
   const queryParams = new URLSearchParams();
   const page = searchParams.get('page') || '1';
   const role = searchParams.get('role');
   const search = searchParams.get('search');
-  
+
   queryParams.set('page', page);
   if (role) queryParams.set('role', role);
   if (search) queryParams.set('search', search);
@@ -26,13 +26,18 @@ function UsersContent() {
   const { data, isLoading, error } = useQuery<UsersAPIResponse>({
     queryKey: ['users', page, role, search],
     queryFn: () => fetchAdminAPI(`/admin/users?${queryParams.toString()}`),
-    staleTime: 30000, // 30 seconds
+    staleTime: 30_000,
   });
+
+  const onUserUpdated = () => {
+    // Invalidate all variations of the 'users' query key
+    queryClient.invalidateQueries({ queryKey: ['users'] });
+  };
 
   if (isLoading) {
     return (
       <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
       </div>
     );
   }
@@ -52,7 +57,7 @@ function UsersContent() {
   return (
     <>
       <UserFilters />
-      <UsersTable users={data.users} />
+      <UsersTable users={data.users} onUserUpdated={onUserUpdated} />
       <PaginationControls pagination={data.pagination} />
     </>
   );

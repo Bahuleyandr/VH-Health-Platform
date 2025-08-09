@@ -1,51 +1,45 @@
 // src/hooks/useApi.ts
-import { useState, useEffect, useCallback } from 'react';
-import { api } from '@/lib/auth';
+'use client';
 
-interface UseApiOptions<T> {
-  immediate?: boolean;
-  onSuccess?: (data: T) => void;
-  onError?: (error: Error) => void;
-}
+import { useCallback } from 'react';
+import { fetchAdminAPI } from '@/lib/api';
 
-interface UseApiReturn<T> {
-  data: T | null;
-  loading: boolean;
-  error: Error | null;
-  refetch: () => Promise<void>;
-}
+type Json = Record<string, unknown> | unknown[] | string | number | boolean | null;
 
-export function useApi<T = unknown>(
-  url: string | null,
-  options: UseApiOptions<T> = { immediate: true }
-): UseApiReturn<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+export function useApi() {
+  const get = useCallback(
+    async <T = unknown>(path: string, init?: RequestInit) =>
+      fetchAdminAPI<T>(path, { method: 'GET', ...(init ?? {}) }),
+    []
+  );
 
-  const execute = useCallback(async () => {
-    if (!url) return;
-    
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await api.get<T>(url);
-      setData(response.data);
-      options.onSuccess?.(response.data);
-    } catch (err) {
-      const errorObj = err instanceof Error ? err : new Error('An unknown error occurred');
-      setError(errorObj);
-      options.onError?.(errorObj);
-    } finally {
-      setLoading(false);
-    }
-  }, [url, options]);
+  const post = useCallback(
+    async <T = unknown>(path: string, body?: Json, init?: RequestInit) =>
+      fetchAdminAPI<T>(path, {
+        method: 'POST',
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+        ...(init ?? {}),
+      }),
+    []
+  );
 
-  useEffect(() => {
-    if (options.immediate && url) {
-      execute();
-    }
-  }, [url, options.immediate, execute]);
+  const put = useCallback(
+    async <T = unknown>(path: string, body?: Json, init?: RequestInit) =>
+      fetchAdminAPI<T>(path, {
+        method: 'PUT',
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+        ...(init ?? {}),
+      }),
+    []
+  );
 
-  return { data, loading, error, refetch: execute };
+  const del = useCallback(
+    async <T = unknown>(path: string, init?: RequestInit) =>
+      fetchAdminAPI<T>(path, { method: 'DELETE', ...(init ?? {}) }),
+    []
+  );
+
+  return { get, post, put, del };
 }

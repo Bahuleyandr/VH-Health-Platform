@@ -1,9 +1,10 @@
 // src/app/dashboard/system-logs/components/SystemLogsTable.tsx
 'use client';
 
-import { ExtendedSystemLog } from "@/lib/types";
-import { useState } from "react";
-import { LogDetailsModal } from "./LogDetailsModal";
+import { useState } from 'react';
+import type { ReactNode } from 'react';
+import { ExtendedSystemLog } from '@/lib/types';
+import { LogDetailsModal } from './LogDetailsModal';
 
 const levelColorMap: Record<string, string> = {
   ERROR: 'bg-red-100 text-red-800 border-red-300',
@@ -12,7 +13,7 @@ const levelColorMap: Record<string, string> = {
   DEBUG: 'bg-gray-100 text-gray-800 border-gray-300',
 };
 
-const levelIconMap: Record<string, JSX.Element> = {
+const levelIconMap: Record<string, ReactNode> = {
   ERROR: (
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -46,17 +47,12 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const toggleRow = (id: number) => {
-    const newExpanded = new Set(expandedRows);
-    if (newExpanded.has(id)) {
-      newExpanded.delete(id);
-    } else {
-      newExpanded.add(id);
-    }
-    setExpandedRows(newExpanded);
+    const next = new Set(expandedRows);
+    next.has(id) ? next.delete(id) : next.add(id);
+    setExpandedRows(next);
   };
 
   const formatStackTrace = (message: string) => {
-    // Check if message contains stack trace indicators
     if (message.includes('\n') || message.includes('  at ')) {
       return message.split('\n').map((line, i) => (
         <div key={i} className={line.trim().startsWith('at ') ? 'ml-4' : ''}>
@@ -71,7 +67,7 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
     return (
       <div className="bg-white shadow rounded-lg p-8">
         <div className="flex justify-center items-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
         </div>
       </div>
     );
@@ -80,9 +76,7 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
   if (logs.length === 0) {
     return (
       <div className="bg-white shadow rounded-lg p-8">
-        <div className="text-center text-gray-500">
-          No system logs found for the selected filters.
-        </div>
+        <div className="text-center text-gray-500">No system logs found for the selected filters.</div>
       </div>
     );
   }
@@ -93,21 +87,11 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Timestamp
-              </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Level
-              </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Service
-              </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Message
-              </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Level</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Service</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Message</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
@@ -115,18 +99,10 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
               <tr key={log.id} className={`hover:bg-gray-50 ${log.level === 'ERROR' ? 'bg-red-50' : ''}`}>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   <div>
-                    {new Date(log.timestamp).toLocaleDateString('en-GB', {
-                      day: '2-digit',
-                      month: 'short',
-                      year: 'numeric'
-                    })}
+                    {new Date(log.timestamp).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                   </div>
                   <div className="text-xs text-gray-400">
-                    {new Date(log.timestamp).toLocaleTimeString('en-GB', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      second: '2-digit'
-                    })}
+                    {new Date(log.timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
@@ -136,12 +112,8 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
                   </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900">
-                    {log.service || 'API'}
-                  </div>
-                  {log.module && (
-                    <div className="text-xs text-gray-500">{log.module}</div>
-                  )}
+                  <div className="text-sm font-medium text-gray-900">{log.service || 'API'}</div>
+                  {log.module && <div className="text-xs text-gray-500">{log.module}</div>}
                 </td>
                 <td className="px-6 py-4 text-sm">
                   <div className="max-w-2xl">
@@ -150,18 +122,13 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
                         <div className={`font-mono text-gray-800 ${expandedRows.has(log.id) ? '' : 'truncate'}`}>
                           {expandedRows.has(log.id) ? formatStackTrace(log.message) : log.message}
                         </div>
-                        <button
-                          onClick={() => toggleRow(log.id)}
-                          className="text-blue-600 hover:text-blue-800 text-xs mt-1"
-                        >
+                        <button onClick={() => toggleRow(log.id)} className="text-blue-600 hover:text-blue-800 text-xs mt-1">
                           {expandedRows.has(log.id) ? 'Show less' : 'Show more'}
                         </button>
                       </>
                     ) : (
                       <div className="font-mono text-gray-800">{log.message}</div>
                     )}
-                    
-                    {/* Additional metadata if available */}
                     {log.metadata && (
                       <div className="mt-2 text-xs text-gray-500">
                         <details>
@@ -190,8 +157,7 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
           </tbody>
         </table>
       </div>
-      
-      {/* Log Details Modal */}
+
       <LogDetailsModal
         log={selectedLog}
         type="system"

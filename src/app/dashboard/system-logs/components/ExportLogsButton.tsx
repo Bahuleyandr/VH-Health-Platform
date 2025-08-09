@@ -9,8 +9,15 @@ interface ExportLogsButtonProps {
   queryParams: URLSearchParams;
 }
 
-interface LogRecord {
-  [key: string]: unknown;
+type CsvResponse = { csv: string };
+type LogsResponse = { logs: unknown[] };
+
+function hasCsv(x: unknown): x is CsvResponse {
+  return !!x && typeof (x as any).csv === 'string';
+}
+
+function hasLogs(x: unknown): x is LogsResponse {
+  return !!x && Array.isArray((x as any).logs);
 }
 
 export function ExportLogsButton({ logType, queryParams }: ExportLogsButtonProps) {
@@ -20,27 +27,40 @@ export function ExportLogsButton({ logType, queryParams }: ExportLogsButtonProps
     try {
       setExporting(true);
       const endpoint = logType === 'audit' ? '/logs/audit/export' : '/logs/system/export';
-      
-      // Add format to query params
+
       const exportParams = new URLSearchParams(queryParams);
       exportParams.set('format', format);
-      
-      const response = await fetchAdminAPI(`${endpoint}?${exportParams.toString()}`);
-      
+
+      // Fetch as unknown and narrow below
+      const response = await fetchAdminAPI<unknown>(`${endpoint}?${exportParams.toString()}`);
+
       let blob: Blob;
       let filename: string;
-      
+
       if (format === 'json') {
         blob = new Blob([JSON.stringify(response, null, 2)], { type: 'application/json' });
         filename = `${logType}_logs_${new Date().toISOString().split('T')[0]}.json`;
       } else {
-        // For CSV, we assume the API returns a CSV string
-        const csvContent = response.csv || convertToCSV(response.logs || response);
+        // CSV: use server CSV if provided, else derive from logs/array/object
+        let csvContent = '';
+        if (typeof response === 'string') {
+          csvContent = response;
+        } else if (hasCsv(response)) {
+          csvContent = response.csv;
+        } else if (hasLogs(response)) {
+          csvContent = convertToCSV(response.logs);
+        } else if (Array.isArray(response)) {
+          csvContent = convertToCSV(response as unknown[]);
+        } else if (response && typeof response === 'object') {
+          csvContent = convertToCSV([response]);
+        } else {
+          csvContent = '';
+        }
+
         blob = new Blob([csvContent], { type: 'text/csv' });
         filename = `${logType}_logs_${new Date().toISOString().split('T')[0]}.csv`;
       }
-      
-      // Create download link
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -57,26 +77,27 @@ export function ExportLogsButton({ logType, queryParams }: ExportLogsButtonProps
     }
   };
 
-  // Helper function to convert logs to CSV format
-  const convertToCSV = (logs: unknown[]) => {
-    if (!logs || logs.length === 0) return '';
-    
-    const records = logs as LogRecord[];
-    const headers = Object.keys(records[0]);
-    const csvHeaders = headers.join(',');
-    
-    const csvRows = records.map(log => {
-      return headers.map(header => {
-        const value = log[header];
-        // Escape quotes and wrap in quotes if contains comma
-        const stringValue = typeof value === 'object' ? JSON.stringify(value) : String(value || '');
-        return stringValue.includes(',') || stringValue.includes('"') 
-          ? `"${stringValue.replace(/"/g, '""')}"` 
-          : stringValue;
-      }).join(',');
-    });
-    
-    return [csvHeaders, ...csvRows].join('\n');
+  // Convert array of unknowns to CSV by best-effort flattening of keys
+  const convertToCSV = (rows: unknown[]) => {
+    if (!Array.isArray(rows) || rows.length === 0) return '';
+
+    const objects = rows.map(r => (r && typeof r === 'object' ? (r as Record<string, unknown>) : { value: r }));
+    const headerSet = new Set<string>();
+    objects.forEach(o => Object.keys(o).forEach(k => headerSet.add(k)));
+    const headers = Array.from(headerSet);
+    const headerLine = headers.join(',');
+
+    const csvRows = objects.map(o =>
+      headers
+        .map(h => {
+          const v = o[h];
+          const s = typeof v === 'object' ? JSON.stringify(v) : String(v ?? '');
+          return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+        })
+        .join(',')
+    );
+
+    return [headerLine, ...csvRows].join('\n');
   };
 
   return (
@@ -84,12 +105,13 @@ export function ExportLogsButton({ logType, queryParams }: ExportLogsButtonProps
       <div>
         <button
           type="button"
+          onClick={() => handleExport('json')} // quick default action; hook up a dropdown if needed
           className="inline-flex justify-center items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
           disabled={exporting}
         >
           {exporting ? (
             <>
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600" />
               Exporting...
             </>
           ) : (
@@ -102,8 +124,8 @@ export function ExportLogsButton({ logType, queryParams }: ExportLogsButtonProps
           )}
         </button>
       </div>
-      
-      {/* Dropdown menu - you could implement this with a proper dropdown library */}
+
+      {/* Example dropdown wiring (hidden by default) */}
       <div className="hidden origin-top-right absolute right-0 mt-2 w-40 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
         <div className="py-1" role="menu">
           <button

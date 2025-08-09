@@ -68,7 +68,6 @@ async function requestJSON<T = unknown>(
   const { useAuth = true, headers, ...rest } = options;
   const token = useAuth ? getToken() : undefined;
 
-  // apiFetch adds Origin/x-api-key and Authorization (when token provided)
   const res = await apiFetch(endpoint, {
     ...rest,
     headers: headers as HeadersInit | undefined,
@@ -78,9 +77,7 @@ async function requestJSON<T = unknown>(
   const contentType = res.headers.get('content-type') ?? '';
   const isJson = contentType.includes('application/json');
 
-  const payload = isJson
-    ? ((await res.json()) as APIResponse<T>)
-    : ((await res.text()) as unknown);
+  const payload = isJson ? ((await res.json()) as APIResponse<T>) : ((await res.text()) as unknown);
 
   if (!res.ok) {
     if (res.status === 401) {
@@ -101,12 +98,10 @@ async function requestJSON<T = unknown>(
     throw new APIError(message, res.status, payload);
   }
 
-  // If backend wraps { data }, return it; otherwise return payload as-is
   if (isJson) {
     const body = payload as APIResponse<T>;
     return (('data' in body && body.data !== undefined ? body.data : (body as unknown)) as T);
   }
-  // Non-JSON (rare): return the raw text
   return payload as T;
 }
 
@@ -181,7 +176,6 @@ export function verifyOTP(phoneNumber: string, otp: string) {
 }
 
 export function loginAdmin(username: string, password: string) {
-  // no auth token yet
   return postJSON(API_ENDPOINTS.auth.admin.login, { username, password }, false);
 }
 
@@ -209,7 +203,7 @@ export function getActivityAudit<T = unknown>() {
   return getJSON<T>(API_ENDPOINTS.users.activityAudit);
 }
 
-/** Back-compat: some components call `api.getRecentActivities` */
+/** Back-compat */
 export function getRecentActivities<T = unknown>() {
   return getActivityAudit<T>();
 }
@@ -264,39 +258,69 @@ export function getDoctors<T = unknown>() {
 }
 
 export function deleteDoctor<T = unknown>(id: number) {
-  return deleteJSON<T>(`${API_ENDPOINTS.doctors.base}/${id}`);
+  // Use the existing key from API_ENDPOINTS.doctors
+  // Assuming it is a template like "/doctors/:id/delete"
+  const endpoint =
+    'deleteAccount' in API_ENDPOINTS.doctors
+      ? (API_ENDPOINTS.doctors as any).deleteAccount.replace(':id', String(id))
+      : `/doctors/${id}`; // fallback
+  return deleteJSON<T>(endpoint);
 }
 
 /* =========================
  * Admin Management
  * ========================= */
 
+// No key in API_ENDPOINTS.admin for "create", so call the known auth route directly.
 export function createAdminUser<T = unknown>(payload: {
   email: string;
   password: string;
   role: string;
 }) {
-  return postJSON<T>(API_ENDPOINTS.admin.create, payload);
+  // Backend route used elsewhere in the app/comments
+  return postJSON<T>('/auth/admin/create-admin', payload);
 }
 
-export function deactivateAdmin<T = unknown>(id: number) {
-  return postJSON<T>(`${API_ENDPOINTS.admin.base}/${id}/deactivate`);
+/** Accepts either (id: number) or ({ adminId, reason? }) */
+export function deactivateAdmin<T = unknown>(id: number): Promise<T>;
+export function deactivateAdmin<T = unknown>(payload: { adminId: number; reason?: string }): Promise<T>;
+export function deactivateAdmin<T = unknown>(arg: number | { adminId: number; reason?: string }) {
+  const id = typeof arg === 'number' ? arg : arg.adminId;
+  // API_ENDPOINTS.admin has no "base"; use explicit route
+  return postJSON<T>(`/admin/users/${id}/deactivate`);
 }
 
-export function reactivateAdmin<T = unknown>(id: number) {
-  return postJSON<T>(`${API_ENDPOINTS.admin.base}/${id}/reactivate`);
+/** Accepts either (id: number) or ({ adminId }) */
+export function reactivateAdmin<T = unknown>(id: number): Promise<T>;
+export function reactivateAdmin<T = unknown>(payload: { adminId: number }): Promise<T>;
+export function reactivateAdmin<T = unknown>(arg: number | { adminId: number }) {
+  const id = typeof arg === 'number' ? arg : arg.adminId;
+  return postJSON<T>(`/admin/users/${id}/reactivate`);
 }
 
-export function updateAdminPermissions<T = unknown>(id: number, perms: string[]) {
-  return putJSON<T>(`${API_ENDPOINTS.admin.base}/${id}/permissions`, { permissions: perms });
+/** Accepts either (id: number, perms: string[]) or ({ adminId, permissions }) */
+export function updateAdminPermissions<T = unknown>(id: number, perms: string[]): Promise<T>;
+export function updateAdminPermissions<T = unknown>(payload: {
+  adminId: number;
+  permissions: string[];
+}): Promise<T>;
+export function updateAdminPermissions<T = unknown>(
+  a: number | { adminId: number; permissions: string[] },
+  perms?: string[]
+) {
+  const id = typeof a === 'number' ? a : a.adminId;
+  const permissions = typeof a === 'number' ? (perms ?? []) : a.permissions;
+  return putJSON<T>(`/admin/users/${id}/permissions`, { permissions });
 }
 
 /* =========================
  * Settings
  * ========================= */
 
+// API_ENDPOINTS.settings.* not present in the config typing seen by TS.
+// Use explicit settings route to avoid TS2339.
 export function updateSystemSetting<T = unknown>(key: string, value: unknown) {
-  return putJSON<T>(`${API_ENDPOINTS.settings.base}/${encodeURIComponent(key)}`, { value });
+  return putJSON<T>(`/settings/${encodeURIComponent(key)}`, { value });
 }
 
 /* =========================

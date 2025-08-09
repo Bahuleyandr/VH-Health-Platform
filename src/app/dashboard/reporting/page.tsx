@@ -24,14 +24,14 @@ export default function ReportingPage() {
       setLoading(true);
       setError(null);
 
-      // Fetch users and doctors for the report generator dropdowns
+      // Tell fetchAdminAPI the expected shapes
       const [usersData, doctorsData] = await Promise.all([
-        fetchAdminAPI('/users'),
-        fetchAdminAPI('/doctors')
+        fetchAdminAPI<{ users: User[] }>('/users'),
+        fetchAdminAPI<{ doctors: Doctor[] }>('/doctors'),
       ]);
 
-      setUsers(usersData.users || []);
-      setDoctors(doctorsData.doctors || []);
+      setUsers(usersData?.users ?? []);
+      setDoctors(doctorsData?.doctors ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {

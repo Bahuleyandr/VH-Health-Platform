@@ -1,9 +1,9 @@
+// src/app/dashboard/system-logs/page.tsx
 'use client';
 
-// src/app/dashboard/system-logs/page.tsx
 import { useEffect, useState, useCallback } from "react";
 import { fetchAdminAPI } from "@/lib/api";
-import { AuditLog, SystemLog, LogFilters } from "@/lib/types";
+import type { AuditLog, SystemLog, LogFilters } from "@/lib/types";
 import { useSearchParams, useRouter } from "next/navigation";
 import { AuditLogsTable } from "./components/AuditLogsTable";
 import { SystemLogsTable } from "./components/SystemLogsTable";
@@ -13,21 +13,31 @@ import { LogMonitor } from "./components/LogMonitor";
 import { KeyboardShortcuts } from "./components/KeyboardShortcuts";
 import { LogLevelIndicator } from "./components/LogLevelIndicator";
 
+type Pagination = {
+  totalPages?: number;
+  currentPage?: number;
+};
+
+type LogsResponse<T> = {
+  logs?: T[];
+  pagination?: Pagination;
+};
+
 export default function SystemLogsPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const currentTab = searchParams.get('tab') || 'audit';
-  
+
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [systemLogs, setSystemLogs] = useState<SystemLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const itemsPerPage = 20;
-  
+
   // Auto-refresh state
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [refreshInterval, setRefreshInterval] = useState(30); // seconds
@@ -36,35 +46,35 @@ export default function SystemLogsPage() {
     try {
       setLoading(true);
       setError(null);
-      
+
       // Build query params
       const queryParams = new URLSearchParams();
       queryParams.set('page', page.toString());
       queryParams.set('limit', itemsPerPage.toString());
-      
+
       // Add filters to query params
       if (filters?.dateRange) queryParams.set('dateRange', filters.dateRange);
       if (filters?.search) queryParams.set('search', filters.search);
       if (filters?.level) queryParams.set('level', filters.level);
       if (filters?.action) queryParams.set('action', filters.action);
-      
-      // Fetch both types of logs in parallel
+
+      // Fetch both types of logs in parallel (typed)
       const [auditResponse, systemResponse] = await Promise.all([
-        fetchAdminAPI(`/logs/audit?${queryParams.toString()}`),
-        fetchAdminAPI(`/logs/system?${queryParams.toString()}`)
+        fetchAdminAPI<LogsResponse<AuditLog>>(`/logs/audit?${queryParams.toString()}`),
+        fetchAdminAPI<LogsResponse<SystemLog>>(`/logs/system?${queryParams.toString()}`),
       ]);
 
-      setAuditLogs(auditResponse.logs || []);
-      setSystemLogs(systemResponse.logs || []);
-      
+      setAuditLogs(auditResponse.logs ?? []);
+      setSystemLogs(systemResponse.logs ?? []);
+
       // Set pagination info based on current tab
       const response = currentTab === 'audit' ? auditResponse : systemResponse;
       if (response.pagination) {
-        setTotalPages(response.pagination.totalPages || 1);
-        setCurrentPage(response.pagination.currentPage || page);
+        setTotalPages(response.pagination.totalPages ?? 1);
+        setCurrentPage(response.pagination.currentPage ?? page);
       }
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to fetch logs');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch logs');
     } finally {
       setLoading(false);
     }
@@ -72,35 +82,35 @@ export default function SystemLogsPage() {
 
   useEffect(() => {
     const page = searchParams.get('page');
-    const pageNumber = page ? parseInt(page) : 1;
-    
+    const pageNumber = page ? parseInt(page, 10) : 1;
+
     // Get filters from URL params
     const filters: LogFilters = {
       dateRange: searchParams.get('dateRange') || '',
       search: searchParams.get('search') || '',
       level: searchParams.get('level') || '',
-      action: searchParams.get('action') || ''
+      action: searchParams.get('action') || '',
     };
-    
+
     fetchLogs(pageNumber, filters);
   }, [searchParams, currentTab, fetchLogs]);
 
   // Auto-refresh functionality
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    
+    let interval: ReturnType<typeof setInterval> | undefined;
+
     if (autoRefresh) {
       interval = setInterval(() => {
         const filters: LogFilters = {
           dateRange: searchParams.get('dateRange') || '',
           search: searchParams.get('search') || '',
           level: searchParams.get('level') || '',
-          action: searchParams.get('action') || ''
+          action: searchParams.get('action') || '',
         };
         fetchLogs(currentPage, filters);
       }, refreshInterval * 1000);
     }
-    
+
     return () => {
       if (interval) clearInterval(interval);
     };
@@ -123,9 +133,9 @@ export default function SystemLogsPage() {
     try {
       const queryParams = new URLSearchParams(window.location.search);
       const endpoint = currentTab === 'audit' ? '/logs/audit/export' : '/logs/system/export';
-      
-      const response = await fetchAdminAPI(`${endpoint}?${queryParams.toString()}`);
-      
+
+      const response = await fetchAdminAPI<unknown>(`${endpoint}?${queryParams.toString()}`);
+
       // Create a blob and download
       const blob = new Blob([JSON.stringify(response, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -148,21 +158,22 @@ export default function SystemLogsPage() {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
-      
+
       switch (e.key.toLowerCase()) {
-        case 'r':
+        case 'r': {
           e.preventDefault();
           const filters: LogFilters = {
             dateRange: searchParams.get('dateRange') || '',
             search: searchParams.get('search') || '',
             level: searchParams.get('level') || '',
-            action: searchParams.get('action') || ''
+            action: searchParams.get('action') || '',
           };
           fetchLogs(currentPage, filters);
           break;
+        }
         case 'a':
           e.preventDefault();
-          setAutoRefresh(!autoRefresh);
+          setAutoRefresh(prev => !prev);
           break;
         case 'e':
           e.preventDefault();
@@ -193,20 +204,20 @@ export default function SystemLogsPage() {
 
   const handleFilterChange = (filters: LogFilters) => {
     const url = new URL(window.location.href);
-    
+
     // Reset to page 1 when filters change
     url.searchParams.set('page', '1');
-    
+
     // Set filter params
-    Object.keys(filters).forEach(key => {
-      const value = filters[key as keyof LogFilters];
+    (Object.keys(filters) as (keyof LogFilters)[]).forEach(key => {
+      const value = filters[key];
       if (value) {
-        url.searchParams.set(key, value);
+        url.searchParams.set(String(key), value);
       } else {
-        url.searchParams.delete(key);
+        url.searchParams.delete(String(key));
       }
     });
-    
+
     router.push(url.pathname + url.search);
   };
 
@@ -239,7 +250,7 @@ export default function SystemLogsPage() {
             {autoRefresh && (
               <select
                 value={refreshInterval}
-                onChange={(e) => setRefreshInterval(parseInt(e.target.value))}
+                onChange={(e) => setRefreshInterval(parseInt(e.target.value, 10))}
                 className="text-sm border border-gray-300 rounded px-2 py-1"
               >
                 <option value="10">10s</option>
@@ -249,7 +260,7 @@ export default function SystemLogsPage() {
               </select>
             )}
           </div>
-          
+
           <button
             onClick={handleExport}
             className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors flex items-center gap-2"
@@ -259,7 +270,7 @@ export default function SystemLogsPage() {
             </svg>
             Export Logs
           </button>
-          
+
           <KeyboardShortcuts />
         </div>
       </div>
@@ -269,15 +280,15 @@ export default function SystemLogsPage() {
           Error: {error}
         </div>
       )}
-      
+
       {/* Tab Navigation */}
       <div className="mb-6 border-b border-gray-200">
         <nav className="-mb-px flex space-x-8" aria-label="Tabs">
           <button
             onClick={() => handleTabChange('audit')}
             className={`${
-              currentTab === 'audit' 
-                ? 'border-blue-500 text-blue-600' 
+              currentTab === 'audit'
+                ? 'border-blue-500 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
           >
@@ -286,8 +297,8 @@ export default function SystemLogsPage() {
           <button
             onClick={() => handleTabChange('system')}
             className={`${
-              currentTab === 'system' 
-                ? 'border-blue-500 text-blue-600' 
+              currentTab === 'system'
+                ? 'border-blue-500 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
           >
@@ -297,15 +308,15 @@ export default function SystemLogsPage() {
       </div>
 
       {/* Stats */}
-      <LogStats 
-        logs={currentTab === 'audit' ? auditLogs : systemLogs} 
-        type={currentTab as 'audit' | 'system'} 
+      <LogStats
+        logs={currentTab === 'audit' ? auditLogs : systemLogs}
+        type={currentTab as 'audit' | 'system'}
       />
 
       {/* Filters */}
-      <LogFiltersComponent 
-        onFilterChange={handleFilterChange} 
-        logType={currentTab as 'audit' | 'system'} 
+      <LogFiltersComponent
+        onFilterChange={handleFilterChange}
+        logType={currentTab as 'audit' | 'system'}
       />
 
       {/* Content */}
@@ -338,7 +349,7 @@ export default function SystemLogsPage() {
             >
               Previous
             </button>
-            
+
             {/* Page numbers */}
             <div className="flex gap-1">
               {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
@@ -352,7 +363,7 @@ export default function SystemLogsPage() {
                 } else {
                   pageNum = currentPage - 2 + i;
                 }
-                
+
                 return (
                   <button
                     key={pageNum}
@@ -368,7 +379,7 @@ export default function SystemLogsPage() {
                 );
               })}
             </div>
-            
+
             <button
               onClick={() => handlePageChange(currentPage + 1)}
               disabled={currentPage === totalPages}
@@ -383,10 +394,10 @@ export default function SystemLogsPage() {
           </div>
         </div>
       )}
-      
+
       {/* Real-time log monitor */}
-      <LogMonitor 
-        logs={currentTab === 'audit' ? auditLogs : systemLogs} 
+      <LogMonitor
+        logs={currentTab === 'audit' ? auditLogs : systemLogs}
         type={currentTab as 'audit' | 'system'}
         isActive={autoRefresh}
       />

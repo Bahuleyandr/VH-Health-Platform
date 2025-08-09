@@ -5,9 +5,7 @@ import { API_BASE_URL } from '@/lib/api-config';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-// NOTE: params must be REQUIRED (not optional) for Next's type check
-type RouteParams = { params: { path: string[] } };
-
+// Headers that must not be forwarded by proxies
 const HOP_BY_HOP = new Set([
   'connection',
   'keep-alive',
@@ -19,29 +17,40 @@ const HOP_BY_HOP = new Set([
   'upgrade',
 ]);
 
-function buildTargetUrl(req: NextRequest, path: string[]) {
-  const pathname = (path ?? []).join('/');
-  const search = req.nextUrl.search;
+function extractPathSegments(req: NextRequest): string[] {
+  // e.g. /api/proxy/a/b -> ["a","b"]
+  const pathname = req.nextUrl.pathname;
+  const prefix = '/api/proxy/';
+  const rest = pathname.startsWith(prefix) ? pathname.slice(prefix.length) : '';
+  return rest.split('/').filter(Boolean);
+}
+
+function buildTargetUrl(req: NextRequest): string {
   const base = API_BASE_URL.replace(/\/+$/, '');
-  return `${base}/${pathname}${search}`;
+  const path = extractPathSegments(req).join('/');
+  const search = req.nextUrl.search; // includes leading '?' or ''
+  return `${base}/${path}${search}`;
 }
 
 function forwardableHeaders(incoming: Headers): HeadersInit {
   const out: Record<string, string> = {};
   incoming.forEach((value, key) => {
     const k = key.toLowerCase();
-    if (HOP_BY_HOP.has(k) || k === 'host') return;
+    if (HOP_BY_HOP.has(k)) return;
+    if (k === 'host') return;
     out[key] = value;
   });
   return out;
 }
 
-async function handleProxy(req: NextRequest, { params }: RouteParams) {
-  const targetUrl = buildTargetUrl(req, params.path);
+async function handleProxy(req: NextRequest) {
+  const targetUrl = buildTargetUrl(req);
   const method = req.method;
+
   const headers = forwardableHeaders(req.headers);
   const init: RequestInit = { method, headers };
 
+  // Bodies only for non-GET/HEAD
   if (!['GET', 'HEAD'].includes(method)) {
     const ct = req.headers.get('content-type') ?? '';
     if (ct.includes('application/json')) {
@@ -61,6 +70,7 @@ async function handleProxy(req: NextRequest, { params }: RouteParams) {
   }
 
   const upstream = await fetch(targetUrl, init);
+
   const respHeaders = new Headers(upstream.headers);
   HOP_BY_HOP.forEach((h) => respHeaders.delete(h));
 
@@ -70,9 +80,9 @@ async function handleProxy(req: NextRequest, { params }: RouteParams) {
   });
 }
 
-export function GET(req: NextRequest, ctx: RouteParams)   { return handleProxy(req, ctx); }
-export function POST(req: NextRequest, ctx: RouteParams)  { return handleProxy(req, ctx); }
-export function PUT(req: NextRequest, ctx: RouteParams)   { return handleProxy(req, ctx); }
-export function PATCH(req: NextRequest, ctx: RouteParams) { return handleProxy(req, ctx); }
-export function DELETE(req: NextRequest, ctx: RouteParams){ return handleProxy(req, ctx); }
-export function OPTIONS(req: NextRequest, ctx: RouteParams){ return handleProxy(req, ctx); }
+export function GET(req: NextRequest)    { return handleProxy(req); }
+export function POST(req: NextRequest)   { return handleProxy(req); }
+export function PUT(req: NextRequest)    { return handleProxy(req); }
+export function PATCH(req: NextRequest)  { return handleProxy(req); }
+export function DELETE(req: NextRequest) { return handleProxy(req); }
+export function OPTIONS(req: NextRequest){ return handleProxy(req); }
