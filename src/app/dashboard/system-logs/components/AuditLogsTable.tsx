@@ -1,7 +1,7 @@
 // src/app/dashboard/system-logs/components/AuditLogsTable.tsx
 'use client';
 
-import { ExtendedAuditLog } from "@/lib/types";
+import type { ExtendedAuditLog } from "@/lib/types";
 import { useState } from "react";
 import { LogDetailsModal } from "./LogDetailsModal";
 
@@ -133,7 +133,7 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {log.ip_address || log.ipAddress || 'N/A'}
+                  {log.ip_address || 'N/A'}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">
                   <button
@@ -151,7 +151,7 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
           </tbody>
         </table>
       </div>
-      
+
       {/* Log Details Modal */}
       <LogDetailsModal
         log={selectedLog}

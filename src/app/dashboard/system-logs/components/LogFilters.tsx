@@ -3,16 +3,16 @@
 
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { LogFilters } from '@/lib/types';
+import type { LogFilters as LogFiltersType } from '@/lib/types';
 
 interface LogFiltersProps {
-  onFilterChange: (filters: LogFilters) => void;
+  onFilterChange: (filters: LogFiltersType) => void;
   logType: 'audit' | 'system';
 }
 
 const AUDIT_ACTIONS = [
   'USER_LOGIN',
-  'USER_LOGOUT', 
+  'USER_LOGOUT',
   'USER_CREATE',
   'USER_UPDATE',
   'USER_DELETE',
@@ -24,7 +24,7 @@ const AUDIT_ACTIONS = [
   'DOCTOR_DELETE',
   'ADMIN_CREATE',
   'PERMISSION_UPDATE',
-  'SETTINGS_UPDATE'
+  'SETTINGS_UPDATE',
 ];
 
 export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
@@ -35,14 +35,12 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
   const [action, setAction] = useState('');
   const [showFilters, setShowFilters] = useState(false);
 
-  // Initialize from URL params
   useEffect(() => {
     setDateRange(searchParams.get('dateRange') || '');
     setSearch(searchParams.get('search') || '');
     setLevel(searchParams.get('level') || '');
     setAction(searchParams.get('action') || '');
-    
-    // Show filters if any are active
+
     if (searchParams.get('dateRange') || searchParams.get('search') || searchParams.get('level') || searchParams.get('action')) {
       setShowFilters(true);
     }
@@ -53,7 +51,7 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
       dateRange,
       search,
       level: logType === 'system' ? level : undefined,
-      action: logType === 'audit' ? action : undefined
+      action: logType === 'audit' ? action : undefined,
     });
   };
 
@@ -159,8 +157,10 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">All Actions</option>
-                  {AUDIT_ACTIONS.map(act => (
-                    <option key={act} value={act}>{act.replace(/_/g, ' ')}</option>
+                  {AUDIT_ACTIONS.map((act) => (
+                    <option key={act} value={act}>
+                      {act.replace(/_/g, ' ')}
+                    </option>
                   ))}
                 </select>
               </div>

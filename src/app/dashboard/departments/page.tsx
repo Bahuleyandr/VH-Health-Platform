@@ -1,22 +1,28 @@
 'use client';
 
-import { useState } from "react";
-import { useDepartments } from "@/hooks/api-hooks";
-import { CreateDepartmentForm } from "./components/CreateDepartmentForm";
-import { DepartmentsTable } from "./components/DepartmentsTable";
-import { Spinner } from "@/components/ui/spinner";
+import { useState } from 'react';
+import { useDepartments } from '@/hooks/api-hooks';
+import { CreateDepartmentForm } from './components/CreateDepartmentForm';
+import { DepartmentsTable } from './components/DepartmentsTable';
+import { Spinner } from '@/components/ui/spinner';
 import toast from 'react-hot-toast';
+import type { Department } from '@/lib/types';
 
 export default function DepartmentsPage() {
-  const [searchTerm, setSearchTerm] = useState("");
+  const [searchTerm, setSearchTerm] = useState('');
   const { data, isLoading, error, refetch } = useDepartments();
 
-  const departments = data?.departments || data || [];
+  // Normalize whatever the hook returns into Department[]
+  const departments: Department[] = Array.isArray(data)
+    ? (data as Department[])
+    : (data && Array.isArray((data as any).departments)
+        ? ((data as any).departments as Department[])
+        : []);
 
   // Filter departments based on search term
-  const filteredDepartments = departments.filter(dept =>
+  const filteredDepartments = departments.filter((dept: Department) =>
     dept.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (dept.description && dept.description.toLowerCase().includes(searchTerm.toLowerCase()))
+    (dept.description?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false)
   );
 
   if (isLoading) {
@@ -37,7 +43,7 @@ export default function DepartmentsPage() {
             toast.promise(refetch(), {
               loading: 'Refreshing departments...',
               success: 'Departments refreshed!',
-              error: 'Failed to refresh departments'
+              error: 'Failed to refresh departments',
             });
           }}
           className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
@@ -75,12 +81,12 @@ export default function DepartmentsPage() {
         </div>
       </div>
 
-      {/* Create Department Form - Updated to use React Query */}
+      {/* Create Department Form */}
       <CreateDepartmentForm />
 
-      {/* Departments Table - No changes needed, already compatible */}
-      <DepartmentsTable 
-        departments={filteredDepartments} 
+      {/* Departments Table */}
+      <DepartmentsTable
+        departments={filteredDepartments}
         onDepartmentUpdated={refetch}
         onDepartmentDeleted={refetch}
       />

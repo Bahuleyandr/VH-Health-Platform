@@ -13,14 +13,15 @@ interface LogDetailsModalProps {
 export function LogDetailsModal({ log, type, isOpen, onClose }: LogDetailsModalProps) {
   if (!isOpen || !log) return null;
 
-  const formatJSON = (data: unknown) => {
+  // Always return a string for React children
+  const formatJSON = (data: unknown): string => {
     try {
       if (typeof data === 'string') {
         return JSON.stringify(JSON.parse(data), null, 2);
       }
       return JSON.stringify(data, null, 2);
     } catch {
-      return data;
+      return typeof data === 'string' ? data : String(data);
     }
   };
 
@@ -33,11 +34,11 @@ export function LogDetailsModal({ log, type, isOpen, onClose }: LogDetailsModalP
   };
 
   return (
-    <div 
+    <div
       className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50"
       onClick={onClose}
     >
-      <div 
+      <div
         className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white"
         onClick={(e) => e.stopPropagation()}
       >
@@ -87,12 +88,10 @@ export function LogDetailsModal({ log, type, isOpen, onClose }: LogDetailsModalP
                 </pre>
               </div>
 
-              {(log.ip_address || log.ipAddress) && (
+              {log.ip_address && (
                 <div>
                   <h4 className="text-sm font-medium text-gray-700">IP Address</h4>
-                  <p className="mt-1 text-sm text-gray-900">
-                    {log.ip_address || log.ipAddress}
-                  </p>
+                  <p className="mt-1 text-sm text-gray-900">{log.ip_address}</p>
                 </div>
               )}
             </>

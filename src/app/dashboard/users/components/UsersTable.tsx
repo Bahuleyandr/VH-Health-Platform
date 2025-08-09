@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { User } from '@/lib/types';
 import { useSelection } from '@/hooks/useSelection';
 import { BulkActions } from '@/components/BulkActions';
@@ -23,13 +24,20 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
     isPartiallySelected,
   } = useSelection(users);
 
+  // Proper "indeterminate" handling via ref
+  const headerCheckboxRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (headerCheckboxRef.current) {
+      headerCheckboxRef.current.indeterminate = !!isPartiallySelected && !isAllSelected;
+    }
+  }, [isPartiallySelected, isAllSelected]);
+
   const handleBulkDelete = async () => {
-    const promises = selectedIds.map(id => 
-      fetchAdminAPI(`/users/${id}`, { method: 'DELETE' })
-    );
-    
+    const promises = selectedIds.map(id => fetchAdminAPI(`/users/${id}`, { method: 'DELETE' }));
     await Promise.all(promises);
     onUserUpdated();
+    clearSelection();
+    toast.success(`Deleted ${selectedCount} users`);
   };
 
   const handleBulkExport = () => {
@@ -40,13 +48,12 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
   };
 
   const handleBulkActivate = async () => {
-    const promises = selectedIds.map(id => 
-      fetchAdminAPI(`/users/${id}`, { 
+    const promises = selectedIds.map(id =>
+      fetchAdminAPI(`/users/${id}`, {
         method: 'PUT',
-        body: JSON.stringify({ isActive: true })
+        body: JSON.stringify({ is_active: true }),
       })
     );
-    
     await Promise.all(promises);
     toast.success(`Activated ${selectedCount} users`);
     onUserUpdated();
@@ -54,13 +61,12 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
   };
 
   const handleBulkDeactivate = async () => {
-    const promises = selectedIds.map(id => 
-      fetchAdminAPI(`/users/${id}`, { 
+    const promises = selectedIds.map(id =>
+      fetchAdminAPI(`/users/${id}`, {
         method: 'PUT',
-        body: JSON.stringify({ isActive: false })
+        body: JSON.stringify({ is_active: false }),
       })
     );
-    
     await Promise.all(promises);
     toast.success(`Deactivated ${selectedCount} users`);
     onUserUpdated();
@@ -75,9 +81,9 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
             <tr>
               <th scope="col" className="px-6 py-3 text-left">
                 <input
+                  ref={headerCheckboxRef}
                   type="checkbox"
                   checked={isAllSelected}
-                  indeterminate={isPartiallySelected}
                   onChange={toggleAll}
                   className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
                 />
@@ -126,16 +132,21 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                    user.isActive
-                      ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
-                      : 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400'
-                  }`}>
-                    {user.isActive ? 'Active' : 'Inactive'}
+                  <span
+                    className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                      user.is_active
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+                        : 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+                    }`}
+                  >
+                    {user.is_active ? 'Active' : 'Inactive'}
                   </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                  {user.role || 'User'}
+                  {/* role may not exist on the type; fall back safely */}
+                  {'role' in (user as any) && typeof (user as any).role === 'string'
+                    ? (user as any).role
+                    : 'User'}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                   <button className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400">
@@ -187,14 +198,11 @@ function convertToCSV(users: User[]): string {
     user.id,
     user.name,
     user.email,
-    user.isActive ? 'Active' : 'Inactive',
-    new Date(user.createdAt).toLocaleDateString(),
+    user.is_active ? 'Active' : 'Inactive',
+    new Date(user.created_at).toLocaleDateString(),
   ]);
-  
-  return [
-    headers.join(','),
-    ...rows.map(row => row.join(','))
-  ].join('\n');
+
+  return [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
 }
 
 function downloadCSV(csv: string, filename: string) {

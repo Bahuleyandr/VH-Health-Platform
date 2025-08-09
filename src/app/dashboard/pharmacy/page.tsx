@@ -1,19 +1,59 @@
 'use client';
 
 // src/app/dashboard/pharmacy/page.tsx
-import { useEffect, useState } from "react";
-import { fetchAdminAPI } from "@/lib/api";
-import { PharmacyAnalytics, PharmacyOrder } from "@/lib/types";
-import { PharmacyStats } from "./components/PharmacyStats";
-import { OrdersTable } from "./components/OrdersTable";
-import { PharmacyFilters } from "./components/PharmacyFilters";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useEffect, useState, useCallback } from 'react';
+import { fetchAdminAPI } from '@/lib/api';
+import type { PharmacyAnalytics, PharmacyOrder } from '@/lib/types';
+import { PharmacyStats } from './components/PharmacyStats';
+import { OrdersTable } from './components/OrdersTable';
+import { PharmacyFilters as PharmacyFiltersComponent } from './components/PharmacyFilters';
+import { useSearchParams, useRouter } from 'next/navigation';
 
-// Define proper type for filters
-interface PharmacyFilters {
+// Avoid name clash with the component
+interface PharmacyFilterParams {
   status?: string;
   dateRange?: string;
   search?: string;
+}
+
+type OrdersRespShape =
+  | {
+      orders?: PharmacyOrder[];
+      data?: PharmacyOrder[];
+      pagination?: { totalPages?: number; currentPage?: number };
+    }
+  | PharmacyOrder[];
+
+type AnalyticsRespShape = { analytics?: PharmacyAnalytics } | PharmacyAnalytics;
+
+function isObj(x: unknown): x is Record<string, unknown> {
+  return typeof x === 'object' && x !== null;
+}
+
+function normalizeAnalytics(resp: AnalyticsRespShape): PharmacyAnalytics | null {
+  if (isObj(resp) && 'analytics' in resp) {
+    return (resp as any).analytics as PharmacyAnalytics;
+  }
+  return (resp as PharmacyAnalytics) ?? null;
+}
+
+function normalizeOrders(resp: OrdersRespShape): {
+  orders: PharmacyOrder[];
+  pagination?: { totalPages?: number; currentPage?: number };
+} {
+  if (Array.isArray(resp)) {
+    return { orders: resp as PharmacyOrder[] };
+  }
+  if (isObj(resp)) {
+    const r = resp as any;
+    const orders: PharmacyOrder[] =
+      (Array.isArray(r.orders) && (r.orders as PharmacyOrder[])) ||
+      (Array.isArray(r.data) && (r.data as PharmacyOrder[])) ||
+      [];
+    const pagination = r.pagination as { totalPages?: number; currentPage?: number } | undefined;
+    return { orders, pagination };
+  }
+  return { orders: [] };
 }
 
 export default function PharmacyPage() {
@@ -23,103 +63,98 @@ export default function PharmacyPage() {
   const [orders, setOrders] = useState<PharmacyOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const itemsPerPage = 10;
 
-  const fetchPharmacyData = async (page: number, filters?: PharmacyFilters) => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      // Build query params for orders
-      const queryParams = new URLSearchParams();
-      queryParams.set('page', page.toString());
-      queryParams.set('limit', itemsPerPage.toString());
-      
-      // Add filters to query params
-      if (filters?.status) queryParams.set('status', filters.status);
-      if (filters?.dateRange) queryParams.set('dateRange', filters.dateRange);
-      if (filters?.search) queryParams.set('search', filters.search);
-      
-      // Fetch both analytics and orders data in parallel
-      const [analyticsResponse, ordersResponse] = await Promise.all([
-        fetchAdminAPI('/pharmacy/analytics'),
-        fetchAdminAPI(`/pharmacy/orders?${queryParams.toString()}`)
-      ]);
+  const fetchPharmacyData = useCallback(
+    async (page: number, filters?: PharmacyFilterParams) => {
+      try {
+        setLoading(true);
+        setError(null);
 
-      setAnalytics(analyticsResponse.analytics || analyticsResponse);
-      setOrders(ordersResponse.orders || []);
-      
-      // Set pagination info if available
-      if (ordersResponse.pagination) {
-        setTotalPages(ordersResponse.pagination.totalPages || 1);
-        setCurrentPage(ordersResponse.pagination.currentPage || page);
+        // Build query params for orders
+        const queryParams = new URLSearchParams();
+        queryParams.set('page', page.toString());
+        queryParams.set('limit', itemsPerPage.toString());
+
+        if (filters?.status) queryParams.set('status', filters.status);
+        if (filters?.dateRange) queryParams.set('dateRange', filters.dateRange);
+        if (filters?.search) queryParams.set('search', filters.search);
+
+        // Fetch both analytics and orders in parallel with proper typing
+        const [analyticsResponse, ordersResponse] = await Promise.all([
+          fetchAdminAPI<AnalyticsRespShape>('/pharmacy/analytics'),
+          fetchAdminAPI<OrdersRespShape>(`/pharmacy/orders?${queryParams.toString()}`),
+        ]);
+
+        const normalizedAnalytics = normalizeAnalytics(analyticsResponse);
+        if (normalizedAnalytics) setAnalytics(normalizedAnalytics);
+
+        const { orders: list, pagination } = normalizeOrders(ordersResponse);
+        setOrders(list);
+
+        // Pagination
+        if (pagination) {
+          setTotalPages(pagination.totalPages ?? 1);
+          setCurrentPage(pagination.currentPage ?? page);
+        } else {
+          // Fallback if backend doesn't return pagination
+          setTotalPages(1);
+          setCurrentPage(page);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch pharmacy data');
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch pharmacy data');
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    []
+  );
 
   useEffect(() => {
-    const page = searchParams.get('page');
-    const pageNumber = page ? parseInt(page) : 1;
-    
-    // Get filters from URL params
-    const filters: PharmacyFilters = {
-      status: searchParams.get('status') || '',
-      dateRange: searchParams.get('dateRange') || '',
-      search: searchParams.get('search') || ''
-    };
-    
-    fetchPharmacyData(pageNumber, filters);
-  }, [searchParams]);  
+    const pageParam = searchParams.get('page');
+    const pageNumber = pageParam ? parseInt(pageParam, 10) : 1;
 
-  const handleFilterChange = (filters: PharmacyFilters) => {
+    const filters: PharmacyFilterParams = {
+      status: searchParams.get('status') || undefined,
+      dateRange: searchParams.get('dateRange') || undefined,
+      search: searchParams.get('search') || undefined,
+    };
+
+    void fetchPharmacyData(pageNumber, filters);
+  }, [searchParams, fetchPharmacyData]);
+
+  const handleFilterChange = (filters: PharmacyFilterParams) => {
     const url = new URL(window.location.href);
-    
-    // Reset to page 1 when filters change
     url.searchParams.set('page', '1');
-    
-    // Set filter params
-    if (filters.status) {
-      url.searchParams.set('status', filters.status);
-    } else {
-      url.searchParams.delete('status');
-    }
-    
-    if (filters.dateRange) {
-      url.searchParams.set('dateRange', filters.dateRange);
-    } else {
-      url.searchParams.delete('dateRange');
-    }
-    
-    if (filters.search) {
-      url.searchParams.set('search', filters.search);
-    } else {
-      url.searchParams.delete('search');
-    }
-    
+
+    if (filters.status) url.searchParams.set('status', filters.status);
+    else url.searchParams.delete('status');
+
+    if (filters.dateRange) url.searchParams.set('dateRange', filters.dateRange);
+    else url.searchParams.delete('dateRange');
+
+    if (filters.search) url.searchParams.set('search', filters.search);
+    else url.searchParams.delete('search');
+
     router.push(url.pathname + url.search);
   };
 
   const handleRefresh = () => {
-    // Get current filters from URL params
-    const filters: PharmacyFilters = {
-      status: searchParams.get('status') || '',
-      dateRange: searchParams.get('dateRange') || '',
-      search: searchParams.get('search') || ''
+    const filters: PharmacyFilterParams = {
+      status: searchParams.get('status') || undefined,
+      dateRange: searchParams.get('dateRange') || undefined,
+      search: searchParams.get('search') || undefined,
     };
-    fetchPharmacyData(currentPage, filters);
+    void fetchPharmacyData(currentPage, filters);
   };
 
   const handlePageChange = (newPage: number) => {
     const url = new URL(window.location.href);
-    url.searchParams.set('page', newPage.toString());
+    url.searchParams.set('page', String(newPage));
     router.push(url.pathname + url.search);
   };
 
@@ -127,7 +162,7 @@ export default function PharmacyPage() {
     return (
       <div className="p-6">
         <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
         </div>
       </div>
     );
@@ -146,14 +181,14 @@ export default function PharmacyPage() {
   return (
     <div className="p-6">
       <h1 className="text-3xl font-bold text-gray-900 mb-6">Pharmacy Management</h1>
-      
+
       {analytics && <PharmacyStats analytics={analytics} />}
 
       <div className="mt-8">
         <h2 className="text-xl font-semibold text-gray-800 mb-4">Pharmacy Orders</h2>
-        
-        <PharmacyFilters onFilterChange={handleFilterChange} />
-        
+
+        <PharmacyFiltersComponent onFilterChange={handleFilterChange} />
+
         {orders.length === 0 ? (
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
             <p className="text-gray-500">No pharmacy orders found.</p>
@@ -161,7 +196,7 @@ export default function PharmacyPage() {
         ) : (
           <>
             <OrdersTable orders={orders} onOrderUpdated={handleRefresh} />
-            
+
             {/* Pagination Controls */}
             {totalPages > 1 && (
               <div className="mt-4 flex items-center justify-between">
@@ -180,11 +215,11 @@ export default function PharmacyPage() {
                   >
                     Previous
                   </button>
-                  
-                  {/* Page numbers */}
+
+                  {/* Page numbers (windowed) */}
                   <div className="flex gap-1">
                     {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                      let pageNum;
+                      let pageNum: number;
                       if (totalPages <= 5) {
                         pageNum = i + 1;
                       } else if (currentPage <= 3) {
@@ -194,7 +229,7 @@ export default function PharmacyPage() {
                       } else {
                         pageNum = currentPage - 2 + i;
                       }
-                      
+
                       return (
                         <button
                           key={pageNum}
@@ -210,7 +245,7 @@ export default function PharmacyPage() {
                       );
                     })}
                   </div>
-                  
+
                   <button
                     onClick={() => handlePageChange(currentPage + 1)}
                     disabled={currentPage === totalPages}

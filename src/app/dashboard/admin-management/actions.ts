@@ -1,10 +1,13 @@
 // src/app/dashboard/admin-management/actions.ts
 'use server';
 
-import { createAdminUser } from '@/lib/api';
-import { deactivateAdmin, reactivateAdmin, updateAdminPermissions } from '@/lib/api';
+import {
+  createAdminUser,
+  deactivateAdmin,
+  reactivateAdmin,
+  updateAdminPermissions,
+} from '@/lib/api';
 import { revalidatePath } from 'next/cache';
-import { redirect } from 'next/navigation';
 
 interface FormState {
   message: string;
@@ -12,56 +15,73 @@ interface FormState {
 }
 
 export async function createAdminAction(
-  prevState: FormState,
+  _prevState: FormState,
   formData: FormData
 ): Promise<FormState> {
-  const data = Object.fromEntries(formData.entries());
+  const email = String(formData.get('email') ?? '').trim();
+  const password = String(formData.get('password') ?? '').trim();
+  const role = String(formData.get('role') ?? '').trim();
 
-  if (!data.name || !data.email || !data.password) {
-    return { message: 'Name, Email, and Password are required.', success: false };
+  if (!email || !password || !role) {
+    return { message: 'Email, Password, and Role are required.', success: false };
   }
 
   try {
-    // Calls POST /auth/admin/create-admin
-    await createAdminUser(data);
+    // Matches createAdminUser({ email, password, role })
+    await createAdminUser({ email, password, role });
     revalidatePath('/dashboard/admin-management');
     return { message: 'Admin user created successfully.', success: true };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
     return { message: errorMessage, success: false };
   }
 }
 
-export async function toggleAdminStatusAction(formData: FormData) {
-  const id = parseInt(formData.get('id') as string, 10);
-  const isActive = formData.get('is_active') === 'true';
-  const reason = "Deactivated via admin portal"; // Default reason
+export async function toggleAdminStatusAction(formData: FormData): Promise<FormState> {
+  const id = Number(formData.get('id'));
+  const isActive = String(formData.get('is_active')) === 'true';
+
+  if (!Number.isFinite(id)) {
+    return { message: 'Invalid admin id.', success: false };
+  }
 
   try {
+    // Our API expects just the numeric id (no object payload)
     if (isActive) {
-      // If currently active, deactivate them
-      await deactivateAdmin({ adminId: id, reason });
+      await deactivateAdmin(id);
+      revalidatePath('/dashboard/admin-management');
+      return { message: 'Admin deactivated.', success: true };
     } else {
-      // If currently inactive, reactivate them
-      await reactivateAdmin({ adminId: id });
+      await reactivateAdmin(id);
+      revalidatePath('/dashboard/admin-management');
+      return { message: 'Admin reactivated.', success: true };
     }
-    revalidatePath('/dashboard/admin-management');
-  } catch (error) {
-    console.error("Failed to toggle admin status:", error);
-    // You could return an error message here
+  } catch (err) {
+    const errorMessage =
+      err instanceof Error ? err.message : 'Failed to toggle admin status.';
+    return { message: errorMessage, success: false };
   }
 }
 
-export async function updatePermissionsAction(prevState: FormState, formData: FormData): Promise<FormState> {
-    const adminId = parseInt(formData.get('adminId') as string, 10);
-    const permissions = formData.getAll('permissions') as string[];
+export async function updatePermissionsAction(
+  _prevState: FormState,
+  formData: FormData
+): Promise<FormState> {
+  const adminId = Number(formData.get('adminId'));
+  const permissions = formData.getAll('permissions').map((p) => String(p));
 
-    try {
-        await updateAdminPermissions({ adminId, permissions });
-        revalidatePath('/dashboard/admin-management');
-        redirect('/dashboard/admin-management');
-    } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-        return { message: errorMessage, success: false };
-    }
+  if (!Number.isFinite(adminId)) {
+    return { message: 'Invalid admin id.', success: false };
+  }
+
+  try {
+    // Signature is (id: number, perms: string[])
+    await updateAdminPermissions(adminId, permissions);
+    revalidatePath('/dashboard/admin-management');
+    return { message: 'Permissions updated.', success: true };
+  } catch (err) {
+    const errorMessage =
+      err instanceof Error ? err.message : 'Failed to update permissions.';
+    return { message: errorMessage, success: false };
+  }
 }

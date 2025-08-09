@@ -1,9 +1,9 @@
 // src/app/dashboard/reporting/components/ReportsOverview.tsx
 'use client';
 
-import { useState, useEffect, useCallback } from "react";  // Add useCallback import
-import { fetchAdminAPI } from "@/lib/api";
-import { Spinner } from "@/components/ui/spinner";
+import { useState, useEffect, useCallback } from 'react';
+import { fetchAdminAPI } from '@/lib/api';
+import { Spinner } from '@/components/ui/spinner';
 
 interface OverviewStats {
   totalAppointments: number;
@@ -21,10 +21,9 @@ export function ReportsOverview() {
   const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState({
     from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days ago
-    to: new Date().toISOString().split('T')[0] // today
+    to: new Date().toISOString().split('T')[0], // today
   });
 
-  // Wrap fetchReportData in useCallback to prevent recreation on every render
   const fetchReportData = useCallback(async () => {
     try {
       setLoading(true);
@@ -32,28 +31,32 @@ export function ReportsOverview() {
 
       const params = new URLSearchParams({
         date_from: dateRange.from,
-        date_to: dateRange.to
+        date_to: dateRange.to,
       });
 
-      // Fetch overview data
-      const data = await fetchAdminAPI(`/reports/overview?${params.toString()}`);
+      // If your API is namespaced, use `/admin/reports/overview`
+      const data = await fetchAdminAPI<OverviewStats>(`/reports/overview?${params.toString()}`, {
+        method: 'GET',
+      });
+
       setStats(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load report data');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to load report data';
+      setError(msg);
+      setStats(null);
     } finally {
       setLoading(false);
     }
-  }, [dateRange]); // Add dateRange as dependency since it's used inside
+  }, [dateRange.from, dateRange.to]);
 
   useEffect(() => {
     fetchReportData();
-  }, [fetchReportData]); // Now include fetchReportData in the dependency array
+  }, [fetchReportData]);
 
   const handleDateChange = (field: 'from' | 'to', value: string) => {
     setDateRange(prev => ({ ...prev, [field]: value }));
   };
 
-  // Rest of the component remains exactly the same...
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -77,9 +80,7 @@ export function ReportsOverview() {
     );
   }
 
-  if (!stats) {
-    return null;
-  }
+  if (!stats) return null;
 
   return (
     <div className="space-y-6">
@@ -91,7 +92,7 @@ export function ReportsOverview() {
             <input
               type="date"
               value={dateRange.from}
-              onChange={(e) => handleDateChange('from', e.target.value)}
+              onChange={e => handleDateChange('from', e.target.value)}
               className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
@@ -100,7 +101,7 @@ export function ReportsOverview() {
             <input
               type="date"
               value={dateRange.to}
-              onChange={(e) => handleDateChange('to', e.target.value)}
+              onChange={e => handleDateChange('to', e.target.value)}
               className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
@@ -170,7 +171,7 @@ export function ReportsOverview() {
           <div className="h-64 flex items-end justify-between gap-1">
             {stats.appointmentsTrend.map((day, index) => {
               const maxCount = Math.max(...stats.appointmentsTrend.map(d => d.count));
-              const height = (day.count / maxCount) * 100;
+              const height = maxCount > 0 ? (day.count / maxCount) * 100 : 0;
               return (
                 <div
                   key={index}
@@ -195,7 +196,7 @@ export function ReportsOverview() {
           <div className="space-y-3">
             {stats.revenueByDepartment.slice(0, 5).map((dept, index) => {
               const maxRevenue = Math.max(...stats.revenueByDepartment.map(d => d.revenue));
-              const percentage = (dept.revenue / maxRevenue) * 100;
+              const percentage = maxRevenue > 0 ? (dept.revenue / maxRevenue) * 100 : 0;
               return (
                 <div key={index}>
                   <div className="flex justify-between mb-1">
@@ -204,8 +205,8 @@ export function ReportsOverview() {
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
                     <div
-                      className="bg-green-500 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${percentage}%` }}
+                      className="h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${percentage}%`, backgroundColor: 'rgb(34 197 94)' }} // green-500
                     />
                   </div>
                 </div>
@@ -254,12 +255,20 @@ export function ReportsOverview() {
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      doctor.rating >= 4.5 ? 'bg-green-100 text-green-800' : 
-                      doctor.rating >= 4.0 ? 'bg-yellow-100 text-yellow-800' : 
-                      'bg-red-100 text-red-800'
-                    }`}>
-                      {doctor.rating >= 4.5 ? 'Excellent' : doctor.rating >= 4.0 ? 'Good' : 'Needs Improvement'}
+                    <span
+                      className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                        doctor.rating >= 4.5
+                          ? 'bg-green-100 text-green-800'
+                          : doctor.rating >= 4.0
+                          ? 'bg-yellow-100 text-yellow-800'
+                          : 'bg-red-100 text-red-800'
+                      }`}
+                    >
+                      {doctor.rating >= 4.5
+                        ? 'Excellent'
+                        : doctor.rating >= 4.0
+                        ? 'Good'
+                        : 'Needs Improvement'}
                     </span>
                   </td>
                 </tr>

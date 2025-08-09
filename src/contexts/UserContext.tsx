@@ -1,9 +1,18 @@
 // src/contexts/UserContext.tsx
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { auth, User } from '@/lib/auth';
+import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import { fetchAdminAPI } from '@/lib/api';
+
+type User = {
+  id: number | string;
+  username?: string;
+  email?: string;
+  role?: string;
+  is_active?: boolean;
+  created_at?: string;
+};
 
 interface UserContextType {
   user: User | null;
@@ -15,72 +24,68 @@ interface UserContextType {
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
+function getErrorMessage(e: unknown) {
+  if (e instanceof Error) return e.message;
+  try { return JSON.stringify(e); } catch { return String(e); }
+}
+
 export function UserProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  // Check authentication on mount
   useEffect(() => {
-    checkAuth();
+    (async () => {
+      await refreshUser();
+      setLoading(false);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const checkAuth = async () => {
+  const refreshUser = async () => {
     try {
-      if (auth.isAuthenticated()) {
-        const profile = await auth.getProfile();
-        if (profile) {
-          setUser(profile);
-        } else {
-          // Token might be invalid
-          await auth.logout();
-        }
-      }
-    } catch (error) {
-      console.error('Auth check error:', error);
-    } finally {
-      setLoading(false);
+      // Prefer your actual "who am I" endpoint; update path if different:
+      const profile = await fetchAdminAPI<User>('/admin/auth/me', { method: 'GET' });
+      if (profile) setUser(profile);
+    } catch (e: unknown) {
+      // Not logged in or token invalid; ignore
+      // console.debug('refreshUser:', getErrorMessage(e));
+      setUser(null);
     }
   };
 
   const login = async (username: string, password: string): Promise<boolean> => {
-    try {
-      const response = await auth.login({ username, password });
-      
-      if (response.success) {
-        // Get user profile after successful login
-        const profile = await auth.getProfile();
-        if (profile) {
-          setUser(profile);
-          return true;
-        }
+  try {
+    const res = await fetchAdminAPI<{ success?: boolean }>(
+      '/admin/auth/login',
+      {
+        method: 'POST',
+        // send JSON as a string; no `headers` field here
+        body: JSON.stringify({ username, password }),
       }
-      
-      return false;
-    } catch (error) {
-      console.error('Login error:', error);
-      return false;
+    );
+
+    const ok = !!res?.success;
+    if (ok) {
+      await refreshUser();
+      return true;
     }
-  };
+    return false;
+  } catch (e: unknown) {
+    console.error('Login error:', getErrorMessage(e));
+    return false;
+  }
+};
 
   const logout = async () => {
     try {
-      await auth.logout();
+      // Update path if your API expects POST/DELETE/etc.
+      await fetchAdminAPI('/admin/auth/logout', { method: 'POST' });
+    } catch (e: unknown) {
+      console.error('Logout error:', getErrorMessage(e));
+    } finally {
       setUser(null);
       router.push('/login');
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
-  };
-
-  const refreshUser = async () => {
-    try {
-      const profile = await auth.getProfile();
-      if (profile) {
-        setUser(profile);
-      }
-    } catch (error) {
-      console.error('Refresh user error:', error);
     }
   };
 
@@ -92,9 +97,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 }
 
 export function useUser() {
-  const context = useContext(UserContext);
-  if (!context) {
-    throw new Error('useUser must be used within UserProvider');
-  }
-  return context;
+  const ctx = useContext(UserContext);
+  if (!ctx) throw new Error('useUser must be used within UserProvider');
+  return ctx;
 }

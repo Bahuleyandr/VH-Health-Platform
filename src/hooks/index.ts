@@ -8,4 +8,9 @@ export * from './useSelection';
 export * from './useSessionTimeout';
 export * from './useTheme';
 export * from './useWebSocket';
-export * from './use-dashboard';
+
+// Intentionally NOT re-exporting from './use-dashboard' to avoid duplicate
+// exports of `useDashboardData` (already re-exported via ./api-hooks).
+// If you later add *distinct* named exports in './use-dashboard', re-export
+// them explicitly here, e.g.:
+// export { useSomeOtherDashboardHook } from './use-dashboard';

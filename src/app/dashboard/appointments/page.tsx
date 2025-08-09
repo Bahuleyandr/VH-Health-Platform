@@ -1,13 +1,100 @@
 'use client';
 
 // src/app/dashboard/appointments/page.tsx
-import { useEffect, useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import { fetchAdminAPI } from "@/lib/api";
-import { AppointmentsAPIResponse } from "@/lib/types";
-import { AppointmentsTable } from "./components/AppointmentsTable";
-import { PaginationControls } from "../users/components/PaginationControls";
-import { AppointmentFilters } from "./components/AppointmentFilters";
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { fetchAdminAPI } from '@/lib/api';
+import type { Appointment } from '@/lib/types';
+import { AppointmentsTable } from './components/AppointmentsTable';
+import { PaginationControls } from '../users/components/PaginationControls';
+import { AppointmentFilters } from './components/AppointmentFilters';
+
+// Match the row shape used by AppointmentsTable (supports joined fields)
+type AppointmentRow = Appointment & {
+  patient_name?: string;
+  doctor_name?: string;
+  department?: string;
+};
+
+type Pagination = {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+};
+
+type AppointmentsAPIResponse = {
+  appointments: AppointmentRow[];
+  pagination: Pagination;
+};
+
+// Type guards / normalizer for flexible backend responses
+function isObj(x: unknown): x is Record<string, unknown> {
+  return typeof x === 'object' && x !== null;
+}
+
+function normalizeResponse(response: unknown, page: number): AppointmentsAPIResponse {
+  // Case 1: Array response
+  if (Array.isArray(response)) {
+    const total = response.length;
+    const limit = 10;
+    return {
+      appointments: response as AppointmentRow[],
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+        hasNext: page * limit < total,
+        hasPrev: page > 1,
+      },
+    };
+  }
+
+  // Case 2: Object with { appointments?, pagination?, total?, hasNext? }
+  if (isObj(response)) {
+    const appointments =
+      (Array.isArray(response.appointments) ? response.appointments : []) as AppointmentRow[];
+
+    // If backend returned a top-level array-ish structure in a property named 'data'
+    const fallbackAppointments =
+      Array.isArray((response as any).data) ? ((response as any).data as AppointmentRow[]) : [];
+
+    const list = appointments.length ? appointments : fallbackAppointments;
+
+    const total = Number((response as any).total ?? list.length ?? 0) || 0;
+    const limit = Number((response as any).pagination?.limit ?? 10) || 10;
+
+    const pagination: Pagination = {
+      page,
+      limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+      hasNext: Boolean((response as any).hasNext ?? page * limit < total),
+      hasPrev: page > 1,
+    };
+
+    return {
+      appointments: list.length ? list : [],
+      pagination,
+    };
+  }
+
+  // Case 3: Unknown — return empty
+  return {
+    appointments: [],
+    pagination: {
+      page,
+      limit: 10,
+      total: 0,
+      totalPages: 1,
+      hasNext: false,
+      hasPrev: page > 1,
+    },
+  };
+}
 
 function AppointmentsContent() {
   const searchParams = useSearchParams();
@@ -16,51 +103,50 @@ function AppointmentsContent() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     const fetchAppointments = async () => {
       try {
         setLoading(true);
         setError(null);
-        
+
         const queryParams = new URLSearchParams();
-        const page = searchParams.get('page') || '1';
+        const pageStr = searchParams.get('page') || '1';
+        const page = Number.parseInt(pageStr, 10) || 1;
+
         const status = searchParams.get('status');
         const search = searchParams.get('search');
-        
-        queryParams.set('page', page);
+
+        queryParams.set('page', String(page));
         if (status) queryParams.set('status', status);
         if (search) queryParams.set('search', search);
 
         const path = `/appointments/manage?${queryParams.toString()}`;
-        const response = await fetchAdminAPI(path);
-        
-        // Transform the response to match our expected format
-        const transformedData: AppointmentsAPIResponse = {
-          appointments: response.appointments || response,
-          pagination: response.pagination || {
-            page: parseInt(page),
-            limit: 10,
-            total: response.total || 0,
-            totalPages: Math.ceil((response.total || 0) / 10),
-            hasNext: response.hasNext || false,
-            hasPrev: parseInt(page) > 1
-          }
-        };
-        
-        setData(transformedData);
+
+        // Type as unknown; we normalize right after
+        const response = await fetchAdminAPI<unknown>(path);
+        const normalized = normalizeResponse(response, page);
+
+        if (!cancelled) setData(normalized);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch appointments');
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to fetch appointments');
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     fetchAppointments();
+    return () => {
+      cancelled = true;
+    };
   }, [searchParams]);
 
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
       </div>
     );
   }
@@ -73,9 +159,7 @@ function AppointmentsContent() {
     );
   }
 
-  if (!data) {
-    return <div>No data available</div>;
-  }
+  if (!data) return <div>No data available</div>;
 
   return (
     <>
