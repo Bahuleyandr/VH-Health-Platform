@@ -1,17 +1,17 @@
 // src/app/dashboard/system-logs/page.tsx
 'use client';
 
-import { useEffect, useState, useCallback } from "react";
-import { fetchAdminAPI } from "@/lib/api";
-import type { AuditLog, SystemLog, LogFilters } from "@/lib/types";
-import { useSearchParams, useRouter } from "next/navigation";
-import { AuditLogsTable } from "./components/AuditLogsTable";
-import { SystemLogsTable } from "./components/SystemLogsTable";
-import { LogFilters as LogFiltersComponent } from "./components/LogFilters";
-import { LogStats } from "./components/LogStats";
-import { LogMonitor } from "./components/LogMonitor";
-import { KeyboardShortcuts } from "./components/KeyboardShortcuts";
-import { LogLevelIndicator } from "./components/LogLevelIndicator";
+import { useEffect, useState, useCallback, Suspense } from 'react';
+import { fetchAdminAPI } from '@/lib/api';
+import type { AuditLog, SystemLog, LogFilters } from '@/lib/types';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { AuditLogsTable } from './components/AuditLogsTable';
+import { SystemLogsTable } from './components/SystemLogsTable';
+import { LogFilters as LogFiltersComponent } from './components/LogFilters';
+import { LogStats } from './components/LogStats';
+import { LogMonitor } from './components/LogMonitor';
+import { KeyboardShortcuts } from './components/KeyboardShortcuts';
+import { LogLevelIndicator } from './components/LogLevelIndicator';
 
 type Pagination = {
   totalPages?: number;
@@ -23,7 +23,7 @@ type LogsResponse<T> = {
   pagination?: Pagination;
 };
 
-export default function SystemLogsPage() {
+function SystemLogsContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const currentTab = searchParams.get('tab') || 'audit';
@@ -42,43 +42,46 @@ export default function SystemLogsPage() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [refreshInterval, setRefreshInterval] = useState(30); // seconds
 
-  const fetchLogs = useCallback(async (page: number, filters?: LogFilters) => {
-    try {
-      setLoading(true);
-      setError(null);
+  const fetchLogs = useCallback(
+    async (page: number, filters?: LogFilters) => {
+      try {
+        setLoading(true);
+        setError(null);
 
-      // Build query params
-      const queryParams = new URLSearchParams();
-      queryParams.set('page', page.toString());
-      queryParams.set('limit', itemsPerPage.toString());
+        // Build query params
+        const queryParams = new URLSearchParams();
+        queryParams.set('page', page.toString());
+        queryParams.set('limit', itemsPerPage.toString());
 
-      // Add filters to query params
-      if (filters?.dateRange) queryParams.set('dateRange', filters.dateRange);
-      if (filters?.search) queryParams.set('search', filters.search);
-      if (filters?.level) queryParams.set('level', filters.level);
-      if (filters?.action) queryParams.set('action', filters.action);
+        // Add filters to query params
+        if (filters?.dateRange) queryParams.set('dateRange', filters.dateRange);
+        if (filters?.search) queryParams.set('search', filters.search);
+        if (filters?.level) queryParams.set('level', filters.level);
+        if (filters?.action) queryParams.set('action', filters.action);
 
-      // Fetch both types of logs in parallel (typed)
-      const [auditResponse, systemResponse] = await Promise.all([
-        fetchAdminAPI<LogsResponse<AuditLog>>(`/logs/audit?${queryParams.toString()}`),
-        fetchAdminAPI<LogsResponse<SystemLog>>(`/logs/system?${queryParams.toString()}`),
-      ]);
+        // Fetch both types of logs in parallel (typed)
+        const [auditResponse, systemResponse] = await Promise.all([
+          fetchAdminAPI<LogsResponse<AuditLog>>(`/logs/audit?${queryParams.toString()}`),
+          fetchAdminAPI<LogsResponse<SystemLog>>(`/logs/system?${queryParams.toString()}`),
+        ]);
 
-      setAuditLogs(auditResponse.logs ?? []);
-      setSystemLogs(systemResponse.logs ?? []);
+        setAuditLogs(auditResponse.logs ?? []);
+        setSystemLogs(systemResponse.logs ?? []);
 
-      // Set pagination info based on current tab
-      const response = currentTab === 'audit' ? auditResponse : systemResponse;
-      if (response.pagination) {
-        setTotalPages(response.pagination.totalPages ?? 1);
-        setCurrentPage(response.pagination.currentPage ?? page);
+        // Set pagination info based on current tab
+        const response = currentTab === 'audit' ? auditResponse : systemResponse;
+        if (response.pagination) {
+          setTotalPages(response.pagination.totalPages ?? 1);
+          setCurrentPage(response.pagination.currentPage ?? page);
+        }
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch logs');
+      } finally {
+        setLoading(false);
       }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch logs');
-    } finally {
-      setLoading(false);
-    }
-  }, [currentTab, itemsPerPage]);
+    },
+    [currentTab, itemsPerPage]
+  );
 
   useEffect(() => {
     const page = searchParams.get('page');
@@ -116,18 +119,24 @@ export default function SystemLogsPage() {
     };
   }, [autoRefresh, refreshInterval, currentPage, searchParams, fetchLogs]);
 
-  const handleTabChange = useCallback((tab: string) => {
-    const url = new URL(window.location.href);
-    url.searchParams.set('tab', tab);
-    url.searchParams.set('page', '1'); // Reset to first page on tab change
-    router.push(url.pathname + url.search);
-  }, [router]);
+  const handleTabChange = useCallback(
+    (tab: string) => {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', tab);
+      url.searchParams.set('page', '1'); // Reset to first page on tab change
+      router.push(url.pathname + url.search);
+    },
+    [router]
+  );
 
-  const handlePageChange = useCallback((newPage: number) => {
-    const url = new URL(window.location.href);
-    url.searchParams.set('page', newPage.toString());
-    router.push(url.pathname + url.search);
-  }, [router]);
+  const handlePageChange = useCallback(
+    (newPage: number) => {
+      const url = new URL(window.location.href);
+      url.searchParams.set('page', newPage.toString());
+      router.push(url.pathname + url.search);
+    },
+    [router]
+  );
 
   const handleExport = useCallback(async () => {
     try {
@@ -155,9 +164,7 @@ export default function SystemLogsPage() {
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
       // Don't trigger shortcuts when typing in inputs
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-        return;
-      }
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
       switch (e.key.toLowerCase()) {
         case 'r': {
@@ -200,7 +207,17 @@ export default function SystemLogsPage() {
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [autoRefresh, currentPage, totalPages, currentTab, searchParams, fetchLogs, handleExport, handleTabChange, handlePageChange]);
+  }, [
+    autoRefresh,
+    currentPage,
+    totalPages,
+    currentTab,
+    searchParams,
+    fetchLogs,
+    handleExport,
+    handleTabChange,
+    handlePageChange,
+  ]);
 
   const handleFilterChange = (filters: LogFilters) => {
     const url = new URL(window.location.href);
@@ -225,7 +242,7 @@ export default function SystemLogsPage() {
     return (
       <div className="p-6">
         <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
         </div>
       </div>
     );
@@ -247,7 +264,7 @@ export default function SystemLogsPage() {
               />
               <span className="ml-2 text-sm text-gray-700">Auto-refresh</span>
             </label>
-            {autoRefresh && (
+            {autoRefresh ? (
               <select
                 value={refreshInterval}
                 onChange={(e) => setRefreshInterval(parseInt(e.target.value, 10))}
@@ -258,7 +275,7 @@ export default function SystemLogsPage() {
                 <option value="60">1m</option>
                 <option value="300">5m</option>
               </select>
-            )}
+            ) : null}
           </div>
 
           <button
@@ -275,11 +292,11 @@ export default function SystemLogsPage() {
         </div>
       </div>
 
-      {error && (
+      {error ? (
         <div className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
           Error: {error}
         </div>
-      )}
+      ) : null}
 
       {/* Tab Navigation */}
       <div className="mb-6 border-b border-gray-200">
@@ -332,7 +349,7 @@ export default function SystemLogsPage() {
       </div>
 
       {/* Pagination */}
-      {totalPages > 1 && (
+      {totalPages > 1 ? (
         <div className="mt-6 flex items-center justify-between">
           <div className="text-sm text-gray-700">
             Showing page {currentPage} of {totalPages}
@@ -354,15 +371,10 @@ export default function SystemLogsPage() {
             <div className="flex gap-1">
               {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                 let pageNum;
-                if (totalPages <= 5) {
-                  pageNum = i + 1;
-                } else if (currentPage <= 3) {
-                  pageNum = i + 1;
-                } else if (currentPage >= totalPages - 2) {
-                  pageNum = totalPages - 4 + i;
-                } else {
-                  pageNum = currentPage - 2 + i;
-                }
+                if (totalPages <= 5) pageNum = i + 1;
+                else if (currentPage <= 3) pageNum = i + 1;
+                else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
+                else pageNum = currentPage - 2 + i;
 
                 return (
                   <button
@@ -393,7 +405,7 @@ export default function SystemLogsPage() {
             </button>
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* Real-time log monitor */}
       <LogMonitor
@@ -402,5 +414,14 @@ export default function SystemLogsPage() {
         isActive={autoRefresh}
       />
     </div>
+  );
+}
+
+export default function SystemLogsPage() {
+  // Wrap content with useSearchParams in Suspense to satisfy Next's rule
+  return (
+    <Suspense fallback={<div className="p-6">Loading logs…</div>}>
+      <SystemLogsContent />
+    </Suspense>
   );
 }
