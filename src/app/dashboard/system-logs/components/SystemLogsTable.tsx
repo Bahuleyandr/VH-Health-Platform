@@ -48,11 +48,12 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
 
   const toggleRow = (id: number) => {
     const next = new Set(expandedRows);
-    next.has(id) ? next.delete(id) : next.add(id);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
     setExpandedRows(next);
   };
 
-  const formatStackTrace = (message: string) => {
+  const formatStackTrace = (message: string): ReactNode => {
     if (message.includes('\n') || message.includes('  at ')) {
       return message.split('\n').map((line, i) => (
         <div key={i} className={line.trim().startsWith('at ') ? 'ml-4' : ''}>
@@ -122,7 +123,10 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
                         <div className={`font-mono text-gray-800 ${expandedRows.has(log.id) ? '' : 'truncate'}`}>
                           {expandedRows.has(log.id) ? formatStackTrace(log.message) : log.message}
                         </div>
-                        <button onClick={() => toggleRow(log.id)} className="text-blue-600 hover:text-blue-800 text-xs mt-1">
+                        <button
+                          onClick={() => toggleRow(log.id)}
+                          className="text-blue-600 hover:text-blue-800 text-xs mt-1"
+                        >
                           {expandedRows.has(log.id) ? 'Show less' : 'Show more'}
                         </button>
                       </>

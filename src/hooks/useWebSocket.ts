@@ -53,7 +53,11 @@ export function useWebSocket<T = unknown>(
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<T | null>(null);
 
-  // Make protocols stable for deps
+  // Track protocols value in a ref so the effect doesn't reference `protocols` directly
+  const protocolsRef = useRef<string | string[] | undefined>(protocols);
+  useEffect(() => { protocolsRef.current = protocols; }, [protocols]);
+
+  // Make a simple key so the effect re-runs when protocols change
   const protocolsKey = useMemo(
     () => (Array.isArray(protocols) ? protocols.join(',') : protocols ?? ''),
     [protocols]
@@ -63,7 +67,7 @@ export function useWebSocket<T = unknown>(
     if (typeof window === 'undefined') return;
 
     const connect = () => {
-      const ws = new WebSocket(url, protocols);
+      const ws = new WebSocket(url, protocolsRef.current);
       wsRef.current = ws;
 
       ws.addEventListener('open', (ev) => {
@@ -74,11 +78,7 @@ export function useWebSocket<T = unknown>(
       ws.addEventListener('message', (ev) => {
         let payload: unknown = ev.data;
         if (parseJson && typeof payload === 'string') {
-          try {
-            payload = JSON.parse(payload);
-          } catch {
-            // ignore JSON parse errors; keep raw string
-          }
+          try { payload = JSON.parse(payload); } catch { /* keep raw string */ }
         }
 
         setLastMessage(payload as T);
@@ -92,7 +92,6 @@ export function useWebSocket<T = unknown>(
       ws.addEventListener('close', (ev) => {
         setIsConnected(false);
         onCloseRef.current?.(ev);
-
         if (autoReconnect) {
           reconnectRef.current = window.setTimeout(connect, reconnectIntervalMs);
         }
@@ -109,7 +108,7 @@ export function useWebSocket<T = unknown>(
       if (reconnectRef.current) window.clearTimeout(reconnectRef.current);
       wsRef.current?.close();
     };
-    // Simple, static deps: no functions/objects, avoids "complex expression" warning
+    // Static deps; protocols changes are captured via protocolsKey
   }, [url, protocolsKey, autoReconnect, reconnectIntervalMs, parseJson]);
 
   const send = (data: string | ArrayBufferLike | Blob | ArrayBufferView) => {
