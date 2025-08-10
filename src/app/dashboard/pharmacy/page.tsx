@@ -1,3 +1,4 @@
+// src/app/dashboard/pharmacy/page.tsx
 'use client';
 
 // src/app/dashboard/pharmacy/page.tsx
@@ -32,27 +33,39 @@ function isObj(x: unknown): x is Record<string, unknown> {
 
 function normalizeAnalytics(resp: AnalyticsRespShape): PharmacyAnalytics | null {
   if (isObj(resp) && 'analytics' in resp) {
-    return (resp as any).analytics as PharmacyAnalytics;
+    const a = (resp as { analytics?: PharmacyAnalytics }).analytics;
+    return a ?? null;
   }
-  return (resp as PharmacyAnalytics) ?? null;
+  // Otherwise it's already a PharmacyAnalytics
+  return resp as PharmacyAnalytics;
 }
 
-function normalizeOrders(resp: OrdersRespShape): {
+function normalizeOrders(
+  resp: OrdersRespShape
+): {
   orders: PharmacyOrder[];
   pagination?: { totalPages?: number; currentPage?: number };
 } {
   if (Array.isArray(resp)) {
     return { orders: resp as PharmacyOrder[] };
   }
+
   if (isObj(resp)) {
-    const r = resp as any;
+    const r = resp as {
+      orders?: unknown;
+      data?: unknown;
+      pagination?: { totalPages?: number; currentPage?: number };
+    };
+
     const orders: PharmacyOrder[] =
-      (Array.isArray(r.orders) && (r.orders as PharmacyOrder[])) ||
-      (Array.isArray(r.data) && (r.data as PharmacyOrder[])) ||
+      (Array.isArray(r.orders) ? (r.orders as PharmacyOrder[]) : undefined) ??
+      (Array.isArray(r.data) ? (r.data as PharmacyOrder[]) : []) ??
       [];
-    const pagination = r.pagination as { totalPages?: number; currentPage?: number } | undefined;
+
+    const pagination = r.pagination;
     return { orders, pagination };
   }
+
   return { orders: [] };
 }
 

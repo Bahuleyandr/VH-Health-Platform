@@ -1,7 +1,14 @@
 // src/contexts/UserContext.tsx
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  type ReactNode,
+} from 'react';
 import { useRouter } from 'next/navigation';
 import { fetchAdminAPI } from '@/lib/api';
 
@@ -26,7 +33,11 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
 
 function getErrorMessage(e: unknown) {
   if (e instanceof Error) return e.message;
-  try { return JSON.stringify(e); } catch { return String(e); }
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return String(e);
+  }
 }
 
 export function UserProvider({ children }: { children: ReactNode }) {
@@ -34,60 +45,58 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  useEffect(() => {
-    (async () => {
-      await refreshUser();
-      setLoading(false);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const refreshUser = async () => {
+  const refreshUser = useCallback(async () => {
     try {
-      // Prefer your actual "who am I" endpoint; update path if different:
       const profile = await fetchAdminAPI<User>('/admin/auth/me', { method: 'GET' });
-      if (profile) setUser(profile);
-    } catch (e: unknown) {
-      // Not logged in or token invalid; ignore
-      // console.debug('refreshUser:', getErrorMessage(e));
+      setUser(profile ?? null);
+    } catch {
+      // Not logged in or token invalid
       setUser(null);
     }
-  };
+  }, []);
 
-  const login = async (username: string, password: string): Promise<boolean> => {
-  try {
-    const res = await fetchAdminAPI<{ success?: boolean }>(
-      '/admin/auth/login',
-      {
-        method: 'POST',
-        // send JSON as a string; no `headers` field here
-        body: JSON.stringify({ username, password }),
-      }
-    );
-
-    const ok = !!res?.success;
-    if (ok) {
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
       await refreshUser();
-      return true;
-    }
-    return false;
-  } catch (e: unknown) {
-    console.error('Login error:', getErrorMessage(e));
-    return false;
-  }
-};
+      if (!cancelled) setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshUser]);
 
-  const logout = async () => {
+  const login = useCallback(
+    async (username: string, password: string): Promise<boolean> => {
+      try {
+        const res = await fetchAdminAPI<{ success?: boolean }>(
+          '/admin/auth/login',
+          { method: 'POST', body: JSON.stringify({ username, password }) }
+        );
+        const ok = !!res?.success;
+        if (ok) {
+          await refreshUser();
+          return true;
+        }
+        return false;
+      } catch (err: unknown) {
+        console.error('Login error:', getErrorMessage(err));
+        return false;
+      }
+    },
+    [refreshUser]
+  );
+
+  const logout = useCallback(async () => {
     try {
-      // Update path if your API expects POST/DELETE/etc.
       await fetchAdminAPI('/admin/auth/logout', { method: 'POST' });
-    } catch (e: unknown) {
-      console.error('Logout error:', getErrorMessage(e));
+    } catch (err: unknown) {
+      console.error('Logout error:', getErrorMessage(err));
     } finally {
       setUser(null);
       router.push('/login');
     }
-  };
+  }, [router]);
 
   return (
     <UserContext.Provider value={{ user, loading, login, logout, refreshUser }}>

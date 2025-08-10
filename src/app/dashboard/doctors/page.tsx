@@ -1,6 +1,6 @@
+// src/app/dashboard/doctors/page.tsx
 'use client';
 
-// src/app/dashboard/doctors/page.tsx
 import { useCallback, useEffect, useState } from 'react';
 import { fetchAdminAPI } from '@/lib/api';
 import type { Doctor } from '@/lib/types';
@@ -9,6 +9,14 @@ import Link from 'next/link';
 
 function isObj(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
+}
+
+function isDoctor(x: unknown): x is Doctor {
+  if (!isObj(x)) return false;
+  // Minimal shape check; add fields if your type requires more
+  const id = (x as Record<string, unknown>).id;
+  const name = (x as Record<string, unknown>).name;
+  return (typeof id === 'number' || typeof id === 'string') && typeof name === 'string';
 }
 
 export default function DoctorsPage() {
@@ -25,12 +33,19 @@ export default function DoctorsPage() {
       const resp = await fetchAdminAPI<unknown>('/doctors');
 
       let list: Doctor[] = [];
+
       if (Array.isArray(resp)) {
-        list = resp as Doctor[];
+        list = (resp as unknown[]).filter(isDoctor);
       } else if (isObj(resp)) {
-        const r = resp as any;
-        if (Array.isArray(r.doctors)) list = r.doctors as Doctor[];
-        else if (Array.isArray(r.data)) list = r.data as Doctor[];
+        const obj = resp as Record<string, unknown>;
+        const doctorsProp = obj['doctors'];
+        const dataProp = obj['data'];
+
+        if (Array.isArray(doctorsProp)) {
+          list = (doctorsProp as unknown[]).filter(isDoctor);
+        } else if (Array.isArray(dataProp)) {
+          list = (dataProp as unknown[]).filter(isDoctor);
+        }
       }
 
       setDoctors(list);
@@ -42,17 +57,8 @@ export default function DoctorsPage() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        await fetchDoctors();
-      } catch {
-        // already handled in fetchDoctors
-      }
-    })();
-    return () => {
-      cancelled = true; // keeps pattern consistent if you expand later
-    };
+    // Simple effect; no unused "cancelled" flag
+    fetchDoctors();
   }, [fetchDoctors]);
 
   const handleDoctorDeleted = () => {

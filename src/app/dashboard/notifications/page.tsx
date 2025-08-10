@@ -1,6 +1,6 @@
+// src/app/dashboard/notifications/page.tsx
 'use client';
 
-// src/app/dashboard/notifications/page.tsx
 import { useEffect, useState, Suspense, useCallback } from 'react';
 import { fetchAdminAPI } from '@/lib/api';
 import type { Notification } from '@/lib/types';
@@ -9,6 +9,27 @@ import { NotificationsTable } from './components/NotificationsTable';
 
 function isObj(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
+}
+
+function isNotification(x: unknown): x is Notification {
+  if (!isObj(x)) return false;
+  const id = (x as Record<string, unknown>).id;
+  const message = (x as Record<string, unknown>).message;
+  const title = (x as Record<string, unknown>).title;
+  return (typeof id === 'number' || typeof id === 'string') &&
+         (typeof message === 'string' || typeof title === 'string');
+}
+
+function toNotificationArray(x: unknown): Notification[] {
+  if (Array.isArray(x)) return (x as unknown[]).filter(isNotification) as Notification[];
+  if (isObj(x)) {
+    const obj = x as Record<string, unknown>;
+    const n1 = obj.notifications;
+    const n2 = obj.data;
+    if (Array.isArray(n1)) return (n1 as unknown[]).filter(isNotification) as Notification[];
+    if (Array.isArray(n2)) return (n2 as unknown[]).filter(isNotification) as Notification[];
+  }
+  return [];
 }
 
 function NotificationsContent() {
@@ -23,15 +44,7 @@ function NotificationsContent() {
 
       // Backend may return an array or an object with { notifications } / { data }
       const resp = await fetchAdminAPI<unknown>('/notifications');
-
-      let list: Notification[] = [];
-      if (Array.isArray(resp)) {
-        list = resp as Notification[];
-      } else if (isObj(resp)) {
-        const r = resp as any;
-        if (Array.isArray(r.notifications)) list = r.notifications as Notification[];
-        else if (Array.isArray(r.data)) list = r.data as Notification[];
-      }
+      const list = toNotificationArray(resp);
 
       setNotifications(list);
     } catch (err) {
@@ -42,13 +55,7 @@ function NotificationsContent() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      await fetchNotifications();
-    })();
-    return () => {
-      cancelled = true;
-    };
+    fetchNotifications();
   }, [fetchNotifications]);
 
   const handleAnnouncementSent = () => {
