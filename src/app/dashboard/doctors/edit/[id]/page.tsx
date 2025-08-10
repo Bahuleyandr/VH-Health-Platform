@@ -12,6 +12,17 @@ function isObj(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
 }
 
+// Prefer user_id, but fall back to an optional id if present in payloads
+function getDoctorKey(d: Doctor): string | number | undefined {
+  const userId = (d as unknown as { user_id?: string | number }).user_id;
+  if (typeof userId === 'string' || typeof userId === 'number') return userId;
+
+  const maybeId = (d as unknown as Record<string, unknown>).id;
+  if (typeof maybeId === 'string' || typeof maybeId === 'number') return maybeId;
+
+  return undefined;
+}
+
 export default function EditDoctorPage() {
   const params = useParams<{ id: string }>();
   const doctorId = String(params.id);
@@ -54,12 +65,8 @@ export default function EditDoctorPage() {
           if (Array.isArray(maybe)) depts = maybe as Department[];
         }
 
-        // Find the specific doctor to edit (match by user_id OR id)
-        const match = doctors.find((d) => {
-          const idCandidate =
-            (d as { user_id?: string | number }).user_id ?? d.id;
-          return String(idCandidate ?? '') === doctorId;
-        });
+        // Find the specific doctor to edit using user_id or fallback id
+        const match = doctors.find((d) => String(getDoctorKey(d) ?? '') === doctorId);
 
         if (!match) {
           if (!cancelled) setError('Doctor not found');
