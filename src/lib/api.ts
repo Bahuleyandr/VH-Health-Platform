@@ -92,8 +92,8 @@ async function requestJSON<T = unknown>(
       throw new APIError('Forbidden', 403, payload);
     }
     const message =
-      isJson && (payload as APIResponse)?.message
-        ? (payload as APIResponse).message!
+      isJson && typeof (payload as APIResponse).message === 'string'
+        ? (payload as APIResponse).message as string
         : `API Error: ${res.status}`;
     throw new APIError(message, res.status, payload);
   }
@@ -257,13 +257,15 @@ export function getDoctors<T = unknown>() {
   return getJSON<T>(API_ENDPOINTS.doctors.list);
 }
 
+function hasDeleteAccountEndpoint(x: unknown): x is { deleteAccount: string } {
+  return typeof x === 'object' && x !== null &&
+         typeof (x as Record<string, unknown>).deleteAccount === 'string';
+}
+
 export function deleteDoctor<T = unknown>(id: number) {
-  // Use the existing key from API_ENDPOINTS.doctors
-  // Assuming it is a template like "/doctors/:id/delete"
-  const endpoint =
-    'deleteAccount' in API_ENDPOINTS.doctors
-      ? (API_ENDPOINTS.doctors as any).deleteAccount.replace(':id', String(id))
-      : `/doctors/${id}`; // fallback
+  const endpoint = hasDeleteAccountEndpoint(API_ENDPOINTS.doctors)
+    ? API_ENDPOINTS.doctors.deleteAccount.replace(':id', String(id))
+    : `/doctors/${id}`; // fallback
   return deleteJSON<T>(endpoint);
 }
 

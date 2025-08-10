@@ -16,7 +16,6 @@ function SettingsContent() {
       setLoading(true);
       setError(null);
 
-      // Tell fetchAdminAPI the response shape
       const response = await fetchAdminAPI<{ settings: SystemSetting[] }>(
         '/system/settings',
         { method: 'GET' }
@@ -33,12 +32,11 @@ function SettingsContent() {
   }
 
   useEffect(() => {
+    // No eslint-disable needed — deps are intentional
     fetchSettings();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSettingUpdated = () => {
-    // Refresh settings after update
     fetchSettings();
   };
 

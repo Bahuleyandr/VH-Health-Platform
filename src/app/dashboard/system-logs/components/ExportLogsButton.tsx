@@ -13,11 +13,11 @@ type CsvResponse = { csv: string };
 type LogsResponse = { logs: unknown[] };
 
 function hasCsv(x: unknown): x is CsvResponse {
-  return !!x && typeof (x as any).csv === 'string';
+  return typeof x === 'object' && x !== null && typeof (x as Record<string, unknown>).csv === 'string';
 }
 
 function hasLogs(x: unknown): x is LogsResponse {
-  return !!x && Array.isArray((x as any).logs);
+  return typeof x === 'object' && x !== null && Array.isArray((x as Record<string, unknown>).logs);
 }
 
 export function ExportLogsButton({ logType, queryParams }: ExportLogsButtonProps) {

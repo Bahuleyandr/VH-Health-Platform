@@ -4,13 +4,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import { API_ENDPOINTS, API_BASE_URL, getHeaders } from '@/lib/api-config';
 
-// Define proper types for the dashboard data
+// Types
 interface ChartDataPoint {
   date: string;
   value: number;
   label?: string;
 }
-
 interface ActivityItem {
   id: string;
   action: string;
@@ -18,14 +17,12 @@ interface ActivityItem {
   timestamp: string;
   details?: string;
 }
-
 interface SystemHealth {
   status: 'healthy' | 'warning' | 'critical';
   uptime: string;
   responseTime: number;
   errorRate: number;
 }
-
 interface DashboardData {
   overview: {
     totalUsers: number;
@@ -52,8 +49,21 @@ interface DashboardData {
   systemHealth: SystemHealth;
 }
 
-// Some endpoints return { data }, others return the payload directly
 type DashboardAPIResponse = { data?: DashboardData } | DashboardData;
+
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return typeof x === 'object' && x !== null;
+}
+function isDashboardData(x: unknown): x is DashboardData {
+  if (!isRecord(x)) return false;
+  const overview = x['overview'] as unknown;
+  const charts = x['charts'] as unknown;
+  return (
+    isRecord(overview) &&
+    typeof (overview as Record<string, unknown>).totalUsers === 'number' &&
+    isRecord(charts)
+  );
+}
 
 export default function DashboardPage() {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
@@ -65,22 +75,19 @@ export default function DashboardPage() {
       setLoading(true);
       setError('');
 
-      // Ensure token type is string | undefined (not string | null)
       const token = (localStorage.getItem('adminToken') ?? undefined) as string | undefined;
 
       const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.admin.dashboard}`, {
         headers: getHeaders(token),
       });
-
       if (!response.ok) throw new Error('Failed to fetch dashboard data');
 
       const json = (await response.json()) as DashboardAPIResponse;
-      const payload: DashboardData | undefined =
-        (json as any)?.data ?? (json as DashboardData | undefined);
 
-      if (!payload) throw new Error('Malformed dashboard response');
+      const maybePayload = ('data' in json && json.data ? json.data : json);
+      if (!isDashboardData(maybePayload)) throw new Error('Malformed dashboard response');
 
-      setDashboardData(payload);
+      setDashboardData(maybePayload);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {

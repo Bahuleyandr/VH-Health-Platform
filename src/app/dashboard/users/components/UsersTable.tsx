@@ -1,7 +1,8 @@
+// src/app/dashboard/users/components/UsersTable.tsx
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { User } from '@/lib/types';
+import type { User } from '@/lib/types';
 import { useSelection } from '@/hooks/useSelection';
 import { BulkActions } from '@/components/BulkActions';
 import { fetchAdminAPI } from '@/lib/api';
@@ -10,6 +11,11 @@ import toast from 'react-hot-toast';
 interface UsersTableProps {
   users: User[];
   onUserUpdated: () => void;
+}
+
+// Type guard to safely read optional "role" without using `any`
+function hasRole(u: unknown): u is { role: string } {
+  return typeof u === 'object' && u !== null && typeof (u as Record<string, unknown>).role === 'string';
 }
 
 export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
@@ -88,19 +94,19 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
                   className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
                 />
               </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 Name
               </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 Email
               </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 Status
               </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 Role
               </th>
-              <th scope="col" className="relative px-6 py-3">
+              <th className="relative px-6 py-3">
                 <span className="sr-only">Actions</span>
               </th>
             </tr>
@@ -109,9 +115,7 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
             {users.map((user) => (
               <tr
                 key={user.id}
-                className={`hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                  isSelected(user.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''
-                }`}
+                className={`hover:bg-gray-50 dark:hover:bg-gray-700 ${isSelected(user.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
               >
                 <td className="px-6 py-4 whitespace-nowrap">
                   <input
@@ -122,14 +126,10 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
                   />
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900 dark:text-white">
-                    {user.name}
-                  </div>
+                  <div className="text-sm font-medium text-gray-900 dark:text-white">{user.name}</div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-500 dark:text-gray-400">
-                    {user.email}
-                  </div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">{user.email}</div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span
@@ -143,15 +143,10 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
                   </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                  {/* role may not exist on the type; fall back safely */}
-                  {'role' in (user as any) && typeof (user as any).role === 'string'
-                    ? (user as any).role
-                    : 'User'}
+                  {hasRole(user) ? user.role : 'User'}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                  <button className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400">
-                    Edit
-                  </button>
+                  <button className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400">Edit</button>
                 </td>
               </tr>
             ))}

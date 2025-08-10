@@ -1,6 +1,6 @@
+// src/app/dashboard/pharmacy/components/OrderDetailsModal.tsx
 'use client';
 
-// src/app/dashboard/pharmacy/components/OrderDetailsModal.tsx
 import { useEffect, useState, useCallback } from 'react';
 import { fetchAdminAPI } from '@/lib/api';
 
@@ -12,9 +12,11 @@ interface OrderItem {
   total: number;
 }
 
+type OrderStatus = 'pending' | 'processing' | 'completed' | 'cancelled';
+
 interface OrderDetails {
   order_date: string;
-  status: 'pending' | 'processing' | 'completed' | 'cancelled';
+  status: OrderStatus;
   total_amount: number;
   patient_name: string;
   patient_email?: string;
@@ -34,12 +36,41 @@ function isObj(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
 }
 
+function isOrderItem(x: unknown): x is OrderItem {
+  if (!isObj(x)) return false;
+  const o = x as Record<string, unknown>;
+  return (
+    typeof o.medicine_name === 'string' &&
+    typeof o.quantity === 'number' &&
+    typeof o.price === 'number' &&
+    typeof o.total === 'number'
+  );
+}
+
+function isOrderDetails(x: unknown): x is OrderDetails {
+  if (!isObj(x)) return false;
+  const o = x as Record<string, unknown>;
+  const status = o.status;
+  return (
+    typeof o.order_date === 'string' &&
+    (status === 'pending' ||
+      status === 'processing' ||
+      status === 'completed' ||
+      status === 'cancelled') &&
+    typeof o.total_amount === 'number' &&
+    typeof o.patient_name === 'string' &&
+    typeof o.doctor_name === 'string' &&
+    Array.isArray(o.items) &&
+    (o.items as unknown[]).every(isOrderItem)
+  );
+}
+
 function normalizeOrder(resp: unknown): OrderDetails | null {
   if (isObj(resp)) {
-    const r = resp as any;
-    // Common shapes: { order: {...} } OR {...}
-    if (isObj(r.order)) return r.order as OrderDetails;
-    return r as OrderDetails;
+    const r = resp as Record<string, unknown>;
+    const maybeEnvelope = r.order as unknown;
+    if (isOrderDetails(maybeEnvelope)) return maybeEnvelope;
+    if (isOrderDetails(resp)) return resp as OrderDetails;
   }
   return null;
 }

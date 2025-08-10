@@ -113,7 +113,7 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm font-medium text-gray-900">{log.service || 'API'}</div>
-                  {log.module && <div className="text-xs text-gray-500">{log.module}</div>}
+                  {log.module ? <div className="text-xs text-gray-500">{log.module}</div> : null}
                 </td>
                 <td className="px-6 py-4 text-sm">
                   <div className="max-w-2xl">
@@ -129,7 +129,7 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
                     ) : (
                       <div className="font-mono text-gray-800">{log.message}</div>
                     )}
-                    {log.metadata && (
+                    {log.metadata ? (
                       <div className="mt-2 text-xs text-gray-500">
                         <details>
                           <summary className="cursor-pointer hover:text-gray-700">Metadata</summary>
@@ -138,7 +138,7 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
                           </pre>
                         </details>
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">

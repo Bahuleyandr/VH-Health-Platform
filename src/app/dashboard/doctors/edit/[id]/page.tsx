@@ -1,6 +1,6 @@
+// src/app/dashboard/doctors/edit/[id]/page.tsx
 'use client';
 
-// src/app/dashboard/doctors/edit/[id]/page.tsx
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { fetchAdminAPI } from '@/lib/api';
@@ -13,7 +13,7 @@ function isObj(x: unknown): x is Record<string, unknown> {
 }
 
 export default function EditDoctorPage() {
-  const params = useParams();
+  const params = useParams<{ id: string }>();
   const doctorId = String(params.id);
 
   const [doctor, setDoctor] = useState<Doctor | null>(null);
@@ -40,26 +40,31 @@ export default function EditDoctorPage() {
         if (Array.isArray(doctorsResp)) {
           doctors = doctorsResp as Doctor[];
         } else if (isObj(doctorsResp)) {
-          const r = doctorsResp as any;
+          const r = doctorsResp as { doctors?: unknown; data?: unknown };
           if (Array.isArray(r.doctors)) doctors = r.doctors as Doctor[];
           else if (Array.isArray(r.data)) doctors = r.data as Doctor[];
         }
 
         // ---- normalize departments ----
-        const depts: Department[] = Array.isArray(departmentsResp)
-          ? (departmentsResp as Department[])
-          : (departmentsResp.departments ?? []);
+        let depts: Department[] = [];
+        if (Array.isArray(departmentsResp)) {
+          depts = departmentsResp as Department[];
+        } else if (isObj(departmentsResp)) {
+          const maybe = (departmentsResp as { departments?: unknown }).departments;
+          if (Array.isArray(maybe)) depts = maybe as Department[];
+        }
 
         // Find the specific doctor to edit (match by user_id OR id)
-        const match = doctors.find((d: any) => {
-          const a = String(d?.user_id ?? d?.id ?? '');
-          return a === doctorId;
+        const match = doctors.find((d) => {
+          const idCandidate =
+            (d as { user_id?: string | number }).user_id ?? d.id;
+          return String(idCandidate ?? '') === doctorId;
         });
 
         if (!match) {
           if (!cancelled) setError('Doctor not found');
         } else {
-          if (!cancelled) setDoctor(match as Doctor);
+          if (!cancelled) setDoctor(match);
         }
         if (!cancelled) setDepartments(depts);
       } catch (err) {

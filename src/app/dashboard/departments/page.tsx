@@ -1,3 +1,4 @@
+// src/app/dashboard/departments/page.tsx
 'use client';
 
 import { useState } from 'react';
@@ -8,21 +9,35 @@ import { Spinner } from '@/components/ui/spinner';
 import toast from 'react-hot-toast';
 import type { Department } from '@/lib/types';
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
+}
+function isDepartment(v: unknown): v is Department {
+  if (!isRecord(v)) return false;
+  const name = v.name as unknown;
+  return typeof name === 'string';
+}
+function isDepartmentArray(v: unknown): v is Department[] {
+  return Array.isArray(v) && v.every(isDepartment);
+}
+
 export default function DepartmentsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const { data, isLoading, error, refetch } = useDepartments();
 
   // Normalize whatever the hook returns into Department[]
-  const departments: Department[] = Array.isArray(data)
-    ? (data as Department[])
-    : (data && Array.isArray((data as any).departments)
-        ? ((data as any).departments as Department[])
-        : []);
+  let departments: Department[] = [];
+  if (Array.isArray(data)) {
+    departments = data.filter(isDepartment);
+  } else if (isRecord(data) && isDepartmentArray((data as Record<string, unknown>).departments)) {
+    departments = (data as Record<string, unknown>).departments as Department[];
+  }
 
   // Filter departments based on search term
-  const filteredDepartments = departments.filter((dept: Department) =>
-    dept.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (dept.description?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false)
+  const term = searchTerm.toLowerCase();
+  const filteredDepartments = departments.filter((dept) =>
+    dept.name.toLowerCase().includes(term) ||
+    (dept.description?.toLowerCase().includes(term) ?? false)
   );
 
   if (isLoading) {

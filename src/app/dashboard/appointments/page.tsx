@@ -1,6 +1,6 @@
+// src/app/dashboard/appointments/page.tsx
 'use client';
 
-// src/app/dashboard/appointments/page.tsx
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { fetchAdminAPI } from '@/lib/api';
@@ -30,18 +30,41 @@ type AppointmentsAPIResponse = {
   pagination: Pagination;
 };
 
-// Type guards / normalizer for flexible backend responses
+// Type guards / helpers
 function isObj(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
+}
+function getArrayProp(x: unknown, key: string): unknown[] | null {
+  if (!isObj(x)) return null;
+  const v = x[key];
+  return Array.isArray(v) ? v : null;
+}
+function getNumberProp(x: unknown, key: string): number | null {
+  if (!isObj(x)) return null;
+  const v = x[key];
+  return typeof v === 'number' ? v : null;
+}
+function getBoolProp(x: unknown, key: string): boolean | null {
+  if (!isObj(x)) return null;
+  const v = x[key];
+  return typeof v === 'boolean' ? v : null;
+}
+function getNestedNumber(x: unknown, key: string, nestedKey: string): number | null {
+  if (!isObj(x)) return null;
+  const nested = x[key];
+  if (!isObj(nested)) return null;
+  const v = nested[nestedKey];
+  return typeof v === 'number' ? v : null;
 }
 
 function normalizeResponse(response: unknown, page: number): AppointmentsAPIResponse {
   // Case 1: Array response
   if (Array.isArray(response)) {
-    const total = response.length;
+    const list = response as AppointmentRow[];
+    const total = list.length;
     const limit = 10;
     return {
-      appointments: response as AppointmentRow[],
+      appointments: list,
       pagination: {
         page,
         limit,
@@ -55,30 +78,33 @@ function normalizeResponse(response: unknown, page: number): AppointmentsAPIResp
 
   // Case 2: Object with { appointments?, pagination?, total?, hasNext? }
   if (isObj(response)) {
-    const appointments =
-      (Array.isArray(response.appointments) ? response.appointments : []) as AppointmentRow[];
-
-    // If backend returned a top-level array-ish structure in a property named 'data'
-    const fallbackAppointments =
-      Array.isArray((response as any).data) ? ((response as any).data as AppointmentRow[]) : [];
-
+    const appointments = (getArrayProp(response, 'appointments') ?? []) as AppointmentRow[];
+    const fallbackAppointments = (getArrayProp(response, 'data') ?? []) as AppointmentRow[];
     const list = appointments.length ? appointments : fallbackAppointments;
 
-    const total = Number((response as any).total ?? list.length ?? 0) || 0;
-    const limit = Number((response as any).pagination?.limit ?? 10) || 10;
+    const total =
+      getNumberProp(response, 'total') ??
+      list.length ??
+      0;
 
-    const pagination: Pagination = {
-      page,
-      limit,
-      total,
-      totalPages: Math.max(1, Math.ceil(total / limit)),
-      hasNext: Boolean((response as any).hasNext ?? page * limit < total),
-      hasPrev: page > 1,
-    };
+    const limit =
+      getNestedNumber(response, 'pagination', 'limit') ??
+      10;
+
+    const hasNext =
+      getBoolProp(response, 'hasNext') ??
+      (page * limit < total);
 
     return {
-      appointments: list.length ? list : [],
-      pagination,
+      appointments: list,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+        hasNext,
+        hasPrev: page > 1,
+      },
     };
   }
 
@@ -123,7 +149,7 @@ function AppointmentsContent() {
 
         const path = `/appointments/manage?${queryParams.toString()}`;
 
-        // Type as unknown; we normalize right after
+        // Fetch unknown and normalize
         const response = await fetchAdminAPI<unknown>(path);
         const normalized = normalizeResponse(response, page);
 

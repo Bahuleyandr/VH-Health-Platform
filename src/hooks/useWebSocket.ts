@@ -1,6 +1,7 @@
+// src/hooks/useWebSocket.ts
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 type UseWebSocketOptions<T = unknown> = {
   protocols?: string | string[];
@@ -14,6 +15,10 @@ type UseWebSocketOptions<T = unknown> = {
   /** Optional notifier (e.g., pass `msg => toast(msg)`) */
   toast?: (msg: string) => void;
 };
+
+function hasStringMessage(x: unknown): x is { message: string } {
+  return typeof x === 'object' && x !== null && typeof (x as Record<string, unknown>).message === 'string';
+}
 
 export function useWebSocket<T = unknown>(
   url: string,
@@ -32,8 +37,27 @@ export function useWebSocket<T = unknown>(
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<number | null>(null);
 
+  // Keep callback options in refs so the main effect's deps stay simple
+  const onMessageRef = useRef<typeof onMessage>(onMessage);
+  const onOpenRef = useRef<typeof onOpen>(onOpen);
+  const onCloseRef = useRef<typeof onClose>(onClose);
+  const onErrorRef = useRef<typeof onError>(onError);
+  const toastRef = useRef<typeof toast>(toast);
+
+  useEffect(() => { onMessageRef.current = onMessage; }, [onMessage]);
+  useEffect(() => { onOpenRef.current = onOpen; }, [onOpen]);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+  useEffect(() => { onErrorRef.current = onError; }, [onError]);
+  useEffect(() => { toastRef.current = toast; }, [toast]);
+
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<T | null>(null);
+
+  // Make protocols stable for deps
+  const protocolsKey = useMemo(
+    () => (Array.isArray(protocols) ? protocols.join(',') : protocols ?? ''),
+    [protocols]
+  );
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -42,53 +66,51 @@ export function useWebSocket<T = unknown>(
       const ws = new WebSocket(url, protocols);
       wsRef.current = ws;
 
-      ws.addEventListener('open', ev => {
+      ws.addEventListener('open', (ev) => {
         setIsConnected(true);
-        onOpen?.(ev);
+        onOpenRef.current?.(ev);
       });
 
-      ws.addEventListener('message', ev => {
+      ws.addEventListener('message', (ev) => {
         let payload: unknown = ev.data;
         if (parseJson && typeof payload === 'string') {
-          try { payload = JSON.parse(payload); } catch { /* ignore */ }
+          try {
+            payload = JSON.parse(payload);
+          } catch {
+            // ignore JSON parse errors; keep raw string
+          }
         }
-        setLastMessage(payload as T);
-        onMessage?.(payload as T);
 
-        // if payload has a "message" field, notify (optional)
-        if (toast && payload && typeof payload === 'object' && 'message' in (payload as any)) {
-          const m = (payload as any).message;
-          if (typeof m === 'string') toast(m);
+        setLastMessage(payload as T);
+        onMessageRef.current?.(payload as T);
+
+        if (toastRef.current && hasStringMessage(payload)) {
+          toastRef.current(payload.message);
         }
       });
 
-      ws.addEventListener('close', ev => {
+      ws.addEventListener('close', (ev) => {
         setIsConnected(false);
-        onClose?.(ev);
+        onCloseRef.current?.(ev);
+
         if (autoReconnect) {
           reconnectRef.current = window.setTimeout(connect, reconnectIntervalMs);
         }
       });
 
-      ws.addEventListener('error', ev => {
-        onError?.(ev);
+      ws.addEventListener('error', (ev) => {
+        onErrorRef.current?.(ev);
       });
     };
 
     connect();
 
     return () => {
-      if (reconnectRef.current) clearTimeout(reconnectRef.current);
+      if (reconnectRef.current) window.clearTimeout(reconnectRef.current);
       wsRef.current?.close();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    url,
-    Array.isArray(protocols) ? protocols.join(',') : protocols,
-    autoReconnect,
-    reconnectIntervalMs,
-    parseJson,
-  ]);
+    // Simple, static deps: no functions/objects, avoids "complex expression" warning
+  }, [url, protocolsKey, autoReconnect, reconnectIntervalMs, parseJson]);
 
   const send = (data: string | ArrayBufferLike | Blob | ArrayBufferView) => {
     wsRef.current?.send(data);
