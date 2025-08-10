@@ -1,8 +1,7 @@
 // src/app/dashboard/pharmacy/page.tsx
 'use client';
 
-// src/app/dashboard/pharmacy/page.tsx
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, Suspense } from 'react';
 import { fetchAdminAPI } from '@/lib/api';
 import type { PharmacyAnalytics, PharmacyOrder } from '@/lib/types';
 import { PharmacyStats } from './components/PharmacyStats';
@@ -69,9 +68,10 @@ function normalizeOrders(
   return { orders: [] };
 }
 
-export default function PharmacyPage() {
+function PharmacyContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+
   const [analytics, setAnalytics] = useState<PharmacyAnalytics | null>(null);
   const [orders, setOrders] = useState<PharmacyOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -277,5 +277,14 @@ export default function PharmacyPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function PharmacyPage() {
+  // Wrap the content using useSearchParams in Suspense to satisfy Next's CSR bailout rule
+  return (
+    <Suspense fallback={<div className="p-6">Loading pharmacy...</div>}>
+      <PharmacyContent />
+    </Suspense>
   );
 }
