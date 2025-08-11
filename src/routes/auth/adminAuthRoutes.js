@@ -1,163 +1,165 @@
-// src/routes/auth/adminAuthRoutes.js - Admin Authentication Routes
-// Username/Password based authentication for admin web portal
+// src/routes/auth/adminAuthRoutes.js
+// Admin Authentication Routes (username/email + password)
 
 import express from 'express';
-import { validationResult, body } from 'express-validator';
+import { validationResult, body, oneOf, param } from 'express-validator';
+
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import { wrapRoutesWithValidation, wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as adminAuthController from '../../controllers/auth/adminAuthController.js';
 import { authenticateToken } from '../../middleware/auth.js';
+
+// Use the dedicated admin validators
 import {
-  usernamePasswordValidator,
-  adminRegistrationValidator,
-  passwordResetValidator,
-  changePasswordValidator
-} from '../../validators/auth/authValidator.js';
+  adminLoginValidator,
+  createAdminValidator,
+  changeAdminPasswordValidator,
+} from '../../validators/auth/adminAuthValidator.js';
 
 const router = express.Router();
 
-// Validation middleware helper
+/* ----------------------------- helpers ----------------------------- */
 const handleValidation = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(HTTP_STATUS.BAD_REQUEST).json({
       success: false,
       errors: errors.array(),
-      message: RESPONSE_MESSAGES.VALIDATION_FAILED
+      message: RESPONSE_MESSAGES.VALIDATION_FAILED,
     });
   }
   next();
 };
 
-// Public Admin Authentication Routes
+// Inline validators for forgot/reset flows
+const forgotPasswordValidator = [
+  oneOf(
+    [
+      body('username').exists({ checkFalsy: true }).trim(),
+      body('email').exists({ checkFalsy: true }).isEmail().normalizeEmail(),
+    ],
+    'Provide username or email'
+  ),
+];
+
+const resetPasswordValidator = [
+  oneOf(
+    [
+      body('username').optional({ nullable: true }).trim(),
+      body('email').optional({ nullable: true }).isEmail().normalizeEmail(),
+    ],
+    'Provide username or email'
+  ),
+  body('otp').exists({ checkFalsy: true }).isLength({ min: 4, max: 8 }).withMessage('OTP is required'),
+  body('newPassword')
+    .exists({ checkFalsy: true }).withMessage('New password is required')
+    .isLength({ min: 6 }).withMessage('New password must be at least 6 characters long')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/)
+    .withMessage('Password must contain uppercase, lowercase, number and special character'),
+];
+
+/* ------------------------- public auth routes ---------------------- */
 wrapRoutesWithValidation(
   router,
   [],
   {
     post: [
-      // Admin Login with Username/Password
-      [
-        '/login',
-        ...usernamePasswordValidator,
-        handleValidation,
-        adminAuthController.login
-      ],
-      
-      // Request Password Reset (sends OTP to registered email/phone)
-      [
-        '/forgot-password',
-        body('username').notEmpty().withMessage('Username is required'),
-        handleValidation,
-        adminAuthController.forgotPassword
-      ],
-      
-      // Reset Password with OTP
-      [
-        '/reset-password',
-        ...passwordResetValidator,
-        handleValidation,
-        adminAuthController.resetPassword
-      ]
+      // Login (username OR email + password)
+      ['/login', ...adminLoginValidator, handleValidation, adminAuthController.login],
+
+      // Request password reset (send OTP)
+      ['/forgot-password', ...forgotPasswordValidator, handleValidation, adminAuthController.forgotPassword],
+
+      // Reset password with OTP
+      ['/reset-password', ...resetPasswordValidator, handleValidation, adminAuthController.resetPassword],
     ],
-    
-    get: [
-      // Admin Auth Health Check
-      ['/health', adminAuthController.getHealthStatus]
-    ]
+    get: [['/health', adminAuthController.getHealthStatus]],
   },
   {
     requireUID: false,
     requirePhone: false,
-    skipAudit: false
+    skipAudit: false,
   }
 );
 
-// Protected Admin Routes (requires authentication)
-router.use(authenticateToken); // Apply auth middleware
+/* ------------------------ protected auth routes -------------------- */
+router.use(authenticateToken);
 
 wrapRoutesWithValidation(
   router,
   [],
   {
     post: [
-      // Change Password (for logged-in admin)
-      [
-        '/change-password',
-        ...changePasswordValidator,
-        handleValidation,
-        adminAuthController.changePassword
-      ]
+      // Change password (self)
+      ['/change-password', ...changeAdminPasswordValidator, handleValidation, adminAuthController.changePassword],
     ],
-    
     get: [
-      // Get Admin Profile
-      ['/profile', adminAuthController.getProfile]
-    ]
+      // Current admin profile
+      ['/profile', adminAuthController.getProfile],
+    ],
   },
   {
     requireUID: true,
     requirePhone: false,
-    skipAudit: false
+    skipAudit: false,
   }
 );
 
-// Super Admin Routes (RBAC protected)
+/* -------------------------- super-admin only ----------------------- */
 wrapAutoRBAC(
   router,
   'adminManagement',
   {
     post: [
-      // Create New Admin User (Super Admin only)
-      [
-        '/create-admin',
-        ...adminRegistrationValidator,
-        handleValidation,
-        adminAuthController.createAdmin
-      ],
-      
-      // Deactivate Admin Account
+      // Create another admin
+      ['/create-admin', ...createAdminValidator, handleValidation, adminAuthController.createAdmin],
+
+      // Deactivate admin
       [
         '/deactivate',
-        body('adminId').notEmpty().withMessage('Admin ID is required'),
+        body('adminId').isInt({ min: 1 }).withMessage('Invalid admin ID').toInt(),
         body('reason').notEmpty().withMessage('Reason is required'),
         handleValidation,
-        adminAuthController.deactivateAdmin
+        adminAuthController.deactivateAdmin,
       ],
-      
-      // Reactivate Admin Account
+
+      // Reactivate admin
       [
         '/reactivate',
-        body('adminId').notEmpty().withMessage('Admin ID is required'),
+        body('adminId').isInt({ min: 1 }).withMessage('Invalid admin ID').toInt(),
         handleValidation,
-        adminAuthController.reactivateAdmin
-      ]
+        adminAuthController.reactivateAdmin,
+      ],
     ],
-    
     get: [
-      // List All Admin Users
+      // List admins
       ['/list', adminAuthController.listAdmins],
-      
-      // Get Admin Activity Logs
-      ['/activity-logs/:adminId', adminAuthController.getAdminActivityLogs]
+
+      // Activity logs for a specific admin
+      [
+        '/activity-logs/:adminId',
+        param('adminId').isInt({ min: 1 }).withMessage('Invalid admin ID').toInt(),
+        handleValidation,
+        adminAuthController.getAdminActivityLogs,
+      ],
     ],
-    
     put: [
-      // Update Admin Permissions
+      // Update permissions
       [
         '/update-permissions',
-        body('adminId').notEmpty().withMessage('Admin ID is required'),
+        body('adminId').isInt({ min: 1 }).withMessage('Invalid admin ID').toInt(),
         body('permissions').isArray().withMessage('Permissions must be an array'),
         handleValidation,
-        adminAuthController.updatePermissions
-      ]
-    ]
+        adminAuthController.updatePermissions,
+      ],
+    ],
   },
   {
     requireUID: true,
     requirePhone: false,
     auditLog: true,
     rateLimiting: true,
-    roles: ['SUPER_ADMIN']
+    roles: ['SUPER_ADMIN'],
   }
 );
 
