@@ -1,115 +1,146 @@
 // src/middleware/corsMiddleware.js
-
 import cors from 'cors';
 
 /**
- * Get allowed origins based on app type and environment
+ * Helpers
  */
-const getAllowedOrigins = () => {
-  const origins = [];
-  
-  // Production origins from environment variable
-  if (process.env.ALLOWED_ORIGINS) {
-    origins.push(
-      ...process.env.ALLOWED_ORIGINS
-        .split(',')
-        .map(origin => origin.trim())
-        .filter(origin => origin.length > 0)
-    );
-  }
-  
-  // PATIENT APP ORIGINS (keep existing ones)
-  if (process.env.PATIENT_APP_ORIGINS) {
-    origins.push(
-      ...process.env.PATIENT_APP_ORIGINS
-        .split(',')
-        .map(origin => origin.trim())
-    );
-  }
-  
-  // ADMIN APP ORIGINS
-  if (process.env.ADMIN_APP_ORIGINS) {
-    origins.push(
-      ...process.env.ADMIN_APP_ORIGINS
-        .split(',')
-        .map(origin => origin.trim())
-    );
-  }
-  
-  // Development origins (only in non-production)
-  if (process.env.NODE_ENV !== 'production') {
-    const devOrigins = [
-      'http://localhost:3000',
-      'http://localhost:3001', 
-      'http://localhost:3002', // Different ports for different apps
-      'http://127.0.0.1:3000',
-      'http://192.168.0.121:3000',
-    ];
-    origins.push(...devOrigins);
-  }
-  
-  // Remove duplicates
-  return [...new Set(origins)];
+const parseCsv = (val) =>
+  (val || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+const unique = (arr) => [...new Set(arr)];
+
+/**
+ * Build the allowlist (exact matches) and regex matchers (pattern matches)
+ */
+const buildOriginMatchers = () => {
+  // Exact origins you know up-front
+  const defaultExact = [
+    'https://api.vhhealth.app',
+    'https://vh-health-backend.onrender.com',
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:3002',
+    'http://127.0.0.1:3000',
+    'http://192.168.0.121:3000',
+    // Add your production admin domain when ready:
+    'https://admin.vhhealth.app',
+  ];
+
+  // From environment (comma-separated)
+  const exactFromEnv = [
+    ...parseCsv(process.env.ALLOWED_ORIGINS),
+    ...parseCsv(process.env.PATIENT_APP_ORIGINS),
+    ...parseCsv(process.env.ADMIN_APP_ORIGINS),
+  ];
+
+  // Regex patterns:
+  //  - Vercel preview URLs for your admin portal
+  //  - Additional patterns from env (CORS_REGEXES, comma-separated)
+  const regexPatterns = [
+    '^https:\\/\\/vh-health-adminportal-[a-z0-9-]+\\.vercel\\.app$', // preview URLs
+    ...parseCsv(process.env.CORS_REGEXES || ''),
+  ];
+
+  const regexes = regexPatterns
+    .map((p) => {
+      try { return new RegExp(p, 'i'); } catch { return null; }
+    })
+    .filter(Boolean);
+
+  return {
+    exact: new Set(unique([...defaultExact, ...exactFromEnv])),
+    regexes,
+  };
 };
 
-const corsOptions = {
-  origin: (origin, callback) => {
-    const allowedOrigins = getAllowedOrigins();
-    
-    // Log for debugging (remove in production)
-    if (process.env.DEBUG_CORS === 'true') {
-      console.log(`CORS check - Origin: ${origin}, Allowed: ${allowedOrigins.includes(origin)}`);
-    }
-    
-    // Allow requests with no origin in development
-    if (!origin) {
-      if (process.env.NODE_ENV === 'production' && process.env.ALLOW_NO_ORIGIN !== 'true') {
-        return callback(new Error('No origin header present'));
-      }
-      return callback(null, true);
-    }
-    
-    // Check if origin is allowed
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.warn(`Blocked CORS request from origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'],
-  allowedHeaders: [
-    'Content-Type',
-    'Authorization',
-    'X-Requested-With',
-    'Accept',
-    'Origin',
-    'X-API-Key',
-    'X-App-Type', // To identify which app is making the request
-  ],
-  exposedHeaders: ['X-Total-Count', 'X-Page-Count', 'X-Request-Id'],
-  maxAge: 86400,
-  optionsSuccessStatus: 200,
+const { exact: EXACT_ALLOWLIST, regexes: REGEX_ALLOWLIST } = buildOriginMatchers();
+
+/**
+ * Per-request CORS options
+ */
+const corsOptionsDelegate = (req, callback) => {
+  const origin = req.header('Origin');
+
+  // Always vary cache on Origin
+  req.res?.setHeader?.('Vary', 'Origin');
+
+  // Allow server-to-server / tools (no Origin header)
+  if (!origin) {
+    return callback(null, {
+      origin: true,
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+      allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'X-Requested-With',
+        'Accept',
+        'Origin',
+        'X-API-Key',
+        'X-App-Type',
+      ],
+      exposedHeaders: ['X-Total-Count', 'X-Page-Count', 'X-Request-Id'],
+      maxAge: 86400,
+      optionsSuccessStatus: 204,
+    });
+  }
+
+  const isAllowed =
+    EXACT_ALLOWLIST.has(origin) ||
+    REGEX_ALLOWLIST.some((re) => re.test(origin));
+
+  if (!isAllowed) {
+    // Keep this log — it helped identify your issue
+    console.warn(`Blocked CORS request from origin: ${origin}`);
+    const err = new Error('Not allowed by CORS');
+    err.statusCode = 403;
+    return callback(err);
+  }
+
+  // Allowed
+  return callback(null, {
+    origin: true, // echoes back the request origin when allowed
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Requested-With',
+      'Accept',
+      'Origin',
+      'X-API-Key',
+      'X-App-Type',
+    ],
+    exposedHeaders: ['X-Total-Count', 'X-Page-Count', 'X-Request-Id'],
+    maxAge: 86400,
+    optionsSuccessStatus: 204,
+  });
 };
 
-// Add this export for better error handling
+// Wrap to always set Vary: Origin
+const applyCors = cors(corsOptionsDelegate);
+const corsMiddleware = (req, res, next) => {
+  res.setHeader('Vary', 'Origin');
+  return applyCors(req, res, next);
+};
+
+// Dedicated CORS error handler (use after routes or right after cors in app.js)
 export const corsErrorHandler = (err, req, res, next) => {
   if (err && err.message === 'Not allowed by CORS') {
-    res.status(403).json({
+    return res.status(err.statusCode || 403).json({
       success: false,
-      message: 'Not allowed by CORS',
-      origin: req.headers.origin || 'No origin header',
-      // Only in development
+      message: 'CORS: Origin not allowed',
+      origin: req.headers.origin || null,
       ...(process.env.NODE_ENV !== 'production' && {
-        allowedOrigins: getAllowedOrigins(),
-        hint: 'Add this origin to ALLOWED_ORIGINS environment variable'
-      })
+        // Helpful in dev; remove if noisy
+        hint: 'Add this origin to ALLOWED_ORIGINS or CORS_REGEXES (env)',
+      }),
     });
-  } else {
-    next(err);
   }
+  return next(err);
 };
 
-export default cors(corsOptions);
+export default corsMiddleware;
