@@ -9,8 +9,8 @@ import { generateToken, verifyToken } from '../../utils/jwtUtils.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import * as otpService from './otpService.js';
 
-// -------- Configurable admin storage --------
-const ADMIN_TABLE = process.env.ADMIN_TABLE ?? 'admins';
+// Match your schema
+const ADMIN_TABLE = process.env.ADMIN_TABLE ?? 'admin_users';
 const ADMIN_PASSWORD_COLUMN = process.env.ADMIN_PASSWORD_COLUMN ?? 'password_hash';
 
 export class AuthService {
@@ -88,9 +88,7 @@ export class AuthService {
         req
       );
 
-      if (!verification.valid) {
-        throw new Error(verification.reason || 'Invalid OTP');
-      }
+      if (!verification.valid) throw new Error(verification.reason || 'Invalid OTP');
 
       let user = await this.getUserByPhone(normalizedPhone);
       let isNewUser = false;
@@ -160,30 +158,52 @@ export class AuthService {
     }
   }
 
-  /* ------------------- Admin Auth (fixed) ------------------ */
-  // username OR email + password
+  /* ------------------- Admin Auth (matches admin_users) ------------------ */
+  // identity = username OR email
   static async adminLogin(identity, password) {
     try {
       const { rows } = await db.query(
-        `SELECT uid, username, email, role, is_active, ${ADMIN_PASSWORD_COLUMN} AS pwd
-           FROM ${ADMIN_TABLE}
-          WHERE username = $1 OR lower(email) = lower($1)
-          LIMIT 1`,
+        `
+        SELECT 
+          id          AS uid,
+          username,
+          email,
+          role,
+          status,
+          ${ADMIN_PASSWORD_COLUMN} AS pwd
+        FROM ${ADMIN_TABLE}
+        WHERE lower(username) = lower($1) OR lower(email) = lower($1)
+        LIMIT 1
+        `,
         [identity]
       );
 
       if (rows.length === 0) throw new Error('Invalid credentials');
 
       const admin = rows[0];
-      if (!admin.is_active) throw new Error('Account is deactivated');
+      if (admin.status && String(admin.status).toLowerCase() !== 'active') {
+        throw new Error('Account is deactivated');
+      }
 
       const ok = await bcrypt.compare(password, admin.pwd);
-      if (!ok) throw new Error('Invalid credentials');
+      if (!ok) {
+        // optional: track failed attempts
+        await db.query(
+          `UPDATE ${ADMIN_TABLE}
+             SET failed_login_attempts = COALESCE(failed_login_attempts,0) + 1,
+                 last_failed_login = NOW()
+           WHERE id = $1`,
+          [admin.uid]
+        );
+        throw new Error('Invalid credentials');
+      }
 
       const token = generateToken({ uid: admin.uid, role: admin.role });
 
       await db.query(
-        `UPDATE ${ADMIN_TABLE} SET last_login = NOW() WHERE uid = $1`,
+        `UPDATE ${ADMIN_TABLE} 
+            SET last_login = NOW(), failed_login_attempts = 0
+          WHERE id = $1`,
         [admin.uid]
       );
 
@@ -205,7 +225,7 @@ export class AuthService {
   static async changeAdminPassword(adminId, currentPassword, newPassword) {
     try {
       const { rows } = await db.query(
-        `SELECT ${ADMIN_PASSWORD_COLUMN} AS pwd FROM ${ADMIN_TABLE} WHERE uid = $1`,
+        `SELECT ${ADMIN_PASSWORD_COLUMN} AS pwd FROM ${ADMIN_TABLE} WHERE id = $1`,
         [adminId]
       );
       if (rows.length === 0) throw new Error('Admin not found');
@@ -217,8 +237,8 @@ export class AuthService {
 
       await db.query(
         `UPDATE ${ADMIN_TABLE} 
-            SET ${ADMIN_PASSWORD_COLUMN} = $1, password_changed_at = NOW() 
-          WHERE uid = $2`,
+            SET ${ADMIN_PASSWORD_COLUMN} = $1, password_changed_at = NOW()
+          WHERE id = $2`,
         [newHash, adminId]
       );
 
@@ -232,10 +252,12 @@ export class AuthService {
   static async adminForgotPassword(identity) {
     try {
       const { rows } = await db.query(
-        `SELECT uid, username, email, phone 
-           FROM ${ADMIN_TABLE}
-          WHERE username = $1 OR lower(email) = lower($1)
-          LIMIT 1`,
+        `
+        SELECT id AS uid, username, email, phone 
+        FROM ${ADMIN_TABLE}
+        WHERE lower(username) = lower($1) OR lower(email) = lower($1)
+        LIMIT 1
+        `,
         [identity]
       );
       if (rows.length === 0) throw new Error('Admin not found');
@@ -250,7 +272,6 @@ export class AuthService {
         [admin.uid, otp, expiresAt]
       );
 
-      // TODO: send via email/SMS in production
       logger.info(`Password reset OTP for ${admin.username || admin.email}: ${otp}`);
 
       return {
@@ -269,10 +290,12 @@ export class AuthService {
       await client.query('BEGIN');
 
       const aRes = await client.query(
-        `SELECT uid 
-           FROM ${ADMIN_TABLE}
-          WHERE username = $1 OR lower(email) = lower($1)
-          LIMIT 1`,
+        `
+        SELECT id AS uid
+        FROM ${ADMIN_TABLE}
+        WHERE lower(username) = lower($1) OR lower(email) = lower($1)
+        LIMIT 1
+        `,
         [identity]
       );
       if (aRes.rows.length === 0) throw new Error('Admin not found');
@@ -297,7 +320,7 @@ export class AuthService {
       await client.query(
         `UPDATE ${ADMIN_TABLE}
             SET ${ADMIN_PASSWORD_COLUMN} = $1, password_changed_at = NOW()
-          WHERE uid = $2`,
+          WHERE id = $2`,
         [newHash, adminId]
       );
 
@@ -402,7 +425,7 @@ export class AuthService {
       const { username, password, email, name, createdBy } = adminData;
 
       const existing = await client.query(
-        `SELECT uid FROM ${ADMIN_TABLE} WHERE username = $1`,
+        `SELECT id FROM ${ADMIN_TABLE} WHERE lower(username) = lower($1)`,
         [username]
       );
       if (existing.rows.length > 0) throw new Error('Username already exists');
@@ -410,10 +433,11 @@ export class AuthService {
       const passwordHash = await bcrypt.hash(password, 10);
 
       const insert = await client.query(
-        `INSERT INTO ${ADMIN_TABLE} (username, ${ADMIN_PASSWORD_COLUMN}, email, name, role, created_by, created_at, is_active)
-         VALUES ($1, $2, $3, $4, 'ADMIN', $5, NOW(), true)
-         RETURNING uid, username, email, name`,
-        [username, passwordHash, email, name, createdBy]
+        `INSERT INTO ${ADMIN_TABLE} 
+         (username, ${ADMIN_PASSWORD_COLUMN}, email, name, role, created_by, status, created_at)
+         VALUES ($1, $2, $3, $4, 'ADMIN', $5, 'active', NOW())
+         RETURNING id AS uid, username, email, name`,
+        [username, passwordHash, email, name, createdBy ?? null]
       );
 
       await client.query('COMMIT');
@@ -433,10 +457,11 @@ export class AuthService {
 
       const [adminsResult, countResult] = await Promise.all([
         db.query(
-          `SELECT uid, username, email, name, is_active, created_at, last_login
-             FROM ${ADMIN_TABLE}
-            ORDER BY created_at DESC
-            LIMIT $1 OFFSET $2`,
+          `SELECT 
+              id AS uid, username, email, name, status, created_at, last_login
+           FROM ${ADMIN_TABLE}
+           ORDER BY created_at DESC
+           LIMIT $1 OFFSET $2`,
           [limit, offset]
         ),
         db.query(`SELECT COUNT(*) FROM ${ADMIN_TABLE}`)
@@ -461,11 +486,13 @@ export class AuthService {
     try {
       const result = await db.query(
         `UPDATE ${ADMIN_TABLE} 
-            SET is_active = false, deactivated_at = NOW(),
-                deactivated_by = $2, deactivation_reason = $3
-          WHERE uid = $1 AND is_active = true
-          RETURNING uid, username`,
-        [adminId, deactivatedBy, reason]
+            SET status = 'inactive',
+                deactivated_at = NOW(),
+                deactivated_by = $2,
+                deactivation_reason = $3
+          WHERE id = $1 AND status = 'active'
+          RETURNING id AS uid, username`,
+        [adminId, deactivatedBy ?? null, reason ?? null]
       );
       if (result.rows.length === 0) {
         throw new Error('Admin not found or already deactivated');
@@ -477,14 +504,17 @@ export class AuthService {
     }
   }
 
-  static async reactivateAdmin(adminId, reactivatedBy) {
+  static async reactivateAdmin(adminId /*, reactivatedBy */) {
     try {
       const result = await db.query(
         `UPDATE ${ADMIN_TABLE}
-            SET is_active = true, reactivated_at = NOW(), reactivated_by = $2
-          WHERE uid = $1 AND is_active = false
-          RETURNING uid, username`,
-        [adminId, reactivatedBy]
+            SET status = 'active',
+                deactivated_at = NULL,
+                deactivated_by = NULL,
+                deactivation_reason = NULL
+          WHERE id = $1 AND status = 'inactive'
+          RETURNING id AS uid, username`,
+        [adminId]
       );
       if (result.rows.length === 0) {
         throw new Error('Admin not found or already active');
@@ -499,19 +529,18 @@ export class AuthService {
   static async getAdminProfile(adminId) {
     try {
       const result = await db.query(
-        `SELECT uid, username, email, name, role, is_active, 
-                created_at, last_login, permissions
-           FROM ${ADMIN_TABLE}
-          WHERE uid = $1`,
+        `SELECT 
+           id AS uid, username, email, name, role, status, 
+           created_at, last_login, permissions
+         FROM ${ADMIN_TABLE}
+         WHERE id = $1`,
         [adminId]
       );
       if (result.rows.length === 0) throw new Error('Admin not found');
 
       const admin = result.rows[0];
-      admin.created_at = formatDateDDMMYYYY(admin.created_at);
-      admin.last_login = admin.last_login
-        ? formatDateDDMMYYYY(admin.last_login)
-        : null;
+      admin.created_at = admin.created_at ? formatDateDDMMYYYY(admin.created_at) : null;
+      admin.last_login = admin.last_login ? formatDateDDMMYYYY(admin.last_login) : null;
 
       return { admin };
     } catch (error) {
@@ -629,7 +658,7 @@ export class AuthService {
     try {
       const [totalAdmins, activeAdmins, recentLogins] = await Promise.all([
         db.query(`SELECT COUNT(*) FROM ${ADMIN_TABLE}`),
-        db.query(`SELECT COUNT(*) FROM ${ADMIN_TABLE} WHERE is_active = true`),
+        db.query(`SELECT COUNT(*) FROM ${ADMIN_TABLE} WHERE lower(status) = 'active'`),
         db.query(
           `SELECT COUNT(*) FROM auth_logs 
             WHERE action = 'admin_login' AND success = true 
@@ -746,7 +775,7 @@ export class AuthService {
 
       return {
         ...stats.rows[0],
-      lastUpdated: new Date(),
+        lastUpdated: new Date(),
       };
     } catch (error) {
       logger.error('Get public stats error:', error);
