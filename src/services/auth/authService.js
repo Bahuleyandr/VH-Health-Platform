@@ -1,6 +1,5 @@
 // src/services/auth/authService.js
 import bcrypt from 'bcrypt';
-import { v4 as uuidv4 } from 'uuid';
 import db from '../../config/database.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
@@ -9,50 +8,60 @@ import { generateToken, verifyToken } from '../../utils/jwtUtils.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import * as otpService from './otpService.js';
 
+// ✅ Use your real Firebase service
+import * as firebaseAuthService from './firebaseAuthService.js';
+
 // Match your schema
 const ADMIN_TABLE = process.env.ADMIN_TABLE ?? 'admin_users';
 const ADMIN_PASSWORD_COLUMN = process.env.ADMIN_PASSWORD_COLUMN ?? 'password_hash';
 
 export class AuthService {
-  /* ---------------- Firebase (placeholder) ---------------- */
-  static async authenticateWithFirebase(idToken) {
-    try {
-      return {
-        uid: 'firebase-' + uuidv4(),
-        email: 'user@example.com',
-        phoneNumber: null,
-      };
-    } catch (error) {
-      logger.error('Firebase authentication error:', error);
-      throw error;
-    }
+  /* ======================= Firebase (pass-through) ======================= */
+  // Login with Firebase ID token
+  static async authenticateWithFirebase(idToken, deviceInfo, req) {
+    return firebaseAuthService.authenticateWithFirebase(idToken, deviceInfo, req);
   }
 
-  static async linkFirebaseToPhone(firebaseUid, phone) {
-    try {
-      const normalizedPhone = normalizePhone(phone);
-      const existingUser = await db.query(
-        'SELECT uid FROM users WHERE phone = $1',
-        [normalizedPhone]
-      );
-      if (existingUser.rows.length > 0) {
-        throw new Error('Phone number already linked to another account');
-      }
-      await db.query(
-        'UPDATE users SET phone = $1 WHERE firebase_uid = $2',
-        [normalizedPhone, firebaseUid]
-      );
-      return { success: true };
-    } catch (error) {
-      logger.error('Link Firebase to phone error:', error);
-      throw error;
-    }
+  // Complete user profile after Firebase login
+  static async completeUserProfile(profileData) {
+    return firebaseAuthService.completeUserProfile(profileData);
   }
 
-  /* ----------------------- OTP Flow ----------------------- */
+  // Link Firebase account to an existing phone (expects idToken + otp)
+  static async linkFirebaseAccount(phone, idToken, otp) {
+    return firebaseAuthService.linkFirebaseAccount(phone, idToken, otp);
+  }
+
+  // Back-compat alias if something calls the older name
+  static async linkFirebaseToPhone(phone, idToken, otp) {
+    return firebaseAuthService.linkFirebaseAccount(phone, idToken, otp);
+  }
+
+  // Update device FCM token
+  static async updateFcmToken(phone, fcmToken, deviceId) {
+    return firebaseAuthService.updateFcmToken(phone, fcmToken, deviceId);
+  }
+
+  // Revoke Firebase session
+  static async revokeFirebaseSession(firebaseUid) {
+    return firebaseAuthService.revokeFirebaseSession(firebaseUid);
+  }
+
+  // Verify Firebase token status
+  static async verifyFirebaseTokenStatus(idToken) {
+    return firebaseAuthService.verifyTokenStatus(idToken);
+  }
+
+  // Firebase health
+  static async getFirebaseHealthStatus() {
+    return firebaseAuthService.getHealthStatus();
+  }
+
+  /* =========================== OTP Flow (SMS) =========================== */
   static async requestOtp(phone, purpose = 'login', req) {
     try {
       const normalizedPhone = normalizePhone(phone);
+
       const userResult = await db.query(
         'SELECT uid, name, role FROM users WHERE phone = $1',
         [normalizedPhone]
@@ -66,12 +75,7 @@ export class AuthService {
         req
       );
 
-      return {
-        phone: normalizedPhone,
-        userExists,
-        otpSent: true,
-        ...otpResult,
-      };
+      return { phone: normalizedPhone, userExists, otpSent: true, ...otpResult };
     } catch (error) {
       logger.error('Request OTP error:', error);
       throw error;
@@ -81,14 +85,16 @@ export class AuthService {
   static async verifyOtp(phone, otp, req) {
     try {
       const normalizedPhone = normalizePhone(phone);
+
       const verification = await otpService.verifyOtp(
         normalizedPhone,
         otp,
         'login',
         req
       );
-
-      if (!verification.valid) throw new Error(verification.reason || 'Invalid OTP');
+      if (!verification.valid) {
+        throw new Error(verification.reason || 'Invalid OTP');
+      }
 
       let user = await this.getUserByPhone(normalizedPhone);
       let isNewUser = false;
@@ -103,10 +109,9 @@ export class AuthService {
         isNewUser = true;
         logger.info(`New user registered: ${normalizedPhone}`);
       } else {
-        await db.query(
-          'UPDATE users SET last_login = NOW() WHERE phone = $1',
-          [normalizedPhone]
-        );
+        await db.query('UPDATE users SET last_login = NOW() WHERE phone = $1', [
+          normalizedPhone,
+        ]);
       }
 
       const token = generateToken({
@@ -158,7 +163,7 @@ export class AuthService {
     }
   }
 
-  /* ------------------- Admin Auth (matches admin_users) ------------------ */
+  /* =================== Admin Auth (matches admin_users) ================== */
   // identity = username OR email
   static async adminLogin(identity, password) {
     try {
@@ -181,13 +186,13 @@ export class AuthService {
       if (rows.length === 0) throw new Error('Invalid credentials');
 
       const admin = rows[0];
+
       if (admin.status && String(admin.status).toLowerCase() !== 'active') {
         throw new Error('Account is deactivated');
       }
 
       const ok = await bcrypt.compare(password, admin.pwd);
       if (!ok) {
-        // optional: track failed attempts
         await db.query(
           `UPDATE ${ADMIN_TABLE}
              SET failed_login_attempts = COALESCE(failed_login_attempts,0) + 1,
@@ -340,7 +345,7 @@ export class AuthService {
     }
   }
 
-  /* ---------------------- Staff Auth (PIN) ---------------------- */
+  /* ========================= Staff Auth (PIN) ========================= */
   static async staffLogin(employeeId, pin) {
     try {
       const staffResult = await db.query(
@@ -416,7 +421,7 @@ export class AuthService {
     }
   }
 
-  /* -------------------- Admin CRUD / Profile -------------------- */
+  /* ======================= Admin CRUD / Profile ======================= */
   static async createAdmin(adminData) {
     const client = await db.getClient();
     try {
@@ -549,7 +554,7 @@ export class AuthService {
     }
   }
 
-  /* --------------------- Tokens / Sessions --------------------- */
+  /* ======================== Tokens / Sessions ======================== */
   static async refreshToken(token) {
     try {
       const decoded = verifyToken(token);
@@ -601,7 +606,7 @@ export class AuthService {
     }
   }
 
-  /* -------------------------- Misc -------------------------- */
+  /* ============================== Misc ============================== */
   static async getUserByPhone(phone) {
     try {
       const normalizedPhone = normalizePhone(phone);
@@ -653,7 +658,7 @@ export class AuthService {
     }
   }
 
-  /* ---------------------- Health / Stats --------------------- */
+  /* =========================== Health / Stats ========================== */
   static async getAdminAuthHealth() {
     try {
       const [totalAdmins, activeAdmins, recentLogins] = await Promise.all([
@@ -773,10 +778,7 @@ export class AuthService {
         FROM auth_logs
       `);
 
-      return {
-        ...stats.rows[0],
-        lastUpdated: new Date(),
-      };
+      return { ...stats.rows[0], lastUpdated: new Date() };
     } catch (error) {
       logger.error('Get public stats error:', error);
       throw error;
@@ -786,6 +788,7 @@ export class AuthService {
   static async verifyOtpAndAuthenticate(phone, otp, req) {
     try {
       const normalizedPhone = normalizePhone(phone);
+
       const verification = await otpService.verifyOtp(
         normalizedPhone,
         otp,
@@ -812,10 +815,9 @@ export class AuthService {
         isNewUser = true;
         logger.info(`New user registered: ${normalizedPhone}`);
       } else {
-        await db.query(
-          'UPDATE users SET last_login = NOW() WHERE phone = $1',
-          [normalizedPhone]
-        );
+        await db.query('UPDATE users SET last_login = NOW() WHERE phone = $1', [
+          normalizedPhone,
+        ]);
       }
 
       const token = generateToken({
