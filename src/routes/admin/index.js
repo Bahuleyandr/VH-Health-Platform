@@ -4,9 +4,24 @@ import db from '../../config/database.js';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import logger from '../../logging/logger.js';
 
+// Aggregate admin sub-modules here so everything lives under /api/v1/admin/<module>
+import appointmentAdminRoutes from '../appointment/appointmentAdminRoutes.js';
+import adminDoctorRoutes from '../doctor/adminDoctorRoutes.js';
+import adminDepartmentRoutes from '../department/adminDepartmentRoutes.js';
+import adminUserRoutes from '../user/adminUserRoutes.js';
+import adminNotificationRoutes from '../notification/adminNotificationRoutes.js';
+import adminRecordRoutes from '../record/adminRoutes.js';
+import adminInvestigationRoutes from '../investigation/adminRoutes.js';
+import adminPharmacyRoutes from '../pharmacy/adminRoutes.js';
+import analyticsRoutes from '../analyticsRoutes.js';
+
 const router = express.Router();
 
-// Admin Dashboard Routes - All require ADMIN role
+/**
+ * Admin Dashboard + Utilities
+ * NOTE: RBAC for this group uses the "adminDashboard" key.
+ * Ensure rbacConfig includes: adminDashboard: ['ADMIN'] (or equivalent).
+ */
 wrapAutoRBAC(router, 'adminDashboard', {
   get: [
     // Test route
@@ -15,19 +30,20 @@ wrapAutoRBAC(router, 'adminDashboard', {
         message: 'Admin dashboard routes working',
         timestamp: new Date().toISOString(),
         modules: {
-          appointments: '/api/v1/appointments/admin',
+          // Unified, centralized admin namespace
+          appointments: '/api/v1/admin/appointments',
           departments: '/api/v1/admin/departments',
           doctors: '/api/v1/admin/doctors',
-          users: '/api/v1/users/admin',
-          notifications: '/api/v1/notifications/admin',
-          records: '/api/v1/health-records/admin',
-          investigations: '/api/v1/investigations/admin',
-          pharmacy: '/api/v1/pharmacy/admin',
-          sos: '/api/v1/sos/admin',
-          staff: '/api/v1/staff/admin',
-          analytics: '/api/v1/analytics',
+          users: '/api/v1/admin/users',
+          notifications: '/api/v1/admin/notifications',
+          records: '/api/v1/admin/records',
+          investigations: '/api/v1/admin/investigations',
+          pharmacy: '/api/v1/admin/pharmacy',
+          // These two remain non-admin namespaces unless you later centralize them:
           devices: '/api/v1/devices',
-          feedback: '/api/v1/feedback'
+          feedback: '/api/v1/feedback',
+          // Admin analytics
+          analytics: '/api/v1/admin/analytics'
         }
       });
     }],
@@ -35,7 +51,6 @@ wrapAutoRBAC(router, 'adminDashboard', {
     // Main Dashboard Overview
     ['/dashboard', async (req, res) => {
       try {
-        // Aggregate stats from all modules
         const [
           userStats,
           doctorStats,
@@ -84,10 +99,7 @@ wrapAutoRBAC(router, 'adminDashboard', {
         });
       } catch (error) {
         logger.error('Dashboard data fetch error:', error);
-        res.status(500).json({
-          success: false,
-          message: 'Failed to fetch dashboard data'
-        });
+        res.status(500).json({ success: false, message: 'Failed to fetch dashboard data' });
       }
     }],
 
@@ -116,7 +128,7 @@ wrapAutoRBAC(router, 'adminDashboard', {
       res.json({ success: true, data: health });
     }],
 
-    // Staff Admin Summary
+    // Staff Admin Summary (links currently point to staff module paths; centralize later if desired)
     ['/staff/summary', async (req, res) => {
       try {
         const summary = await db.query(`
@@ -183,10 +195,10 @@ wrapAutoRBAC(router, 'adminDashboard', {
           success: true, 
           data: summary.rows[0],
           links: {
-            analytics: '/api/v1/appointments/admin/analytics',
-            conflicts: '/api/v1/appointments/admin/conflicts',
-            capacity: '/api/v1/appointments/admin/capacity',
-            noShows: '/api/v1/appointments/admin/no-shows'
+            analytics: '/api/v1/admin/appointments/analytics',
+            conflicts: '/api/v1/admin/appointments/conflicts',
+            capacity: '/api/v1/admin/appointments/capacity',
+            noShows: '/api/v1/admin/appointments/no-shows'
           }
         });
       } catch (error) {
@@ -212,7 +224,23 @@ wrapAutoRBAC(router, 'adminDashboard', {
   ]
 });
 
-// Helper functions for data aggregation
+/**
+ * Mount admin sub-modules under /api/v1/admin/<module>
+ * (app.js must: app.use('/api/v1/admin', jwtAuth, thisRouter))
+ */
+router.use('/appointments', appointmentAdminRoutes);
+router.use('/doctors', adminDoctorRoutes);
+router.use('/departments', adminDepartmentRoutes);
+router.use('/users', adminUserRoutes);
+router.use('/notifications', adminNotificationRoutes);
+router.use('/records', adminRecordRoutes);
+router.use('/investigations', adminInvestigationRoutes);
+router.use('/pharmacy', adminPharmacyRoutes);
+router.use('/analytics', analyticsRoutes);
+
+// ------------------------------
+// Helper functions
+// ------------------------------
 async function getUserStats() {
   const result = await db.query(`
     SELECT 
@@ -230,7 +258,7 @@ async function getUserStats() {
   return result.rows[0];
 }
 
-async function getDoctorStats() {
+async function getDoctorStats() { 
   const result = await db.query(`
     SELECT 
       COUNT(*) as total,
@@ -395,248 +423,96 @@ async function getRecentActivity(limit = 50, offset = 0) {
   return result.rows;
 }
 
-async function getSystemAlerts() {
-  // Check for various system conditions that need admin attention
-  const alerts = [];
-  
-  // Check for high SOS alert rate
-  const sosCheck = await db.query(`
-    SELECT COUNT(*) as count 
-    FROM sos_alerts 
-    WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '1 hour'
-  `);
-  
-  if (sosCheck.rows[0].count > 10) {
-    alerts.push({
-      type: 'warning',
-      message: `High SOS alert rate: ${sosCheck.rows[0].count} alerts in the last hour`,
-      priority: 'high'
-    });
-  }
-  
-  // Check for appointment conflicts today
-  const conflictCheck = await db.query(`
-    SELECT COUNT(*) as conflicts
-    FROM appointments a1
-    JOIN appointments a2 ON a1.doctor_id = a2.doctor_id
-    WHERE a1.id != a2.id 
-      AND a1.status = 'scheduled' 
-      AND a2.status = 'scheduled'
-      AND DATE(a1.appointment_date) = CURRENT_DATE
-      AND a1.appointment_date < a2.appointment_date
-      AND a1.appointment_date + INTERVAL '30 minutes' > a2.appointment_date
-  `);
-  
-  if (conflictCheck.rows[0].conflicts > 0) {
-    alerts.push({
-      type: 'error',
-      message: `${conflictCheck.rows[0].conflicts} appointment conflicts detected today`,
-      priority: 'urgent',
-      action: '/api/v1/appointments/admin/conflicts'
-    });
-  }
-  
-  // Check for high no-show rate
-  const noShowCheck = await db.query(`
-    SELECT 
-      COUNT(CASE WHEN status = 'no_show' THEN 1 END) as no_shows,
-      COUNT(*) as total
-    FROM appointments
-    WHERE appointment_date >= CURRENT_DATE - INTERVAL '7 days'
-      AND appointment_date < CURRENT_DATE
-  `);
-  
-  const noShowRate = (noShowCheck.rows[0].no_shows / noShowCheck.rows[0].total) * 100;
-  if (noShowRate > 15) {
-    alerts.push({
-      type: 'warning',
-      message: `High no-show rate: ${noShowRate.toFixed(1)}% in the last 7 days`,
-      priority: 'medium',
-      action: '/api/v1/appointments/admin/no-shows'
-    });
-  }
-  
-  // Check for doctors at capacity
-  const capacityCheck = await db.query(`
-    SELECT 
-      d.name as doctor_name,
-      COUNT(a.id) as booked,
-      doc.max_appointments_per_day as capacity
-    FROM appointments a
-    JOIN doctors doc ON a.doctor_id = doc.id
-    JOIN users d ON doc.user_id = d.id
-    WHERE DATE(a.appointment_date) = CURRENT_DATE
-      AND a.status = 'scheduled'
-    GROUP BY d.name, doc.max_appointments_per_day
-    HAVING COUNT(a.id) >= doc.max_appointments_per_day
-  `);
-  
-  if (capacityCheck.rows.length > 0) {
-    alerts.push({
-      type: 'info',
-      message: `${capacityCheck.rows.length} doctors at full capacity today`,
-      priority: 'low',
-      action: '/api/v1/appointments/admin/capacity'
-    });
-  }
-  
-  // Check for attendance anomalies
-  const attendanceCheck = await db.query(`
-    SELECT 
-      COUNT(DISTINCT staff_id) as absent_count
-    FROM staff s
-    WHERE s.is_active = true 
-      AND s.on_leave = false
-      AND NOT EXISTS (
-        SELECT 1 FROM staff_attendance a 
-        WHERE a.staff_id = s.id 
-        AND a.check_in_time::date = CURRENT_DATE
-      )
-  `);
-  
-  if (attendanceCheck.rows[0].absent_count > 5) {
-    alerts.push({
-      type: 'warning',
-      message: `${attendanceCheck.rows[0].absent_count} staff members absent today without leave`,
-      priority: 'medium',
-      action: '/api/v1/staff/admin/attendance/absent-report'
-    });
-  }
-  
-  // Check for pending HR actions
-  const hrCheck = await db.query(`
-    SELECT 
-      COUNT(*) FILTER (WHERE type = 'review') as pending_reviews,
-      COUNT(*) FILTER (WHERE type = 'leave') as pending_leaves
-    FROM (
-      SELECT 'review' as type FROM performance_reviews WHERE status = 'pending'
-      UNION ALL
-      SELECT 'leave' as type FROM leave_applications WHERE status = 'pending'
-    ) hr_actions
-  `);
-  
-  if (hrCheck.rows[0].pending_reviews > 10 || hrCheck.rows[0].pending_leaves > 15) {
-    alerts.push({
-      type: 'info',
-      message: `HR actions pending: ${hrCheck.rows[0].pending_reviews} reviews, ${hrCheck.rows[0].pending_leaves} leave requests`,
-      priority: 'medium',
-      action: '/api/v1/staff/admin/dashboard'
-    });
-  }
-  
-  return alerts;
-}
-
-async function getQuickStats() {
-  const result = await db.query(`
-    SELECT 
-      (SELECT COUNT(*) FROM appointments WHERE appointment_date::date = CURRENT_DATE) as appointments_today,
-      (SELECT COUNT(*) FROM appointments WHERE appointment_date BETWEEN NOW() AND NOW() + INTERVAL '7 days') as appointments_week,
-      (SELECT COUNT(*) FROM users WHERE is_active = true) as active_users,
-      (SELECT COUNT(*) FROM users) as total_users,
-      (SELECT COUNT(*) FROM staff WHERE is_active = true) as total_staff,
-      (SELECT COUNT(*) FROM staff_attendance WHERE check_in_time::date = CURRENT_DATE) as staff_present,
-      (SELECT SUM(total_amount) FROM pharmacy_orders WHERE DATE(placed_at) = CURRENT_DATE) as revenue_today,
-      (SELECT SUM(total_amount) FROM pharmacy_orders WHERE placed_at >= DATE_TRUNC('month', CURRENT_DATE)) as revenue_month
-  `);
-  
-  const stats = result.rows[0];
-  
-  return {
-    appointments: { 
-      today: parseInt(stats.appointments_today) || 0, 
-      week: parseInt(stats.appointments_week) || 0 
-    },
-    users: { 
-      total: parseInt(stats.total_users) || 0, 
-      active: parseInt(stats.active_users) || 0 
-    },
-    staff: { 
-      total: parseInt(stats.total_staff) || 0, 
-      present: parseInt(stats.staff_present) || 0 
-    },
-    revenue: { 
-      today: parseFloat(stats.revenue_today) || 0, 
-      month: parseFloat(stats.revenue_month) || 0 
-    }
-  };
-}
-
+/**
+ * Lightweight module health checks (no COUNT(*) full scans)
+ * - Use simple existence checks (SELECT 1 ... LIMIT 1)
+ * - For thresholds, use LIMIT/OFFSET tricks or EXISTS
+ */
 async function getModuleHealth() {
   const health = {};
-  
+  const exists = async (sql, params = []) => {
+    const r = await db.query(sql, params);
+    return r.rowCount > 0;
+  };
+
   try {
-    // Check users module
-    const userCheck = await db.query('SELECT COUNT(*) FROM users LIMIT 1');
+    // Users table exists & readable → healthy (even if empty)
+    await db.query('SELECT 1 FROM users LIMIT 1');
     health.users = 'healthy';
-  } catch (err) {
+  } catch {
     health.users = 'unhealthy';
   }
-  
+
   try {
-    // Check appointments module
-    const appointmentCheck = await db.query('SELECT COUNT(*) FROM appointments LIMIT 1');
-    const conflictCount = await db.query(`
-      SELECT COUNT(*) as conflicts
+    // Appointments table check
+    await db.query('SELECT 1 FROM appointments LIMIT 1');
+
+    // Any scheduling conflicts today? (cheap EXISTS)
+    const hasConflict = await exists(`
+      SELECT 1
       FROM appointments a1
       JOIN appointments a2 ON a1.doctor_id = a2.doctor_id
-      WHERE a1.id != a2.id 
-        AND a1.status = 'scheduled' 
+      WHERE a1.id <> a2.id
+        AND a1.status = 'scheduled'
         AND a2.status = 'scheduled'
         AND DATE(a1.appointment_date) = CURRENT_DATE
         AND a1.appointment_date < a2.appointment_date
         AND a1.appointment_date + INTERVAL '30 minutes' > a2.appointment_date
+      LIMIT 1
     `);
-    
-    health.appointments = conflictCount.rows[0].conflicts > 0 ? 'warning' : 'healthy';
-  } catch (err) {
+
+    health.appointments = hasConflict ? 'warning' : 'healthy';
+  } catch {
     health.appointments = 'unhealthy';
   }
-  
+
   try {
-    // Check pharmacy module
-    const pharmacyCheck = await db.query('SELECT COUNT(*) FROM pharmacy_orders LIMIT 1');
+    await db.query('SELECT 1 FROM pharmacy_orders LIMIT 1');
     health.pharmacy = 'healthy';
-  } catch (err) {
+  } catch {
     health.pharmacy = 'unhealthy';
   }
-  
+
   try {
-    // Check investigations module
-    const investigationCheck = await db.query('SELECT COUNT(*) FROM investigations LIMIT 1');
+    await db.query('SELECT 1 FROM investigations LIMIT 1');
     health.investigations = 'healthy';
-  } catch (err) {
+  } catch {
     health.investigations = 'unhealthy';
   }
-  
+
   try {
-    // Check emergency module
-    const emergencyCheck = await db.query('SELECT COUNT(*) FROM sos_alerts WHERE status = \'active\'');
-    health.emergency = emergencyCheck.rows[0].count > 5 ? 'warning' : 'healthy';
-  } catch (err) {
+    // "warning" if at least 6 active SOS alerts:
+    // OFFSET 5 LIMIT 1 → if a 6th row exists, rowCount > 0
+    const sosWarning = await exists(`
+      SELECT 1 FROM sos_alerts
+      WHERE status = 'active'
+      OFFSET 5 LIMIT 1
+    `);
+    health.emergency = sosWarning ? 'warning' : 'healthy';
+  } catch {
     health.emergency = 'unhealthy';
   }
-  
+
   try {
-    // Check staff module
-    const staffCheck = await db.query('SELECT COUNT(*) FROM staff LIMIT 1');
-    const attendanceIssues = await db.query(`
-      SELECT COUNT(*) as issues
+    // "warning" if at least 11 staff with attendance issue:
+    // Check the 11th row via OFFSET 10 LIMIT 1
+    const staffIssuesWarning = await exists(`
+      SELECT 1
       FROM staff s
       WHERE s.is_active = true 
         AND s.on_leave = false
         AND NOT EXISTS (
           SELECT 1 FROM staff_attendance a 
           WHERE a.staff_id = s.id 
-          AND a.check_in_time::date = CURRENT_DATE
+            AND a.check_in_time::date = CURRENT_DATE
         )
+      OFFSET 10 LIMIT 1
     `);
-    
-    health.staff = attendanceIssues.rows[0].issues > 10 ? 'warning' : 'healthy';
-  } catch (err) {
+    health.staff = staffIssuesWarning ? 'warning' : 'healthy';
+  } catch {
     health.staff = 'unhealthy';
   }
-  
+
   return health;
 }
 
@@ -650,12 +526,10 @@ async function getSystemHealth() {
 }
 
 async function refreshDashboardCache() {
-  // Implement cache refresh logic
   logger.info('Dashboard cache refreshed');
 }
 
 async function generateDashboardReport(format, dateRange) {
-  // Implement report generation
   return {
     url: `/exports/dashboard-report.${format}`,
     generatedAt: new Date()

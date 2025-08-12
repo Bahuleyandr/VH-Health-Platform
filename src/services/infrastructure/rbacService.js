@@ -2,19 +2,18 @@
 import db from '../../config/database.js';
 import logger from '../../logging/logger.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
-import { 
+import {
   ROLE_HIERARCHY,
   canUserManageRole,
   checkRoleCapacity,
   getManageableRoles,
   hasPermission,
-  validateRoleTransition,
-  calculateRoleStatistics
+  validateRoleTransition
 } from '../../utils/infrastructure/rbacUtils.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
-import { 
-  ADMIN, PATIENT, NURSING_STAFF, PHARMACY_STAFF, 
-  LAB_STAFF, DOCTOR, GENERAL_STAFF, HR_STAFF 
+import {
+  ADMIN, PATIENT, NURSING_STAFF, PHARMACY_STAFF,
+  LAB_STAFF, DOCTOR, GENERAL_STAFF, HR_STAFF
 } from '../../utils/roles.js';
 
 const ALL_ROLES = [
@@ -26,28 +25,29 @@ export class RBACService {
   // Get all available roles with details
   static async getAvailableRoles(userInfo) {
     try {
-      // Get current role distribution
       const roleStats = await db.query(`
-        SELECT role, COUNT(*) as user_count, 
-               COUNT(CASE WHEN is_active = true THEN 1 END) as active_count
-        FROM users 
+        SELECT role,
+               COUNT(*)                                   AS user_count,
+               COUNT(CASE WHEN is_active = true THEN 1 END) AS active_count
+        FROM users
         GROUP BY role
       `).catch(() => ({ rows: [] }));
-      
+
       const rolesWithDetails = ALL_ROLES.map(role => {
         const stats = roleStats.rows.find(r => r.role === role) || { user_count: 0, active_count: 0 };
-        const roleData = ROLE_HIERARCHY[role];
-        
+        const roleData = ROLE_HIERARCHY[role] || {};
+        const activeCount = parseInt(stats.active_count) || 0;
+
         return {
           role,
           ...roleData,
           currentUsers: parseInt(stats.user_count) || 0,
-          activeUsers: parseInt(stats.active_count) || 0,
-          isAtCapacity: roleData.maxUsers ? stats.active_count >= roleData.maxUsers : false,
+          activeUsers: activeCount,
+          isAtCapacity: roleData.maxUsers ? activeCount >= roleData.maxUsers : false,
           canAssign: canUserManageRole(userInfo.role, role)
         };
       });
-      
+
       return {
         roles: rolesWithDetails,
         totalRoles: ALL_ROLES.length,
@@ -59,36 +59,39 @@ export class RBACService {
       throw error;
     }
   }
-  
+
   // Get users grouped by role
   static async getUsersByRole(filters, userInfo) {
     try {
       const { includeInactive = false, role, limit = 100 } = filters;
-      
-      let whereClause = 'WHERE 1=1';
+
+      const conds = [];
       const params = [];
-      
+
       if (!includeInactive) {
-        whereClause += ' AND u.is_active = true';
+        conds.push('u.is_active = true');
       }
-      
+
       if (role && ALL_ROLES.includes(role.toUpperCase())) {
-        whereClause += ` AND u.role = $${params.length + 1}`;
         params.push(role.toUpperCase());
+        conds.push(`u.role = $${params.length}`);
       }
-      
+
       // Role-based filtering for non-admin users
       if (userInfo.role !== ADMIN) {
-        const managableRoles = getManageableRoles(userInfo.role);
-        if (managableRoles.length > 0) {
-          const roleList = managableRoles.map(r => `'${r}'`).join(',');
-          whereClause += ` AND u.role IN (${roleList})`;
+        const manageable = getManageableRoles(userInfo.role) || [];
+        if (manageable.length > 0) {
+          params.push(manageable);
+          conds.push(`u.role = ANY($${params.length})`); // parameterized array
         } else {
-          // Can only see own role
-          whereClause += ` AND u.role = '${userInfo.role}'`;
+          params.push(userInfo.role);
+          conds.push(`u.role = $${params.length}`);
         }
       }
-      
+
+      const whereClause = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+
+      params.push(parseInt(limit));
       const result = await db.query(`
         SELECT 
           u.role,
@@ -120,18 +123,17 @@ export class RBACService {
             WHEN '${PATIENT}' THEN 8
             ELSE 9
           END
-        LIMIT $${params.length + 1}
-      `, [...params, parseInt(limit)]);
-      
-      // Add role details and statistics
+        LIMIT $${params.length}
+      `, params);
+
       const usersByRole = result.rows.map(row => ({
         role: row.role,
         userCount: parseInt(row.user_count),
         roleDetails: ROLE_HIERARCHY[row.role],
-        users: row.users.slice(0, 50), // Limit users shown for performance
-        totalUsers: row.users.length
+        users: Array.isArray(row.users) ? row.users.slice(0, 50) : [],
+        totalUsers: Array.isArray(row.users) ? row.users.length : 0
       }));
-      
+
       return {
         usersByRole,
         totalUsers: result.rows.reduce((sum, row) => sum + parseInt(row.user_count), 0),
@@ -143,44 +145,42 @@ export class RBACService {
       throw error;
     }
   }
-  
+
   // Get permissions matrix
   static getPermissionsMatrix(userInfo) {
     try {
-      // Get all unique permissions
       const allPermissions = new Set();
       Object.values(ROLE_HIERARCHY).forEach(roleData => {
-        if (roleData.permissions.includes('*')) {
+        if (!roleData) return;
+        if (roleData.permissions?.includes('*')) {
           allPermissions.add('*');
         } else {
-          roleData.permissions.forEach(perm => allPermissions.add(perm));
+          (roleData.permissions || []).forEach(perm => allPermissions.add(perm));
         }
       });
-      
-      // Build permissions matrix
+
       const permissionsMatrix = {};
       ALL_ROLES.forEach(role => {
-        const roleData = ROLE_HIERARCHY[role];
+        const roleData = ROLE_HIERARCHY[role] || {};
         permissionsMatrix[role] = {
-          permissions: roleData.permissions,
-          level: roleData.level,
-          canManageRoles: roleData.canManageRoles,
-          canViewData: roleData.canViewData,
-          hasAllPermissions: roleData.permissions.includes('*'),
-          description: roleData.description,
-          color: roleData.color
+          permissions: roleData.permissions || [],
+          level: roleData.level ?? 0,
+          canManageRoles: roleData.canManageRoles || [],
+          canViewData: roleData.canViewData ?? 'none',
+          hasAllPermissions: (roleData.permissions || []).includes('*'),
+          description: roleData.description || '',
+          color: roleData.color || '#999999'
         };
       });
-      
-      // Role comparison for current user
-      const myRole = ROLE_HIERARCHY[userInfo.role];
+
+      const myRole = ROLE_HIERARCHY[userInfo.role] || {};
       const roleComparison = ALL_ROLES.map(role => ({
         role,
         canManage: canUserManageRole(userInfo.role, role),
-        hasHigherLevel: ROLE_HIERARCHY[role].level > (myRole?.level || 0),
-        accessLevel: ROLE_HIERARCHY[role].level
+        hasHigherLevel: (ROLE_HIERARCHY[role]?.level ?? 0) > (myRole.level ?? 0),
+        accessLevel: ROLE_HIERARCHY[role]?.level ?? 0
       }));
-      
+
       return {
         permissionsMatrix,
         allPermissions: Array.from(allPermissions),
@@ -194,20 +194,18 @@ export class RBACService {
       throw error;
     }
   }
-  
+
   // Get RBAC analytics
   static async getRBACAnalytics(days = 30, userInfo) {
     try {
       const [roleDistribution, recentRoleChanges, activeUsersByRole, newRegistrations] = await Promise.all([
-        // Role distribution
         db.query(`
-          SELECT role, COUNT(*) as count,
+          SELECT role,
+                 COUNT(*) as count,
                  COUNT(CASE WHEN is_active = true THEN 1 END) as active_count
-          FROM users 
+          FROM users
           GROUP BY role
         `),
-        
-        // Recent role changes
         db.query(`
           SELECT 
             ura.phone, ura.old_role, ura.new_role, 
@@ -218,42 +216,38 @@ export class RBACService {
           ORDER BY ura.changed_at DESC
           LIMIT 20
         `).catch(() => ({ rows: [] })),
-        
-        // Active users by role (last 7 days)
         db.query(`
           SELECT role, COUNT(*) as active_count
-          FROM users 
+          FROM users
           WHERE last_login > NOW() - INTERVAL '7 days'
             AND is_active = true
           GROUP BY role
         `).catch(() => ({ rows: [] })),
-        
-        // New registrations by role
         db.query(`
-          SELECT role, COUNT(*) as new_count,
+          SELECT role,
+                 COUNT(*) as new_count,
                  array_agg(TO_CHAR(registered_at, 'DD-MM-YYYY')) as registration_dates
-          FROM users 
+          FROM users
           WHERE registered_at > NOW() - INTERVAL '${days} days'
           GROUP BY role
         `).catch(() => ({ rows: [] }))
       ]);
-      
-      // Calculate role capacity utilization
+
       const roleCapacity = roleDistribution.rows.map(row => {
-        const roleData = ROLE_HIERARCHY[row.role];
-        const activeCount = parseInt(row.active_count);
-        
+        const roleData = ROLE_HIERARCHY[row.role] || {};
+        const activeCount = parseInt(row.active_count) || 0;
+        const max = roleData.maxUsers ?? null;
         return {
           role: row.role,
           activeUsers: activeCount,
-          totalUsers: parseInt(row.count),
-          maxCapacity: roleData.maxUsers,
-          utilizationPercent: roleData.maxUsers ? Math.round((activeCount / roleData.maxUsers) * 100) : null,
-          isNearCapacity: roleData.maxUsers ? activeCount >= (roleData.maxUsers * 0.8) : false,
-          description: roleData.description
+          totalUsers: parseInt(row.count) || 0,
+          maxCapacity: max,
+          utilizationPercent: max ? Math.round((activeCount / max) * 100) : null,
+          isNearCapacity: max ? activeCount >= (max * 0.8) : false,
+          description: roleData.description || ''
         };
       });
-      
+
       return {
         roleDistribution: roleDistribution.rows,
         roleCapacity,
@@ -269,75 +263,62 @@ export class RBACService {
       throw error;
     }
   }
-  
+
   // Assign role to user
   static async assignRole(data, adminInfo) {
     const client = await db.getClient();
-    
+
     try {
       await client.query('BEGIN');
-      
+
       const { phone, role, reason = 'Admin assignment' } = data;
       const normalizedPhone = normalizePhone(phone);
       const targetRole = role.toUpperCase();
-      
-      // Check if admin has permission to assign this role
+
       if (!canUserManageRole(adminInfo.role, targetRole)) {
         throw new Error('Insufficient permissions to assign this role');
       }
-      
-      // Check role capacity
+
       const capacity = await checkRoleCapacity(targetRole, client);
       if (!capacity.hasCapacity) {
         throw new Error(`Role capacity exceeded. Maximum ${capacity.max} users allowed for ${targetRole}`);
       }
-      
-      // Check if user exists
+
       const userResult = await client.query(
         'SELECT uid, role, name FROM users WHERE phone = $1',
         [normalizedPhone]
       );
-      
-      if (userResult.rows.length === 0) {
-        throw new Error('User not found');
-      }
-      
+      if (userResult.rows.length === 0) throw new Error('User not found');
+
       const user = userResult.rows[0];
       const oldRole = user.role;
-      
+
       if (oldRole === targetRole) {
         await client.query('COMMIT');
-        return {
-          phone: normalizedPhone,
-          role: targetRole,
-          unchanged: true
-        };
+        return { phone: normalizedPhone, role: targetRole, unchanged: true };
       }
-      
-      // Validate role transition
+
       const validation = validateRoleTransition(oldRole, targetRole);
       if (!validation.valid) {
         throw new Error(`Invalid role transition: ${validation.errors.join(', ')}`);
       }
-      
-      // Update user role
+
       await client.query(
         'UPDATE users SET role = $1, role_updated_at = NOW() WHERE phone = $2',
         [targetRole, normalizedPhone]
       );
-      
-      // Log role change in audit table
+
       await client.query(
         `INSERT INTO user_role_audit (
           phone, old_role, new_role, changed_by_uid, reason, changed_at
         ) VALUES ($1, $2, $3, $4, $5, NOW())`,
         [normalizedPhone, oldRole, targetRole, adminInfo.uid, reason]
       );
-      
+
       await client.query('COMMIT');
-      
+
       logger.info(`🔄 Role changed: ${normalizedPhone} from ${oldRole} to ${targetRole} by ${adminInfo.uid}`);
-      
+
       return {
         phone: normalizedPhone,
         userName: user.name,
@@ -356,13 +337,13 @@ export class RBACService {
       client.release();
     }
   }
-  
+
   // Bulk role assignment
   static async bulkAssignRoles(data, adminInfo) {
     const { assignments, reason = 'Bulk assignment' } = data;
     const results = [];
     const errors = [];
-    
+
     for (const assignment of assignments) {
       try {
         const result = await this.assignRole({
@@ -370,21 +351,15 @@ export class RBACService {
           role: assignment.role,
           reason
         }, adminInfo);
-        
-        results.push({
-          phone: assignment.phone,
-          ...result
-        });
+
+        results.push({ phone: assignment.phone, ...result });
       } catch (err) {
-        errors.push({ 
-          phone: assignment.phone, 
-          error: err.message 
-        });
+        errors.push({ phone: assignment.phone, error: err.message });
       }
     }
-    
+
     logger.info(`📊 Bulk role assignment: ${results.length} successful, ${errors.length} failed`);
-    
+
     return {
       successful: results,
       failed: errors,
@@ -397,48 +372,37 @@ export class RBACService {
       processedAt: formatDateDDMMYYYY(new Date())
     };
   }
-  
-  // Get audit log
+
+  // Get audit log (fixed param numbering & safe WHERE reuse)
   static async getAuditLog(filters, adminInfo) {
     try {
       const { page = 1, limit = 100, phone, role, startDate, endDate, action_type } = filters;
       const offset = (page - 1) * limit;
-      
-      let whereClause = 'WHERE 1=1';
-      const params = [parseInt(limit), offset];
-      let paramIndex = 3;
-      
-      if (phone) {
-        const normalizedPhone = normalizePhone(phone);
-        whereClause += ` AND ura.phone = $${paramIndex}`;
-        params.push(normalizedPhone);
-        paramIndex++;
-      }
-      
+
+      // Build WHERE with a local parameter array (same for list & count)
+      const conds = [];
+      const vals = [];
+      const add = (frag, value, extraValues = []) => {
+        // Replace $X markers with correct $1..$n
+        const idxStart = vals.length + 1;
+        let i = idxStart;
+        const fragReplaced = frag.replace(/\$X/g, () => `$${i++}`);
+        vals.push(value, ...extraValues);
+        conds.push(fragReplaced);
+      };
+
+      if (phone) add('ura.phone = $X', normalizePhone(phone));
       if (role && ALL_ROLES.includes(role.toUpperCase())) {
-        whereClause += ` AND (ura.old_role = $${paramIndex} OR ura.new_role = $${paramIndex})`;
-        params.push(role.toUpperCase());
-        paramIndex++;
+        // same value twice for old/new
+        add('(ura.old_role = $X OR ura.new_role = $X)', role.toUpperCase(), [role.toUpperCase()]);
       }
-      
-      if (startDate) {
-        whereClause += ` AND ura.changed_at >= $${paramIndex}`;
-        params.push(startDate);
-        paramIndex++;
-      }
-      
-      if (endDate) {
-        whereClause += ` AND ura.changed_at <= $${paramIndex}`;
-        params.push(endDate);
-        paramIndex++;
-      }
-      
-      if (action_type) {
-        whereClause += ` AND ura.action_type = $${paramIndex}`;
-        params.push(action_type);
-        paramIndex++;
-      }
-      
+      if (startDate) add('ura.changed_at >= $X', startDate);
+      if (endDate) add('ura.changed_at <= $X', endDate);
+      if (action_type) add('ura.action_type = $X', action_type);
+
+      const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+
+      // Main page
       const auditLog = await db.query(`
         SELECT 
           ura.id, ura.phone, ura.old_role, ura.new_role, 
@@ -451,24 +415,24 @@ export class RBACService {
         FROM user_role_audit ura
         LEFT JOIN users u1 ON ura.phone = u1.phone
         LEFT JOIN users u2 ON ura.changed_by_uid = u2.uid
-        ${whereClause}
+        ${where}
         ORDER BY ura.changed_at DESC
-        LIMIT $1 OFFSET $2`,
-        params
-      ).catch(() => ({ rows: [] }));
-      
+        LIMIT $${vals.length + 1} OFFSET $${vals.length + 2}
+      `, [...vals, parseInt(limit), offset]).catch(() => ({ rows: [] }));
+
+      // Count with same WHERE & same param list
       const total = await db.query(
-        `SELECT COUNT(*) FROM user_role_audit ura ${whereClause}`,
-        params.slice(2)
+        `SELECT COUNT(*) FROM user_role_audit ura ${where}`,
+        vals
       ).catch(() => ({ rows: [{ count: 0 }] }));
-      
+
       return {
         auditLog: auditLog.rows,
         pagination: {
           page: parseInt(page),
           limit: parseInt(limit),
-          total: parseInt(total.rows[0].count),
-          totalPages: Math.ceil(total.rows[0].count / limit)
+          total: parseInt(total.rows[0].count || 0),
+          totalPages: Math.ceil((parseInt(total.rows[0].count || 0)) / limit)
         },
         filters,
         requestedBy: adminInfo.uid
@@ -478,12 +442,11 @@ export class RBACService {
       throw error;
     }
   }
-  
+
   // Get security alerts
   static async getSecurityAlerts(adminInfo) {
     try {
       const [suspiciousChanges, privilegeEscalations, nonAdminChanges, capacityAlerts] = await Promise.all([
-        // Suspicious role changes (multiple changes in short time)
         db.query(`
           SELECT 
             phone, COUNT(*) as change_count,
@@ -497,8 +460,7 @@ export class RBACService {
           HAVING COUNT(*) > 2
           ORDER BY change_count DESC
         `).catch(() => ({ rows: [] })),
-        
-        // Privilege escalations to high-level roles
+
         db.query(`
           SELECT 
             ura.phone, ura.old_role, ura.new_role, 
@@ -510,8 +472,7 @@ export class RBACService {
             AND ura.changed_at > NOW() - INTERVAL '7 days'
           ORDER BY ura.changed_at DESC
         `).catch(() => ({ rows: [] })),
-        
-        // Role changes by non-admin users
+
         db.query(`
           SELECT 
             ura.phone, ura.old_role, ura.new_role, 
@@ -523,8 +484,7 @@ export class RBACService {
             AND ura.changed_at > NOW() - INTERVAL '7 days'
           ORDER BY ura.changed_at DESC
         `).catch(() => ({ rows: [] })),
-        
-        // Role capacity alerts
+
         db.query(`
           SELECT 
             role, 
@@ -549,17 +509,16 @@ export class RBACService {
           END
         `).catch(() => ({ rows: [] }))
       ]);
-      
-      // Determine alert level
-      const totalAlerts = suspiciousChanges.rows.length + 
-                         privilegeEscalations.rows.length + 
-                         nonAdminChanges.rows.length + 
-                         capacityAlerts.rows.length;
-                         
+
+      const totalAlerts = suspiciousChanges.rows.length +
+                          privilegeEscalations.rows.length +
+                          nonAdminChanges.rows.length +
+                          capacityAlerts.rows.length;
+
       let alertLevel = 'low';
-      if (totalAlerts > 10) {alertLevel = 'high';}
-      else if (totalAlerts > 5) {alertLevel = 'medium';}
-      
+      if (totalAlerts > 10) alertLevel = 'high';
+      else if (totalAlerts > 5) alertLevel = 'medium';
+
       return {
         securityAlerts: {
           suspiciousChanges: suspiciousChanges.rows,
@@ -577,19 +536,18 @@ export class RBACService {
       throw error;
     }
   }
-  
+
   // Toggle user status (lock/unlock)
   static async toggleUserStatus(data, adminInfo) {
     const client = await db.getClient();
-    
+
     try {
       await client.query('BEGIN');
-      
+
       const { phone, action, reason = 'Admin action' } = data;
       const normalizedPhone = normalizePhone(phone);
       const isActive = action === 'unlock';
-      
-      // Update user status
+
       const result = await client.query(
         `UPDATE users SET 
           is_active = $1, 
@@ -600,25 +558,22 @@ export class RBACService {
          RETURNING uid, name, role, is_active`,
         [isActive, adminInfo.uid, reason, normalizedPhone]
       );
-      
-      if (result.rows.length === 0) {
-        throw new Error('User not found');
-      }
-      
+
+      if (result.rows.length === 0) throw new Error('User not found');
+
       const user = result.rows[0];
-      
-      // Log the action
+
       await client.query(
         `INSERT INTO user_role_audit (
           phone, old_role, new_role, changed_by_uid, reason, changed_at, action_type
         ) VALUES ($1, $2, $3, $4, $5, NOW(), $6)`,
         [normalizedPhone, user.role, user.role, adminInfo.uid, reason, `user_${action}`]
       );
-      
+
       await client.query('COMMIT');
-      
+
       logger.info(`🔒 User account ${action}ed: ${normalizedPhone} by admin ${adminInfo.uid}`);
-      
+
       return {
         phone: normalizedPhone,
         action,
@@ -641,17 +596,13 @@ export class RBACService {
       client.release();
     }
   }
-  
+
   // Get my role information
   static async getMyRoleInfo(userInfo) {
     try {
       const roleInfo = ROLE_HIERARCHY[userInfo.role];
-      
-      if (!roleInfo) {
-        throw new Error('Role information not found');
-      }
-      
-      // Get recent role changes for this user
+      if (!roleInfo) throw new Error('Role information not found');
+
       const roleHistory = await db.query(
         `SELECT old_role, new_role, 
                 TO_CHAR(changed_at, 'DD-MM-YYYY HH24:MI') as changed_at, 
@@ -662,23 +613,22 @@ export class RBACService {
          LIMIT 5`,
         [userInfo.phone]
       ).catch(() => ({ rows: [] }));
-      
-      // Get role statistics
+
       const roleStats = await db.query(
         'SELECT COUNT(*) as total_users FROM users WHERE role = $1 AND is_active = true',
         [userInfo.role]
       ).catch(() => ({ rows: [{ total_users: 0 }] }));
-      
+
       return {
         currentRole: userInfo.role,
         roleDetails: {
           ...roleInfo,
-          totalUsersWithRole: parseInt(roleStats.rows[0].total_users)
+          totalUsersWithRole: parseInt(roleStats.rows[0].total_users || 0)
         },
         roleHistory: roleHistory.rows,
         capabilities: {
-          canViewRoles: hasPermission(userInfo.role, 'view_roles') || roleInfo.level >= 50,
-          canManageUsers: roleInfo.canManageRoles.length > 0,
+          canViewRoles: hasPermission(userInfo.role, 'view_roles') || (roleInfo.level ?? 0) >= 50,
+          canManageUsers: (roleInfo.canManageRoles || []).length > 0,
           dataAccessLevel: roleInfo.canViewData
         },
         lastChecked: formatDateDDMMYYYY(new Date())
@@ -688,26 +638,22 @@ export class RBACService {
       throw error;
     }
   }
-  
+
   // Get my permissions
   static getMyPermissions(userInfo) {
     try {
       const roleInfo = ROLE_HIERARCHY[userInfo.role];
-      
-      if (!roleInfo) {
-        throw new Error('Role information not found');
-      }
-      
-      const hasAllPermissions = roleInfo.permissions.includes('*');
-      
-      // Check specific permissions
+      if (!roleInfo) throw new Error('Role information not found');
+
+      const hasAllPermissions = (roleInfo.permissions || []).includes('*');
+
       const permissionCategories = {
-        medical: roleInfo.permissions.filter(p => p.includes('patient') || p.includes('record') || p.includes('medical')),
-        administrative: roleInfo.permissions.filter(p => p.includes('manage') || p.includes('admin')),
-        operational: roleInfo.permissions.filter(p => p.includes('view') || p.includes('access')),
-        system: roleInfo.permissions.filter(p => p.includes('system') || p === '*')
+        medical: (roleInfo.permissions || []).filter(p => p.includes('patient') || p.includes('record') || p.includes('medical')),
+        administrative: (roleInfo.permissions || []).filter(p => p.includes('manage') || p.includes('admin')),
+        operational: (roleInfo.permissions || []).filter(p => p.includes('view') || p.includes('access')),
+        system: (roleInfo.permissions || []).filter(p => p.includes('system') || p === '*')
       };
-      
+
       return {
         user: { uid: userInfo.uid, role: userInfo.role },
         roleDetails: {
@@ -716,12 +662,12 @@ export class RBACService {
           color: roleInfo.color
         },
         permissions: {
-          all: roleInfo.permissions,
+          all: roleInfo.permissions || [],
           hasAllPermissions,
           categorized: permissionCategories
         },
         management: {
-          canManageRoles: roleInfo.canManageRoles,
+          canManageRoles: roleInfo.canManageRoles || [],
           dataAccessLevel: roleInfo.canViewData,
           maxUsers: roleInfo.maxUsers,
           requiresApproval: roleInfo.requiresApproval

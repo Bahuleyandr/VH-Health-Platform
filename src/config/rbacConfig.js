@@ -1,5 +1,4 @@
 // src/config/rbacConfig.js
-
 import {
   ADMIN,
   PATIENT,
@@ -12,34 +11,54 @@ import {
 } from '../utils/roles.js';
 
 export default {
+  // Global/default buckets (used by some wrappers)
   ALL: [ADMIN],
+
+  // ✅ Centralized Admin namespace (consistent with /api/v1/admin/*)
+  adminDashboard: [ADMIN],              // used by routes/admin/index.js wrapAutoRBAC key
+  adminRoutes: [ADMIN],                 // generic catch-all if some modules reference this
   adminDepartmentRoutes: [ADMIN],
   adminDoctorRoutes: [ADMIN],
-  adminRoutes: [ADMIN],
+  adminUserRoutes: [ADMIN],
+  adminAppointmentRoutes: [ADMIN],
+  adminNotificationRoutes: [ADMIN],
   adminRecordRoutes: [ADMIN],
+  adminInvestigationRoutes: [ADMIN],
+  adminPharmacyRoutes: [ADMIN],
+  adminAnalyticsRoutes: [ADMIN],
+
+  // 🔐 Authenticated (non-admin) module route keys
   appointmentRoutes: [PATIENT, NURSING_STAFF, DOCTOR, ADMIN],
   doctorRoutes: [DOCTOR, ADMIN],
-  feedbackRoutes: [PATIENT, GENERAL_STAFF, ADMIN],
-  healthRoutes: [PATIENT, NURSING_STAFF, DOCTOR, ADMIN],
-  healthRecordsRoutes: ['ADMIN', 'DOCTOR', 'NURSE'],
-  investigationRoutes: [LAB_STAFF, NURSING_STAFF, DOCTOR, ADMIN],
-  lookupRoutes: [ADMIN, GENERAL_STAFF],
+  departmentRoutes: [GENERAL_STAFF, ADMIN],
+  userRoutes: [PATIENT, GENERAL_STAFF, ADMIN],
+  notificationRoutes: [GENERAL_STAFF, ADMIN],
   pharmacyRoutes: [PHARMACY_STAFF, DOCTOR, ADMIN],
+  // If you use a separate key for /pharmacy-orders in wrappers:
+  pharmacyOrdersRoutes: [PHARMACY_STAFF, DOCTOR, ADMIN],
+
   recordRoutes: [ADMIN, GENERAL_STAFF, DOCTOR, NURSING_STAFF],
+  // ✅ Fix: use NURSING_STAFF constant instead of string 'NURSE'
+  healthRecordsRoutes: [ADMIN, DOCTOR, NURSING_STAFF],
+
+  investigationRoutes: [LAB_STAFF, NURSING_STAFF, DOCTOR, ADMIN],
+  medicalStaffRoutes: [DOCTOR, NURSING_STAFF, LAB_STAFF, ADMIN],
+
+  // Mixed/utility
+  feedbackRoutes: [PATIENT, GENERAL_STAFF, ADMIN],
   sosRoutes: [PATIENT, GENERAL_STAFF, ADMIN],
   staffRoutes: [ADMIN, GENERAL_STAFF],
-  uploadRoutes: [LAB_STAFF, NURSING_STAFF, DOCTOR, ADMIN],
-  medicalStaffRoutes: [DOCTOR, NURSING_STAFF, LAB_STAFF, ADMIN],
-  userRoutes: [PATIENT, GENERAL_STAFF, ADMIN],
+  lookupRoutes: [ADMIN, GENERAL_STAFF],
+
+  // Public / open routes
   authRoutes: [],
   firebaseAuthRoutes: [],
   otpRoutes: [],
+  swaggerRoutes: [],
 
-  // otpAdminRoutes: [ADMIN],  
+  // Infra / tooling
   debugRoutes: [ADMIN],
   versionRoutes: [ADMIN, DOCTOR, NURSING_STAFF, PHARMACY_STAFF, LAB_STAFF, HR_STAFF, GENERAL_STAFF],
-  swaggerRoutes: [],
   rbacRoutes: [ADMIN, HR_STAFF],
-  adminDocumentationRoutes: [ADMIN],
-  departmentRoutes: [GENERAL_STAFF, ADMIN]
+  adminDocumentationRoutes: [ADMIN]
 };
