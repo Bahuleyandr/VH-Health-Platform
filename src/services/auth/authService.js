@@ -203,8 +203,14 @@ export class AuthService {
         throw new Error('Invalid credentials');
       }
 
-      const token = generateToken({ uid: admin.uid, role: admin.role });
-
+const token = generateToken({
+uid: String(admin.uid),
+role: String(admin.role).toUpperCase(),
+email: admin.email ?? undefined,
+sub: String(admin.uid),              // optional standard claim
+iss: 'vh-health-backend',            // optional
+aud: 'vh-health-admin'               // optional
+});
       await db.query(
         `UPDATE ${ADMIN_TABLE} 
             SET last_login = NOW(), failed_login_attempts = 0
@@ -360,7 +366,13 @@ export class AuthService {
       const ok = await bcrypt.compare(pin, staff.pin_hash);
       if (!ok) throw new Error('Invalid credentials');
 
-      const token = generateToken({ uid: staff.uid, role: staff.role });
+      const token = generateToken({
+      uid: String(user.uid),
+      phone: user.phone,
+      role: String(user.role).toUpperCase(),
+      sub: String(user.uid)
+    });
+
       await db.query('UPDATE staff SET last_login = NOW() WHERE uid = $1', [staff.uid]);
 
       return {
