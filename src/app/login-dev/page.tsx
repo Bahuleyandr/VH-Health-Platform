@@ -1,20 +1,20 @@
 // TEMPORARY FILE: src/app/login-dev/page.tsx
 // ⚠️ WARNING: This is for development only! Remove before deploying!
 
-'use client';
+"use client";
 
-import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 export default function DevLoginPage() {
   const router = useRouter();
 
   useEffect(() => {
     // Set a dummy token for development
-    localStorage.setItem('adminToken', 'dev-token-12345');
-    
+    localStorage.setItem("adminToken", "dev-token-12345");
+
     // Redirect to dashboard
-    router.push('/dashboard');
+    router.push("/dashboard");
   }, [router]);
 
   return (

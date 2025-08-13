@@ -4,20 +4,20 @@
 // scripts/clean.js
 // Cross-platform cleaning script that works on Windows, Mac, and Linux
 
-const fs = require('fs');
-const path = require('path');
+const fs = require("fs");
+const path = require("path");
 
 // Directories and files to clean
 const itemsToClean = [
-  'node_modules',
-  '.next',
-  'package-lock.json',
-  '.turbo',
-  'dist',
-  'build'
+  "node_modules",
+  ".next",
+  "package-lock.json",
+  ".turbo",
+  "dist",
+  "build",
 ];
 
-console.log('🧹 Starting cleanup process...\n');
+console.log("🧹 Starting cleanup process...\n");
 
 function deleteRecursive(targetPath) {
   if (fs.existsSync(targetPath)) {
@@ -35,7 +35,7 @@ function deleteRecursive(targetPath) {
 
 let cleanedCount = 0;
 
-itemsToClean.forEach(item => {
+itemsToClean.forEach((item) => {
   const itemPath = path.join(process.cwd(), item);
   if (deleteRecursive(itemPath)) {
     cleanedCount++;
@@ -43,7 +43,7 @@ itemsToClean.forEach(item => {
 });
 
 if (cleanedCount === 0) {
-  console.log('✨ Already clean! No items to remove.');
+  console.log("✨ Already clean! No items to remove.");
 } else {
   console.log(`\n✅ Cleanup complete! Removed ${cleanedCount} items.`);
 }

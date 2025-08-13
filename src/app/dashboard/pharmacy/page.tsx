@@ -1,13 +1,13 @@
 // src/app/dashboard/pharmacy/page.tsx
-'use client';
+"use client";
 
-import { useEffect, useState, useCallback, Suspense } from 'react';
-import { fetchAdminAPI } from '@/lib/api';
-import type { PharmacyAnalytics, PharmacyOrder } from '@/lib/types';
-import { PharmacyStats } from './components/PharmacyStats';
-import { OrdersTable } from './components/OrdersTable';
-import { PharmacyFilters as PharmacyFiltersComponent } from './components/PharmacyFilters';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useEffect, useState, useCallback, Suspense } from "react";
+import { fetchAdminAPI } from "@/lib/api";
+import type { PharmacyAnalytics, PharmacyOrder } from "@/lib/types";
+import { PharmacyStats } from "./components/PharmacyStats";
+import { OrdersTable } from "./components/OrdersTable";
+import { PharmacyFilters as PharmacyFiltersComponent } from "./components/PharmacyFilters";
+import { useSearchParams, useRouter } from "next/navigation";
 
 // Avoid name clash with the component
 interface PharmacyFilterParams {
@@ -27,11 +27,13 @@ type OrdersRespShape =
 type AnalyticsRespShape = { analytics?: PharmacyAnalytics } | PharmacyAnalytics;
 
 function isObj(x: unknown): x is Record<string, unknown> {
-  return typeof x === 'object' && x !== null;
+  return typeof x === "object" && x !== null;
 }
 
-function normalizeAnalytics(resp: AnalyticsRespShape): PharmacyAnalytics | null {
-  if (isObj(resp) && 'analytics' in resp) {
+function normalizeAnalytics(
+  resp: AnalyticsRespShape,
+): PharmacyAnalytics | null {
+  if (isObj(resp) && "analytics" in resp) {
     const a = (resp as { analytics?: PharmacyAnalytics }).analytics;
     return a ?? null;
   }
@@ -39,9 +41,7 @@ function normalizeAnalytics(resp: AnalyticsRespShape): PharmacyAnalytics | null 
   return resp as PharmacyAnalytics;
 }
 
-function normalizeOrders(
-  resp: OrdersRespShape
-): {
+function normalizeOrders(resp: OrdersRespShape): {
   orders: PharmacyOrder[];
   pagination?: { totalPages?: number; currentPage?: number };
 } {
@@ -90,17 +90,19 @@ function PharmacyContent() {
 
         // Build query params for orders
         const queryParams = new URLSearchParams();
-        queryParams.set('page', page.toString());
-        queryParams.set('limit', itemsPerPage.toString());
+        queryParams.set("page", page.toString());
+        queryParams.set("limit", itemsPerPage.toString());
 
-        if (filters?.status) queryParams.set('status', filters.status);
-        if (filters?.dateRange) queryParams.set('dateRange', filters.dateRange);
-        if (filters?.search) queryParams.set('search', filters.search);
+        if (filters?.status) queryParams.set("status", filters.status);
+        if (filters?.dateRange) queryParams.set("dateRange", filters.dateRange);
+        if (filters?.search) queryParams.set("search", filters.search);
 
         // Fetch both analytics and orders in parallel with proper typing
         const [analyticsResponse, ordersResponse] = await Promise.all([
-          fetchAdminAPI<AnalyticsRespShape>('/pharmacy/analytics'),
-          fetchAdminAPI<OrdersRespShape>(`/pharmacy/orders?${queryParams.toString()}`),
+          fetchAdminAPI<AnalyticsRespShape>("/pharmacy/analytics"),
+          fetchAdminAPI<OrdersRespShape>(
+            `/pharmacy/orders?${queryParams.toString()}`,
+          ),
         ]);
 
         const normalizedAnalytics = normalizeAnalytics(analyticsResponse);
@@ -119,22 +121,24 @@ function PharmacyContent() {
           setCurrentPage(page);
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch pharmacy data');
+        setError(
+          err instanceof Error ? err.message : "Failed to fetch pharmacy data",
+        );
       } finally {
         setLoading(false);
       }
     },
-    []
+    [],
   );
 
   useEffect(() => {
-    const pageParam = searchParams.get('page');
+    const pageParam = searchParams.get("page");
     const pageNumber = pageParam ? parseInt(pageParam, 10) : 1;
 
     const filters: PharmacyFilterParams = {
-      status: searchParams.get('status') || undefined,
-      dateRange: searchParams.get('dateRange') || undefined,
-      search: searchParams.get('search') || undefined,
+      status: searchParams.get("status") || undefined,
+      dateRange: searchParams.get("dateRange") || undefined,
+      search: searchParams.get("search") || undefined,
     };
 
     void fetchPharmacyData(pageNumber, filters);
@@ -142,32 +146,32 @@ function PharmacyContent() {
 
   const handleFilterChange = (filters: PharmacyFilterParams) => {
     const url = new URL(window.location.href);
-    url.searchParams.set('page', '1');
+    url.searchParams.set("page", "1");
 
-    if (filters.status) url.searchParams.set('status', filters.status);
-    else url.searchParams.delete('status');
+    if (filters.status) url.searchParams.set("status", filters.status);
+    else url.searchParams.delete("status");
 
-    if (filters.dateRange) url.searchParams.set('dateRange', filters.dateRange);
-    else url.searchParams.delete('dateRange');
+    if (filters.dateRange) url.searchParams.set("dateRange", filters.dateRange);
+    else url.searchParams.delete("dateRange");
 
-    if (filters.search) url.searchParams.set('search', filters.search);
-    else url.searchParams.delete('search');
+    if (filters.search) url.searchParams.set("search", filters.search);
+    else url.searchParams.delete("search");
 
     router.push(url.pathname + url.search);
   };
 
   const handleRefresh = () => {
     const filters: PharmacyFilterParams = {
-      status: searchParams.get('status') || undefined,
-      dateRange: searchParams.get('dateRange') || undefined,
-      search: searchParams.get('search') || undefined,
+      status: searchParams.get("status") || undefined,
+      dateRange: searchParams.get("dateRange") || undefined,
+      search: searchParams.get("search") || undefined,
     };
     void fetchPharmacyData(currentPage, filters);
   };
 
   const handlePageChange = (newPage: number) => {
     const url = new URL(window.location.href);
-    url.searchParams.set('page', String(newPage));
+    url.searchParams.set("page", String(newPage));
     router.push(url.pathname + url.search);
   };
 
@@ -193,12 +197,16 @@ function PharmacyContent() {
 
   return (
     <div className="p-6">
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">Pharmacy Management</h1>
+      <h1 className="text-3xl font-bold text-gray-900 mb-6">
+        Pharmacy Management
+      </h1>
 
       {analytics && <PharmacyStats analytics={analytics} />}
 
       <div className="mt-8">
-        <h2 className="text-xl font-semibold text-gray-800 mb-4">Pharmacy Orders</h2>
+        <h2 className="text-xl font-semibold text-gray-800 mb-4">
+          Pharmacy Orders
+        </h2>
 
         <PharmacyFiltersComponent onFilterChange={handleFilterChange} />
 
@@ -222,8 +230,8 @@ function PharmacyContent() {
                     disabled={currentPage === 1}
                     className={`px-4 py-2 rounded-md font-medium transition-colors ${
                       currentPage === 1
-                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                        ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                        : "bg-blue-600 text-white hover:bg-blue-700"
                     }`}
                   >
                     Previous
@@ -249,8 +257,8 @@ function PharmacyContent() {
                           onClick={() => handlePageChange(pageNum)}
                           className={`px-3 py-1 rounded-md transition-colors ${
                             currentPage === pageNum
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                              ? "bg-blue-600 text-white"
+                              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                           }`}
                         >
                           {pageNum}
@@ -264,8 +272,8 @@ function PharmacyContent() {
                     disabled={currentPage === totalPages}
                     className={`px-4 py-2 rounded-md font-medium transition-colors ${
                       currentPage === totalPages
-                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                        ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                        : "bg-blue-600 text-white hover:bg-blue-700"
                     }`}
                   >
                     Next

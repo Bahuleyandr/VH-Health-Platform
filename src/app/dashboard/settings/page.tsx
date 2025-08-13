@@ -1,10 +1,10 @@
 // src/app/dashboard/settings/page.tsx
-'use client';
+"use client";
 
-import { useEffect, useState, Suspense } from 'react';
-import { fetchAdminAPI } from '@/lib/api';
-import type { SystemSetting } from '@/lib/types';
-import { SettingsListForm } from './components/SettingsListForm';
+import { useEffect, useState, Suspense } from "react";
+import { fetchAdminAPI } from "@/lib/api";
+import type { SystemSetting } from "@/lib/types";
+import { SettingsListForm } from "./components/SettingsListForm";
 
 function SettingsContent() {
   const [settings, setSettings] = useState<SystemSetting[]>([]);
@@ -17,13 +17,14 @@ function SettingsContent() {
       setError(null);
 
       const response = await fetchAdminAPI<{ settings: SystemSetting[] }>(
-        '/system/settings',
-        { method: 'GET' }
+        "/system/settings",
+        { method: "GET" },
       );
 
       setSettings(response?.settings ?? []);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to fetch settings';
+      const msg =
+        err instanceof Error ? err.message : "Failed to fetch settings";
       setError(msg);
       setSettings([]);
     } finally {
@@ -56,7 +57,9 @@ function SettingsContent() {
     );
   }
 
-  return <SettingsListForm settings={settings} onUpdate={handleSettingUpdated} />;
+  return (
+    <SettingsListForm settings={settings} onUpdate={handleSettingUpdated} />
+  );
 }
 
 export default function SettingsPage() {

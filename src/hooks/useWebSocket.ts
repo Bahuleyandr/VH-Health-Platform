@@ -1,7 +1,7 @@
 // src/hooks/useWebSocket.ts
-'use client';
+"use client";
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type UseWebSocketOptions<T = unknown> = {
   protocols?: string | string[];
@@ -17,7 +17,11 @@ type UseWebSocketOptions<T = unknown> = {
 };
 
 function hasStringMessage(x: unknown): x is { message: string } {
-  return typeof x === 'object' && x !== null && typeof (x as Record<string, unknown>).message === 'string';
+  return (
+    typeof x === "object" &&
+    x !== null &&
+    typeof (x as Record<string, unknown>).message === "string"
+  );
 }
 
 export function useWebSocket<T = unknown>(
@@ -32,7 +36,7 @@ export function useWebSocket<T = unknown>(
     onClose,
     onError,
     toast,
-  }: UseWebSocketOptions<T> = {}
+  }: UseWebSocketOptions<T> = {},
 ) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<number | null>(null);
@@ -44,41 +48,57 @@ export function useWebSocket<T = unknown>(
   const onErrorRef = useRef<typeof onError>(onError);
   const toastRef = useRef<typeof toast>(toast);
 
-  useEffect(() => { onMessageRef.current = onMessage; }, [onMessage]);
-  useEffect(() => { onOpenRef.current = onOpen; }, [onOpen]);
-  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
-  useEffect(() => { onErrorRef.current = onError; }, [onError]);
-  useEffect(() => { toastRef.current = toast; }, [toast]);
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+  }, [onMessage]);
+  useEffect(() => {
+    onOpenRef.current = onOpen;
+  }, [onOpen]);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+  useEffect(() => {
+    toastRef.current = toast;
+  }, [toast]);
 
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<T | null>(null);
 
   // Track protocols value in a ref so the effect doesn't reference `protocols` directly
   const protocolsRef = useRef<string | string[] | undefined>(protocols);
-  useEffect(() => { protocolsRef.current = protocols; }, [protocols]);
+  useEffect(() => {
+    protocolsRef.current = protocols;
+  }, [protocols]);
 
   // Make a simple key so the effect re-runs when protocols change
   const protocolsKey = useMemo(
-    () => (Array.isArray(protocols) ? protocols.join(',') : protocols ?? ''),
-    [protocols]
+    () => (Array.isArray(protocols) ? protocols.join(",") : (protocols ?? "")),
+    [protocols],
   );
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === "undefined") return;
 
     const connect = () => {
       const ws = new WebSocket(url, protocolsRef.current);
       wsRef.current = ws;
 
-      ws.addEventListener('open', (ev) => {
+      ws.addEventListener("open", (ev) => {
         setIsConnected(true);
         onOpenRef.current?.(ev);
       });
 
-      ws.addEventListener('message', (ev) => {
+      ws.addEventListener("message", (ev) => {
         let payload: unknown = ev.data;
-        if (parseJson && typeof payload === 'string') {
-          try { payload = JSON.parse(payload); } catch { /* keep raw string */ }
+        if (parseJson && typeof payload === "string") {
+          try {
+            payload = JSON.parse(payload);
+          } catch {
+            /* keep raw string */
+          }
         }
 
         setLastMessage(payload as T);
@@ -89,15 +109,18 @@ export function useWebSocket<T = unknown>(
         }
       });
 
-      ws.addEventListener('close', (ev) => {
+      ws.addEventListener("close", (ev) => {
         setIsConnected(false);
         onCloseRef.current?.(ev);
         if (autoReconnect) {
-          reconnectRef.current = window.setTimeout(connect, reconnectIntervalMs);
+          reconnectRef.current = window.setTimeout(
+            connect,
+            reconnectIntervalMs,
+          );
         }
       });
 
-      ws.addEventListener('error', (ev) => {
+      ws.addEventListener("error", (ev) => {
         onErrorRef.current?.(ev);
       });
     };

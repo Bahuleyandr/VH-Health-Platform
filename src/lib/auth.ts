@@ -7,25 +7,25 @@
  * - Expiry checks with small clock skew
  */
 
-const TOKEN_KEY = 'adminToken';
-const USER_KEY = 'adminUser';
+const TOKEN_KEY = "adminToken";
+const USER_KEY = "adminUser";
 
 /* =========================
  * Local storage helpers
  * ========================= */
 
 export function getToken(): string | null {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === "undefined") return null;
   return localStorage.getItem(TOKEN_KEY);
 }
 
 export function setToken(token: string): void {
-  if (typeof window === 'undefined') return;
+  if (typeof window === "undefined") return;
   localStorage.setItem(TOKEN_KEY, token);
 }
 
 export function clearAuthStorage(): void {
-  if (typeof window === 'undefined') return;
+  if (typeof window === "undefined") return;
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
 }
@@ -52,18 +52,21 @@ type JwtBase = {
 
 /** Base64url decode */
 function b64urlToString(input: string): string {
-  const pad = '==='.slice(0, (4 - (input.length % 4)) % 4);
-  const base64 = (input + pad).replace(/-/g, '+').replace(/_/g, '/');
-  if (typeof window !== 'undefined') {
+  const pad = "===".slice(0, (4 - (input.length % 4)) % 4);
+  const base64 = (input + pad).replace(/-/g, "+").replace(/_/g, "/");
+  if (typeof window !== "undefined") {
     // atob expects base64 (not base64url) — ok after the replacements above
     return decodeURIComponent(
       Array.prototype.map
-        .call(atob(base64), (c: string) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-        .join('')
+        .call(
+          atob(base64),
+          (c: string) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2),
+        )
+        .join(""),
     );
   } else {
     // Node
-    return Buffer.from(base64, 'base64').toString('utf8');
+    return Buffer.from(base64, "base64").toString("utf8");
   }
 }
 
@@ -71,16 +74,18 @@ function b64urlToString(input: string): string {
  * Parse a JWT payload into a typed object.
  * Usage: const payload = parseJwt<{ role: 'ADMIN' | 'SUPER_ADMIN' }>(token)
  */
-export function parseJwt<T extends Record<string, unknown> = JwtBase>(token: string): T {
-  const parts = token.split('.');
-  if (parts.length < 2) throw new Error('Invalid JWT');
+export function parseJwt<T extends Record<string, unknown> = JwtBase>(
+  token: string,
+): T {
+  const parts = token.split(".");
+  if (parts.length < 2) throw new Error("Invalid JWT");
 
-  const payloadJson = b64urlToString(parts[1] ?? '');
+  const payloadJson = b64urlToString(parts[1] ?? "");
   const payload = JSON.parse(payloadJson) as unknown;
 
   // Runtime guard
-  if (!payload || typeof payload !== 'object') {
-    throw new Error('Invalid JWT payload');
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Invalid JWT payload");
   }
   return payload as T;
 }
@@ -89,7 +94,7 @@ export function parseJwt<T extends Record<string, unknown> = JwtBase>(token: str
 export function getTokenExp(token: string): number | null {
   try {
     const payload = parseJwt<JwtBase>(token);
-    return typeof payload.exp === 'number' ? payload.exp : null;
+    return typeof payload.exp === "number" ? payload.exp : null;
   } catch {
     return null;
   }

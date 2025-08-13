@@ -1,18 +1,18 @@
 // src/services/admin.service.ts
-import { API_ENDPOINTS, API_BASE_URL, getHeaders } from '@/lib/api-config';
+import { API_ENDPOINTS, API_BASE_URL, getHeaders } from "@/lib/api-config";
 
 class AdminService {
   // Return undefined (not null), and be safe on the server.
   private getToken(): string | undefined {
-    if (typeof window === 'undefined') return undefined;
-    return localStorage.getItem('adminToken') ?? undefined;
+    if (typeof window === "undefined") return undefined;
+    return localStorage.getItem("adminToken") ?? undefined;
   }
 
   private buildQuery(path: string, params?: Record<string, unknown>): string {
     if (!params) return path;
     const usp = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => {
-      if (v !== null && v !== undefined && v !== '') usp.set(k, String(v));
+      if (v !== null && v !== undefined && v !== "") usp.set(k, String(v));
     });
     const qs = usp.toString();
     return qs ? `${path}?${qs}` : path;
@@ -30,8 +30,8 @@ class AdminService {
   }
 
   private async handleResponse(response: Response) {
-    const contentType = response.headers.get('content-type') ?? '';
-    const isJson = contentType.includes('application/json');
+    const contentType = response.headers.get("content-type") ?? "";
+    const isJson = contentType.includes("application/json");
 
     if (!response.ok) {
       let message = `API request failed (${response.status})`;
@@ -63,7 +63,10 @@ class AdminService {
   }
 
   async getRecentActivity(limit = 50, offset = 0) {
-    const path = this.buildQuery(API_ENDPOINTS.admin.recentActivity, { limit, offset });
+    const path = this.buildQuery(API_ENDPOINTS.admin.recentActivity, {
+      limit,
+      offset,
+    });
     return this.request(path);
   }
 
@@ -84,25 +87,29 @@ class AdminService {
   }
 
   async refreshDashboardCache() {
-    return this.request(API_ENDPOINTS.admin.refreshCache, { method: 'POST' });
+    return this.request(API_ENDPOINTS.admin.refreshCache, { method: "POST" });
   }
 
-  async exportDashboardReport(body: { format?: 'pdf' | 'xlsx'; dateRange?: unknown } = {}) {
+  async exportDashboardReport(
+    body: { format?: "pdf" | "xlsx"; dateRange?: unknown } = {},
+  ) {
     return this.request(API_ENDPOINTS.admin.exportReport, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
   }
 
   /* -------------------------- Staff Attendance (NEW) -------------------------- */
 
-  async getAttendanceAnalytics(q: {
-    department?: string | null;
-    start_date?: string | null;
-    end_date?: string | null;
-    group_by?: 'day' | 'week' | 'month';
-  } = {}) {
+  async getAttendanceAnalytics(
+    q: {
+      department?: string | null;
+      start_date?: string | null;
+      end_date?: string | null;
+      group_by?: "day" | "week" | "month";
+    } = {},
+  ) {
     const path = this.buildQuery(API_ENDPOINTS.admin.attendance.analytics, q);
     return this.request(path);
   }
@@ -112,17 +119,28 @@ class AdminService {
   }
 
   async getLateArrivals(q: { date?: string; department?: string | null } = {}) {
-    const path = this.buildQuery(API_ENDPOINTS.admin.attendance.lateArrivals, q);
+    const path = this.buildQuery(
+      API_ENDPOINTS.admin.attendance.lateArrivals,
+      q,
+    );
     return this.request(path);
   }
 
-  async getEarlyDepartures(q: { date?: string; department?: string | null } = {}) {
-    const path = this.buildQuery(API_ENDPOINTS.admin.attendance.earlyDepartures, q);
+  async getEarlyDepartures(
+    q: { date?: string; department?: string | null } = {},
+  ) {
+    const path = this.buildQuery(
+      API_ENDPOINTS.admin.attendance.earlyDepartures,
+      q,
+    );
     return this.request(path);
   }
 
   async getAbsentReport(q: { date?: string; department?: string | null } = {}) {
-    const path = this.buildQuery(API_ENDPOINTS.admin.attendance.absentReport, q);
+    const path = this.buildQuery(
+      API_ENDPOINTS.admin.attendance.absentReport,
+      q,
+    );
     return this.request(path);
   }
 
@@ -147,16 +165,19 @@ class AdminService {
 
   async updateSosConfig(body: unknown) {
     return this.request(API_ENDPOINTS.admin.sos.updateConfig, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body ?? {}),
     });
   }
 
-  async broadcastSosAlert(body: { message: string; severity?: 'HIGH' | 'MEDIUM' | 'LOW' }) {
+  async broadcastSosAlert(body: {
+    message: string;
+    severity?: "HIGH" | "MEDIUM" | "LOW";
+  }) {
     return this.request(API_ENDPOINTS.admin.sos.broadcast, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
   }
@@ -164,8 +185,8 @@ class AdminService {
   async escalateSosAlert(alertId: string, body?: { reason?: string }) {
     const path = API_ENDPOINTS.admin.sos.escalate(alertId);
     return this.request(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body ?? {}),
     });
   }
@@ -181,40 +202,47 @@ class AdminService {
     return this.request(path);
   }
 
-  async getHipaaAuditReport(p: {
-    limit?: number;
-    offset?: number;
-    start_date?: string | null;
-    end_date?: string | null;
-  } = {}) {
+  async getHipaaAuditReport(
+    p: {
+      limit?: number;
+      offset?: number;
+      start_date?: string | null;
+      end_date?: string | null;
+    } = {},
+  ) {
     const path = this.buildQuery(API_ENDPOINTS.admin.uploads.hipaaAudit, p);
     return this.request(path);
   }
 
   async rescanFile(fileId: string) {
-    return this.request(API_ENDPOINTS.admin.uploads.rescan(fileId), { method: 'POST' });
+    return this.request(API_ENDPOINTS.admin.uploads.rescan(fileId), {
+      method: "POST",
+    });
   }
 
   async cleanupExpiredFiles(dryRun = true) {
     return this.request(API_ENDPOINTS.admin.uploads.cleanup, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ dryRun }),
     });
   }
 
-  async bulkUpdateHipaaProtection(payload: { ids: string[]; protect: boolean }) {
+  async bulkUpdateHipaaProtection(payload: {
+    ids: string[];
+    protect: boolean;
+  }) {
     return this.request(API_ENDPOINTS.admin.uploads.hipaaBulkProtect, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
   }
 
   async purgeQuarantinedFiles(dryRun = true) {
     return this.request(API_ENDPOINTS.admin.uploads.purgeQuarantine, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ dryRun }),
     });
   }

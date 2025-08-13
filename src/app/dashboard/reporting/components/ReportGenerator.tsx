@@ -1,5 +1,5 @@
 // src/app/dashboard/reporting/components/ReportGenerator.tsx
-'use client';
+"use client";
 
 import { User, Doctor } from "@/lib/types";
 import { useState } from "react";
@@ -12,34 +12,37 @@ interface ReportGeneratorProps {
 
 export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
   const [filters, setFilters] = useState({
-    patient_id: '',
-    doctor_id: '',
-    date_from: '',
-    date_to: '',
-    report_type: 'all' // all, appointments, prescriptions, lab_results
+    patient_id: "",
+    doctor_id: "",
+    date_from: "",
+    date_to: "",
+    report_type: "all", // all, appointments, prescriptions, lab_results
   });
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
-  const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleFilterChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
+  ) => {
     setFilters({ ...filters, [e.target.name]: e.target.value });
   };
 
-  const handleExport = async (format: 'pdf' | 'excel') => {
+  const handleExport = async (format: "pdf" | "excel") => {
     setIsLoading(true);
-    setError('');
+    setError("");
 
     const queryParams = new URLSearchParams();
-    if (filters.patient_id) queryParams.set('patient_id', filters.patient_id);
-    if (filters.doctor_id) queryParams.set('doctor_id', filters.doctor_id);
-    if (filters.date_from) queryParams.set('date_from', filters.date_from);
-    if (filters.date_to) queryParams.set('date_to', filters.date_to);
-    if (filters.report_type !== 'all') queryParams.set('report_type', filters.report_type);
+    if (filters.patient_id) queryParams.set("patient_id", filters.patient_id);
+    if (filters.doctor_id) queryParams.set("doctor_id", filters.doctor_id);
+    if (filters.date_from) queryParams.set("date_from", filters.date_from);
+    if (filters.date_to) queryParams.set("date_to", filters.date_to);
+    if (filters.report_type !== "all")
+      queryParams.set("report_type", filters.report_type);
 
     try {
       const token = getAuthToken();
       if (!token) {
-        throw new Error('Authentication required');
+        throw new Error("Authentication required");
       }
 
       // Direct fetch for blob response
@@ -47,48 +50,59 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
         `https://vh-health-backend.onrender.com/api/v1/records/export/${format}?${queryParams.toString()}`,
         {
           headers: {
-            'Authorization': `Bearer ${token}`,
-            'x-api-key': 'vhhealth123'
-          }
-        }
+            Authorization: `Bearer ${token}`,
+            "x-api-key": "vhhealth123",
+          },
+        },
       );
 
       if (!response.ok) {
         const errorData = await response.text();
-        throw new Error(errorData || `Export failed with status: ${response.status}`);
+        throw new Error(
+          errorData || `Export failed with status: ${response.status}`,
+        );
       }
 
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
-      
+
       // Generate filename with current date
-      const formattedDate = new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
-      const reportType = filters.report_type !== 'all' ? `-${filters.report_type}` : '';
-      a.download = `medical-records${reportType}-${formattedDate}.${format === 'pdf' ? 'pdf' : 'xlsx'}`;
-      
+      const formattedDate = new Date()
+        .toLocaleDateString("en-GB")
+        .replace(/\//g, "-");
+      const reportType =
+        filters.report_type !== "all" ? `-${filters.report_type}` : "";
+      a.download = `medical-records${reportType}-${formattedDate}.${format === "pdf" ? "pdf" : "xlsx"}`;
+
       document.body.appendChild(a);
       a.click();
       a.remove();
       window.URL.revokeObjectURL(url);
-
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate report');
+      setError(
+        err instanceof Error ? err.message : "Failed to generate report",
+      );
     } finally {
       setIsLoading(false);
     }
   };
 
-  const isFiltered = filters.patient_id || filters.doctor_id || filters.date_from || filters.date_to || filters.report_type !== 'all';
+  const isFiltered =
+    filters.patient_id ||
+    filters.doctor_id ||
+    filters.date_from ||
+    filters.date_to ||
+    filters.report_type !== "all";
 
   const clearFilters = () => {
     setFilters({
-      patient_id: '',
-      doctor_id: '',
-      date_from: '',
-      date_to: '',
-      report_type: 'all'
+      patient_id: "",
+      doctor_id: "",
+      date_from: "",
+      date_to: "",
+      report_type: "all",
     });
   };
 
@@ -113,7 +127,7 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
             <option value="">All Patients</option>
-            {users.map(user => (
+            {users.map((user) => (
               <option key={user.id} value={user.id}>
                 {user.name} ({user.email})
               </option>
@@ -132,7 +146,7 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
             <option value="">All Doctors</option>
-            {doctors.map(doctor => (
+            {doctors.map((doctor) => (
               <option key={doctor.user_id} value={doctor.user_id}>
                 Dr. {doctor.name} - {doctor.specialization}
               </option>
@@ -198,25 +212,45 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
       {/* Export Buttons */}
       <div className="flex flex-wrap gap-4">
         <button
-          onClick={() => handleExport('pdf')}
+          onClick={() => handleExport("pdf")}
           disabled={isLoading}
           className="flex items-center gap-2 px-6 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+            />
           </svg>
-          {isLoading ? 'Generating...' : 'Export as PDF'}
+          {isLoading ? "Generating..." : "Export as PDF"}
         </button>
-        
+
         <button
-          onClick={() => handleExport('excel')}
+          onClick={() => handleExport("excel")}
           disabled={isLoading}
           className="flex items-center gap-2 px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+            />
           </svg>
-          {isLoading ? 'Generating...' : 'Export as Excel'}
+          {isLoading ? "Generating..." : "Export as Excel"}
         </button>
       </div>
 
@@ -224,8 +258,13 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
       <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
         <h4 className="font-medium text-blue-900 mb-2">Export Information</h4>
         <ul className="text-sm text-blue-800 space-y-1">
-          <li>• PDF exports include formatted reports with headers and styling</li>
-          <li>• Excel exports provide raw data in spreadsheet format for further analysis</li>
+          <li>
+            • PDF exports include formatted reports with headers and styling
+          </li>
+          <li>
+            • Excel exports provide raw data in spreadsheet format for further
+            analysis
+          </li>
           <li>• Large exports may take a few moments to generate</li>
           <li>• All timestamps are in your local timezone</li>
         </ul>

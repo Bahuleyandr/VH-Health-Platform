@@ -1,14 +1,14 @@
 // src/app/dashboard/doctors/page.tsx
-'use client';
+"use client";
 
-import { useCallback, useEffect, useState } from 'react';
-import { fetchAdminAPI } from '@/lib/api';
-import type { Doctor } from '@/lib/types';
-import { DoctorsTable } from './components/DoctorsTable';
-import Link from 'next/link';
+import { useCallback, useEffect, useState } from "react";
+import { fetchAdminAPI } from "@/lib/api";
+import type { Doctor } from "@/lib/types";
+import { DoctorsTable } from "./components/DoctorsTable";
+import Link from "next/link";
 
 function isObj(x: unknown): x is Record<string, unknown> {
-  return typeof x === 'object' && x !== null;
+  return typeof x === "object" && x !== null;
 }
 
 function isDoctor(x: unknown): x is Doctor {
@@ -16,7 +16,10 @@ function isDoctor(x: unknown): x is Doctor {
   // Minimal shape check; add fields if your type requires more
   const id = (x as Record<string, unknown>).id;
   const name = (x as Record<string, unknown>).name;
-  return (typeof id === 'number' || typeof id === 'string') && typeof name === 'string';
+  return (
+    (typeof id === "number" || typeof id === "string") &&
+    typeof name === "string"
+  );
 }
 
 export default function DoctorsPage() {
@@ -30,7 +33,7 @@ export default function DoctorsPage() {
       setError(null);
 
       // The API may return an array or an object with { doctors } (or sometimes { data })
-      const resp = await fetchAdminAPI<unknown>('/doctors');
+      const resp = await fetchAdminAPI<unknown>("/doctors");
 
       let list: Doctor[] = [];
 
@@ -38,8 +41,8 @@ export default function DoctorsPage() {
         list = (resp as unknown[]).filter(isDoctor);
       } else if (isObj(resp)) {
         const obj = resp as Record<string, unknown>;
-        const doctorsProp = obj['doctors'];
-        const dataProp = obj['data'];
+        const doctorsProp = obj["doctors"];
+        const dataProp = obj["data"];
 
         if (Array.isArray(doctorsProp)) {
           list = (doctorsProp as unknown[]).filter(isDoctor);
@@ -50,7 +53,7 @@ export default function DoctorsPage() {
 
       setDoctors(list);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch doctors');
+      setError(err instanceof Error ? err.message : "Failed to fetch doctors");
     } finally {
       setLoading(false);
     }
@@ -100,7 +103,9 @@ export default function DoctorsPage() {
 
       {doctors.length === 0 ? (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
-          <p className="text-gray-500">No doctors found. Add your first doctor to get started.</p>
+          <p className="text-gray-500">
+            No doctors found. Add your first doctor to get started.
+          </p>
         </div>
       ) : (
         <DoctorsTable doctors={doctors} onDoctorDeleted={handleDoctorDeleted} />

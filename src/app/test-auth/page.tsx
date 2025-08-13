@@ -1,8 +1,8 @@
 // src/app/test-auth/page.tsx
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { API_BASE_URL, API_ENDPOINTS, getHeaders } from '@/lib/api-config';
+import { useState } from "react";
+import { API_BASE_URL, API_ENDPOINTS, getHeaders } from "@/lib/api-config";
 
 type TestResult = {
   test: string;
@@ -13,77 +13,103 @@ type TestResult = {
 
 type LoginResponse = { data?: { token?: string } };
 function isLoginResponse(x: unknown): x is LoginResponse {
-  return typeof x === 'object' && x !== null && 'data' in x;
+  return typeof x === "object" && x !== null && "data" in x;
 }
 
 export default function TestAuthPage() {
   const [results, setResults] = useState<TestResult[]>([]);
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
-  const [token, setToken] = useState('');
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("admin123");
+  const [token, setToken] = useState("");
 
   const addResult = (test: string, success: boolean, details: unknown) => {
-    setResults((prev) => [...prev, { test, success, details, timestamp: new Date() }]);
+    setResults((prev) => [
+      ...prev,
+      { test, success, details, timestamp: new Date() },
+    ]);
   };
 
   const testLogin = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.auth.admin.login}`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify({ username, password }),
-      });
+      const response = await fetch(
+        `${API_BASE_URL}${API_ENDPOINTS.auth.admin.login}`,
+        {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({ username, password }),
+        },
+      );
 
       const data: unknown = await response.json();
 
       // Expecting { data: { token: string }, ... }
       const tokenCandidate =
-        isLoginResponse(data) && typeof data.data?.token === 'string' ? data.data.token : null;
+        isLoginResponse(data) && typeof data.data?.token === "string"
+          ? data.data.token
+          : null;
 
       if (response.ok && tokenCandidate) {
         setToken(tokenCandidate);
-        addResult('Admin Login', true, data);
+        addResult("Admin Login", true, data);
       } else {
-        addResult('Admin Login', false, data);
+        addResult("Admin Login", false, data);
       }
     } catch (error: unknown) {
-      addResult('Admin Login', false, error instanceof Error ? error.message : String(error));
+      addResult(
+        "Admin Login",
+        false,
+        error instanceof Error ? error.message : String(error),
+      );
     }
   };
 
   const testProfile = async () => {
     if (!token) {
-      addResult('Get Profile', false, 'No token available');
+      addResult("Get Profile", false, "No token available");
       return;
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.auth.admin.profile}`, {
-        headers: getHeaders(token),
-      });
+      const response = await fetch(
+        `${API_BASE_URL}${API_ENDPOINTS.auth.admin.profile}`,
+        {
+          headers: getHeaders(token),
+        },
+      );
 
       const data: unknown = await response.json();
-      addResult('Get Profile', response.ok, data);
+      addResult("Get Profile", response.ok, data);
     } catch (error: unknown) {
-      addResult('Get Profile', false, error instanceof Error ? error.message : String(error));
+      addResult(
+        "Get Profile",
+        false,
+        error instanceof Error ? error.message : String(error),
+      );
     }
   };
 
   const testDashboard = async () => {
     if (!token) {
-      addResult('Dashboard API', false, 'No token available');
+      addResult("Dashboard API", false, "No token available");
       return;
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.admin.dashboard}`, {
-        headers: getHeaders(token),
-      });
+      const response = await fetch(
+        `${API_BASE_URL}${API_ENDPOINTS.admin.dashboard}`,
+        {
+          headers: getHeaders(token),
+        },
+      );
 
       const data: unknown = await response.json();
-      addResult('Dashboard API', response.ok, data);
+      addResult("Dashboard API", response.ok, data);
     } catch (error: unknown) {
-      addResult('Dashboard API', false, error instanceof Error ? error.message : String(error));
+      addResult(
+        "Dashboard API",
+        false,
+        error instanceof Error ? error.message : String(error),
+      );
     }
   };
 
@@ -111,16 +137,28 @@ export default function TestAuthPage() {
         </div>
 
         <div className="space-x-2">
-          <button onClick={testLogin} className="bg-blue-500 text-white px-4 py-2 rounded">
+          <button
+            onClick={testLogin}
+            className="bg-blue-500 text-white px-4 py-2 rounded"
+          >
             Test Login
           </button>
-          <button onClick={testProfile} className="bg-green-500 text-white px-4 py-2 rounded">
+          <button
+            onClick={testProfile}
+            className="bg-green-500 text-white px-4 py-2 rounded"
+          >
             Test Profile
           </button>
-          <button onClick={testDashboard} className="bg-purple-500 text-white px-4 py-2 rounded">
+          <button
+            onClick={testDashboard}
+            className="bg-purple-500 text-white px-4 py-2 rounded"
+          >
             Test Dashboard
           </button>
-          <button onClick={() => setResults([])} className="bg-gray-500 text-white px-4 py-2 rounded">
+          <button
+            onClick={() => setResults([])}
+            className="bg-gray-500 text-white px-4 py-2 rounded"
+          >
             Clear Results
           </button>
         </div>
@@ -128,7 +166,9 @@ export default function TestAuthPage() {
         {token && (
           <div className="mt-4 p-3 bg-green-50 rounded">
             <p className="text-sm font-medium">Token received:</p>
-            <p className="text-xs font-mono break-all">{token.substring(0, 50)}...</p>
+            <p className="text-xs font-mono break-all">
+              {token.substring(0, 50)}...
+            </p>
           </div>
         )}
       </div>
@@ -138,12 +178,14 @@ export default function TestAuthPage() {
           <div
             key={index}
             className={`p-4 rounded-lg ${
-              result.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+              result.success
+                ? "bg-green-50 border-green-200"
+                : "bg-red-50 border-red-200"
             } border`}
           >
             <div className="mb-2 flex items-start justify-between">
               <h3 className="font-semibold">
-                {result.success ? '✅' : '❌'} {result.test}
+                {result.success ? "✅" : "❌"} {result.test}
               </h3>
               <span className="text-xs text-gray-500">
                 {result.timestamp.toLocaleTimeString()}

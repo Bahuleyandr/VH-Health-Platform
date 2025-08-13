@@ -1,15 +1,15 @@
 // src/app/dashboard/admin-management/page.tsx
-'use client';
+"use client";
 
-import { useEffect, useState, useCallback } from 'react';
-import { getJSON } from '@/lib/api';
-import { API_ENDPOINTS } from '@/lib/api-config';
-import type { AdminUser } from '@/lib/types';
-import { CreateAdminForm } from './components/CreateAdminForm';
-import { AdminsTable } from './components/AdminsTable';
-import { AdminStats } from './components/AdminStats';
-import { PermissionsMatrix } from './components/PermissionsMatrix';
-import { RequirePermissions } from '@/components/auth/RequirePermissions';
+import { useEffect, useState, useCallback } from "react";
+import { getJSON } from "@/lib/api";
+import { API_ENDPOINTS } from "@/lib/api-config";
+import type { AdminUser } from "@/lib/types";
+import { CreateAdminForm } from "./components/CreateAdminForm";
+import { AdminsTable } from "./components/AdminsTable";
+import { AdminStats } from "./components/AdminStats";
+import { PermissionsMatrix } from "./components/PermissionsMatrix";
+import { RequirePermissions } from "@/components/auth/RequirePermissions";
 
 export default function AdminManagementPage() {
   const [admins, setAdmins] = useState<AdminUser[]>([]);
@@ -23,13 +23,17 @@ export default function AdminManagementPage() {
 
       // Backend may return either an array or an object with { admins: [...] }
       const data = await getJSON<AdminUser[] | { admins: AdminUser[] }>(
-        API_ENDPOINTS.auth.adminManagement
+        API_ENDPOINTS.auth.adminManagement,
       );
-      const list = Array.isArray(data) ? data : (data as { admins?: AdminUser[] })?.admins ?? [];
+      const list = Array.isArray(data)
+        ? data
+        : ((data as { admins?: AdminUser[] })?.admins ?? []);
 
       setAdmins(list);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch administrators');
+      setError(
+        err instanceof Error ? err.message : "Failed to fetch administrators",
+      );
     } finally {
       setLoading(false);
     }
@@ -64,17 +68,24 @@ export default function AdminManagementPage() {
 
   return (
     <div className="p-6">
-      <h1 className="mb-6 text-3xl font-bold text-gray-900">Administrator Management</h1>
+      <h1 className="mb-6 text-3xl font-bold text-gray-900">
+        Administrator Management
+      </h1>
 
       <AdminStats admins={admins} />
 
       {/* Only show creation UI to authorized users */}
-      <RequirePermissions requiredRole="ADMIN" requiredPermissions={['admin:create']}>
+      <RequirePermissions
+        requiredRole="ADMIN"
+        requiredPermissions={["admin:create"]}
+      >
         <CreateAdminForm onAdminCreated={handleAdminCreated} />
       </RequirePermissions>
 
       <div className="mt-8">
-        <h2 className="mb-4 text-xl font-semibold text-gray-800">Current Administrators</h2>
+        <h2 className="mb-4 text-xl font-semibold text-gray-800">
+          Current Administrators
+        </h2>
 
         {admins.length === 0 ? (
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-8 text-center">

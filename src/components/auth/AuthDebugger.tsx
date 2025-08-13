@@ -1,10 +1,10 @@
 // src/components/auth/AuthDebugger.tsx
-'use client';
+"use client";
 
-import { useAuth } from '@/contexts/AuthContext';
-import { useEffect, useState, useCallback } from 'react';
+import { useAuth } from "@/contexts/AuthContext";
+import { useEffect, useState, useCallback } from "react";
 
-const IS_DEV = process.env.NODE_ENV === 'development';
+const IS_DEV = process.env.NODE_ENV === "development";
 
 export function AuthDebugger() {
   // In production, render nothing and don't mount the hook-using component
@@ -18,12 +18,14 @@ function DevAuthDebugger() {
 
   // Avoid touching localStorage during render to prevent hydration mismatch
   const [tokenPresent, setTokenPresent] = useState<boolean | null>(null);
-  const [cachedUserPreview, setCachedUserPreview] = useState<string | null>(null);
+  const [cachedUserPreview, setCachedUserPreview] = useState<string | null>(
+    null,
+  );
 
   const refreshLocalCache = useCallback(() => {
     try {
-      const token = localStorage.getItem('adminToken');
-      const u = localStorage.getItem('adminUser');
+      const token = localStorage.getItem("adminToken");
+      const u = localStorage.getItem("adminUser");
       setTokenPresent(!!token);
       setCachedUserPreview(
         u
@@ -33,13 +35,13 @@ function DevAuthDebugger() {
                 return JSON.stringify(
                   { id: parsed?.id, email: parsed?.email, role: parsed?.role },
                   null,
-                  2
+                  2,
                 );
               } catch {
-                return '(invalid JSON in localStorage: adminUser)';
+                return "(invalid JSON in localStorage: adminUser)";
               }
             })()
-          : null
+          : null,
       );
     } catch {
       setTokenPresent(false);
@@ -74,16 +76,18 @@ function DevAuthDebugger() {
 
           <div className="space-y-2 text-sm">
             <div>
-              <strong>Loading:</strong> {loading ? '🔄 Yes' : '✅ No'}
+              <strong>Loading:</strong> {loading ? "🔄 Yes" : "✅ No"}
             </div>
 
             <div>
-              <strong>Authenticated:</strong> {user ? '✅ Yes' : '❌ No'}
+              <strong>Authenticated:</strong> {user ? "✅ Yes" : "❌ No"}
             </div>
 
             <div>
-              <strong>Token:</strong>{' '}
-              {tokenPresent === null ? '…' : tokenPresent ? (
+              <strong>Token:</strong>{" "}
+              {tokenPresent === null ? (
+                "…"
+              ) : tokenPresent ? (
                 <span className="text-green-600">✅ Present</span>
               ) : (
                 <span className="text-red-600">❌ Missing</span>
@@ -102,7 +106,9 @@ function DevAuthDebugger() {
             {cachedUserPreview && (
               <div className="mt-2 rounded bg-gray-50 p-2">
                 <strong>User (localStorage preview):</strong>
-                <pre className="mt-1 overflow-auto text-xs">{cachedUserPreview}</pre>
+                <pre className="mt-1 overflow-auto text-xs">
+                  {cachedUserPreview}
+                </pre>
               </div>
             )}
 
@@ -126,14 +132,18 @@ function DevAuthDebugger() {
                 type="button"
                 onClick={() => {
                   try {
-                    console.log('Auth State (context):', { user, loading, error });
-                    console.log('Local Storage:', {
-                      token: localStorage.getItem('adminToken'),
-                      user: localStorage.getItem('adminUser'),
+                    console.log("Auth State (context):", {
+                      user,
+                      loading,
+                      error,
+                    });
+                    console.log("Local Storage:", {
+                      token: localStorage.getItem("adminToken"),
+                      user: localStorage.getItem("adminUser"),
                     });
                     refreshLocalCache();
                   } catch (e) {
-                    console.warn('Unable to inspect localStorage:', e);
+                    console.warn("Unable to inspect localStorage:", e);
                   }
                 }}
                 className="w-full rounded bg-gray-500 px-3 py-1 text-white text-xs"

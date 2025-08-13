@@ -1,5 +1,5 @@
 // src/app/dashboard/reporting/page.tsx
-'use client';
+"use client";
 
 import { useState, useEffect } from "react";
 import { fetchAdminAPI } from "@/lib/api";
@@ -13,7 +13,7 @@ export default function ReportingPage() {
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'export'>('overview');
+  const [activeTab, setActiveTab] = useState<"overview" | "export">("overview");
 
   useEffect(() => {
     fetchData();
@@ -26,14 +26,14 @@ export default function ReportingPage() {
 
       // Tell fetchAdminAPI the expected shapes
       const [usersData, doctorsData] = await Promise.all([
-        fetchAdminAPI<{ users: User[] }>('/users'),
-        fetchAdminAPI<{ doctors: Doctor[] }>('/doctors'),
+        fetchAdminAPI<{ users: User[] }>("/users"),
+        fetchAdminAPI<{ doctors: Doctor[] }>("/doctors"),
       ]);
 
       setUsers(usersData?.users ?? []);
       setDoctors(doctorsData?.doctors ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      setError(err instanceof Error ? err.message : "Failed to load data");
     } finally {
       setLoading(false);
     }
@@ -75,21 +75,21 @@ export default function ReportingPage() {
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex space-x-8">
           <button
-            onClick={() => setActiveTab('overview')}
+            onClick={() => setActiveTab("overview")}
             className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'overview'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              activeTab === "overview"
+                ? "border-blue-500 text-blue-600"
+                : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
             }`}
           >
             Analytics Overview
           </button>
           <button
-            onClick={() => setActiveTab('export')}
+            onClick={() => setActiveTab("export")}
             className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'export'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              activeTab === "export"
+                ? "border-blue-500 text-blue-600"
+                : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
             }`}
           >
             Data Export
@@ -99,13 +99,16 @@ export default function ReportingPage() {
 
       {/* Tab Content */}
       <div>
-        {activeTab === 'overview' ? (
+        {activeTab === "overview" ? (
           <ReportsOverview />
         ) : (
           <div className="bg-white p-6 rounded-lg shadow">
-            <h2 className="text-xl font-semibold mb-4">Export Medical Records</h2>
+            <h2 className="text-xl font-semibold mb-4">
+              Export Medical Records
+            </h2>
             <p className="mb-6 text-gray-600">
-              Select filters to generate a report of medical records. The report will be downloaded to your device.
+              Select filters to generate a report of medical records. The report
+              will be downloaded to your device.
             </p>
             <ReportGenerator users={users} doctors={doctors} />
           </div>

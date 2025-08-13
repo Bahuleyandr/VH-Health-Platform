@@ -8,7 +8,7 @@ const firebaseConfig = {
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
 // The rest of the file remains the same.
@@ -16,6 +16,10 @@ const app = initializeApp(firebaseConfig);
 export const firebaseAuth = getAuth(app);
 
 export async function firebaseLogin(email: string, password: string) {
-  const userCred = await signInWithEmailAndPassword(firebaseAuth, email, password);
+  const userCred = await signInWithEmailAndPassword(
+    firebaseAuth,
+    email,
+    password,
+  );
   return userCred.user;
 }

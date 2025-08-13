@@ -1,5 +1,5 @@
 // src/app/dashboard/appointments/components/AppointmentsTable.tsx
-import type { Appointment } from '@/lib/types';
+import type { Appointment } from "@/lib/types";
 
 type AppointmentRow = Appointment & {
   patient_name?: string;
@@ -7,11 +7,11 @@ type AppointmentRow = Appointment & {
   department?: string;
 };
 
-const statusColorMap: Record<Appointment['status'] | 'PENDING', string> = {
-  SCHEDULED: 'bg-blue-100 text-blue-800',
-  COMPLETED: 'bg-green-100 text-green-800',
-  CANCELLED: 'bg-red-100 text-red-800',
-  PENDING: 'bg-yellow-100 text-yellow-800',
+const statusColorMap: Record<Appointment["status"] | "PENDING", string> = {
+  SCHEDULED: "bg-blue-100 text-blue-800",
+  COMPLETED: "bg-green-100 text-green-800",
+  CANCELLED: "bg-red-100 text-red-800",
+  PENDING: "bg-yellow-100 text-yellow-800",
 };
 
 function formatApptDate(appt: AppointmentRow) {
@@ -22,18 +22,24 @@ function formatApptDate(appt: AppointmentRow) {
 
   const d = new Date(iso);
   if (Number.isNaN(d.valueOf())) {
-    return [appt.appointment_date, appt.appointment_time].filter(Boolean).join(' ');
+    return [appt.appointment_date, appt.appointment_time]
+      .filter(Boolean)
+      .join(" ");
   }
-  return d.toLocaleString('en-GB', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
+  return d.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
-export function AppointmentsTable({ appointments }: { appointments: AppointmentRow[] }) {
+export function AppointmentsTable({
+  appointments,
+}: {
+  appointments: AppointmentRow[];
+}) {
   return (
     <div className="bg-white shadow rounded-lg overflow-x-auto">
       <table className="min-w-full divide-y divide-gray-200">
@@ -71,7 +77,7 @@ export function AppointmentsTable({ appointments }: { appointments: AppointmentR
               </td>
 
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                {appt.department ?? '-'}
+                {appt.department ?? "-"}
               </td>
 
               <td className="px-6 py-4 whitespace-nowrap">

@@ -1,12 +1,12 @@
 // src/app/dashboard/pharmacy/components/OrdersTable.tsx
-'use client';
+"use client";
 
-import type { PharmacyOrder } from '@/lib/types';
-import { useState, useEffect } from 'react';
-import { fetchAdminAPI } from '@/lib/api';
-import { OrderDetailsModal } from './OrderDetailsModal';
+import type { PharmacyOrder } from "@/lib/types";
+import { useState, useEffect } from "react";
+import { fetchAdminAPI } from "@/lib/api";
+import { OrderDetailsModal } from "./OrderDetailsModal";
 
-type OrderStatus = PharmacyOrder['status']; // "COMPLETED" | "CANCELLED" | "PENDING"
+type OrderStatus = PharmacyOrder["status"]; // "COMPLETED" | "CANCELLED" | "PENDING"
 
 export function OrdersTable({
   orders: initialOrders,
@@ -26,36 +26,39 @@ export function OrdersTable({
 
   const getStatusColor = (status: OrderStatus) => {
     switch (status) {
-      case 'PENDING':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'COMPLETED':
-        return 'bg-green-100 text-green-800';
-      case 'CANCELLED':
-        return 'bg-red-100 text-red-800';
+      case "PENDING":
+        return "bg-yellow-100 text-yellow-800";
+      case "COMPLETED":
+        return "bg-green-100 text-green-800";
+      case "CANCELLED":
+        return "bg-red-100 text-red-800";
       default:
-        return 'bg-gray-100 text-gray-800';
+        return "bg-gray-100 text-gray-800";
     }
   };
 
-  const handleStatusUpdate = async (orderId: number, newStatus: OrderStatus) => {
+  const handleStatusUpdate = async (
+    orderId: number,
+    newStatus: OrderStatus,
+  ) => {
     setUpdatingOrderId(orderId);
     try {
       await fetchAdminAPI(`/pharmacy/orders/${orderId}`, {
-        method: 'PUT',
+        method: "PUT",
         body: JSON.stringify({ status: newStatus }),
       });
 
       // Update local state with the correctly typed status
       setOrders((prev) =>
         prev.map((order) =>
-          order.id === orderId ? { ...order, status: newStatus } : order
-        )
+          order.id === orderId ? { ...order, status: newStatus } : order,
+        ),
       );
 
       onOrderUpdated?.();
     } catch (error) {
-      console.error('Failed to update order status:', error);
-      alert('Failed to update order status. Please try again.');
+      console.error("Failed to update order status:", error);
+      alert("Failed to update order status. Please try again.");
     } finally {
       setUpdatingOrderId(null);
     }
@@ -103,10 +106,10 @@ export function OrdersTable({
                     #{order.id}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {new Date(order.order_date).toLocaleDateString('en-GB', {
-                      day: '2-digit',
-                      month: 'short',
-                      year: 'numeric',
+                    {new Date(order.order_date).toLocaleDateString("en-GB", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
                     })}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -115,19 +118,21 @@ export function OrdersTable({
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">Dr. {order.doctor_name}</div>
+                    <div className="text-sm text-gray-900">
+                      Dr. {order.doctor_name}
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span
                       className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(
-                        order.status
+                        order.status,
                       )}`}
                     >
                       {order.status}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                    ₹{order.total_amount.toLocaleString('en-IN')}
+                    ₹{order.total_amount.toLocaleString("en-IN")}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div className="flex items-center gap-2">
@@ -139,17 +144,20 @@ export function OrdersTable({
                         View
                       </button>
 
-                      {order.status === 'PENDING' && (
+                      {order.status === "PENDING" && (
                         <select
                           value={order.status}
                           onChange={(e) =>
-                            handleStatusUpdate(order.id, e.target.value as OrderStatus)
+                            handleStatusUpdate(
+                              order.id,
+                              e.target.value as OrderStatus,
+                            )
                           }
                           disabled={updatingOrderId === order.id}
                           className={`text-sm border border-gray-300 rounded px-2 py-1 ${
                             updatingOrderId === order.id
-                              ? 'opacity-50 cursor-not-allowed'
-                              : ''
+                              ? "opacity-50 cursor-not-allowed"
+                              : ""
                           }`}
                         >
                           <option value="PENDING">Pending</option>

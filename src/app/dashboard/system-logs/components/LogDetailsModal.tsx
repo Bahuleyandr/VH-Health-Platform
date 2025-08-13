@@ -1,36 +1,45 @@
 // src/app/dashboard/system-logs/components/LogDetailsModal.tsx
-'use client';
+"use client";
 
 import { ExtendedAuditLog, ExtendedSystemLog } from "@/lib/types";
 
 interface LogDetailsModalProps {
   log: ExtendedAuditLog | ExtendedSystemLog | null;
-  type: 'audit' | 'system';
+  type: "audit" | "system";
   isOpen: boolean;
   onClose: () => void;
 }
 
-export function LogDetailsModal({ log, type, isOpen, onClose }: LogDetailsModalProps) {
+export function LogDetailsModal({
+  log,
+  type,
+  isOpen,
+  onClose,
+}: LogDetailsModalProps) {
   if (!isOpen || !log) return null;
 
   // Always return a string for React children
   const formatJSON = (data: unknown): string => {
     try {
-      if (typeof data === 'string') {
+      if (typeof data === "string") {
         return JSON.stringify(JSON.parse(data), null, 2);
       }
       return JSON.stringify(data, null, 2);
     } catch {
-      return typeof data === 'string' ? data : String(data);
+      return typeof data === "string" ? data : String(data);
     }
   };
 
-  const isAuditLog = (log: ExtendedAuditLog | ExtendedSystemLog): log is ExtendedAuditLog => {
-    return 'created_at' in log && 'user_id' in log && 'action' in log;
+  const isAuditLog = (
+    log: ExtendedAuditLog | ExtendedSystemLog,
+  ): log is ExtendedAuditLog => {
+    return "created_at" in log && "user_id" in log && "action" in log;
   };
 
-  const isSystemLog = (log: ExtendedAuditLog | ExtendedSystemLog): log is ExtendedSystemLog => {
-    return 'timestamp' in log && 'level' in log && 'message' in log;
+  const isSystemLog = (
+    log: ExtendedAuditLog | ExtendedSystemLog,
+  ): log is ExtendedSystemLog => {
+    return "timestamp" in log && "level" in log && "message" in log;
   };
 
   return (
@@ -44,25 +53,35 @@ export function LogDetailsModal({ log, type, isOpen, onClose }: LogDetailsModalP
       >
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-bold text-gray-900">
-            {type === 'audit' ? 'Audit Log Details' : 'System Log Details'}
+            {type === "audit" ? "Audit Log Details" : "System Log Details"}
           </h3>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-500"
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            <svg
+              className="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
 
         <div className="space-y-4 max-h-[70vh] overflow-y-auto">
-          {type === 'audit' && isAuditLog(log) ? (
+          {type === "audit" && isAuditLog(log) ? (
             <>
               <div>
                 <h4 className="text-sm font-medium text-gray-700">Timestamp</h4>
                 <p className="mt-1 text-sm text-gray-900">
-                  {new Date(log.created_at).toLocaleString('en-GB')}
+                  {new Date(log.created_at).toLocaleString("en-GB")}
                 </p>
               </div>
 
@@ -90,29 +109,36 @@ export function LogDetailsModal({ log, type, isOpen, onClose }: LogDetailsModalP
 
               {log.ip_address && (
                 <div>
-                  <h4 className="text-sm font-medium text-gray-700">IP Address</h4>
+                  <h4 className="text-sm font-medium text-gray-700">
+                    IP Address
+                  </h4>
                   <p className="mt-1 text-sm text-gray-900">{log.ip_address}</p>
                 </div>
               )}
             </>
-          ) : type === 'system' && isSystemLog(log) ? (
+          ) : type === "system" && isSystemLog(log) ? (
             <>
               <div>
                 <h4 className="text-sm font-medium text-gray-700">Timestamp</h4>
                 <p className="mt-1 text-sm text-gray-900">
-                  {new Date(log.timestamp).toLocaleString('en-GB')}
+                  {new Date(log.timestamp).toLocaleString("en-GB")}
                 </p>
               </div>
 
               <div>
                 <h4 className="text-sm font-medium text-gray-700">Level</h4>
                 <p className="mt-1 text-sm">
-                  <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                    log.level === 'ERROR' ? 'bg-red-100 text-red-800' :
-                    log.level === 'WARN' ? 'bg-yellow-100 text-yellow-800' :
-                    log.level === 'INFO' ? 'bg-blue-100 text-blue-800' :
-                    'bg-gray-100 text-gray-800'
-                  }`}>
+                  <span
+                    className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                      log.level === "ERROR"
+                        ? "bg-red-100 text-red-800"
+                        : log.level === "WARN"
+                          ? "bg-yellow-100 text-yellow-800"
+                          : log.level === "INFO"
+                            ? "bg-blue-100 text-blue-800"
+                            : "bg-gray-100 text-gray-800"
+                    }`}
+                  >
                     {log.level}
                   </span>
                 </p>
@@ -137,7 +163,9 @@ export function LogDetailsModal({ log, type, isOpen, onClose }: LogDetailsModalP
 
               {log.metadata && (
                 <div>
-                  <h4 className="text-sm font-medium text-gray-700">Metadata</h4>
+                  <h4 className="text-sm font-medium text-gray-700">
+                    Metadata
+                  </h4>
                   <pre className="mt-1 p-3 bg-gray-100 rounded text-xs overflow-x-auto">
                     {formatJSON(log.metadata)}
                   </pre>
@@ -156,7 +184,7 @@ export function LogDetailsModal({ log, type, isOpen, onClose }: LogDetailsModalP
           <button
             onClick={() => {
               navigator.clipboard.writeText(JSON.stringify(log, null, 2));
-              alert('Log details copied to clipboard!');
+              alert("Log details copied to clipboard!");
             }}
             className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
           >

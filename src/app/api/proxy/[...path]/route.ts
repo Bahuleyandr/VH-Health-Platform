@@ -1,33 +1,33 @@
 // src/app/api/proxy/[...path]/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { API_BASE_URL } from '@/lib/api-config';
+import { NextRequest, NextResponse } from "next/server";
+import { API_BASE_URL } from "@/lib/api-config";
 
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 // Headers that must not be forwarded by proxies
 const HOP_BY_HOP = new Set([
-  'connection',
-  'keep-alive',
-  'proxy-authenticate',
-  'proxy-authorization',
-  'te',
-  'trailer',
-  'transfer-encoding',
-  'upgrade',
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
 ]);
 
 function extractPathSegments(req: NextRequest): string[] {
   // e.g. /api/proxy/a/b -> ["a","b"]
   const pathname = req.nextUrl.pathname;
-  const prefix = '/api/proxy/';
-  const rest = pathname.startsWith(prefix) ? pathname.slice(prefix.length) : '';
-  return rest.split('/').filter(Boolean);
+  const prefix = "/api/proxy/";
+  const rest = pathname.startsWith(prefix) ? pathname.slice(prefix.length) : "";
+  return rest.split("/").filter(Boolean);
 }
 
 function buildTargetUrl(req: NextRequest): string {
-  const base = API_BASE_URL.replace(/\/+$/, '');
-  const path = extractPathSegments(req).join('/');
+  const base = API_BASE_URL.replace(/\/+$/, "");
+  const path = extractPathSegments(req).join("/");
   const search = req.nextUrl.search; // includes leading '?' or ''
   return `${base}/${path}${search}`;
 }
@@ -37,7 +37,7 @@ function forwardableHeaders(incoming: Headers): HeadersInit {
   incoming.forEach((value, key) => {
     const k = key.toLowerCase();
     if (HOP_BY_HOP.has(k)) return;
-    if (k === 'host') return;
+    if (k === "host") return;
     out[key] = value;
   });
   return out;
@@ -51,17 +51,18 @@ async function handleProxy(req: NextRequest) {
   const init: RequestInit = { method, headers };
 
   // Bodies only for non-GET/HEAD
-  if (!['GET', 'HEAD'].includes(method)) {
-    const ct = req.headers.get('content-type') ?? '';
-    if (ct.includes('application/json')) {
+  if (!["GET", "HEAD"].includes(method)) {
+    const ct = req.headers.get("content-type") ?? "";
+    if (ct.includes("application/json")) {
       const json = await req.json();
       init.body = JSON.stringify(json);
-      if (!('Content-Type' in (headers as Record<string, string>))) {
-        (headers as Record<string, string>)['Content-Type'] = 'application/json';
+      if (!("Content-Type" in (headers as Record<string, string>))) {
+        (headers as Record<string, string>)["Content-Type"] =
+          "application/json";
       }
     } else if (
-      ct.includes('multipart/form-data') ||
-      ct.includes('application/x-www-form-urlencoded')
+      ct.includes("multipart/form-data") ||
+      ct.includes("application/x-www-form-urlencoded")
     ) {
       init.body = await req.formData();
     } else {
@@ -80,9 +81,21 @@ async function handleProxy(req: NextRequest) {
   });
 }
 
-export function GET(req: NextRequest)    { return handleProxy(req); }
-export function POST(req: NextRequest)   { return handleProxy(req); }
-export function PUT(req: NextRequest)    { return handleProxy(req); }
-export function PATCH(req: NextRequest)  { return handleProxy(req); }
-export function DELETE(req: NextRequest) { return handleProxy(req); }
-export function OPTIONS(req: NextRequest){ return handleProxy(req); }
+export function GET(req: NextRequest) {
+  return handleProxy(req);
+}
+export function POST(req: NextRequest) {
+  return handleProxy(req);
+}
+export function PUT(req: NextRequest) {
+  return handleProxy(req);
+}
+export function PATCH(req: NextRequest) {
+  return handleProxy(req);
+}
+export function DELETE(req: NextRequest) {
+  return handleProxy(req);
+}
+export function OPTIONS(req: NextRequest) {
+  return handleProxy(req);
+}

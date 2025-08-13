@@ -1,5 +1,5 @@
 // src/app/dashboard/system-logs/components/AuditLogsTable.tsx
-'use client';
+"use client";
 
 import type { ExtendedAuditLog } from "@/lib/types";
 import { useState } from "react";
@@ -16,11 +16,15 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const getActionColor = (action: string) => {
-    if (action.includes('CREATE') || action.includes('ADD')) return 'text-green-600';
-    if (action.includes('UPDATE') || action.includes('EDIT')) return 'text-blue-600';
-    if (action.includes('DELETE') || action.includes('REMOVE')) return 'text-red-600';
-    if (action.includes('LOGIN') || action.includes('LOGOUT')) return 'text-purple-600';
-    return 'text-gray-600';
+    if (action.includes("CREATE") || action.includes("ADD"))
+      return "text-green-600";
+    if (action.includes("UPDATE") || action.includes("EDIT"))
+      return "text-blue-600";
+    if (action.includes("DELETE") || action.includes("REMOVE"))
+      return "text-red-600";
+    if (action.includes("LOGIN") || action.includes("LOGOUT"))
+      return "text-purple-600";
+    return "text-gray-600";
   };
 
   const formatDetails = (details: string) => {
@@ -58,22 +62,40 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th
+                scope="col"
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+              >
                 Timestamp
               </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th
+                scope="col"
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+              >
                 User
               </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th
+                scope="col"
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+              >
                 Action
               </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th
+                scope="col"
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+              >
                 Details
               </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th
+                scope="col"
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+              >
                 IP Address
               </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th
+                scope="col"
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+              >
                 Actions
               </th>
             </tr>
@@ -83,17 +105,17 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
               <tr key={log.id} className="hover:bg-gray-50">
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   <div>
-                    {new Date(log.created_at).toLocaleDateString('en-GB', {
-                      day: '2-digit',
-                      month: 'short',
-                      year: 'numeric'
+                    {new Date(log.created_at).toLocaleDateString("en-GB", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
                     })}
                   </div>
                   <div className="text-xs text-gray-400">
-                    {new Date(log.created_at).toLocaleTimeString('en-GB', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      second: '2-digit'
+                    {new Date(log.created_at).toLocaleTimeString("en-GB", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      second: "2-digit",
                     })}
                   </div>
                 </td>
@@ -106,7 +128,9 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
                   )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <span className={`font-mono text-sm font-medium ${getActionColor(log.action)}`}>
+                  <span
+                    className={`font-mono text-sm font-medium ${getActionColor(log.action)}`}
+                  >
                     {log.action}
                   </span>
                 </td>
@@ -116,10 +140,14 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
                       <>
                         <div className="truncate">{log.details}</div>
                         <button
-                          onClick={() => setExpandedRow(expandedRow === log.id ? null : log.id)}
+                          onClick={() =>
+                            setExpandedRow(
+                              expandedRow === log.id ? null : log.id,
+                            )
+                          }
                           className="text-blue-600 hover:text-blue-800 text-xs mt-1"
                         >
-                          {expandedRow === log.id ? 'Show less' : 'Show more'}
+                          {expandedRow === log.id ? "Show less" : "Show more"}
                         </button>
                         {expandedRow === log.id && (
                           <pre className="mt-2 p-2 bg-gray-100 rounded text-xs overflow-x-auto">
@@ -133,7 +161,7 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {log.ip_address || 'N/A'}
+                  {log.ip_address || "N/A"}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">
                   <button

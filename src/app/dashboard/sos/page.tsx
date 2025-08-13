@@ -1,20 +1,14 @@
 // src/app/dashboard/sos/page.tsx
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { adminService } from '@/services/admin.service';
+import { useEffect, useState } from "react";
+import { adminService } from "@/services/admin.service";
 
 // Generic JSON type (avoids `any`)
-type Json =
-  | string
-  | number
-  | boolean
-  | null
-  | Json[]
-  | { [key: string]: Json };
+type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
 
 function unwrapJson(x: unknown): Json {
-  if (x && typeof x === 'object' && 'data' in x) {
+  if (x && typeof x === "object" && "data" in x) {
     const v = (x as { data: unknown }).data;
     return (v as Json) ?? null;
   }
@@ -26,7 +20,7 @@ export default function SosPage() {
   const [perf, setPerf] = useState<Json>(null);
   const [services, setServices] = useState<Json>(null);
   const [alerts, setAlerts] = useState<Json>(null);
-  const [msg, setMsg] = useState<string>('');
+  const [msg, setMsg] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
@@ -75,7 +69,7 @@ export default function SosPage() {
           onClick={async () => {
             if (!msg.trim()) return;
             await adminService.broadcastSosAlert({ message: msg.trim() });
-            setMsg('');
+            setMsg("");
           }}
         >
           Broadcast

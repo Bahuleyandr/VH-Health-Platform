@@ -1,22 +1,22 @@
 // src/app/dashboard/admin-management/components/PermissionsMatrix.tsx
-'use client';
+"use client";
 
-import { useState, useMemo } from 'react';
-import type { AdminUser } from '@/lib/types';
+import { useState, useMemo } from "react";
+import type { AdminUser } from "@/lib/types";
 
 interface PermissionsMatrixProps {
   admins: AdminUser[];
 }
 
 const PERMISSION_LABELS = {
-  adminManagement: 'Admin Mgmt',
-  userManagement: 'User Mgmt',
-  doctorManagement: 'Doctor Mgmt',
-  departmentManagement: 'Dept Mgmt',
-  appointmentManagement: 'Appt Mgmt',
-  pharmacyAdminRoutes: 'Pharmacy',
-  notificationManagement: 'Notifications',
-  viewAuditLogs: 'Audit Logs',
+  adminManagement: "Admin Mgmt",
+  userManagement: "User Mgmt",
+  doctorManagement: "Doctor Mgmt",
+  departmentManagement: "Dept Mgmt",
+  appointmentManagement: "Appt Mgmt",
+  pharmacyAdminRoutes: "Pharmacy",
+  notificationManagement: "Notifications",
+  viewAuditLogs: "Audit Logs",
 } as const;
 
 type PermissionKey = keyof typeof PERMISSION_LABELS;
@@ -26,7 +26,7 @@ export function PermissionsMatrix({ admins }: PermissionsMatrixProps) {
 
   const allPermissions: PermissionKey[] = useMemo(
     () => Object.keys(PERMISSION_LABELS) as PermissionKey[],
-    []
+    [],
   );
 
   if (!showMatrix) {
@@ -45,7 +45,9 @@ export function PermissionsMatrix({ admins }: PermissionsMatrixProps) {
   return (
     <div className="mt-6">
       <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-lg font-medium text-gray-900">Permissions Matrix</h3>
+        <h3 className="text-lg font-medium text-gray-900">
+          Permissions Matrix
+        </h3>
         <button
           onClick={() => setShowMatrix(false)}
           className="text-sm text-gray-500 hover:text-gray-700"
@@ -80,20 +82,27 @@ export function PermissionsMatrix({ admins }: PermissionsMatrixProps) {
 
             <tbody className="divide-y divide-gray-200 bg-white">
               {admins.map((admin) => {
-                const isSuperAdmin = admin.role === 'SUPER_ADMIN';
-                const perms = Array.isArray(admin.permissions) ? admin.permissions : [];
+                const isSuperAdmin = admin.role === "SUPER_ADMIN";
+                const perms = Array.isArray(admin.permissions)
+                  ? admin.permissions
+                  : [];
 
                 return (
                   <tr key={admin.id} className="hover:bg-gray-50">
                     <td className="sticky left-0 z-10 whitespace-nowrap px-6 py-4 bg-white">
-                      <div className="text-sm font-medium text-gray-900">{admin.name}</div>
+                      <div className="text-sm font-medium text-gray-900">
+                        {admin.name}
+                      </div>
                       <div className="text-xs text-gray-500">{admin.role}</div>
                     </td>
 
                     {allPermissions.map((permission) => {
                       const has = isSuperAdmin || perms.includes(permission);
                       return (
-                        <td key={permission} className="whitespace-nowrap px-3 py-4 text-center">
+                        <td
+                          key={permission}
+                          className="whitespace-nowrap px-3 py-4 text-center"
+                        >
                           {has ? (
                             <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-green-100">
                               <svg

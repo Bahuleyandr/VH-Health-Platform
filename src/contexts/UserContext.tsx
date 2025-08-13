@@ -1,5 +1,5 @@
 // src/contexts/UserContext.tsx
-'use client';
+"use client";
 
 import React, {
   createContext,
@@ -8,9 +8,9 @@ import React, {
   useEffect,
   useCallback,
   type ReactNode,
-} from 'react';
-import { useRouter } from 'next/navigation';
-import { fetchAdminAPI } from '@/lib/api';
+} from "react";
+import { useRouter } from "next/navigation";
+import { fetchAdminAPI } from "@/lib/api";
 
 type User = {
   id: number | string;
@@ -47,7 +47,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const refreshUser = useCallback(async () => {
     try {
-      const profile = await fetchAdminAPI<User>('/admin/auth/me', { method: 'GET' });
+      const profile = await fetchAdminAPI<User>("/admin/auth/me", {
+        method: "GET",
+      });
       setUser(profile ?? null);
     } catch {
       // Not logged in or token invalid
@@ -70,8 +72,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
     async (username: string, password: string): Promise<boolean> => {
       try {
         const res = await fetchAdminAPI<{ success?: boolean }>(
-          '/admin/auth/login',
-          { method: 'POST', body: JSON.stringify({ username, password }) }
+          "/admin/auth/login",
+          { method: "POST", body: JSON.stringify({ username, password }) },
         );
         const ok = !!res?.success;
         if (ok) {
@@ -80,21 +82,21 @@ export function UserProvider({ children }: { children: ReactNode }) {
         }
         return false;
       } catch (err: unknown) {
-        console.error('Login error:', getErrorMessage(err));
+        console.error("Login error:", getErrorMessage(err));
         return false;
       }
     },
-    [refreshUser]
+    [refreshUser],
   );
 
   const logout = useCallback(async () => {
     try {
-      await fetchAdminAPI('/admin/auth/logout', { method: 'POST' });
+      await fetchAdminAPI("/admin/auth/logout", { method: "POST" });
     } catch (err: unknown) {
-      console.error('Logout error:', getErrorMessage(err));
+      console.error("Logout error:", getErrorMessage(err));
     } finally {
       setUser(null);
-      router.push('/login');
+      router.push("/login");
     }
   }, [router]);
 
@@ -107,6 +109,6 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
 export function useUser() {
   const ctx = useContext(UserContext);
-  if (!ctx) throw new Error('useUser must be used within UserProvider');
+  if (!ctx) throw new Error("useUser must be used within UserProvider");
   return ctx;
 }

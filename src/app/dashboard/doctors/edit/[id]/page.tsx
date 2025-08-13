@@ -1,24 +1,25 @@
 // src/app/dashboard/doctors/edit/[id]/page.tsx
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
-import { fetchAdminAPI } from '@/lib/api';
-import type { Department, Doctor } from '@/lib/types';
-import { EditDoctorForm } from './components/EditDoctorForm';
-import Link from 'next/link';
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+import { fetchAdminAPI } from "@/lib/api";
+import type { Department, Doctor } from "@/lib/types";
+import { EditDoctorForm } from "./components/EditDoctorForm";
+import Link from "next/link";
 
 function isObj(x: unknown): x is Record<string, unknown> {
-  return typeof x === 'object' && x !== null;
+  return typeof x === "object" && x !== null;
 }
 
 // Prefer user_id, but fall back to an optional id if present in payloads
 function getDoctorKey(d: Doctor): string | number | undefined {
   const userId = (d as unknown as { user_id?: string | number }).user_id;
-  if (typeof userId === 'string' || typeof userId === 'number') return userId;
+  if (typeof userId === "string" || typeof userId === "number") return userId;
 
   const maybeId = (d as unknown as Record<string, unknown>).id;
-  if (typeof maybeId === 'string' || typeof maybeId === 'number') return maybeId;
+  if (typeof maybeId === "string" || typeof maybeId === "number")
+    return maybeId;
 
   return undefined;
 }
@@ -42,8 +43,10 @@ export default function EditDoctorPage() {
 
         // Fetch both doctors and departments in parallel
         const [doctorsResp, departmentsResp] = await Promise.all([
-          fetchAdminAPI<unknown>('/doctors'),
-          fetchAdminAPI<{ departments?: Department[] } | Department[]>('/departments/manage'),
+          fetchAdminAPI<unknown>("/doctors"),
+          fetchAdminAPI<{ departments?: Department[] } | Department[]>(
+            "/departments/manage",
+          ),
         ]);
 
         // ---- normalize doctors ----
@@ -61,22 +64,25 @@ export default function EditDoctorPage() {
         if (Array.isArray(departmentsResp)) {
           depts = departmentsResp as Department[];
         } else if (isObj(departmentsResp)) {
-          const maybe = (departmentsResp as { departments?: unknown }).departments;
+          const maybe = (departmentsResp as { departments?: unknown })
+            .departments;
           if (Array.isArray(maybe)) depts = maybe as Department[];
         }
 
         // Find the specific doctor to edit using user_id or fallback id
-        const match = doctors.find((d) => String(getDoctorKey(d) ?? '') === doctorId);
+        const match = doctors.find(
+          (d) => String(getDoctorKey(d) ?? "") === doctorId,
+        );
 
         if (!match) {
-          if (!cancelled) setError('Doctor not found');
+          if (!cancelled) setError("Doctor not found");
         } else {
           if (!cancelled) setDoctor(match);
         }
         if (!cancelled) setDepartments(depts);
       } catch (err) {
         if (!cancelled)
-          setError(err instanceof Error ? err.message : 'Failed to fetch data');
+          setError(err instanceof Error ? err.message : "Failed to fetch data");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -102,12 +108,15 @@ export default function EditDoctorPage() {
     return (
       <div className="p-6">
         <div className="mb-4">
-          <Link href="/dashboard/doctors" className="text-blue-600 hover:text-blue-800">
+          <Link
+            href="/dashboard/doctors"
+            className="text-blue-600 hover:text-blue-800"
+          >
             ← Back to Doctors
           </Link>
         </div>
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-          {error || 'Doctor not found'}
+          {error || "Doctor not found"}
         </div>
       </div>
     );
@@ -116,11 +125,16 @@ export default function EditDoctorPage() {
   return (
     <div className="p-6">
       <div className="mb-4">
-        <Link href="/dashboard/doctors" className="text-blue-600 hover:text-blue-800">
+        <Link
+          href="/dashboard/doctors"
+          className="text-blue-600 hover:text-blue-800"
+        >
           ← Back to Doctors
         </Link>
       </div>
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">Edit Doctor: {doctor.name}</h1>
+      <h1 className="text-3xl font-bold text-gray-900 mb-6">
+        Edit Doctor: {doctor.name}
+      </h1>
       <EditDoctorForm doctor={doctor} departments={departments} />
     </div>
   );

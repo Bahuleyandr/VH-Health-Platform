@@ -1,18 +1,18 @@
 // src/components/auth/ProtectedRoute.tsx
-'use client';
+"use client";
 
-import { useEffect, useState, type ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 
 type Role =
-  | 'SUPER_ADMIN'
-  | 'ADMIN'
-  | 'DOCTOR'
-  | 'NURSE'
-  | 'PHARMACIST'
-  | 'TECHNICIAN'
-  | 'RECEPTIONIST'
-  | 'PATIENT';
+  | "SUPER_ADMIN"
+  | "ADMIN"
+  | "DOCTOR"
+  | "NURSE"
+  | "PHARMACIST"
+  | "TECHNICIAN"
+  | "RECEPTIONIST"
+  | "PATIENT";
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -26,7 +26,7 @@ export function ProtectedRoute({
   children,
   requiredRole,
   requiredPermissions = [],
-  fallbackPath = '/dashboard',
+  fallbackPath = "/dashboard",
 }: ProtectedRouteProps) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
@@ -37,14 +37,18 @@ export function ProtectedRoute({
   useEffect(() => {
     try {
       const token =
-        typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
+        typeof window !== "undefined"
+          ? localStorage.getItem("adminToken")
+          : null;
       const userStr =
-        typeof window !== 'undefined' ? localStorage.getItem('adminUser') : null;
+        typeof window !== "undefined"
+          ? localStorage.getItem("adminUser")
+          : null;
 
       if (!token) {
         setIsAuthenticated(false);
         setIsLoading(false);
-        router.push('/login');
+        router.push("/login");
         return;
       }
 
@@ -52,12 +56,15 @@ export function ProtectedRoute({
 
       if (userStr) {
         try {
-          const user = JSON.parse(userStr) as { role?: Role; permissions?: string[] };
+          const user = JSON.parse(userStr) as {
+            role?: Role;
+            permissions?: string[];
+          };
           if (user?.role) setUserRole(user.role);
           if (Array.isArray(user?.permissions)) setUserPerms(user.permissions);
         } catch (err) {
           // don't crash on bad JSON in storage
-          console.error('Error parsing adminUser:', err);
+          console.error("Error parsing adminUser:", err);
         }
       }
     } finally {
@@ -81,9 +88,11 @@ export function ProtectedRoute({
     return null;
   }
 
-  const isSuperAdmin = userRole === 'SUPER_ADMIN';
+  const isSuperAdmin = userRole === "SUPER_ADMIN";
   const roleAllowed =
-    !requiredRole || isSuperAdmin || (userRole !== null && userRole === requiredRole);
+    !requiredRole ||
+    isSuperAdmin ||
+    (userRole !== null && userRole === requiredRole);
 
   const permsAllowed =
     requiredPermissions.length === 0 ||

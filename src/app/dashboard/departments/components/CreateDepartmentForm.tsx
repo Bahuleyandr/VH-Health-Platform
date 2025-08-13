@@ -1,14 +1,14 @@
 // src/app/dashboard/departments/components/CreateDepartmentForm.tsx
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useCreateDepartment } from '@/hooks/api-hooks';
+import { useState } from "react";
+import { useCreateDepartment } from "@/hooks/api-hooks";
 
 export function CreateDepartmentForm() {
   const [isOpen, setIsOpen] = useState(false);
   const [formData, setFormData] = useState({
-    name: '',
-    description: '',
+    name: "",
+    description: "",
   });
 
   const createDepartment = useCreateDepartment();
@@ -27,7 +27,7 @@ export function CreateDepartmentForm() {
       });
 
       // Reset form and close
-      setFormData({ name: '', description: '' });
+      setFormData({ name: "", description: "" });
       setIsOpen(false);
     } catch {
       // Errors are surfaced by the mutation hook (toast, etc.)
@@ -35,7 +35,7 @@ export function CreateDepartmentForm() {
   };
 
   const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => {
     setFormData((prev) => ({
       ...prev,
@@ -52,7 +52,7 @@ export function CreateDepartmentForm() {
           className="font-medium text-blue-600 hover:text-blue-700"
           type="button"
         >
-          {isOpen ? 'Cancel' : '+ Add Department'}
+          {isOpen ? "Cancel" : "+ Add Department"}
         </button>
       </div>
 
@@ -103,13 +103,13 @@ export function CreateDepartmentForm() {
               disabled={createDepartment.isPending}
               className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {createDepartment.isPending ? 'Creating...' : 'Create Department'}
+              {createDepartment.isPending ? "Creating..." : "Create Department"}
             </button>
             <button
               type="button"
               onClick={() => {
                 setIsOpen(false);
-                setFormData({ name: '', description: '' });
+                setFormData({ name: "", description: "" });
               }}
               disabled={createDepartment.isPending}
               className="rounded-md border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700/50"

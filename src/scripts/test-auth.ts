@@ -1,9 +1,13 @@
 export {};
-import { API_BASE_URL, API_KEY, ORIGIN } from './config';
+import { API_BASE_URL, API_KEY, ORIGIN } from "./config";
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
-  try { return JSON.stringify(error); } catch { return String(error); }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
 }
 
 async function ping(path: string, init?: RequestInit) {
@@ -11,8 +15,8 @@ async function ping(path: string, init?: RequestInit) {
   const res = await fetch(url, {
     ...init,
     headers: {
-      'x-api-key': API_KEY,
-      'content-type': 'application/json',
+      "x-api-key": API_KEY,
+      "content-type": "application/json",
       origin: ORIGIN,
       ...(init?.headers ?? {}),
     },
@@ -21,16 +25,16 @@ async function ping(path: string, init?: RequestInit) {
 }
 
 async function run() {
-  console.log('🧪 Testing VH Health Admin Authentication Endpoints\n');
+  console.log("🧪 Testing VH Health Admin Authentication Endpoints\n");
 
   try {
-    const health = await ping('/admin/health');
+    const health = await ping("/admin/health");
     console.log(`   /admin/health: ${health.status} ${health.statusText}`);
   } catch (e: unknown) {
-    console.log('   ❌ Health check error:', getErrorMessage(e), '\n');
+    console.log("   ❌ Health check error:", getErrorMessage(e), "\n");
   }
 
-  const endpoints = ['/admin/settings', '/admin/users', '/admin/appointments'];
+  const endpoints = ["/admin/settings", "/admin/users", "/admin/appointments"];
   for (const endpoint of endpoints) {
     try {
       const res = await ping(endpoint);
@@ -41,7 +45,7 @@ async function run() {
   }
 }
 
-run().catch(e => {
-  console.error('Fatal:', getErrorMessage(e));
+run().catch((e) => {
+  console.error("Fatal:", getErrorMessage(e));
   process.exitCode = 1;
 });

@@ -1,8 +1,8 @@
 // src/components/PageErrorBoundary.tsx
-'use client';
+"use client";
 
-import { ErrorBoundary } from 'react-error-boundary';
-import { ReactNode } from 'react';
+import { ErrorBoundary } from "react-error-boundary";
+import { ReactNode } from "react";
 
 interface ErrorFallbackProps {
   error: Error;
@@ -38,7 +38,7 @@ export function PageErrorBoundary({ children }: PageErrorBoundaryProps) {
       FallbackComponent={ErrorFallback}
       onError={(error) => {
         // Hook up your error tracker here (Sentry, etc.)
-        console.error('Page error:', error);
+        console.error("Page error:", error);
       }}
     >
       {children}
