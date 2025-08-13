@@ -1,12 +1,12 @@
 // src/app/dashboard/admin-management/components/AdminsTable.tsx
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { useState, useMemo } from 'react';
-import type { AdminUser } from '@/lib/types';
-import { putJSON } from '@/lib/api';
-import { API_ENDPOINTS } from '@/lib/api-config';
-import { usePermissions } from '@/hooks/usePermissions';
+import Link from "next/link";
+import { useState, useMemo } from "react";
+import type { AdminUser } from "@/lib/types";
+import { putJSON } from "@/lib/api";
+import { API_ENDPOINTS } from "@/lib/api-config";
+import { usePermissions } from "@/hooks/usePermissions";
 
 interface AdminsTableProps {
   admins: AdminUser[];
@@ -19,11 +19,14 @@ export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
   // Optional permission gating (SUPER_ADMIN auto-passes)
   const { hasPermission, isSuperAdmin } = usePermissions();
 
-  const canEditPermissions = isSuperAdmin || hasPermission('admin:permissions:update');
+  const canEditPermissions =
+    isSuperAdmin || hasPermission("admin:permissions:update");
 
   const canToggleFor = (isActive: boolean) =>
     isSuperAdmin ||
-    (isActive ? hasPermission('admin:deactivate') : hasPermission('admin:reactivate'));
+    (isActive
+      ? hasPermission("admin:deactivate")
+      : hasPermission("admin:reactivate"));
 
   const handleToggleStatus = async (admin: AdminUser) => {
     if (!canToggleFor(admin.is_active)) return;
@@ -39,10 +42,14 @@ export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
     try {
       // Convention: PUT to the centralized admin management endpoint with an action
       // Backend should handle: { action: 'deactivate' | 'reactivate', adminId, reason? }
-      const action = admin.is_active ? 'deactivate' : 'reactivate';
+      const action = admin.is_active ? "deactivate" : "reactivate";
       const body =
-        action === 'deactivate'
-          ? { action, adminId: admin.id, reason: 'Deactivated via admin portal' }
+        action === "deactivate"
+          ? {
+              action,
+              adminId: admin.id,
+              reason: "Deactivated via admin portal",
+            }
           : { action, adminId: admin.id };
 
       await putJSON(API_ENDPOINTS.auth.adminManagement, body);
@@ -50,52 +57,58 @@ export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
       onAdminUpdated?.();
     } catch (error) {
       // Keep the UX simple and friendly
-      console.error('Failed to toggle admin status:', error);
-      alert('Failed to update admin status. Please try again.');
+      console.error("Failed to toggle admin status:", error);
+      alert("Failed to update admin status. Please try again.");
     } finally {
       setUpdatingAdminId(null);
     }
   };
 
   const formatLastLogin = (lastLogin: string | null) => {
-    if (!lastLogin) return { text: 'Never', className: 'text-gray-400' as string, fullDate: '' };
+    if (!lastLogin)
+      return {
+        text: "Never",
+        className: "text-gray-400" as string,
+        fullDate: "",
+      };
 
     const t = Date.parse(lastLogin);
-    if (Number.isNaN(t)) return { text: 'Invalid date', className: 'text-gray-400', fullDate: '' };
+    if (Number.isNaN(t))
+      return { text: "Invalid date", className: "text-gray-400", fullDate: "" };
 
     const date = new Date(t);
     const now = Date.now();
     const diffDays = Math.floor((now - t) / (1000 * 60 * 60 * 24));
 
-    let text = date.toLocaleDateString('en-GB', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+    let text = date.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
-    let className = 'text-gray-500';
+    let className = "text-gray-500";
 
     if (diffDays === 0) {
-      text = 'Today';
-      className = 'text-green-600 font-medium';
+      text = "Today";
+      className = "text-green-600 font-medium";
     } else if (diffDays === 1) {
-      text = 'Yesterday';
-      className = 'text-blue-600';
+      text = "Yesterday";
+      className = "text-blue-600";
     } else if (diffDays <= 7) {
       text = `${diffDays} days ago`;
-      className = 'text-blue-600';
+      className = "text-blue-600";
     } else if (diffDays > 30) {
-      className = 'text-orange-600';
+      className = "text-orange-600";
     }
 
     return { text, className, fullDate: date.toLocaleString() };
   };
 
   const getPermissionsSummary = (permissions: string[]) => {
-    if (!permissions?.length) return 'No permissions';
-    if (permissions.length <= 3) return permissions.join(', ');
-    return `${permissions.slice(0, 3).join(', ')} +${permissions.length - 3} more`;
+    if (!permissions?.length) return "No permissions";
+    if (permissions.length <= 3) return permissions.join(", ");
+    return `${permissions.slice(0, 3).join(", ")} +${permissions.length - 3} more`;
   };
 
   const rows = useMemo(() => admins ?? [], [admins]);
@@ -137,7 +150,9 @@ export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
                 <tr key={admin.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div>
-                      <div className="text-sm font-medium text-gray-900">{admin.name}</div>
+                      <div className="text-sm font-medium text-gray-900">
+                        {admin.name}
+                      </div>
                       <div className="text-sm text-gray-500">{admin.email}</div>
                     </div>
                   </td>
@@ -155,15 +170,20 @@ export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span
                       className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                        admin.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                        admin.is_active
+                          ? "bg-green-100 text-green-800"
+                          : "bg-red-100 text-red-800"
                       }`}
                     >
-                      {admin.is_active ? 'Active' : 'Inactive'}
+                      {admin.is_active ? "Active" : "Inactive"}
                     </span>
                   </td>
 
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`text-sm ${loginInfo.className}`} title={loginInfo.fullDate}>
+                    <span
+                      className={`text-sm ${loginInfo.className}`}
+                      title={loginInfo.fullDate}
+                    >
                       {loginInfo.text}
                     </span>
                   </td>
@@ -178,7 +198,9 @@ export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
                           Edit Permissions
                         </Link>
                       ) : (
-                        <span className="text-gray-400 cursor-not-allowed">Edit Permissions</span>
+                        <span className="text-gray-400 cursor-not-allowed">
+                          Edit Permissions
+                        </span>
                       )}
 
                       <button
@@ -186,24 +208,24 @@ export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
                         disabled={toggling || !toggleAllowed}
                         className={`transition-colors ${
                           toggling || !toggleAllowed
-                            ? 'text-gray-400 cursor-not-allowed'
+                            ? "text-gray-400 cursor-not-allowed"
                             : admin.is_active
-                            ? 'text-red-600 hover:text-red-900'
-                            : 'text-green-600 hover:text-green-900'
+                              ? "text-red-600 hover:text-red-900"
+                              : "text-green-600 hover:text-green-900"
                         }`}
                         title={
                           toggleAllowed
                             ? admin.is_active
-                              ? 'Deactivate admin'
-                              : 'Reactivate admin'
-                            : 'You do not have permission for this action'
+                              ? "Deactivate admin"
+                              : "Reactivate admin"
+                            : "You do not have permission for this action"
                         }
                       >
                         {toggling
-                          ? 'Updating...'
+                          ? "Updating..."
                           : admin.is_active
-                          ? 'Deactivate'
-                          : 'Reactivate'}
+                            ? "Deactivate"
+                            : "Reactivate"}
                       </button>
                     </div>
                   </td>

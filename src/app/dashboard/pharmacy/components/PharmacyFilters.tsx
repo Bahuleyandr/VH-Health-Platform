@@ -1,8 +1,8 @@
 // src/app/dashboard/pharmacy/components/PharmacyFilters.tsx
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 
 // Define proper type for filter changes
 interface FilterChangeEvent {
@@ -17,29 +17,29 @@ interface PharmacyFiltersProps {
 
 export function PharmacyFilters({ onFilterChange }: PharmacyFiltersProps) {
   const searchParams = useSearchParams();
-  const [status, setStatus] = useState('');
-  const [dateRange, setDateRange] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [status, setStatus] = useState("");
+  const [dateRange, setDateRange] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
 
   // Initialize filters from URL params
   useEffect(() => {
-    setStatus(searchParams.get('status') || '');
-    setDateRange(searchParams.get('dateRange') || '');
-    setSearchTerm(searchParams.get('search') || '');
+    setStatus(searchParams.get("status") || "");
+    setDateRange(searchParams.get("dateRange") || "");
+    setSearchTerm(searchParams.get("search") || "");
   }, [searchParams]);
 
   const handleFilterChange = () => {
     onFilterChange({
       status,
       dateRange,
-      search: searchTerm
+      search: searchTerm,
     });
   };
 
   const handleReset = () => {
-    setStatus('');
-    setDateRange('');
-    setSearchTerm('');
+    setStatus("");
+    setDateRange("");
+    setSearchTerm("");
     onFilterChange({});
   };
 
@@ -47,7 +47,10 @@ export function PharmacyFilters({ onFilterChange }: PharmacyFiltersProps) {
     <div className="bg-white p-4 rounded-lg shadow mb-6">
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div>
-          <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-1">
+          <label
+            htmlFor="search"
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
             Search
           </label>
           <input
@@ -55,14 +58,17 @@ export function PharmacyFilters({ onFilterChange }: PharmacyFiltersProps) {
             id="search"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            onKeyUp={(e) => e.key === 'Enter' && handleFilterChange()}
+            onKeyUp={(e) => e.key === "Enter" && handleFilterChange()}
             placeholder="Order ID, Patient name..."
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
-        
+
         <div>
-          <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">
+          <label
+            htmlFor="status"
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
             Status
           </label>
           <select
@@ -78,9 +84,12 @@ export function PharmacyFilters({ onFilterChange }: PharmacyFiltersProps) {
             <option value="cancelled">Cancelled</option>
           </select>
         </div>
-        
+
         <div>
-          <label htmlFor="dateRange" className="block text-sm font-medium text-gray-700 mb-1">
+          <label
+            htmlFor="dateRange"
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
             Date Range
           </label>
           <select
@@ -96,7 +105,7 @@ export function PharmacyFilters({ onFilterChange }: PharmacyFiltersProps) {
             <option value="quarter">This Quarter</option>
           </select>
         </div>
-        
+
         <div className="flex items-end gap-2">
           <button
             onClick={handleFilterChange}

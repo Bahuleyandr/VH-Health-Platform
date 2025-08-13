@@ -1,5 +1,5 @@
 // src/contexts/AuthContext.tsx
-'use client';
+"use client";
 
 import React, {
   createContext,
@@ -8,8 +8,8 @@ import React, {
   useEffect,
   type ReactNode,
   useCallback,
-} from 'react';
-import { useRouter } from 'next/navigation';
+} from "react";
+import { useRouter } from "next/navigation";
 import {
   adminLogin,
   adminLogout,
@@ -17,8 +17,8 @@ import {
   isAuthenticated,
   getAdminUser,
   clearAuthData,
-} from '@/lib/api-client';
-import type { AdminUser } from '@/lib/types';
+} from "@/lib/api-client";
+import type { AdminUser } from "@/lib/types";
 
 interface AuthContextType {
   user: AdminUser | null;
@@ -56,8 +56,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const fresh = await getAdminProfile();
         if (fresh) {
           setUser(fresh);
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('adminUser', JSON.stringify(fresh));
+          if (typeof window !== "undefined") {
+            localStorage.setItem("adminUser", JSON.stringify(fresh));
           }
         }
       } catch {
@@ -69,8 +69,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // keep going; api layer may already have redirected on 401
       }
     } catch (e) {
-      console.error('Auth check failed:', e);
-      setError((e as Error).message ?? 'Auth check failed');
+      console.error("Auth check failed:", e);
+      setError((e as Error).message ?? "Auth check failed");
       setUser(null);
     } finally {
       setLoading(false);
@@ -82,27 +82,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void checkAuth();
   }, [checkAuth]);
 
-  const login = useCallback(async (username: string, password: string) => {
-    try {
-      setLoading(true);
-      setError(null);
+  const login = useCallback(
+    async (username: string, password: string) => {
+      try {
+        setLoading(true);
+        setError(null);
 
-      const result = await adminLogin(username, password);
-      // api-client persists token/admin to localStorage; we update state & route
-      if (result?.admin) {
-        setUser(result.admin);
-        router.push('/dashboard');
-      } else {
-        throw new Error('Login successful but no admin data received');
+        const result = await adminLogin(username, password);
+        // api-client persists token/admin to localStorage; we update state & route
+        if (result?.admin) {
+          setUser(result.admin);
+          router.push("/dashboard");
+        } else {
+          throw new Error("Login successful but no admin data received");
+        }
+      } catch (e) {
+        const msg = (e as Error).message || "Login failed";
+        setError(msg);
+        throw e;
+      } finally {
+        setLoading(false);
       }
-    } catch (e) {
-      const msg = (e as Error).message || 'Login failed';
-      setError(msg);
-      throw e;
-    } finally {
-      setLoading(false);
-    }
-  }, [router]);
+    },
+    [router],
+  );
 
   const logout = useCallback(async () => {
     try {
@@ -110,17 +113,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setError(null);
       await adminLogout(); // clears local storage inside
     } catch (e) {
-      console.warn('Logout error:', e);
+      console.warn("Logout error:", e);
       clearAuthData();
     } finally {
       setUser(null);
       setLoading(false);
-      router.push('/login');
+      router.push("/login");
     }
   }, [router]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, login, logout, checkAuth }}>
+    <AuthContext.Provider
+      value={{ user, loading, error, login, logout, checkAuth }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -128,6 +133,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuth(): AuthContextType {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within an AuthProvider');
+  if (!ctx) throw new Error("useAuth must be used within an AuthProvider");
   return ctx;
 }

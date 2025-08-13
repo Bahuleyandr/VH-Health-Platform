@@ -1,10 +1,10 @@
 // src/app/dashboard/departments/components/DepartmentsTable.tsx
-'use client';
+"use client";
 
-import { Department } from '@/lib/types';
-import { useState } from 'react';
-import { fetchAdminAPI } from '@/lib/api';
-import { EditDepartmentModal } from './EditDepartmentModal';
+import { Department } from "@/lib/types";
+import { useState } from "react";
+import { fetchAdminAPI } from "@/lib/api";
+import { EditDepartmentModal } from "./EditDepartmentModal";
 
 interface DepartmentsTableProps {
   departments: Department[];
@@ -17,13 +17,15 @@ export function DepartmentsTable({
   onDepartmentUpdated,
   onDepartmentDeleted,
 }: DepartmentsTableProps) {
-  const [editingDepartment, setEditingDepartment] = useState<Department | null>(null);
+  const [editingDepartment, setEditingDepartment] = useState<Department | null>(
+    null,
+  );
   const [deletingId, setDeletingId] = useState<number | null>(null); // ← number, not string
 
   const handleDelete = async (department: Department) => {
     if (
       !window.confirm(
-        `Are you sure you want to delete the "${department.name}" department? This action cannot be undone.`
+        `Are you sure you want to delete the "${department.name}" department? This action cannot be undone.`,
       )
     ) {
       return;
@@ -32,11 +34,13 @@ export function DepartmentsTable({
     try {
       setDeletingId(department.id);
       await fetchAdminAPI(`/departments/${department.id}`, {
-        method: 'DELETE',
+        method: "DELETE",
       });
       onDepartmentDeleted();
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Failed to delete department');
+      alert(
+        error instanceof Error ? error.message : "Failed to delete department",
+      );
     } finally {
       setDeletingId(null);
     }
@@ -58,8 +62,12 @@ export function DepartmentsTable({
             d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
           />
         </svg>
-        <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No departments found</h3>
-        <p className="mt-1 text-sm text-gray-500">Get started by creating a new department.</p>
+        <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">
+          No departments found
+        </h3>
+        <p className="mt-1 text-sm text-gray-500">
+          Get started by creating a new department.
+        </p>
       </div>
     );
   }
@@ -88,18 +96,20 @@ export function DepartmentsTable({
             {departments.map((department) => (
               <tr key={department.id} className="hover:bg-gray-50">
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900">{department.name}</div>
+                  <div className="text-sm font-medium text-gray-900">
+                    {department.name}
+                  </div>
                 </td>
                 <td className="px-6 py-4">
                   <div className="text-sm text-gray-500">
-                    {department.description || 'No description provided'}
+                    {department.description || "No description provided"}
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm text-gray-500">
                     {department.created_at
                       ? new Date(department.created_at).toLocaleDateString()
-                      : 'N/A'}
+                      : "N/A"}
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
@@ -114,7 +124,7 @@ export function DepartmentsTable({
                     disabled={deletingId === department.id}
                     className="text-red-600 hover:text-red-900 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {deletingId === department.id ? 'Deleting...' : 'Delete'}
+                    {deletingId === department.id ? "Deleting..." : "Delete"}
                   </button>
                 </td>
               </tr>

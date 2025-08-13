@@ -1,9 +1,9 @@
 // src/app/dashboard/departments/components/EditDepartmentModal.tsx
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { fetchAdminAPI } from '@/lib/api';
-import { Department } from '@/lib/types';
+import { useState, useEffect } from "react";
+import { fetchAdminAPI } from "@/lib/api";
+import { Department } from "@/lib/types";
 
 interface EditDepartmentModalProps {
   department: Department;
@@ -11,10 +11,14 @@ interface EditDepartmentModalProps {
   onSuccess: () => void;
 }
 
-export function EditDepartmentModal({ department, onClose, onSuccess }: EditDepartmentModalProps) {
+export function EditDepartmentModal({
+  department,
+  onClose,
+  onSuccess,
+}: EditDepartmentModalProps) {
   const [formData, setFormData] = useState({
     name: department.name,
-    description: department.description || '',
+    description: department.description || "",
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,26 +26,26 @@ export function EditDepartmentModal({ department, onClose, onSuccess }: EditDepa
   // Handle click outside modal
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === "Escape") onClose();
     };
-    document.addEventListener('keydown', handleEscape);
-    return () => document.removeEventListener('keydown', handleEscape);
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
   }, [onClose]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!formData.name.trim()) {
-      setError('Department name is required');
+      setError("Department name is required");
       return;
     }
 
     try {
       setLoading(true);
       setError(null);
-      
+
       await fetchAdminAPI(`/departments/${department.id}`, {
-        method: 'PUT',
+        method: "PUT",
         body: JSON.stringify({
           name: formData.name.trim(),
           description: formData.description.trim(),
@@ -50,16 +54,20 @@ export function EditDepartmentModal({ department, onClose, onSuccess }: EditDepa
 
       onSuccess();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update department');
+      setError(
+        err instanceof Error ? err.message : "Failed to update department",
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setFormData(prev => ({
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
+  ) => {
+    setFormData((prev) => ({
       ...prev,
-      [e.target.name]: e.target.value
+      [e.target.name]: e.target.value,
     }));
   };
 
@@ -72,8 +80,18 @@ export function EditDepartmentModal({ department, onClose, onSuccess }: EditDepa
             onClick={onClose}
             className="text-gray-400 hover:text-gray-500"
           >
-            <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            <svg
+              className="h-6 w-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -86,7 +104,10 @@ export function EditDepartmentModal({ department, onClose, onSuccess }: EditDepa
           )}
 
           <div>
-            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
+            <label
+              htmlFor="name"
+              className="block text-sm font-medium text-gray-700 mb-1"
+            >
               Department Name <span className="text-red-500">*</span>
             </label>
             <input
@@ -101,7 +122,10 @@ export function EditDepartmentModal({ department, onClose, onSuccess }: EditDepa
           </div>
 
           <div>
-            <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
+            <label
+              htmlFor="description"
+              className="block text-sm font-medium text-gray-700 mb-1"
+            >
               Description
             </label>
             <textarea
@@ -121,7 +145,7 @@ export function EditDepartmentModal({ department, onClose, onSuccess }: EditDepa
               disabled={loading}
               className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'Updating...' : 'Update Department'}
+              {loading ? "Updating..." : "Update Department"}
             </button>
             <button
               type="button"

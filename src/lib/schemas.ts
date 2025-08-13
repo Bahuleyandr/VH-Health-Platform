@@ -1,5 +1,5 @@
 // src/lib/schemas.ts
-import { z } from 'zod';
+import { z } from "zod";
 
 /* =========================
  * User / Admin Schemas
@@ -15,7 +15,7 @@ export const UserSchema = z.object({
   date_of_birth: z.string().optional(),
 });
 
-export const AdminRoleEnum = z.enum(['ADMIN', 'SUPER_ADMIN']);
+export const AdminRoleEnum = z.enum(["ADMIN", "SUPER_ADMIN"]);
 
 export const AdminUserSchema = UserSchema.extend({
   role: AdminRoleEnum,
@@ -57,7 +57,11 @@ export const PatientSchema = z.object({
   created_at: z.string(),
 });
 
-export const AppointmentStatusEnum = z.enum(['SCHEDULED', 'COMPLETED', 'CANCELLED']);
+export const AppointmentStatusEnum = z.enum([
+  "SCHEDULED",
+  "COMPLETED",
+  "CANCELLED",
+]);
 
 export const AppointmentSchema = z.object({
   id: z.number(),
@@ -87,7 +91,7 @@ export const DashboardDataBackendSchema = z.object({
         action: z.string(),
         timestamp: z.string(), // ISO date string
         user: z.string(),
-      })
+      }),
     )
     .optional(),
 });
@@ -105,18 +109,18 @@ export const DashboardDataSchema = z.object({
  * ========================= */
 
 export const LoginFormSchema = z.object({
-  username: z.string().min(1, 'Username is required'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  username: z.string().min(1, "Username is required"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
 });
 
 export const CreateDoctorFormSchema = z.object({
-  name: z.string().min(2, 'Name must be at least 2 characters'),
-  email: z.string().email('Invalid email address'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
-  phone: z.string().regex(/^[0-9]{10}$/, 'Phone must be 10 digits'),
-  department: z.string().min(1, 'Department is required'),
-  specialization: z.string().min(1, 'Specialization is required'),
-  consultation_fee: z.number().min(0, 'Fee must be positive'),
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  phone: z.string().regex(/^[0-9]{10}$/, "Phone must be 10 digits"),
+  department: z.string().min(1, "Department is required"),
+  specialization: z.string().min(1, "Specialization is required"),
+  consultation_fee: z.number().min(0, "Fee must be positive"),
 });
 
 /* =========================

@@ -1,8 +1,8 @@
 // src/components/BulkActions.tsx
-'use client';
+"use client";
 
-import { useState } from 'react';
-import toast from 'react-hot-toast';
+import { useState } from "react";
+import toast from "react-hot-toast";
 
 interface BulkActionsProps {
   selectedCount: number;
@@ -12,7 +12,7 @@ interface BulkActionsProps {
   actions?: Array<{
     label: string;
     onClick: () => void | Promise<void>;
-    variant?: 'primary' | 'danger' | 'default';
+    variant?: "primary" | "danger" | "default";
     icon?: React.ReactNode;
   }>;
 }
@@ -29,7 +29,9 @@ export function BulkActions({
   if (selectedCount === 0) return null;
 
   const handleDelete = async () => {
-    if (!window.confirm(`Are you sure you want to delete ${selectedCount} items?`)) {
+    if (
+      !window.confirm(`Are you sure you want to delete ${selectedCount} items?`)
+    ) {
       return;
     }
 
@@ -39,7 +41,7 @@ export function BulkActions({
       toast.success(`Successfully deleted ${selectedCount} items`);
       onClearSelection();
     } catch {
-      toast.error('Failed to delete items');
+      toast.error("Failed to delete items");
     } finally {
       setIsDeleting(false);
     }
@@ -47,22 +49,42 @@ export function BulkActions({
 
   const defaultActions = [
     {
-      label: 'Export',
+      label: "Export",
       onClick: onExport,
-      variant: 'default' as const,
+      variant: "default" as const,
       icon: (
-        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+        <svg
+          className="w-4 h-4 mr-2"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+          />
         </svg>
       ),
     },
     {
-      label: isDeleting ? 'Deleting...' : 'Delete',
+      label: isDeleting ? "Deleting..." : "Delete",
       onClick: handleDelete,
-      variant: 'danger' as const,
+      variant: "danger" as const,
       icon: (
-        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+        <svg
+          className="w-4 h-4 mr-2"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+          />
         </svg>
       ),
     },
@@ -72,12 +94,12 @@ export function BulkActions({
 
   const getButtonClass = (variant: string) => {
     switch (variant) {
-      case 'primary':
-        return 'bg-blue-600 text-white hover:bg-blue-700';
-      case 'danger':
-        return 'bg-red-600 text-white hover:bg-red-700';
+      case "primary":
+        return "bg-blue-600 text-white hover:bg-blue-700";
+      case "danger":
+        return "bg-red-600 text-white hover:bg-red-700";
       default:
-        return 'bg-gray-600 text-white hover:bg-gray-700';
+        return "bg-gray-600 text-white hover:bg-gray-700";
     }
   };
 
@@ -104,7 +126,7 @@ export function BulkActions({
               key={index}
               onClick={action.onClick}
               disabled={isDeleting}
-              className={`px-3 py-1.5 text-sm font-medium rounded-md flex items-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${getButtonClass(action.variant || 'default')}`}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md flex items-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${getButtonClass(action.variant || "default")}`}
             >
               {action.icon}
               {action.label}

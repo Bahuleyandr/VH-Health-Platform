@@ -1,5 +1,5 @@
 // src/middleware.ts
-import { NextResponse } from 'next/server';
+import { NextResponse } from "next/server";
 
 export function middleware() {
   // Add logic here later if needed
@@ -8,5 +8,5 @@ export function middleware() {
 
 // Keep your matcher if you had one:
 export const config = {
-  matcher: ['/dashboard/:path*', '/api/:path*'],
+  matcher: ["/dashboard/:path*", "/api/:path*"],
 };

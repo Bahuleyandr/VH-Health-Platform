@@ -1,8 +1,8 @@
 // src/components/PaginationControls.tsx
-'use client';
+"use client";
 
-import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { Pagination } from '@/lib/types';
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { Pagination } from "@/lib/types";
 
 export function PaginationControls({ pagination }: { pagination: Pagination }) {
   const router = useRouter();
@@ -11,13 +11,13 @@ export function PaginationControls({ pagination }: { pagination: Pagination }) {
 
   const handlePrev = () => {
     const params = new URLSearchParams(searchParams);
-    params.set('page', (pagination.page - 1).toString());
+    params.set("page", (pagination.page - 1).toString());
     router.push(`${pathname}?${params.toString()}`);
   };
 
   const handleNext = () => {
     const params = new URLSearchParams(searchParams);
-    params.set('page', (pagination.page + 1).toString());
+    params.set("page", (pagination.page + 1).toString());
     router.push(`${pathname}?${params.toString()}`);
   };
 
@@ -29,8 +29,8 @@ export function PaginationControls({ pagination }: { pagination: Pagination }) {
           disabled={!pagination.hasPrev}
           className={`relative inline-flex items-center px-4 py-2 text-sm font-medium rounded-md ${
             pagination.hasPrev
-              ? 'bg-white text-gray-700 hover:bg-gray-50'
-              : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+              ? "bg-white text-gray-700 hover:bg-gray-50"
+              : "bg-gray-100 text-gray-400 cursor-not-allowed"
           }`}
         >
           Previous
@@ -40,8 +40,8 @@ export function PaginationControls({ pagination }: { pagination: Pagination }) {
           disabled={!pagination.hasNext}
           className={`relative ml-3 inline-flex items-center px-4 py-2 text-sm font-medium rounded-md ${
             pagination.hasNext
-              ? 'bg-white text-gray-700 hover:bg-gray-50'
-              : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+              ? "bg-white text-gray-700 hover:bg-gray-50"
+              : "bg-gray-100 text-gray-400 cursor-not-allowed"
           }`}
         >
           Next
@@ -50,18 +50,22 @@ export function PaginationControls({ pagination }: { pagination: Pagination }) {
       <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
         <div>
           <p className="text-sm text-gray-700">
-            Showing page <span className="font-medium">{pagination.page}</span> of{' '}
-            <span className="font-medium">{pagination.totalPages}</span> (
-            <span className="font-medium">{pagination.total}</span> total results)
+            Showing page <span className="font-medium">{pagination.page}</span>{" "}
+            of <span className="font-medium">{pagination.totalPages}</span> (
+            <span className="font-medium">{pagination.total}</span> total
+            results)
           </p>
         </div>
         <div>
-          <nav className="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
+          <nav
+            className="isolate inline-flex -space-x-px rounded-md shadow-sm"
+            aria-label="Pagination"
+          >
             <button
               onClick={handlePrev}
               disabled={!pagination.hasPrev}
               className={`relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 ${
-                pagination.hasPrev ? 'hover:bg-gray-50' : 'cursor-not-allowed'
+                pagination.hasPrev ? "hover:bg-gray-50" : "cursor-not-allowed"
               }`}
             >
               <span className="sr-only">Previous</span>
@@ -80,7 +84,7 @@ export function PaginationControls({ pagination }: { pagination: Pagination }) {
               onClick={handleNext}
               disabled={!pagination.hasNext}
               className={`relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 ${
-                pagination.hasNext ? 'hover:bg-gray-50' : 'cursor-not-allowed'
+                pagination.hasNext ? "hover:bg-gray-50" : "cursor-not-allowed"
               }`}
             >
               <span className="sr-only">Next</span>

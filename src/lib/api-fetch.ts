@@ -1,5 +1,5 @@
 // src/lib/api-fetch.ts
-import { API_BASE_URL } from './api-config';
+import { API_BASE_URL } from "./api-config";
 
 export type ApiRequestInit = RequestInit & {
   /** If provided, adds `Authorization: Bearer <token>` */
@@ -9,7 +9,7 @@ export type ApiRequestInit = RequestInit & {
 };
 
 const PUBLIC_API_KEY =
-  process.env.NEXT_PUBLIC_API_KEY || process.env.NEXT_PUBLIC_X_API_KEY || '';
+  process.env.NEXT_PUBLIC_API_KEY || process.env.NEXT_PUBLIC_X_API_KEY || "";
 
 function isAbsoluteUrl(url: string): boolean {
   return /^https?:\/\//i.test(url);
@@ -17,8 +17,8 @@ function isAbsoluteUrl(url: string): boolean {
 
 function toAbsoluteUrl(endpoint: string, absolute?: boolean): string {
   if (absolute || isAbsoluteUrl(endpoint)) return endpoint;
-  const base = API_BASE_URL.replace(/\/+$/, '');
-  const path = endpoint.replace(/^\/+/, '');
+  const base = API_BASE_URL.replace(/\/+$/, "");
+  const path = endpoint.replace(/^\/+/, "");
   return `${base}/${path}`;
 }
 
@@ -48,7 +48,7 @@ function mergeHeaders(...parts: HeadersInit[]): Headers {
     // Plain object
     const entries = Object.entries(part as Record<string, string>);
     for (const [key, value] of entries) {
-      if (typeof value !== 'undefined') out.set(key, String(value));
+      if (typeof value !== "undefined") out.set(key, String(value));
     }
   }
 
@@ -60,7 +60,7 @@ function mergeHeaders(...parts: HeadersInit[]): Headers {
  */
 export async function apiFetch(
   endpoint: string,
-  init: ApiRequestInit = {}
+  init: ApiRequestInit = {},
 ): Promise<Response> {
   const { token, absolute, headers, ...rest } = init;
 
@@ -71,23 +71,23 @@ export async function apiFetch(
   const composed = mergeHeaders(headers ?? {});
 
   // Add Origin (best-effort: only in browser)
-  if (typeof window !== 'undefined' && !composed.has('Origin')) {
-    composed.set('Origin', window.location.origin);
+  if (typeof window !== "undefined" && !composed.has("Origin")) {
+    composed.set("Origin", window.location.origin);
   }
 
   // Add API key if configured and not already present
-  if (PUBLIC_API_KEY && !composed.has('x-api-key')) {
-    composed.set('x-api-key', PUBLIC_API_KEY);
+  if (PUBLIC_API_KEY && !composed.has("x-api-key")) {
+    composed.set("x-api-key", PUBLIC_API_KEY);
   }
 
   // Add Authorization if token provided and not already present
-  if (token && !composed.has('Authorization')) {
-    composed.set('Authorization', `Bearer ${token}`);
+  if (token && !composed.has("Authorization")) {
+    composed.set("Authorization", `Bearer ${token}`);
   }
 
   // Default Accept header for JSON APIs (don’t clobber if caller set one)
-  if (!composed.has('Accept')) {
-    composed.set('Accept', 'application/json');
+  if (!composed.has("Accept")) {
+    composed.set("Accept", "application/json");
   }
 
   return fetch(url, {
@@ -97,6 +97,10 @@ export async function apiFetch(
 }
 
 /** Convenience GET that still returns the raw Response (callers decide how to parse) */
-export function apiGet(endpoint: string, token?: string, init?: RequestInit): Promise<Response> {
-  return apiFetch(endpoint, { ...(init ?? {}), method: 'GET', token });
+export function apiGet(
+  endpoint: string,
+  token?: string,
+  init?: RequestInit,
+): Promise<Response> {
+  return apiFetch(endpoint, { ...(init ?? {}), method: "GET", token });
 }

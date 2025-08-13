@@ -1,13 +1,13 @@
 // src/components/SystemAlerts.tsx
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { adminService } from '@/services/admin.service';
+import { useEffect, useState } from "react";
+import { adminService } from "@/services/admin.service";
 
 interface Alert {
-  type: 'warning' | 'error' | 'info';
+  type: "warning" | "error" | "info";
   message: string;
-  priority: 'high' | 'medium' | 'low' | 'urgent';
+  priority: "high" | "medium" | "low" | "urgent";
   action?: string;
 }
 
@@ -27,7 +27,7 @@ export function SystemAlerts() {
       const response = await adminService.getSystemAlerts();
       setAlerts(response.data);
     } catch (error) {
-      console.error('Failed to fetch alerts:', error);
+      console.error("Failed to fetch alerts:", error);
     } finally {
       setLoading(false);
     }
@@ -48,16 +48,19 @@ export function SystemAlerts() {
 
 function AlertItem({ alert }: { alert: Alert }) {
   const bgColor = {
-    error: 'bg-red-50 border-red-200',
-    warning: 'bg-yellow-50 border-yellow-200',
-    info: 'bg-blue-50 border-blue-200',
+    error: "bg-red-50 border-red-200",
+    warning: "bg-yellow-50 border-yellow-200",
+    info: "bg-blue-50 border-blue-200",
   }[alert.type];
 
   return (
     <div className={`p-4 rounded-lg border ${bgColor}`}>
       <p className="font-medium">{alert.message}</p>
       {alert.action && (
-        <a href={alert.action} className="text-sm text-blue-600 hover:underline">
+        <a
+          href={alert.action}
+          className="text-sm text-blue-600 hover:underline"
+        >
           View Details →
         </a>
       )}

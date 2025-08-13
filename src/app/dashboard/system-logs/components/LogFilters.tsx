@@ -1,47 +1,52 @@
 // src/app/dashboard/system-logs/components/LogFilters.tsx
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
-import type { LogFilters as LogFiltersType } from '@/lib/types';
+import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
+import type { LogFilters as LogFiltersType } from "@/lib/types";
 
 interface LogFiltersProps {
   onFilterChange: (filters: LogFiltersType) => void;
-  logType: 'audit' | 'system';
+  logType: "audit" | "system";
 }
 
 const AUDIT_ACTIONS = [
-  'USER_LOGIN',
-  'USER_LOGOUT',
-  'USER_CREATE',
-  'USER_UPDATE',
-  'USER_DELETE',
-  'APPOINTMENT_CREATE',
-  'APPOINTMENT_UPDATE',
-  'APPOINTMENT_CANCEL',
-  'DOCTOR_CREATE',
-  'DOCTOR_UPDATE',
-  'DOCTOR_DELETE',
-  'ADMIN_CREATE',
-  'PERMISSION_UPDATE',
-  'SETTINGS_UPDATE',
+  "USER_LOGIN",
+  "USER_LOGOUT",
+  "USER_CREATE",
+  "USER_UPDATE",
+  "USER_DELETE",
+  "APPOINTMENT_CREATE",
+  "APPOINTMENT_UPDATE",
+  "APPOINTMENT_CANCEL",
+  "DOCTOR_CREATE",
+  "DOCTOR_UPDATE",
+  "DOCTOR_DELETE",
+  "ADMIN_CREATE",
+  "PERMISSION_UPDATE",
+  "SETTINGS_UPDATE",
 ];
 
 export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
   const searchParams = useSearchParams();
-  const [dateRange, setDateRange] = useState('');
-  const [search, setSearch] = useState('');
-  const [level, setLevel] = useState('');
-  const [action, setAction] = useState('');
+  const [dateRange, setDateRange] = useState("");
+  const [search, setSearch] = useState("");
+  const [level, setLevel] = useState("");
+  const [action, setAction] = useState("");
   const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
-    setDateRange(searchParams.get('dateRange') || '');
-    setSearch(searchParams.get('search') || '');
-    setLevel(searchParams.get('level') || '');
-    setAction(searchParams.get('action') || '');
+    setDateRange(searchParams.get("dateRange") || "");
+    setSearch(searchParams.get("search") || "");
+    setLevel(searchParams.get("level") || "");
+    setAction(searchParams.get("action") || "");
 
-    if (searchParams.get('dateRange') || searchParams.get('search') || searchParams.get('level') || searchParams.get('action')) {
+    if (
+      searchParams.get("dateRange") ||
+      searchParams.get("search") ||
+      searchParams.get("level") ||
+      searchParams.get("action")
+    ) {
       setShowFilters(true);
     }
   }, [searchParams]);
@@ -50,20 +55,22 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
     onFilterChange({
       dateRange,
       search,
-      level: logType === 'system' ? level : undefined,
-      action: logType === 'audit' ? action : undefined,
+      level: logType === "system" ? level : undefined,
+      action: logType === "audit" ? action : undefined,
     });
   };
 
   const handleReset = () => {
-    setDateRange('');
-    setSearch('');
-    setLevel('');
-    setAction('');
+    setDateRange("");
+    setSearch("");
+    setLevel("");
+    setAction("");
     onFilterChange({});
   };
 
-  const activeFilterCount = [dateRange, search, level, action].filter(Boolean).length;
+  const activeFilterCount = [dateRange, search, level, action].filter(
+    Boolean,
+  ).length;
 
   return (
     <div className="bg-white rounded-lg shadow">
@@ -72,8 +79,18 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
           onClick={() => setShowFilters(!showFilters)}
           className="flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-gray-900"
         >
-          <svg className={`w-5 h-5 transition-transform ${showFilters ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          <svg
+            className={`w-5 h-5 transition-transform ${showFilters ? "rotate-180" : ""}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M19 9l-7 7-7-7"
+            />
           </svg>
           Filters
           {activeFilterCount > 0 && (
@@ -89,7 +106,10 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Search */}
             <div>
-              <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-1">
+              <label
+                htmlFor="search"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
                 Search
               </label>
               <input
@@ -97,15 +117,22 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
                 id="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                onKeyUp={(e) => e.key === 'Enter' && handleApplyFilters()}
-                placeholder={logType === 'audit' ? 'User ID, action, details...' : 'Message, service...'}
+                onKeyUp={(e) => e.key === "Enter" && handleApplyFilters()}
+                placeholder={
+                  logType === "audit"
+                    ? "User ID, action, details..."
+                    : "Message, service..."
+                }
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
             {/* Date Range */}
             <div>
-              <label htmlFor="dateRange" className="block text-sm font-medium text-gray-700 mb-1">
+              <label
+                htmlFor="dateRange"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
                 Date Range
               </label>
               <select
@@ -124,9 +151,12 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
             </div>
 
             {/* Log Level (System Logs only) */}
-            {logType === 'system' && (
+            {logType === "system" && (
               <div>
-                <label htmlFor="level" className="block text-sm font-medium text-gray-700 mb-1">
+                <label
+                  htmlFor="level"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
                   Log Level
                 </label>
                 <select
@@ -145,9 +175,12 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
             )}
 
             {/* Action (Audit Logs only) */}
-            {logType === 'audit' && (
+            {logType === "audit" && (
               <div>
-                <label htmlFor="action" className="block text-sm font-medium text-gray-700 mb-1">
+                <label
+                  htmlFor="action"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
                   Action
                 </label>
                 <select
@@ -159,7 +192,7 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
                   <option value="">All Actions</option>
                   {AUDIT_ACTIONS.map((act) => (
                     <option key={act} value={act}>
-                      {act.replace(/_/g, ' ')}
+                      {act.replace(/_/g, " ")}
                     </option>
                   ))}
                 </select>

@@ -1,5 +1,5 @@
 // src/lib/types.ts
-import { z } from 'zod';
+import { z } from "zod";
 import {
   UserSchema,
   AdminUserSchema,
@@ -11,7 +11,7 @@ import {
   DashboardDataBackendSchema,
   AdminRoleEnum,
   AppointmentStatusEnum,
-} from './schemas';
+} from "./schemas";
 
 /* =========================
  * Shared / Utility Types
@@ -42,13 +42,13 @@ export interface ApiMessage {
  * ========================= */
 
 export type Role =
-  | 'PATIENT'
-  | 'DOCTOR'
-  | 'ADMIN'
-  | 'NURSE'
-  | 'PHARMACIST'
-  | 'TECHNICIAN'
-  | 'RECEPTIONIST';
+  | "PATIENT"
+  | "DOCTOR"
+  | "ADMIN"
+  | "NURSE"
+  | "PHARMACIST"
+  | "TECHNICIAN"
+  | "RECEPTIONIST";
 
 /** Admin-only role union (from schemas) */
 export type AdminRole = z.infer<typeof AdminRoleEnum>;
@@ -109,7 +109,7 @@ export interface PharmacyOrder {
   patient_name: string;
   doctor_name: string;
   order_date: string; // ISO date string
-  status: 'PENDING' | 'COMPLETED' | 'CANCELLED';
+  status: "PENDING" | "COMPLETED" | "CANCELLED";
   total_amount: number;
   items: Array<{ name: string; quantity: number }>;
 }
@@ -137,7 +137,7 @@ export interface AuditLog {
 
 export interface SystemLog {
   id: number;
-  level: 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
+  level: "INFO" | "WARN" | "ERROR" | "DEBUG";
   message: string;
   timestamp: string; // ISO date string
   user_id?: number;

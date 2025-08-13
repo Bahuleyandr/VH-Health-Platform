@@ -1,14 +1,14 @@
 // src/app/dashboard/notifications/page.tsx
-'use client';
+"use client";
 
-import { useEffect, useState, Suspense, useCallback } from 'react';
-import { fetchAdminAPI } from '@/lib/api';
-import type { Notification } from '@/lib/types';
-import { SendAnnouncementForm } from './components/SendAnnouncementForm';
-import { NotificationsTable } from './components/NotificationsTable';
+import { useEffect, useState, Suspense, useCallback } from "react";
+import { fetchAdminAPI } from "@/lib/api";
+import type { Notification } from "@/lib/types";
+import { SendAnnouncementForm } from "./components/SendAnnouncementForm";
+import { NotificationsTable } from "./components/NotificationsTable";
 
 function isObj(x: unknown): x is Record<string, unknown> {
-  return typeof x === 'object' && x !== null;
+  return typeof x === "object" && x !== null;
 }
 
 function isNotification(x: unknown): x is Notification {
@@ -16,18 +16,23 @@ function isNotification(x: unknown): x is Notification {
   const id = (x as Record<string, unknown>).id;
   const message = (x as Record<string, unknown>).message;
   const title = (x as Record<string, unknown>).title;
-  return (typeof id === 'number' || typeof id === 'string') &&
-         (typeof message === 'string' || typeof title === 'string');
+  return (
+    (typeof id === "number" || typeof id === "string") &&
+    (typeof message === "string" || typeof title === "string")
+  );
 }
 
 function toNotificationArray(x: unknown): Notification[] {
-  if (Array.isArray(x)) return (x as unknown[]).filter(isNotification) as Notification[];
+  if (Array.isArray(x))
+    return (x as unknown[]).filter(isNotification) as Notification[];
   if (isObj(x)) {
     const obj = x as Record<string, unknown>;
     const n1 = obj.notifications;
     const n2 = obj.data;
-    if (Array.isArray(n1)) return (n1 as unknown[]).filter(isNotification) as Notification[];
-    if (Array.isArray(n2)) return (n2 as unknown[]).filter(isNotification) as Notification[];
+    if (Array.isArray(n1))
+      return (n1 as unknown[]).filter(isNotification) as Notification[];
+    if (Array.isArray(n2))
+      return (n2 as unknown[]).filter(isNotification) as Notification[];
   }
   return [];
 }
@@ -43,12 +48,14 @@ function NotificationsContent() {
       setError(null);
 
       // Backend may return an array or an object with { notifications } / { data }
-      const resp = await fetchAdminAPI<unknown>('/notifications');
+      const resp = await fetchAdminAPI<unknown>("/notifications");
       const list = toNotificationArray(resp);
 
       setNotifications(list);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch notifications');
+      setError(
+        err instanceof Error ? err.message : "Failed to fetch notifications",
+      );
     } finally {
       setLoading(false);
     }

@@ -1,13 +1,13 @@
-'use client';
+"use client";
 
-import { Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchAdminAPI } from '@/lib/api';
-import { UsersAPIResponse } from '@/lib/types';
-import { UsersTable } from './components/UsersTable';
-import { PaginationControls } from './components/PaginationControls';
-import { UserFilters } from './components/UserFilters';
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchAdminAPI } from "@/lib/api";
+import { UsersAPIResponse } from "@/lib/types";
+import { UsersTable } from "./components/UsersTable";
+import { PaginationControls } from "./components/PaginationControls";
+import { UserFilters } from "./components/UserFilters";
 
 function UsersContent() {
   const searchParams = useSearchParams();
@@ -15,23 +15,23 @@ function UsersContent() {
 
   // Build query string from search params
   const queryParams = new URLSearchParams();
-  const page = searchParams.get('page') || '1';
-  const role = searchParams.get('role');
-  const search = searchParams.get('search');
+  const page = searchParams.get("page") || "1";
+  const role = searchParams.get("role");
+  const search = searchParams.get("search");
 
-  queryParams.set('page', page);
-  if (role) queryParams.set('role', role);
-  if (search) queryParams.set('search', search);
+  queryParams.set("page", page);
+  if (role) queryParams.set("role", role);
+  if (search) queryParams.set("search", search);
 
   const { data, isLoading, error } = useQuery<UsersAPIResponse>({
-    queryKey: ['users', page, role, search],
+    queryKey: ["users", page, role, search],
     queryFn: () => fetchAdminAPI(`/admin/users?${queryParams.toString()}`),
     staleTime: 30_000,
   });
 
   const onUserUpdated = () => {
     // Invalidate all variations of the 'users' query key
-    queryClient.invalidateQueries({ queryKey: ['users'] });
+    queryClient.invalidateQueries({ queryKey: ["users"] });
   };
 
   if (isLoading) {
@@ -45,7 +45,8 @@ function UsersContent() {
   if (error) {
     return (
       <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-        Error: {error instanceof Error ? error.message : 'Failed to fetch users'}
+        Error:{" "}
+        {error instanceof Error ? error.message : "Failed to fetch users"}
       </div>
     );
   }

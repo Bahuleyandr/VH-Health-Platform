@@ -1,20 +1,14 @@
 // src/app/dashboard/attendance/page.tsx
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { adminService } from '@/services/admin.service';
+import { useEffect, useState } from "react";
+import { adminService } from "@/services/admin.service";
 
 // Generic JSON type (avoids `any`)
-type Json =
-  | string
-  | number
-  | boolean
-  | null
-  | Json[]
-  | { [key: string]: Json };
+type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
 
 function unwrapJson(x: unknown): Json {
-  if (x && typeof x === 'object' && 'data' in x) {
+  if (x && typeof x === "object" && "data" in x) {
     const v = (x as { data?: unknown }).data;
     return (v as Json) ?? null;
   }
@@ -33,13 +27,13 @@ export default function AttendancePage() {
       setLoading(true);
       try {
         const [a, an, ab] = await Promise.all([
-          adminService.getAttendanceAnalytics({ group_by: 'day' }),
+          adminService.getAttendanceAnalytics({ group_by: "day" }),
           adminService.getAttendanceAnomalies(),
           adminService.getAbsentReport({ date: today }),
         ]);
-        setAnalytics(unwrapJson(a));   // no `any`
-        setAnomalies(unwrapJson(an));  // no `any`
-        setAbsent(unwrapJson(ab));     // no `any`
+        setAnalytics(unwrapJson(a)); // no `any`
+        setAnomalies(unwrapJson(an)); // no `any`
+        setAbsent(unwrapJson(ab)); // no `any`
       } finally {
         setLoading(false);
       }

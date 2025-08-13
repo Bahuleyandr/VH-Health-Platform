@@ -1,12 +1,12 @@
 // src/app/dashboard/users/components/UsersTable.tsx
-'use client';
+"use client";
 
-import { useEffect, useRef } from 'react';
-import type { User } from '@/lib/types';
-import { useSelection } from '@/hooks/useSelection';
-import { BulkActions } from '@/components/BulkActions';
-import { fetchAdminAPI } from '@/lib/api';
-import toast from 'react-hot-toast';
+import { useEffect, useRef } from "react";
+import type { User } from "@/lib/types";
+import { useSelection } from "@/hooks/useSelection";
+import { BulkActions } from "@/components/BulkActions";
+import { fetchAdminAPI } from "@/lib/api";
+import toast from "react-hot-toast";
 
 interface UsersTableProps {
   users: User[];
@@ -15,7 +15,11 @@ interface UsersTableProps {
 
 // Type guard to safely read optional "role" without using `any`
 function hasRole(u: unknown): u is { role: string } {
-  return typeof u === 'object' && u !== null && typeof (u as Record<string, unknown>).role === 'string';
+  return (
+    typeof u === "object" &&
+    u !== null &&
+    typeof (u as Record<string, unknown>).role === "string"
+  );
 }
 
 export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
@@ -34,12 +38,15 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
   const headerCheckboxRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (headerCheckboxRef.current) {
-      headerCheckboxRef.current.indeterminate = !!isPartiallySelected && !isAllSelected;
+      headerCheckboxRef.current.indeterminate =
+        !!isPartiallySelected && !isAllSelected;
     }
   }, [isPartiallySelected, isAllSelected]);
 
   const handleBulkDelete = async () => {
-    const promises = selectedIds.map(id => fetchAdminAPI(`/users/${id}`, { method: 'DELETE' }));
+    const promises = selectedIds.map((id) =>
+      fetchAdminAPI(`/users/${id}`, { method: "DELETE" }),
+    );
     await Promise.all(promises);
     onUserUpdated();
     clearSelection();
@@ -47,18 +54,18 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
   };
 
   const handleBulkExport = () => {
-    const selectedUsers = users.filter(user => selectedIds.includes(user.id));
+    const selectedUsers = users.filter((user) => selectedIds.includes(user.id));
     const csv = convertToCSV(selectedUsers);
-    downloadCSV(csv, 'users-export.csv');
+    downloadCSV(csv, "users-export.csv");
     toast.success(`Exported ${selectedCount} users`);
   };
 
   const handleBulkActivate = async () => {
-    const promises = selectedIds.map(id =>
+    const promises = selectedIds.map((id) =>
       fetchAdminAPI(`/users/${id}`, {
-        method: 'PUT',
+        method: "PUT",
         body: JSON.stringify({ is_active: true }),
-      })
+      }),
     );
     await Promise.all(promises);
     toast.success(`Activated ${selectedCount} users`);
@@ -67,11 +74,11 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
   };
 
   const handleBulkDeactivate = async () => {
-    const promises = selectedIds.map(id =>
+    const promises = selectedIds.map((id) =>
       fetchAdminAPI(`/users/${id}`, {
-        method: 'PUT',
+        method: "PUT",
         body: JSON.stringify({ is_active: false }),
-      })
+      }),
     );
     await Promise.all(promises);
     toast.success(`Deactivated ${selectedCount} users`);
@@ -115,7 +122,7 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
             {users.map((user) => (
               <tr
                 key={user.id}
-                className={`hover:bg-gray-50 dark:hover:bg-gray-700 ${isSelected(user.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
+                className={`hover:bg-gray-50 dark:hover:bg-gray-700 ${isSelected(user.id) ? "bg-blue-50 dark:bg-blue-900/20" : ""}`}
               >
                 <td className="px-6 py-4 whitespace-nowrap">
                   <input
@@ -126,27 +133,33 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
                   />
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900 dark:text-white">{user.name}</div>
+                  <div className="text-sm font-medium text-gray-900 dark:text-white">
+                    {user.name}
+                  </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-500 dark:text-gray-400">{user.email}</div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                    {user.email}
+                  </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span
                     className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                       user.is_active
-                        ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
-                        : 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+                        ? "bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400"
+                        : "bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400"
                     }`}
                   >
-                    {user.is_active ? 'Active' : 'Inactive'}
+                    {user.is_active ? "Active" : "Inactive"}
                   </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                  {hasRole(user) ? user.role : 'User'}
+                  {hasRole(user) ? user.role : "User"}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                  <button className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400">Edit</button>
+                  <button className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400">
+                    Edit
+                  </button>
                 </td>
               </tr>
             ))}
@@ -161,22 +174,42 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
         onClearSelection={clearSelection}
         actions={[
           {
-            label: 'Activate',
+            label: "Activate",
             onClick: handleBulkActivate,
-            variant: 'primary',
+            variant: "primary",
             icon: (
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <svg
+                className="w-4 h-4 mr-2"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
               </svg>
             ),
           },
           {
-            label: 'Deactivate',
+            label: "Deactivate",
             onClick: handleBulkDeactivate,
-            variant: 'default',
+            variant: "default",
             icon: (
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <svg
+                className="w-4 h-4 mr-2"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
               </svg>
             ),
           },
@@ -188,22 +221,22 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
 
 // Utility functions
 function convertToCSV(users: User[]): string {
-  const headers = ['ID', 'Name', 'Email', 'Status', 'Created At'];
-  const rows = users.map(user => [
+  const headers = ["ID", "Name", "Email", "Status", "Created At"];
+  const rows = users.map((user) => [
     user.id,
     user.name,
     user.email,
-    user.is_active ? 'Active' : 'Inactive',
+    user.is_active ? "Active" : "Inactive",
     new Date(user.created_at).toLocaleDateString(),
   ]);
 
-  return [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
+  return [headers.join(","), ...rows.map((row) => row.join(","))].join("\n");
 }
 
 function downloadCSV(csv: string, filename: string) {
-  const blob = new Blob([csv], { type: 'text/csv' });
+  const blob = new Blob([csv], { type: "text/csv" });
   const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
+  const a = document.createElement("a");
   a.href = url;
   a.download = filename;
   document.body.appendChild(a);

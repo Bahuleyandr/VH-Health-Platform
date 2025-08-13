@@ -1,20 +1,14 @@
 // src/app/dashboard/uploads/page.tsx
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { adminService } from '@/services/admin.service';
+import { useEffect, useState } from "react";
+import { adminService } from "@/services/admin.service";
 
 // Generic JSON type to avoid `any`
-type Json =
-  | string
-  | number
-  | boolean
-  | null
-  | Json[]
-  | { [key: string]: Json };
+type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
 
 function unwrapJson(x: unknown): Json {
-  if (x && typeof x === 'object' && 'data' in x) {
+  if (x && typeof x === "object" && "data" in x) {
     const v = (x as { data: unknown }).data;
     return (v as Json) ?? null;
   }

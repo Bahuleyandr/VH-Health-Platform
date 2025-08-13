@@ -1,18 +1,26 @@
 // src/hooks/usePerformanceMonitor.ts
-'use client';
+"use client";
 
-import { useEffect } from 'react';
+import { useEffect } from "react";
 
 type OnEntry = (entry: PerformanceEntry) => void;
 
 export function usePerformanceMonitor(
   onEntry?: OnEntry,
-  options: PerformanceObserverInit = { entryTypes: ['navigation', 'resource', 'paint'] }
+  options: PerformanceObserverInit = {
+    entryTypes: ["navigation", "resource", "paint"],
+  },
 ) {
   useEffect(() => {
-    if (typeof window === 'undefined' || typeof PerformanceObserver === 'undefined') return;
+    if (
+      typeof window === "undefined" ||
+      typeof PerformanceObserver === "undefined"
+    )
+      return;
 
-    const handleEntries: PerformanceObserverCallback = (list /*: PerformanceObserverEntryList*/) => {
+    const handleEntries: PerformanceObserverCallback = (
+      list /*: PerformanceObserverEntryList*/,
+    ) => {
       const entries = list.getEntries(); // correct API on PerformanceObserverEntryList
       for (const entry of entries) {
         onEntry?.(entry);

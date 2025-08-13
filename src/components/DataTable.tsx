@@ -1,8 +1,8 @@
 // src/components/DataTable.tsx
-'use client';
+"use client";
 
-import { useState } from 'react';
-import type { ReactNode } from 'react';
+import { useState } from "react";
+import type { ReactNode } from "react";
 
 interface Column<T, K extends keyof T = keyof T> {
   key: K;
@@ -63,7 +63,7 @@ export function DataTable<T extends { id: string }>({
           <tr
             key={row.id}
             onClick={() => onRowClick?.(row)}
-            className={onRowClick ? 'cursor-pointer hover:bg-gray-50' : ''}
+            className={onRowClick ? "cursor-pointer hover:bg-gray-50" : ""}
           >
             {selectable && (
               <td className="px-6 py-4">
@@ -77,7 +77,10 @@ export function DataTable<T extends { id: string }>({
             )}
 
             {columns.map((column) => (
-              <td key={String(column.key)} className="px-6 py-4 whitespace-nowrap">
+              <td
+                key={String(column.key)}
+                className="px-6 py-4 whitespace-nowrap"
+              >
                 {column.render
                   ? column.render(row[column.key], row)
                   : String(row[column.key])}

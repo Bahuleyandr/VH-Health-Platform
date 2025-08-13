@@ -1,10 +1,14 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback } from "react";
 
-export function useSelection<T extends { id: string | number }>(items: T[] = []) {
-  const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
+export function useSelection<T extends { id: string | number }>(
+  items: T[] = [],
+) {
+  const [selectedIds, setSelectedIds] = useState<Set<string | number>>(
+    new Set(),
+  );
 
   const toggleSelection = useCallback((id: string | number) => {
-    setSelectedIds(prev => {
+    setSelectedIds((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(id)) {
         newSet.delete(id);
@@ -16,11 +20,11 @@ export function useSelection<T extends { id: string | number }>(items: T[] = [])
   }, []);
 
   const toggleAll = useCallback(() => {
-    setSelectedIds(prev => {
+    setSelectedIds((prev) => {
       if (prev.size === items.length) {
         return new Set();
       } else {
-        return new Set(items.map(item => item.id));
+        return new Set(items.map((item) => item.id));
       }
     });
   }, [items]);
@@ -29,12 +33,16 @@ export function useSelection<T extends { id: string | number }>(items: T[] = [])
     setSelectedIds(new Set());
   }, []);
 
-  const isSelected = useCallback((id: string | number) => {
-    return selectedIds.has(id);
-  }, [selectedIds]);
+  const isSelected = useCallback(
+    (id: string | number) => {
+      return selectedIds.has(id);
+    },
+    [selectedIds],
+  );
 
   const isAllSelected = items.length > 0 && selectedIds.size === items.length;
-  const isPartiallySelected = selectedIds.size > 0 && selectedIds.size < items.length;
+  const isPartiallySelected =
+    selectedIds.size > 0 && selectedIds.size < items.length;
 
   return {
     selectedIds: Array.from(selectedIds),

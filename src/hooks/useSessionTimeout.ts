@@ -1,9 +1,9 @@
 // src/hooks/useSessionTimeout.ts
-'use client';
+"use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getToken, getTokenExp, isTokenExpired } from '@/lib/auth';
-import { useAuth } from '@/contexts/AuthContext';
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getToken, getTokenExp, isTokenExpired } from "@/lib/auth";
+import { useAuth } from "@/contexts/AuthContext";
 
 type UseSessionTimeoutOptions = {
   /** How often to check the token (ms). Default: 5000 */
@@ -18,12 +18,15 @@ export function useSessionTimeout(options: UseSessionTimeoutOptions = {}) {
   const { logout } = useAuth();
   const checkIntervalMs = options.checkIntervalMs ?? 5000;
   const skewSeconds = options.skewSeconds ?? 30;
-  const redirectPath = options.redirectPath ?? '/login';
+  const redirectPath = options.redirectPath ?? "/login";
 
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const ticking = useRef<number | null>(null);
 
-  const token = useMemo(() => (typeof window !== 'undefined' ? getToken() : null), []);
+  const token = useMemo(
+    () => (typeof window !== "undefined" ? getToken() : null),
+    [],
+  );
   const exp = useMemo(() => {
     if (!token) return null;
     return getTokenExp(token);
@@ -33,7 +36,7 @@ export function useSessionTimeout(options: UseSessionTimeoutOptions = {}) {
     try {
       await logout();
     } finally {
-      if (typeof window !== 'undefined' && redirectPath) {
+      if (typeof window !== "undefined" && redirectPath) {
         window.location.href = redirectPath;
       }
     }

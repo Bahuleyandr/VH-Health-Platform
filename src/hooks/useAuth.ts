@@ -1,9 +1,9 @@
 // src/hooks/useAuth.ts
-import { useUser } from '@/contexts/UserContext';
-import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { useUser } from "@/contexts/UserContext";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
-export function useAuth(redirectTo = '/login', redirectIfFound = false) {
+export function useAuth(redirectTo = "/login", redirectIfFound = false) {
   const { user, loading } = useUser();
   const router = useRouter();
 
@@ -12,7 +12,7 @@ export function useAuth(redirectTo = '/login', redirectIfFound = false) {
       if (!user && !redirectIfFound) {
         router.push(redirectTo);
       }
-      
+
       if (user && redirectIfFound) {
         router.push(redirectTo);
       }

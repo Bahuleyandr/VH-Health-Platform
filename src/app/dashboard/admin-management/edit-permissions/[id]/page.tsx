@@ -1,23 +1,23 @@
 // src/app/dashboard/admin-management/edit-permissions/[id]/page.tsx
-'use client';
+"use client";
 
-import { useEffect, useState, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import Link from 'next/link';
-import type { AdminUser } from '@/lib/types';
-import { getJSON, putJSON } from '@/lib/api';
-import { API_ENDPOINTS } from '@/lib/api-config';
-import { usePermissions } from '@/hooks/usePermissions';
+import { useEffect, useState, useCallback } from "react";
+import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import type { AdminUser } from "@/lib/types";
+import { getJSON, putJSON } from "@/lib/api";
+import { API_ENDPOINTS } from "@/lib/api-config";
+import { usePermissions } from "@/hooks/usePermissions";
 
 const ALL_PERMISSIONS = [
-  { value: 'adminManagement', label: 'Admin Management' },
-  { value: 'userManagement', label: 'User Management' },
-  { value: 'doctorManagement', label: 'Doctor Management' },
-  { value: 'departmentManagement', label: 'Department Management' },
-  { value: 'appointmentManagement', label: 'Appointment Management' },
-  { value: 'pharmacyAdminRoutes', label: 'Pharmacy Administration' },
-  { value: 'notificationManagement', label: 'Notification Management' },
-  { value: 'viewAuditLogs', label: 'View Audit Logs' },
+  { value: "adminManagement", label: "Admin Management" },
+  { value: "userManagement", label: "User Management" },
+  { value: "doctorManagement", label: "Doctor Management" },
+  { value: "departmentManagement", label: "Department Management" },
+  { value: "appointmentManagement", label: "Appointment Management" },
+  { value: "pharmacyAdminRoutes", label: "Pharmacy Administration" },
+  { value: "notificationManagement", label: "Notification Management" },
+  { value: "viewAuditLogs", label: "View Audit Logs" },
 ];
 
 export default function EditPermissionsPage() {
@@ -27,8 +27,8 @@ export default function EditPermissionsPage() {
 
   // Only ADMIN with 'admin:permissions:update' (or SUPER_ADMIN) may access
   const { allowed } = usePermissions({
-    requiredRole: 'ADMIN',
-    requiredPermissions: ['admin:permissions:update'],
+    requiredRole: "ADMIN",
+    requiredPermissions: ["admin:permissions:update"],
   });
 
   const [admin, setAdmin] = useState<AdminUser | null>(null);
@@ -44,20 +44,22 @@ export default function EditPermissionsPage() {
 
       // The backend may return either an array or { admins: [...] }
       const data = await getJSON<AdminUser[] | { admins: AdminUser[] }>(
-        API_ENDPOINTS.auth.adminManagement
+        API_ENDPOINTS.auth.adminManagement,
       );
-      const list = Array.isArray(data) ? data : data?.admins ?? [];
+      const list = Array.isArray(data) ? data : (data?.admins ?? []);
       const target = list.find((a) => String(a.id) === adminId);
 
       if (!target) {
-        setError('Administrator not found');
+        setError("Administrator not found");
         setAdmin(null);
       } else {
         setAdmin(target);
         setSelectedPermissions(target.permissions ?? []);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to fetch administrator data');
+      setError(
+        e instanceof Error ? e.message : "Failed to fetch administrator data",
+      );
     } finally {
       setLoading(false);
     }
@@ -70,7 +72,7 @@ export default function EditPermissionsPage() {
 
   const togglePermission = (perm: string) => {
     setSelectedPermissions((prev) =>
-      prev.includes(perm) ? prev.filter((p) => p !== perm) : [...prev, perm]
+      prev.includes(perm) ? prev.filter((p) => p !== perm) : [...prev, perm],
     );
   };
 
@@ -82,14 +84,14 @@ export default function EditPermissionsPage() {
 
     try {
       await putJSON(API_ENDPOINTS.auth.adminManagement, {
-        action: 'updatePermissions',
+        action: "updatePermissions",
         adminId: Number(admin.id),
         permissions: selectedPermissions,
       });
 
-      router.push('/dashboard/admin-management');
+      router.push("/dashboard/admin-management");
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to update permissions');
+      setError(e instanceof Error ? e.message : "Failed to update permissions");
       setSaving(false);
     }
   };
@@ -98,7 +100,10 @@ export default function EditPermissionsPage() {
     return (
       <div className="p-6">
         <div className="mb-4">
-          <Link href="/dashboard/admin-management" className="text-blue-600 hover:text-blue-800">
+          <Link
+            href="/dashboard/admin-management"
+            className="text-blue-600 hover:text-blue-800"
+          >
             ← Back to Admin Management
           </Link>
         </div>
@@ -123,7 +128,10 @@ export default function EditPermissionsPage() {
     return (
       <div className="p-6">
         <div className="mb-4">
-          <Link href="/dashboard/admin-management" className="text-blue-600 hover:text-blue-800">
+          <Link
+            href="/dashboard/admin-management"
+            className="text-blue-600 hover:text-blue-800"
+          >
             ← Back to Admin Management
           </Link>
         </div>
@@ -139,7 +147,10 @@ export default function EditPermissionsPage() {
   return (
     <div className="p-6">
       <div className="mb-4">
-        <Link href="/dashboard/admin-management" className="text-blue-600 hover:text-blue-800">
+        <Link
+          href="/dashboard/admin-management"
+          className="text-blue-600 hover:text-blue-800"
+        >
           ← Back to Admin Management
         </Link>
       </div>
@@ -151,10 +162,12 @@ export default function EditPermissionsPage() {
       <form onSubmit={handleSubmit} className="rounded-lg bg-white p-6 shadow">
         <div className="mb-6">
           <div className="mb-2 text-sm text-gray-600">
-            Email: <span className="font-medium text-gray-900">{admin.email}</span>
+            Email:{" "}
+            <span className="font-medium text-gray-900">{admin.email}</span>
           </div>
           <div className="text-sm text-gray-600">
-            Role: <span className="font-medium text-gray-900">{admin.role}</span>
+            Role:{" "}
+            <span className="font-medium text-gray-900">{admin.role}</span>
           </div>
         </div>
 
@@ -164,7 +177,9 @@ export default function EditPermissionsPage() {
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => setSelectedPermissions(ALL_PERMISSIONS.map((p) => p.value))}
+                onClick={() =>
+                  setSelectedPermissions(ALL_PERMISSIONS.map((p) => p.value))
+                }
                 className="text-sm text-blue-600 hover:text-blue-800"
                 disabled={saving}
               >
@@ -196,7 +211,10 @@ export default function EditPermissionsPage() {
                   className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                   disabled={saving}
                 />
-                <label htmlFor={p.value} className="ml-3 flex-1 cursor-pointer text-sm text-gray-900">
+                <label
+                  htmlFor={p.value}
+                  className="ml-3 flex-1 cursor-pointer text-sm text-gray-900"
+                >
                   {p.label}
                 </label>
               </div>
@@ -209,15 +227,17 @@ export default function EditPermissionsPage() {
             type="submit"
             disabled={saving}
             className={`rounded-md px-4 py-2 font-medium transition-colors ${
-              saving ? 'cursor-not-allowed bg-gray-400 text-gray-200' : 'bg-blue-600 text-white hover:bg-blue-700'
+              saving
+                ? "cursor-not-allowed bg-gray-400 text-gray-200"
+                : "bg-blue-600 text-white hover:bg-blue-700"
             }`}
           >
-            {saving ? 'Saving...' : 'Save Permissions'}
+            {saving ? "Saving..." : "Save Permissions"}
           </button>
 
           <Link
             href="/dashboard/admin-management"
-            className={`text-gray-500 hover:text-gray-700 ${saving ? 'pointer-events-none' : ''}`}
+            className={`text-gray-500 hover:text-gray-700 ${saving ? "pointer-events-none" : ""}`}
           >
             Cancel
           </Link>

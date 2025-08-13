@@ -1,8 +1,8 @@
 // src/app/dashboard/users/components/PaginationControls.tsx
-'use client';
+"use client";
 
-import { useRouter, useSearchParams } from 'next/navigation';
-import { Pagination } from '@/lib/types';
+import { useRouter, useSearchParams } from "next/navigation";
+import { Pagination } from "@/lib/types";
 
 export function PaginationControls({ pagination }: { pagination: Pagination }) {
   const router = useRouter();
@@ -10,13 +10,13 @@ export function PaginationControls({ pagination }: { pagination: Pagination }) {
 
   const handlePrev = () => {
     const params = new URLSearchParams(searchParams);
-    params.set('page', (pagination.page - 1).toString());
+    params.set("page", (pagination.page - 1).toString());
     router.push(`/dashboard/users?${params.toString()}`);
   };
 
   const handleNext = () => {
     const params = new URLSearchParams(searchParams);
-    params.set('page', (pagination.page + 1).toString());
+    params.set("page", (pagination.page + 1).toString());
     router.push(`/dashboard/users?${params.toString()}`);
   };
 

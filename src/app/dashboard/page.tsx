@@ -1,8 +1,8 @@
 // src/app/dashboard/page.tsx
-'use client';
+"use client";
 
-import { useEffect, useState, useCallback } from 'react';
-import { API_ENDPOINTS, API_BASE_URL, getHeaders } from '@/lib/api-config';
+import { useEffect, useState, useCallback } from "react";
+import { API_ENDPOINTS, API_BASE_URL, getHeaders } from "@/lib/api-config";
 
 // Types
 interface ChartDataPoint {
@@ -18,7 +18,7 @@ interface ActivityItem {
   details?: string;
 }
 interface SystemHealth {
-  status: 'healthy' | 'warning' | 'critical';
+  status: "healthy" | "warning" | "critical";
   uptime: string;
   responseTime: number;
   errorRate: number;
@@ -52,44 +52,52 @@ interface DashboardData {
 type DashboardAPIResponse = { data?: DashboardData } | DashboardData;
 
 function isRecord(x: unknown): x is Record<string, unknown> {
-  return typeof x === 'object' && x !== null;
+  return typeof x === "object" && x !== null;
 }
 function isDashboardData(x: unknown): x is DashboardData {
   if (!isRecord(x)) return false;
-  const overview = x['overview'] as unknown;
-  const charts = x['charts'] as unknown;
+  const overview = x["overview"] as unknown;
+  const charts = x["charts"] as unknown;
   return (
     isRecord(overview) &&
-    typeof (overview as Record<string, unknown>).totalUsers === 'number' &&
+    typeof (overview as Record<string, unknown>).totalUsers === "number" &&
     isRecord(charts)
   );
 }
 
 export default function DashboardPage() {
-  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
   const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
-      setError('');
+      setError("");
 
-      const token = (localStorage.getItem('adminToken') ?? undefined) as string | undefined;
+      const token = (localStorage.getItem("adminToken") ?? undefined) as
+        | string
+        | undefined;
 
-      const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.admin.dashboard}`, {
-        headers: getHeaders(token),
-      });
-      if (!response.ok) throw new Error('Failed to fetch dashboard data');
+      const response = await fetch(
+        `${API_BASE_URL}${API_ENDPOINTS.admin.dashboard}`,
+        {
+          headers: getHeaders(token),
+        },
+      );
+      if (!response.ok) throw new Error("Failed to fetch dashboard data");
 
       const json = (await response.json()) as DashboardAPIResponse;
 
-      const maybePayload = ('data' in json && json.data ? json.data : json);
-      if (!isDashboardData(maybePayload)) throw new Error('Malformed dashboard response');
+      const maybePayload = "data" in json && json.data ? json.data : json;
+      if (!isDashboardData(maybePayload))
+        throw new Error("Malformed dashboard response");
 
       setDashboardData(maybePayload);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setLoading(false);
     }
@@ -109,10 +117,22 @@ export default function DashboardPage() {
 
       {/* Quick Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <StatCard title="Total Users" value={dashboardData.overview.totalUsers} />
-        <StatCard title="Active Users" value={dashboardData.overview.activeUsers} />
-        <StatCard title="Today's Appointments" value={dashboardData.overview.appointmentsToday} />
-        <StatCard title="Available Doctors" value={dashboardData.overview.availableDoctors} />
+        <StatCard
+          title="Total Users"
+          value={dashboardData.overview.totalUsers}
+        />
+        <StatCard
+          title="Active Users"
+          value={dashboardData.overview.activeUsers}
+        />
+        <StatCard
+          title="Today's Appointments"
+          value={dashboardData.overview.appointmentsToday}
+        />
+        <StatCard
+          title="Available Doctors"
+          value={dashboardData.overview.availableDoctors}
+        />
       </div>
 
       {/* Add more sections for charts, activity feed, alerts, etc. */}
