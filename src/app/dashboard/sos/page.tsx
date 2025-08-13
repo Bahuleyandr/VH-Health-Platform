@@ -4,28 +4,45 @@
 import { useEffect, useState } from 'react';
 import { adminService } from '@/services/admin.service';
 
+// Generic JSON type (avoids `any`)
+type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | Json[]
+  | { [key: string]: Json };
+
+function unwrapJson(x: unknown): Json {
+  if (x && typeof x === 'object' && 'data' in x) {
+    const v = (x as { data: unknown }).data;
+    return (v as Json) ?? null;
+  }
+  return (x as Json) ?? null;
+}
+
 export default function SosPage() {
-  const [analytics, setAnalytics] = useState<any>(null);
-  const [perf, setPerf] = useState<any>(null);
-  const [services, setServices] = useState<any>(null);
-  const [alerts, setAlerts] = useState<any>(null);
-  const [msg, setMsg] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [analytics, setAnalytics] = useState<Json>(null);
+  const [perf, setPerf] = useState<Json>(null);
+  const [services, setServices] = useState<Json>(null);
+  const [alerts, setAlerts] = useState<Json>(null);
+  const [msg, setMsg] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
         const [a, p, s, al] = await Promise.all([
-          adminService.sosAnalytics(),
-          adminService.sosPerformanceReport(),
-          adminService.sosServices(),
-          adminService.sosAlerts({ limit: 20, offset: 0 }),
+          adminService.getSosAnalytics(),
+          adminService.getSosPerformanceReport(),
+          adminService.getEmergencyServices(),
+          adminService.listSosAlerts({ limit: 20, offset: 0 }),
         ]);
-        setAnalytics(a?.data ?? a);
-        setPerf(p?.data ?? p);
-        setServices(s?.data ?? s);
-        setAlerts(al?.data ?? al);
+        setAnalytics(unwrapJson(a));
+        setPerf(unwrapJson(p));
+        setServices(unwrapJson(s));
+        setAlerts(unwrapJson(al));
       } finally {
         setLoading(false);
       }
@@ -35,7 +52,9 @@ export default function SosPage() {
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-semibold">SOS / Emergency</h1>
-      {loading ? <div>Loading…</div> : (
+      {loading ? (
+        <div>Loading…</div>
+      ) : (
         <>
           <Section title="Analytics" data={analytics} />
           <Section title="Performance" data={perf} />
@@ -45,11 +64,20 @@ export default function SosPage() {
       )}
 
       <div className="flex gap-2">
-        <input className="border px-3 py-2 rounded w-full" placeholder="Broadcast message…" value={msg} onChange={e=>setMsg(e.target.value)} />
-        <button className="px-4 py-2 rounded bg-black text-white" onClick={async () => {
-          await adminService.sosBroadcast({ message: msg });
-          setMsg('');
-        }}>
+        <input
+          className="border px-3 py-2 rounded w-full"
+          placeholder="Broadcast message…"
+          value={msg}
+          onChange={(e) => setMsg(e.target.value)}
+        />
+        <button
+          className="px-4 py-2 rounded bg-black text-white"
+          onClick={async () => {
+            if (!msg.trim()) return;
+            await adminService.broadcastSosAlert({ message: msg.trim() });
+            setMsg('');
+          }}
+        >
           Broadcast
         </button>
       </div>
@@ -57,11 +85,13 @@ export default function SosPage() {
   );
 }
 
-function Section({ title, data }: { title: string; data: unknown }) {
+function Section({ title, data }: { title: string; data: Json }) {
   return (
     <section>
       <h2 className="text-xl font-medium mb-2">{title}</h2>
-      <pre className="bg-gray-50 p-3 rounded overflow-auto text-sm">{JSON.stringify(data, null, 2)}</pre>
+      <pre className="bg-gray-50 p-3 rounded overflow-auto text-sm">
+        {JSON.stringify(data, null, 2)}
+      </pre>
     </section>
   );
 }
