@@ -5,3 +5,4 @@ export * from './activityService.js';
 export * from './alertsService.js';
 export * from './healthService.js';
 export * from './reportService.js';
+export * from './attendanceService.js';

@@ -30,6 +30,13 @@ import {
   getModuleHealth,
   refreshDashboardCache,
   generateDashboardReport,
+
+  // NEW: Admin attendance services
+  getAttendanceAnalytics,
+  getAttendanceAnomalies,
+  getLateArrivals,
+  getEarlyDepartures,
+  getAbsentReport,
 } from './services/index.js';
 
 const router = express.Router();
@@ -229,6 +236,88 @@ wrapAutoRBAC(router, 'adminDashboard', {
         }
       },
     ],
+
+    // ---------------------- NEW: Admin Staff Attendance ----------------------
+    [
+      '/staff/attendance/analytics',
+      async (req, res) => {
+        try {
+          const {
+            department = null,
+            start_date: startDate = null,
+            end_date: endDate = null,
+            group_by: groupBy = 'day',
+          } = req.query;
+          const data = await getAttendanceAnalytics({ department, startDate, endDate, groupBy });
+          res.json({ success: true, data });
+        } catch (error) {
+          logger.error('Attendance analytics error:', error);
+          res
+            .status(500)
+            .json({ success: false, message: 'Failed to get attendance analytics' });
+        }
+      },
+    ],
+    [
+      '/staff/attendance/anomalies',
+      async (_req, res) => {
+        try {
+          const data = await getAttendanceAnomalies();
+          res.json({ success: true, data });
+        } catch (error) {
+          logger.error('Attendance anomalies error:', error);
+          res
+            .status(500)
+            .json({ success: false, message: 'Failed to get attendance anomalies' });
+        }
+      },
+    ],
+    [
+      '/staff/attendance/late-arrivals',
+      async (req, res) => {
+        try {
+          const { date = new Date().toISOString().split('T')[0], department = null } = req.query;
+          const data = await getLateArrivals(date, department);
+          res.json({ success: true, data });
+        } catch (error) {
+          logger.error('Late arrivals error:', error);
+          res
+            .status(500)
+            .json({ success: false, message: 'Failed to get late arrivals' });
+        }
+      },
+    ],
+    [
+      '/staff/attendance/early-departures',
+      async (req, res) => {
+        try {
+          const { date = new Date().toISOString().split('T')[0], department = null } = req.query;
+          const data = await getEarlyDepartures(date, department);
+          res.json({ success: true, data });
+        } catch (error) {
+          logger.error('Early departures error:', error);
+          res
+            .status(500)
+            .json({ success: false, message: 'Failed to get early departures' });
+        }
+      },
+    ],
+    [
+      '/staff/attendance/absent-report',
+      async (req, res) => {
+        try {
+          const { date = new Date().toISOString().split('T')[0], department = null } = req.query;
+          const data = await getAbsentReport(date, department);
+          res.json({ success: true, data });
+        } catch (error) {
+          logger.error('Absent report error:', error);
+          res
+            .status(500)
+            .json({ success: false, message: 'Failed to get absent report' });
+        }
+      },
+    ],
+    // ------------------------------------------------------------------------
   ],
 
   post: [
