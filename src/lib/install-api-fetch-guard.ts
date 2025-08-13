@@ -5,6 +5,58 @@ import { API_BASE_URL, getHeaders } from '@/lib/api-config';
 
 let installed = false;
 
+/** roots that should live under /api/v1/<root> */
+const TOP_LEVEL_ROOTS = [
+  '/users',
+  '/doctors',
+  '/departments',
+  '/appointments',
+  '/notifications',
+  '/records',
+  '/investigations',
+  '/pharmacy-orders',
+  '/health',
+  '/auth',
+  '/sos',
+  '/devices',
+  '/feedback',
+  '/analytics',
+  '/rbac',
+  '/logs',
+];
+
+/** legacy/admin-ish paths that sometimes arrive without /api/v1 */
+const ADMINISH = [
+  '/admin/',
+  '/staff/',
+  '/appointments/admin/',
+  '/notifications/admin/',
+  '/investigations/admin/',
+  '/pharmacy/admin/',
+];
+
+/** normalize some historical/legacy paths to the backend’s current routes */
+function applyAliases(p: string): string {
+  if (p.startsWith('/pharmacy/orders')) {
+    return p.replace(/^\/pharmacy\/orders/, '/pharmacy-orders');
+  }
+  if (p.startsWith('/pharmacy/analytics')) {
+    return p.replace(/^\/pharmacy\/analytics/, '/analytics/revenue');
+  }
+  // Example: uncomment if needed
+  // if (p.startsWith('/appointments/manage')) return p.replace('/appointments/manage', '/appointments');
+  return p;
+}
+
+function needsApiV1Prefix(p: string): boolean {
+  if (p.startsWith('/api/v1/')) return false;
+  if (ADMINISH.some((a) => p.startsWith(a))) return true;
+  if (TOP_LEVEL_ROOTS.some((root) => p === root || p.startsWith(root + '/') || p.startsWith(root + '?'))) {
+    return true;
+  }
+  return false;
+}
+
 export function installApiFetchGuard(getToken: () => string | undefined) {
   if (installed || typeof window === 'undefined') return;
   installed = true;
@@ -13,89 +65,67 @@ export function installApiFetchGuard(getToken: () => string | undefined) {
 
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     try {
-      // Normalize input → string URL
-      let url =
+      // Normalize URL to string
+      let raw =
         typeof input === 'string'
           ? input
           : input instanceof URL
           ? input.toString()
           : (input as Request).url;
 
-      const isAbsolute = /^https?:\/\//i.test(url);
+      const isAbsolute = /^https?:\/\//i.test(raw);
 
-      // If caller passed absolute URL to OUR API, trim host so we can normalize path
-      if (isAbsolute && url.startsWith(API_BASE_URL)) {
-        url = url.slice(API_BASE_URL.length) || '/';
+      // If absolute and points to our API host, drop host to work on path
+      if (isAbsolute && raw.startsWith(API_BASE_URL)) {
+        raw = raw.slice(API_BASE_URL.length) || '/';
       }
 
-      // Identify “admin-ish” paths that sometimes miss the /api/v1 prefix
-      const isAdminish =
-        url.startsWith('/admin/') ||
-        url.startsWith('/staff/') ||
-        url.startsWith('/appointments/admin/') ||
-        url.startsWith('/notifications/admin/') ||
-        url.startsWith('/investigations/admin/') ||
-        url.startsWith('/pharmacy/admin/');
+      const isSameHostOrRelative = !isAbsolute || raw.startsWith('/');
+      let path = isSameHostOrRelative ? raw : '';
 
-      // Add /api/v1 only for admin-ish paths lacking it
-      if (isAdminish && !url.startsWith('/api/v1/')) {
-        url = '/api/v1' + url;
-      }
+      if (path) path = applyAliases(path);
+      if (path && needsApiV1Prefix(path)) path = '/api/v1' + path;
 
-      // We should route to the backend API only if the path is now /api/v1/...
-      const targetIsApi = url.startsWith('/api/v1/');
+      const targetIsApi = path.startsWith('/api/v1/');
+      const finalUrl = targetIsApi ? `${API_BASE_URL}${path}` : input;
 
-      // Decide final URL:
-      // - For API calls with a relative path → prefix with API_BASE_URL
-      // - Otherwise, leave the original input untouched
-      const finalUrl = targetIsApi
-        ? `${API_BASE_URL}${url}`
-        : // Not an API path → use original input verbatim (keeps internal fetches, _next assets, 3rd-party, etc.)
-          input;
-
-      // Only inject headers for API calls
       let finalInit = init;
       if (targetIsApi) {
         const token = getToken();
-        const defaults = getHeaders(token);
 
-        // Start from caller headers (if any)
-        const callerHeaders =
-          (init?.headers as Record<string, string> | undefined) ?? {};
-        const merged = new Headers(callerHeaders as HeadersInit);
+        // Convert defaults to a real Headers so we can safely read values
+        const defaults = new Headers(getHeaders(token));
 
-        // Add missing auth headers
-        if (!merged.has('x-api-key') && defaults['x-api-key']) {
-          merged.set('x-api-key', String(defaults['x-api-key']));
+        // Start from caller headers (if any) and merge
+        const merged = new Headers((init?.headers as HeadersInit | undefined) ?? {});
+
+        const defaultApiKey = defaults.get('x-api-key');
+        if (defaultApiKey && !merged.has('x-api-key')) {
+          merged.set('x-api-key', defaultApiKey);
         }
         if (token && !merged.has('authorization')) {
           merged.set('authorization', `Bearer ${token}`);
         }
 
-        // Set Content-Type only when body is clearly JSON-like
+        // Only set JSON content-type when body is a string (not FormData)
         const body = init?.body;
-        const isFormData =
-          typeof FormData !== 'undefined' && body instanceof FormData;
-        const isJsonString = typeof body === 'string';
-        if (body && !isFormData && isJsonString && !merged.has('content-type')) {
+        const isForm = typeof FormData !== 'undefined' && body instanceof FormData;
+        if (body && !isForm && typeof body === 'string' && !merged.has('content-type')) {
           merged.set('content-type', 'application/json');
         }
 
-        // Never set Origin manually (browser handles it)
-        merged.delete('Origin');
+        // Never set or keep Origin manually
+        merged.delete('origin');
 
         finalInit = { ...init, headers: merged };
-      }
 
-      // Debug to verify rewriting in DevTools
-      if (targetIsApi) {
+        // Debug so you can see rewrites
         // eslint-disable-next-line no-console
         console.debug('[fetch-guard]', { in: input, out: finalUrl });
       }
 
       return originalFetch(finalUrl as RequestInfo, finalInit);
     } catch {
-      // If anything goes wrong, fall back to the original fetch untouched
       return originalFetch(input, init);
     }
   };
