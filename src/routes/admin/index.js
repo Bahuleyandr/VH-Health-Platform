@@ -14,7 +14,7 @@ import adminInvestigationRoutes from '../investigation/adminRoutes.js';
 import adminPharmacyRoutes from '../pharmacy/adminRoutes.js';
 import analyticsRoutes from '../analyticsRoutes.js';
 
-// Services
+// Services (barrel import)
 import {
   getUserStats,
   getDoctorStats,
@@ -25,11 +25,12 @@ import {
   getStaffStats,
   getQuickStats,
   getAppointmentSummary,
-} from './services/statsService.js';
-import { getRecentActivity } from './services/activityService.js';
-import { getSystemAlerts } from './services/alertsService.js';
-import { getModuleHealth } from './services/healthService.js';
-import { refreshDashboardCache, generateDashboardReport } from './services/reportService.js';
+  getRecentActivity,
+  getSystemAlerts,
+  getModuleHealth,
+  refreshDashboardCache,
+  generateDashboardReport,
+} from './services/index.js';
 
 const router = express.Router();
 
