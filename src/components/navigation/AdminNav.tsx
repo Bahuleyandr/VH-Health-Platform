@@ -28,9 +28,13 @@ export const navigationItems: NavItem[] = [
 
   { name: 'Notifications', href: '/dashboard/notifications', requiredPermissions: ['notificationManagement'] },
   { name: 'Analytics', href: '/dashboard/analytics', requiredPermissions: ['viewAuditLogs'] },
-  { name: 'Emergency/SOS', href: '/dashboard/sos' },
-  { name: 'Feedback', href: '/dashboard/feedback' },
 
+  // NEW
+  { name: 'Attendance', href: '/dashboard/attendance', requiredRole: 'ADMIN' },
+  { name: 'Emergency/SOS', href: '/dashboard/sos' },
+  { name: 'Uploads', href: '/dashboard/uploads', requiredRole: 'ADMIN' },
+
+  { name: 'Feedback', href: '/dashboard/feedback' },
   { name: 'System Settings', href: '/dashboard/settings', requiredRole: 'ADMIN' },
 ];
 
@@ -48,7 +52,7 @@ export default function AdminNav() {
   return (
     <nav className="space-y-1">
       {visible.map((item) => {
-        const active = pathname === item.href;
+        const active = pathname === item.href || pathname.startsWith(item.href + '/');
         return (
           <Link
             key={item.href}
