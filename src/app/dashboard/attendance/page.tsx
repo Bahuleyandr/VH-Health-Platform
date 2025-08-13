@@ -13,6 +13,14 @@ type Json =
   | Json[]
   | { [key: string]: Json };
 
+function unwrapJson(x: unknown): Json {
+  if (x && typeof x === 'object' && 'data' in x) {
+    const v = (x as { data?: unknown }).data;
+    return (v as Json) ?? null;
+  }
+  return (x as Json) ?? null;
+}
+
 export default function AttendancePage() {
   const [analytics, setAnalytics] = useState<Json>(null);
   const [anomalies, setAnomalies] = useState<Json>(null);
@@ -29,9 +37,9 @@ export default function AttendancePage() {
           adminService.getAttendanceAnomalies(),
           adminService.getAbsentReport({ date: today }),
         ]);
-        setAnalytics((a as any)?.data ?? a); // backend returns { success, data }; keep fallback
-        setAnomalies((an as any)?.data ?? an);
-        setAbsent((ab as any)?.data ?? ab);
+        setAnalytics(unwrapJson(a));   // no `any`
+        setAnomalies(unwrapJson(an));  // no `any`
+        setAbsent(unwrapJson(ab));     // no `any`
       } finally {
         setLoading(false);
       }
