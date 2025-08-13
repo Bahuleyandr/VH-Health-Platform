@@ -31,12 +31,30 @@ import {
   refreshDashboardCache,
   generateDashboardReport,
 
-  // NEW: Admin attendance services
+  // Admin Staff Attendance
   getAttendanceAnalytics,
   getAttendanceAnomalies,
   getLateArrivals,
   getEarlyDepartures,
   getAbsentReport,
+
+  // Admin SOS
+  getSosAnalytics,
+  getAllAlerts,
+  getEmergencyServices,
+  getPerformanceReport,
+  updateSystemConfig,
+  broadcastEmergencyAlert,
+  escalateAlert,
+
+  // NEW: Admin Uploads (file management)
+  getUploadSummary,
+  listQuarantinedFiles,
+  getHipaaAuditReport,
+  rescanFile,
+  cleanupExpiredFiles,
+  bulkUpdateHipaaProtection,
+  purgeQuarantinedFiles,
 } from './services/index.js';
 
 const router = express.Router();
@@ -128,9 +146,7 @@ wrapAutoRBAC(router, 'adminDashboard', {
           });
         } catch (error) {
           logger.error('Dashboard data fetch error:', error);
-          res
-            .status(500)
-            .json({ success: false, message: 'Failed to fetch dashboard data' });
+          res.status(500).json({ success: false, message: 'Failed to fetch dashboard data' });
         }
       },
     ],
@@ -143,9 +159,7 @@ wrapAutoRBAC(router, 'adminDashboard', {
           res.json({ success: true, data });
         } catch (e) {
           logger.error('Quick stats error:', e);
-          res
-            .status(500)
-            .json({ success: false, message: 'Failed to get quick stats' });
+          res.status(500).json({ success: false, message: 'Failed to get quick stats' });
         }
       },
     ],
@@ -159,9 +173,7 @@ wrapAutoRBAC(router, 'adminDashboard', {
           res.json({ success: true, data: activity });
         } catch (e) {
           logger.error('Recent activity error:', e);
-          res
-            .status(500)
-            .json({ success: false, message: 'Failed to get recent activity' });
+          res.status(500).json({ success: false, message: 'Failed to get recent activity' });
         }
       },
     ],
@@ -174,9 +186,7 @@ wrapAutoRBAC(router, 'adminDashboard', {
           res.json({ success: true, data: alerts });
         } catch (e) {
           logger.error('Alerts error:', e);
-          res
-            .status(500)
-            .json({ success: false, message: 'Failed to get system alerts' });
+          res.status(500).json({ success: false, message: 'Failed to get system alerts' });
         }
       },
     ],
@@ -206,9 +216,7 @@ wrapAutoRBAC(router, 'adminDashboard', {
           });
         } catch (error) {
           logger.error('Staff summary error:', error);
-          res
-            .status(500)
-            .json({ success: false, message: 'Failed to get staff summary' });
+          res.status(500).json({ success: false, message: 'Failed to get staff summary' });
         }
       },
     ],
@@ -230,14 +238,12 @@ wrapAutoRBAC(router, 'adminDashboard', {
           });
         } catch (error) {
           logger.error('Appointment summary error:', error);
-          res
-            .status(500)
-            .json({ success: false, message: 'Failed to get appointment summary' });
+          res.status(500).json({ success: false, message: 'Failed to get appointment summary' });
         }
       },
     ],
 
-    // ---------------------- NEW: Admin Staff Attendance ----------------------
+    // ---------------------- Admin Staff Attendance ---------------------------
     [
       '/staff/attendance/analytics',
       async (req, res) => {
@@ -252,9 +258,7 @@ wrapAutoRBAC(router, 'adminDashboard', {
           res.json({ success: true, data });
         } catch (error) {
           logger.error('Attendance analytics error:', error);
-          res
-            .status(500)
-            .json({ success: false, message: 'Failed to get attendance analytics' });
+          res.status(500).json({ success: false, message: 'Failed to get attendance analytics' });
         }
       },
     ],
@@ -266,9 +270,7 @@ wrapAutoRBAC(router, 'adminDashboard', {
           res.json({ success: true, data });
         } catch (error) {
           logger.error('Attendance anomalies error:', error);
-          res
-            .status(500)
-            .json({ success: false, message: 'Failed to get attendance anomalies' });
+          res.status(500).json({ success: false, message: 'Failed to get attendance anomalies' });
         }
       },
     ],
@@ -281,9 +283,7 @@ wrapAutoRBAC(router, 'adminDashboard', {
           res.json({ success: true, data });
         } catch (error) {
           logger.error('Late arrivals error:', error);
-          res
-            .status(500)
-            .json({ success: false, message: 'Failed to get late arrivals' });
+          res.status(500).json({ success: false, message: 'Failed to get late arrivals' });
         }
       },
     ],
@@ -296,9 +296,7 @@ wrapAutoRBAC(router, 'adminDashboard', {
           res.json({ success: true, data });
         } catch (error) {
           logger.error('Early departures error:', error);
-          res
-            .status(500)
-            .json({ success: false, message: 'Failed to get early departures' });
+          res.status(500).json({ success: false, message: 'Failed to get early departures' });
         }
       },
     ],
@@ -311,9 +309,102 @@ wrapAutoRBAC(router, 'adminDashboard', {
           res.json({ success: true, data });
         } catch (error) {
           logger.error('Absent report error:', error);
-          res
-            .status(500)
-            .json({ success: false, message: 'Failed to get absent report' });
+          res.status(500).json({ success: false, message: 'Failed to get absent report' });
+        }
+      },
+    ],
+
+    // ---------------------- Admin SOS management -----------------------------
+    [
+      '/sos/analytics',
+      async (_req, res) => {
+        try {
+          const data = await getSosAnalytics();
+          res.json({ success: true, data });
+        } catch (error) {
+          logger.error('SOS analytics error:', error);
+          res.status(500).json({ success: false, message: 'Failed to get SOS analytics' });
+        }
+      },
+    ],
+    [
+      '/sos/alerts',
+      async (req, res) => {
+        try {
+          const limit = Number(req.query.limit ?? 50);
+          const offset = Number(req.query.offset ?? 0);
+          const data = await getAllAlerts(limit, offset);
+          res.json({ success: true, data });
+        } catch (error) {
+          logger.error('SOS alerts list error:', error);
+          res.status(500).json({ success: false, message: 'Failed to get SOS alerts' });
+        }
+      },
+    ],
+    [
+      '/sos/emergency-services',
+      async (_req, res) => {
+        try {
+          const data = await getEmergencyServices();
+          res.json({ success: true, data });
+        } catch (error) {
+          logger.error('SOS services error:', error);
+          res.status(500).json({ success: false, message: 'Failed to get emergency services' });
+        }
+      },
+    ],
+    [
+      '/sos/performance-report',
+      async (_req, res) => {
+        try {
+          const data = await getPerformanceReport();
+          res.json({ success: true, data });
+        } catch (error) {
+          logger.error('SOS performance report error:', error);
+          res.status(500).json({ success: false, message: 'Failed to get performance report' });
+        }
+      },
+    ],
+
+    // ---------------------- NEW: Admin Uploads (file mgmt) -------------------
+    [
+      '/upload/summary',
+      async (_req, res) => {
+        try {
+          const data = await getUploadSummary();
+          res.json({ success: true, data });
+        } catch (error) {
+          logger.error('Upload summary error:', error);
+          res.status(500).json({ success: false, message: 'Failed to get upload summary' });
+        }
+      },
+    ],
+    [
+      '/upload/quarantine',
+      async (req, res) => {
+        try {
+          const limit = Number(req.query.limit ?? 50);
+          const offset = Number(req.query.offset ?? 0);
+          const data = await listQuarantinedFiles(limit, offset);
+          res.json({ success: true, data });
+        } catch (error) {
+          logger.error('List quarantined files error:', error);
+          res.status(500).json({ success: false, message: 'Failed to list quarantined files' });
+        }
+      },
+    ],
+    [
+      '/upload/hipaa/audit',
+      async (req, res) => {
+        try {
+          const limit = Number(req.query.limit ?? 50);
+          const offset = Number(req.query.offset ?? 0);
+          const { start_date: startDate = null, end_date: endDate = null } = req.query;
+          const data = await getHipaaAuditReport({ limit, offset, startDate, endDate });
+          res.json({ success: true, data });
+        } catch (error) {
+          logger.error('HIPAA audit error:', error);
+          res.status(500).json({ success: false, message: 'Failed to get HIPAA audit report' });
         }
       },
     ],
@@ -335,6 +426,101 @@ wrapAutoRBAC(router, 'adminDashboard', {
         const { format = 'pdf', dateRange } = req.body || {};
         const report = await generateDashboardReport(format, dateRange);
         res.json({ success: true, data: report });
+      },
+    ],
+
+    // SOS actions
+    [
+      '/sos/update-config',
+      async (req, res) => {
+        try {
+          const data = await updateSystemConfig(req.body || {});
+          res.json({ success: true, data });
+        } catch (error) {
+          logger.error('SOS update-config error:', error);
+          res.status(500).json({ success: false, message: 'Failed to update SOS config' });
+        }
+      },
+    ],
+    [
+      '/sos/broadcast',
+      async (req, res) => {
+        try {
+          const { message, severity } = req.body || {};
+          const data = await broadcastEmergencyAlert({ message, severity });
+          res.json({ success: true, data });
+        } catch (error) {
+          logger.error('SOS broadcast error:', error);
+          res.status(500).json({ success: false, message: 'Failed to broadcast SOS alert' });
+        }
+      },
+    ],
+    [
+      '/sos/escalate/:alertId',
+      async (req, res) => {
+        try {
+          const { alertId } = req.params;
+          const { reason = null } = req.body || {};
+          const data = await escalateAlert(alertId, reason);
+          res.json({ success: true, data });
+        } catch (error) {
+          logger.error('SOS escalate error:', error);
+          res.status(500).json({ success: false, message: 'Failed to escalate SOS alert' });
+        }
+      },
+    ],
+
+    // Upload actions
+    [
+      '/upload/rescan/:fileId',
+      async (req, res) => {
+        try {
+          const { fileId } = req.params;
+          const data = await rescanFile(fileId);
+          res.json({ success: true, data });
+        } catch (error) {
+          logger.error('Upload rescan error:', error);
+          res.status(500).json({ success: false, message: 'Failed to rescan file' });
+        }
+      },
+    ],
+    [
+      '/upload/cleanup',
+      async (req, res) => {
+        try {
+          const { dryRun = true } = req.body || {};
+          const data = await cleanupExpiredFiles(Boolean(dryRun));
+          res.json({ success: true, data });
+        } catch (error) {
+          logger.error('Upload cleanup error:', error);
+          res.status(500).json({ success: false, message: 'Failed to cleanup expired files' });
+        }
+      },
+    ],
+    [
+      '/upload/hipaa/bulk-protect',
+      async (req, res) => {
+        try {
+          const payload = req.body || {};
+          const data = await bulkUpdateHipaaProtection(payload);
+          res.json({ success: true, data });
+        } catch (error) {
+          logger.error('Upload bulk HIPAA protect error:', error);
+          res.status(500).json({ success: false, message: 'Failed to update HIPAA protection' });
+        }
+      },
+    ],
+    [
+      '/upload/quarantine/purge',
+      async (req, res) => {
+        try {
+          const { dryRun = true } = req.body || {};
+          const data = await purgeQuarantinedFiles(Boolean(dryRun));
+          res.json({ success: true, data });
+        } catch (error) {
+          logger.error('Upload purge quarantine error:', error);
+          res.status(500).json({ success: false, message: 'Failed to purge quarantined files' });
+        }
       },
     ],
   ],
