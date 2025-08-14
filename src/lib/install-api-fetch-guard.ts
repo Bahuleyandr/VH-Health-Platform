@@ -50,7 +50,7 @@ function withDefaults(u: URL, defaults: Record<string, string>) {
   }
 }
 
-/** normalize historical/legacy paths to the backend’s current routes (and queries) */
+/** normalize historical/legacy paths to the backend's current routes (and queries) */
 function applyAliasesWithQuery(path: string): string {
   const u = new URL(path, API_BASE_URL);
   const { pathname } = u;
@@ -92,7 +92,7 @@ function applyAliasesWithQuery(path: string): string {
     return u.pathname + u.search;
   }
 
-  // ---- NOTIFICATIONS (root list doesn’t exist) ----
+  // ---- NOTIFICATIONS (root list doesn't exist) ----
   if (pathname === '/notifications') {
     u.pathname = '/notifications/stats/summary';
     return u.pathname + u.search;
@@ -144,7 +144,6 @@ function isAbsoluteUrl(s: string): boolean {
 }
 
 function isRequest(input: RequestInfo | URL): input is Request {
-  // In browsers Request is defined; guard for SSR safety
   return typeof Request !== 'undefined' && input instanceof Request;
 }
 
@@ -158,7 +157,6 @@ export function installApiFetchGuard(getToken: () => string | undefined) {
   window.__testFetchGuard = (path: string) => fetch(path, { method: 'GET' });
 
   if (process.env.NODE_ENV === 'development') {
-    // eslint-disable-next-line no-console
     console.info('[fetch-guard] installed', { API_BASE_URL });
   }
 
@@ -184,11 +182,11 @@ export function installApiFetchGuard(getToken: () => string | undefined) {
       // Apply aliases/defaults
       if (path) path = applyAliasesWithQuery(path);
 
-      // Add /api/v1 if clearly an API call that’s missing it
+      // Add /api/v1 if clearly an API call that's missing it
       if (path && needsApiV1Prefix(path)) path = '/api/v1' + path;
 
       const targetIsApi = path.startsWith('/api/v1/');
-      const finalUrl: string | RequestInfo = targetIsApi ? `${API_BASE_URL}${path}` : input;
+      const finalUrl: RequestInfo | URL = targetIsApi ? `${API_BASE_URL}${path}` : input;
 
       let finalInit = init;
 
@@ -209,8 +207,7 @@ export function installApiFetchGuard(getToken: () => string | undefined) {
 
         // Content-Type only for JSON string bodies (avoid FormData)
         const body = init?.body;
-        const isForm =
-          typeof FormData !== 'undefined' && body instanceof FormData;
+        const isForm = typeof FormData !== 'undefined' && body instanceof FormData;
         if (body && !isForm && typeof body === 'string' && !merged.has('content-type')) {
           merged.set('content-type', 'application/json');
         }
@@ -221,15 +218,13 @@ export function installApiFetchGuard(getToken: () => string | undefined) {
         finalInit = { ...init, headers: merged };
 
         if (process.env.NODE_ENV === 'development') {
-          // eslint-disable-next-line no-console
           console.debug('[fetch-guard]', { in: input, out: finalUrl });
         }
       } else if (process.env.NODE_ENV === 'development') {
-        // eslint-disable-next-line no-console
         console.debug('[fetch-guard passthrough]', { in: input });
       }
 
-      return originalFetch(finalUrl as RequestInfo, finalInit);
+      return originalFetch(finalUrl, finalInit);
     } catch {
       return originalFetch(input, init);
     }
