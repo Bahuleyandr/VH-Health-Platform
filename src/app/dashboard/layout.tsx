@@ -10,16 +10,16 @@ import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { AuthDebugger } from '@/components/auth/AuthDebugger';
 import { usePermissions } from '@/hooks/usePermissions';
 
+type Role = 'ADMIN' | 'SUPER_ADMIN';
+
 type NavItem = {
   name: string;
   href: string;
-  /** Optional role requirement (SUPER_ADMIN always allowed) */
-  requiredRole?: 'ADMIN' | 'SUPER_ADMIN';
-  /** Optional permission requirements (ALL must be present; SUPER_ADMIN always allowed) */
-  requiredPermissions?: string[];
+  requiredRole?: Role;            // SUPER_ADMIN bypasses
+  requiredPermissions?: string[]; // all must be present; SUPER_ADMIN bypasses
 };
 
-const navigation: NavItem[] = [
+const NAV_ITEMS: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard' },
 
   { name: 'Users', href: '/dashboard/users', requiredPermissions: ['userManagement'] },
@@ -27,6 +27,7 @@ const navigation: NavItem[] = [
   { name: 'Departments', href: '/dashboard/departments', requiredPermissions: ['departmentManagement'] },
   { name: 'Appointments', href: '/dashboard/appointments', requiredPermissions: ['appointmentManagement'] },
   { name: 'Pharmacy', href: '/dashboard/pharmacy', requiredPermissions: ['pharmacyAdminRoutes'] },
+
   { name: 'Reporting', href: '/dashboard/reporting', requiredPermissions: ['viewAuditLogs'] },
   { name: 'Notifications', href: '/dashboard/notifications', requiredPermissions: ['notificationManagement'] },
 
@@ -38,12 +39,12 @@ const navigation: NavItem[] = [
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
 
   const { role, isSuperAdmin, hasAllPermissions } = usePermissions();
 
-  const visibleNav = useMemo(() => {
-    return navigation.filter((item) => {
+  const visibleNav: NavItem[] = useMemo(() => {
+    return NAV_ITEMS.filter((item) => {
       const roleOk = !item.requiredRole || isSuperAdmin || role === item.requiredRole;
       const perms = item.requiredPermissions ?? [];
       const permsOk = perms.length === 0 || isSuperAdmin || hasAllPermissions(perms);
@@ -51,124 +52,88 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     });
   }, [role, isSuperAdmin, hasAllPermissions]);
 
-  // Header height used everywhere to align columns
-  const headerPx = 64; // 4rem
-  const headerVar = { ['--header-h' as any]: `${headerPx}px` };
-
   return (
-    <div className="min-h-dvh bg-gray-100 overflow-hidden" style={headerVar}>
-      {/* Grid: header row + content row; desktop adds sidebar column */}
-      <div className="grid min-h-dvh grid-rows-[var(--header-h)_1fr] lg:grid-cols-[16rem_1fr] lg:grid-rows-[var(--header-h)_1fr]">
+    <div className="flex min-h-screen bg-gray-100">
+      {/* Mobile overlay */}
+      {isSidebarOpen && (
+        <button
+          aria-label="Close sidebar"
+          className="fixed inset-0 z-20 bg-black/40 lg:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
 
-        {/* Header (spans both columns) */}
-        <header className="row-start-1 col-span-full sticky top-0 z-40 bg-white shadow">
-          <div className="h-[var(--header-h)] flex items-center justify-between px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center gap-3">
-              <button
-                className="lg:hidden rounded p-2 hover:bg-gray-100"
-                onClick={() => setIsSidebarOpen(true)}
-                aria-label="Open navigation"
+      {/* Sidebar */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-30 w-64 transform bg-gray-900 transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${
+          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="flex h-16 items-center justify-center bg-gray-800">
+          <span className="text-xl font-bold text-white">VH Admin Portal</span>
+        </div>
+
+        <nav className="mt-4 space-y-1">
+          {visibleNav.map((item: NavItem) => {
+            const active = pathname === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`block px-6 py-3 text-sm font-medium transition-colors ${
+                  active
+                    ? 'border-l-4 border-blue-500 bg-gray-800 text-white'
+                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                }`}
               >
-                <svg className="h-6 w-6" viewBox="0 0 24 24" stroke="currentColor" fill="none">
+                {item.name}
+              </Link>
+            );
+          })}
+        </nav>
+      </aside>
+
+      {/* Main column */}
+      <div className="flex min-h-screen flex-1 flex-col">
+        {/* Top bar */}
+        <header className="sticky top-0 z-10 bg-white shadow">
+          <div className="mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex h-16 items-center justify-between">
+              <button
+                aria-label="Open sidebar"
+                className="lg:hidden"
+                onClick={() => setIsSidebarOpen((v) => !v)}
+              >
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
               </button>
-              <Breadcrumbs />
-            </div>
 
-            <div className="flex items-center gap-3">
-              <CommandPalette />
-              <ThemeToggle />
-              <button
-                onClick={() => {
-                  try {
+              <Breadcrumbs />
+
+              <div className="flex items-center gap-3">
+                <CommandPalette />
+                <ThemeToggle />
+                <button
+                  className="text-sm text-gray-700 hover:text-gray-900"
+                  onClick={() => {
                     localStorage.removeItem('adminToken');
                     localStorage.removeItem('adminUser');
-                  } catch {}
-                  router.push('/login');
-                }}
-                className="text-sm text-gray-700 hover:text-gray-900"
-              >
-                Logout
-              </button>
+                    router.push('/login');
+                  }}
+                >
+                  Logout
+                </button>
+              </div>
             </div>
           </div>
         </header>
 
-        {/* Sidebar (desktop) */}
-        <aside className="hidden lg:block row-start-2 bg-gray-900 text-white sticky top-[var(--header-h)] h-[calc(100dvh-var(--header-h))] overflow-y-auto">
-          <div className="flex h-16 items-center justify-center bg-gray-800">
-            <h1 className="text-xl font-bold">VH Admin Portal</h1>
-          </div>
-          <nav className="mt-2 pb-4">
-            {visibleNav.map((item) => {
-              const isActive = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`block px-6 py-3 text-sm transition-colors ${
-                    isActive
-                      ? 'border-l-4 border-blue-500 bg-gray-800 text-white'
-                      : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                  }`}
-                >
-                  {item.name}
-                </Link>
-              );
-            })}
-          </nav>
-        </aside>
-
-        {/* Mobile drawer */}
-        {isSidebarOpen && (
-          <>
-            <div
-              className="fixed inset-0 z-40 bg-black/50 lg:hidden"
-              onClick={() => setIsSidebarOpen(false)}
-              aria-hidden="true"
-            />
-            <div className="fixed inset-y-0 left-0 z-50 w-64 bg-gray-900 text-white shadow lg:hidden">
-              <div className="flex h-[var(--header-h)] items-center justify-between px-4 bg-gray-800">
-                <span className="font-semibold">VH Admin Portal</span>
-                <button
-                  onClick={() => setIsSidebarOpen(false)}
-                  className="rounded p-2 hover:bg-gray-700"
-                  aria-label="Close navigation"
-                >
-                  ✕
-                </button>
-              </div>
-              <nav className="mt-2 pb-6">
-                {visibleNav.map((item) => {
-                  const isActive = pathname === item.href;
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      onClick={() => setIsSidebarOpen(false)}
-                      className={`block px-6 py-3 text-sm transition-colors ${
-                        isActive
-                          ? 'border-l-4 border-blue-500 bg-gray-800 text-white'
-                          : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                      }`}
-                    >
-                      {item.name}
-                    </Link>
-                  );
-                })}
-              </nav>
-            </div>
-          </>
-        )}
-
-        {/* Main content area */}
-        <main className="row-start-2 bg-gray-100 h-[calc(100dvh-var(--header-h))] overflow-y-auto px-4 sm:px-6 lg:px-8 py-6 lg:col-start-2">
-          {children}
-        </main>
+        {/* Scroll area */}
+        <main className="flex-1 p-4 sm:p-6">{children}</main>
       </div>
 
-      {/* Dev-only helper */}
+      {/* Dev helper */}
       <AuthDebugger />
     </div>
   );
