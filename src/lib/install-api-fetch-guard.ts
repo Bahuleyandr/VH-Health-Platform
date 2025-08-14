@@ -215,8 +215,9 @@ export function installApiFetchGuard(getToken: () => string | undefined) {
 
         // Single visible log for API rewrites
         // eslint-disable-next-line no-console
-        console.info('[fetch-guard]', { in: input, out: finalUrl });
-      }
+        if (process.env.NODE_ENV === 'development') {
+  console.info('[fetch-guard]', { in: input, out: finalUrl });
+}
 
       return originalFetch(finalUrl as RequestInfo, finalInit);
     } catch {
