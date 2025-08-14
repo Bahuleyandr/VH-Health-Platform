@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { AuthProvider } from '@/providers/AuthProvider';
 import { QueryProvider } from '@/providers/query-provider';
-import { useAuth } from '@/hooks/useAuth'; // ← from src/hooks/
+import { useAuth } from "@/contexts/AuthContext"; // ← exposes login()
 
 function LoginInner() {
   const [username, setUsername] = useState('');
