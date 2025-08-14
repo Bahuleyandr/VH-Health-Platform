@@ -4,13 +4,14 @@ module.exports = {
   env: { browser: true, node: true, es2022: true },
   parser: '@typescript-eslint/parser',
   parserOptions: {
-    project: true,
+    project: ['./tsconfig.json'],
     tsconfigRootDir: __dirname,
     ecmaVersion: 'latest',
     sourceType: 'module',
   },
   plugins: [
     '@typescript-eslint',
+    'react',
     'react-hooks',
     'unused-imports',
     'import',
@@ -22,14 +23,22 @@ module.exports = {
     'plugin:@typescript-eslint/recommended',
     'plugin:import/recommended',
     'plugin:import/typescript',
-    'plugin:tailwindcss/recommended', // Tailwind v4 plugin (beta)
+    'plugin:tailwindcss/recommended',
     'plugin:react-hooks/recommended',
     'plugin:jsx-a11y/recommended',
     'prettier',
   ],
   settings: {
-    'import/resolver': { typescript: true },
+    react: { version: 'detect' },
     tailwindcss: { callees: ['classnames', 'clsx', 'ctl'] },
+    'import/resolver': {
+      typescript: {
+        // picks up "@/..." from tsconfig paths
+        alwaysTryTypes: true,
+        project: ['./tsconfig.json'],
+      },
+      node: { extensions: ['.js', '.jsx', '.ts', '.tsx'] },
+    },
   },
   rules: {
     // kill dead imports fast
@@ -47,13 +56,28 @@ module.exports = {
     'import/order': [
       'warn',
       {
-        groups: [['builtin', 'external', 'internal'], ['parent', 'sibling', 'index']],
+        groups: [
+          ['builtin', 'external', 'internal'],
+          ['parent', 'sibling', 'index'],
+        ],
         alphabetize: { order: 'asc', caseInsensitive: true },
         'newlines-between': 'always',
       },
     ],
+    'import/no-unresolved': 'error',
 
-    // Tailwind v4 beta: keep the plugin but mute noisy rules for now
+    // next/react specifics
+    'react/react-in-jsx-scope': 'off',
+    'react/jsx-uses-react': 'off',
+    'react/no-unescaped-entities': 'error', // keep this — it caught your 404 text
+    '@next/next/no-html-link-for-pages': [
+      'error',
+      {
+        pagesDir: ['pages', 'src/pages', 'app', 'src/app'], // App Router included
+      },
+    ],
+
+    // Tailwind v4 beta: keep plugin, mute noisy rules for now
     'tailwindcss/no-custom-classname': 'off',
     'tailwindcss/classnames-order': 'off',
     'tailwindcss/no-contradicting-classname': 'off',
@@ -61,13 +85,26 @@ module.exports = {
     'tailwindcss/enforces-shorthand': 'off',
   },
 
-  // Optional niceties
   overrides: [
-    // Allow CommonJS in Node scripts
+    // Node scripts & config files can use CommonJS etc.
     {
-      files: ['scripts/**/*.js'],
+      files: ['scripts/**/*.{js,ts}', '**/*.config.{js,cjs,ts}'],
       rules: {
         '@typescript-eslint/no-require-imports': 'off',
+        'import/no-extraneous-dependencies': 'off',
+      },
+    },
+    // Tests may import devDeps
+    {
+      files: [
+        '**/*.{test,spec}.{js,jsx,ts,tsx}',
+        'tests/**/*',
+        'vitest.config.*',
+        'jest.config.*',
+        'playwright.config.*',
+      ],
+      rules: {
+        'import/no-extraneous-dependencies': 'off',
       },
     },
   ],
