@@ -1,4 +1,4 @@
-// src/app/dashboard/admin-management/components/CreateAdminForm.tsx
+// src/app/(with-auth)/dashboard/admin-management/components/CreateAdminForm.tsx
 "use client";
 
 import { useState, useEffect } from "react";

@@ -1,4 +1,4 @@
-// src/app/dashboard/appointments/components/AppointmentFilters.tsx
+// src/app/(with-auth)/dashboard/appointments/components/AppointmentFilters.tsx
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";

@@ -1,4 +1,4 @@
-// src/app/dashboard/notifications/page.tsx
+// src/app/(with-auth)/dashboard/notifications/page.tsx
 "use client";
 
 import { useEffect, useState, Suspense, useCallback } from "react";

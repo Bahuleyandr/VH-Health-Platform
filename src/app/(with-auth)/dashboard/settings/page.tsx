@@ -1,4 +1,4 @@
-// src/app/dashboard/settings/page.tsx
+// src/app/(with-auth)/dashboard/settings/page.tsx
 "use client";
 
 import { useEffect, useState, Suspense } from "react";

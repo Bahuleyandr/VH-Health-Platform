@@ -1,4 +1,4 @@
-// src/app/dashboard/doctors/edit/[id]/page.tsx
+// src/app/(with-auth)/dashboard/doctors/edit/[id]/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";

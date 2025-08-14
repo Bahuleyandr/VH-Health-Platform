@@ -1,4 +1,4 @@
-// src/app/dashboard/appointments/page.tsx
+// src/app/(with-auth)/dashboard/appointments/page.tsx
 "use client";
 
 import { Suspense, useEffect, useState } from "react";

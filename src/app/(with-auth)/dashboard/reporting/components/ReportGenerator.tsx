@@ -1,4 +1,4 @@
-// src/app/dashboard/reporting/components/ReportGenerator.tsx
+// src/app/(with-auth)/dashboard/reporting/components/ReportGenerator.tsx
 "use client";
 
 import { User, Doctor } from "@/lib/types";

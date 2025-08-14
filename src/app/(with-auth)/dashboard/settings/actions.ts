@@ -1,4 +1,4 @@
-// src/app/dashboard/settings/actions.ts
+// src/app/(with-auth)/dashboard/settings/actions.ts
 "use server";
 
 import { updateSystemSetting } from "@/lib/api";

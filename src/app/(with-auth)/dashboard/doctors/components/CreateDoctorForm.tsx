@@ -1,4 +1,4 @@
-// src/app/dashboard/doctors/components/CreateDoctorForm.tsx
+// src/app/(with-auth)/dashboard/doctors/components/CreateDoctorForm.tsx
 "use client";
 
 import { useState } from "react";

@@ -1,4 +1,4 @@
-// src/app/dashboard/appointments/components/AppointmentsTable.tsx
+// src/app/(with-auth)/dashboard/appointments/components/AppointmentsTable.tsx
 import type { Appointment } from "@/lib/types";
 
 type AppointmentRow = Appointment & {

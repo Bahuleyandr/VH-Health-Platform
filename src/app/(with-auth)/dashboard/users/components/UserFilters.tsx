@@ -1,4 +1,4 @@
-// src/app/dashboard/users/components/UserFilters.tsx
+// src/app/(with-auth)/dashboard/users/components/UserFilters.tsx
 "use client";
 
 import { useRouter, useSearchParams, usePathname } from "next/navigation";

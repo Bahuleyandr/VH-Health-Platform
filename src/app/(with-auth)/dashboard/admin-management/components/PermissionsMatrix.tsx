@@ -1,4 +1,4 @@
-// src/app/dashboard/admin-management/components/PermissionsMatrix.tsx
+// src/app/(with-auth)/dashboard/admin-management/components/PermissionsMatrix.tsx
 "use client";
 
 import { useState, useMemo } from "react";

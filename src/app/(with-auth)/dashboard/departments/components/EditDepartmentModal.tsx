@@ -1,4 +1,4 @@
-// src/app/dashboard/departments/components/EditDepartmentModal.tsx
+// src/app/(with-auth)/dashboard/departments/components/EditDepartmentModal.tsx
 "use client";
 
 import { useState, useEffect } from "react";

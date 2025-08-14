@@ -1,4 +1,4 @@
-// src/app/dashboard/doctors/components/DoctorsTable.tsx
+// src/app/(with-auth)/dashboard/doctors/components/DoctorsTable.tsx
 "use client";
 
 import { Doctor } from "@/lib/types";

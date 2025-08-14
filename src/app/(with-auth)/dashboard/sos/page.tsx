@@ -1,4 +1,4 @@
-// src/app/dashboard/sos/page.tsx
+// src/app/(with-auth)/dashboard/sos/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";

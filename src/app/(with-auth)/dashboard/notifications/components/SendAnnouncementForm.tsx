@@ -1,4 +1,4 @@
-// src/app/dashboard/notifications/components/SendAnnouncementForm.tsx
+// src/app/(with-auth)/dashboard/notifications/components/SendAnnouncementForm.tsx
 "use client";
 
 import { useState, useRef } from "react";

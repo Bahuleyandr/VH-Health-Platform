@@ -1,4 +1,4 @@
-// src/app/dashboard/reporting/components/ReportsOverview.tsx
+// src/app/(with-auth)/dashboard/reporting/components/ReportsOverview.tsx
 "use client";
 
 import { useState, useEffect, useCallback } from "react";

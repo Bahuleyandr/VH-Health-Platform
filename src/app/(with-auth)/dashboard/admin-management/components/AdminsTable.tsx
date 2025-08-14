@@ -1,4 +1,4 @@
-// src/app/dashboard/admin-management/components/AdminsTable.tsx
+// src/app/(with-auth)/dashboard/admin-management/components/AdminsTable.tsx
 "use client";
 
 import Link from "next/link";

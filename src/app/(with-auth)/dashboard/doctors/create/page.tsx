@@ -1,6 +1,6 @@
 "use client";
 
-// src/app/dashboard/doctors/create/page.tsx
+// src/app/(with-auth)/dashboard/doctors/create/page.tsx
 import { useEffect, useState } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import type { Department } from "@/lib/types";

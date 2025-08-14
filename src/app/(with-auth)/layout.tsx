@@ -7,9 +7,7 @@ import { AuthProvider } from '@/providers/AuthProvider';
 export default function WithAuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <QueryProvider>
-      <AuthProvider>
-        {children}
-      </AuthProvider>
+      <AuthProvider>{children}</AuthProvider>
     </QueryProvider>
   );
 }

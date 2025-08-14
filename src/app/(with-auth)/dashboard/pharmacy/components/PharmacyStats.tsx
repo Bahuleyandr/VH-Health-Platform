@@ -1,4 +1,4 @@
-// src/app/dashboard/pharmacy/components/PharmacyStats.tsx
+// src/app/(with-auth)/dashboard/pharmacy/components/PharmacyStats.tsx
 import { PharmacyAnalytics } from "@/lib/types";
 
 function StatCard({

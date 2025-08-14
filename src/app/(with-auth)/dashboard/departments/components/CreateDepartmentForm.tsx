@@ -1,4 +1,4 @@
-// src/app/dashboard/departments/components/CreateDepartmentForm.tsx
+// src/app/(with-auth)/dashboard/departments/components/CreateDepartmentForm.tsx
 "use client";
 
 import { useState } from "react";

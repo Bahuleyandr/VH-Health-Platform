@@ -1,4 +1,4 @@
-// src/app/dashboard/settings/components/SettingsListForm.tsx
+// src/app/(with-auth)/dashboard/settings/components/SettingsListForm.tsx
 "use client";
 
 import { SystemSetting } from "@/lib/types";

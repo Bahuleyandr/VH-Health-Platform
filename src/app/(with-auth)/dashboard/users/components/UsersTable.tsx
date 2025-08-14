@@ -1,4 +1,4 @@
-// src/app/dashboard/users/components/UsersTable.tsx
+// src/app/(with-auth)/dashboard/users/components/UsersTable.tsx
 "use client";
 
 import { useEffect, useRef } from "react";

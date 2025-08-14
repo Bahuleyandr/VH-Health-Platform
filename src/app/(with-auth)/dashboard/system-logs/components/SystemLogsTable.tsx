@@ -1,4 +1,4 @@
-// src/app/dashboard/system-logs/components/SystemLogsTable.tsx
+// src/app/(with-auth)/dashboard/system-logs/components/SystemLogsTable.tsx
 "use client";
 
 import { useState } from "react";

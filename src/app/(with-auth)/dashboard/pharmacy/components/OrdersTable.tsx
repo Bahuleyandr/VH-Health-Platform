@@ -1,4 +1,4 @@
-// src/app/dashboard/pharmacy/components/OrdersTable.tsx
+// src/app/(with-auth)/dashboard/pharmacy/components/OrdersTable.tsx
 "use client";
 
 import type { PharmacyOrder } from "@/lib/types";

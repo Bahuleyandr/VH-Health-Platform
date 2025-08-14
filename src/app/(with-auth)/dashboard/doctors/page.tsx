@@ -1,4 +1,4 @@
-// src/app/dashboard/doctors/page.tsx
+// src/app/(with-auth)/dashboard/doctors/page.tsx
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
