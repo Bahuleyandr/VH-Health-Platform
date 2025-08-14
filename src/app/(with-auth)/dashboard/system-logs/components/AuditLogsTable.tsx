@@ -1,4 +1,4 @@
-// src/app/dashboard/system-logs/components/AuditLogsTable.tsx
+// src/app/(with-auth)/dashboard/system-logs/components/AuditLogsTable.tsx
 "use client";
 
 import type { ExtendedAuditLog } from "@/lib/types";

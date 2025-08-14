@@ -1,4 +1,4 @@
-// src/app/dashboard/pharmacy/components/OrderDetailsModal.tsx
+// src/app/(with-auth)/dashboard/pharmacy/components/OrderDetailsModal.tsx
 "use client";
 
 import { useEffect, useState, useCallback } from "react";

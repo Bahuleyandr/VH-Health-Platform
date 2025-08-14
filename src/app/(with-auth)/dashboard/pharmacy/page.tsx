@@ -1,4 +1,4 @@
-// src/app/dashboard/pharmacy/page.tsx
+// src/app/(with-auth)/dashboard/pharmacy/page.tsx
 "use client";
 
 import { useEffect, useState, useCallback, Suspense } from "react";

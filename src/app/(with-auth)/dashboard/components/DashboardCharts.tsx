@@ -1,4 +1,4 @@
-// src/app/dashboard/components/DashboardCharts.tsx
+// src/app/(with-auth)/dashboard/components/DashboardCharts.tsx
 "use client";
 
 import {

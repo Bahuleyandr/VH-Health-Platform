@@ -1,4 +1,4 @@
-// src/app/dashboard/pharmacy/components/PharmacyFilters.tsx
+// src/app/(with-auth)/dashboard/pharmacy/components/PharmacyFilters.tsx
 "use client";
 
 import { useState, useEffect } from "react";

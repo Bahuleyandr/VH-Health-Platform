@@ -1,4 +1,4 @@
-// src/app/dashboard/system-logs/components/LogFilters.tsx
+// src/app/(with-auth)/dashboard/system-logs/components/LogFilters.tsx
 "use client";
 
 import { useState, useEffect } from "react";

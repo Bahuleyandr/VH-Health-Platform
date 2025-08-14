@@ -1,4 +1,4 @@
-// src/app/dashboard/system-logs/components/LogStats.tsx
+// src/app/(with-auth)/dashboard/system-logs/components/LogStats.tsx
 "use client";
 
 import { AuditLog, SystemLog } from "@/lib/types";

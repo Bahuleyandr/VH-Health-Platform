@@ -1,4 +1,4 @@
-// src/app/dashboard/notifications/components/NotificationsTable.tsx
+// src/app/(with-auth)/dashboard/notifications/components/NotificationsTable.tsx
 import { Notification } from "@/lib/types";
 
 export function NotificationsTable({

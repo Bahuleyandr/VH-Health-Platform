@@ -1,4 +1,4 @@
-// src/app/dashboard/admin-management/components/AdminStats.tsx
+// src/app/(with-auth)/dashboard/admin-management/components/AdminStats.tsx
 "use client";
 
 import { useMemo } from "react";

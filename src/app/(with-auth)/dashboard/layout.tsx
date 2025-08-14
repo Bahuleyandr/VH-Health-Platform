@@ -1,4 +1,4 @@
-// src/app/dashboard/layout.tsx
+// src/app/(with-auth)/dashboard/layout.tsx
 'use client';
 
 import { useMemo, useState } from 'react';

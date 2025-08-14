@@ -1,4 +1,4 @@
-// src/app/dashboard/uploads/page.tsx
+// src/app/(with-auth)/dashboard/uploads/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";

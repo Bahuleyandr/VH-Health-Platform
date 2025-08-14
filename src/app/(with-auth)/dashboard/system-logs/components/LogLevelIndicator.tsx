@@ -1,4 +1,4 @@
-// src/app/dashboard/system-logs/components/LogLevelIndicator.tsx
+// src/app/(with-auth)/dashboard/system-logs/components/LogLevelIndicator.tsx
 "use client";
 
 import { SystemLog } from "@/lib/types";

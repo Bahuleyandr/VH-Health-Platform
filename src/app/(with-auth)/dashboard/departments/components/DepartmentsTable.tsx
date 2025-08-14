@@ -1,4 +1,4 @@
-// src/app/dashboard/departments/components/DepartmentsTable.tsx
+// src/app/(with-auth)/dashboard/departments/components/DepartmentsTable.tsx
 "use client";
 
 import { Department } from "@/lib/types";

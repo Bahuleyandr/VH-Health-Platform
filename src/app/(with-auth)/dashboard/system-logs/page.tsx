@@ -1,4 +1,4 @@
-// src/app/dashboard/system-logs/page.tsx
+// src/app/(with-auth)/dashboard/system-logs/page.tsx
 "use client";
 
 import { useEffect, useState, useCallback, Suspense } from "react";

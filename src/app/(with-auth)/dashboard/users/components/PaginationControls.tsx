@@ -1,4 +1,4 @@
-// src/app/dashboard/users/components/PaginationControls.tsx
+// src/app/(with-auth)/dashboard/users/components/PaginationControls.tsx
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
