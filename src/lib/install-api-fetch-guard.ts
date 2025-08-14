@@ -50,11 +50,18 @@ function applyAliasesWithQuery(path: string): string {
   const u = new URL(inner, API_BASE_URL);
   const { pathname } = u;
 
-  // ---- USERS ----
-  if (pathname.startsWith('/admin/users') || pathname === '/users') {
-    u.pathname = '/users';
+    // ---- USERS ----
+  // Keep /admin/users under the admin namespace
+  if (pathname.startsWith('/admin/users')) {
+    u.pathname = '/admin/users';
     withDefaults(u, { page: '1', limit: '20' });
-    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
+    return u.pathname + u.search;
+  }
+
+  // Non-admin users list can pass through (still add defaults)
+  if (pathname === '/users' || pathname.startsWith('/users?')) {
+    withDefaults(u, { page: '1', limit: '20' });
+    return u.pathname + u.search;
   }
 
   // ---- DOCTORS ----
