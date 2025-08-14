@@ -15,8 +15,8 @@ type Role = 'ADMIN' | 'SUPER_ADMIN';
 type NavItem = {
   name: string;
   href: string;
-  requiredRole?: Role;                  // SUPER_ADMIN bypasses
-  requiredPermissions?: string[];       // all must be present (SUPER_ADMIN bypasses)
+  requiredRole?: Role;            // SUPER_ADMIN bypasses
+  requiredPermissions?: string[]; // all must be present; SUPER_ADMIN bypasses
 };
 
 const NAV_ITEMS: NavItem[] = [
@@ -54,7 +54,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-screen bg-gray-100">
-      {/* Sidebar overlay for mobile */}
+      {/* Mobile overlay */}
       {isSidebarOpen && (
         <button
           aria-label="Close sidebar"
@@ -74,7 +74,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
 
         <nav className="mt-4 space-y-1">
-          {visibleNav.map((item) => {
+          {visibleNav.map((item: NavItem) => {
             const active = pathname === item.href;
             return (
               <Link
@@ -94,7 +94,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* Main column */}
-      <div className="flex min-h-screen flex-1 flex-col lg:pl-0">
+      <div className="flex min-h-screen flex-1 flex-col">
         {/* Top bar */}
         <header className="sticky top-0 z-10 bg-white shadow">
           <div className="mx-auto px-4 sm:px-6 lg:px-8">
@@ -129,7 +129,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </header>
 
-        {/* Scrollable page area */}
+        {/* Scroll area */}
         <main className="flex-1 p-4 sm:p-6">{children}</main>
       </div>
 

@@ -5,8 +5,17 @@ import { API_BASE_URL, getHeaders } from '@/lib/api-config';
 
 let installed = false;
 
+/** Extend Window shape (dev helpers) */
+declare global {
+  interface Window {
+    __fetchGuardInstalled?: boolean;
+    __fetchGuardApiBase?: string;
+    __testFetchGuard?: (path: string) => Promise<Response>;
+  }
+}
+
 /** Roots that should live under /api/v1/<root> */
-const TOP_LEVEL_ROOTS = [
+const TOP_LEVEL_ROOTS: readonly string[] = [
   '/users',
   '/doctors',
   '/departments',
@@ -26,7 +35,7 @@ const TOP_LEVEL_ROOTS = [
 ];
 
 /** legacy/admin-ish paths that sometimes arrive without /api/v1 */
-const ADMINISH = [
+const ADMINISH: readonly string[] = [
   '/admin/',
   '/staff/',
   '/appointments/admin/',
@@ -41,25 +50,14 @@ function withDefaults(u: URL, defaults: Record<string, string>) {
   }
 }
 
-/** normalize historical/legacy paths to the backend's current routes (and queries) */
+/** normalize historical/legacy paths to the backend’s current routes (and queries) */
 function applyAliasesWithQuery(path: string): string {
-  // Support both raw and /api/v1-prefixed inputs
-  const hasApiPrefix = path.startsWith('/api/v1/');
-  const inner = hasApiPrefix ? path.slice('/api/v1'.length) : path; // keep leading '/'
-
-  const u = new URL(inner, API_BASE_URL);
+  const u = new URL(path, API_BASE_URL);
   const { pathname } = u;
 
   // ---- USERS ----
-  // Keep /admin/users under the admin namespace
-  if (pathname.startsWith('/admin/users')) {
-    u.pathname = '/admin/users';
-    withDefaults(u, { page: '1', limit: '20' });
-    return u.pathname + u.search;
-  }
-
-  // Non-admin users list can pass through (still add defaults)
-  if (pathname === '/users' || pathname.startsWith('/users?')) {
+  if (pathname.startsWith('/admin/users') || pathname === '/users') {
+    u.pathname = '/users';
     withDefaults(u, { page: '1', limit: '20' });
     return u.pathname + u.search;
   }
@@ -67,43 +65,44 @@ function applyAliasesWithQuery(path: string): string {
   // ---- DOCTORS ----
   if (pathname === '/doctors') {
     withDefaults(u, { page: '1', limit: '20' });
-    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
+    return u.pathname + u.search;
   }
 
   // ---- APPOINTMENTS ----
-  if (pathname.startsWith('/appointments/manage')) {
-    u.pathname = '/appointments'; // canonical
+  if (pathname.startsWith('/appointments/manage') || pathname === '/appointments') {
+    u.pathname = '/appointments/list';
     withDefaults(u, { page: '1', limit: '20' });
-    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
-  }
-  if (pathname === '/appointments') {
-    withDefaults(u, { page: '1', limit: '20' });
-    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
+    return u.pathname + u.search;
   }
 
   // ---- PHARMACY ----
   if (pathname.startsWith('/pharmacy/orders')) {
     u.pathname = '/pharmacy-orders';
     withDefaults(u, { page: '1', limit: '10' });
-    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
+    return u.pathname + u.search;
   }
-
-  if (pathname.startsWith('/pharmacy/analytics') || pathname.startsWith('/analytics/revenue')) {
+  if (pathname.startsWith('/pharmacy/analytics')) {
     u.pathname = '/admin/stats/quick';
-    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
+    return u.pathname + u.search;
   }
 
-  // ---- NOTIFICATIONS (root list doesn't exist) ----
+  // ---- ANALYTICS (legacy) ----
+  if (pathname.startsWith('/analytics/revenue')) {
+    u.pathname = '/admin/stats/quick';
+    return u.pathname + u.search;
+  }
+
+  // ---- NOTIFICATIONS (root list doesn’t exist) ----
   if (pathname === '/notifications') {
     u.pathname = '/notifications/stats/summary';
-    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
+    return u.pathname + u.search;
   }
 
   // ---- LOGS (frontend placeholders) ----
   if (pathname.startsWith('/logs/audit')) {
     u.pathname = '/rbac/admin/audit-log';
     withDefaults(u, { page: '1', limit: '20' });
-    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
+    return u.pathname + u.search;
   }
   if (pathname.startsWith('/logs/system')) {
     const page = Number(u.searchParams.get('page') || '1');
@@ -113,22 +112,22 @@ function applyAliasesWithQuery(path: string): string {
     u.searchParams.set('limit', String(limit));
     u.searchParams.set('offset', String(offset));
     u.searchParams.delete('page');
-    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
+    return u.pathname + u.search;
   }
 
-  // ---- SYSTEM SETTINGS ----
+  // ---- SYSTEM SETTINGS (no direct endpoint) ----
   if (pathname.startsWith('/system/settings')) {
     u.pathname = '/system/status';
-    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
+    return u.pathname + u.search;
   }
 
   // ---- AUTH ADMIN MANAGEMENT (placeholder) ----
   if (pathname.startsWith('/auth/adminManagement')) {
     u.pathname = '/rbac/rbacRoutes';
-    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
+    return u.pathname + u.search;
   }
 
-  return path; // unchanged
+  return path;
 }
 
 function needsApiV1Prefix(p: string): boolean {
@@ -140,58 +139,65 @@ function needsApiV1Prefix(p: string): boolean {
   return false;
 }
 
+function isAbsoluteUrl(s: string): boolean {
+  return /^https?:\/\//i.test(s);
+}
+
+function isRequest(input: RequestInfo | URL): input is Request {
+  // In browsers Request is defined; guard for SSR safety
+  return typeof Request !== 'undefined' && input instanceof Request;
+}
+
 export function installApiFetchGuard(getToken: () => string | undefined) {
   if (installed || typeof window === 'undefined') return;
   installed = true;
 
-  // dev signal + helpers
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const w = window as any;
-  w.__fetchGuardInstalled = true;
-  w.__fetchGuardApiBase = API_BASE_URL;
-  w.__testFetchGuard = (path: string) => fetch(path, { method: 'GET' });
-  console.info('[fetch-guard] installed', { API_BASE_URL });
+  // Dev helpers
+  window.__fetchGuardInstalled = true;
+  window.__fetchGuardApiBase = API_BASE_URL;
+  window.__testFetchGuard = (path: string) => fetch(path, { method: 'GET' });
+
+  if (process.env.NODE_ENV === 'development') {
+    // eslint-disable-next-line no-console
+    console.info('[fetch-guard] installed', { API_BASE_URL });
+  }
 
   const originalFetch = window.fetch.bind(window);
 
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     try {
-      // Normalize URL to string
-      let raw =
-        typeof input === 'string'
-          ? input
-          : input instanceof URL
-          ? input.toString()
-          : (input as Request).url;
+      // Normalize input -> raw string
+      let raw: string;
+      if (typeof input === 'string') raw = input;
+      else if (input instanceof URL) raw = input.toString();
+      else if (isRequest(input)) raw = input.url;
+      else raw = String(input as unknown as string);
 
-      const isAbsolute = /^https?:\/\//i.test(raw);
-
-      // If absolute and points to our API host, drop host to work on path
-      if (isAbsolute && raw.startsWith(API_BASE_URL)) {
+      // If absolute and points to our API host, strip host to work with path
+      if (isAbsoluteUrl(raw) && raw.startsWith(API_BASE_URL)) {
         raw = raw.slice(API_BASE_URL.length) || '/';
       }
 
-      const isSameHostOrRelative = !isAbsolute || raw.startsWith('/');
-      let path = isSameHostOrRelative ? raw : '';
+      const isRelativeOrSameHost = !isAbsoluteUrl(raw) || raw.startsWith('/');
+      let path = isRelativeOrSameHost ? raw : '';
 
-      // Apply aliases and fill defaults (works whether or not /api/v1 is already present)
+      // Apply aliases/defaults
       if (path) path = applyAliasesWithQuery(path);
 
-      // Add /api/v1 prefix where it's clearly an API call that's missing it
+      // Add /api/v1 if clearly an API call that’s missing it
       if (path && needsApiV1Prefix(path)) path = '/api/v1' + path;
 
       const targetIsApi = path.startsWith('/api/v1/');
-      const finalUrl = targetIsApi ? `${API_BASE_URL}${path}` : input;
+      const finalUrl: string | RequestInfo = targetIsApi ? `${API_BASE_URL}${path}` : input;
 
       let finalInit = init;
+
       if (targetIsApi) {
         const token = getToken();
 
-        // Convert defaults to a real Headers so we can safely read values
+        // Defaults & merge
         const defaults = new Headers(getHeaders(token));
-
-        // Start from caller headers (if any) and merge
-        const merged = new Headers((init?.headers as HeadersInit | undefined) ?? {});
+        const merged = new Headers(init?.headers ?? undefined);
 
         const defaultApiKey = defaults.get('x-api-key');
         if (defaultApiKey && !merged.has('x-api-key')) {
@@ -201,23 +207,26 @@ export function installApiFetchGuard(getToken: () => string | undefined) {
           merged.set('authorization', `Bearer ${token}`);
         }
 
-        // Only set JSON content-type when body is a string (not FormData)
+        // Content-Type only for JSON string bodies (avoid FormData)
         const body = init?.body;
-        const isForm = typeof FormData !== 'undefined' && body instanceof FormData;
+        const isForm =
+          typeof FormData !== 'undefined' && body instanceof FormData;
         if (body && !isForm && typeof body === 'string' && !merged.has('content-type')) {
           merged.set('content-type', 'application/json');
         }
 
-        // Never set or keep Origin manually
+        // Never send Origin manually
         merged.delete('origin');
 
         finalInit = { ...init, headers: merged };
 
-        // Single visible log for API rewrites
-        // eslint-disable-next-line no-console
         if (process.env.NODE_ENV === 'development') {
-          console.info('[fetch-guard]', { in: input, out: finalUrl });
+          // eslint-disable-next-line no-console
+          console.debug('[fetch-guard]', { in: input, out: finalUrl });
         }
+      } else if (process.env.NODE_ENV === 'development') {
+        // eslint-disable-next-line no-console
+        console.debug('[fetch-guard passthrough]', { in: input });
       }
 
       return originalFetch(finalUrl as RequestInfo, finalInit);
