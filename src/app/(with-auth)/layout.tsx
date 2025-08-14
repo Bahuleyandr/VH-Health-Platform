@@ -1,8 +1,8 @@
 // src/app/(with-auth)/layout.tsx
 'use client';
 
+import { AuthProvider } from '@/contexts/AuthContext';
 import { QueryProvider } from '@/providers/query-provider';
-import { AuthProvider } from '@/providers/AuthProvider';
 
 export default function WithAuthLayout({ children }: { children: React.ReactNode }) {
   return (

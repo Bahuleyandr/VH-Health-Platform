@@ -1,11 +1,11 @@
 // src/hooks/usePermissions.ts
-"use client";
+'use client';
 
-import { useMemo, useCallback } from "react";
-import { useAuth } from "@/hooks/useAuth";
-import type { AdminUser } from "@/lib/types";
+import { useMemo, useCallback } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import type { AdminUser } from '@/lib/types';
 
-type AdminRole = "ADMIN" | "SUPER_ADMIN";
+type AdminRole = 'ADMIN' | 'SUPER_ADMIN';
 
 export interface UsePermissionsOptions {
   requiredRole?: AdminRole;
@@ -28,45 +28,47 @@ export interface UsePermissionsResult {
   permsAllowed: boolean;
 }
 
-export function usePermissions(
-  options?: UsePermissionsOptions,
-): UsePermissionsResult {
+export function usePermissions(options?: UsePermissionsOptions): UsePermissionsResult {
   const { user, loading } = useAuth();
 
   const role = (user?.role as AdminRole | undefined) ?? null;
-  const permissions = useMemo(
-    () =>
-      Array.isArray(user?.permissions) ? (user.permissions as string[]) : [],
-    [user], // ✅ include user, resolves warning
+
+  // simpler + typed: relies on `permissions?: string[]` in your AdminUser type
+  const permissions = useMemo<string[]>(
+    () => user?.permissions ?? [],
+    [user]
   );
-  const isSuperAdmin = role === "SUPER_ADMIN";
+
+  // optional: treat '*' as a super capability
+  const isSuperAdmin = role === 'SUPER_ADMIN' || permissions.includes('*');
 
   const hasPermission = useCallback(
     (perm: string) => isSuperAdmin || permissions.includes(perm),
-    [isSuperAdmin, permissions],
+    [isSuperAdmin, permissions]
   );
 
   const hasAnyPermission = useCallback(
-    (perms: string[]) =>
-      isSuperAdmin || perms.some((p) => permissions.includes(p)),
-    [isSuperAdmin, permissions],
+    (perms: string[]) => isSuperAdmin || perms.some((p) => permissions.includes(p)),
+    [isSuperAdmin, permissions]
   );
 
   const hasAllPermissions = useCallback(
-    (perms: string[]) =>
-      isSuperAdmin || perms.every((p) => permissions.includes(p)),
-    [isSuperAdmin, permissions],
+    (perms: string[]) => isSuperAdmin || perms.every((p) => permissions.includes(p)),
+    [isSuperAdmin, permissions]
   );
 
   const { roleAllowed, permsAllowed, allowed } = useMemo(() => {
+    const requiredRole = options?.requiredRole;
+    const requiredPermissions = options?.requiredPermissions ?? [];
+
     const roleAllowed =
-      !options?.requiredRole || isSuperAdmin || role === options.requiredRole;
+      !requiredRole || isSuperAdmin || role === requiredRole;
 
-    const permsNeeded = options?.requiredPermissions ?? [];
     const permsAllowed =
-      permsNeeded.length === 0 || hasAllPermissions(permsNeeded);
+      requiredPermissions.length === 0 || hasAllPermissions(requiredPermissions);
 
-    const allowed = !!user && roleAllowed && permsAllowed;
+    // include `!loading` to avoid flashing "denied" during initial auth check
+    const allowed = !!user && !loading && roleAllowed && permsAllowed;
 
     return { roleAllowed, permsAllowed, allowed };
   }, [
@@ -75,7 +77,8 @@ export function usePermissions(
     isSuperAdmin,
     role,
     user,
-    hasAllPermissions,
+    loading,
+    hasAllPermissions
   ]);
 
   return {
@@ -89,6 +92,6 @@ export function usePermissions(
     hasAllPermissions,
     allowed,
     roleAllowed,
-    permsAllowed,
+    permsAllowed
   };
 }
