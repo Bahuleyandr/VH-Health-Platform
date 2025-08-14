@@ -5,7 +5,7 @@ import { API_BASE_URL, getHeaders } from '@/lib/api-config';
 
 let installed = false;
 
-/** roots that should live under /api/v1/<root> */
+/** Roots that should live under /api/v1/<root> */
 const TOP_LEVEL_ROOTS = [
   '/users',
   '/doctors',
@@ -35,17 +35,93 @@ const ADMINISH = [
   '/pharmacy/admin/',
 ];
 
-/** normalize some historical/legacy paths to the backend’s current routes */
-function applyAliases(p: string): string {
-  if (p.startsWith('/pharmacy/orders')) {
-    return p.replace(/^\/pharmacy\/orders/, '/pharmacy-orders');
+function withDefaults(u: URL, defaults: Record<string, string>) {
+  for (const [k, v] of Object.entries(defaults)) {
+    if (!u.searchParams.has(k)) u.searchParams.set(k, v);
   }
-  if (p.startsWith('/pharmacy/analytics')) {
-    return p.replace(/^\/pharmacy\/analytics/, '/analytics/revenue');
+}
+
+/** normalize historical/legacy paths to the backend’s current routes (and queries) */
+function applyAliasesWithQuery(path: string): string {
+  // Support both raw and /api/v1-prefixed inputs
+  const hasApiPrefix = path.startsWith('/api/v1/');
+  const inner = hasApiPrefix ? path.slice('/api/v1'.length) : path; // keep leading '/'
+
+  const u = new URL(inner, API_BASE_URL);
+  const { pathname } = u;
+
+  // ---- USERS ----
+  if (pathname.startsWith('/admin/users') || pathname === '/users') {
+    u.pathname = '/users';
+    withDefaults(u, { page: '1', limit: '20' });
+    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
   }
-  // Example: uncomment if needed
-  // if (p.startsWith('/appointments/manage')) return p.replace('/appointments/manage', '/appointments');
-  return p;
+
+  // ---- DOCTORS ----
+  if (pathname === '/doctors') {
+    withDefaults(u, { page: '1', limit: '20' });
+    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
+  }
+
+  // ---- APPOINTMENTS ----
+  if (pathname.startsWith('/appointments/manage')) {
+    u.pathname = '/appointments'; // canonical
+    withDefaults(u, { page: '1', limit: '20' });
+    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
+  }
+  if (pathname === '/appointments') {
+    withDefaults(u, { page: '1', limit: '20' });
+    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
+  }
+
+  // ---- PHARMACY ----
+  if (pathname.startsWith('/pharmacy/orders')) {
+    u.pathname = '/pharmacy-orders';
+    withDefaults(u, { page: '1', limit: '10' });
+    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
+  }
+
+  if (pathname.startsWith('/pharmacy/analytics') || pathname.startsWith('/analytics/revenue')) {
+    u.pathname = '/admin/stats/quick';
+    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
+  }
+
+  // ---- NOTIFICATIONS (root list doesn’t exist) ----
+  if (pathname === '/notifications') {
+    u.pathname = '/notifications/stats/summary';
+    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
+  }
+
+  // ---- LOGS (frontend placeholders) ----
+  if (pathname.startsWith('/logs/audit')) {
+    u.pathname = '/rbac/admin/audit-log';
+    withDefaults(u, { page: '1', limit: '20' });
+    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
+  }
+  if (pathname.startsWith('/logs/system')) {
+    const page = Number(u.searchParams.get('page') || '1');
+    const limit = Number(u.searchParams.get('limit') || '20');
+    const offset = Math.max(0, (page - 1) * limit);
+    u.pathname = '/admin/activity/recent';
+    u.searchParams.set('limit', String(limit));
+    u.searchParams.set('offset', String(offset));
+    u.searchParams.delete('page');
+    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
+  }
+
+  // ---- SYSTEM SETTINGS ----
+  if (pathname.startsWith('/system/settings')) {
+    u.pathname = '/system/status';
+    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
+  }
+
+  // ---- AUTH ADMIN MANAGEMENT (placeholder) ----
+  if (pathname.startsWith('/auth/adminManagement')) {
+    u.pathname = '/rbac/rbacRoutes';
+    return (hasApiPrefix ? '/api/v1' : '') + u.pathname + u.search;
+  }
+
+  return path; // unchanged
 }
 
 function needsApiV1Prefix(p: string): boolean {
@@ -60,6 +136,14 @@ function needsApiV1Prefix(p: string): boolean {
 export function installApiFetchGuard(getToken: () => string | undefined) {
   if (installed || typeof window === 'undefined') return;
   installed = true;
+
+  // dev signal + helpers
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const w = window as any;
+  w.__fetchGuardInstalled = true;
+  w.__fetchGuardApiBase = API_BASE_URL;
+  w.__testFetchGuard = (path: string) => fetch(path, { method: 'GET' });
+  console.info('[fetch-guard] installed', { API_BASE_URL });
 
   const originalFetch = window.fetch.bind(window);
 
@@ -83,7 +167,10 @@ export function installApiFetchGuard(getToken: () => string | undefined) {
       const isSameHostOrRelative = !isAbsolute || raw.startsWith('/');
       let path = isSameHostOrRelative ? raw : '';
 
-      if (path) path = applyAliases(path);
+      // Apply aliases and fill defaults (works whether or not /api/v1 is already present)
+      if (path) path = applyAliasesWithQuery(path);
+
+      // Add /api/v1 prefix where it’s clearly an API call that’s missing it
       if (path && needsApiV1Prefix(path)) path = '/api/v1' + path;
 
       const targetIsApi = path.startsWith('/api/v1/');
@@ -119,9 +206,9 @@ export function installApiFetchGuard(getToken: () => string | undefined) {
 
         finalInit = { ...init, headers: merged };
 
-        // Debug so you can see rewrites
+        // Single visible log for API rewrites
         // eslint-disable-next-line no-console
-        console.debug('[fetch-guard]', { in: input, out: finalUrl });
+        console.info('[fetch-guard]', { in: input, out: finalUrl });
       }
 
       return originalFetch(finalUrl as RequestInfo, finalInit);
