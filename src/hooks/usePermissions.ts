@@ -2,7 +2,7 @@
 "use client";
 
 import { useMemo, useCallback } from "react";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth } from "@/hooks/useAuth";
 import type { AdminUser } from "@/lib/types";
 
 type AdminRole = "ADMIN" | "SUPER_ADMIN";
