@@ -154,20 +154,19 @@ function LoginInner() {
       <div className={styles.card}>
         {/* Logo Section */}
         <div className={styles.logo}>
-          <img 
-            src="/images/hospital-logo.png" 
-            alt="VH Health Hospital"
-            className={styles.logoImage}
-            onError={(e) => {
-              // Fallback to icon if logo doesn't load
-              e.currentTarget.style.display = 'none';
-              const fallback = document.getElementById('logo-fallback');
-              if (fallback) fallback.style.display = 'flex';
-            }}
-          />
-          <div id="logo-fallback" className={styles.logoIcon} style={{ display: 'none' }}>
-            VH
-          </div>
+          {logoError ? (
+            <div className={styles.logoIcon}>VH</div>
+          ) : (
+            <Image
+              src="/images/hospital-logo.png"
+              alt="VH Health Hospital logo"
+              width={160}            // adjust to match your layout
+              height={160}
+              className={styles.logoImage}
+              onError={() => setLogoError(true)}
+              priority               // hero image for better LCP
+            />
+          )}
           <h1 className={styles.title}>VH Health</h1>
           <p className={styles.subtitle}>Excellence in Healthcare</p>
         </div>
@@ -193,10 +192,15 @@ function LoginInner() {
               Username
             </label>
             <div className={styles.inputWrapper}>
-              <span className={`${styles.inputIcon} ${
-                touched.username && fieldErrors.username ? styles.inputIconError : 
-                touched.username && !fieldErrors.username && username ? styles.inputIconSuccess : ''
-              }`}>
+              <span
+                className={`${styles.inputIcon} ${
+                  touched.username && fieldErrors.username
+                    ? styles.inputIconError
+                    : touched.username && !fieldErrors.username && username
+                    ? styles.inputIconSuccess
+                    : ''
+                }`}
+              >
                 👤
               </span>
               <input
@@ -214,8 +218,11 @@ function LoginInner() {
                 }}
                 onBlur={() => handleBlur('username')}
                 className={`${styles.input} ${
-                  touched.username && fieldErrors.username ? styles.inputError : 
-                  touched.username && !fieldErrors.username && username ? styles.inputSuccess : ''
+                  touched.username && fieldErrors.username
+                    ? styles.inputError
+                    : touched.username && !fieldErrors.username && username
+                    ? styles.inputSuccess
+                    : ''
                 }`}
                 placeholder="Enter your username"
               />
@@ -234,10 +241,15 @@ function LoginInner() {
               Password
             </label>
             <div className={styles.inputWrapper}>
-              <span className={`${styles.inputIcon} ${
-                touched.password && fieldErrors.password ? styles.inputIconError : 
-                touched.password && !fieldErrors.password && password ? styles.inputIconSuccess : ''
-              }`}>
+              <span
+                className={`${styles.inputIcon} ${
+                  touched.password && fieldErrors.password
+                    ? styles.inputIconError
+                    : touched.password && !fieldErrors.password && password
+                    ? styles.inputIconSuccess
+                    : ''
+                }`}
+              >
                 🔒
               </span>
               <input
@@ -256,8 +268,11 @@ function LoginInner() {
                 onBlur={() => handleBlur('password')}
                 onKeyUp={onCapsCheck}
                 className={`${styles.input} ${
-                  touched.password && fieldErrors.password ? styles.inputError : 
-                  touched.password && !fieldErrors.password && password ? styles.inputSuccess : ''
+                  touched.password && fieldErrors.password
+                    ? styles.inputError
+                    : touched.password && !fieldErrors.password && password
+                    ? styles.inputSuccess
+                    : ''
                 }`}
                 placeholder="Enter your password"
               />
@@ -274,9 +289,7 @@ function LoginInner() {
             {touched.password && fieldErrors.password && (
               <p className={styles.errorMessage}>{fieldErrors.password}</p>
             )}
-            {capsOn && (
-              <p className={styles.capsWarning}>⚠️ Caps Lock is ON</p>
-            )}
+            {capsOn && <p className={styles.capsWarning}>⚠️ Caps Lock is ON</p>}
           </div>
 
           {/* Remember & Forgot */}
@@ -297,11 +310,7 @@ function LoginInner() {
           </div>
 
           {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={submitDisabled}
-            className={styles.submitButton}
-          >
+          <button type="submit" disabled={submitDisabled} className={styles.submitButton}>
             {isLoading ? (
               <span className={styles.loadingSpinner}>
                 <span className={styles.spinner}></span>

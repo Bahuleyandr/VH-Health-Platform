@@ -9,6 +9,7 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { AuthDebugger } from '@/components/auth/AuthDebugger';
 import { usePermissions } from '@/hooks/usePermissions';
+import styles from './Dashboard.module.css';
 
 type NavItem = {
   name: string;
@@ -21,7 +22,6 @@ type NavItem = {
 
 const navigation: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard' },
-
   { name: 'Users', href: '/dashboard/users', requiredPermissions: ['userManagement'] },
   { name: 'Doctors', href: '/dashboard/doctors', requiredPermissions: ['doctorManagement'] },
   { name: 'Departments', href: '/dashboard/departments', requiredPermissions: ['departmentManagement'] },
@@ -29,17 +29,13 @@ const navigation: NavItem[] = [
   { name: 'Pharmacy', href: '/dashboard/pharmacy', requiredPermissions: ['pharmacyAdminRoutes'] },
   { name: 'Reporting', href: '/dashboard/reporting', requiredPermissions: ['viewAuditLogs'] },
   { name: 'Notifications', href: '/dashboard/notifications', requiredPermissions: ['notificationManagement'] },
-
   { name: 'Admin Management', href: '/dashboard/admin-management', requiredRole: 'ADMIN', requiredPermissions: ['adminManagement'] },
   { name: 'System Logs', href: '/dashboard/system-logs', requiredPermissions: ['viewAuditLogs'] },
   { name: 'Settings', href: '/dashboard/settings', requiredRole: 'ADMIN' },
 ];
 
-// Treat a nav item as active if the pathname matches exactly OR is a nested route under it.
-// e.g. '/dashboard/users/123' should mark '/dashboard/users' active, but '/dashboarding' should not.
 function isItemActive(pathname: string, href: string) {
   if (pathname === href) return true;
-  // Ensure we only match section roots, not similar prefixes.
   return pathname.startsWith(href + '/');
 }
 
@@ -59,12 +55,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     });
   }, [role, isSuperAdmin, hasAllPermissions]);
 
-  // Close the mobile drawer when route changes.
   useEffect(() => {
     setIsSidebarOpen(false);
   }, [pathname]);
 
-  // Allow Escape to close the mobile drawer.
   useEffect(() => {
     if (!isSidebarOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -74,29 +68,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return () => document.removeEventListener('keydown', onKey);
   }, [isSidebarOpen]);
 
-  // Header height used everywhere to align columns
-  const headerPx = 64; // 4rem
-  const headerVar = { '--header-h': `${headerPx}px` } as React.CSSProperties;
-
   return (
-    <div className="min-h-dvh bg-gray-100 overflow-hidden" style={headerVar}>
-      {/* Skip link for a11y */}
-      <a
-        href="#main-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 bg-white rounded px-3 py-2 shadow"
-      >
+    <div className={styles.container}>
+      {/* Skip link for accessibility */}
+      <a href="#main-content" className={styles.skipLink}>
         Skip to content
       </a>
 
-      {/* Grid: header row + content row; desktop adds sidebar column */}
-      <div className="grid min-h-dvh grid-rows-[var(--header-h)_1fr] lg:grid-cols-[16rem_1fr] lg:grid-rows-[var(--header-h)_1fr]">
-        {/* Header (spans both columns) */}
-        <header role="banner" className="row-start-1 col-span-full sticky top-0 z-40 bg-white border-b">
-          <div className="h-[var(--header-h)] flex items-center justify-between px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center gap-3">
+      <div className={styles.grid}>
+        {/* Header */}
+        <header role="banner" className={styles.header}>
+          <div className={styles.headerContent}>
+            <div className={styles.headerLeft}>
               <button
                 type="button"
-                className="lg:hidden rounded p-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={styles.menuButton}
                 onClick={() => setIsSidebarOpen(true)}
                 aria-label="Open navigation"
                 aria-controls="mobile-sidebar"
@@ -109,10 +95,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <Breadcrumbs />
             </div>
 
-            <div className="flex items-center gap-3">
-              {/* Discoverability for Command Palette */}
-              <span className="hidden md:inline-flex items-center gap-1 text-xs text-gray-500">
-                Press <kbd className="px-1.5 py-0.5 rounded border">⌘K</kbd>
+            <div className={styles.headerRight}>
+              <span className={styles.keyboardHint}>
+                Press <kbd className={styles.kbd}>⌘K</kbd>
               </span>
               <CommandPalette />
               <ThemeToggle />
@@ -125,7 +110,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   } catch {}
                   router.push('/login');
                 }}
-                className="text-sm text-gray-700 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 py-1"
+                className={styles.logoutButton}
               >
                 Logout
               </button>
@@ -133,16 +118,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </header>
 
-        {/* Sidebar (desktop) */}
-        <aside
-          aria-label="Primary navigation"
-          role="navigation"
-          className="hidden lg:block row-start-2 bg-gray-900 text-white sticky top-[var(--header-h)] h-[calc(100dvh-var(--header-h))] overflow-y-auto"
-        >
-          <div className="flex h-16 items-center justify-center bg-gray-800">
-            <h1 className="text-xl font-bold">VH Admin Portal</h1>
+        {/* Desktop Sidebar */}
+        <aside aria-label="Primary navigation" role="navigation" className={styles.sidebar}>
+          <div className={styles.sidebarHeader}>
+            <h1 className={styles.sidebarTitle}>VH Admin Portal</h1>
           </div>
-          <nav className="mt-2 pb-4">
+          <nav className={styles.nav}>
             {visibleNav.map((item) => {
               const active = isItemActive(pathname, item.href);
               return (
@@ -150,11 +131,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   key={item.href}
                   href={item.href}
                   aria-current={active ? 'page' : undefined}
-                  className={`block px-6 py-3 text-sm transition-colors ${
-                    active
-                      ? 'border-l-4 border-blue-500 bg-gray-800 text-white'
-                      : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                  }`}
+                  className={`${styles.navItem} ${active ? styles.navItemActive : ''}`}
                 >
                   {item.name}
                 </Link>
@@ -163,11 +140,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </nav>
         </aside>
 
-        {/* Mobile drawer */}
+        {/* Mobile Drawer */}
         {isSidebarOpen && (
           <>
             <div
-              className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+              className={styles.mobileOverlay}
               onClick={() => setIsSidebarOpen(false)}
               aria-hidden="true"
             />
@@ -176,20 +153,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               role="dialog"
               aria-modal="true"
               aria-label="Mobile navigation"
-              className="fixed inset-y-0 left-0 z-50 w-64 bg-gray-900 text-white shadow lg:hidden focus:outline-none"
+              className={styles.mobileDrawer}
             >
-              <div className="flex h-[var(--header-h)] items-center justify-between px-4 bg-gray-800">
-                <span className="font-semibold">VH Admin Portal</span>
+              <div className={styles.mobileHeader}>
+                <span className={styles.sidebarTitle}>VH Admin Portal</span>
                 <button
                   type="button"
                   onClick={() => setIsSidebarOpen(false)}
-                  className="rounded p-2 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={styles.closeButton}
                   aria-label="Close navigation"
                 >
                   ✕
                 </button>
               </div>
-              <nav className="mt-2 pb-6">
+              <nav className={styles.nav}>
                 {visibleNav.map((item) => {
                   const active = isItemActive(pathname, item.href);
                   return (
@@ -198,11 +175,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       href={item.href}
                       onClick={() => setIsSidebarOpen(false)}
                       aria-current={active ? 'page' : undefined}
-                      className={`block px-6 py-3 text-sm transition-colors ${
-                        active
-                          ? 'border-l-4 border-blue-500 bg-gray-800 text-white'
-                          : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                      }`}
+                      className={`${styles.navItem} ${active ? styles.navItemActive : ''}`}
                     >
                       {item.name}
                     </Link>
@@ -213,12 +186,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </>
         )}
 
-        {/* Main content area */}
-        <main
-          id="main-content"
-          role="main"
-          className="row-start-2 bg-gray-100 h-[calc(100dvh-var(--header-h))] overflow-y-auto px-4 sm:px-6 lg:px-8 py-6 lg:col-start-2"
-        >
+        {/* Main Content */}
+        <main id="main-content" role="main" className={styles.main}>
           {children}
         </main>
       </div>
