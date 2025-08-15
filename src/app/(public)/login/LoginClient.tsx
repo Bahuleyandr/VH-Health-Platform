@@ -23,6 +23,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { QueryProvider } from '@/providers/query-provider';
+import Image from 'next/image';
 import styles from './Login.module.css';
 
 function LoginInner() {
@@ -34,6 +35,7 @@ function LoginInner() {
   const [remember, setRemember] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [capsOn, setCapsOn] = useState(false);
+  const [logoError, setLogoError] = useState(false);
   
   // Validation state
   const [touched, setTouched] = useState({ username: false, password: false });
