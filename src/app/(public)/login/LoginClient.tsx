@@ -4,286 +4,296 @@
 import { useEffect, useRef, useState } from 'react';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { QueryProvider } from '@/providers/query-provider';
-import {
-  Eye,
-  EyeOff,
-  User,
-  Lock,
-  AlertCircle,
-  CheckCircle,
-  Activity,
-  ShieldCheck,
-} from 'lucide-react';
+import { Eye, EyeOff, User, Lock, AlertCircle, CheckCircle, ShieldCheck, Activity, Shield, BarChart3, Loader2 } from 'lucide-react';
 
-/**
- * Merged login:
- * - Your inline validation + micro-animations (shake, blobs, slideDown)
- * - My a11y, theme tokens, caps-lock hint, SSO stubs, two-column brand panel
- * - Unified "Remember me" keys: vh:remember / vh:savedUsername
- */
 function LoginInner() {
   const { login } = useAuth();
 
-  // form state
+  // Form state
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
-
-  // UI state
+  const [remember, setRemember] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [capsOn, setCapsOn] = useState(false);
+  
+  // Validation state
+  const [touched, setTouched] = useState({ username: false, password: false });
+  const [fieldErrors, setFieldErrors] = useState({ username: '', password: '' });
+  
+  // Submit state
   const [isLoading, setIsLoading] = useState(false);
-
-  // validation & errors
   const [error, setError] = useState('');
-  const [fieldErrors, setFieldErrors] = useState<{ username: string; password: string }>({
-    username: '',
-    password: '',
-  });
-  const [touched, setTouched] = useState<{ username: boolean; password: boolean }>({
-    username: false,
-    password: false,
-  });
 
-  // refs for focus management
+  // Autofocus management
   const userRef = useRef<HTMLInputElement>(null);
-  const passRef = useRef<HTMLInputElement>(null);
-
-  // autofocus & restore remember-me
+  const passwordRef = useRef<HTMLInputElement>(null);
+  
   useEffect(() => {
-    userRef.current?.focus();
+    // Check for saved credentials
     const saved = localStorage.getItem('vh:remember');
     const savedUser = localStorage.getItem('vh:savedUsername');
+    
     if (saved === 'true' && savedUser) {
-      setRememberMe(true);
+      setRemember(true);
       setUsername(savedUser);
-      // move focus to password for quick login
-      setTimeout(() => passRef.current?.focus(), 0);
+      // Focus password field if username is prefilled
+      setTimeout(() => passwordRef.current?.focus(), 100);
+    } else {
+      // Focus username field
+      userRef.current?.focus();
     }
   }, []);
 
-  // validators
+  // Real-time validation
   const validateField = (field: 'username' | 'password', value: string) => {
-    let msg = '';
-    if (!value) {
-      msg = field === 'username' ? 'Username is required' : 'Password is required';
-    } else if (field === 'username' && value.length < 3) {
-      msg = 'Username must be at least 3 characters';
-    } else if (field === 'password' && value.length < 4) {
-      msg = 'Password must be at least 4 characters';
+    const errors = { ...fieldErrors };
+    
+    if (field === 'username') {
+      if (!value) {
+        errors.username = 'Username is required';
+      } else if (value.length < 3) {
+        errors.username = 'Username must be at least 3 characters';
+      } else {
+        errors.username = '';
+      }
     }
-    setFieldErrors((prev) => ({ ...prev, [field]: msg }));
-    return msg;
-  };
-
-  const validateAll = () => {
-    const u = username.trim();
-    const p = password;
-    const uErr = validateField('username', u);
-    const pErr = validateField('password', p);
-    return { ok: !uErr && !pErr, uErr, pErr };
+    
+    if (field === 'password') {
+      if (!value) {
+        errors.password = 'Password is required';
+      } else if (value.length < 4) {
+        errors.password = 'Password must be at least 4 characters';
+      } else {
+        errors.password = '';
+      }
+    }
+    
+    setFieldErrors(errors);
   };
 
   const handleBlur = (field: 'username' | 'password') => {
-    setTouched((t) => ({ ...t, [field]: true }));
-    validateField(field, field === 'username' ? username.trim() : password);
+    setTouched({ ...touched, [field]: true });
+    validateField(field, field === 'username' ? username : password);
   };
 
   const onCapsCheck = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    setCapsOn(e.getModifierState && e.getModifierState('CapsLock'));
+    if (e.getModifierState) {
+      setCapsOn(e.getModifierState('CapsLock'));
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    
+    // Validate all fields
     setTouched({ username: true, password: true });
-
-    const { ok, uErr, pErr } = validateAll();
-    if (!ok) {
-      // shake + focus first invalid
-      const form = document.getElementById('login-form');
-      form?.classList.add('animate-shake');
-      setTimeout(() => form?.classList.remove('animate-shake'), 500);
-      if (uErr) userRef.current?.focus();
-      else if (pErr) passRef.current?.focus();
+    validateField('username', username);
+    validateField('password', password);
+    
+    if (!username || !password || fieldErrors.username || fieldErrors.password) {
       return;
     }
-
+    
     setError('');
     setIsLoading(true);
+    
     try {
-      // persist username preference
-      if (rememberMe) {
+      await login(username.trim(), password);
+      
+      // Save preference after successful login
+      if (remember) {
         localStorage.setItem('vh:remember', 'true');
         localStorage.setItem('vh:savedUsername', username.trim());
       } else {
         localStorage.removeItem('vh:remember');
         localStorage.removeItem('vh:savedUsername');
       }
-      await login(username.trim(), password);
-      // redirect handled by context
     } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : 'Login failed. Please check your credentials.';
+      const msg = err instanceof Error ? err.message : 'Login failed. Please check your credentials.';
       setError(msg);
-      // shake on failure
+      
+      // Add subtle shake animation to form
       const form = document.getElementById('login-form');
       form?.classList.add('animate-shake');
       setTimeout(() => form?.classList.remove('animate-shake'), 500);
-      // focus username for quick retry
-      userRef.current?.focus();
     } finally {
       setIsLoading(false);
     }
   };
 
+  const disabled = isLoading;
   const hasErrors = !!(fieldErrors.username || fieldErrors.password);
-  const disabled = isLoading || !username || !password;
+  const submitDisabled = disabled || !username || !password || hasErrors;
 
   return (
-    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2 bg-background relative overflow-hidden">
-      {/* Brand / Illustration (desktop only) */}
-      <div className="relative hidden lg:flex items-center justify-center overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-slate-950 dark:to-slate-900" />
-        <div className="relative z-10 px-12">
-          <div className="flex items-center gap-3">
-            <div className="h-12 w-12 rounded-2xl bg-blue-600 text-white grid place-items-center text-xl font-bold shadow-elev-3">
-              VH
-            </div>
-            <div>
-              <h2 className="text-2xl font-semibold">VH Health Admin</h2>
-              <p className="text-sm text-muted-foreground">Secure access to your operations</p>
-            </div>
-          </div>
-
-          <div className="mt-10 grid gap-4">
-            <Feature title="Role-based access" description="Only what each role needs to see." />
-            <Feature title="Audit-ready" description="Every sensitive action is tracked." />
-            <Feature title="SLA monitoring" description="Realtime system health & alerts." />
-          </div>
+    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2">
+      {/* Left: Brand Panel */}
+      <div className="hidden lg:flex relative items-center justify-center overflow-hidden bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-slate-950 dark:to-slate-900">
+        {/* Animated background elements */}
+        <div className="absolute inset-0">
+          <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-300/30 rounded-full mix-blend-multiply filter blur-xl animate-blob"></div>
+          <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-purple-300/30 rounded-full mix-blend-multiply filter blur-xl animate-blob animation-delay-2000"></div>
+          <div className="absolute top-40 left-40 w-80 h-80 bg-indigo-300/30 rounded-full mix-blend-multiply filter blur-xl animate-blob animation-delay-4000"></div>
         </div>
 
-        {/* decorative blobs */}
-        <div className="pointer-events-none absolute -top-24 -right-24 h-96 w-96 rounded-full bg-blue-200/40 blur-3xl dark:bg-blue-500/10 animate-blob" />
-        <div className="pointer-events-none absolute -bottom-24 -left-24 h-96 w-96 rounded-full bg-indigo-200/40 blur-3xl dark:bg-indigo-500/10 animate-blob animation-delay-2000" />
-        <div className="pointer-events-none absolute top-20 left-24 h-80 w-80 rounded-full bg-pink-200/40 blur-3xl dark:bg-pink-500/10 animate-blob animation-delay-4000" />
-      </div>
-
-      {/* Form column */}
-      <div className="flex items-center justify-center px-6 py-12">
-        <div className="w-full max-w-md">
-          {/* Logo / header (mobile+desktop) */}
-          <div className="mb-6 text-center lg:hidden">
-            <div className="mx-auto mb-4 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-lg">
-              <Activity className="h-8 w-8" aria-hidden="true" />
+        <div className="relative z-10 px-12 max-w-lg">
+          {/* Logo and Brand */}
+          <div className="flex items-center gap-4 mb-12">
+            <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white grid place-items-center shadow-xl transform hover:scale-105 transition-transform">
+              <Activity className="h-8 w-8" />
             </div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              VH Health
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">Admin Portal Access</p>
+            <div>
+              <h2 className="text-3xl font-bold text-gray-900 dark:text-white">VH Health</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Admin Portal</p>
+            </div>
           </div>
 
-          <div className="rounded-2xl border bg-card p-6 shadow-elev-2 backdrop-blur">
-            <div className="text-center">
-              <h2 className="text-2xl font-semibold">Welcome back</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Enter your credentials to continue</p>
+          {/* Welcome Message */}
+          <div className="mb-10">
+            <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-3">
+              Welcome Back
+            </h1>
+            <p className="text-lg text-gray-600 dark:text-gray-400">
+              Secure access to your healthcare operations dashboard
+            </p>
+          </div>
+
+          {/* Features */}
+          <div className="grid gap-4">
+            <Feature 
+              icon={<Shield className="h-5 w-5" />}
+              title="Role-based Access" 
+              description="Granular permissions for each team member"
+            />
+            <Feature 
+              icon={<BarChart3 className="h-5 w-5" />}
+              title="Real-time Analytics" 
+              description="Monitor system health and performance metrics"
+            />
+            <Feature 
+              icon={<ShieldCheck className="h-5 w-5" />}
+              title="HIPAA Compliant" 
+              description="Enterprise-grade security and audit logging"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Right: Login Form */}
+      <div className="flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-6 py-12">
+        <div className="w-full max-w-md">
+          {/* Mobile Logo */}
+          <div className="lg:hidden mb-8 text-center">
+            <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white mb-4">
+              <Activity className="h-7 w-7" />
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">VH Health Admin</h1>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Sign in to continue</p>
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8">
+            <div className="mb-6">
+              <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">Sign In</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Enter your credentials to access the admin portal</p>
             </div>
 
-            {/* error banner */}
+            {/* Error Alert */}
             {error && (
               <div
                 id="login-error"
                 role="alert"
+                className="mb-6 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-800 p-4 animate-slideDown"
                 aria-live="polite"
-                className="mt-4 flex items-start gap-2 rounded-lg border border-red-600/20 bg-red-50 p-3 text-sm text-red-700 animate-slideDown dark:bg-red-500/10 dark:text-red-300"
               >
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                <span>{error}</span>
+                <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                <span className="text-sm text-red-700 dark:text-red-300">{error}</span>
               </div>
             )}
 
             <form
               id="login-form"
-              className="mt-6 grid gap-5"
+              className="space-y-5"
               onSubmit={handleSubmit}
-              aria-busy={isLoading}
               noValidate
             >
-              {/* username */}
+              {/* Username Field */}
               <div>
-                <label htmlFor="username" className="mb-1 block text-sm font-medium">
+                <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   Username
                 </label>
                 <div className="relative">
-                  <span className="absolute inset-y-0 left-0 grid w-9 place-items-center text-muted-foreground">
-                    <User
-                      className={`h-4 w-4 ${
-                        touched.username && fieldErrors.username ? 'text-red-500' : ''
-                      }`}
-                      aria-hidden="true"
-                    />
-                  </span>
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <User className={`h-5 w-5 ${
+                      touched.username && fieldErrors.username 
+                        ? 'text-red-400' 
+                        : touched.username && !fieldErrors.username 
+                        ? 'text-green-500'
+                        : 'text-gray-400'
+                    }`} />
+                  </div>
                   <input
                     ref={userRef}
                     id="username"
                     name="username"
                     type="text"
                     autoComplete="username"
-                    inputMode="text"
                     autoCapitalize="none"
                     spellCheck={false}
-                    disabled={isLoading}
+                    required
+                    disabled={disabled}
                     value={username}
                     onChange={(e) => {
                       setUsername(e.target.value);
                       if (touched.username) validateField('username', e.target.value);
                     }}
                     onBlur={() => handleBlur('username')}
+                    className={`block w-full pl-10 pr-10 py-2.5 border ${
+                      touched.username && fieldErrors.username 
+                        ? 'border-red-300 focus:ring-red-500 focus:border-red-500' 
+                        : touched.username && !fieldErrors.username && username
+                        ? 'border-green-300 focus:ring-green-500 focus:border-green-500'
+                        : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+                    } rounded-lg focus:outline-none focus:ring-2 transition-colors bg-white dark:bg-gray-900 dark:border-gray-600`}
+                    placeholder="Enter your username"
                     aria-invalid={!!(touched.username && fieldErrors.username)}
-                    aria-describedby={
-                      (touched.username && fieldErrors.username ? 'username-error ' : '') +
-                      (error ? 'login-error' : '')
-                    }
-                    className={`w-full rounded-lg border px-10 py-2.5 text-base shadow-sm placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring ${
-                      touched.username && fieldErrors.username
-                        ? 'border-red-300'
-                        : 'border-input bg-background'
-                    }`}
-                    placeholder="you@company.com"
+                    aria-describedby={fieldErrors.username ? 'username-error' : undefined}
                   />
                   {touched.username && !fieldErrors.username && username && (
-                    <span className="absolute inset-y-0 right-0 grid place-items-center pr-3">
-                      <CheckCircle className="h-5 w-5 text-emerald-500" aria-hidden="true" />
-                    </span>
+                    <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                      <CheckCircle className="h-5 w-5 text-green-500 animate-fadeIn" />
+                    </div>
                   )}
                 </div>
                 {touched.username && fieldErrors.username && (
-                  <p id="username-error" className="mt-1 text-sm text-red-600 animate-slideDown">
+                  <p id="username-error" className="mt-1.5 text-sm text-red-600 animate-slideDown">
                     {fieldErrors.username}
                   </p>
                 )}
               </div>
 
-              {/* password */}
+              {/* Password Field */}
               <div>
-                <label htmlFor="password" className="mb-1 block text-sm font-medium">
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   Password
                 </label>
                 <div className="relative">
-                  <span className="absolute inset-y-0 left-0 grid w-9 place-items-center text-muted-foreground">
-                    <Lock
-                      className={`h-4 w-4 ${
-                        touched.password && fieldErrors.password ? 'text-red-500' : ''
-                      }`}
-                      aria-hidden="true"
-                    />
-                  </span>
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Lock className={`h-5 w-5 ${
+                      touched.password && fieldErrors.password 
+                        ? 'text-red-400' 
+                        : touched.password && !fieldErrors.password 
+                        ? 'text-green-500'
+                        : 'text-gray-400'
+                    }`} />
+                  </div>
                   <input
-                    ref={passRef}
+                    ref={passwordRef}
                     id="password"
                     name="password"
                     type={showPassword ? 'text' : 'password'}
                     autoComplete="current-password"
-                    disabled={isLoading}
+                    required
+                    disabled={disabled}
                     value={password}
                     onChange={(e) => {
                       setPassword(e.target.value);
@@ -291,142 +301,145 @@ function LoginInner() {
                     }}
                     onBlur={() => handleBlur('password')}
                     onKeyUp={onCapsCheck}
+                    className={`block w-full pl-10 pr-12 py-2.5 border ${
+                      touched.password && fieldErrors.password 
+                        ? 'border-red-300 focus:ring-red-500 focus:border-red-500' 
+                        : touched.password && !fieldErrors.password && password
+                        ? 'border-green-300 focus:ring-green-500 focus:border-green-500'
+                        : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+                    } rounded-lg focus:outline-none focus:ring-2 transition-colors bg-white dark:bg-gray-900 dark:border-gray-600`}
+                    placeholder="Enter your password"
                     aria-invalid={!!(touched.password && fieldErrors.password)}
                     aria-describedby={
-                      (touched.password && fieldErrors.password ? 'password-error ' : '') +
-                      (capsOn ? 'caps-hint ' : '') +
-                      (error ? 'login-error' : '')
+                      (fieldErrors.password ? 'password-error ' : '') + 
+                      (capsOn ? 'caps-warning' : '')
                     }
-                    className={`w-full rounded-lg border px-10 py-2.5 pr-10 text-base shadow-sm placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring ${
-                      touched.password && fieldErrors.password
-                        ? 'border-red-300'
-                        : 'border-input bg-background'
-                    }`}
-                    placeholder="••••••••"
                   />
                   <button
                     type="button"
-                    className="absolute inset-y-0 right-0 grid w-10 place-items-center rounded-r-lg text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                    onClick={() => setShowPassword(!showPassword)}
+                    disabled={disabled}
+                    tabIndex={-1}
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    aria-pressed={showPassword}
-                    disabled={isLoading}
                   >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    {showPassword ? (
+                      <EyeOff className="h-5 w-5" />
+                    ) : (
+                      <Eye className="h-5 w-5" />
+                    )}
                   </button>
                 </div>
-                {capsOn && (
-                  <p id="caps-hint" className="mt-1 text-xs text-amber-600">
-                    Caps Lock is ON
+                {touched.password && fieldErrors.password && (
+                  <p id="password-error" className="mt-1.5 text-sm text-red-600 animate-slideDown">
+                    {fieldErrors.password}
                   </p>
                 )}
-                {touched.password && fieldErrors.password && (
-                  <p id="password-error" className="mt-1 text-sm text-red-600 animate-slideDown">
-                    {fieldErrors.password}
+                {capsOn && (
+                  <p id="caps-warning" className="mt-1.5 text-sm text-amber-600 dark:text-amber-400 animate-slideDown">
+                    ⚠️ Caps Lock is ON
                   </p>
                 )}
               </div>
 
-              {/* options */}
+              {/* Remember & Forgot */}
               <div className="flex items-center justify-between">
-                <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                <label className="flex items-center cursor-pointer">
                   <input
                     type="checkbox"
-                    className="h-4 w-4 rounded border-muted-foreground/30 text-blue-600 focus:ring-blue-600"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    disabled={isLoading}
+                    className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    checked={remember}
+                    onChange={(e) => setRemember(e.target.checked)}
+                    disabled={disabled}
                   />
-                  Remember me
+                  <span className="ml-2 text-sm text-gray-600 dark:text-gray-400">Remember me</span>
                 </label>
-                <a className="text-sm text-blue-600 hover:underline" href="/forgot-password">
+                <a 
+                  href="/forgot-password" 
+                  className="text-sm text-blue-600 hover:text-blue-500 transition-colors"
+                >
                   Forgot password?
                 </a>
               </div>
 
-              {/* submit */}
+              {/* Submit Button */}
               <button
                 type="submit"
-                disabled={disabled || hasErrors}
-                className={`inline-flex h-10 w-full items-center justify-center rounded-lg px-4 text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${
-                  disabled || hasErrors
-                    ? 'bg-gray-400/80 dark:bg-gray-600/60 cursor-not-allowed'
-                    : 'bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 shadow-lg hover:shadow-xl transition-all'
+                disabled={submitDisabled}
+                className={`w-full py-2.5 px-4 rounded-lg font-medium transition-all transform hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
+                  submitDisabled
+                    ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg'
                 }`}
               >
                 {isLoading ? (
-                  <span className="inline-flex items-center gap-2">
-                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-                      />
-                    </svg>
-                    Signing in…
+                  <span className="flex items-center justify-center">
+                    <Loader2 className="animate-spin -ml-1 mr-3 h-5 w-5" />
+                    Signing in...
                   </span>
                 ) : (
-                  'Sign in'
+                  'Sign In'
                 )}
               </button>
 
-              {/* divider */}
-              <div className="relative">
+              {/* Divider */}
+              <div className="relative my-6">
                 <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t" />
+                  <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
                 </div>
-                <div className="relative flex justify-center text-xs">
-                  <span className="bg-card px-2 text-muted-foreground">or</span>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-2 bg-white dark:bg-gray-800 text-gray-500">Or continue with</span>
                 </div>
               </div>
 
-              {/* SSO stubs */}
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {/* SSO Options */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <button
                   type="button"
-                  className="inline-flex h-10 items-center justify-center rounded-lg border bg-background px-4 text-sm hover:bg-muted"
-                  onClick={() => (window.location.href = '/api/auth/sso/google')}
-                  disabled={isLoading}
+                  disabled={disabled}
+                  onClick={() => window.location.href = '/api/auth/sso/google'}
+                  className="flex items-center justify-center py-2.5 px-4 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {/* simple G icon path */}
-                  <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
-                    <path d="M21.35 11.1h-9.18v2.96h5.26a4.51 4.51 0 01-1.95 2.95l3.15 2.44c1.84-1.7 2.9-4.2 2.9-7.17 0-.49-.04-.96-.11-1.42z" />
-                    <path d="M12.17 22c2.62 0 4.82-.86 6.42-2.35l-3.15-2.44c-.88.6-2 1-3.27 1a5.66 5.66 0 01-5.35-3.79H3.52v2.38A10 10 0 0012.17 22z" />
-                    <path d="M6.82 14.42a6 6 0 010-3.84V8.2H3.52a10 10 0 000 7.6l3.3-1.38z" />
-                    <path d="M12.17 6.27c1.42 0 2.7.49 3.71 1.46l2.78-2.78A9.63 9.63 0 0012.17 2a10 10 0 00-8.65 4.95l3.3 2.38a5.67 5.67 0 015.35-3.06z" />
+                  <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                   </svg>
-                  Continue with Google
+                  <span className="text-sm font-medium">Google</span>
                 </button>
 
                 <button
                   type="button"
-                  className="inline-flex h-10 items-center justify-center rounded-lg border bg-background px-4 text-sm hover:bg-muted"
-                  onClick={() => (window.location.href = '/api/auth/sso/azure')}
-                  disabled={isLoading}
+                  disabled={disabled}
+                  onClick={() => window.location.href = '/api/auth/sso/azure'}
+                  className="flex items-center justify-center py-2.5 px-4 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <ShieldCheck className="mr-2 h-4 w-4" aria-hidden="true" />
-                  Continue with Azure AD
+                  <ShieldCheck className="w-5 h-5 mr-2 text-blue-600" />
+                  <span className="text-sm font-medium">Azure AD</span>
                 </button>
               </div>
             </form>
+
+            {/* Footer Links */}
+            <p className="mt-6 text-center text-xs text-gray-500 dark:text-gray-400">
+              By continuing, you agree to our{' '}
+              <a href="/terms" className="text-blue-600 hover:underline">Terms</a>
+              {' '}and{' '}
+              <a href="/privacy" className="text-blue-600 hover:underline">Privacy Policy</a>
+            </p>
           </div>
 
-          <p className="mt-6 text-center text-xs text-muted-foreground">
-            By continuing you agree to our{' '}
-            <a className="underline hover:text-foreground" href="/terms">
-              Terms
-            </a>{' '}
-            &{' '}
-            <a className="underline hover:text-foreground" href="/privacy">
-              Privacy Policy
-            </a>
-            .
-          </p>
+          {/* Security Badge */}
+          <div className="mt-6 text-center">
+            <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center justify-center gap-1">
+              <Shield className="h-3.5 w-3.5" />
+              Protected by enterprise-grade security
+            </p>
+          </div>
         </div>
       </div>
 
-      {/* Local styles for micro-animations */}
       <style jsx>{`
         @keyframes blob {
           0% { transform: translate(0px, 0px) scale(1); }
@@ -435,8 +448,12 @@ function LoginInner() {
           100% { transform: translate(0px, 0px) scale(1); }
         }
         @keyframes slideDown {
-          from { opacity: 0; transform: translateY(-8px); }
+          from { opacity: 0; transform: translateY(-10px); }
           to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
         }
         @keyframes shake {
           0%, 100% { transform: translateX(0); }
@@ -446,24 +463,29 @@ function LoginInner() {
         .animate-blob { animation: blob 7s infinite; }
         .animation-delay-2000 { animation-delay: 2s; }
         .animation-delay-4000 { animation-delay: 4s; }
-        .animate-slideDown { animation: slideDown 0.28s ease-out; }
+        .animate-slideDown { animation: slideDown 0.3s ease-out; }
+        .animate-fadeIn { animation: fadeIn 0.3s ease-out; }
         .animate-shake { animation: shake 0.5s ease-in-out; }
       `}</style>
     </div>
   );
 }
 
-function Feature({ title, description }: { title: string; description: string }) {
+function Feature({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) {
   return (
-    <div className="rounded-xl border bg-card/50 p-4 shadow-sm backdrop-blur-sm">
-      <p className="font-medium">{title}</p>
-      <p className="text-sm text-muted-foreground">{description}</p>
+    <div className="flex gap-4 p-4 rounded-xl bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm border border-white/20 dark:border-gray-700/20">
+      <div className="flex-shrink-0 h-10 w-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400">
+        {icon}
+      </div>
+      <div>
+        <p className="font-medium text-gray-900 dark:text-white">{title}</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400">{description}</p>
+      </div>
     </div>
   );
 }
 
 export default function LoginClient() {
-  // If your (public) segment is already wrapped globally, remove the providers here.
   return (
     <QueryProvider>
       <AuthProvider>

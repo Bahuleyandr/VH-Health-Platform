@@ -45,8 +45,8 @@ interface DashboardData {
     pendingHRActions: number;
   };
   charts: {
-    userGrowth: ChartDataPoint[];          // {date, value}
-    appointmentTrends: ChartDataPoint[];   // {date, value}
+    userGrowth: ChartDataPoint[];            // {date, value}
+    appointmentTrends: ChartDataPoint[];     // {date, value}
     departmentUtilization: ChartDataPoint[]; // {label, value}
   };
   recentActivity: ActivityItem[];
@@ -54,6 +54,9 @@ interface DashboardData {
 }
 
 type DashboardAPIResponse = { data?: DashboardData } | DashboardData;
+
+/* Shared empty array to keep refs stable in memoized fallbacks */
+const EMPTY_POINTS: ReadonlyArray<ChartDataPoint> = [];
 
 /* =========================
    Type guards
@@ -110,10 +113,21 @@ export default function DashboardPage() {
     fetchDashboardData();
   }, [fetchDashboardData]);
 
-  const appointmentTrends = dashboardData?.charts?.appointmentTrends ?? [];
-  const userGrowth = dashboardData?.charts?.userGrowth ?? [];
-  const deptUtil = dashboardData?.charts?.departmentUtilization ?? [];
+  /* Memoize series with stable empty fallback so deps don't change every render */
+  const appointmentTrends = useMemo(
+    () => dashboardData?.charts?.appointmentTrends ?? EMPTY_POINTS,
+    [dashboardData?.charts?.appointmentTrends]
+  );
+  const userGrowth = useMemo(
+    () => dashboardData?.charts?.userGrowth ?? EMPTY_POINTS,
+    [dashboardData?.charts?.userGrowth]
+  );
+  const deptUtil = useMemo(
+    () => dashboardData?.charts?.departmentUtilization ?? EMPTY_POINTS,
+    [dashboardData?.charts?.departmentUtilization]
+  );
 
+  /* Now this memo depends on a stable array reference */
   const maxDeptUtil = useMemo(
     () => (deptUtil.length ? Math.max(...deptUtil.map((d) => d.value)) : 0),
     [deptUtil]
@@ -216,8 +230,9 @@ export default function DashboardPage() {
               <ul className="mt-3 space-y-3">
                 {deptUtil.map((d) => {
                   const pct = maxDeptUtil ? Math.round((d.value / maxDeptUtil) * 100) : 0;
+                  const key = (d.label ?? d.date) + ":" + d.value;
                   return (
-                    <li key={(d.label ?? d.date) + String(d.value)}>
+                    <li key={key}>
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">{d.label ?? d.date}</span>
                         <span className="font-medium">{d.value}</span>
@@ -245,8 +260,8 @@ export default function DashboardPage() {
 
         {/* Trends */}
         <section className="space-y-4 lg:col-span-7">
-          <ChartCard title="Appointments (last 14 days)" data={appointmentTrends} />
-          <ChartCard title="User Growth (last 30 days)" data={userGrowth} />
+          <ChartCard title="Appointments (last 14 days)" data={appointmentTrends as ChartDataPoint[]} />
+          <ChartCard title="User Growth (last 30 days)" data={userGrowth as ChartDataPoint[]} />
         </section>
       </div>
 
