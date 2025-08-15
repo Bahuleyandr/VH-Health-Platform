@@ -3,12 +3,19 @@
 .container {
   min-height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #0891b2 0%, #06b6d4 35%, #14b8a6 65%, #06b6d4 100%);
   padding: 20px;
   position: relative;
   overflow: hidden;
+}
+
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
 .backgroundPattern {
@@ -16,6 +23,16 @@
   inset: 0;
   opacity: 0.1;
   background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+
+.hospitalBackground {
+  position: absolute;
+  inset: 0;
+  opacity: 0.05;
+  background-image: url('/images/hospital-building.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 .card {
@@ -39,7 +56,7 @@
   width: 80px;
   height: 80px;
   margin: 0 auto 16px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #0891b2 0%, #14b8a6 100%);
   border-radius: 20px;
   display: flex;
   align-items: center;
@@ -47,7 +64,14 @@
   font-size: 36px;
   color: white;
   font-weight: bold;
-  box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 10px 30px rgba(20, 184, 166, 0.4);
+}
+
+.logoImage {
+  width: auto;
+  height: 80px;
+  margin: 0 auto 16px;
+  display: block;
 }
 
 .title {
@@ -59,7 +83,7 @@
 
 .subtitle {
   font-size: 14px;
-  color: #718096;
+  color: #64748b;
   margin: 0;
 }
 
@@ -77,13 +101,13 @@
 
 .welcomeSubtitle {
   font-size: 14px;
-  color: #718096;
+  color: #64748b;
   margin: 0;
 }
 
 .errorBox {
-  background-color: #fed7d7;
-  border: 1px solid #fc8181;
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
   border-radius: 8px;
   padding: 12px 16px;
   margin-bottom: 20px;
@@ -94,7 +118,7 @@
 }
 
 .errorText {
-  color: #c53030;
+  color: #991b1b;
   font-size: 14px;
   margin: 0;
 }
@@ -128,18 +152,18 @@
 }
 
 .input:focus {
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: #0891b2;
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.1);
 }
 
 .inputError {
-  border-color: #fc8181;
-  background-color: #fff5f5;
+  border-color: #f87171;
+  background-color: #fef2f2;
 }
 
 .inputSuccess {
-  border-color: #48bb78;
-  background-color: #f0fff4;
+  border-color: #14b8a6;
+  background-color: #f0fdf4;
 }
 
 .inputIcon {
@@ -152,11 +176,11 @@
 }
 
 .inputIconError {
-  color: #fc8181;
+  color: #f87171;
 }
 
 .inputIconSuccess {
-  color: #48bb78;
+  color: #14b8a6;
 }
 
 .passwordToggle {
@@ -179,14 +203,14 @@
 
 .errorMessage {
   font-size: 13px;
-  color: #e53e3e;
+  color: #dc2626;
   margin-top: 4px;
   animation: slideDown 0.3s ease-out;
 }
 
 .capsWarning {
   font-size: 13px;
-  color: #d69e2e;
+  color: #f59e0b;
   margin-top: 4px;
   animation: slideDown 0.3s ease-out;
 }
@@ -196,7 +220,7 @@
   right: 14px;
   top: 50%;
   transform: translateY(-50%);
-  color: #48bb78;
+  color: #14b8a6;
   font-size: 20px;
   animation: fadeIn 0.3s ease-out;
 }
@@ -213,6 +237,7 @@
   width: 16px;
   height: 16px;
   cursor: pointer;
+  accent-color: #0891b2;
 }
 
 .checkboxLabel {
@@ -225,14 +250,14 @@
 
 .forgotLink {
   font-size: 14px;
-  color: #667eea;
+  color: #0891b2;
   text-decoration: none;
   font-weight: 500;
   transition: color 0.2s;
 }
 
 .forgotLink:hover {
-  color: #5a67d8;
+  color: #0e7490;
 }
 
 .submitButton {
@@ -241,17 +266,17 @@
   font-size: 16px;
   font-weight: 600;
   color: white;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #0891b2 0%, #14b8a6 100%);
   border: none;
   border-radius: 10px;
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
-  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 4px 15px rgba(20, 184, 166, 0.4);
 }
 
 .submitButton:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+  box-shadow: 0 6px 20px rgba(20, 184, 166, 0.5);
 }
 
 .submitButton:active:not(:disabled) {
@@ -259,7 +284,7 @@
 }
 
 .submitButton:disabled {
-  background: #cbd5e0;
+  background: #9ca3af;
   cursor: not-allowed;
   box-shadow: none;
 }
@@ -277,6 +302,7 @@
   border-top-color: white;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+  display: inline-block;
 }
 
 .securityBadges {
@@ -293,35 +319,57 @@
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #718096;
+  color: #0891b2;
+  font-weight: 500;
 }
 
 .footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
   text-align: center;
-  margin-top: 24px;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.8);
-  position: relative;
+  color: rgba(255, 255, 255, 0.95);
   z-index: 1;
+  width: 100%;
+  padding: 16px 20px;
+  background: linear-gradient(to top, rgba(6, 182, 212, 0.2), transparent);
+  backdrop-filter: blur(10px);
+}
+
+.footer p {
+  margin: 0 0 8px 0;
+  color: rgba(255, 255, 255, 0.95);
 }
 
 .footerLinks {
-  margin-top: 8px;
   display: flex;
   justify-content: center;
-  gap: 16px;
+  gap: 0;
+  align-items: center;
+}
+
+.footerLinks::before {
+  content: '';
 }
 
 .footerLink {
-  color: white;
+  color: rgba(255, 255, 255, 0.95);
   text-decoration: none;
   font-size: 12px;
-  opacity: 0.9;
   transition: opacity 0.2s;
+  padding: 0 12px;
+  border-right: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.footerLink:last-child {
+  border-right: none;
 }
 
 .footerLink:hover {
-  opacity: 1;
+  color: white;
+  text-decoration: underline;
 }
 
 /* Animations */
@@ -367,4 +415,21 @@
 
 .formShake {
   animation: shake 0.5s ease-in-out;
+}
+
+/* Responsive adjustments */
+@media (max-width: 480px) {
+  .card {
+    padding: 32px 24px;
+  }
+  
+  .footer {
+    font-size: 11px;
+    padding: 10px 15px;
+  }
+  
+  .footerLink {
+    padding: 0 8px;
+    font-size: 11px;
+  }
 }
