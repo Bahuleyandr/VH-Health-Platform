@@ -2,25 +2,28 @@
 'use client';
 
 /* 
- * ALTERNATIVE VERSION WITH IMAGE IMPORTS
- * ---------------------------------------
- * If the images still don't show with the URL approach,
- * try this version which imports the images directly.
+ * IMPORTANT: Image Setup Instructions
+ * ------------------------------------
+ * Your images should be placed in one of these locations:
  * 
- * Place your images in: src/assets/images/
- * - src/assets/images/hospital-logo.png
- * - src/assets/images/hospital-building.jpg
+ * Option 1: In the /public folder
+ * - /public/images/hospital-logo.png
+ * - /public/images/hospital-building.jpg
+ * 
+ * Option 2: In the root /images folder  
+ * - /images/hospital-logo.png
+ * - /images/hospital-building.jpg
+ * 
+ * If images still don't show:
+ * 1. Check browser console for 404 errors
+ * 2. Verify exact file names (case-sensitive)
+ * 3. Try accessing directly: http://localhost:3000/images/hospital-logo.png
  */
 
 import { useEffect, useRef, useState } from 'react';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { QueryProvider } from '@/providers/query-provider';
-import Image from 'next/image';
 import styles from './Login.module.css';
-
-// Try importing images - update these paths to match your actual image locations
-// import hospitalLogo from '@/assets/images/hospital-logo.png';
-// import hospitalBuilding from '@/assets/images/hospital-building.jpg';
 
 function LoginInner() {
   const { login } = useAuth();
@@ -31,7 +34,6 @@ function LoginInner() {
   const [remember, setRemember] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [capsOn, setCapsOn] = useState(false);
-  const [logoError, setLogoError] = useState(false);
   
   // Validation state
   const [touched, setTouched] = useState({ username: false, password: false });
@@ -144,52 +146,26 @@ function LoginInner() {
 
   return (
     <div className={styles.container}>
-      {/* Hospital Background with Next.js Image */}
-      <div className={styles.hospitalBackground}>
-        <Image
-          src="/images/hospital-building.jpg"
-          alt="Hospital Building"
-          fill
-          style={{ 
-            objectFit: 'cover',
-            opacity: 0.08,
-            filter: 'blur(1px)'
-          }}
-          priority
-          onError={() => {
-            console.log('Hospital building background image failed to load');
-          }}
-        />
-      </div>
+      <div className={styles.hospitalBackground} />
       <div className={styles.backgroundPattern} />
       
       <div className={styles.card}>
-        {/* Logo Section with Next.js Image component */}
+        {/* Logo Section */}
         <div className={styles.logo}>
-          {!logoError ? (
-            <div style={{ position: 'relative', width: '100%', height: '80px', marginBottom: '16px' }}>
-              <Image
-                src="/images/hospital-logo.png"
-                alt="VH Health Hospital"
-                width={200}
-                height={80}
-                style={{ 
-                  objectFit: 'contain',
-                  margin: '0 auto',
-                  display: 'block'
-                }}
-                onError={() => {
-                  console.error('Hospital logo failed to load');
-                  setLogoError(true);
-                }}
-                priority
-              />
-            </div>
-          ) : (
-            <div className={styles.logoIcon}>
-              VH
-            </div>
-          )}
+          <img 
+            src="/images/hospital-logo.png" 
+            alt="VH Health Hospital"
+            className={styles.logoImage}
+            onError={(e) => {
+              // Fallback to icon if logo doesn't load
+              e.currentTarget.style.display = 'none';
+              const fallback = document.getElementById('logo-fallback');
+              if (fallback) fallback.style.display = 'flex';
+            }}
+          />
+          <div id="logo-fallback" className={styles.logoIcon} style={{ display: 'none' }}>
+            VH
+          </div>
           <h1 className={styles.title}>VH Health</h1>
           <p className={styles.subtitle}>Excellence in Healthcare</p>
         </div>
