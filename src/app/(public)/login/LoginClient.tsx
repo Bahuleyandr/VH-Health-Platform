@@ -1,10 +1,26 @@
 // src/app/(public)/login/LoginClient.tsx
 'use client';
 
+/* 
+ * ALTERNATIVE VERSION WITH IMAGE IMPORTS
+ * ---------------------------------------
+ * If the images still don't show with the URL approach,
+ * try this version which imports the images directly.
+ * 
+ * Place your images in: src/assets/images/
+ * - src/assets/images/hospital-logo.png
+ * - src/assets/images/hospital-building.jpg
+ */
+
 import { useEffect, useRef, useState } from 'react';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { QueryProvider } from '@/providers/query-provider';
+import Image from 'next/image';
 import styles from './Login.module.css';
+
+// Try importing images - update these paths to match your actual image locations
+// import hospitalLogo from '@/assets/images/hospital-logo.png';
+// import hospitalBuilding from '@/assets/images/hospital-building.jpg';
 
 function LoginInner() {
   const { login } = useAuth();
@@ -15,6 +31,7 @@ function LoginInner() {
   const [remember, setRemember] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [capsOn, setCapsOn] = useState(false);
+  const [logoError, setLogoError] = useState(false);
   
   // Validation state
   const [touched, setTouched] = useState({ username: false, password: false });
@@ -127,14 +144,52 @@ function LoginInner() {
 
   return (
     <div className={styles.container}>
+      {/* Hospital Background with Next.js Image */}
+      <div className={styles.hospitalBackground}>
+        <Image
+          src="/images/hospital-building.jpg"
+          alt="Hospital Building"
+          fill
+          style={{ 
+            objectFit: 'cover',
+            opacity: 0.08,
+            filter: 'blur(1px)'
+          }}
+          priority
+          onError={() => {
+            console.log('Hospital building background image failed to load');
+          }}
+        />
+      </div>
       <div className={styles.backgroundPattern} />
       
       <div className={styles.card}>
-        {/* Logo Section */}
+        {/* Logo Section with Next.js Image component */}
         <div className={styles.logo}>
-          <div className={styles.logoIcon}>
-            VH
-          </div>
+          {!logoError ? (
+            <div style={{ position: 'relative', width: '100%', height: '80px', marginBottom: '16px' }}>
+              <Image
+                src="/images/hospital-logo.png"
+                alt="VH Health Hospital"
+                width={200}
+                height={80}
+                style={{ 
+                  objectFit: 'contain',
+                  margin: '0 auto',
+                  display: 'block'
+                }}
+                onError={() => {
+                  console.error('Hospital logo failed to load');
+                  setLogoError(true);
+                }}
+                priority
+              />
+            </div>
+          ) : (
+            <div className={styles.logoIcon}>
+              VH
+            </div>
+          )}
           <h1 className={styles.title}>VH Health</h1>
           <p className={styles.subtitle}>Excellence in Healthcare</p>
         </div>
@@ -258,7 +313,7 @@ function LoginInner() {
               />
               Remember me
             </label>
-            <a href="/forgot-password" className={styles.forgotLink}>
+            <a href="#" className={styles.forgotLink} onClick={(e) => e.preventDefault()}>
               Forgot password?
             </a>
           </div>
@@ -297,9 +352,9 @@ function LoginInner() {
       <div className={styles.footer}>
         <p>© 2024 VH Health Hospital. All rights reserved.</p>
         <div className={styles.footerLinks}>
-          <a href="/terms" className={styles.footerLink}>Terms</a>
-          <a href="/privacy" className={styles.footerLink}>Privacy</a>
-          <a href="/support" className={styles.footerLink}>Support</a>
+          <a href="#" className={styles.footerLink} onClick={(e) => e.preventDefault()}>Terms</a>
+          <a href="#" className={styles.footerLink} onClick={(e) => e.preventDefault()}>Privacy</a>
+          <a href="#" className={styles.footerLink} onClick={(e) => e.preventDefault()}>Support</a>
         </div>
       </div>
     </div>
