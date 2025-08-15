@@ -20,7 +20,7 @@
     "@ducanh2912/next-pwa": "^10.2.9",
     "@headlessui/react": "^2.2.4",
     "@hookform/resolvers": "^5.1.1",
-    "@sentry/nextjs": "^9.36.0",
+    "@sentry/nextjs": "^10.5.0",
     "@tanstack/react-query": "^5.81.5",
     "@tanstack/react-query-devtools": "^5.81.5",
     "@tanstack/react-virtual": "^3.13.12",

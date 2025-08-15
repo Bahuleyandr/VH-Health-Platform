@@ -8,14 +8,13 @@ const withPWA = withPWAInit({
   dest: 'public',
   disable: process.env.NODE_ENV === 'development',
   register: true,
-  // move skipWaiting into Workbox options
   workboxOptions: {
+    // moved here per newer next-pwa versions
     skipWaiting: true,
     clientsClaim: true,
-    // exclude files from precache (replace old buildExcludes)
+    // exclude files from precache (replaces old buildExcludes)
     exclude: [/middleware-manifest\.json$/],
-    // if you use runtime caching, keep it here:
-    // runtimeCaching: [],
+    // runtimeCaching: [], // add if/when needed
   },
 });
 
@@ -69,13 +68,17 @@ const nextConfig: NextConfig = {
 };
 
 // Only wrap with PWA in production
-const configWithPWA = process.env.NODE_ENV === 'production' ? withPWA(nextConfig) : nextConfig;
+const configWithPWA =
+  process.env.NODE_ENV === 'production' ? withPWA(nextConfig) : nextConfig;
 
-// Wrap with Sentry and use the modern sourcemaps options
+// Wrap with Sentry. telemetry:false silences the “Sending telemetry…” build log.
+// The sourcemaps block keeps uploads via the plugin and deletes local *.map after.
 export default withSentryConfig(configWithPWA, {
   org: process.env.SENTRY_ORG,
   project: process.env.SENTRY_PROJECT,
   authToken: process.env.SENTRY_AUTH_TOKEN,
+
+  telemetry: false, // <-- disable Sentry plugin telemetry (quiet builds)
 
   silent: !process.env.CI,
   widenClientFileUpload: true,
@@ -85,5 +88,7 @@ export default withSentryConfig(configWithPWA, {
 
   sourcemaps: {
     deleteSourcemapsAfterUpload: true,
+    // optional: you can further customize which assets to upload
+    // assets: ['.next/static/chunks/**'],
   },
 });
