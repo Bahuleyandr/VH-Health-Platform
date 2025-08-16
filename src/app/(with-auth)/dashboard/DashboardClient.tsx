@@ -1,7 +1,7 @@
 // src/app/(with-auth)/dashboard/DashboardClient.tsx
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { API_ENDPOINTS, API_BASE_URL, getHeaders } from '@/lib/api-config';
 import styles from './Dashboard.module.css';
@@ -76,6 +76,17 @@ interface DashboardData {
   };
 }
 
+// Define proper type for activity item from API
+interface ActivityApiItem {
+  id: string;
+  user: string;
+  action: string;
+  target: string;
+  department: string;
+  timestamp?: string | Date;
+  time?: string | Date;
+}
+
 function DashboardClient() {
   const router = useRouter();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -115,6 +126,12 @@ function DashboardClient() {
     return `Good night, ${userName}`;
   };
 
+  // Define updateRealTimeData before using it
+  const updateRealTimeData = () => {
+    // Refresh dashboard data
+    loadDashboardData();
+  };
+
   // Initialize Dashboard Data
   useEffect(() => {
     loadDashboardData();
@@ -125,7 +142,7 @@ function DashboardClient() {
     const interval = setInterval(updateRealTimeData, 30000); // Update every 30 seconds
     
     return () => clearInterval(interval);
-  }, []);
+  }, [updateRealTimeData]);
 
   const loadDashboardData = async () => {
     setIsLoading(true);
@@ -192,7 +209,7 @@ function DashboardClient() {
           { id: '1', user: 'Nurse Kelly', action: 'updated', target: 'patient record #1234', department: 'ICU' },
           { id: '2', user: 'Dr. Chen', action: 'prescribed', target: 'medication for #5678', department: 'Emergency' },
           { id: '3', user: 'Admin Ross', action: 'scheduled', target: 'maintenance for MRI', department: 'Radiology' }
-        ]).map((item: any) => ({
+        ]).map((item: ActivityApiItem) => ({
           ...item,
           time: new Date(item.timestamp || item.time || new Date())
         })),
@@ -279,11 +296,6 @@ function DashboardClient() {
     }
 
     setIsLoading(false);
-  };
-
-  const updateRealTimeData = () => {
-    // Refresh dashboard data
-    loadDashboardData();
   };
 
   const setupKeyboardShortcuts = () => {
