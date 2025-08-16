@@ -36,6 +36,12 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
+  /* Dashboard Status Colors */
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-danger: var(--danger);
+
   /* Charts */
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
@@ -86,6 +92,12 @@
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
 
+  /* Dashboard Status Colors */
+  --success: oklch(0.696 0.17 162.48);     /* Green - success states */
+  --warning: oklch(0.828 0.189 84.429);    /* Yellow/Orange - warning states */
+  --info: oklch(0.6 0.118 184.704);        /* Blue - informational states */
+  --danger: oklch(0.577 0.245 27.325);     /* Red - error/danger states (same as destructive) */
+
   /* UI chrome */
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
@@ -131,6 +143,12 @@
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
+
+  /* Dashboard Status Colors (Dark Mode) */
+  --success: oklch(0.696 0.17 162.48);     /* Green - slightly brighter for dark mode */
+  --warning: oklch(0.828 0.189 84.429);    /* Yellow/Orange - good contrast on dark */
+  --info: oklch(0.6 0.16 210);             /* Blue - adjusted for dark background */
+  --danger: oklch(0.704 0.191 22.216);     /* Red - same as destructive for consistency */
 
   /* UI chrome */
   --border: oklch(1 0 0 / 10%);
