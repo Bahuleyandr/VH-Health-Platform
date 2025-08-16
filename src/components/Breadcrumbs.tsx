@@ -1,47 +1,63 @@
 // src/components/Breadcrumbs.tsx
-
 "use client";
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import styles from "@/app/(with-auth)/dashboard/Dashboard.module.css"; // adjust the path if your alias differs
 
 export function Breadcrumbs() {
-  const pathname = usePathname();
-  const paths = pathname.split("/").filter(Boolean);
-  
-  const formatName = (path: string) => {
-    return path
+  const pathname = usePathname() || "/";
+  const segments = pathname.split("/").filter(Boolean);
+
+  // Treat /dashboard as the app's "home" (don't show it as a crumb)
+  const isDashboardRoot = segments[0] === "dashboard";
+  const trail = isDashboardRoot ? segments.slice(1) : segments;
+
+  const formatName = (path: string) =>
+    decodeURIComponent(path)
       .split("-")
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
       .join(" ");
-  };
-  
+
+  // Build href for each crumb (still includes hidden "dashboard" in the URL)
+  const hrefFor = (i: number) =>
+    "/" +
+    (isDashboardRoot
+      ? ["dashboard", ...trail.slice(0, i + 1)].join("/")
+      : trail.slice(0, i + 1).join("/"));
+
   return (
-    <nav className="flex text-sm" aria-label="Breadcrumb">
-      <ol className="inline-flex items-center space-x-1">
-        <li className="inline-flex items-center">
+    <nav className={styles.breadcrumb} aria-label="Breadcrumb">
+      <ol className={styles.bcList}>
+        {/* Home */}
+        <li className={styles.bcItem}>
           <Link
-            href="/dashboard"
-            className="inline-flex items-center text-gray-700 hover:text-blue-600 dark:text-gray-400 dark:hover:text-white"
+            href={isDashboardRoot ? "/dashboard" : "/"}
+            className={styles.bcLink}
           >
             <svg
-              className="w-3.5 h-3.5 mr-1.5"
+              className={styles.bcHomeIcon}
               fill="currentColor"
               viewBox="0 0 20 20"
+              aria-hidden="true"
             >
               <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" />
             </svg>
-            <span className="text-sm">Home</span>
+            <span>Home</span>
           </Link>
         </li>
-        {paths.map((path, index) => {
-          const href = "/" + paths.slice(0, index + 1).join("/");
-          const isLast = index === paths.length - 1;
+
+        {/* Dynamic segments */}
+        {trail.map((seg, i) => {
+          const isLast = i === trail.length - 1;
           return (
-            <li key={path} className="inline-flex items-center">
+            <li className={styles.bcItem} key={`${seg}-${i}`}>
+              {/* Separator */}
               <svg
-                className="w-3 h-3 mx-1 text-gray-400"
+                className={styles.bcSep}
                 fill="currentColor"
                 viewBox="0 0 20 20"
+                aria-hidden="true"
               >
                 <path
                   fillRule="evenodd"
@@ -49,16 +65,14 @@ export function Breadcrumbs() {
                   clipRule="evenodd"
                 />
               </svg>
+
               {isLast ? (
-                <span className="text-sm text-gray-500 dark:text-gray-400">
-                  {formatName(path)}
+                <span className={styles.bcCurrent} aria-current="page">
+                  {formatName(seg)}
                 </span>
               ) : (
-                <Link
-                  href={href}
-                  className="text-sm text-gray-700 hover:text-blue-600 dark:text-gray-400 dark:hover:text-white"
-                >
-                  {formatName(path)}
+                <Link href={hrefFor(i)} className={styles.bcLink}>
+                  {formatName(seg)}
                 </Link>
               )}
             </li>
