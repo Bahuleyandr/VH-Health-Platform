@@ -126,23 +126,19 @@ function DashboardClient() {
     return `Good night, ${userName}`;
   };
 
-  // Define updateRealTimeData before using it
-  const updateRealTimeData = () => {
-    // Refresh dashboard data
-    loadDashboardData();
-  };
-
   // Initialize Dashboard Data
-  useEffect(() => {
+useEffect(() => {
+  loadDashboardData();
+  setupKeyboardShortcuts();
+  checkThemePreference();
+  
+  // Setup real-time updates
+  const interval = setInterval(() => {
     loadDashboardData();
-    setupKeyboardShortcuts();
-    checkThemePreference();
-    
-    // Setup real-time updates
-    const interval = setInterval(updateRealTimeData, 30000); // Update every 30 seconds
-    
-    return () => clearInterval(interval);
-  }, [updateRealTimeData]);
+  }, 30000); // Update every 30 seconds
+  
+  return () => clearInterval(interval);
+}, []); // Remove updateRealTimeData from dependencies
 
   const loadDashboardData = async () => {
     setIsLoading(true);
