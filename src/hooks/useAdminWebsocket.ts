@@ -3,7 +3,6 @@ import { useWebSocket } from "./useWebSocket";
 import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 
-
 // Define the message types
 interface SystemAlertMessage {
   type: "system-alert";
@@ -37,12 +36,16 @@ type AdminWebSocketMessage =
   | StatsUpdateMessage
   | ActivityMessage;
 
-export const useAdminWebSocket = () => {
+// Export the hook function properly
+export function useAdminWebSocket() {
   const queryClient = useQueryClient();
   
-  const { isConnected } = useWebSocket<AdminWebSocketMessage>(
-    `${process.env.NEXT_PUBLIC_WS_URL}/admin`,
+  const { isConnected, connectionState, send, reconnect } = useWebSocket<AdminWebSocketMessage>(
+    `${process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001'}/admin`,
     {
+      authenticated: true, // Include auth token
+      autoReconnect: true,
+      exponentialBackoff: true,
       onMessage: (data: AdminWebSocketMessage) => {
         // Handle different message types
         switch (data.type) {
@@ -59,19 +62,41 @@ export const useAdminWebSocket = () => {
           case "stats-update":
             // Silently update stats
             queryClient.invalidateQueries({ queryKey: ["admin", "stats"] });
+            if (data.module) {
+              queryClient.invalidateQueries({ queryKey: ["admin", "stats", data.module] });
+            }
             break;
             
           case "activity":
             queryClient.invalidateQueries({ queryKey: ["admin", "activity"] });
             break;
-            
-          default:
-            // Handle unknown message types
-            console.warn("Unknown WebSocket message type:", data);
         }
+      },
+      onOpen: () => {
+        console.log("Admin WebSocket connected");
+      },
+      onClose: () => {
+        console.log("Admin WebSocket disconnected");
+      },
+      onError: (error) => {
+        console.error("Admin WebSocket error:", error);
       },
     }
   );
   
-  return { isConnected };
+  return { 
+    isConnected, 
+    connectionState,
+    send,
+    reconnect 
+  };
+}
+
+// Export the message types for use in other components
+export type { 
+  AdminWebSocketMessage,
+  SystemAlertMessage,
+  SosAlertMessage,
+  StatsUpdateMessage,
+  ActivityMessage
 };
