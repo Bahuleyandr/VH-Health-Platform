@@ -1,24 +1,6 @@
 /* src/app/(with-auth)/dashboard/Dashboard.module.css */
 
-/* ───────────────── Base tokens + typography fallbacks ───────────────── */
-:global(:root) {
-  --background: #ffffff;
-  --foreground: #0f172a;          /* slate-900 */
-  --muted: #f1f5f9;               /* slate-100 */
-  --muted-foreground: #64748b;    /* slate-500 */
-  --card: #ffffff;
-  --card-foreground: #0f172a;
-  --border: #e2e8f0;              /* slate-200 */
-
-  --primary: #0ea5e9;             /* sky-500 */
-  --primary-foreground: #ffffff;
-  --secondary: #8b5cf6;           /* violet-500 */
-  --success: #16a34a;             /* green-600 */
-  --warning: #f59e0b;             /* amber-500 */
-  --danger: #ef4444;              /* red-500 */
-  --info: #06b6d4;                /* cyan-500 */
-}
-
+/* ───────────────── Base tokens + typography fallbacks ───────────────── 
 :root, body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
