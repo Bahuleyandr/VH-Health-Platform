@@ -1,7 +1,7 @@
 /* src/app/(with-auth)/dashboard/Dashboard.module.css */
 
 /* ───────────────── Base tokens + typography fallbacks ───────────────── */
-:root {
+:global(:root) {
   --background: #ffffff;
   --foreground: #0f172a;          /* slate-900 */
   --muted: #f1f5f9;               /* slate-100 */
@@ -33,7 +33,7 @@
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
 }
 
-.dark .dashboardContainer {
+:global(.dark) .dashboardContainer {
   background: linear-gradient(135deg, var(--background) 0%, var(--card) 50%, var(--background) 100%);
 }
 
@@ -45,7 +45,7 @@
 }
 
 /* Skip link – visible only when tabbed */
-a[href="#content"] {
+:global(a[href="#content"]) {
   position: absolute;
   left: -9999px;
   top: 0.5rem;
@@ -56,7 +56,7 @@ a[href="#content"] {
   box-shadow: 0 4px 14px oklch(0 0 0 / 0.18);
   z-index: 4000;
 }
-a[href="#content"]:focus {
+:global(a[href="#content"]:focus) {
   left: 1rem;
 }
 
@@ -326,7 +326,7 @@ a[href="#content"]:focus {
 .triageLevel2 { background: color-mix(in oklch, var(--warning) 12%, transparent); color: var(--warning); }
 .triageLevel3 { background: color-mix(in oklch, var(--success) 12%, transparent); color: var(--success); }
 
-/* Command Palette, Notifications, Toast, Loading – unchanged except minor polish */
+/* Command Palette, Notifications, Toast, Loading */
 .modalOverlay { position:fixed; inset:0; background: color-mix(in oklch, var(--background) 55%, transparent); backdrop-filter: blur(4px); display:flex; align-items:center; justify-content:center; z-index:1000; animation: fadeIn .2s; }
 @keyframes fadeIn { from{opacity:0} to{opacity:1} }
 .commandPalette { width:90%; max-width:600px; background: var(--card); border-radius:1rem; box-shadow: 0 8px 24px -8px oklch(0 0 0 / 0.16); overflow:hidden; animation: slideUp .25s; }
