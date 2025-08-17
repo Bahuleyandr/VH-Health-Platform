@@ -238,6 +238,210 @@ export function getRecentActivities<T = unknown>() {
 }
 
 /* =========================
+ * Admin Dashboard Stats
+ * ========================= */
+
+export function getAdminDashboard<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.admin.dashboard);
+}
+
+export function getQuickStats<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.admin.stats.quick);
+}
+
+export function getUserStats<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.admin.stats.users);
+}
+
+export function getDoctorStats<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.admin.stats.doctors);
+}
+
+export function getDepartmentStats<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.admin.stats.departments);
+}
+
+export function getAppointmentStats<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.admin.stats.appointments);
+}
+
+export function getRecordStats<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.admin.stats.records);
+}
+
+export function getEmergencyStats<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.admin.stats.emergency);
+}
+
+export function getStaffStats<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.admin.stats.staff);
+}
+
+export function getAppointmentSummary<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.admin.stats.appointmentSummary);
+}
+
+/* =========================
+ * Admin Activity & Monitoring
+ * ========================= */
+
+export function getRecentActivity<T = unknown>(limit = 50, offset = 0) {
+  return getJSON<T>(API_ENDPOINTS.admin.activity.recent, { limit, offset });
+}
+
+export function getSystemAlerts<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.admin.alerts.system);
+}
+
+export function getModuleHealth<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.admin.health.modules);
+}
+
+export function getSystemHealth<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.admin.health.system);
+}
+
+/* =========================
+ * Admin Reports
+ * ========================= */
+
+export function refreshDashboardCache<T = unknown>() {
+  return postJSON<T>(API_ENDPOINTS.admin.reports.refreshCache);
+}
+
+export function generateDashboardReport<T = unknown>(
+  format = 'pdf',
+  dateRange?: { startDate?: string; endDate?: string }
+) {
+  return postJSON<T>(API_ENDPOINTS.admin.reports.generate, {
+    format,
+    dateRange
+  });
+}
+
+/* =========================
+ * Attendance Management
+ * ========================= */
+
+export function getAttendanceAnalytics<T = unknown>(params?: {
+  department?: string;
+  startDate?: string;
+  endDate?: string;
+  groupBy?: 'day' | 'week' | 'month';
+}) {
+  return getJSON<T>(API_ENDPOINTS.admin.attendance.analytics, params);
+}
+
+export function getAttendanceAnomalies<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.admin.attendance.anomalies);
+}
+
+export function getLateArrivals<T = unknown>(date: string, department?: string) {
+  return getJSON<T>(API_ENDPOINTS.admin.attendance.lateArrivals, { 
+    date, 
+    department 
+  });
+}
+
+export function getEarlyDepartures<T = unknown>(date: string, department?: string) {
+  return getJSON<T>(API_ENDPOINTS.admin.attendance.earlyDepartures, { 
+    date, 
+    department 
+  });
+}
+
+export function getAbsentReport<T = unknown>(date: string, department?: string) {
+  return getJSON<T>(API_ENDPOINTS.admin.attendance.absentReport, { 
+    date, 
+    department 
+  });
+}
+
+/* =========================
+ * SOS/Emergency Management
+ * ========================= */
+
+export function getSosAnalytics<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.admin.sos.analytics);
+}
+
+export function getSosAlerts<T = unknown>(limit = 50, offset = 0) {
+  return getJSON<T>(API_ENDPOINTS.admin.sos.alerts, { limit, offset });
+}
+
+export function getEmergencyServices<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.admin.sos.emergencyServices);
+}
+
+export function getSosPerformanceReport<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.admin.sos.performanceReport);
+}
+
+export function updateSosConfig<T = unknown>(config: Record<string, unknown>) {
+  return postJSON<T>(API_ENDPOINTS.admin.sos.updateConfig, config);
+}
+
+export function broadcastEmergencyAlert<T = unknown>(
+  message: string, 
+  severity: 'HIGH' | 'MEDIUM' | 'LOW' = 'HIGH'
+) {
+  return postJSON<T>(API_ENDPOINTS.admin.sos.broadcast, { message, severity });
+}
+
+export function escalateAlert<T = unknown>(
+  alertId: string | number, 
+  reason?: string
+) {
+  return postJSON<T>(API_ENDPOINTS.admin.sos.escalate, { 
+    alertId, 
+    reason 
+  });
+}
+
+/* =========================
+ * Upload/File Management
+ * ========================= */
+
+export function getUploadSummary<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.admin.uploads.summary);
+}
+
+export function getQuarantinedFiles<T = unknown>(limit = 50, offset = 0) {
+  return getJSON<T>(API_ENDPOINTS.admin.uploads.quarantined, { limit, offset });
+}
+
+export function getHipaaAuditReport<T = unknown>(params?: {
+  limit?: number;
+  offset?: number;
+  startDate?: string | null;
+  endDate?: string | null;
+}) {
+  return postJSON<T>(API_ENDPOINTS.admin.uploads.hipaaAudit, params || {});
+}
+
+export function rescanFile<T = unknown>(fileId: string) {
+  return postJSON<T>(API_ENDPOINTS.admin.uploads.rescan, { fileId });
+}
+
+export function cleanupExpiredFiles<T = unknown>(dryRun = true) {
+  return postJSON<T>(API_ENDPOINTS.admin.uploads.cleanup, { dryRun });
+}
+
+export function bulkUpdateHipaaProtection<T = unknown>(
+  ids: string[], 
+  protect: boolean
+) {
+  return postJSON<T>(API_ENDPOINTS.admin.uploads.bulkHipaa, { 
+    ids, 
+    protect 
+  });
+}
+
+export function purgeQuarantinedFiles<T = unknown>(dryRun = true) {
+  return postJSON<T>(API_ENDPOINTS.admin.uploads.purgeQuarantine, { dryRun });
+}
+
+/* =========================
  * Users
  * ========================= */
 
@@ -283,6 +487,17 @@ export function createDepartment<T = unknown>(data: {
   return postJSON<T>(API_ENDPOINTS.departments.create, data);
 }
 
+export function updateDepartment<T = unknown>(
+  id: string,
+  data: { name?: string; description?: string }
+) {
+  return putJSON<T>(API_ENDPOINTS.departments.update.replace(":id", id), data);
+}
+
+export function deleteDepartment<T = unknown>(id: string) {
+  return deleteJSON<T>(API_ENDPOINTS.departments.delete.replace(":departmentId", id));
+}
+
 /* =========================
  * Doctors
  * ========================= */
@@ -306,21 +521,84 @@ export function deleteDoctor<T = unknown>(id: number) {
   return deleteJSON<T>(endpoint);
 }
 
+export function getDoctorProfile<T = unknown>(id: string) {
+  return getJSON<T>(API_ENDPOINTS.doctors.profileById.replace(":id", id));
+}
+
+export function updateDoctorAvailability<T = unknown>(
+  id: string,
+  availability: boolean
+) {
+  return putJSON<T>(API_ENDPOINTS.doctors.availability.replace(":id", id), {
+    is_available: availability
+  });
+}
+
+/* =========================
+ * Appointments
+ * ========================= */
+
+export function getAppointments<T = unknown>(params?: QueryParams) {
+  return getJSON<T>(API_ENDPOINTS.appointments.list, params);
+}
+
+export function getAppointmentAnalytics<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.appointments.admin.analytics);
+}
+
+export function getAppointmentConflicts<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.appointments.admin.conflicts);
+}
+
+export function getAppointmentCapacity<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.appointments.admin.capacity);
+}
+
+export function getNoShows<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.appointments.admin.noShows);
+}
+
+/* =========================
+ * Notifications
+ * ========================= */
+
+export function getNotificationTemplates<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.notifications.templates);
+}
+
+export function sendAnnouncement<T = unknown>(data: {
+  title: string;
+  message: string;
+  priority?: string;
+}) {
+  return postJSON<T>(API_ENDPOINTS.notifications.announcement, data);
+}
+
+export function sendTargetedNotification<T = unknown>(data: {
+  recipients: string[];
+  title: string;
+  message: string;
+}) {
+  return postJSON<T>(API_ENDPOINTS.notifications.targeted, data);
+}
+
+export function getNotificationStats<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.notifications.statsSummary);
+}
+
 /* =========================
  * Admin Management
  * ========================= */
 
-// No key in API_ENDPOINTS.admin for "create", so call the known auth route directly.
 export function createAdminUser<T = unknown>(payload: {
   email: string;
   password: string;
   role: string;
+  permissions?: string[];
 }) {
-  // Backend route used elsewhere in the app/comments
-  return postJSON<T>("/auth/admin/create-admin", payload);
+  return postJSON<T>("/api/v1/auth/admin/create-admin", payload);
 }
 
-/** Accepts either (id: number) or ({ adminId, reason? }) */
 export function deactivateAdmin<T = unknown>(id: number): Promise<T>;
 export function deactivateAdmin<T = unknown>(payload: {
   adminId: number;
@@ -330,11 +608,10 @@ export function deactivateAdmin<T = unknown>(
   arg: number | { adminId: number; reason?: string },
 ) {
   const id = typeof arg === "number" ? arg : arg.adminId;
-  // API_ENDPOINTS.admin has no "base"; use explicit route
-  return postJSON<T>(`/admin/users/${id}/deactivate`);
+  const reason = typeof arg === "object" ? arg.reason : undefined;
+  return postJSON<T>(`/api/v1/admin/users/${id}/deactivate`, { reason });
 }
 
-/** Accepts either (id: number) or ({ adminId }) */
 export function reactivateAdmin<T = unknown>(id: number): Promise<T>;
 export function reactivateAdmin<T = unknown>(payload: {
   adminId: number;
@@ -343,10 +620,9 @@ export function reactivateAdmin<T = unknown>(
   arg: number | { adminId: number },
 ) {
   const id = typeof arg === "number" ? arg : arg.adminId;
-  return postJSON<T>(`/admin/users/${id}/reactivate`);
+  return postJSON<T>(`/api/v1/admin/users/${id}/reactivate`);
 }
 
-/** Accepts either (id: number, perms: string[]) or ({ adminId, permissions }) */
 export function updateAdminPermissions<T = unknown>(
   id: number,
   perms: string[],
@@ -361,17 +637,41 @@ export function updateAdminPermissions<T = unknown>(
 ) {
   const id = typeof a === "number" ? a : a.adminId;
   const permissions = typeof a === "number" ? (perms ?? []) : a.permissions;
-  return putJSON<T>(`/admin/users/${id}/permissions`, { permissions });
+  return putJSON<T>(`/api/v1/admin/users/${id}/permissions`, { permissions });
 }
 
 /* =========================
  * Settings
  * ========================= */
 
-// API_ENDPOINTS.settings.* not present in the config typing seen by TS.
-// Use explicit settings route to avoid TS2339.
 export function updateSystemSetting<T = unknown>(key: string, value: unknown) {
-  return putJSON<T>(`/settings/${encodeURIComponent(key)}`, { value });
+  return putJSON<T>(`/api/v1/settings/${encodeURIComponent(key)}`, { value });
+}
+
+export function getSystemSettings<T = unknown>() {
+  return getJSON<T>("/api/v1/settings");
+}
+
+/* =========================
+ * Infrastructure & Logs
+ * ========================= */
+
+export function getAuditLogs<T = unknown>(params?: {
+  page?: number;
+  limit?: number;
+  userId?: string;
+  action?: string;
+  startDate?: string;
+  endDate?: string;
+}) {
+  return getJSON<T>(API_ENDPOINTS.infrastructure.auditLog, params);
+}
+
+export function toggleUserStatus<T = unknown>(userId: string, active: boolean) {
+  return postJSON<T>(API_ENDPOINTS.infrastructure.toggleUserStatus, {
+    userId,
+    active
+  });
 }
 
 /* =========================
@@ -379,14 +679,78 @@ export function updateSystemSetting<T = unknown>(key: string, value: unknown) {
  * ========================= */
 
 export const api = {
-  // departments
+  // Auth
+  loginAdmin,
+  generateOTP,
+  verifyOTP,
+  
+  // Dashboard
+  getDashboardData,
+  getQuickStats,
+  getUserStats,
+  getDoctorStats,
+  getDepartmentStats,
+  getAppointmentStats,
+  getStaffStats,
+  
+  // Activity & Monitoring
+  getRecentActivity,
+  getRecentActivities, // back-compat alias
+  getSystemAlerts,
+  getModuleHealth,
+  
+  // Attendance
+  getAttendanceAnalytics,
+  getAttendanceAnomalies,
+  getLateArrivals,
+  getEarlyDepartures,
+  getAbsentReport,
+  
+  // SOS/Emergency
+  getSosAnalytics,
+  getSosAlerts,
+  getEmergencyServices,
+  broadcastEmergencyAlert,
+  escalateAlert,
+  
+  // Uploads
+  getUploadSummary,
+  getQuarantinedFiles,
+  getHipaaAuditReport,
+  cleanupExpiredFiles,
+  
+  // Users
+  getUsers,
+  updateUserStatus,
+  reactivateUser,
+  
+  // Departments
   getDepartments,
   createDepartment,
-  // doctors
+  updateDepartment,
+  deleteDepartment,
+  
+  // Doctors
   getDoctors,
   deleteDoctor,
-  // dashboard & activity
-  getRecentActivities,
+  getDoctorProfile,
+  updateDoctorAvailability,
+  
+  // Appointments
+  getAppointments,
+  getAppointmentAnalytics,
+  getAppointmentConflicts,
+  
+  // Notifications
+  getNotificationTemplates,
+  sendAnnouncement,
+  sendTargetedNotification,
+  
+  // Admin Management
+  createAdminUser,
+  deactivateAdmin,
+  reactivateAdmin,
+  updateAdminPermissions,
 };
 
 export { API_ENDPOINTS };

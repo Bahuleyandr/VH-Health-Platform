@@ -23,8 +23,10 @@ const TOP_LEVEL_ROOTS: readonly string[] = [
   '/notifications',
   '/records',
   '/investigations',
+  '/pharmacy',
   '/pharmacy-orders',
   '/health',
+  '/health-check',
   '/auth',
   '/sos',
   '/devices',
@@ -32,16 +34,49 @@ const TOP_LEVEL_ROOTS: readonly string[] = [
   '/analytics',
   '/rbac',
   '/logs',
+  '/admin',  // Add admin root
+  '/staff',  // Add staff root
+  '/settings',
+  '/system',
+  '/consultations',
+  '/health-records',
+  '/categories',
+  '/verify',
+  '/debug',
 ];
 
-/** legacy/admin-ish paths that sometimes arrive without /api/v1 */
+/** Admin and staff paths that sometimes arrive without /api/v1 */
 const ADMINISH: readonly string[] = [
   '/admin/',
+  '/admin/stats/',
+  '/admin/attendance/',
+  '/admin/sos/',
+  '/admin/uploads/',
+  '/admin/health/',
+  '/admin/alerts/',
+  '/admin/activity/',
+  '/admin/reports/',
+  '/admin/dashboard',
+  '/admin/users/',
+  '/admin/appointments/',
+  '/admin/departments/',
+  '/admin/doctors/',
+  '/admin/notifications/',
+  '/admin/records/',
+  '/admin/investigations/',
+  '/admin/pharmacy/',
+  '/admin/analytics/',
   '/staff/',
+  '/staff/admin/',
+  '/staff/attendance/',
+  '/staff/hr/',
+  '/staff/medical/',
   '/appointments/admin/',
   '/notifications/admin/',
   '/investigations/admin/',
   '/pharmacy/admin/',
+  '/records/admin/',
+  '/rbac/admin/',
 ];
 
 function withDefaults(u: URL, defaults: Record<string, string>) {
@@ -50,10 +85,28 @@ function withDefaults(u: URL, defaults: Record<string, string>) {
   }
 }
 
-/** normalize historical/legacy paths to the backend's current routes (and queries) */
+/** Normalize historical/legacy paths to the backend's current routes */
 function applyAliasesWithQuery(path: string): string {
   const u = new URL(path, API_BASE_URL);
   const { pathname } = u;
+
+  // ---- ADMIN STATS (new mappings) ----
+  if (pathname === '/admin/statistics') {
+    u.pathname = '/admin/stats/quick';
+    return u.pathname + u.search;
+  }
+
+  // ---- ADMIN UPLOADS (normalize paths) ----
+  if (pathname.startsWith('/admin/upload/')) {
+    u.pathname = pathname.replace('/admin/upload/', '/admin/uploads/');
+    return u.pathname + u.search;
+  }
+
+  // ---- ADMIN ATTENDANCE (normalize paths) ----
+  if (pathname.startsWith('/admin/staff/attendance/')) {
+    u.pathname = pathname.replace('/admin/staff/attendance/', '/admin/attendance/');
+    return u.pathname + u.search;
+  }
 
   // ---- USERS ----
   if (pathname.startsWith('/admin/users') || pathname === '/users') {
@@ -69,7 +122,12 @@ function applyAliasesWithQuery(path: string): string {
   }
 
   // ---- APPOINTMENTS ----
-  if (pathname.startsWith('/appointments/manage') || pathname === '/appointments') {
+  if (pathname.startsWith('/appointments/manage')) {
+    u.pathname = '/appointments/list';
+    withDefaults(u, { page: '1', limit: '20' });
+    return u.pathname + u.search;
+  }
+  if (pathname === '/appointments' && !u.search) {
     u.pathname = '/appointments/list';
     withDefaults(u, { page: '1', limit: '20' });
     return u.pathname + u.search;
@@ -77,12 +135,17 @@ function applyAliasesWithQuery(path: string): string {
 
   // ---- PHARMACY ----
   if (pathname.startsWith('/pharmacy/orders')) {
-    u.pathname = '/pharmacy-orders';
+    u.pathname = '/pharmacy/orders';
     withDefaults(u, { page: '1', limit: '10' });
     return u.pathname + u.search;
   }
   if (pathname.startsWith('/pharmacy/analytics')) {
     u.pathname = '/admin/stats/quick';
+    return u.pathname + u.search;
+  }
+  if (pathname.startsWith('/pharmacy-orders')) {
+    u.pathname = '/pharmacy/orders';
+    withDefaults(u, { page: '1', limit: '10' });
     return u.pathname + u.search;
   }
 
@@ -91,14 +154,18 @@ function applyAliasesWithQuery(path: string): string {
     u.pathname = '/admin/stats/quick';
     return u.pathname + u.search;
   }
+  if (pathname === '/analytics') {
+    u.pathname = '/analytics/dashboard';
+    return u.pathname + u.search;
+  }
 
-  // ---- NOTIFICATIONS (root list doesn't exist) ----
+  // ---- NOTIFICATIONS ----
   if (pathname === '/notifications') {
     u.pathname = '/notifications/stats/summary';
     return u.pathname + u.search;
   }
 
-  // ---- LOGS (frontend placeholders) ----
+  // ---- LOGS ----
   if (pathname.startsWith('/logs/audit')) {
     u.pathname = '/rbac/admin/audit-log';
     withDefaults(u, { page: '1', limit: '20' });
@@ -115,15 +182,69 @@ function applyAliasesWithQuery(path: string): string {
     return u.pathname + u.search;
   }
 
-  // ---- SYSTEM SETTINGS (no direct endpoint) ----
+  // ---- SYSTEM SETTINGS ----
   if (pathname.startsWith('/system/settings')) {
-    u.pathname = '/system/status';
+    u.pathname = '/settings';
+    return u.pathname + u.search;
+  }
+  if (pathname === '/system/status') {
+    u.pathname = '/health/system';
     return u.pathname + u.search;
   }
 
-  // ---- AUTH ADMIN MANAGEMENT (placeholder) ----
+  // ---- AUTH ADMIN MANAGEMENT ----
   if (pathname.startsWith('/auth/adminManagement')) {
-    u.pathname = '/rbac/rbacRoutes';
+    u.pathname = '/rbac/routes';
+    return u.pathname + u.search;
+  }
+
+  // ---- STAFF ROUTES (normalize) ----
+  if (pathname === '/staffRoutes') {
+    u.pathname = '/staff/routes';
+    return u.pathname + u.search;
+  }
+  if (pathname === '/staffAttendanceRoutes') {
+    u.pathname = '/staff/attendance/routes';
+    return u.pathname + u.search;
+  }
+  if (pathname === '/staffHRRoutes') {
+    u.pathname = '/staff/hr/routes';
+    return u.pathname + u.search;
+  }
+  if (pathname === '/staffMedicalRoutes') {
+    u.pathname = '/staff/medical/routes';
+    return u.pathname + u.search;
+  }
+
+  // ---- INVESTIGATIONS ----
+  if (pathname === '/investigationRoutes') {
+    u.pathname = '/investigations/routes';
+    return u.pathname + u.search;
+  }
+
+  // ---- SOS/EMERGENCY ----
+  if (pathname === '/sosRoutes') {
+    u.pathname = '/sos/routes';
+    return u.pathname + u.search;
+  }
+  if (pathname === '/adminSosRoutes') {
+    u.pathname = '/sos/admin/routes';
+    return u.pathname + u.search;
+  }
+  if (pathname === '/emergencyResponderRoutes') {
+    u.pathname = '/sos/emergency/routes';
+    return u.pathname + u.search;
+  }
+
+  // ---- RBAC ----
+  if (pathname === '/rbacRoutes') {
+    u.pathname = '/rbac/routes';
+    return u.pathname + u.search;
+  }
+
+  // ---- DEBUG ----
+  if (pathname === '/debugRoutes') {
+    u.pathname = '/debug/routes';
     return u.pathname + u.search;
   }
 
@@ -131,11 +252,31 @@ function applyAliasesWithQuery(path: string): string {
 }
 
 function needsApiV1Prefix(p: string): boolean {
+  // Already has /api/v1/
   if (p.startsWith('/api/v1/')) return false;
+  
+  // Check if it's an admin/staff path
   if (ADMINISH.some((a) => p.startsWith(a))) return true;
-  if (TOP_LEVEL_ROOTS.some((root) => p === root || p.startsWith(root + '/') || p.startsWith(root + '?'))) {
+  
+  // Check if it matches a top-level root
+  if (TOP_LEVEL_ROOTS.some((root) => 
+    p === root || 
+    p.startsWith(root + '/') || 
+    p.startsWith(root + '?')
+  )) {
     return true;
   }
+  
+  // Special cases for paths without leading slash (shouldn't happen but defensive)
+  const withSlash = '/' + p;
+  if (TOP_LEVEL_ROOTS.some((root) => 
+    withSlash === root || 
+    withSlash.startsWith(root + '/') || 
+    withSlash.startsWith(root + '?')
+  )) {
+    return true;
+  }
+  
   return false;
 }
 
@@ -171,6 +312,12 @@ export function installApiFetchGuard(getToken: () => string | undefined) {
       else if (isRequest(input)) raw = input.url;
       else raw = String(input as unknown as string);
 
+      // Skip non-API requests (e.g., external URLs, assets)
+      if (isAbsoluteUrl(raw) && !raw.startsWith(API_BASE_URL)) {
+        // Not our API, pass through unchanged
+        return originalFetch(input, init);
+      }
+
       // If absolute and points to our API host, strip host to work with path
       if (isAbsoluteUrl(raw) && raw.startsWith(API_BASE_URL)) {
         raw = raw.slice(API_BASE_URL.length) || '/';
@@ -179,11 +326,23 @@ export function installApiFetchGuard(getToken: () => string | undefined) {
       const isRelativeOrSameHost = !isAbsoluteUrl(raw) || raw.startsWith('/');
       let path = isRelativeOrSameHost ? raw : '';
 
+      // Skip processing for non-API paths (e.g., Next.js internals, static assets)
+      if (path && !path.startsWith('/api/') && !needsApiV1Prefix(path)) {
+        // Check if it's a static asset or Next.js internal
+        if (path.startsWith('/_next/') || 
+            path.startsWith('/static/') || 
+            path.match(/\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot)$/)) {
+          return originalFetch(input, init);
+        }
+      }
+
       // Apply aliases/defaults
       if (path) path = applyAliasesWithQuery(path);
 
       // Add /api/v1 if clearly an API call that's missing it
-      if (path && needsApiV1Prefix(path)) path = '/api/v1' + path;
+      if (path && needsApiV1Prefix(path)) {
+        path = '/api/v1' + path;
+      }
 
       const targetIsApi = path.startsWith('/api/v1/');
       const finalUrl: RequestInfo | URL = targetIsApi ? `${API_BASE_URL}${path}` : input;
@@ -197,10 +356,12 @@ export function installApiFetchGuard(getToken: () => string | undefined) {
         const defaults = new Headers(getHeaders(token));
         const merged = new Headers(init?.headers ?? undefined);
 
+        // Add default headers if not present
         const defaultApiKey = defaults.get('x-api-key');
         if (defaultApiKey && !merged.has('x-api-key')) {
           merged.set('x-api-key', defaultApiKey);
         }
+        
         if (token && !merged.has('authorization')) {
           merged.set('authorization', `Bearer ${token}`);
         }
@@ -208,24 +369,40 @@ export function installApiFetchGuard(getToken: () => string | undefined) {
         // Content-Type only for JSON string bodies (avoid FormData)
         const body = init?.body;
         const isForm = typeof FormData !== 'undefined' && body instanceof FormData;
-        if (body && !isForm && typeof body === 'string' && !merged.has('content-type')) {
+        const isBlob = typeof Blob !== 'undefined' && body instanceof Blob;
+        const isArrayBuffer = body instanceof ArrayBuffer;
+        const isURLSearchParams = typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams;
+        
+        if (body && !isForm && !isBlob && !isArrayBuffer && !isURLSearchParams && 
+            typeof body === 'string' && !merged.has('content-type')) {
           merged.set('content-type', 'application/json');
         }
 
-        // Never send Origin manually
+        // Add Accept header if not present
+        if (!merged.has('accept')) {
+          merged.set('accept', 'application/json');
+        }
+
+        // Never send Origin manually (browser handles this)
         merged.delete('origin');
 
         finalInit = { ...init, headers: merged };
 
         if (process.env.NODE_ENV === 'development') {
-          console.debug('[fetch-guard]', { in: input, out: finalUrl });
+          console.debug('[fetch-guard] API request', { 
+            input: typeof input === 'string' ? input : input instanceof URL ? input.href : 'Request',
+            path,
+            finalUrl: typeof finalUrl === 'string' ? finalUrl : 'URL',
+            hasToken: !!token 
+          });
         }
-      } else if (process.env.NODE_ENV === 'development') {
-        console.debug('[fetch-guard passthrough]', { in: input });
+      } else if (process.env.NODE_ENV === 'development' && path) {
+        console.debug('[fetch-guard] Passthrough', { input: raw });
       }
 
       return originalFetch(finalUrl, finalInit);
-    } catch {
+    } catch (error) {
+      console.error('[fetch-guard] Error processing request:', error);
       return originalFetch(input, init);
     }
   };

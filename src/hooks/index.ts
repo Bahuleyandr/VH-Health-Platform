@@ -8,6 +8,12 @@ export * from "./useSelection";
 export * from "./useSessionTimeout";
 export * from "./useTheme";
 export * from "./useWebSocket";
+export * from "./useAdminStats";
+export * from "./useUploads";
+export * from "./useSOS";
+export * from "./useAttendance";
+export * from "./useSystemMonitoring";
+export * from "./useAdminWebSocket";
 
 // Intentionally NOT re-exporting from './use-dashboard' to avoid duplicate
 // exports of `useDashboardData` (already re-exported via ./api-hooks).
