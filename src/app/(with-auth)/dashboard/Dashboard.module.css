@@ -1,10 +1,7 @@
 /* src/app/(with-auth)/dashboard/Dashboard.module.css */
 
-/* ───────────────── Base tokens + typography fallbacks ───────────────── 
-:root, body {
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+/* ───────────────── Base tokens + typography fallbacks ───────────────── */
+/* CSS variables are defined in globals.css */
 
 .dashboardContainer {
   min-height: 100vh;
@@ -24,22 +21,6 @@
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 1.25rem 2rem;
-}
-
-/* Skip link – visible only when tabbed */
-:global(a[href="#content"]) {
-  position: absolute;
-  left: -9999px;
-  top: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  border-radius: 0.5rem;
-  background: var(--primary);
-  color: var(--primary-foreground);
-  box-shadow: 0 4px 14px oklch(0 0 0 / 0.18);
-  z-index: 4000;
-}
-:global(a[href="#content"]:focus) {
-  left: 1rem;
 }
 
 /* ───────────────── Header ───────────────── */
