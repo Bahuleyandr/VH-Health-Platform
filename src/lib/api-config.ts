@@ -4,11 +4,24 @@
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "https://vh-health-backend.onrender.com";
 
+// WebSocket URL configuration
+export const WS_BASE_URL = 
+  process.env.NEXT_PUBLIC_WS_URL || 
+  API_BASE_URL.replace('https://', 'wss://').replace('http://', 'ws://');
+
 // Optional envs (fall back to sensible local defaults)
 const DEFAULT_ORIGIN =
   (typeof window !== "undefined" && window.location.origin) ||
   "http://localhost:3000";
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "vhhealth123";
+
+// WebSocket endpoints
+export const WS_ENDPOINTS = {
+  admin: '/ws/admin',
+  notifications: '/ws/notifications',
+  sos: '/ws/emergency',
+  activity: '/ws/activity',
+};
 
 export const API_ENDPOINTS = {
   // Health & System Status
@@ -42,53 +55,79 @@ export const API_ENDPOINTS = {
     verify: "/api/v1/verify", // GET
   },
 
-  // Main Admin Dashboard Routes (from src/routes/admin/index.js)
+  // Main Admin Dashboard Routes (corrected to match backend services)
   admin: {
+    // Core Dashboard
     test: "/api/v1/admin/test", // GET
     dashboard: "/api/v1/admin/dashboard", // GET
-    quickStats: "/api/v1/admin/stats/quick", // GET
-    recentActivity: "/api/v1/admin/activity/recent", // GET
-    // alias to avoid breaking older code that used "activityRecent"
-    activityRecent: "/api/v1/admin/activity/recent",
-    alerts: "/api/v1/admin/alerts", // GET
-    moduleHealth: "/api/v1/admin/health/modules", // GET
-    staffSummary: "/api/v1/admin/staff/summary", // GET
-    appointmentsSummary: "/api/v1/admin/appointments/summary", // GET
-    refreshCache: "/api/v1/admin/refresh-cache", // POST
-    exportReport: "/api/v1/admin/export/report", // POST
+    
+    // Statistics Endpoints (matching statsService.js)
+    stats: {
+      quick: "/api/v1/admin/stats/quick", // GET - getQuickStats()
+      users: "/api/v1/admin/stats/users", // GET - getUserStats()
+      doctors: "/api/v1/admin/stats/doctors", // GET - getDoctorStats()
+      departments: "/api/v1/admin/stats/departments", // GET - getDepartmentStats()
+      appointments: "/api/v1/admin/stats/appointments", // GET - getAppointmentStats()
+      records: "/api/v1/admin/stats/records", // GET - getRecordStats()
+      emergency: "/api/v1/admin/stats/emergency", // GET - getEmergencyStats()
+      staff: "/api/v1/admin/stats/staff", // GET - getStaffStats()
+      appointmentSummary: "/api/v1/admin/stats/appointment-summary", // GET - getAppointmentSummary()
+    },
 
-    // NEW: Staff Attendance (admin namespace)
+    // Activity & Monitoring (matching activityService.js)
+    activity: {
+      recent: "/api/v1/admin/activity/recent", // GET with ?limit=50&offset=0
+    },
+
+    // System Alerts (matching alertsService.js)
+    alerts: {
+      system: "/api/v1/admin/alerts/system", // GET - getSystemAlerts()
+    },
+
+    // Health Monitoring (matching healthService.js)
+    health: {
+      modules: "/api/v1/admin/health/modules", // GET - getModuleHealth()
+      system: "/api/v1/admin/health/system", // GET - getSystemHealth()
+    },
+
+    // Reports (matching reportService.js)
+    reports: {
+      refreshCache: "/api/v1/admin/reports/refresh-cache", // POST - refreshDashboardCache()
+      generate: "/api/v1/admin/reports/generate", // POST - generateDashboardReport()
+    },
+
+    // Attendance Management (matching attendanceService.js)
     attendance: {
-      analytics: "/api/v1/admin/staff/attendance/analytics", // GET (query: department?, start_date?, end_date?, group_by?)
-      anomalies: "/api/v1/admin/staff/attendance/anomalies", // GET
-      lateArrivals: "/api/v1/admin/staff/attendance/late-arrivals", // GET (query: date, department?)
-      earlyDepartures: "/api/v1/admin/staff/attendance/early-departures", // GET (query: date, department?)
-      absentReport: "/api/v1/admin/staff/attendance/absent-report", // GET (query: date, department?)
+      analytics: "/api/v1/admin/attendance/analytics", // GET - getAttendanceAnalytics()
+      anomalies: "/api/v1/admin/attendance/anomalies", // GET - getAttendanceAnomalies()
+      lateArrivals: "/api/v1/admin/attendance/late-arrivals", // GET - getLateArrivals()
+      earlyDepartures: "/api/v1/admin/attendance/early-departures", // GET - getEarlyDepartures()
+      absentReport: "/api/v1/admin/attendance/absent-report", // GET - getAbsentReport()
     },
 
-    // NEW: SOS / Emergency (admin namespace)
+    // SOS/Emergency Management (matching sosService.js)
     sos: {
-      analytics: "/api/v1/admin/sos/analytics", // GET
-      alerts: "/api/v1/admin/sos/alerts", // GET (query: limit, offset)
-      services: "/api/v1/admin/sos/emergency-services", // GET
-      performanceReport: "/api/v1/admin/sos/performance-report", // GET
-      updateConfig: "/api/v1/admin/sos/update-config", // POST
-      broadcast: "/api/v1/admin/sos/broadcast", // POST
-      escalate: (alertId: string) => `/api/v1/admin/sos/escalate/${alertId}`, // POST
+      analytics: "/api/v1/admin/sos/analytics", // GET - getSosAnalytics()
+      alerts: "/api/v1/admin/sos/alerts", // GET - getAllAlerts()
+      emergencyServices: "/api/v1/admin/sos/emergency-services", // GET - getEmergencyServices()
+      performanceReport: "/api/v1/admin/sos/performance-report", // GET - getPerformanceReport()
+      updateConfig: "/api/v1/admin/sos/update-config", // POST - updateSystemConfig()
+      broadcast: "/api/v1/admin/sos/broadcast", // POST - broadcastEmergencyAlert()
+      escalate: "/api/v1/admin/sos/escalate", // POST - escalateAlert()
     },
 
-    // NEW: Uploads / File Management (admin namespace)
+    // Upload/File Management (matching uploadService.js)
     uploads: {
-      summary: "/api/v1/admin/upload/summary", // GET
-      quarantine: "/api/v1/admin/upload/quarantine", // GET (query: limit, offset)
-      hipaaAudit: "/api/v1/admin/upload/hipaa/audit", // GET (query: limit, offset, start_date?, end_date?)
-      rescan: (fileId: string) => `/api/v1/admin/upload/rescan/${fileId}`, // POST
-      cleanup: "/api/v1/admin/upload/cleanup", // POST ({ dryRun })
-      hipaaBulkProtect: "/api/v1/admin/upload/hipaa/bulk-protect", // POST ({ ids, protect })
-      purgeQuarantine: "/api/v1/admin/upload/quarantine/purge", // POST ({ dryRun })
+      summary: "/api/v1/admin/uploads/summary", // GET - getUploadSummary()
+      quarantined: "/api/v1/admin/uploads/quarantined", // GET - listQuarantinedFiles()
+      hipaaAudit: "/api/v1/admin/uploads/hipaa-audit", // POST - getHipaaAuditReport()
+      rescan: "/api/v1/admin/uploads/rescan", // POST - rescanFile()
+      cleanup: "/api/v1/admin/uploads/cleanup", // POST - cleanupExpiredFiles()
+      bulkHipaa: "/api/v1/admin/uploads/hipaa-bulk", // POST - bulkUpdateHipaaProtection()
+      purgeQuarantine: "/api/v1/admin/uploads/purge-quarantine", // POST - purgeQuarantinedFiles()
     },
 
-    // Module entry points advertised by /admin/test (kept for navigation)
+    // Module entry points (kept for navigation)
     modules: {
       appointments: "/api/v1/admin/appointments",
       departments: "/api/v1/admin/departments",
@@ -99,7 +138,7 @@ export const API_ENDPOINTS = {
       investigations: "/api/v1/admin/investigations",
       pharmacy: "/api/v1/admin/pharmacy",
       sos: "/api/v1/admin/sos",
-      staff: "/api/v1/staff/admin", // staff module still has its own namespace
+      staff: "/api/v1/staff/admin",
       analytics: "/api/v1/admin/analytics",
       devices: "/api/v1/devices",
       feedback: "/api/v1/feedback",
@@ -175,15 +214,15 @@ export const API_ENDPOINTS = {
 
   // Appointments
   appointments: {
-    list: "/api/v1/list", // GET
-    book: "/api/v1/book", // POST
-    todayList: "/api/v1/today/list", // GET
-    byId: "/api/v1/:id", // GET/PUT/DELETE
-    updateStatus: "/api/v1/:id/status", // PUT
-    byDoctor: "/api/v1/doctor/:doctor_id", // GET
-    byPatient: "/api/v1/patient/:patient_id", // GET
-    byPhone: "/api/v1/phone/:phone", // GET
-    byUid: "/api/v1/uid/:uid", // GET
+    list: "/api/v1/appointments/list", // GET
+    book: "/api/v1/appointments/book", // POST
+    todayList: "/api/v1/appointments/today/list", // GET
+    byId: "/api/v1/appointments/:id", // GET/PUT/DELETE
+    updateStatus: "/api/v1/appointments/:id/status", // PUT
+    byDoctor: "/api/v1/appointments/doctor/:doctor_id", // GET
+    byPatient: "/api/v1/appointments/patient/:patient_id", // GET
+    byPhone: "/api/v1/appointments/phone/:phone", // GET
+    byUid: "/api/v1/appointments/uid/:uid", // GET
 
     admin: {
       analytics: "/api/v1/appointments/admin/analytics",
@@ -195,17 +234,17 @@ export const API_ENDPOINTS = {
 
   // Pharmacy
   pharmacy: {
-    categories: "/api/v1/categories/list", // GET
+    categories: "/api/v1/pharmacy/categories/list", // GET
 
-    // Admin/Staff routes (varied mounts)
-    adminRoutes: "/api/v1/admin/pharmacyAdminRoutes", // GET (protected)
-    orderRoutes: "/api/v1/pharmacyOrderRoutes", // GET/POST (protected)
+    // Admin/Staff routes
+    adminRoutes: "/api/v1/pharmacy/admin", // GET (protected)
+    orderRoutes: "/api/v1/pharmacy/orders", // GET/POST (protected)
     medicationRoutes: {
-      staff: "/api/v1/pharmacyStaffMedicationRoutes", // GET/PUT (protected)
-      admin: "/api/v1/pharmacyAdminMedicationRoutes", // POST/PUT/DELETE (protected)
+      staff: "/api/v1/pharmacy/medications/staff", // GET/PUT (protected)
+      admin: "/api/v1/pharmacy/medications/admin", // POST/PUT/DELETE (protected)
     },
-    inventoryRoutes: "/api/v1/pharmacyStaffInventoryRoutes", // GET (protected)
-    staffRoutes: "/api/v1/pharmacy/staffPharmacyRoutes", // POST (protected)
+    inventoryRoutes: "/api/v1/pharmacy/inventory", // GET (protected)
+    staffRoutes: "/api/v1/pharmacy/staff", // POST (protected)
   },
 
   // Notifications
@@ -240,28 +279,32 @@ export const API_ENDPOINTS = {
     create: "/api/v1/health-records", // POST
     consultations: "/api/v1/consultations/:phoneNumber", // GET
 
-    // Admin (double "admin" kept for back-compat if used)
-    adminAnalytics: "/api/v1/admin/admin/analytics", // GET
-    hipaaAudit: "/api/v1/admin/admin/hipaa-audit", // GET
-    exportExcel: "/api/v1/admin/export/excel", // GET
-    exportPdf: "/api/v1/admin/export/pdf", // GET
+    // Admin
+    adminAnalytics: "/api/v1/records/admin/analytics", // GET
+    hipaaAudit: "/api/v1/records/admin/hipaa-audit", // GET
+    exportExcel: "/api/v1/records/admin/export/excel", // GET
+    exportPdf: "/api/v1/records/admin/export/pdf", // GET
   },
 
   // Staff
   staff: {
     search: "/api/v1/staff/search", // GET
-    attendance: "/api/v1/attendance", // GET
-    rollCall: "/api/v1/roll-call", // GET
+    attendance: "/api/v1/staff/attendance", // GET
+    rollCall: "/api/v1/staff/roll-call", // GET
 
-    staffRoutes: "/api/v1/staff/staffRoutes", // GET/POST/PUT (protected)
-    attendanceRoutes: "/api/v1/staffAttendanceRoutes", // GET/POST (protected)
-    hrRoutes: "/api/v1/staffHRRoutes", // GET/POST/PUT (protected)
-    medicalRoutes: "/api/v1/staffMedicalRoutes", // POST (protected)
+    staffRoutes: "/api/v1/staff/routes", // GET/POST/PUT (protected)
+    attendanceRoutes: "/api/v1/staff/attendance/routes", // GET/POST (protected)
+    hrRoutes: "/api/v1/staff/hr/routes", // GET/POST/PUT (protected)
+    medicalRoutes: "/api/v1/staff/medical/routes", // POST (protected)
 
     admin: {
-      analytics: { attendance: "/api/v1/staff/admin/analytics/attendance" },
+      analytics: { 
+        attendance: "/api/v1/staff/admin/analytics/attendance" 
+      },
       dashboard: "/api/v1/staff/admin/dashboard",
-      hr: { pendingReviews: "/api/v1/staff/admin/hr/pending-reviews" },
+      hr: { 
+        pendingReviews: "/api/v1/staff/admin/hr/pending-reviews" 
+      },
       attendance: {
         anomalies: "/api/v1/staff/admin/attendance/anomalies",
         absentReport: "/api/v1/staff/admin/attendance/absent-report",
@@ -271,19 +314,23 @@ export const API_ENDPOINTS = {
 
   // Investigations
   investigations: {
-    routes: "/api/v1/investigations/investigationRoutes", // GET/POST/PUT/DELETE (protected)
+    routes: "/api/v1/investigations/routes", // GET/POST/PUT/DELETE (protected)
+    admin: {
+      analytics: "/api/v1/investigations/admin/analytics",
+      pending: "/api/v1/investigations/admin/pending",
+    },
   },
 
-  // SOS/Emergency (legacy namespaces kept for back-compat)
+  // SOS/Emergency
   sos: {
-    routes: "/api/v1/sos/sosRoutes", // GET/POST (protected)
-    adminRoutes: "/api/v1/sos/adminSosRoutes", // GET/POST (protected)
-    emergencyRoutes: "/api/v1/sos/emergencyResponderRoutes", // GET/POST (protected)
+    routes: "/api/v1/sos/routes", // GET/POST (protected)
+    adminRoutes: "/api/v1/sos/admin/routes", // GET/POST (protected)
+    emergencyRoutes: "/api/v1/sos/emergency/routes", // GET/POST (protected)
   },
 
   // Analytics (general)
   analytics: {
-    dashboard: "/api/v1/analytics", // GET
+    dashboard: "/api/v1/analytics/dashboard", // GET
     userGrowth: "/api/v1/analytics/user-growth", // GET
     appointmentTrends: "/api/v1/analytics/appointment-trends", // GET
     departmentUtilization: "/api/v1/analytics/department-utilization", // GET
@@ -309,49 +356,58 @@ export const API_ENDPOINTS = {
 
   // Infrastructure / Admin Tools
   infrastructure: {
-    apiDocs: "/api/v1/api-docs", // USE
-    swagger: "/api-docs/adminDocumentationRoutes", // GET/POST (protected)
-    debug: "/api/v1/debug/debugRoutes", // GET (protected)
-    rbac: "/api/v1/rbac/rbacRoutes", // GET/POST (protected)
+    apiDocs: "/api/v1/api-docs", // GET
+    swagger: "/api-docs", // GET
+    debug: "/api/v1/debug/routes", // GET (protected)
+    rbac: "/api/v1/rbac/routes", // GET/POST (protected)
     auditLog: "/api/v1/rbac/admin/audit-log", // GET (protected)
     toggleUserStatus: "/api/v1/rbac/admin/toggle-user-status", // POST (protected)
   },
 };
 
-// Mark protected routes (simple matcher)
+// Protected routes - Updated to match backend services
 export const PROTECTED_ROUTES: string[] = [
+  // All admin routes
   "/api/v1/admin/*",
-  "/api/v1/admin/pharmacyAdminRoutes",
-  "/api/v1/pharmacyOrderRoutes",
-  "/api/v1/pharmacyStaffMedicationRoutes",
-  "/api/v1/pharmacyAdminMedicationRoutes",
-  "/api/v1/pharmacyStaffInventoryRoutes",
-  "/api/v1/pharmacy/staffPharmacyRoutes",
+  "/api/v1/admin/stats/*",
+  "/api/v1/admin/attendance/*",
+  "/api/v1/admin/sos/*",
+  "/api/v1/admin/uploads/*",
+  "/api/v1/admin/health/*",
+  "/api/v1/admin/alerts/*",
+  "/api/v1/admin/activity/*",
+  "/api/v1/admin/reports/*",
+  
+  // Staff admin routes
+  "/api/v1/staff/admin/*",
+  "/api/v1/staff/routes",
+  "/api/v1/staff/attendance/routes",
+  "/api/v1/staff/hr/routes",
+  "/api/v1/staff/medical/routes",
+  
+  // Other protected routes
   "/api/v1/auth/adminManagement",
-  "/api/v1/staff/staffRoutes",
-  "/api/v1/staffAttendanceRoutes",
-  "/api/v1/staffHRRoutes",
-  "/api/v1/staffMedicalRoutes",
-  "/api/v1/investigations/investigationRoutes",
-  "/api/v1/sos/sosRoutes",
-  "/api/v1/sos/adminSosRoutes",
-  "/api/v1/sos/emergencyResponderRoutes",
-  "/api/v1/debug/debugRoutes",
-  "/api/v1/rbac/rbacRoutes",
-  "/api-docs/adminDocumentationRoutes",
-  "/api/v1/users/admin",
+  "/api/v1/pharmacy/admin",
+  "/api/v1/pharmacy/orders",
+  "/api/v1/pharmacy/medications/*",
+  "/api/v1/pharmacy/inventory",
+  "/api/v1/pharmacy/staff",
+  "/api/v1/investigations/routes",
+  "/api/v1/investigations/admin/*",
+  "/api/v1/sos/routes",
+  "/api/v1/sos/admin/routes",
+  "/api/v1/sos/emergency/routes",
+  "/api/v1/debug/routes",
+  "/api/v1/rbac/*",
   "/api/v1/appointments/admin/*",
   "/api/v1/notifications/admin",
-  "/api/v1/health-records/admin",
-  "/api/v1/investigations/admin",
-  "/api/v1/pharmacy/admin",
-  "/api/v1/staff/admin/*",
-  "/api/v1/analytics",
+  "/api/v1/records/admin/*",
+  "/api/v1/analytics/*",
   "/api/v1/devices",
   "/api/v1/feedback",
 ];
 
-// Standard JSON headers. Add Origin + API key for servers that enforce them.
+// Standard JSON headers
 export const getHeaders = (token?: string): HeadersInit => {
   const headers: HeadersInit = {
     "Content-Type": "application/json",
@@ -373,13 +429,26 @@ export const buildUrl = (endpoint: string, params?: Record<string, string>) => {
   return url;
 };
 
+// Check if endpoint requires authentication
 export const requiresAuth = (endpoint: string): boolean =>
   PROTECTED_ROUTES.some((route) => {
     if (route.endsWith("*")) return endpoint.startsWith(route.slice(0, -1));
     return endpoint === route;
   });
 
-// Back-compat remaps (fill as needed)
+// Helper to build WebSocket URLs
+export const buildWsUrl = (endpoint: string, token?: string): string => {
+  const wsEndpoint = WS_ENDPOINTS[endpoint as keyof typeof WS_ENDPOINTS] || endpoint;
+  const url = `${WS_BASE_URL}${wsEndpoint}`;
+  if (token) {
+    return `${url}?token=${encodeURIComponent(token)}`;
+  }
+  return url;
+};
+
+// Endpoint mapping for legacy compatibility
 export const ENDPOINT_MAPPING: Record<string, string> = {
-  // '/old-endpoint': '/new-endpoint'
+  // Map old endpoints to new ones if needed
+  '/admin/upload/': '/admin/uploads/',
+  '/admin/staff/attendance/': '/admin/attendance/',
 };
