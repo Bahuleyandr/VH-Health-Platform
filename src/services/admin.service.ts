@@ -93,23 +93,20 @@ class AdminService {
   }
 
   async refreshDashboardCache() {
-    return this.request(API_ENDPOINTS.admin.refreshCache, { method: "POST" });
-  }
+  return this.request(API_ENDPOINTS.admin.reports.refreshCache, { method: "POST" });
+}
 
   // If you truly have an "export dashboard" route in records, point there.
   // (Earlier mapping showed no admin.exportReport key.)
   async exportDashboardReport(
-    body: { format?: "pdf" | "xlsx"; dateRange?: unknown } = {},
-  ) {
-    const format = body.format ?? "pdf";
-    const path =
-      format === "xlsx"
-        ? API_ENDPOINTS.records.exportExcel
-        : API_ENDPOINTS.records.exportPdf;
-
-    // If your backend needs dateRange, include it in query/body where appropriate.
-    return this.request(path);
-  }
+  body: { format?: "pdf" | "xlsx"; dateRange?: unknown } = {},
+) {
+  return this.request(API_ENDPOINTS.admin.reports.generate, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+}
 
   /* -------------------------- Staff Attendance (NEW) -------------------------- */
 
