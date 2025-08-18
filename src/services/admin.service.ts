@@ -59,11 +59,13 @@ class AdminService {
   }
 
   async getQuickStats() {
-    return this.request(API_ENDPOINTS.admin.quickStats);
+    // quick lives under admin.stats.quick
+    return this.request(API_ENDPOINTS.admin.stats.quick);
   }
 
   async getRecentActivity(limit = 50, offset = 0) {
-    const path = this.buildQuery(API_ENDPOINTS.admin.recentActivity, {
+    // recent activity lives under admin.activity.recent
+    const path = this.buildQuery(API_ENDPOINTS.admin.activity.recent, {
       limit,
       offset,
     });
@@ -71,33 +73,42 @@ class AdminService {
   }
 
   async getSystemAlerts() {
-    return this.request(API_ENDPOINTS.admin.alerts);
+    // system alerts lives under admin.alerts.system
+    return this.request(API_ENDPOINTS.admin.alerts.system);
   }
 
   async getModuleHealth() {
-    return this.request(API_ENDPOINTS.admin.moduleHealth);
+    // module health lives under admin.health.modules
+    return this.request(API_ENDPOINTS.admin.health.modules);
   }
 
   async getStaffSummary() {
-    return this.request(API_ENDPOINTS.admin.staffSummary);
+    // staff summary under admin.stats.staff
+    return this.request(API_ENDPOINTS.admin.stats.staff);
   }
 
   async getAppointmentsSummary() {
-    return this.request(API_ENDPOINTS.admin.appointmentsSummary);
+    // appointment summary under admin.stats.appointmentSummary
+    return this.request(API_ENDPOINTS.admin.stats.appointmentSummary);
   }
 
   async refreshDashboardCache() {
     return this.request(API_ENDPOINTS.admin.refreshCache, { method: "POST" });
   }
 
+  // If you truly have an "export dashboard" route in records, point there.
+  // (Earlier mapping showed no admin.exportReport key.)
   async exportDashboardReport(
     body: { format?: "pdf" | "xlsx"; dateRange?: unknown } = {},
   ) {
-    return this.request(API_ENDPOINTS.admin.exportReport, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const format = body.format ?? "pdf";
+    const path =
+      format === "xlsx"
+        ? API_ENDPOINTS.records.exportExcel
+        : API_ENDPOINTS.records.exportPdf;
+
+    // If your backend needs dateRange, include it in query/body where appropriate.
+    return this.request(path);
   }
 
   /* -------------------------- Staff Attendance (NEW) -------------------------- */
@@ -156,7 +167,8 @@ class AdminService {
   }
 
   async getEmergencyServices() {
-    return this.request(API_ENDPOINTS.admin.sos.services);
+    // renamed to emergencyServices
+    return this.request(API_ENDPOINTS.admin.sos.emergencyServices);
   }
 
   async getSosPerformanceReport() {
@@ -183,11 +195,12 @@ class AdminService {
   }
 
   async escalateSosAlert(alertId: string, body?: { reason?: string }) {
-    const path = API_ENDPOINTS.admin.sos.escalate(alertId);
+    // config has a string endpoint; include alertId in the POST body
+    const path = API_ENDPOINTS.admin.sos.escalate;
     return this.request(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body ?? {}),
+      body: JSON.stringify({ alertId, ...(body ?? {}) }),
     });
   }
 
@@ -198,7 +211,8 @@ class AdminService {
   }
 
   async listQuarantinedFiles(p: { limit?: number; offset?: number } = {}) {
-    const path = this.buildQuery(API_ENDPOINTS.admin.uploads.quarantine, p);
+    // quarantined list key name
+    const path = this.buildQuery(API_ENDPOINTS.admin.uploads.quarantined, p);
     return this.request(path);
   }
 
@@ -210,13 +224,21 @@ class AdminService {
       end_date?: string | null;
     } = {},
   ) {
-    const path = this.buildQuery(API_ENDPOINTS.admin.uploads.hipaaAudit, p);
-    return this.request(path);
+    // hipaaAudit is POST in your config
+    const path = API_ENDPOINTS.admin.uploads.hipaaAudit;
+    return this.request(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(p ?? {}),
+    });
   }
 
   async rescanFile(fileId: string) {
-    return this.request(API_ENDPOINTS.admin.uploads.rescan(fileId), {
+    // rescan is a string endpoint; send fileId in the body
+    return this.request(API_ENDPOINTS.admin.uploads.rescan, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fileId }),
     });
   }
 
@@ -232,7 +254,8 @@ class AdminService {
     ids: string[];
     protect: boolean;
   }) {
-    return this.request(API_ENDPOINTS.admin.uploads.hipaaBulkProtect, {
+    // key renamed to bulkHipaa
+    return this.request(API_ENDPOINTS.admin.uploads.bulkHipaa, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
