@@ -129,11 +129,3 @@ export function useAdminWebSocket() {
     reconnect,
   };
 }
-
-// Re-export types for external use
-export type {
-  SystemAlertMessage,
-  SosAlertMessage,
-  StatsUpdateMessage,
-  ActivityMessage,
-};
