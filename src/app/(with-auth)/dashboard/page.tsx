@@ -1,5 +1,4 @@
-// src/app/(with-auth)/dashboard/page.tsx
-import DashboardClient from './DashboardClient';
+import CleanDashboard from './CleanDashboard';
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -8,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function DashboardPage() {
-  return <DashboardClient />;
+  return <CleanDashboard />;
 }
