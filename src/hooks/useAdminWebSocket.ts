@@ -55,7 +55,14 @@ export function useAdminWebSocket() {
             break;
             
           case "sos-alert":
-            toast.warning(`New SOS Alert: ${data.message}`);
+            // Use custom styled toast for warning
+            toast(`New SOS Alert: ${data.message}`, {
+              icon: '⚠️',
+              style: {
+                background: '#FEF3C7',
+                color: '#92400E',
+              },
+            });
             queryClient.invalidateQueries({ queryKey: ["admin", "sos"] });
             break;
             
