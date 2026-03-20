@@ -153,7 +153,9 @@ export async function fetchAdminAPI<T = unknown>(
   init?: { method?: string; body?: unknown; token?: string },
 ): Promise<T> {
   const { method = "GET", body, token } = init ?? {};
-  const res = await apiFetch(endpoint, {
+  // Ensure /api/v1 prefix — callers pass short paths like "/admin/stats/quick"
+  const prefixedEndpoint = endpoint.startsWith("/api/v1") ? endpoint : `/api/v1${endpoint}`;
+  const res = await apiFetch(prefixedEndpoint, {
     method,
     token: token ?? getToken(),
     headers: body ? { "Content-Type": "application/json" } : undefined,
@@ -603,7 +605,7 @@ export function deactivateAdmin<T = unknown>(
 ) {
   const id = typeof arg === "number" ? arg : arg.adminId;
   const reason = typeof arg === "object" ? arg.reason : undefined;
-  return postJSON<T>(`/api/v1/admin/users/${id}/deactivate`, { reason });
+  return postJSON<T>("/api/v1/auth/admin/deactivate", { adminId: id, reason: reason || "Deactivated by admin" });
 }
 
 export function reactivateAdmin<T = unknown>(id: number): Promise<T>;
@@ -614,7 +616,7 @@ export function reactivateAdmin<T = unknown>(
   arg: number | { adminId: number },
 ) {
   const id = typeof arg === "number" ? arg : arg.adminId;
-  return postJSON<T>(`/api/v1/admin/users/${id}/reactivate`);
+  return postJSON<T>("/api/v1/auth/admin/reactivate", { adminId: id });
 }
 
 export function updateAdminPermissions<T = unknown>(
@@ -631,7 +633,7 @@ export function updateAdminPermissions<T = unknown>(
 ) {
   const id = typeof a === "number" ? a : a.adminId;
   const permissions = typeof a === "number" ? (perms ?? []) : a.permissions;
-  return putJSON<T>(`/api/v1/admin/users/${id}/permissions`, { permissions });
+  return putJSON<T>("/api/v1/auth/admin/update-permissions", { adminId: id, permissions });
 }
 
 /* =========================

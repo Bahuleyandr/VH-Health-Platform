@@ -48,7 +48,7 @@ export const API_ENDPOINTS = {
     stats: "/api/v1/auth/stats", // GET
 
     // Admin management (if present)
-    adminManagement: "/api/v1/auth/adminManagement", // GET/POST/PUT (protected)
+    adminManagement: "/api/v1/auth/admin/list", // GET list of admins (protected)
 
     // Tokens & verification
     refreshToken: "/api/v1/auth/refresh-token", // POST
@@ -118,13 +118,13 @@ export const API_ENDPOINTS = {
 
     // Upload/File Management (matching uploadService.js)
     uploads: {
-      summary: "/api/v1/admin/uploads/summary", // GET - getUploadSummary()
-      quarantined: "/api/v1/admin/uploads/quarantined", // GET - listQuarantinedFiles()
-      hipaaAudit: "/api/v1/admin/uploads/hipaa-audit", // POST - getHipaaAuditReport()
-      rescan: "/api/v1/admin/uploads/rescan", // POST - rescanFile()
-      cleanup: "/api/v1/admin/uploads/cleanup", // POST - cleanupExpiredFiles()
-      bulkHipaa: "/api/v1/admin/uploads/hipaa-bulk", // POST - bulkUpdateHipaaProtection()
-      purgeQuarantine: "/api/v1/admin/uploads/purge-quarantine", // POST - purgeQuarantinedFiles()
+      summary: "/api/v1/admin/upload/summary", // GET - getUploadSummary()
+      quarantined: "/api/v1/admin/upload/quarantine", // GET - listQuarantinedFiles()
+      hipaaAudit: "/api/v1/admin/upload/hipaa/audit", // POST - getHipaaAuditReport()
+      rescan: "/api/v1/admin/upload/rescan", // POST - rescanFile()
+      cleanup: "/api/v1/admin/upload/cleanup", // POST - cleanupExpiredFiles()
+      bulkHipaa: "/api/v1/admin/upload/hipaa-bulk", // POST - bulkUpdateHipaaProtection()
+      purgeQuarantine: "/api/v1/admin/upload/purge-quarantine", // POST - purgeQuarantinedFiles()
     },
 
     // Module entry points (kept for navigation)

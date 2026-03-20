@@ -23,7 +23,7 @@ export default function CreateDoctorPage() {
         // The API may return either an array or an object with { departments }
         const resp = await fetchAdminAPI<
           { departments?: Department[] } | Department[]
-        >("/departments/manage");
+        >("/admin/departments/manage");
 
         const list: Department[] = Array.isArray(resp)
           ? resp

@@ -13,7 +13,7 @@ type Activity = {
 
 async function getRecentActivities() {
   // Adjust the path if your backend differs
-  return fetchAdminAPI<Activity[]>("/admin/activities/recent", {
+  return fetchAdminAPI<Activity[]>("/admin/activity/recent", {
     method: "GET",
   });
 }

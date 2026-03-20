@@ -45,7 +45,7 @@ export default function EditDoctorPage() {
         const [doctorsResp, departmentsResp] = await Promise.all([
           fetchAdminAPI<unknown>("/doctors"),
           fetchAdminAPI<{ departments?: Department[] } | Department[]>(
-            "/departments/manage",
+            "/admin/departments/manage",
           ),
         ]);
 

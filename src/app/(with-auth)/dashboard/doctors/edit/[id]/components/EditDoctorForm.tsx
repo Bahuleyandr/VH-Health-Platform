@@ -32,7 +32,7 @@ export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
     };
 
     try {
-      await fetchAdminAPI(`/doctors/${doctor.user_id}`, {
+      await fetchAdminAPI(`/doctors/${doctor.user_id}/profile`, {
         method: "PUT",
         body: JSON.stringify(data),
       });
