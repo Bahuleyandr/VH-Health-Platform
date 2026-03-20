@@ -6,18 +6,23 @@ import { resolvePhoneFromRequest, resolvePhoneFromUID } from '../utils/resolveId
 import { success, error } from '../utils/responseHelper.js';
 
 // ✅ Submit Feedback using resolved phone
+// Supports both star-rating feedback and "Ask a Doubt" (question) from Flutter app.
+// NOTE: DB migration required for question column:
+//   ALTER TABLE feedback ADD COLUMN IF NOT EXISTS question TEXT;
 export async function submitFeedback(req, res) {
   try {
     const phone = resolvePhoneFromRequest(req);
-    const { rating, comment } = req.body;
+    const { rating, comment, question } = req.body;
 
-    if (!phone || !rating) {
-      return res.status(400).json({ error: 'Phone and rating are required' });
+    // phone is required; rating and question are both optional (at least one is expected)
+    if (!phone) {
+      return res.status(400).json({ error: 'Phone is required' });
     }
 
+    // INSERT includes `question` column — requires DB migration if column doesn't exist yet
     const result = await db.query(
-      'INSERT INTO feedback (phone, rating, comment) VALUES ($1, $2, $3) RETURNING id, phone, rating, comment, created_at',
-      [phone, rating, comment || null]
+      'INSERT INTO feedback (phone, rating, comment, question) VALUES ($1, $2, $3, $4) RETURNING id, phone, rating, comment, question, created_at',
+      [phone, rating || null, comment || null, question || null]
     );
 
     success(res, result.rows[0], 'Feedback submitted successfully');

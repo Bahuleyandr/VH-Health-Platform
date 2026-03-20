@@ -45,6 +45,9 @@ import userRoutes from './routes/user/index.js';
 // Admin (centralized under /api/v1/admin)
 import adminDashboardRoutes from './routes/admin/index.js';
 
+// Patient dashboard (API key only, no JWT)
+import dashboardRoutes from './routes/dashboard/index.js';
+
 // Swagger loader
 import swaggerLoader from './utils/swaggerLoader.js';
 
@@ -120,6 +123,15 @@ app.use('/api/v1', infrastructureRoutes);
 // ====================================
 
 app.use(validateApiKey);
+
+// ====================================
+// API KEY ONLY ROUTES (no JWT required)
+// Mount before authMiddleware so Flutter can call these without a JWT
+// ====================================
+
+// Patient dashboard — Flutter app uses API key only for this
+app.use('/api/v1/dashboard', patientRateLimiter, dashboardRoutes);
+
 app.use(authMiddleware);
 app.use(normalizeIdentityFields); // runs AFTER authMiddleware
 
