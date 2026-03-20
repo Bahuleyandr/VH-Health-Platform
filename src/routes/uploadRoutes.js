@@ -2,6 +2,8 @@
 
 import express from 'express';
 import { wrapAutoRBAC, wrapRoutes } from '../config/routeWrapper.js';
+import db from '../config/database.js';
+import logger from '../logging/logger.js';
 
 // Import controllers
 import * as adminController from '../controllers/adminUploadController.js';
@@ -162,3 +164,36 @@ wrapRoutes(
 );
 
 export default router;
+// 🔗 Convenience: Get download info by storage key (for patient app)
+// This is outside the RBAC wrapper since it needs simpler auth
+router.get('/by-key/:storageKey(*)', async (req, res) => {
+  try {
+    const { storageKey } = req.params;
+    const result = await db.query(
+      `SELECT id, storage_key, file_name, is_quarantined, scan_status 
+       FROM file_metadata WHERE storage_key = $1`,
+      [storageKey]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'File not found' });
+    }
+    
+    const file = result.rows[0];
+    if (file.is_quarantined || file.scan_status === 'INFECTED') {
+      return res.json({ success: true, data: { quarantined: true, storage_url: null } });
+    }
+    
+    // Generate presigned URL from R2
+    const { getSignedUrl } = await import('../utils/r2Storage.js');
+    const url = await getSignedUrl(file.storage_key);
+    
+    return res.json({ 
+      success: true, 
+      data: { quarantined: false, storage_url: url, file_name: file.file_name } 
+    });
+  } catch (err) {
+    logger.error('Download by key error:', err);
+    return res.status(500).json({ success: false, message: 'Download failed' });
+  }
+});
