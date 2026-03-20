@@ -466,7 +466,8 @@ export class StaffAuthService {
   }
 
   static generateRefreshToken(staff) {
-    return generateToken({ uid: staff.uid, type: 'refresh' }, true);
+    // Refresh tokens get a longer expiry (30 days)
+    return generateToken({ uid: staff.uid, role: staff.role, type: 'refresh' }, '30d');
   }
 
   static generateDeviceToken() {

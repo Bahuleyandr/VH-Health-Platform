@@ -53,24 +53,28 @@ if (!JWT_SECRET) {
 
 /**
  * Generates a JWT token with Supabase-compatible claims.
- * @param {Object} payload - { uid, phone, role }
+ * @param {Object} payload - { uid, phone, role, ...extraClaims } — all fields are included in the token.
+ * @param {string} [expiresIn] - Optional expiry override (e.g. '30d' for refresh tokens).
  * @returns {string} - Signed JWT token.
  */
-export function generateToken({ uid, phone, role }) {
+export function generateToken(payload, expiresIn) {
+  const { uid, phone, role, ...extraClaims } = payload;
+  const tokenPayload = {
+    sub: uid,
+    role: role || 'PATIENT',
+    ...(phone && { phone }),
+    ...extraClaims,  // Include email, type, sub overrides, iss, aud, etc.
+    'https://hyzrtspkmgelzqylokex.supabase.co/jwt/claims': {
+      'x-hasura-default-role': role ? role.toLowerCase() : 'anonymous',
+      'x-hasura-allowed-roles': [role ? role.toLowerCase() : 'anonymous'],
+      'x-hasura-user-id': uid,
+      ...(phone && { 'x-hasura-phone': phone })
+    }
+  };
   return jwt.sign(
-    {
-      sub: uid,
-      phone,
-      role,
-      'https://hyzrtspkmgelzqylokex.supabase.co/jwt/claims': {
-        'x-hasura-default-role': role ? role.toLowerCase() : 'anonymous',
-        'x-hasura-allowed-roles': [role ? role.toLowerCase() : 'anonymous'],
-        'x-hasura-user-id': uid,
-        'x-hasura-phone': phone
-      }
-    },
+    tokenPayload,
     JWT_SECRET,
-    { expiresIn: JWT_EXPIRES_IN }
+    { expiresIn: expiresIn || JWT_EXPIRES_IN }
   );
 }
 
