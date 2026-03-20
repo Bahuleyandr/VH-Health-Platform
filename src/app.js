@@ -45,6 +45,10 @@ import userRoutes from './routes/user/index.js';
 // Admin (centralized under /api/v1/admin)
 import adminDashboardRoutes from './routes/admin/index.js';
 
+// System settings and logs (admin portal: /api/v1/system/* and /api/v1/logs/*)
+import systemRoutes from './routes/system/index.js';
+import logRoutes from './routes/logs/index.js';
+
 // Patient dashboard (API key only, no JWT)
 import dashboardRoutes from './routes/dashboard/index.js';
 
@@ -169,6 +173,12 @@ app.use('/api/v1/staff', jwtAuth, staffRoutes);
 // AdminDashboardRoutes internally mounts: /appointments, /departments, /doctors,
 // /users, /notifications, /records, /investigations, /pharmacy, /analytics
 app.use('/api/v1/admin', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, adminDashboardRoutes);
+
+// System settings + status (portal: /api/v1/system/settings, /api/v1/system/status)
+app.use('/api/v1/system', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, systemRoutes);
+
+// Audit + system logs (portal: /api/v1/logs/audit, /api/v1/logs/system)
+app.use('/api/v1/logs', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, logRoutes);
 
 // (Optional but recommended) serve report exports if you use local file URLs
 app.use('/exports', express.static('exports'));
