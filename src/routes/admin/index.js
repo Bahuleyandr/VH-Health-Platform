@@ -164,6 +164,60 @@ wrapAutoRBAC(router, 'adminDashboard', {
       },
     ],
 
+    // -------------- Individual stat endpoints (used by portal useAdminStats) ----
+    [
+      '/stats/users',
+      async (_req, res) => {
+        try {
+          const data = await getUserStats();
+          res.json({ success: true, data });
+        } catch (e) {
+          logger.error('User stats error:', e);
+          res.status(500).json({ success: false, message: 'Failed to get user stats' });
+        }
+      },
+    ],
+
+    [
+      '/stats/appointments',
+      async (_req, res) => {
+        try {
+          const data = await getAppointmentStats();
+          res.json({ success: true, data });
+        } catch (e) {
+          logger.error('Appointment stats error:', e);
+          res.status(500).json({ success: false, message: 'Failed to get appointment stats' });
+        }
+      },
+    ],
+
+    [
+      '/stats/staff',
+      async (_req, res) => {
+        try {
+          const data = await getStaffStats();
+          res.json({ success: true, data });
+        } catch (e) {
+          logger.error('Staff stats error:', e);
+          res.status(500).json({ success: false, message: 'Failed to get staff stats' });
+        }
+      },
+    ],
+
+    [
+      '/stats/departments',
+      async (_req, res) => {
+        try {
+          const data = await getDepartmentStats();
+          res.json({ success: true, data });
+        } catch (e) {
+          logger.error('Department stats error:', e);
+          res.status(500).json({ success: false, message: 'Failed to get department stats' });
+        }
+      },
+    ],
+    // -------------- End individual stat endpoints --------------------------------
+
     [
       '/activity/recent',
       async (req, res) => {
@@ -196,6 +250,19 @@ wrapAutoRBAC(router, 'adminDashboard', {
       async (_req, res) => {
         const health = await getModuleHealth();
         res.json({ success: true, data: health });
+      },
+    ],
+
+    [
+      '/health/system',
+      async (_req, res) => {
+        try {
+          const health = await getSystemHealth();
+          res.json({ success: true, data: health });
+        } catch (e) {
+          logger.error('System health error:', e);
+          res.status(500).json({ success: false, message: 'Failed to get system health' });
+        }
       },
     ],
 
