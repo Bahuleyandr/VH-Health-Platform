@@ -3,12 +3,13 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { CommandPalette } from '@/components/CommandPalette';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { AuthDebugger } from '@/components/auth/AuthDebugger';
 import { usePermissions } from '@/hooks/usePermissions';
+import { useAuth } from '@/contexts/AuthContext';
 import styles from './Dashboard.module.css';
 
 type NavItem = {
@@ -40,11 +41,11 @@ function isItemActive(pathname: string, href: string) {
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
   const pathname = usePathname();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const { role, isSuperAdmin, hasAllPermissions } = usePermissions();
+  const { logout } = useAuth();
 
   const visibleNav = useMemo(() => {
     return navigation.filter((item) => {
@@ -103,13 +104,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <ThemeToggle />
               <button
                 type="button"
-                onClick={() => {
-                  try {
-                    localStorage.removeItem('adminToken');
-                    localStorage.removeItem('adminUser');
-                  } catch {}
-                  router.push('/login');
-                }}
+                onClick={() => void logout()}
                 className={styles.logoutButton}
               >
                 Logout

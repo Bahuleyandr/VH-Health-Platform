@@ -1,0 +1,20 @@
+[Unit]
+Description=VH Health Admin Portal
+After=network.target vhhealth-backend.service
+
+[Service]
+Type=simple
+User=bahuleyan
+WorkingDirectory=/home/bahuleyan/vhhealth-admin
+Environment=NODE_ENV=production
+Environment=PORT=3001
+ExecStart=/usr/bin/node_modules/.bin/next start -p 3001
+ExecStartPre=/bin/sh -c 'which next || npm install -g next'
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vhhealth-admin
+
+[Install]
+WantedBy=multi-user.target

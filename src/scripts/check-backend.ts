@@ -3,16 +3,27 @@
 //   Linux/macOS: API_BASE_URL=... API_KEY=... ADMIN_EMAIL=... ADMIN_PASSWORD=... npx tsx src/scripts/check-backend.ts
 //   Windows (PowerShell):
 //     $env:API_BASE_URL="https://vh-health-backend.onrender.com"
-//     $env:API_KEY="vhhealth123"
-//     $env:ADMIN_EMAIL="admin@vhhealth.local"
-//     $env:ADMIN_PASSWORD="vhhealth123"
+//     $env:API_KEY="<your-api-key>"
+//     $env:ADMIN_EMAIL="<your-admin-email>"
+//     $env:ADMIN_PASSWORD="<your-admin-password>"
 //     npx tsx src/scripts/check-backend.ts
 
 const API_BASE =
   process.env.API_BASE_URL ?? "https://vh-health-backend.onrender.com";
-const API_KEY = process.env.API_KEY ?? "vhhealth123";
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "admin@vhhealth.local";
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "vhhealth123";
+
+// API_KEY, ADMIN_EMAIL, and ADMIN_PASSWORD must be supplied via environment variables.
+// Example (Linux/macOS):
+//   API_BASE_URL=... API_KEY=... ADMIN_EMAIL=... ADMIN_PASSWORD=... npx tsx src/scripts/check-backend.ts
+const API_KEY = process.env.API_KEY;
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+
+if (!API_KEY || !ADMIN_EMAIL || !ADMIN_PASSWORD) {
+  console.error(
+    "Error: API_KEY, ADMIN_EMAIL, and ADMIN_PASSWORD environment variables are required.",
+  );
+  process.exit(1);
+}
 
 type Method = "GET" | "POST" | "PUT" | "DELETE";
 type HeadersMap = Record<string, string>;

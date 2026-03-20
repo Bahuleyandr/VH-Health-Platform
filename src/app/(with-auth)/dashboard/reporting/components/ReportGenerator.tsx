@@ -4,6 +4,7 @@
 import { User, Doctor } from "@/lib/types";
 import { useState } from "react";
 import { getAuthToken } from "@/lib/api";
+import { getHeaders } from "@/lib/api-config";
 
 interface ReportGeneratorProps {
   users: User[];
@@ -49,10 +50,7 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
       const response = await fetch(
         `https://vh-health-backend.onrender.com/api/v1/records/export/${format}?${queryParams.toString()}`,
         {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "x-api-key": "vhhealth123",
-          },
+          headers: getHeaders(token),
         },
       );
 
