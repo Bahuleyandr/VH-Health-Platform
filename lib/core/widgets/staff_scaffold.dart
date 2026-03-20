@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../config/role_config.dart';
 import '../theme/app_theme.dart';
 import 'sos_button.dart';
 
@@ -12,6 +13,7 @@ class StaffScaffold extends StatelessWidget {
   final int? currentIndex;
   final bool showBottomNav;
   final Widget? bottomSheet;
+  final StaffRole? role;
 
   const StaffScaffold({
     super.key,
@@ -23,6 +25,7 @@ class StaffScaffold extends StatelessWidget {
     this.currentIndex,
     this.showBottomNav = false,
     this.bottomSheet,
+    this.role,
   });
 
   @override
@@ -44,54 +47,83 @@ class StaffScaffold extends StatelessWidget {
   }
 
   Widget _buildBottomNav(BuildContext context) {
+    final navItems = _getNavItems(role ?? StaffRole.general);
     return BottomNavigationBar(
       currentIndex: currentIndex ?? 0,
+      type: BottomNavigationBarType.fixed,
       onTap: (index) {
-        switch (index) {
-          case 0:
-            context.go('/dashboard');
-            break;
-          case 1:
-            context.go('/attendance');
-            break;
-          case 2:
-            context.go('/leave');
-            break;
-          case 3:
-            context.go('/profile');
-            break;
-          case 4:
-            context.go('/settings');
-            break;
+        if (index < navItems.length) {
+          context.go(navItems[index].route);
         }
       },
-      items: const [
-        BottomNavigationBarItem(
-          icon: Icon(Icons.dashboard_outlined),
-          activeIcon: Icon(Icons.dashboard),
-          label: 'Home',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.fingerprint_outlined),
-          activeIcon: Icon(Icons.fingerprint),
-          label: 'Attendance',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.event_available_outlined),
-          activeIcon: Icon(Icons.event_available),
-          label: 'Leave',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.person_outlined),
-          activeIcon: Icon(Icons.person),
-          label: 'Profile',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.settings_outlined),
-          activeIcon: Icon(Icons.settings),
-          label: 'Settings',
-        ),
-      ],
+      items: navItems.map((item) => BottomNavigationBarItem(
+        icon: Icon(item.icon),
+        activeIcon: Icon(item.activeIcon),
+        label: item.label,
+      )).toList(),
     );
   }
+
+  List<_NavItem> _getNavItems(StaffRole role) {
+    switch (role) {
+      case StaffRole.doctor:
+        return [
+          _NavItem('Home', Icons.dashboard_outlined, Icons.dashboard, '/dashboard'),
+          _NavItem('Patients', Icons.medical_information_outlined, Icons.medical_information, '/patient-records'),
+          _NavItem('Schedule', Icons.calendar_month_outlined, Icons.calendar_month, '/appointments'),
+          _NavItem('Profile', Icons.person_outlined, Icons.person, '/profile'),
+        ];
+      case StaffRole.nurse:
+        return [
+          _NavItem('Home', Icons.dashboard_outlined, Icons.dashboard, '/dashboard'),
+          _NavItem('Vitals', Icons.monitor_heart_outlined, Icons.monitor_heart, '/vitals'),
+          _NavItem('Notes', Icons.note_alt_outlined, Icons.note_alt, '/nursing-notes'),
+          _NavItem('Profile', Icons.person_outlined, Icons.person, '/profile'),
+        ];
+      case StaffRole.hr:
+        return [
+          _NavItem('Home', Icons.dashboard_outlined, Icons.dashboard, '/dashboard'),
+          _NavItem('HR Hub', Icons.groups_outlined, Icons.groups, '/hr-dashboard'),
+          _NavItem('Leave', Icons.event_available_outlined, Icons.event_available, '/leave'),
+          _NavItem('Profile', Icons.person_outlined, Icons.person, '/profile'),
+        ];
+      case StaffRole.admin || StaffRole.superAdmin:
+        return [
+          _NavItem('Home', Icons.dashboard_outlined, Icons.dashboard, '/dashboard'),
+          _NavItem('Staff', Icons.groups_outlined, Icons.groups, '/staff-management'),
+          _NavItem('Directory', Icons.contacts_outlined, Icons.contacts, '/directory'),
+          _NavItem('Settings', Icons.settings_outlined, Icons.settings, '/settings'),
+        ];
+      case StaffRole.pharmacy:
+        return [
+          _NavItem('Home', Icons.dashboard_outlined, Icons.dashboard, '/dashboard'),
+          _NavItem('Orders', Icons.medication_outlined, Icons.medication, '/pharmacy'),
+          _NavItem('Attendance', Icons.fingerprint_outlined, Icons.fingerprint, '/attendance'),
+          _NavItem('Profile', Icons.person_outlined, Icons.person, '/profile'),
+        ];
+      case StaffRole.lab:
+        return [
+          _NavItem('Home', Icons.dashboard_outlined, Icons.dashboard, '/dashboard'),
+          _NavItem('Lab', Icons.science_outlined, Icons.science, '/investigations'),
+          _NavItem('Attendance', Icons.fingerprint_outlined, Icons.fingerprint, '/attendance'),
+          _NavItem('Profile', Icons.person_outlined, Icons.person, '/profile'),
+        ];
+      case StaffRole.general:
+      default:
+        return [
+          _NavItem('Home', Icons.dashboard_outlined, Icons.dashboard, '/dashboard'),
+          _NavItem('Tasks', Icons.checklist_outlined, Icons.checklist, '/tasks'),
+          _NavItem('Attendance', Icons.fingerprint_outlined, Icons.fingerprint, '/attendance'),
+          _NavItem('Profile', Icons.person_outlined, Icons.person, '/profile'),
+        ];
+    }
+  }
+}
+
+class _NavItem {
+  final String label;
+  final IconData icon;
+  final IconData activeIcon;
+  final String route;
+  const _NavItem(this.label, this.icon, this.activeIcon, this.route);
 }

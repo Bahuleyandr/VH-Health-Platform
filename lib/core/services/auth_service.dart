@@ -28,6 +28,12 @@ class AuthService {
             data['data']?['staff']?['id'] ??
             data['data']?['uid'];
         if (staffId != null) await ApiConfig.saveStaffId(staffId.toString());
+
+        // Save staff role for role-based feature access
+        final role = data['data']?['staff']?['role'] ??
+            data['data']?['role'] ??
+            'GENERAL_STAFF';
+        await ApiConfig.saveRole(role.toString());
       }
       return data['data'] ?? data;
     }
@@ -56,6 +62,12 @@ class AuthService {
             data['data']?['staff']?['id'] ??
             data['data']?['uid'];
         if (staffId != null) await ApiConfig.saveStaffId(staffId.toString());
+
+        // Save staff role for role-based feature access
+        final role = data['data']?['staff']?['role'] ??
+            data['data']?['role'] ??
+            'GENERAL_STAFF';
+        await ApiConfig.saveRole(role.toString());
       }
       return data['data'] ?? data;
     }
@@ -81,6 +93,8 @@ class AuthService {
   static Future<bool> isLoggedIn() => ApiConfig.isLoggedIn();
   static Future<String?> getStaffId() => ApiConfig.getStaffId();
   static Future<String?> getEmployeeId() => ApiConfig.getEmployeeId();
+  static Future<String> getRole() => ApiConfig.getRole();
+  static Future<void> setRole(String role) => ApiConfig.saveRole(role);
 
   static Future<Map<String, String>?> getSavedCredentials() async {
     final employeeId = await _storage.read(key: 'employee_id');

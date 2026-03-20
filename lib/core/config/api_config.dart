@@ -40,6 +40,14 @@ class ApiConfig {
     return await _storage.read(key: 'employee_id');
   }
 
+  static Future<void> saveRole(String role) async {
+    await _storage.write(key: 'staff_role', value: role);
+  }
+
+  static Future<String> getRole() async {
+    return await _storage.read(key: 'staff_role') ?? 'GENERAL_STAFF';
+  }
+
   static Future<void> clearAll() async {
     await _storage.deleteAll();
   }
