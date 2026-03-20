@@ -43,8 +43,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setError(null);
 
       if (!isAuthenticated()) {
+        // Clear stale cookie if localStorage has no token
+        document.cookie = 'adminToken=; path=/; max-age=0';
         setUser(null);
         return;
+      }
+
+      // Sync cookie with localStorage token (for middleware SSR access)
+      const existingToken = typeof window !== "undefined" ? localStorage.getItem("adminToken") : null;
+      if (existingToken) {
+        document.cookie = `adminToken=${existingToken}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`;
       }
 
       // Use cached user first for instant UI
@@ -92,6 +100,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // api-client persists token/admin to localStorage; we update state & route
         if (result?.admin) {
           setUser(result.admin);
+          // Set cookie for middleware SSR access
+          document.cookie = `adminToken=${result.token}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`;
           router.push("/dashboard");
         } else {
           throw new Error("Login successful but no admin data received");
@@ -116,6 +126,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.warn("Logout error:", e);
       clearAuthData();
     } finally {
+      // Clear cookie for middleware
+      document.cookie = 'adminToken=; path=/; max-age=0';
       setUser(null);
       setLoading(false);
       router.push("/login");
