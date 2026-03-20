@@ -6,12 +6,7 @@ export default function authMiddleware(req, res, next) {
   const apiKeyHeader = req.headers['x-api-key'];
   const authHeader = req.headers['authorization'];
 
-  // ✅ Bypass check for Jest test environment
-  if (process.env.NODE_ENV === 'test') {
-    req.user = { uid: 'test-admin-uid', phone: '9876543210', role: 'ADMIN' };
-    return next();
-  }
-
+  // NOTE: test auth bypass removed — use proper JWT tokens in tests
   if (!apiKeyHeader) {
     return res.status(401).json({ success: false, error: 'API Key missing' });
   }

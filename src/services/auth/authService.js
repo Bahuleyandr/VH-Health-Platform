@@ -367,11 +367,11 @@ aud: 'vh-health-admin'               // optional
       if (!ok) throw new Error('Invalid credentials');
 
       const token = generateToken({
-      uid: String(user.uid),
-      phone: user.phone,
-      role: String(user.role).toUpperCase(),
-      sub: String(user.uid)
-    });
+        uid: String(staff.uid),
+        phone: staff.phone,
+        role: String(staff.role).toUpperCase(),
+        sub: String(staff.uid)
+      });
 
       await db.query('UPDATE staff SET last_login = NOW() WHERE uid = $1', [staff.uid]);
 
@@ -573,7 +573,7 @@ aud: 'vh-health-admin'               // optional
       if (!decoded) throw new Error('Invalid or expired token');
 
       const userResult = await db.query(
-        'SELECT * FROM users WHERE uid = $1',
+        'SELECT uid, phone, name, role FROM users WHERE uid = $1',
         [decoded.uid]
       );
       if (userResult.rows.length === 0) throw new Error('User not found');
@@ -623,7 +623,7 @@ aud: 'vh-health-admin'               // optional
     try {
       const normalizedPhone = normalizePhone(phone);
       const result = await db.query(
-        'SELECT * FROM users WHERE phone = $1',
+        'SELECT uid, phone, name, role FROM users WHERE phone = $1',
         [normalizedPhone]
       );
       return result.rows[0] || null;

@@ -13,8 +13,8 @@ export const RATE_LIMIT_PROFILES = {
   },
   admin: {
     windowMs: 15 * 60 * 1000,
-    max: Infinity,
-    message: ''
+    max: 100,
+    message: 'Too many requests from this admin. Please try again later.'
   },
   default: {
     windowMs: 15 * 60 * 1000,

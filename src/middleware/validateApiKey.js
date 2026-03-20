@@ -19,7 +19,7 @@ export default function validateApiKey(req, res, next) {
   }
 
   if (clientApiKey !== serverApiKey) {
-    console.warn(`❌ Invalid API Key provided: ${clientApiKey}`);
+    console.warn('❌ Invalid API Key provided in request headers');
     return res.status(401).json({ error: 'Invalid API Key' });
   }
 

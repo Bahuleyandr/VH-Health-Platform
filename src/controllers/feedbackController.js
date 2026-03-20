@@ -16,7 +16,7 @@ export async function submitFeedback(req, res) {
     }
 
     const result = await db.query(
-      'INSERT INTO feedback (phonenumber, rating, comment) VALUES ($1, $2, $3) RETURNING *',
+      'INSERT INTO feedback (phone, rating, comment) VALUES ($1, $2, $3) RETURNING id, phone, rating, comment, created_at',
       [phone, rating, comment || null]
     );
 
@@ -37,7 +37,7 @@ export async function getFeedbackByUID(req, res) {
       return res.status(404).json({ success: false, message: 'UID not found in users table' });
     }
 
-    const result = await db.query('SELECT * FROM feedback WHERE phonenumber = $1', [resolvedPhone]);
+    const result = await db.query('SELECT id, phone, rating, comment, created_at FROM feedback WHERE phone = $1', [resolvedPhone]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'No feedback found for this phone' });
