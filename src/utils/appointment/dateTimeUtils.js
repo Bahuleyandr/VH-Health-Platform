@@ -1,4 +1,4 @@
-import moment from 'moment';
+import { format, parse, isValid } from 'date-fns';
 import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
 
 export const formatDate = (date) => {
@@ -19,18 +19,28 @@ export const parseDate = (dateString) => {
 };
 
 export const formatTime = (time) => {
-  return moment(time, 'HH:mm:ss').format(APPOINTMENT_CONFIG.TIME_FORMAT);
+  // Parse HH:mm:ss or HH:mm and format to APPOINTMENT_CONFIG.TIME_FORMAT (HH:mm)
+  const parsed = parse(time, 'HH:mm:ss', new Date());
+  if (isValid(parsed)) {
+    return format(parsed, APPOINTMENT_CONFIG.TIME_FORMAT);
+  }
+  const parsedShort = parse(time, 'HH:mm', new Date());
+  if (isValid(parsedShort)) {
+    return format(parsedShort, APPOINTMENT_CONFIG.TIME_FORMAT);
+  }
+  return time;
 };
 
 export const getCurrentDate = () => {
-  return moment().format('YYYY-MM-DD');
+  return format(new Date(), 'yyyy-MM-dd');
 };
 
 export const combineDateAndTime = (date, time) => {
-  const dateStr = moment(date).format('YYYY-MM-DD');
+  const dateStr = format(new Date(date), 'yyyy-MM-dd');
   return new Date(`${dateStr}T${time}`);
 };
 
 export const isValidTimeSlot = (time) => {
-  return moment(time, APPOINTMENT_CONFIG.TIME_FORMAT, true).isValid();
+  const parsed = parse(time, APPOINTMENT_CONFIG.TIME_FORMAT, new Date());
+  return isValid(parsed);
 };

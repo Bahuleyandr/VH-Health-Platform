@@ -63,6 +63,14 @@ tmp/
 *.zip
 backups/
 
+# Debug artifacts and route exports (not for version control)
+all-514-routes.json
+all-514-routes.csv
+endpoints.csv
+complete-api-list.*
+swagger-backup-*
+swagger-fixed.*
+
 # Additional Security Exclusions
 # Generated tokens and keys
 admin-token.txt

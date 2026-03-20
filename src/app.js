@@ -28,7 +28,6 @@ import validateApiKey from './middleware/validateApiKey.js';
 
 // Public / mixed modules
 import appointmentRoutes from './routes/appointment/index.js';
-import authRoutes from './routes/auth/index.js';
 import departmentRoutes from './routes/department/index.js';
 import deviceRoutes from './routes/deviceRoutes.js';
 import doctorRoutes from './routes/doctor/index.js';
@@ -95,7 +94,7 @@ app.use(attachUserContext);
 // ====================================
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
-app.use('/api/v1/internal', internalRoutes);
+app.use('/api/v1/internal', validateApiKey, internalRoutes);
 
 // Root health check
 app.get('/', (req, res) => {
@@ -109,7 +108,6 @@ app.head('/', (req, res) => res.status(200).end());
 
 // Public API routes
 app.use('/api/v1/auth', patientRateLimiter, routes.auth); // Patient Auth
-app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/otp', patientRateLimiter, routes.otp);
 app.use('/api/v1/health', healthRoutes);
 

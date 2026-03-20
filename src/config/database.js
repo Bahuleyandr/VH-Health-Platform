@@ -61,6 +61,23 @@ class DatabaseManager {
     }
   }
 
+  async getClient() {
+    if (!this.isConnected) {
+      const connected = await this.connect();
+      if (!connected) {
+        throw new Error('Database not available - running in debug mode');
+      }
+    }
+
+    try {
+      const client = await this.pool.connect();
+      return client;
+    } catch (error) {
+      console.log('❌ Failed to get database client:', error.message);
+      throw error;
+    }
+  }
+
   async close() {
     if (this.pool) {
       await this.pool.end();
