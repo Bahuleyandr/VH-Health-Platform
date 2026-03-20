@@ -59,8 +59,10 @@ export async function getPatientDashboard(req, res) {
 
     return success(res, {
       name,
-      lastAppointment,
-      nextAppointment,
+      lastAppointment: lastAppointment?.date || null,
+      nextAppointment: nextAppointment?.date || null,
+      lastAppointmentDoctor: lastAppointment?.doctor_name || null,
+      nextAppointmentDoctor: nextAppointment?.doctor_name || null,
       upcomingCount
     }, 'Dashboard data retrieved successfully');
 
