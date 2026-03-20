@@ -85,11 +85,13 @@ export const userProfileValidator = [
 export const feedbackValidator = [
   ...phoneValidator,
   body('rating')
-    .notEmpty()
-    .withMessage('Rating is required')
+    .optional() // Made optional: Flutter "Ask a Doubt" feature sends question instead of rating
     .isInt({ min: 1, max: 5 })
     .withMessage('Rating must be between 1 and 5'),
-  body('comment').optional().isString().withMessage('Comment must be a string')
+  body('comment').optional().isString().withMessage('Comment must be a string'),
+  // "Ask a Doubt" field — text question from Flutter patient app
+  // NOTE: DB migration required: ALTER TABLE feedback ADD COLUMN IF NOT EXISTS question TEXT;
+  body('question').optional().isString().withMessage('Question must be a string')
 ];
 
 /**
