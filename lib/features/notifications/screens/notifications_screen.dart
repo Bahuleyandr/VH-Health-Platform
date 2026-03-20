@@ -77,7 +77,10 @@ Future<void> _fetchNotifications() async {
       if (!mounted) return;
 
       if (res.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(res.body.trim());
+        final body = jsonDecode(res.body.trim());
+        final List<dynamic> data = body is List
+            ? body
+            : (body['data']?['notifications'] ?? body['data'] ?? []) as List<dynamic>;
         setState(() {
           notifications = data;
           loading = false;

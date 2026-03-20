@@ -65,7 +65,10 @@ class _YourHealthScreenState extends State<YourHealthScreen> {
       if (!mounted) return;
 
       if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as List<dynamic>;
+        final body = jsonDecode(resp.body);
+        final List<dynamic> data = body is List
+            ? body
+            : (body['data']?['records'] ?? body['data'] ?? []) as List<dynamic>;
         await RecordCacheManager.saveManifest(widget.phone, data);
         if (!mounted) return;
         setState(() {
@@ -142,14 +145,15 @@ class _YourHealthScreenState extends State<YourHealthScreen> {
       return;
     }
 
-    final url = Uri.parse('${ApiConfig.baseUrl}/upload/$fileKey');
+    final url = Uri.parse('${ApiConfig.baseUrl}/upload/by-key/$fileKey');
 
     try {
       final resp = await http.get(url, headers: await ApiConfig.authenticatedAuthHeaders());
       if (!mounted) return;
 
       if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body);
+        final body = jsonDecode(resp.body);
+        final data = body['data'] ?? body;
         if (data['quarantined'] == true) {
           messenger.showSnackBar(SnackBar(
             content: Text(l10n.fileQuarantined),
