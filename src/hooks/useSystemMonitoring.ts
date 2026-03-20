@@ -1,7 +1,7 @@
 // src/hooks/useSystemMonitoring.ts
 
-import { useQuery } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
 
 // Module Health
 export const useModuleHealth = () => {

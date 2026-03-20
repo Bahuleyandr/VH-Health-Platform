@@ -1,9 +1,9 @@
 // src/components/Breadcrumbs.tsx
 "use client";
 
+import styles from "@/app/(with-auth)/dashboard/Dashboard.module.css"; // adjust the path if your alias differs
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import styles from "@/app/(with-auth)/dashboard/Dashboard.module.css"; // adjust the path if your alias differs
 
 export function Breadcrumbs() {
   const pathname = usePathname() || "/";

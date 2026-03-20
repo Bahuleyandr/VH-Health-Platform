@@ -1,15 +1,17 @@
 // src/app/(with-auth)/dashboard/admin-management/page.tsx
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { RequirePermissions } from "@/components/auth/RequirePermissions";
 import { getJSON } from "@/lib/api";
 import { API_ENDPOINTS } from "@/lib/api-config";
 import type { AdminUser } from "@/lib/types";
-import { CreateAdminForm } from "./components/CreateAdminForm";
+import { useEffect, useState, useCallback } from "react";
+
 import { AdminsTable } from "./components/AdminsTable";
 import { AdminStats } from "./components/AdminStats";
+import { CreateAdminForm } from "./components/CreateAdminForm";
 import { PermissionsMatrix } from "./components/PermissionsMatrix";
-import { RequirePermissions } from "@/components/auth/RequirePermissions";
+
 
 export default function AdminManagementPage() {
   const [admins, setAdmins] = useState<AdminUser[]>([]);

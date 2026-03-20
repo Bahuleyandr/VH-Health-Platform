@@ -1,12 +1,14 @@
 // src/app/(with-auth)/dashboard/admin-management/components/AdminsTable.tsx
 "use client";
 
-import Link from "next/link";
-import { useState, useMemo } from "react";
-import type { AdminUser } from "@/lib/types";
+import { AlertDialog } from "@/components/ui/alert-dialog";
+import { usePermissions } from "@/hooks/usePermissions";
 import { putJSON } from "@/lib/api";
 import { API_ENDPOINTS } from "@/lib/api-config";
-import { usePermissions } from "@/hooks/usePermissions";
+import type { AdminUser } from "@/lib/types";
+import Link from "next/link";
+import { useState, useMemo } from "react";
+import toast from "react-hot-toast";
 
 interface AdminsTableProps {
   admins: AdminUser[];
@@ -15,6 +17,7 @@ interface AdminsTableProps {
 
 export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
   const [updatingAdminId, setUpdatingAdminId] = useState<number | null>(null);
+  const [toggleTarget, setToggleTarget] = useState<AdminUser | null>(null);
 
   // Optional permission gating (SUPER_ADMIN auto-passes)
   const { hasPermission, isSuperAdmin } = usePermissions();
@@ -29,19 +32,9 @@ export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
       : hasPermission("admin:reactivate"));
 
   const handleToggleStatus = async (admin: AdminUser) => {
-    if (!canToggleFor(admin.is_active)) return;
-
-    const confirmMessage = admin.is_active
-      ? `Are you sure you want to deactivate ${admin.name}?`
-      : `Are you sure you want to reactivate ${admin.name}?`;
-
-    if (!window.confirm(confirmMessage)) return;
-
     setUpdatingAdminId(admin.id);
 
     try {
-      // Convention: PUT to the centralized admin management endpoint with an action
-      // Backend should handle: { action: 'deactivate' | 'reactivate', adminId, reason? }
       const action = admin.is_active ? "deactivate" : "reactivate";
       const body =
         action === "deactivate"
@@ -55,12 +48,12 @@ export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
       await putJSON(API_ENDPOINTS.auth.adminManagement, body);
 
       onAdminUpdated?.();
-    } catch (error) {
-      // Keep the UX simple and friendly
-      console.error("Failed to toggle admin status:", error);
-      alert("Failed to update admin status. Please try again.");
+      toast.success(`Admin ${admin.name} ${action}d successfully`);
+    } catch {
+      toast.error("Failed to update admin status. Please try again.");
     } finally {
       setUpdatingAdminId(null);
+      setToggleTarget(null);
     }
   };
 
@@ -204,7 +197,7 @@ export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
                       )}
 
                       <button
-                        onClick={() => handleToggleStatus(admin)}
+                        onClick={() => setToggleTarget(admin)}
                         disabled={toggling || !toggleAllowed}
                         className={`transition-colors ${
                           toggling || !toggleAllowed
@@ -235,6 +228,21 @@ export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
           </tbody>
         </table>
       </div>
+
+      <AlertDialog
+        open={!!toggleTarget}
+        onOpenChange={(open) => { if (!open) setToggleTarget(null); }}
+        title={toggleTarget?.is_active ? "Deactivate admin" : "Reactivate admin"}
+        description={
+          toggleTarget?.is_active
+            ? `Are you sure you want to deactivate ${toggleTarget?.name ?? "this admin"}?`
+            : `Are you sure you want to reactivate ${toggleTarget?.name ?? "this admin"}?`
+        }
+        confirmLabel={toggleTarget?.is_active ? "Deactivate" : "Reactivate"}
+        variant={toggleTarget?.is_active ? "destructive" : "default"}
+        onConfirm={() => { if (toggleTarget) handleToggleStatus(toggleTarget); }}
+        loading={updatingAdminId !== null}
+      />
     </div>
   );
 }

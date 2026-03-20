@@ -1,9 +1,10 @@
 // src/app/(with-auth)/dashboard/settings/page.tsx
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import type { SystemSetting } from "@/lib/types";
+import { useEffect, useState, Suspense } from "react";
+
 import { SettingsListForm } from "./components/SettingsListForm";
 
 function SettingsContent() {

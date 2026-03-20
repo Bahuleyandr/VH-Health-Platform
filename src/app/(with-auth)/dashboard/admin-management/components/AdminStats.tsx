@@ -1,8 +1,8 @@
 // src/app/(with-auth)/dashboard/admin-management/components/AdminStats.tsx
 "use client";
 
-import { useMemo } from "react";
 import type { AdminUser } from "@/lib/types";
+import { useMemo } from "react";
 
 interface AdminStatsProps {
   admins: AdminUser[];

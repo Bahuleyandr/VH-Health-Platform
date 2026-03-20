@@ -1,9 +1,12 @@
 // src/app/(with-auth)/dashboard/departments/components/DepartmentsTable.tsx
 "use client";
 
+import { AlertDialog } from "@/components/ui/alert-dialog";
+import { fetchAdminAPI } from "@/lib/api";
 import { Department } from "@/lib/types";
 import { useState } from "react";
-import { fetchAdminAPI } from "@/lib/api";
+import toast from "react-hot-toast";
+
 import { EditDepartmentModal } from "./EditDepartmentModal";
 
 interface DepartmentsTableProps {
@@ -20,29 +23,26 @@ export function DepartmentsTable({
   const [editingDepartment, setEditingDepartment] = useState<Department | null>(
     null,
   );
-  const [deletingId, setDeletingId] = useState<number | null>(null); // ← number, not string
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Department | null>(null);
 
-  const handleDelete = async (department: Department) => {
-    if (
-      !window.confirm(
-        `Are you sure you want to delete the "${department.name}" department? This action cannot be undone.`,
-      )
-    ) {
-      return;
-    }
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
 
     try {
-      setDeletingId(department.id);
-      await fetchAdminAPI(`/departments/${department.id}`, {
+      setDeletingId(deleteTarget.id);
+      await fetchAdminAPI(`/departments/${deleteTarget.id}`, {
         method: "DELETE",
       });
       onDepartmentDeleted();
+      toast.success(`Department "${deleteTarget.name}" deleted`);
     } catch (error) {
-      alert(
+      toast.error(
         error instanceof Error ? error.message : "Failed to delete department",
       );
     } finally {
       setDeletingId(null);
+      setDeleteTarget(null);
     }
   };
 
@@ -120,7 +120,7 @@ export function DepartmentsTable({
                     Edit
                   </button>
                   <button
-                    onClick={() => handleDelete(department)}
+                    onClick={() => setDeleteTarget(department)}
                     disabled={deletingId === department.id}
                     className="text-red-600 hover:text-red-900 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -143,6 +143,17 @@ export function DepartmentsTable({
           }}
         />
       )}
+
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        title="Delete department"
+        description={`Are you sure you want to delete the "${deleteTarget?.name ?? ""}" department? This action cannot be undone.`}
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={handleDelete}
+        loading={deletingId !== null}
+      />
     </>
   );
 }

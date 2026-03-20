@@ -3,9 +3,8 @@
 
 import { User, Doctor } from "@/lib/types";
 import { useState } from "react";
-import { API_BASE_URL } from "@/lib/api-config";
+import { API_BASE_URL, getHeaders } from "@/lib/api-config";
 import { getAuthToken } from "@/lib/api-client";
-import { getHeaders } from "@/lib/api-config";
 
 interface ReportGeneratorProps {
   users: User[];

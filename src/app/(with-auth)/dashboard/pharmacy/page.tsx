@@ -1,13 +1,14 @@
 // src/app/(with-auth)/dashboard/pharmacy/page.tsx
 "use client";
 
-import { useEffect, useState, useCallback, Suspense } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import type { PharmacyAnalytics, PharmacyOrder } from "@/lib/types";
-import { PharmacyStats } from "./components/PharmacyStats";
+import { useSearchParams, useRouter } from "next/navigation";
+import { useEffect, useState, useCallback, Suspense } from "react";
+
 import { OrdersTable } from "./components/OrdersTable";
 import { PharmacyFilters as PharmacyFiltersComponent } from "./components/PharmacyFilters";
-import { useSearchParams, useRouter } from "next/navigation";
+import { PharmacyStats } from "./components/PharmacyStats";
 
 // Avoid name clash with the component
 interface PharmacyFilterParams {

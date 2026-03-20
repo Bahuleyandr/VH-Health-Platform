@@ -1,8 +1,8 @@
 // src/components/ApiFetchGuard.tsx
 "use client";
 
-import { useEffect } from "react";
 import { installApiFetchGuard } from "@/lib/install-api-fetch-guard";
+import { useEffect } from "react";
 
 export default function ApiFetchGuard() {
   useEffect(() => {

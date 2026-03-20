@@ -1,11 +1,12 @@
 "use client";
 
 // src/app/(with-auth)/dashboard/doctors/create/page.tsx
-import { useEffect, useState } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import type { Department } from "@/lib/types";
-import { CreateDoctorForm } from "../components/CreateDoctorForm";
 import Link from "next/link";
+import { useEffect, useState } from "react";
+
+import { CreateDoctorForm } from "../components/CreateDoctorForm";
 
 export default function CreateDoctorPage() {
   const [departments, setDepartments] = useState<Department[]>([]);

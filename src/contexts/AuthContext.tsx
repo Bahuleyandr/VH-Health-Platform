@@ -1,15 +1,6 @@
 // src/contexts/AuthContext.tsx
 "use client";
 
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  type ReactNode,
-  useCallback,
-} from "react";
-import { useRouter } from "next/navigation";
 import {
   adminLogin,
   adminLogout,
@@ -19,6 +10,15 @@ import {
   clearAuthData,
 } from "@/lib/api-client";
 import type { AdminUser } from "@/lib/types";
+import { useRouter } from "next/navigation";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  type ReactNode,
+  useCallback,
+} from "react";
 
 interface AuthContextType {
   user: AdminUser | null;
@@ -77,7 +77,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // keep going; api layer may already have redirected on 401
       }
     } catch (e) {
-      console.error("Auth check failed:", e);
       setError((e as Error).message ?? "Auth check failed");
       setUser(null);
     } finally {
@@ -122,8 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(true);
       setError(null);
       await adminLogout(); // clears local storage inside
-    } catch (e) {
-      console.warn("Logout error:", e);
+    } catch {
       clearAuthData();
     } finally {
       // Clear cookie for middleware

@@ -1,8 +1,8 @@
 // src/components/auth/ProtectedRoute.tsx
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { useEffect, useState, type ReactNode } from "react";
 
 type Role =
   | "SUPER_ADMIN"
@@ -62,9 +62,8 @@ export function ProtectedRoute({
           };
           if (user?.role) setUserRole(user.role);
           if (Array.isArray(user?.permissions)) setUserPerms(user.permissions);
-        } catch (err) {
+        } catch {
           // don't crash on bad JSON in storage
-          console.error("Error parsing adminUser:", err);
         }
       }
     } finally {

@@ -27,6 +27,7 @@ export function CardTitle({
   ...props
 }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
+    // eslint-disable-next-line jsx-a11y/heading-has-content -- content provided via children spread
     <h3
       className={`text-2xl font-semibold leading-none tracking-tight ${className || ""}`}
       {...props}

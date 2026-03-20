@@ -20,10 +20,11 @@
  * 3. Try accessing directly: http://localhost:3000/images/hospital-logo.png
  */
 
-import { useEffect, useRef, useState } from 'react';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { QueryProvider } from '@/providers/query-provider';
 import Image from 'next/image';
+import { useEffect, useRef, useState } from 'react';
+
 import styles from './Login.module.css';
 
 function LoginInner() {

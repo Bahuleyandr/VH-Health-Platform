@@ -1,8 +1,8 @@
 // src/components/PaginationControls.tsx
 "use client";
 
-import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Pagination } from "@/lib/types";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 
 export function PaginationControls({ pagination }: { pagination: Pagination }) {
   const router = useRouter();

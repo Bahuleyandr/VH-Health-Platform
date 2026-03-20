@@ -1,12 +1,14 @@
 // src/app/(with-auth)/dashboard/reporting/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { Spinner } from "@/components/ui/spinner";
 import { fetchAdminAPI } from "@/lib/api";
 import { Doctor, User } from "@/lib/types";
+import { useState, useEffect } from "react";
+
 import { ReportGenerator } from "./components/ReportGenerator";
 import { ReportsOverview } from "./components/ReportsOverview";
-import { Spinner } from "@/components/ui/spinner";
+
 
 export default function ReportingPage() {
   const [users, setUsers] = useState<User[]>([]);

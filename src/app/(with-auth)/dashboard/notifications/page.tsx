@@ -1,11 +1,12 @@
 // src/app/(with-auth)/dashboard/notifications/page.tsx
 "use client";
 
-import { useEffect, useState, Suspense, useCallback } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import type { Notification } from "@/lib/types";
-import { SendAnnouncementForm } from "./components/SendAnnouncementForm";
+import { useEffect, useState, Suspense, useCallback } from "react";
+
 import { NotificationsTable } from "./components/NotificationsTable";
+import { SendAnnouncementForm } from "./components/SendAnnouncementForm";
 
 function isObj(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null;

@@ -1,9 +1,9 @@
 // src/app/(with-auth)/dashboard/reporting/components/ReportsOverview.tsx
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { fetchAdminAPI } from "@/lib/api";
 import { Spinner } from "@/components/ui/spinner";
+import { fetchAdminAPI } from "@/lib/api";
+import { useState, useEffect, useCallback } from "react";
 
 interface OverviewStats {
   totalAppointments: number;

@@ -1,9 +1,9 @@
 // src/components/CommandPalette.tsx
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
 import { Dialog, Transition } from "@headlessui/react";
 import { useRouter } from "next/navigation";
+import { Fragment, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 
 interface Command {

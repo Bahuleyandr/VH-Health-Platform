@@ -1,9 +1,10 @@
 // src/app/(with-auth)/dashboard/system-logs/components/SystemLogsTable.tsx
 "use client";
 
+import { ExtendedSystemLog } from "@/lib/types";
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { ExtendedSystemLog } from "@/lib/types";
+
 import { LogDetailsModal } from "./LogDetailsModal";
 
 const levelColorMap: Record<string, string> = {

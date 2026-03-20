@@ -1,8 +1,8 @@
 // src/app/(with-auth)/dashboard/sos/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
 import { adminService } from "@/services/admin.service";
+import { useEffect, useState } from "react";
 
 // Generic JSON type (avoids `any`)
 type Json = string | number | boolean | null | Json[] | { [key: string]: Json };

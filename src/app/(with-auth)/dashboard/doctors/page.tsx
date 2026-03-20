@@ -1,11 +1,12 @@
 // src/app/(with-auth)/dashboard/doctors/page.tsx
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import type { Doctor } from "@/lib/types";
-import { DoctorsTable } from "./components/DoctorsTable";
 import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
+
+import { DoctorsTable } from "./components/DoctorsTable";
 
 function isObj(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null;

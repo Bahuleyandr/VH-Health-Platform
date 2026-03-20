@@ -1,9 +1,9 @@
 // src/hooks/useSessionTimeout.ts
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getToken, getTokenExp, isTokenExpired } from "@/lib/auth";
 import { useAuth } from "@/contexts/AuthContext";
+import { getToken, getTokenExp, isTokenExpired } from "@/lib/auth";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type UseSessionTimeoutOptions = {
   /** How often to check the token (ms). Default: 5000 */
