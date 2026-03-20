@@ -67,9 +67,9 @@ let swaggerDocument;
 try {
   swaggerDocument = swaggerLoader();
   if (!swaggerDocument) throw new Error('Failed to load Swagger documentation.');
-  console.log('✅ Swagger documentation validated and loaded.');
+  logger.info('✅ Swagger documentation validated and loaded.');
 } catch (err) {
-  console.error('❌ Swagger load failed:', err.message);
+  logger.error('❌ Swagger load failed:', err.message);
   process.exit(1);
 }
 
@@ -179,49 +179,49 @@ app.use(errorHandlerMiddleware);
 // ====================================
 
 if (process.env.NODE_ENV === 'development') {
-  console.log('\n🚀 API Routes Summary:');
-  console.log('=====================================');
+  logger.info('\n🚀 API Routes Summary:');
+  logger.info('=====================================');
 
-  console.log('\n📋 Public Routes:');
-  console.log('  - GET    / (Health check)');
-  console.log('  - ALL    /api-docs (Swagger documentation)');
-  console.log('  - ALL    /api/v1/auth/*');
-  console.log('  - ALL    /api/v1/otp/*');
-  console.log('  - ALL    /api/v1/health/* (Some routes protected)');
-  console.log('  - MIXED  /api/v1/* (infrastructure)');
+  logger.info('\n📋 Public Routes:');
+  logger.info('  - GET    / (Health check)');
+  logger.info('  - ALL    /api-docs (Swagger documentation)');
+  logger.info('  - ALL    /api/v1/auth/*');
+  logger.info('  - ALL    /api/v1/otp/*');
+  logger.info('  - ALL    /api/v1/health/* (Some routes protected)');
+  logger.info('  - MIXED  /api/v1/* (infrastructure)');
 
-  console.log('\n🔐 API Key Protected Routes:');
-  console.log('  - ALL    /api/v1/users/*');
-  console.log('  - ALL    /api/v1/appointments/*');
-  console.log('  - ALL    /api/v1/records/*');
-  console.log('  - ALL    /api/v1/investigations/*');
-  console.log('  - ALL    /api/v1/pharmacy-orders/*');
-  console.log('  - ALL    /api/v1/departments/*');
-  console.log('  - ALL    /api/v1/doctors/*');
-  console.log('  - ALL    /api/v1/notifications/*');
-  console.log('  - ALL    /api/v1/devices/*');
-  console.log('  - ALL    /api/v1/feedback/*');
-  console.log('  - ALL    /api/v1/sos/*');
-  console.log('  - ALL    /api/v1/upload/*');
+  logger.info('\n🔐 API Key Protected Routes:');
+  logger.info('  - ALL    /api/v1/users/*');
+  logger.info('  - ALL    /api/v1/appointments/*');
+  logger.info('  - ALL    /api/v1/records/*');
+  logger.info('  - ALL    /api/v1/investigations/*');
+  logger.info('  - ALL    /api/v1/pharmacy-orders/*');
+  logger.info('  - ALL    /api/v1/departments/*');
+  logger.info('  - ALL    /api/v1/doctors/*');
+  logger.info('  - ALL    /api/v1/notifications/*');
+  logger.info('  - ALL    /api/v1/devices/*');
+  logger.info('  - ALL    /api/v1/feedback/*');
+  logger.info('  - ALL    /api/v1/sos/*');
+  logger.info('  - ALL    /api/v1/upload/*');
 
-  console.log('\n🔑 JWT Protected Routes:');
-  console.log('  - ALL    /api/v1/staff/*');
-  console.log('  - ALL    /api/v1/admin/*  (Admin Dashboard + all admin submodules)');
+  logger.info('\n🔑 JWT Protected Routes:');
+  logger.info('  - ALL    /api/v1/staff/*');
+  logger.info('  - ALL    /api/v1/admin/*  (Admin Dashboard + all admin submodules)');
 
-  console.log('\n✅ Modularized Routes:');
-  console.log('  - ✓ Staff (/api/v1/staff)');
-  console.log('  - ✓ Pharmacy (/api/v1/pharmacy-orders)');
-  console.log('  - ✓ Investigation (/api/v1/investigations)');
-  console.log('  - ✓ Appointment (/api/v1/appointments)');
-  console.log('  - ✓ Medical Records (/api/v1/records)');
-  console.log('  - ✓ Health (/api/v1/health)');
-  console.log('  - ✓ Department (/api/v1/departments)');
-  console.log('  - ✓ Doctors (/api/v1/doctors)');
-  console.log('  - ✓ Users (/api/v1/users)');
-  console.log('  - ✓ Notifications (/api/v1/notifications)');
-  console.log('  - ✓ Authentication (/api/v1/auth)');
-  console.log('  - ✓ Infrastructure (/api/v1/*)');
-  console.log('=====================================\n');
+  logger.info('\n✅ Modularized Routes:');
+  logger.info('  - ✓ Staff (/api/v1/staff)');
+  logger.info('  - ✓ Pharmacy (/api/v1/pharmacy-orders)');
+  logger.info('  - ✓ Investigation (/api/v1/investigations)');
+  logger.info('  - ✓ Appointment (/api/v1/appointments)');
+  logger.info('  - ✓ Medical Records (/api/v1/records)');
+  logger.info('  - ✓ Health (/api/v1/health)');
+  logger.info('  - ✓ Department (/api/v1/departments)');
+  logger.info('  - ✓ Doctors (/api/v1/doctors)');
+  logger.info('  - ✓ Users (/api/v1/users)');
+  logger.info('  - ✓ Notifications (/api/v1/notifications)');
+  logger.info('  - ✓ Authentication (/api/v1/auth)');
+  logger.info('  - ✓ Infrastructure (/api/v1/*)');
+  logger.info('=====================================\n');
 }
 
 export default app;

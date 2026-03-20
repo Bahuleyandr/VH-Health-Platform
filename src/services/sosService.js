@@ -112,7 +112,7 @@ async function getUserMedicalInfo(phone) {
 async function scheduleEscalation(alertId, severity) {
   // In a real app, this would add a job to a queue (e.g., BullMQ)
   // to check if the alert is addressed within a certain time.
-  console.log(`Escalation scheduled for alert ${alertId} with severity ${severity}.`);
+  logger.info(`Escalation scheduled for alert ${alertId} with severity ${severity}.`);
 }
 
 /**
@@ -123,7 +123,7 @@ async function scheduleEscalation(alertId, severity) {
  */
 async function logSecurityEvent(alert, user, ip_address) {
   // This would insert a record into a security_events or audit_logs table.
-  console.log(`Security event logged for SOS alert ${alert.id} from user ${user.uid || user.phone} at IP ${ip_address}`);
+  logger.info(`Security event logged for SOS alert ${alert.id} from user ${user.uid || user.phone} at IP ${ip_address}`);
 }
 
 /**

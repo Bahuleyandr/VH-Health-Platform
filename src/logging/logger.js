@@ -16,9 +16,10 @@ if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
 
-// Define log format
-const logFormat = format.printf(({ timestamp, level, message }) => {
-  return `[${timestamp}] ${level}: ${message}`;
+// Define log format (includes metadata so extra args are not silently dropped)
+const logFormat = format.printf(({ timestamp, level, message, ...meta }) => {
+  const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : '';
+  return `[${timestamp}] ${level}: ${message}${metaStr}`;
 });
 
 // Create Winston logger instance

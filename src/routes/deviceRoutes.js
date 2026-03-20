@@ -11,7 +11,7 @@ import { normalizePhone } from '../utils/phoneUtils.js';
 import { success, error } from '../utils/responseHelper.js';
 
 const router = express.Router();
-console.log('✅ deviceRoutes loaded with RBAC protection');
+logger.info('✅ deviceRoutes loaded with RBAC protection');
 
 /**
  * ✅ Device Routes with RBAC protection

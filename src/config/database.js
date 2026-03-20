@@ -1,6 +1,7 @@
 // src/config/database.js - SAFE DATABASE CONNECTION
 import pkg from 'pg';
 const { Pool } = pkg;
+import logger from '../logging/logger.js';
 
 class DatabaseManager {
   constructor() {
@@ -26,18 +27,18 @@ class DatabaseManager {
         client.release();
         
         this.isConnected = true;
-        console.log('✅ Database connected successfully');
+        logger.info('✅ Database connected successfully');
         return true;
       }
       
       if (!process.env.DATABASE_URL) {
-        console.log('⚠️ DATABASE_URL not found - running in debug mode');
+        logger.warn('⚠️ DATABASE_URL not found - running in debug mode');
         return false;
       }
       
       return this.isConnected;
     } catch (error) {
-      console.log('❌ Database connection failed:', error.message);
+      logger.error('❌ Database connection failed:', error.message);
       this.isConnected = false;
       return false;
     }
@@ -56,7 +57,7 @@ class DatabaseManager {
       const result = await this.pool.query(text, params);
       return result;
     } catch (error) {
-      console.log('❌ Database query failed:', error.message);
+      logger.error('❌ Database query failed:', error.message);
       throw error;
     }
   }
@@ -73,7 +74,7 @@ class DatabaseManager {
       const client = await this.pool.connect();
       return client;
     } catch (error) {
-      console.log('❌ Failed to get database client:', error.message);
+      logger.error('❌ Failed to get database client:', error.message);
       throw error;
     }
   }
@@ -82,7 +83,7 @@ class DatabaseManager {
     if (this.pool) {
       await this.pool.end();
       this.isConnected = false;
-      console.log('✅ Database connection closed');
+      logger.info('✅ Database connection closed');
     }
   }
 }

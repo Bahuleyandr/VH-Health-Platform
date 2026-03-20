@@ -9,6 +9,7 @@ import {
   CopyObjectCommand
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import logger from '../logging/logger.js';
 
 const { CF_ACCOUNT_ID, CF_R2_BUCKET, CF_R2_URL, CF_R2_ACCESS_KEY_ID, CF_R2_SECRET_ACCESS_KEY } =
   process.env;
@@ -44,7 +45,7 @@ export async function uploadFileToR2(buffer, key, contentType = 'application/oct
     await s3Client.send(command);
     return `${CF_R2_URL}/${key}`;
   } catch (err) {
-    console.error(`❌ Failed to upload ${key}:`, err);
+    logger.error(`❌ Failed to upload ${key}:`, err);
     throw err;
   }
 }
@@ -59,7 +60,7 @@ export async function getFileFromR2(key) {
     const response = await s3Client.send(command);
     return response.Body.transformToByteArray();
   } catch (err) {
-    console.error(`❌ Failed to get file ${key}:`, err);
+    logger.error(`❌ Failed to get file ${key}:`, err);
     throw err;
   }
 }
@@ -73,7 +74,7 @@ export async function deleteObject(key) {
     });
     await s3Client.send(command);
   } catch (err) {
-    console.error(`❌ Failed to delete ${key}:`, err);
+    logger.error(`❌ Failed to delete ${key}:`, err);
     throw err;
   }
 }

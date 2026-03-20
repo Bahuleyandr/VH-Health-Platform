@@ -1,5 +1,6 @@
 // src/routes/record/index.js
 import express from 'express';
+import logger from '../../logging/logger.js';
 import { VALID_RECORD_TYPES } from '../../config/recordConfig.js';
 import { wrapAutoRBAC, wrapRoutesWithValidation } from '../../config/routeWrapper.js';
 import adminRoutes from './adminRoutes.js';
@@ -8,7 +9,7 @@ import medicalStaffRoutes from './medicalStaffRoutes.js';
 import patientRoutes from './patientRoutes.js';
 
 const router = express.Router();
-console.log('✅ Enhanced recordRoutes loaded');
+logger.info('✅ Enhanced recordRoutes loaded');
 
 // Public test route
 wrapRoutesWithValidation(

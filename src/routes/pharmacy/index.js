@@ -1,4 +1,5 @@
 import express from 'express';
+import logger from '../../logging/logger.js';
 import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
 import adminRoutes from './adminRoutes.js';
 import inventoryRoutes from './inventoryRoutes.js';
@@ -7,7 +8,7 @@ import orderRoutes from './orderRoutes.js';
 
 const router = express.Router();
 
-console.log('✅ Enhanced pharmacyRoutes loaded');
+logger.info('✅ Enhanced pharmacyRoutes loaded');
 
 // Public test route
 wrapRoutesWithValidation(

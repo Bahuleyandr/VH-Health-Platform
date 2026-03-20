@@ -1,6 +1,7 @@
 // src/utils/validateEnv.js
 
 import Joi from 'joi';
+import logger from '../logging/logger.js';
 
 // Define the expected environment variables schema
 const envSchema = Joi.object({
@@ -21,7 +22,7 @@ const { error, value: envVars } = envSchema.validate(process.env);
 
 // Handle validation errors by terminating the application
 if (error) {
-  console.error('❌ Environment validation error:', error.details.map(d => d.message).join(', '));
+  logger.error('❌ Environment validation error:', error.details.map(d => d.message).join(', '));
   process.exit(1);
 }
 

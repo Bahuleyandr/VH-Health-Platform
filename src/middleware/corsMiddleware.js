@@ -1,5 +1,6 @@
 // src/middleware/corsMiddleware.js
 import cors from 'cors';
+import logger from '../logging/logger.js';
 
 /**
  * Helpers
@@ -94,7 +95,7 @@ const corsOptionsDelegate = (req, callback) => {
 
   if (!isAllowed) {
     // Keep this log — it helped identify your issue
-    console.warn(`Blocked CORS request from origin: ${origin}`);
+    logger.warn(`Blocked CORS request from origin: ${origin}`);
     const err = new Error('Not allowed by CORS');
     err.statusCode = 403;
     return callback(err);

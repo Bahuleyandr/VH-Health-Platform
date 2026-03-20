@@ -1,4 +1,5 @@
 import express from 'express';
+import logger from '../../logging/logger.js';
 import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
 import { success } from '../../utils/responseHelper.js';
 import adminRoutes from './adminRoutes.js';
@@ -6,7 +7,7 @@ import investigationRoutes from './investigationRoutes.js';
 
 const router = express.Router();
 
-console.log('✅ Enhanced investigationRoutes loaded with full RBAC protection');
+logger.info('✅ Enhanced investigationRoutes loaded with full RBAC protection');
 
 // Public test route
 wrapRoutesWithValidation(
