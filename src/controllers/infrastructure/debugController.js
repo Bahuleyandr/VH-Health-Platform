@@ -220,15 +220,15 @@ export const getAllRoutes = async (req, res) => {
     const routes = [];
     
     // Debug: Log app structure
-    console.log('Debug - App has _router:', !!app._router);
-    console.log('Debug - Router stack length:', app._router?.stack?.length || 0);
+    logger.info('Debug - App has _router:', !!app._router);
+    logger.info('Debug - Router stack length:', app._router?.stack?.length || 0);
     
     // Function to extract routes
     function extractRoutes(stack, basePath = '') {
       if (!stack) {return;}
       
       stack.forEach((layer, index) => {
-        console.log(`Debug - Layer ${index}:`, {
+        logger.info(`Debug - Layer ${index}:`, {
           name: layer.name,
           regexp: layer.regexp?.source?.substring(0, 50),
           hasRoute: !!layer.route,
@@ -259,7 +259,7 @@ export const getAllRoutes = async (req, res) => {
               mountPath = '/' + match.slice(1).filter(Boolean).join('/');
             }
           }
-          console.log(`Debug - Found sub-router at: ${mountPath}`);
+          logger.info(`Debug - Found sub-router at: ${mountPath}`);
           extractRoutes(layer.handle.stack, basePath + mountPath);
         }
       });
@@ -270,7 +270,7 @@ export const getAllRoutes = async (req, res) => {
       extractRoutes(app._router.stack);
     }
     
-    console.log(`Debug - Total routes found: ${routes.length}`);
+    logger.info(`Debug - Total routes found: ${routes.length}`);
     
     // If no routes found, return diagnostic info
     if (routes.length === 0) {

@@ -1,4 +1,5 @@
 // src/config/routeWrapper.js
+import logger from '../logging/logger.js';
 import { auditLogger } from '../middleware/auditLogger.js';
 import { validateUID, validatePhone } from '../middleware/identityValidator.js';
 import { dynamicRoleRateLimiter, getRateLimiter } from '../middleware/rateLimitMiddleware.js';
@@ -34,20 +35,20 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
     const method = (methodKey || 'get').toLowerCase();
     
     if (typeof router[method] !== 'function') {
-      console.warn(`[routeWrapper] Invalid HTTP method: ${method}`);
+      logger.warn(`[routeWrapper] Invalid HTTP method: ${method}`);
       continue;
     }
 
     const isWrite = ['post', 'put', 'patch', 'delete'].includes(method);
 
     if (!Array.isArray(routes)) {
-      console.warn(`[routeWrapper] Routes for method ${method} is not an array:`, routes);
+      logger.warn(`[routeWrapper] Routes for method ${method} is not an array:`, routes);
       continue;
     }
 
     routes.forEach((routeConfig) => {
       if (!Array.isArray(routeConfig) || routeConfig.length < 1) {
-        console.warn(`[routeWrapper] Invalid route config:`, routeConfig);
+        logger.warn(`[routeWrapper] Invalid route config:`, routeConfig);
         return;
       }
 
@@ -59,7 +60,7 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
       const flattenedHandlers = handlers.flat();
       
       if (typeof path !== 'string') {
-        console.warn(`[routeWrapper] Invalid path for ${method}:`, path);
+        logger.warn(`[routeWrapper] Invalid path for ${method}:`, path);
         return;
       }
 
@@ -86,8 +87,8 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
       try {
   router[method](path, ...middlewareStack, ...flattenedHandlers);
 } catch (error) {
-  console.error(`❌ routeWrapper failed at: method=${method}, path="${path}"`);
-  console.error(`❌ Handler stack:`, flattenedHandlers.map(f => typeof f).join(', '));
+  logger.error(`❌ routeWrapper failed at: method=${method}, path="${path}"`);
+  logger.error(`❌ Handler stack:`, flattenedHandlers.map(f => typeof f).join(', '));
   throw error; // re-throw to preserve original behavior
 }
     });

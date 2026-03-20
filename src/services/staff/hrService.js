@@ -18,10 +18,9 @@
 // Re-export all functions from the modular services
 export * from './hr/index.js';
 
+import logger from '../../logging/logger.js';
+
 // Log deprecation warning in development
 if (process.env.NODE_ENV !== 'production') {
-  console.warn(
-    '\x1b[33m%s\x1b[0m',
-    '[DEPRECATION WARNING] hrService.js is deprecated. Please import from specific hr/* services for better performance and maintainability.'
-  );
+  logger.warn('[DEPRECATION WARNING] hrService.js is deprecated. Please import from specific hr/* services for better performance and maintainability.');
 }

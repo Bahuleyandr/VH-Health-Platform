@@ -1,4 +1,5 @@
 // src/middleware/validateApiKey.js
+import logger from '../logging/logger.js';
 
 /**
  * Middleware to validate the API Key sent in request headers.
@@ -9,20 +10,20 @@ export default function validateApiKey(req, res, next) {
   const serverApiKey = process.env.API_KEY;
 
   if (!serverApiKey) {
-    console.error('❌ Server misconfiguration: API_KEY not set in environment variables.');
+    logger.error('❌ Server misconfiguration: API_KEY not set in environment variables.');
     return res.status(500).json({ error: 'Server configuration error' });
   }
 
   if (!clientApiKey) {
-    console.warn('❌ API Key missing in request headers');
+    logger.warn('❌ API Key missing in request headers');
     return res.status(401).json({ error: 'Missing API Key in request headers' });
   }
 
   if (clientApiKey !== serverApiKey) {
-    console.warn('❌ Invalid API Key provided in request headers');
+    logger.warn('❌ Invalid API Key provided in request headers');
     return res.status(401).json({ error: 'Invalid API Key' });
   }
 
-  console.log('✅ API Key validation passed');
+  logger.info('✅ API Key validation passed');
   next();
 }

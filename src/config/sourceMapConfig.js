@@ -1,4 +1,5 @@
 // src/config/sourceMapConfig.js
+import logger from '../logging/logger.js';
 const isDevelopment = process.env.NODE_ENV === 'development';
 const isTest = process.env.NODE_ENV === 'test';
 
@@ -22,7 +23,12 @@ export const sourceMapConfig = {
 // Initialize source maps
 export const initializeSourceMaps = () => {
   if (sourceMapConfig.enabled) {
-    require('source-map-support').install(sourceMapConfig.options);
-    console.log('✅ Source map support enabled');
+    // Dynamic import for ESM compatibility (require() is not available in ESM)
+    import('source-map-support').then((mod) => {
+      mod.default.install(sourceMapConfig.options);
+      logger.info('✅ Source map support enabled');
+    }).catch(() => {
+      // source-map-support is optional — skip silently if not installed
+    });
   }
 };

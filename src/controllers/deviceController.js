@@ -1,6 +1,7 @@
 // src/controllers/deviceController.js
 
 import db from '../config/database.js';
+import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
 
 export const registerDevice = async (req, res) => {
@@ -31,7 +32,7 @@ export const registerDevice = async (req, res) => {
 
     return res.json(success('Device registered successfully.'));
   } catch (err) {
-    console.error('Device registration error:', err);
+    logger.error('Device registration error:', err);
     return res.status(500).json(error('Internal server error.'));
   }
 };

@@ -1,5 +1,6 @@
 // src/routes/appointment/index.js
 import express from 'express';
+import logger from '../../logging/logger.js';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import appointmentAdminRoutes from './appointmentAdminRoutes.js';
 import appointmentCrudRoutes from './appointmentCrudRoutes.js';
@@ -7,7 +8,7 @@ import appointmentLegacyRoutes from './appointmentLegacyRoutes.js';
 import appointmentListRoutes from './appointmentListRoutes.js';
 
 const router = express.Router();
-console.log('✅ Appointment routes loaded with RBAC protection');
+logger.info('✅ Appointment routes loaded with RBAC protection');
 
 // Apply RBAC wrapper to entire router
 wrapAutoRBAC(

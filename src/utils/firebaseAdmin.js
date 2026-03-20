@@ -1,5 +1,6 @@
 // src/utils/firebaseAdmin.js
 import admin from 'firebase-admin';
+import logger from '../logging/logger.js';
 
 let firebaseAdmin;
 
@@ -20,12 +21,12 @@ try {
         privateKey
       })
     });
-    console.log('✅ Firebase Admin initialized from .env');
+    logger.info('✅ Firebase Admin initialized from .env');
   }
 
   firebaseAdmin = admin;
 } catch (error) {
-  console.warn('⚠️ Firebase Admin not initialized:', error.message);
+  logger.warn('⚠️ Firebase Admin not initialized:', error.message);
 
   // Provide mock fallback to avoid breaking imports
   firebaseAdmin = {

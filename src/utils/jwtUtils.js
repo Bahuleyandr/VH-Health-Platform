@@ -2,10 +2,11 @@
 
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
+import logger from '../logging/logger.js';
 
 // ✅ Aggressively try to load environment variables from multiple sources
 if (!process.env.JWT_SECRET) {
-  console.log('🔄 JWT_SECRET not found, attempting to load .env files...');
+  logger.info('🔄 JWT_SECRET not found, attempting to load .env files...');
   
   // Try multiple .env files in order of preference
   const envFiles = ['.env.local', '.env', '.env.render'];
@@ -14,7 +15,7 @@ if (!process.env.JWT_SECRET) {
     try {
       const result = dotenv.config({ path: envFile });
       if (!result.error && process.env.JWT_SECRET) {
-        console.log(`✅ Successfully loaded JWT_SECRET from ${envFile}`);
+        logger.info(`✅ Successfully loaded JWT_SECRET from ${envFile}`);
         break;
       }
     } catch (e) {
@@ -27,7 +28,7 @@ if (!process.env.JWT_SECRET) {
     try {
       dotenv.config();
       if (process.env.JWT_SECRET) {
-        console.log('✅ Loaded JWT_SECRET from default .env');
+        logger.info('✅ Loaded JWT_SECRET from default .env');
       }
     } catch (e) {
       // Continue
@@ -41,12 +42,12 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 // If still no JWT_SECRET, provide helpful error message and fallback
 if (!JWT_SECRET) {
-  console.error('❌ JWT_SECRET is missing from environment variables');
-  console.error('🔍 Checked files: .env.local, .env, .env.render');
-  console.error('📁 Current working directory:', process.cwd());
+  logger.error('❌ JWT_SECRET is missing from environment variables');
+  logger.error('🔍 Checked files: .env.local, .env, .env.render');
+  logger.error('📁 Current working directory:', process.cwd());
   
   // Use fallback for development to prevent app from crashing
-  console.warn('⚠️ Using fallback JWT_SECRET for development. Please fix your environment variables!');
+  logger.warn('⚠️ Using fallback JWT_SECRET for development. Please fix your environment variables!');
   JWT_SECRET = 'fallback-jwt-secret-for-development-only-please-set-proper-env-var-in-production';
 }
 
@@ -82,7 +83,7 @@ export function verifyToken(token) {
   try {
     return jwt.verify(token, JWT_SECRET);
   } catch (error) {
-    console.error('❌ JWT Verification Failed:', error.message || error);
+    logger.error('❌ JWT Verification Failed:', error.message || error);
     return null;
   }
 }

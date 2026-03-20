@@ -3,6 +3,7 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import YAML from 'yamljs';
+import logger from '../logging/logger.js';
 
 // ESM Replacement for __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -19,7 +20,7 @@ export default function loadSwaggerDocument() {
     const swaggerDocument = YAML.load(filePath);
     return swaggerDocument;
   } catch (error) {
-    console.error('Failed to load Swagger YAML file:', error.message);
+    logger.error('Failed to load Swagger YAML file:', error.message);
     return null;
   }
 }

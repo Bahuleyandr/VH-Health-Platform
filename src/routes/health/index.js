@@ -1,11 +1,12 @@
 // src/routes/health/index.js
 import express from 'express';
+import logger from '../../logging/logger.js';
 import { wrapRoutes, wrapAutoRBAC } from '../../config/routeWrapper.js';
 import protectedRoutes from './protectedRoutes.js';
 import publicRoutes from './publicRoutes.js';
 
 const router = express.Router();
-console.log('✅ healthRoutes loaded with RBAC protection');
+logger.info('✅ healthRoutes loaded with RBAC protection');
 
 // Public routes (no authentication required)
 wrapRoutes(

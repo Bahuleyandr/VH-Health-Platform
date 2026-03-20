@@ -10,7 +10,7 @@ import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
 
 const router = express.Router();
-console.log('✅ analyticsRoutes loaded with RBAC protection');
+logger.info('✅ analyticsRoutes loaded with RBAC protection');
 
 /**
  * ✅ Analytics routes with RBAC protection
