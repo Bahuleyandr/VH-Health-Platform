@@ -3,6 +3,7 @@
 
 import { User, Doctor } from "@/lib/types";
 import { useState } from "react";
+import { API_BASE_URL } from "@/lib/api-config";
 import { getAuthToken } from "@/lib/api-client";
 import { getHeaders } from "@/lib/api-config";
 
@@ -48,7 +49,7 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
 
       // Direct fetch for blob response
       const response = await fetch(
-        `https://vh-health-backend.onrender.com/api/v1/records/export/${format}?${queryParams.toString()}`,
+        `${API_BASE_URL}/api/v1/records/export/${format}?${queryParams.toString()}`,
         {
           headers: getHeaders(token),
         },

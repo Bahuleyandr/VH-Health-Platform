@@ -149,7 +149,7 @@ function AppointmentsContent() {
         if (status) queryParams.set("status", status);
         if (search) queryParams.set("search", search);
 
-        const path = `/appointments/manage?${queryParams.toString()}`;
+        const path = `/appointments/list?${queryParams.toString()}`;
 
         // Fetch unknown and normalize
         const response = await fetchAdminAPI<unknown>(path);
