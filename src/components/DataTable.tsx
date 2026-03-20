@@ -69,6 +69,7 @@ export function DataTable<T extends { id: string }>({
               <td className="px-6 py-4">
                 <input
                   type="checkbox"
+                  aria-label={`Select row ${row.id}`}
                   checked={selectedRows.has(row.id)}
                   onChange={() => handleSelectRow(row.id)}
                   onClick={(e) => e.stopPropagation()}

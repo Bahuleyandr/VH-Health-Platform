@@ -1,13 +1,15 @@
 // src/app/(with-auth)/dashboard/departments/page.tsx
 "use client";
 
-import { useState } from "react";
+import { Spinner } from "@/components/ui/spinner";
 import { useDepartments } from "@/hooks/api-hooks";
+import type { Department } from "@/lib/types";
+import { useState } from "react";
+import toast from "react-hot-toast";
+
 import { CreateDepartmentForm } from "./components/CreateDepartmentForm";
 import { DepartmentsTable } from "./components/DepartmentsTable";
-import { Spinner } from "@/components/ui/spinner";
-import toast from "react-hot-toast";
-import type { Department } from "@/lib/types";
+
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;

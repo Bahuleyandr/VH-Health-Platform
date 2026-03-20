@@ -3,6 +3,7 @@
 
 import type { ExtendedAuditLog } from "@/lib/types";
 import { useState } from "react";
+
 import { LogDetailsModal } from "./LogDetailsModal";
 
 interface AuditLogsTableProps {

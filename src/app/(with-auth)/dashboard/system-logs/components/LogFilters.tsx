@@ -1,9 +1,9 @@
 // src/app/(with-auth)/dashboard/system-logs/components/LogFilters.tsx
 "use client";
 
-import { useState, useEffect } from "react";
-import { useSearchParams } from "next/navigation";
 import type { LogFilters as LogFiltersType } from "@/lib/types";
+import { useSearchParams } from "next/navigation";
+import { useState, useEffect } from "react";
 
 interface LogFiltersProps {
   onFilterChange: (filters: LogFiltersType) => void;

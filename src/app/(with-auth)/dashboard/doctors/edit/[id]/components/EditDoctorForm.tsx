@@ -1,11 +1,11 @@
 // src/app/(with-auth)/dashboard/doctors/edit/[id]/components/EditDoctorForm.tsx
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { fetchAdminAPI } from "@/lib/api";
 import { Department, Doctor } from "@/lib/types";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 
 interface EditDoctorFormProps {
   doctor: Doctor;

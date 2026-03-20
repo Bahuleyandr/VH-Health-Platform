@@ -1,6 +1,6 @@
 // src/hooks/useAttendance.ts
-import { useQuery } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
 
 // Attendance Analytics
 export const useAttendanceAnalytics = (params?: {

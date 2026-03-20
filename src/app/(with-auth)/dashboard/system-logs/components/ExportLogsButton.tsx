@@ -1,8 +1,9 @@
 // src/app/(with-auth)/dashboard/system-logs/components/ExportLogsButton.tsx
 "use client";
 
-import { useState } from "react";
 import { fetchAdminAPI } from "@/lib/api";
+import { useState } from "react";
+import toast from "react-hot-toast";
 
 interface ExportLogsButtonProps {
   logType: "audit" | "system";
@@ -86,8 +87,7 @@ export function ExportLogsButton({
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err) {
-      console.error("Export failed:", err);
-      alert("Failed to export logs. Please try again.");
+      toast.error("Failed to export logs. Please try again.");
     } finally {
       setExporting(false);
     }

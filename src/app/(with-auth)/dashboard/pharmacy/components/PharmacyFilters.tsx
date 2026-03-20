@@ -1,8 +1,8 @@
 // src/app/(with-auth)/dashboard/pharmacy/components/PharmacyFilters.tsx
 "use client";
 
-import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
+import { useState, useEffect } from "react";
 
 // Define proper type for filter changes
 interface FilterChangeEvent {

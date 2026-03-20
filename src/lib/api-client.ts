@@ -1,11 +1,11 @@
 // src/lib/api-client.ts
-import { API_ENDPOINTS } from "./api-config";
 import {
   getJSON,
   postJSON,
   loginAdmin as apiLoginAdmin,
   APIError,
 } from "./api";
+import { API_ENDPOINTS } from "./api-config";
 import type { AdminUser } from "./types";
 
 /* =========================
@@ -88,10 +88,8 @@ export async function getAdminProfile(): Promise<AdminUser> {
 export async function adminLogout(): Promise<void> {
   try {
     await postJSON(API_ENDPOINTS.auth.admin.logout);
-  } catch (err) {
-    // Non-fatal: we'll still clear local state
-
-    console.warn("Logout API error:", err);
+  } catch {
+    // Non-fatal: we'll still clear local state — swallow silently
   } finally {
     clearAuthData();
   }

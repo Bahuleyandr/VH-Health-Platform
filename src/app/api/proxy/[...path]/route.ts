@@ -1,6 +1,6 @@
 // src/app/api/proxy/[...path]/route.ts
-import { NextRequest, NextResponse } from "next/server";
 import { API_BASE_URL } from "@/lib/api-config";
+import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

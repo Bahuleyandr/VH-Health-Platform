@@ -1,9 +1,9 @@
 // src/components/ActivityFeed.tsx
 "use client";
 
-import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
+import * as React from "react";
 
 type Activity = {
   id: string | number;

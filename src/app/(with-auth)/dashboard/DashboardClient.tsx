@@ -1,9 +1,10 @@
 // src/app/(with-auth)/dashboard/DashboardClient.tsx
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import { API_ENDPOINTS, API_BASE_URL, getHeaders } from '@/lib/api-config';
+import { useRouter } from 'next/navigation';
+import { useState, useEffect, useRef } from 'react';
+
 import styles from './Dashboard.module.css';
 
 // Types
@@ -224,8 +225,7 @@ useEffect(() => {
         { id: '3', type: 'info', title: 'Staff Update', message: 'Dr. Johnson has arrived for shift', time: new Date(), read: true }
       ]);
 
-    } catch (error) {
-      console.error('Dashboard data fetch error:', error);
+    } catch {
       // Use fallback demo data if API fails
       setDashboardData({
         overview: {

@@ -1,9 +1,9 @@
 // src/components/navigation/AdminNav.tsx
 "use client";
 
+import { usePermissions } from "@/hooks/usePermissions";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { usePermissions } from "@/hooks/usePermissions";
 
 type NavItem = {
   name: string;
@@ -37,32 +37,36 @@ export const navigationItems: NavItem[] = [
     requiredPermissions: ["appointmentManagement"],
   },
 
-  // Not tied to a specific permission key in our matrix—leave open by default
-  { name: "Medical Records", href: "/dashboard/records" },
   {
     name: "Pharmacy",
     href: "/dashboard/pharmacy",
     requiredPermissions: ["pharmacyAdminRoutes"],
   },
-  { name: "Staff", href: "/dashboard/staff" },
 
   {
     name: "Notifications",
     href: "/dashboard/notifications",
     requiredPermissions: ["notificationManagement"],
   },
-  {
-    name: "Analytics",
-    href: "/dashboard/analytics",
-    requiredPermissions: ["viewAuditLogs"],
-  },
 
-  // NEW
   { name: "Attendance", href: "/dashboard/attendance", requiredRole: "ADMIN" },
   { name: "Emergency/SOS", href: "/dashboard/sos" },
   { name: "Uploads", href: "/dashboard/uploads", requiredRole: "ADMIN" },
-
-  { name: "Feedback", href: "/dashboard/feedback" },
+  {
+    name: "Reporting",
+    href: "/dashboard/reporting",
+    requiredPermissions: ["viewAuditLogs"],
+  },
+  {
+    name: "System Logs",
+    href: "/dashboard/system-logs",
+    requiredRole: "ADMIN",
+  },
+  {
+    name: "Admin Management",
+    href: "/dashboard/admin-management",
+    requiredRole: "SUPER_ADMIN",
+  },
   {
     name: "System Settings",
     href: "/dashboard/settings",

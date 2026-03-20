@@ -1,8 +1,8 @@
 // src/hooks/useWebSocket.ts
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { getToken } from "@/lib/auth";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 
 type UseWebSocketOptions<T = unknown> = {
   protocols?: string | string[];
@@ -123,7 +123,7 @@ export function useWebSocket<T = unknown>(
       if (message) {
         try {
           wsRef.current.send(message);
-        } catch (err) {
+        } catch {
           // Put it back if send fails
           messageQueueRef.current.unshift(message);
           break;
@@ -271,8 +271,6 @@ export function useWebSocket<T = unknown>(
         wsRef.current.send(data);
         return true;
       } catch (error) {
-        console.error("WebSocket send error:", error);
-        
         // Queue the message if queueing is enabled
         if (enableQueue && messageQueueRef.current.length < maxQueueSize) {
           messageQueueRef.current.push(data);

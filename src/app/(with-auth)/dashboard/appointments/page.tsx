@@ -1,13 +1,14 @@
 // src/app/(with-auth)/dashboard/appointments/page.tsx
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { fetchAdminAPI } from "@/lib/api";
 import type { Appointment } from "@/lib/types";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+
+import { AppointmentFilters } from "./components/AppointmentFilters";
 import { AppointmentsTable } from "./components/AppointmentsTable";
 import { PaginationControls } from "../users/components/PaginationControls";
-import { AppointmentFilters } from "./components/AppointmentFilters";
 
 // Match the row shape used by AppointmentsTable (supports joined fields)
 type AppointmentRow = Appointment & {

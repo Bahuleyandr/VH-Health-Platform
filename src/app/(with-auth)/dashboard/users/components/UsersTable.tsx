@@ -1,11 +1,11 @@
 // src/app/(with-auth)/dashboard/users/components/UsersTable.tsx
 "use client";
 
-import { useEffect, useRef } from "react";
-import type { User } from "@/lib/types";
-import { useSelection } from "@/hooks/useSelection";
 import { BulkActions } from "@/components/BulkActions";
+import { useSelection } from "@/hooks/useSelection";
 import { fetchAdminAPI } from "@/lib/api";
+import type { User } from "@/lib/types";
+import { useEffect, useRef } from "react";
 import toast from "react-hot-toast";
 
 interface UsersTableProps {

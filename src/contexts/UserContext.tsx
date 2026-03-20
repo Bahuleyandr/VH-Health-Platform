@@ -1,6 +1,8 @@
 // src/contexts/UserContext.tsx
 "use client";
 
+import { fetchAdminAPI } from "@/lib/api";
+import { useRouter } from "next/navigation";
 import React, {
   createContext,
   useContext,
@@ -9,8 +11,6 @@ import React, {
   useCallback,
   type ReactNode,
 } from "react";
-import { useRouter } from "next/navigation";
-import { fetchAdminAPI } from "@/lib/api";
 
 type User = {
   id: number | string;
@@ -30,15 +30,6 @@ interface UserContextType {
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
-
-function getErrorMessage(e: unknown) {
-  if (e instanceof Error) return e.message;
-  try {
-    return JSON.stringify(e);
-  } catch {
-    return String(e);
-  }
-}
 
 export function UserProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -81,8 +72,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
           return true;
         }
         return false;
-      } catch (err: unknown) {
-        console.error("Login error:", getErrorMessage(err));
+      } catch {
         return false;
       }
     },
@@ -92,8 +82,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     try {
       await fetchAdminAPI("/admin/auth/logout", { method: "POST" });
-    } catch (err: unknown) {
-      console.error("Logout error:", getErrorMessage(err));
+    } catch {
+      // Logout API failure is non-fatal — we still clear local state
     } finally {
       setUser(null);
       router.push("/login");

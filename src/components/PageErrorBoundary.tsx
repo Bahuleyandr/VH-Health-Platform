@@ -1,8 +1,8 @@
 // src/components/PageErrorBoundary.tsx
 "use client";
 
-import { ErrorBoundary } from "react-error-boundary";
 import { ReactNode } from "react";
+import { ErrorBoundary } from "react-error-boundary";
 
 interface ErrorFallbackProps {
   error: Error;

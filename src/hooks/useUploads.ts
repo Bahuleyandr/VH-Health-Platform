@@ -1,6 +1,6 @@
 // src/hooks/useUploads.ts
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 
 // ---------- Types ----------

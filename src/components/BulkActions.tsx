@@ -1,6 +1,7 @@
 // src/components/BulkActions.tsx
 "use client";
 
+import { AlertDialog } from "@/components/ui/alert-dialog";
 import { useState } from "react";
 import toast from "react-hot-toast";
 
@@ -25,16 +26,11 @@ export function BulkActions({
   actions = [],
 }: BulkActionsProps) {
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   if (selectedCount === 0) return null;
 
   const handleDelete = async () => {
-    if (
-      !window.confirm(`Are you sure you want to delete ${selectedCount} items?`)
-    ) {
-      return;
-    }
-
     setIsDeleting(true);
     try {
       await onDelete();
@@ -44,6 +40,7 @@ export function BulkActions({
       toast.error("Failed to delete items");
     } finally {
       setIsDeleting(false);
+      setShowDeleteDialog(false);
     }
   };
 
@@ -70,7 +67,7 @@ export function BulkActions({
     },
     {
       label: isDeleting ? "Deleting..." : "Delete",
-      onClick: handleDelete,
+      onClick: () => setShowDeleteDialog(true),
       variant: "danger" as const,
       icon: (
         <svg
@@ -112,6 +109,7 @@ export function BulkActions({
           </span>
           <button
             onClick={onClearSelection}
+            aria-label="Clear selection"
             className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
           >
             Clear
@@ -134,6 +132,17 @@ export function BulkActions({
           ))}
         </div>
       </div>
+
+      <AlertDialog
+        open={showDeleteDialog}
+        onOpenChange={setShowDeleteDialog}
+        title="Delete items"
+        description={`Are you sure you want to delete ${selectedCount} items? This action cannot be undone.`}
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={handleDelete}
+        loading={isDeleting}
+      />
     </div>
   );
 }

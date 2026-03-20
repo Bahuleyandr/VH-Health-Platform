@@ -1,9 +1,11 @@
 // src/app/(with-auth)/dashboard/pharmacy/components/OrdersTable.tsx
 "use client";
 
+import { fetchAdminAPI } from "@/lib/api";
 import type { PharmacyOrder } from "@/lib/types";
 import { useState, useEffect } from "react";
-import { fetchAdminAPI } from "@/lib/api";
+import toast from "react-hot-toast";
+
 import { OrderDetailsModal } from "./OrderDetailsModal";
 
 type OrderStatus = PharmacyOrder["status"]; // "COMPLETED" | "CANCELLED" | "PENDING"
@@ -57,8 +59,7 @@ export function OrdersTable({
 
       onOrderUpdated?.();
     } catch (error) {
-      console.error("Failed to update order status:", error);
-      alert("Failed to update order status. Please try again.");
+      toast.error("Failed to update order status. Please try again.");
     } finally {
       setUpdatingOrderId(null);
     }

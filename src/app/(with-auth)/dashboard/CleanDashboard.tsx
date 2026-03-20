@@ -2,8 +2,8 @@
 
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
 import { API_ENDPOINTS, API_BASE_URL, getHeaders } from '@/lib/api-config';
+import React, { useEffect, useMemo, useState } from 'react';
 
 // ---- Types ----
 type HealthStatus = 'healthy' | 'warning' | 'critical';
