@@ -51,12 +51,6 @@ function getToken(): string | undefined {
   return localStorage.getItem("adminToken") ?? undefined;
 }
 
-/** Back-compat export used by some components */
-export function getAuthToken(): string | null {
-  if (!isBrowser()) return null;
-  return localStorage.getItem("adminToken");
-}
-
 /* =========================
  * Core JSON fetch (via apiFetch)
  * ========================= */

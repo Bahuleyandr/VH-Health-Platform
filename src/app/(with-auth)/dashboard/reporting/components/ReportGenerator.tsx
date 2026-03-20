@@ -3,7 +3,7 @@
 
 import { User, Doctor } from "@/lib/types";
 import { useState } from "react";
-import { getAuthToken } from "@/lib/api";
+import { getAuthToken } from "@/lib/api-client";
 import { getHeaders } from "@/lib/api-config";
 
 interface ReportGeneratorProps {
