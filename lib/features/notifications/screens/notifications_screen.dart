@@ -66,10 +66,7 @@ Future<void> _fetchNotifications() async {
 
       final res = await http.get(
         uri,
-        headers: {
-          ...ApiConfig.authHeaders,
-          'Authorization': 'Bearer $token',
-        },
+        headers: await ApiConfig.authenticatedAuthHeaders(),
       ).timeout(
         const Duration(seconds: 10),
         onTimeout: () {
@@ -129,10 +126,7 @@ Future<void> _fetchNotifications() async {
     );
 
     try {
-      await http.patch(uri, headers: {
-        ...ApiConfig.authHeaders,
-        'Authorization': 'Bearer $token',
-      });
+      await http.patch(uri, headers: await ApiConfig.authenticatedAuthHeaders());
     } catch (e) {
       debugPrint('Error marking notification as read: $e');
     }

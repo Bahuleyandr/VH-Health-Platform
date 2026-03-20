@@ -49,7 +49,7 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
     try {
       final res = await http.post(
         Uri.parse('${ApiConfig.baseUrl}/feedback'),
-        headers: ApiConfig.jsonHeaders,
+        headers: await ApiConfig.authenticatedHeaders(),
         body: jsonEncode({
           'phone': _phoneController.text.trim(),
           'question': _questionController.text.trim(),
@@ -59,7 +59,7 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
       setState(() => _isSubmitting = false);
       if (!mounted) return;
 
-      if (res.statusCode == 200) {
+      if (res.statusCode == 200 || res.statusCode == 201) {
         messenger.showSnackBar(SnackBar(
           content: Text(loc.feedbackSuccess),
           backgroundColor: Theme.of(context).colorScheme.primary,

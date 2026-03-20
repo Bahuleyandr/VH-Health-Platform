@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:vhhealth/core/config/api_config.dart';
-import 'package:vhhealth/core/services/shared_prefs_service.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -51,17 +50,9 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
   setState(() => _isLoading = true);
 
   try {
-    final token = await SharedPrefsService.getToken();
-
-    final headers = {
-      ...ApiConfig.jsonHeaders,
-      if (token != null && token.trim().isNotEmpty)
-        'Authorization': 'Bearer $token',
-    };
-
     final res = await http.get(
-      Uri.parse('${ApiConfig.baseUrl}/departments-with-doctors'),
-      headers: headers,
+      Uri.parse('${ApiConfig.baseUrl}/departments/departments-with-doctors'),
+      headers: await ApiConfig.authenticatedHeaders(),
     );
 
     if (!mounted) return;

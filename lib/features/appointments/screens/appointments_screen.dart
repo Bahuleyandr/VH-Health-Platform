@@ -48,8 +48,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   Future<void> _fetchDepartments() async {
     try {
       final resp = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/departments-with-doctors'),
-        headers: ApiConfig.authHeaders,
+        Uri.parse('${ApiConfig.baseUrl}/departments/departments-with-doctors'),
+        headers: await ApiConfig.authenticatedAuthHeaders(),
       );
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body);
@@ -161,7 +161,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     try {
       final resp = await http.post(
         Uri.parse('${ApiConfig.baseUrl}/appointments'),
-        headers: ApiConfig.jsonHeaders,
+        headers: await ApiConfig.authenticatedHeaders(),
         body: jsonEncode({
           'phone': phone,
           'doctor_name': doctor ?? 'Any Doctor',

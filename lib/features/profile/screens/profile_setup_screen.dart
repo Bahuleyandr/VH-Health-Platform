@@ -179,9 +179,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                     DropdownButtonFormField<String>(
                       value: _gender,
                       items: [
-                        DropdownMenuItem(value: 'Male', child: Text(l10n.profileGenderMale)),
-                        DropdownMenuItem(value: 'Female', child: Text(l10n.profileGenderFemale)),
-                        DropdownMenuItem(value: 'Other', child: Text(l10n.profileGenderOther)),
+                        DropdownMenuItem(value: 'MALE', child: Text(l10n.profileGenderMale)),
+                        DropdownMenuItem(value: 'FEMALE', child: Text(l10n.profileGenderFemale)),
+                        DropdownMenuItem(value: 'OTHER', child: Text(l10n.profileGenderOther)),
                       ],
                       onChanged: _isSubmitting ? null : (val) => setState(() => _gender = val),
                       decoration: InputDecoration(

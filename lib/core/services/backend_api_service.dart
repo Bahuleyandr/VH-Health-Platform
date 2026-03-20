@@ -15,14 +15,14 @@ class BackendApiService {
     return response;
   }
 
-  /// 📝 Save or update user profile after initial login or onboarding
+  /// 📝 Save user profile after initial registration (post-OTP onboarding)
   static Future<bool> saveUserProfile(Map<String, dynamic> profile) async {
     final response = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}/users'),
+      Uri.parse('${ApiConfig.baseUrl}/auth/firebase/complete-profile'),
       headers: ApiConfig.jsonHeaders,
       body: jsonEncode(profile),
     );
-    return response.statusCode == 200;
+    return response.statusCode == 200 || response.statusCode == 201;
   }
 
   /// 📤 Utility to parse response JSON safely

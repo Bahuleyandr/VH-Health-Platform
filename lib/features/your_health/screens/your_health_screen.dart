@@ -52,7 +52,7 @@ class _YourHealthScreenState extends State<YourHealthScreen> {
     setState(() => _isLoading = true);
 
     final uri = Uri.parse(
-      '${ApiConfig.baseUrl}/health-records/${widget.phone}'
+      '${ApiConfig.baseUrl}/records/health-records/${widget.phone}'
       '${_selectedType == 'All' ? '' : '?type=${_selectedType.toLowerCase()}'}',
     );
 
@@ -61,7 +61,7 @@ class _YourHealthScreenState extends State<YourHealthScreen> {
     final l10n = AppLocalizations.of(context)!;
 
     try {
-      final resp = await http.get(uri, headers: ApiConfig.authHeaders);
+      final resp = await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders());
       if (!mounted) return;
 
       if (resp.statusCode == 200) {
@@ -142,10 +142,10 @@ class _YourHealthScreenState extends State<YourHealthScreen> {
       return;
     }
 
-    final url = Uri.parse('${ApiConfig.baseUrl}/uploads/$fileKey');
+    final url = Uri.parse('${ApiConfig.baseUrl}/upload/$fileKey');
 
     try {
-      final resp = await http.get(url, headers: ApiConfig.authHeaders);
+      final resp = await http.get(url, headers: await ApiConfig.authenticatedAuthHeaders());
       if (!mounted) return;
 
       if (resp.statusCode == 200) {

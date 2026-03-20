@@ -30,6 +30,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   final _emailController    = TextEditingController();
   final _birthdayController = TextEditingController();
 
+  DateTime? _selectedBirthday;
   bool _isSubmitting = false;
 
   @override
@@ -58,16 +59,17 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     bool success = false;
 
     try {
+      final headers = await ApiConfig.authenticatedHeaders();
       final res = await http.put(
         Uri.parse('${ApiConfig.baseUrl}/users/${widget.phone}'),
-        headers: ApiConfig.jsonHeaders,
+        headers: headers,
         body: jsonEncode({
           'name'    : _nameController.text.trim(),
           'email'   : _emailController.text.trim().isNotEmpty
               ? _emailController.text.trim()
               : null,
-          'birthday': _birthdayController.text.trim().isNotEmpty
-              ? _birthdayController.text.trim()
+          'birthday': _selectedBirthday != null
+              ? '${_selectedBirthday!.year.toString().padLeft(4, '0')}-${_selectedBirthday!.month.toString().padLeft(2, '0')}-${_selectedBirthday!.day.toString().padLeft(2, '0')}'
               : null,
         }),
       );
@@ -104,6 +106,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       lastDate   : DateTime.now(),
     );
     if (picked != null) {
+      // Store raw DateTime for ISO 8601 serialization
+      _selectedBirthday = picked;
+      // Display a human-friendly date in the text field
       _birthdayController.text =
           MaterialLocalizations.of(context).formatMediumDate(picked);
       setState(() {});

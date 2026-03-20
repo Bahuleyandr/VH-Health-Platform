@@ -110,16 +110,18 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     String? fileKey;
 
     try {
+      final uploadHeaders = await ApiConfig.authenticatedAuthHeaders();
       final req = http.MultipartRequest(
         'POST',
-        Uri.parse('${ApiConfig.baseUrl}/uploads'),
+        Uri.parse('${ApiConfig.baseUrl}/upload'),
       )
-        ..headers['x-api-key'] = ApiConfig.apiKey
+        ..headers.addAll(uploadHeaders)
         ..files.add(await http.MultipartFile.fromPath('file', _file!.path, filename: _fileName));
 
       final res = await http.Response.fromStream(await req.send());
       if (res.statusCode == 200) {
-        fileKey = jsonDecode(res.body)['key'];
+        final decoded = jsonDecode(res.body);
+        fileKey = decoded['data']?['storageKey'] ?? decoded['storageKey'];
         if (fileKey == null) throw Exception('key missing');
       } else {
         throw Exception('upload failed');
@@ -136,8 +138,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
 
     try {
       final apiRes = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/pharmacy'),
-        headers: ApiConfig.jsonHeaders,
+        Uri.parse('${ApiConfig.baseUrl}/pharmacy-orders/orders'),
+        headers: await ApiConfig.authenticatedHeaders(),
         body: jsonEncode({
           'phone': _phoneController.text.trim(),
           'order_note': _addressController.text.trim(),

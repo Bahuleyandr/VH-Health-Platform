@@ -61,18 +61,19 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Future<void> _loadBackendEvents(String uid) async {
     final loc = AppLocalizations.of(context)!;
     try {
+      final calHeaders = await ApiConfig.authenticatedAuthHeaders();
       final responses = await Future.wait([
         http.get(
-          Uri.parse('${ApiConfig.baseUrl}/appointments?uid=$uid'),
-          headers: ApiConfig.authHeaders,
+          Uri.parse('${ApiConfig.baseUrl}/appointments/uid/$uid'),
+          headers: calHeaders,
         ),
         http.get(
-          Uri.parse('${ApiConfig.baseUrl}/investigations?uid=$uid'),
-          headers: ApiConfig.authHeaders,
+          Uri.parse('${ApiConfig.baseUrl}/investigations/uid/$uid'),
+          headers: calHeaders,
         ),
         http.get(
-          Uri.parse('${ApiConfig.baseUrl}/pharmacy?uid=$uid'),
-          headers: ApiConfig.authHeaders,
+          Uri.parse('${ApiConfig.baseUrl}/pharmacy-orders/uid/$uid'),
+          headers: calHeaders,
         ),
       ]);
 

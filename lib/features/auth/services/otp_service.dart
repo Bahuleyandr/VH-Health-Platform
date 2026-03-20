@@ -69,10 +69,12 @@ class OtpService {
       
       final decoded = jsonDecode(response.body);
 
-      // Safely access nested data
-      final isNewUser = decoded['isNewUser'] ?? false;
-      final jwt = decoded['token'];
-      final userPhone = decoded['user']?.isNotEmpty == true ? decoded['user']['phone'] : null;
+      // Safely access nested data from { success, data: { accessToken, user: { ... } } }
+      final data = decoded['data'] as Map<String, dynamic>?;
+      final user = data?['user'] as Map<String, dynamic>?;
+      final isNewUser = user?['isNewUser'] ?? false;
+      final jwt = data?['accessToken'];
+      final userPhone = user?['phone'];
 
       if (jwt != null && userPhone != null) {
         await secureStorage.write(key: 'jwt', value: jwt);

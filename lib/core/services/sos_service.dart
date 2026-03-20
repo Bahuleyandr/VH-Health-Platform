@@ -42,10 +42,10 @@ class SOSService {
       debugPrint('⚠️  Geolocator error: $e');
     }
 
-    /* ── 2. backend POST (don’t block UI) ────────────────────────── */
-    unawaited(http.post(
+    /* ── 2. backend POST (don't block UI) ────────────────────────── */
+    unawaited(ApiConfig.authenticatedHeaders().then((headers) => http.post(
       Uri.parse('${ApiConfig.baseUrl}/sos'),
-      headers: ApiConfig.jsonHeaders,
+      headers: headers,
       body: '''
       {
         "phone"    : "$phone",
@@ -53,7 +53,7 @@ class SOSService {
         "longitude": ${lng ?? "null"}
       }
       ''',
-    ));
+    )));
 
     /* ── 3. launch dialer ────────────────────────────────────────── */
     final telUri = Uri.parse('tel:$emergencyNumber');

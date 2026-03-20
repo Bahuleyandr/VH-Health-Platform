@@ -105,14 +105,16 @@ class _OtpWidgetState extends State<OtpWidget> {
       await FirebaseAuth.instance.signInWithCredential(credential);
       _showMessage("OTP verified ✅");
       
-      developer.log("Firebase authentication successful - triggering navigation", name: 'OtpWidget');
-      widget.onSuccess();
-      
-      // Backend login in background
-      _otpService.loginToBackendInBackground(
+      developer.log("Firebase authentication successful - awaiting backend login", name: 'OtpWidget');
+
+      // Await backend login BEFORE navigating so JWT is stored first
+      await _otpService.loginToBackendInBackground(
         secureStorage: _secureStorage,
         phoneNumber: widget.phoneNumber,
       );
+
+      developer.log("Backend login complete - triggering navigation", name: 'OtpWidget');
+      widget.onSuccess();
       
     } catch (e) {
       _showMessage("Authentication failed: ${e.toString()}");

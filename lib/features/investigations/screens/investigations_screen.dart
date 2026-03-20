@@ -105,16 +105,18 @@ class _InvestigationsScreenState extends State<InvestigationsScreen> {
     String? fileKey;
 
     try {
+      final uploadHeaders = await ApiConfig.authenticatedAuthHeaders();
       final req = http.MultipartRequest(
         'POST',
-        Uri.parse('${ApiConfig.baseUrl}/uploads'),
+        Uri.parse('${ApiConfig.baseUrl}/upload'),
       )
-        ..headers['x-api-key'] = ApiConfig.apiKey
+        ..headers.addAll(uploadHeaders)
         ..files.add(await http.MultipartFile.fromPath('file', _file!.path, filename: _fileName));
 
       final res = await http.Response.fromStream(await req.send());
       if (res.statusCode == 200) {
-        fileKey = jsonDecode(res.body)['key'];
+        final decoded = jsonDecode(res.body);
+        fileKey = decoded['data']?['storageKey'] ?? decoded['storageKey'];
         if (fileKey == null) throw Exception('Key missing');
       } else {
         throw Exception('Upload failed');
@@ -132,7 +134,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen> {
     try {
       final apiRes = await http.post(
         Uri.parse('${ApiConfig.baseUrl}/investigations'),
-        headers: ApiConfig.jsonHeaders,
+        headers: await ApiConfig.authenticatedHeaders(),
         body: jsonEncode({
           'phone': _phoneController.text.trim(),
           'test_name': _testNameController.text.trim(),

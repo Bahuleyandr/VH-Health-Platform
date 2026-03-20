@@ -3,7 +3,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:vhhealth/core/config/api_config.dart';
 
 class NotificationProvider extends ChangeNotifier {
@@ -11,7 +10,6 @@ class NotificationProvider extends ChangeNotifier {
   int get unreadCount => _unreadCount;
 
   final String _baseUrl = ApiConfig.baseUrl;
-  final Map<String, String> _headers = ApiConfig.authHeaders;
 
   /// Fetch unread notifications for the given phone number
   Future<void> fetchUnreadCount(String phone) async {
@@ -25,13 +23,9 @@ class NotificationProvider extends ChangeNotifier {
     final uri = Uri.parse('$_baseUrl/notifications/$phone');
 
     try {
-      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
       final response = await http.get(
         uri,
-        headers: {
-          ..._headers,
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
+        headers: await ApiConfig.authenticatedAuthHeaders(),
       ).timeout(
         const Duration(seconds: 10),
         onTimeout: () {
@@ -65,13 +59,9 @@ class NotificationProvider extends ChangeNotifier {
     final uri = Uri.parse('$_baseUrl/notifications/$phone/mark-all-read');
 
     try {
-      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
       final response = await http.patch(
         uri,
-        headers: {
-          ..._headers,
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
+        headers: await ApiConfig.authenticatedAuthHeaders(),
       ).timeout(
         const Duration(seconds: 10),
         onTimeout: () => http.Response('Timeout', 408),
