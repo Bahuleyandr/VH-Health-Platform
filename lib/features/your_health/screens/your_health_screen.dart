@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'package:vhhealth/core/config/api_config.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/offline/record_cache_manager.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
@@ -51,7 +52,7 @@ class _YourHealthScreenState extends State<YourHealthScreen> {
     setState(() => _isLoading = true);
 
     final uri = Uri.parse(
-      'https://vh-health-backend.onrender.com/api/v1/health-records/${widget.phone}'
+      '${ApiConfig.baseUrl}/health-records/${widget.phone}'
       '${_selectedType == 'All' ? '' : '?type=${_selectedType.toLowerCase()}'}',
     );
 
@@ -60,7 +61,7 @@ class _YourHealthScreenState extends State<YourHealthScreen> {
     final l10n = AppLocalizations.of(context)!;
 
     try {
-      final resp = await http.get(uri, headers: {'x-api-key': 'vhhealth123'});
+      final resp = await http.get(uri, headers: ApiConfig.authHeaders);
       if (!mounted) return;
 
       if (resp.statusCode == 200) {
@@ -141,10 +142,10 @@ class _YourHealthScreenState extends State<YourHealthScreen> {
       return;
     }
 
-    final url = Uri.parse('https://vh-health-backend.onrender.com/api/v1/uploads/$fileKey');
+    final url = Uri.parse('${ApiConfig.baseUrl}/uploads/$fileKey');
 
     try {
-      final resp = await http.get(url, headers: {'x-api-key': 'vhhealth123'});
+      final resp = await http.get(url, headers: ApiConfig.authHeaders);
       if (!mounted) return;
 
       if (resp.statusCode == 200) {

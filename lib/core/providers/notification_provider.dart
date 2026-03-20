@@ -4,15 +4,14 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:vhhealth/core/config/api_config.dart';
 
 class NotificationProvider extends ChangeNotifier {
   int _unreadCount = 0;
   int get unreadCount => _unreadCount;
 
-  final String _baseUrl = 'https://vh-health-backend.onrender.com/api/v1';
-  final Map<String, String> _headers = {
-    'x-api-key': 'vhhealth123',
-  };
+  final String _baseUrl = ApiConfig.baseUrl;
+  final Map<String, String> _headers = ApiConfig.authHeaders;
 
   /// Fetch unread notifications for the given phone number
   Future<void> fetchUnreadCount(String phone) async {

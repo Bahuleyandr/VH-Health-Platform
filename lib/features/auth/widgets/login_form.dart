@@ -1,7 +1,10 @@
+import 'dart:developer' as developer;
+
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth/core/navigation/app_router.dart';
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -85,8 +88,10 @@ context.go('/home');
         return;
       }
 
-      print("🎉 User authenticated: ${user.uid}");
-      print("📱 Phone: ${user.phoneNumber}");
+      if (kDebugMode) {
+        developer.log('🎉 User authenticated: ${user.uid}', name: 'Auth');
+        developer.log('📱 Phone: ${user.phoneNumber}', name: 'Auth');
+      }
 
       // Check stored user data to determine navigation
       final storedIsNewUser = await _secureStorage.read(key: 'isNewUser');
@@ -98,10 +103,14 @@ context.go('/home');
         // Backend login was successful, use its determination
         final isNewUser = storedIsNewUser.toLowerCase() == 'true';
         targetRoute = isNewUser ? '/profile/setup' : '/dashboard';
-        print("📊 Backend determined: ${isNewUser ? 'New User' : 'Existing User'}");
+        if (kDebugMode) {
+          developer.log('📊 Backend determined: ${isNewUser ? 'New User' : 'Existing User'}', name: 'Auth');
+        }
       } else {
         // Backend login might have failed, use fallback logic
-        print("⚠️ Backend data not available, using fallback logic");
+        if (kDebugMode) {
+          developer.log('⚠️ Backend data not available, using fallback logic', name: 'Auth');
+        }
         
         // Simple fallback: check if we have any stored user data
         final storedPhone = await _secureStorage.read(key: 'phone');
@@ -114,7 +123,9 @@ context.go('/home');
         }
       }
 
-      print("🧭 Navigating to: $targetRoute");
+      if (kDebugMode) {
+        developer.log('🧭 Navigating to: $targetRoute', name: 'Auth');
+      }
 
       if (mounted) {
         // Store user data before navigation
@@ -129,7 +140,9 @@ if (targetRoute == '/profile-setup') {
       }
 
     } catch (e) {
-      print("❌ Error in OTP success handler: $e");
+      if (kDebugMode) {
+        developer.log('❌ Error in OTP success handler: $e', name: 'Auth');
+      }
       _showSnackBar(
         "Login completed but navigation failed. Please restart the app.",
         Theme.of(context).colorScheme.error,

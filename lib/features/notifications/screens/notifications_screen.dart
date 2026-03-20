@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import 'package:vhhealth/core/config/api_config.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -60,13 +61,13 @@ Future<void> _fetchNotifications() async {
 
     try {
       final uri = Uri.parse(
-        'https://vh-health-backend.onrender.com/api/v1/notifications/${widget.phone}',
+        '${ApiConfig.baseUrl}/notifications/${widget.phone}',
       );
 
       final res = await http.get(
         uri,
         headers: {
-          'x-api-key': 'vhhealth123',
+          ...ApiConfig.authHeaders,
           'Authorization': 'Bearer $token',
         },
       ).timeout(
@@ -124,12 +125,12 @@ Future<void> _fetchNotifications() async {
     if (token == null) return;
 
     final uri = Uri.parse(
-      'https://vh-health-backend.onrender.com/api/v1/notifications/$id/read',
+      '${ApiConfig.baseUrl}/notifications/$id/read',
     );
 
     try {
       await http.patch(uri, headers: {
-        'x-api-key': 'vhhealth123',
+        ...ApiConfig.authHeaders,
         'Authorization': 'Bearer $token',
       });
     } catch (e) {

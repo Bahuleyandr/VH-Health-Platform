@@ -1,21 +1,16 @@
 // lib/core/services/backend_api_service.dart
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:vhhealth/core/config/api_config.dart';
 
 /// A singleton-like API service class for backend communication.
 class BackendApiService {
-  static const String _baseUrl = 'https://vh-health-backend.onrender.com/api/v1';
-  static const String _apiKey = 'vhhealth123';
-
   /// 🔐 Firebase OTP token login (called after OTP is verified)
   static Future<http.Response> firebaseLogin(String token) async {
     final response = await http.post(
-      Uri.parse('$_baseUrl/auth/firebase-login'),
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': _apiKey,
-      },
-      body: jsonEncode({'idToken': token}), // ✅ Fixed: Changed from firebaseIdToken to idToken
+      Uri.parse('${ApiConfig.baseUrl}/auth/firebase-login'),
+      headers: ApiConfig.jsonHeaders,
+      body: jsonEncode({'idToken': token}),
     );
     return response;
   }
@@ -23,11 +18,8 @@ class BackendApiService {
   /// 📝 Save or update user profile after initial login or onboarding
   static Future<bool> saveUserProfile(Map<String, dynamic> profile) async {
     final response = await http.post(
-      Uri.parse('$_baseUrl/users'),
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': _apiKey,
-      },
+      Uri.parse('${ApiConfig.baseUrl}/users'),
+      headers: ApiConfig.jsonHeaders,
       body: jsonEncode(profile),
     );
     return response.statusCode == 200;

@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+import 'package:vhhealth/core/config/api_config.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -58,11 +59,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
     try {
       final res = await http.put(
-        Uri.parse('https://vh-health-backend.onrender.com/api/v1/users/${widget.phone}'),
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key'   : 'vhhealth123',
-        },
+        Uri.parse('${ApiConfig.baseUrl}/users/${widget.phone}'),
+        headers: ApiConfig.jsonHeaders,
         body: jsonEncode({
           'name'    : _nameController.text.trim(),
           'email'   : _emailController.text.trim().isNotEmpty

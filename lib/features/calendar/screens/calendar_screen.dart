@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:table_calendar/table_calendar.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:vhhealth/core/config/api_config.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -62,16 +63,16 @@ class _CalendarScreenState extends State<CalendarScreen> {
     try {
       final responses = await Future.wait([
         http.get(
-          Uri.parse('https://vh-health-backend.onrender.com/api/v1/appointments?uid=$uid'),
-          headers: {'x-api-key': 'vhhealth123'},
+          Uri.parse('${ApiConfig.baseUrl}/appointments?uid=$uid'),
+          headers: ApiConfig.authHeaders,
         ),
         http.get(
-          Uri.parse('https://vh-health-backend.onrender.com/api/v1/investigations?uid=$uid'),
-          headers: {'x-api-key': 'vhhealth123'},
+          Uri.parse('${ApiConfig.baseUrl}/investigations?uid=$uid'),
+          headers: ApiConfig.authHeaders,
         ),
         http.get(
-          Uri.parse('https://vh-health-backend.onrender.com/api/v1/pharmacy?uid=$uid'),
-          headers: {'x-api-key': 'vhhealth123'},
+          Uri.parse('${ApiConfig.baseUrl}/pharmacy?uid=$uid'),
+          headers: ApiConfig.authHeaders,
         ),
       ]);
 

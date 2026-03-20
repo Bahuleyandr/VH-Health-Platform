@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:vhhealth/core/config/api_config.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/core/utils/calendar_utils.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
@@ -90,11 +91,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 
     try {
       final resp = await http.post(
-        Uri.parse('https://vh-health-backend.onrender.com/api/v1/appointments'),
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': 'vhhealth123',
-        },
+        Uri.parse('${ApiConfig.baseUrl}/appointments'),
+        headers: ApiConfig.jsonHeaders,
         body: jsonEncode({
           'phone': phone,
           'department': department,

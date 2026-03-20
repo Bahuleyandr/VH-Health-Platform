@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 
+import 'package:vhhealth/core/config/api_config.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -106,9 +107,9 @@ class _InvestigationsScreenState extends State<InvestigationsScreen> {
     try {
       final req = http.MultipartRequest(
         'POST',
-        Uri.parse('https://vh-health-backend.onrender.com/api/v1/uploads'),
+        Uri.parse('${ApiConfig.baseUrl}/uploads'),
       )
-        ..headers['x-api-key'] = 'vhhealth123'
+        ..headers['x-api-key'] = ApiConfig.apiKey
         ..files.add(await http.MultipartFile.fromPath('file', _file!.path, filename: _fileName));
 
       final res = await http.Response.fromStream(await req.send());
@@ -130,11 +131,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen> {
 
     try {
       final apiRes = await http.post(
-        Uri.parse('https://vh-health-backend.onrender.com/api/v1/investigations'),
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': 'vhhealth123',
-        },
+        Uri.parse('${ApiConfig.baseUrl}/investigations'),
+        headers: ApiConfig.jsonHeaders,
         body: jsonEncode({
           'phone': _phoneController.text.trim(),
           'test_name': _testNameController.text.trim(),

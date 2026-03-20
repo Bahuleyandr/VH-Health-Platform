@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+import 'package:vhhealth/core/config/api_config.dart';
 import 'package:vhhealth/core/services/shared_prefs_service.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
@@ -53,14 +54,13 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
     final token = await SharedPrefsService.getToken();
 
     final headers = {
-      'Content-Type': 'application/json',
-      'x-api-key': 'vhhealth123',
+      ...ApiConfig.jsonHeaders,
       if (token != null && token.trim().isNotEmpty)
         'Authorization': 'Bearer $token',
     };
 
     final res = await http.get(
-      Uri.parse('https://vh-health-backend.onrender.com/api/v1/departments-with-doctors'),
+      Uri.parse('${ApiConfig.baseUrl}/departments-with-doctors'),
       headers: headers,
     );
 

@@ -1,16 +1,15 @@
 import 'dart:async';                           // ← add for unawaited
-import 'dart:io';
 import 'package:flutter/material.dart';        // NEW: only for SnackBar (optional)
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
+import 'package:vhhealth/core/config/api_config.dart';
 
 class SOSService {
   static const String emergencyNumber = '+919841433995';
 
-  static const _backendUrl = 'https://vh-health-backend.onrender.com/api/v1/sos';
-  static const _apiKey     = 'vhhealth123';
+
 
   /// Triggers the SOS flow: send location to backend and open dialer.
   /// Supply a [BuildContext] **only if** you want in-app SnackBars; pass
@@ -45,11 +44,8 @@ class SOSService {
 
     /* ── 2. backend POST (don’t block UI) ────────────────────────── */
     unawaited(http.post(
-      Uri.parse(_backendUrl),
-      headers: {
-        HttpHeaders.contentTypeHeader: 'application/json',
-        'x-api-key': _apiKey,
-      },
+      Uri.parse('${ApiConfig.baseUrl}/sos'),
+      headers: ApiConfig.jsonHeaders,
       body: '''
       {
         "phone"    : "$phone",

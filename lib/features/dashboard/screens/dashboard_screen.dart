@@ -10,6 +10,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
+import 'package:vhhealth/core/config/api_config.dart';
 import 'package:vhhealth/core/widgets/language_dropdown.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/core/widgets/circular_feature_dial.dart';
@@ -156,7 +157,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _fetchAndStoreDashboard() async {
     try {
-      final uri = Uri.parse('https://your-api.com/dashboard?phone=${widget.phone}');
+      final uri = Uri.parse('${ApiConfig.baseUrl}/dashboard?phone=${widget.phone}');
       final res = await http.get(uri).timeout(const Duration(seconds: 10));
       if (!mounted) return;
 

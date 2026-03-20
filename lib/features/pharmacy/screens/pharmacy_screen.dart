@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'package:vhhealth/core/config/api_config.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -111,9 +112,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     try {
       final req = http.MultipartRequest(
         'POST',
-        Uri.parse('https://vh-health-backend.onrender.com/api/v1/uploads'),
+        Uri.parse('${ApiConfig.baseUrl}/uploads'),
       )
-        ..headers['x-api-key'] = 'vhhealth123'
+        ..headers['x-api-key'] = ApiConfig.apiKey
         ..files.add(await http.MultipartFile.fromPath('file', _file!.path, filename: _fileName));
 
       final res = await http.Response.fromStream(await req.send());
@@ -135,11 +136,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
 
     try {
       final apiRes = await http.post(
-        Uri.parse('https://vh-health-backend.onrender.com/api/v1/pharmacy'),
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': 'vhhealth123',
-        },
+        Uri.parse('${ApiConfig.baseUrl}/pharmacy'),
+        headers: ApiConfig.jsonHeaders,
         body: jsonEncode({
           'phone': _phoneController.text.trim(),
           'order_note': _addressController.text.trim(),

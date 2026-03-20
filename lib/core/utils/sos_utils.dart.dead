@@ -1,10 +1,10 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart'; // for debugPrint
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
+import 'package:vhhealth/core/config/api_config.dart';
 
 class SOSUtils {
   /// Sends location + phone to backend **and** opens the dialer.
@@ -43,11 +43,8 @@ class SOSUtils {
 
     try {
       await http.post(
-        Uri.parse('https://vh-health-backend.onrender.com/api/v1/sos'),
-        headers: {
-          HttpHeaders.contentTypeHeader: 'application/json',
-          'x-api-key': 'vhhealth123',
-        },
+        Uri.parse('${ApiConfig.baseUrl}/sos'),
+        headers: ApiConfig.jsonHeaders,
         body: jsonEncode(payload),
       );
     } catch (e) {

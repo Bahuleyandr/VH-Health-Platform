@@ -1,8 +1,11 @@
 // otp_service.dart - Business logic service
+import 'dart:convert';
+import 'dart:developer' as developer;
+
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vhhealth/core/services/backend_api_service.dart';
-import 'dart:convert';
 
 class OtpService {
   /// Send OTP to phone number
@@ -42,11 +45,15 @@ class OtpService {
     required String phoneNumber,
   }) async {
     try {
-      print("🔄 Starting background backend login...");
+      if (kDebugMode) {
+        developer.log('🔄 Starting background backend login...', name: 'Auth');
+      }
       
       final idToken = await FirebaseAuth.instance.currentUser?.getIdToken();
       if (idToken == null) {
-        print("❌ No Firebase ID token available for backend login");
+        if (kDebugMode) {
+          developer.log('❌ No Firebase ID token available for backend login', name: 'Auth');
+        }
         return;
       }
 
@@ -54,7 +61,9 @@ class OtpService {
       
       // Check if response is valid
       if (response.body.isEmpty) {
-        print("⚠️ Backend returned empty response");
+        if (kDebugMode) {
+          developer.log('⚠️ Backend returned empty response', name: 'Auth');
+        }
         return;
       }
       
@@ -70,22 +79,30 @@ class OtpService {
         await secureStorage.write(key: 'phone', value: userPhone);
         await secureStorage.write(key: 'isNewUser', value: isNewUser.toString());
         
-        print("✅ Backend login completed successfully");
-        print("📱 Phone: $userPhone, New User: $isNewUser");
+        if (kDebugMode) {
+          developer.log('✅ Backend login completed successfully', name: 'Auth');
+          developer.log('📱 Phone: $userPhone, New User: $isNewUser', name: 'Auth');
+        }
       } else {
-        print("⚠️ Backend response missing required fields");
-        print("📋 Response structure: ${decoded.keys.toList()}");
+        if (kDebugMode) {
+          developer.log('⚠️ Backend response missing required fields', name: 'Auth');
+          developer.log('📋 Response structure: ${decoded.keys.toList()}', name: 'Auth');
+        }
       }
       
     } catch (e) {
-      print("❌ Background backend login failed: $e");
+      if (kDebugMode) {
+        developer.log('❌ Background backend login failed: $e', name: 'Auth');
+      }
       
       // Store basic Firebase info as fallback
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         await secureStorage.write(key: 'phone', value: phoneNumber);
         await secureStorage.write(key: 'firebase_uid', value: user.uid);
-        print("💾 Stored basic Firebase user info as fallback");
+        if (kDebugMode) {
+          developer.log('💾 Stored basic Firebase user info as fallback', name: 'Auth');
+        }
       }
     }
   }

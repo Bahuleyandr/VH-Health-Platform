@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+import 'package:vhhealth/core/config/api_config.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -47,11 +48,8 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
 
     try {
       final res = await http.post(
-        Uri.parse('https://vh-health-backend.onrender.com/api/v1/feedback'),
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': 'vhhealth123',
-        },
+        Uri.parse('${ApiConfig.baseUrl}/feedback'),
+        headers: ApiConfig.jsonHeaders,
         body: jsonEncode({
           'phone': _phoneController.text.trim(),
           'question': _questionController.text.trim(),

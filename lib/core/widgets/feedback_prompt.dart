@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:go_router/go_router.dart';
+import 'package:vhhealth/core/config/api_config.dart';
 
 class FeedbackPrompt extends StatefulWidget {
   final String phone;
@@ -22,8 +23,6 @@ class FeedbackPrompt extends StatefulWidget {
 
 class _FeedbackPromptState extends State<FeedbackPrompt> {
   static const Duration _requestTimeout = Duration(seconds: 10);
-  static const String _apiUrl = 'https://vh-health-backend.onrender.com/api/v1/feedback';
-  static const String _apiKey = 'vhhealth123';
   
   int _rating = 0;
   final _commentController = TextEditingController();
@@ -57,11 +56,8 @@ class _FeedbackPromptState extends State<FeedbackPrompt> {
 
     try {
       final response = await http.post(
-        Uri.parse(_apiUrl),
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': _apiKey,
-        },
+        Uri.parse('${ApiConfig.baseUrl}/feedback'),
+        headers: ApiConfig.jsonHeaders,
         body: jsonEncode({
           'phone': widget.phone,
           'ref_id': widget.refId,
