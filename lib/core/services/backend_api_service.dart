@@ -8,7 +8,7 @@ class BackendApiService {
   /// 🔐 Firebase OTP token login (called after OTP is verified)
   static Future<http.Response> firebaseLogin(String token) async {
     final response = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}/auth/firebase-login'),
+      Uri.parse('${ApiConfig.baseUrl}/auth/firebase/firebase-login'),
       headers: ApiConfig.jsonHeaders,
       body: jsonEncode({'idToken': token}),
     );
