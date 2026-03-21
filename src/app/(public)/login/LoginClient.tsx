@@ -304,9 +304,9 @@ function LoginInner() {
               />
               Remember me
             </label>
-            <a href="#" className={styles.forgotLink} onClick={(e) => e.preventDefault()}>
+            <button type="button" className={styles.forgotLink} onClick={() => {}}>
               Forgot password?
-            </a>
+            </button>
           </div>
 
           {/* Submit Button */}
@@ -339,9 +339,9 @@ function LoginInner() {
       <div className={styles.footer}>
         <p>© 2024 VH Health Hospital. All rights reserved.</p>
         <div className={styles.footerLinks}>
-          <a href="#" className={styles.footerLink} onClick={(e) => e.preventDefault()}>Terms</a>
-          <a href="#" className={styles.footerLink} onClick={(e) => e.preventDefault()}>Privacy</a>
-          <a href="#" className={styles.footerLink} onClick={(e) => e.preventDefault()}>Support</a>
+          <button type="button" className={styles.footerLink}>Terms</button>
+          <button type="button" className={styles.footerLink}>Privacy</button>
+          <button type="button" className={styles.footerLink}>Support</button>
         </div>
       </div>
     </div>

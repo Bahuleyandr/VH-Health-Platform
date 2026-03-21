@@ -44,10 +44,23 @@ function forwardableHeaders(incoming: Headers): HeadersInit {
 }
 
 async function handleProxy(req: NextRequest) {
+  // Validate auth from httpOnly cookie
+  const token = req.cookies.get("auth_token")?.value;
+  if (!token) {
+    return NextResponse.json(
+      { message: "Authentication required" },
+      { status: 401 },
+    );
+  }
+
   const targetUrl = buildTargetUrl(req);
   const method = req.method;
 
-  const headers = forwardableHeaders(req.headers);
+  const headers = forwardableHeaders(req.headers) as Record<string, string>;
+
+  // Inject the validated token as Authorization header
+  headers["Authorization"] = `Bearer ${token}`;
+
   const init: RequestInit = { method, headers };
 
   // Bodies only for non-GET/HEAD
@@ -56,9 +69,8 @@ async function handleProxy(req: NextRequest) {
     if (ct.includes("application/json")) {
       const json = await req.json();
       init.body = JSON.stringify(json);
-      if (!("Content-Type" in (headers as Record<string, string>))) {
-        (headers as Record<string, string>)["Content-Type"] =
-          "application/json";
+      if (!("Content-Type" in headers)) {
+        headers["Content-Type"] = "application/json";
       }
     } else if (
       ct.includes("multipart/form-data") ||
