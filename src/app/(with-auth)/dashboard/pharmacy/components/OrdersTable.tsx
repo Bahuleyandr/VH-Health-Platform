@@ -56,9 +56,14 @@ export function OrdersTable({
       );
 
       onOrderUpdated?.();
+<<<<<<< HEAD
     } catch (error) {
       console.error("Failed to update order status:", error);
       alert("Failed to update order status. Please try again.");
+=======
+    } catch {
+      toast.error("Failed to update order status. Please try again.");
+>>>>>>> 7ca9048 (Comprehensive code review fixes: security, consistency, UX, and a11y)
     } finally {
       setUpdatingOrderId(null);
     }

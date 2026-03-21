@@ -6,6 +6,11 @@ import {
   loginAdmin as apiLoginAdmin,
   APIError,
 } from "./api";
+<<<<<<< HEAD
+=======
+import { API_ENDPOINTS } from "./api-config";
+import { StoredAdminUserSchema } from "./schemas";
+>>>>>>> 7ca9048 (Comprehensive code review fixes: security, consistency, UX, and a11y)
 import type { AdminUser } from "./types";
 
 /* =========================
@@ -25,7 +30,17 @@ export function getAdminUser(): AdminUser | null {
   const raw = localStorage.getItem(USER_KEY);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as AdminUser;
+    const parsed: unknown = JSON.parse(raw);
+    // Validate structure to guard against corrupted localStorage data
+    const result = StoredAdminUserSchema.safeParse(parsed);
+    if (!result.success) {
+      if (process.env.NODE_ENV === "development") {
+        console.warn("[api-client] Stored admin user failed validation:", result.error.format());
+      }
+      localStorage.removeItem(USER_KEY);
+      return null;
+    }
+    return result.data as AdminUser;
   } catch {
     return null;
   }
@@ -45,6 +60,11 @@ export function clearAuthData() {
  * Auth flows
  * ========================= */
 
+interface LoginResponse {
+  token: string;
+  admin?: AdminUser;
+}
+
 export async function adminLogin(
   username: string,
   password: string,
@@ -58,10 +78,8 @@ export async function adminLogin(
 
   // Expected backend envelope: { data: { token, admin }, ... }
   // Our api.ts unwraps .data for success responses, so result is { token, admin } here.
-  const { token, admin } = result as unknown as {
-    token: string;
-    admin?: AdminUser;
-  };
+  const loginResult = result as LoginResponse;
+  const { token, admin } = loginResult;
 
   if (!token) {
     throw new Error("No token received from server");

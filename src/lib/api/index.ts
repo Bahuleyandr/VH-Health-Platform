@@ -6,7 +6,6 @@
 export {
   APIError,
   APIResponse,
-  QueryParams,
   getJSON,
   postJSON,
   putJSON,
@@ -14,6 +13,7 @@ export {
   fetchAdminAPI,
   API_ENDPOINTS,
 } from "./core";
+export type { QueryParams } from "./core";
 
 // Auth
 export {

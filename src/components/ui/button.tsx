@@ -1,5 +1,7 @@
 // src/components/ui/button.tsx
+import { cn } from "@/lib/utils";
 import * as React from "react";
+
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?:
@@ -37,6 +39,7 @@ export function Button({
     icon: "h-10 w-10",
   };
 
+<<<<<<< HEAD
   return (
     <button
       className={`${baseStyles} ${variants[variant]} ${sizes[size]} ${className}`}
@@ -44,3 +47,17 @@ export function Button({
     />
   );
 }
+=======
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  function Button({ className, variant = "default", size = "default", type = "button", ...props }, ref) {
+    return (
+      <button
+        ref={ref}
+        type={type}
+        className={cn(baseStyles, variants[variant], sizes[size], className)}
+        {...props}
+      />
+    );
+  },
+);
+>>>>>>> 7ca9048 (Comprehensive code review fixes: security, consistency, UX, and a11y)
