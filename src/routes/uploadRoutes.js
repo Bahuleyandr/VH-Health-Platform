@@ -163,10 +163,9 @@ wrapRoutes(
   }
 );
 
-export default router;
 // 🔗 Convenience: Get download info by storage key (for patient app)
 // This is outside the RBAC wrapper since it needs simpler auth
-router.get('/by-key/:storageKey(*)', async (req, res) => {
+router.get('/by-key/:storageKey', async (req, res) => {
   try {
     const { storageKey } = req.params;
     const result = await db.query(
@@ -197,3 +196,5 @@ router.get('/by-key/:storageKey(*)', async (req, res) => {
     return res.status(500).json({ success: false, message: 'Download failed' });
   }
 });
+
+export default router;
