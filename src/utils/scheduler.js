@@ -43,7 +43,7 @@ cron.schedule('0 0 * * *', () => {
 cron.schedule('0 2 * * *', () => {
   logger.info('Scheduled Task: Backing up database...');
   try {
-    backupDb();
+    backupDb('.env', 'local');
   } catch (err) {
     logger.error('Error during backupDb task:', err);
   }
@@ -109,7 +109,7 @@ export async function runAllScheduledTasksNow() {
     if (!swaggerDocument) {throw new Error('Swagger document not loaded');}
     logger.info('✅ Swagger documentation validated.');
 
-    backupDb();
+    backupDb('.env', 'local');
     await executeCleanup();
 
     cleanupBackups(path.resolve('backups', 'local'));
