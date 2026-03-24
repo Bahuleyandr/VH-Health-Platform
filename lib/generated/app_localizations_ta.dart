@@ -810,4 +810,53 @@ class AppLocalizationsTa extends AppLocalizations {
   @override
   String get downloadPermissionDenied =>
       'கோப்புகளைப் பதிவிறக்க சேமிப்பக அனுமதி தேவை.';
+
+  @override
+  String get yourHealthTabRecords => "Records";
+  @override
+  String get yourHealthTabConsultations => "Consultations";
+  @override
+  String get yourHealthTabSummary => "Summary";
+  @override
+  String get consultationDoctor => "Doctor";
+  @override
+  String get consultationDiagnosis => "Diagnosis";
+  @override
+  String get consultationNotes => "Notes";
+  @override
+  String get consultationDate => "Date";
+  @override
+  String get consultationsEmpty => "No consultations found";
+  @override
+  String get summaryAllergies => "Allergies";
+  @override
+  String get summaryConditions => "Conditions";
+  @override
+  String get summaryOverview => "Health Overview";
+  @override
+  String get summaryNoAllergies => "No known allergies";
+  @override
+  String get summaryNoConditions => "No known conditions";
+  @override
+  String get summaryNoData => "No health summary available";
+  @override
+  String get investigationsResultsTitle => "Investigation Results";
+  @override
+  String get investigationsTabUpload => "Upload";
+  @override
+  String get investigationsTabResults => "Results";
+  @override
+  String get investigationsStatusPending => "Pending";
+  @override
+  String get investigationsStatusCompleted => "Completed";
+  @override
+  String get investigationsNoResults => "No investigation results yet";
+  @override
+  String get investigationsDownloadReport => "Download Report";
+  @override
+  String get investigationsDownloadFailed => "Failed to download report";
+  @override
+  String get investigationsFiles => "Files";
+  @override
+  String get profileIncomplete => "Please complete your profile to continue";
 }

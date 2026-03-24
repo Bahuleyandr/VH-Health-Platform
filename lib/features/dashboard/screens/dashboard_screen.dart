@@ -1,6 +1,7 @@
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth/core/navigation/app_router.dart';
 
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -9,6 +10,7 @@ import 'package:provider/provider.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:vhhealth/core/config/api_config.dart';
 import 'package:vhhealth/core/widgets/language_dropdown.dart';
@@ -45,27 +47,132 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? cachedName;
   Color _focusColor = Colors.blue;
   
-  // Features list - initialized once
+  // Real-time appointment polling
+  Timer? _appointmentPoller;
+  Map<String, dynamic>? _todayAppointment;
+  String _appointmentStatus = '';
+
+  // Features list
   late final List<FeatureIconData> _features;
 
   @override
   void initState() {
     super.initState();
-    
-    // Initialize features immediately
     _features = _initializeFeatures();
-    
-    // Set initial appointments
     lastAppointment = widget.lastAppointment;
     nextAppointment = widget.nextAppointment;
     cachedName = widget.name;
-    
-    // Defer data loading to avoid blocking UI
+
     SchedulerBinding.instance.addPostFrameCallback((_) {
       _loadCachedData();
       _maybeFetchFromBackend();
+      _startAppointmentPolling();
     });
   }
+
+  @override
+  void dispose() {
+    _appointmentPoller?.cancel();
+    super.dispose();
+  }
+
+  // ── Appointment polling (30s) ──────────────────────────────────
+  void _startAppointmentPolling() {
+    _pollAppointments(); // immediate first poll
+    _appointmentPoller = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _pollAppointments(),
+    );
+  }
+
+  Future<void> _pollAppointments() async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null || uid.isEmpty) return;
+
+      final uri = Uri.parse('${ApiConfig.baseUrl}/appointments/uid/$uid');
+      final res = await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders())
+          .timeout(const Duration(seconds: 8));
+      if (!mounted) return;
+
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body);
+        final List<dynamic> appointments = body['data'] ?? body ?? [];
+
+        // Find today's appointment
+        final now = DateTime.now();
+        final todayStr = DateFormat('yyyy-MM-dd').format(now);
+
+        Map<String, dynamic>? todayAppt;
+        for (final appt in appointments) {
+          final dateStr = appt['appointment_date']?.toString() ?? '';
+          // Check if appointment is today
+          if (dateStr.startsWith(todayStr)) {
+            final status = appt['status']?.toString() ?? '';
+            if (status != 'CANCELLED' && status != 'NO_SHOW') {
+              todayAppt = Map<String, dynamic>.from(appt);
+              break;
+            }
+          }
+        }
+
+        if (mounted) {
+          setState(() {
+            _todayAppointment = todayAppt;
+            _appointmentStatus = todayAppt?['status']?.toString() ?? '';
+          });
+        }
+      }
+    } catch (_) {
+      // Silent fail — polling is best-effort
+    }
+  }
+
+  String _statusLabel(String status) {
+    switch (status.toUpperCase()) {
+      case 'SCHEDULED':
+      case 'CONFIRMED':
+        return 'Waiting';
+      case 'IN_PROGRESS':
+        return 'In Consultation';
+      case 'COMPLETED':
+        return 'Completed';
+      case 'RESCHEDULED':
+        return 'Rescheduled';
+      default:
+        return status;
+    }
+  }
+
+  Color _statusColor(String status) {
+    switch (status.toUpperCase()) {
+      case 'SCHEDULED':
+      case 'CONFIRMED':
+        return Colors.orange;
+      case 'IN_PROGRESS':
+        return Colors.blue;
+      case 'COMPLETED':
+        return Colors.green;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _statusIcon(String status) {
+    switch (status.toUpperCase()) {
+      case 'SCHEDULED':
+      case 'CONFIRMED':
+        return LucideIcons.clock;
+      case 'IN_PROGRESS':
+        return LucideIcons.stethoscope;
+      case 'COMPLETED':
+        return LucideIcons.checkCircle;
+      default:
+        return LucideIcons.alertCircle;
+    }
+  }
+
+  // ── Existing methods (unchanged) ───────────────────────────────
 
   List<FeatureIconData> _initializeFeatures() {
     return [
@@ -127,7 +234,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _secureStorage.read(key: 'nextAppointment'),
         _secureStorage.read(key: 'userName'),
       ]);
-      
       if (mounted) {
         setState(() {
           lastAppointment = results[0] ?? widget.lastAppointment;
@@ -135,24 +241,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
           cachedName = results[2] ?? widget.name;
         });
       }
-    } catch (_) {
-      // Silent fail
-    }
+    } catch (_) {}
   }
 
   Future<void> _maybeFetchFromBackend() async {
     try {
       final fetched = await _secureStorage.read(key: 'fetched_dashboard');
       if (!mounted || fetched == 'true') return;
-      
-      // Delay network call to avoid blocking initial render
       await Future.delayed(const Duration(seconds: 1));
-      if (mounted) {
-        _fetchAndStoreDashboard();
-      }
-    } catch (_) {
-      // Silent fail
-    }
+      if (mounted) _fetchAndStoreDashboard();
+    } catch (_) {}
   }
 
   Future<void> _fetchAndStoreDashboard() async {
@@ -169,7 +267,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final last = data['lastAppointment'];
         final next = data['nextAppointment'];
 
-        // Batch write operations
         await Future.wait([
           _secureStorage.write(key: 'userName', value: name),
           _secureStorage.write(key: 'lastAppointment', value: last),
@@ -185,18 +282,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           });
         }
       }
-    } catch (_) {
-      // Silent fail
-    }
+    } catch (_) {}
   }
 
   void _openFeature(BuildContext context, String routeName) {
-    // Store user data if navigating to departments
     if (routeName == '/departments') {
       AppRouter.setUserData(widget.phone, cachedName ?? widget.name);
     }
-    
-    // For routes that need the health route alias
     if (routeName == '/your-health') {
       context.push('/health');
     } else {
@@ -206,7 +298,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _toggleTheme() =>
       Provider.of<ThemeProvider>(context, listen: false).toggleTheme();
-      
+
   void _toggleAccessibility() =>
       Provider.of<ThemeProvider>(context, listen: false).toggleFontSize();
 
@@ -222,6 +314,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
     final nameToShow = cachedName ?? widget.name;
     final screenHeight = MediaQuery.of(context).size.height;
     final isGuest = nameToShow == 'Guest';
@@ -231,11 +324,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         title: Text('Hello, ${nameToShow == 'Guest' ? nameToShow : '$nameToShow!'}'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.brightness_6), 
+            icon: const Icon(Icons.brightness_6),
             onPressed: _toggleTheme,
           ),
           IconButton(
-            icon: const Icon(Icons.accessibility), 
+            icon: const Icon(Icons.accessibility),
             onPressed: _toggleAccessibility,
           ),
           const _LanguageMenuButton(),
@@ -246,22 +339,65 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: SafeArea(
           child: Column(
             children: [
-              // Upper section with dial (75% of available space)
+              // Today's appointment status card (real-time)
+              if (_todayAppointment != null && !isGuest)
+                _TodayAppointmentCard(
+                  appointment: _todayAppointment!,
+                  statusLabel: _statusLabel(_appointmentStatus),
+                  statusColor: _statusColor(_appointmentStatus),
+                  statusIcon: _statusIcon(_appointmentStatus),
+                ),
+
+              // Quick action buttons
+              if (!isGuest)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      _QuickActionButton(
+                        icon: LucideIcons.calendarPlus,
+                        label: 'Book',
+                        color: cs.primary,
+                        onTap: () => _openFeature(context, '/appointments'),
+                      ),
+                      _QuickActionButton(
+                        icon: LucideIcons.fileText,
+                        label: 'Records',
+                        color: cs.tertiary,
+                        onTap: () => _openFeature(context, '/your-health'),
+                      ),
+                      _QuickActionButton(
+                        icon: LucideIcons.pill,
+                        label: 'Pharmacy',
+                        color: cs.secondary,
+                        onTap: () => _openFeature(context, '/pharmacy'),
+                      ),
+                      _QuickActionButton(
+                        icon: Icons.favorite,
+                        label: 'SOS',
+                        color: Colors.red,
+                        onTap: _triggerSOS,
+                      ),
+                    ],
+                  ),
+                ),
+
+              // Feature dial
               Expanded(
                 flex: 3,
                 child: Padding(
-                  padding: const EdgeInsets.all(24), // Increased padding for safety
+                  padding: const EdgeInsets.all(24),
                   child: CircularFeatureDial(
                     features: _features,
-                    size: MediaQuery.of(context).size.width * 0.75, // Conservative size
+                    size: MediaQuery.of(context).size.width * 0.75,
                     onFocusColorChanged: (color) {
                       setState(() => _focusColor = color);
                     },
                   ),
                 ),
               ),
-              
-              // Lower section with appointment widget (25% of available space)
+
+              // Appointment card
               if (!isGuest)
                 Container(
                   constraints: BoxConstraints(
@@ -290,7 +426,133 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 }
 
-// Language Menu Button Widget
+// ── Quick Action Button ──────────────────────────────────────────
+class _QuickActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _QuickActionButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: color, size: 22),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Today's Appointment Status Card (real-time) ──────────────────
+class _TodayAppointmentCard extends StatelessWidget {
+  final Map<String, dynamic> appointment;
+  final String statusLabel;
+  final Color statusColor;
+  final IconData statusIcon;
+
+  const _TodayAppointmentCard({
+    required this.appointment,
+    required this.statusLabel,
+    required this.statusColor,
+    required this.statusIcon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final doctorName = appointment['doctor_name']?.toString() ?? 'Doctor';
+    final time = appointment['appointment_time']?.toString() ?? '';
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: statusColor.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: statusColor.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(statusIcon, color: statusColor, size: 28),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: statusColor,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'TODAY',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      statusLabel,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: statusColor,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Dr. $doctorName${time.isNotEmpty ? ' • $time' : ''}',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Language Menu Button ─────────────────────────────────────────
 class _LanguageMenuButton extends StatelessWidget {
   const _LanguageMenuButton();
 
@@ -313,7 +575,7 @@ class _LanguageMenuButton extends StatelessWidget {
   }
 }
 
-// Enhanced Appointment Card Widget
+// ── Appointment Card ─────────────────────────────────────────────
 class _AppointmentCard extends StatelessWidget {
   final String? lastAppointment;
   final String? nextAppointment;
@@ -330,7 +592,7 @@ class _AppointmentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Container(
       margin: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -347,7 +609,6 @@ class _AppointmentCard extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Header
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
@@ -356,11 +617,7 @@ class _AppointmentCard extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Icon(
-                  LucideIcons.calendar,
-                  color: theme.colorScheme.primary,
-                  size: 20,
-                ),
+                Icon(LucideIcons.calendar, color: theme.colorScheme.primary, size: 20),
                 const SizedBox(width: 8),
                 Text(
                   'Appointments',
@@ -372,13 +629,10 @@ class _AppointmentCard extends StatelessWidget {
               ],
             ),
           ),
-          
-          // Appointments Content
           Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                // Last Appointment
                 Expanded(
                   child: _buildAppointmentInfo(
                     context,
@@ -389,16 +643,12 @@ class _AppointmentCard extends StatelessWidget {
                     isPast: true,
                   ),
                 ),
-                
-                // Divider
                 Container(
                   height: 50,
                   width: 1,
                   color: theme.colorScheme.outline.withValues(alpha: 0.2),
                   margin: const EdgeInsets.symmetric(horizontal: 16),
                 ),
-                
-                // Next Appointment
                 Expanded(
                   child: _buildAppointmentInfo(
                     context,
@@ -412,8 +662,6 @@ class _AppointmentCard extends StatelessWidget {
               ],
             ),
           ),
-          
-          // Action buttons
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
@@ -430,9 +678,7 @@ class _AppointmentCard extends StatelessWidget {
                     onPressed: onViewHistory,
                     icon: const Icon(LucideIcons.history, size: 16),
                     label: const Text('History'),
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                    ),
+                    style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 8)),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -441,9 +687,7 @@ class _AppointmentCard extends StatelessWidget {
                     onPressed: onScheduleNew,
                     icon: const Icon(LucideIcons.plus, size: 16),
                     label: const Text('Schedule'),
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                    ),
+                    style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 8)),
                   ),
                 ),
               ],
@@ -464,14 +708,10 @@ class _AppointmentCard extends StatelessWidget {
   }) {
     final theme = Theme.of(context);
     final hasDate = date != null && date.isNotEmpty && date != 'Not Available';
-    
+
     return Column(
       children: [
-        Icon(
-          icon,
-          color: iconColor,
-          size: 28,
-        ),
+        Icon(icon, color: iconColor, size: 28),
         const SizedBox(height: 8),
         Text(
           label,
@@ -484,9 +724,9 @@ class _AppointmentCard extends StatelessWidget {
           hasDate ? _formatDate(date) : 'Not Scheduled',
           style: theme.textTheme.bodyMedium?.copyWith(
             fontWeight: FontWeight.bold,
-            color: hasDate 
-              ? theme.colorScheme.onSurface 
-              : theme.colorScheme.onSurface.withValues(alpha: 0.5),
+            color: hasDate
+                ? theme.colorScheme.onSurface
+                : theme.colorScheme.onSurface.withValues(alpha: 0.5),
           ),
           textAlign: TextAlign.center,
         ),
@@ -506,59 +746,28 @@ class _AppointmentCard extends StatelessWidget {
 
   String _formatDate(String date) {
     try {
-      // Try parsing different date formats
-      DateTime? parsedDate;
-      
-      // Try dd/MM/yyyy format first
-      try {
-        parsedDate = DateFormat('dd/MM/yyyy').parse(date);
-      } catch (_) {
-        // Try yyyy-MM-dd format
-        try {
-          parsedDate = DateFormat('yyyy-MM-dd').parse(date);
-        } catch (_) {
-          // Try other formats
-          parsedDate = DateTime.tryParse(date);
-        }
-      }
-      
-      if (parsedDate != null) {
-        return DateFormat('dd/MM/yyyy').format(parsedDate);
-      }
-    } catch (_) {
-      // Return original if parsing fails
-    }
+      DateTime? d;
+      try { d = DateFormat('dd/MM/yyyy').parse(date); } catch (_) {}
+      d ??= DateTime.tryParse(date);
+      if (d != null) return DateFormat('dd/MM/yyyy').format(d);
+    } catch (_) {}
     return date;
   }
 
   String _getDaysUntil(String date) {
     try {
-      DateTime? parsedDate;
-      
-      try {
-        parsedDate = DateFormat('dd/MM/yyyy').parse(date);
-      } catch (_) {
-        try {
-          parsedDate = DateFormat('yyyy-MM-dd').parse(date);
-        } catch (_) {
-          parsedDate = DateTime.tryParse(date);
-        }
+      DateTime? d;
+      try { d = DateFormat('dd/MM/yyyy').parse(date); } catch (_) {}
+      d ??= DateTime.tryParse(date);
+      if (d != null) {
+        final diff = DateTime(d.year, d.month, d.day)
+            .difference(DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day))
+            .inDays;
+        if (diff == 0) return 'Today';
+        if (diff == 1) return 'Tomorrow';
+        if (diff > 0) return 'In $diff days';
       }
-      
-      if (parsedDate != null) {
-        final now = DateTime.now();
-        final today = DateTime(now.year, now.month, now.day);
-        final appointmentDate = DateTime(parsedDate.year, parsedDate.month, parsedDate.day);
-        final difference = appointmentDate.difference(today).inDays;
-        
-        if (difference == 0) return 'Today';
-        if (difference == 1) return 'Tomorrow';
-        if (difference > 0) return 'In $difference days';
-        return '';
-      }
-    } catch (_) {
-      // Silent fail
-    }
+    } catch (_) {}
     return '';
   }
 }

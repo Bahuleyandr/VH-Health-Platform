@@ -1579,6 +1579,31 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Storage permission is required to download files.'**
   String get downloadPermissionDenied;
+
+  String get yourHealthTabRecords;
+  String get yourHealthTabConsultations;
+  String get yourHealthTabSummary;
+  String get consultationDoctor;
+  String get consultationDiagnosis;
+  String get consultationNotes;
+  String get consultationDate;
+  String get consultationsEmpty;
+  String get summaryAllergies;
+  String get summaryConditions;
+  String get summaryOverview;
+  String get summaryNoAllergies;
+  String get summaryNoConditions;
+  String get summaryNoData;
+  String get investigationsResultsTitle;
+  String get investigationsTabUpload;
+  String get investigationsTabResults;
+  String get investigationsStatusPending;
+  String get investigationsStatusCompleted;
+  String get investigationsNoResults;
+  String get investigationsDownloadReport;
+  String get investigationsDownloadFailed;
+  String get investigationsFiles;
+  String get profileIncomplete;
 }
 
 class _AppLocalizationsDelegate
