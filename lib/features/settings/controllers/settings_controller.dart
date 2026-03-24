@@ -10,6 +10,8 @@ import 'package:permission_handler/permission_handler.dart';
 
 import 'package:vhhealth/core/providers/language_provider.dart';
 import 'package:vhhealth/core/providers/theme_provider.dart';
+import 'package:vhhealth/core/services/device_service.dart';
+import 'package:vhhealth/core/services/firebase_session_service.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -166,6 +168,15 @@ class SettingsController {
     );
 
     if (confirmed == true) {
+      // Unregister device and revoke session before clearing storage
+      try {
+        await Future.wait([
+          DeviceService.unregisterDevice(phone),
+          FirebaseSessionService.revokeSession(),
+        ]);
+      } catch (_) {
+        // Best-effort — don't block logout if these fail
+      }
       await _secureStorage.deleteAll();
       if (context.mounted) {
         await FirebaseAuth.instance.signOut();

@@ -3,6 +3,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth/core/navigation/app_router.dart';
+import 'package:vhhealth/core/services/device_service.dart';
+import 'package:vhhealth/core/services/firebase_session_service.dart';
 
 enum LogoutButtonStyle {
   iconOnly,   // for AppBar
@@ -50,8 +52,17 @@ class LogoutButton extends StatelessWidget {
     if (confirm != true || !context.mounted) return;
 
     try {
-      // Clear storage first
+      // Unregister device and revoke session before clearing storage
       const storage = FlutterSecureStorage();
+      final phone = await storage.read(key: 'phone') ?? '';
+      try {
+        await Future.wait([
+          DeviceService.unregisterDevice(phone),
+          FirebaseSessionService.revokeSession(),
+        ]);
+      } catch (_) {}
+
+      // Clear storage
       await storage.deleteAll();
       
       // ✅ FIXED: Use root navigator to navigate to login
