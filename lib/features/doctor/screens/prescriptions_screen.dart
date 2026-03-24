@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../../../core/config/api_config.dart';
 import '../../../core/services/staff_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
@@ -143,25 +145,22 @@ class _NewPrescriptionTabState extends State<_NewPrescriptionTab> {
 
     setState(() => _submitting = true);
     try {
-      // Using the consultation endpoint as a proxy for prescriptions.
-      // TODO: Replace with dedicated POST /staff/prescriptions endpoint.
-      await StaffApiService.uploadConsultation(
-        phone: _phoneCtrl.text.trim(),
-        consultationType: 'Prescription',
-        notes: _diagnosisCtrl.text.trim(),
-        date: DateFormat('yyyy-MM-dd').format(DateTime.now()),
-        additionalData: {
-          'medications': _medications
-              .map((m) => {
-                    'name': m.name,
-                    'dosage': m.dosage,
-                    'frequency': m.frequency,
-                    'duration': m.duration,
-                    'instructions': m.instructions,
-                  })
-              .toList(),
-          'additionalNotes': _notesCtrl.text.trim(),
-        },
+      final medicationsList = _medications
+          .map((m) => {
+                'name': m.name,
+                'dosage': m.dosage,
+                'frequency': m.frequency,
+                'duration': m.duration,
+                'instructions': m.instructions,
+              })
+          .toList();
+
+      await StaffApiService.createPrescription(
+        patientId: int.parse(_phoneCtrl.text.trim()),
+        title: 'Prescription - ${DateFormat('dd MMM yyyy').format(DateTime.now())}',
+        diagnosis: _diagnosisCtrl.text.trim(),
+        medications: jsonEncode(medicationsList),
+        description: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -199,20 +198,20 @@ class _NewPrescriptionTabState extends State<_NewPrescriptionTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Patient phone
+            // Patient ID
             TextFormField(
               controller: _phoneCtrl,
-              keyboardType: TextInputType.phone,
+              keyboardType: TextInputType.number,
               decoration: const InputDecoration(
-                labelText: 'Patient Phone Number',
-                hintText: '+91 XXXXX XXXXX',
-                prefixIcon: Icon(Icons.phone_outlined),
+                labelText: 'Patient ID',
+                hintText: 'Enter patient ID',
+                prefixIcon: Icon(Icons.person_outlined),
               ),
               validator: (v) {
                 if (v == null || v.trim().isEmpty)
-                  return 'Phone is required';
-                if (v.trim().length < 10)
-                  return 'Enter valid phone number';
+                  return 'Patient ID is required';
+                if (int.tryParse(v.trim()) == null)
+                  return 'Enter a valid number';
                 return null;
               },
             ),
@@ -476,13 +475,14 @@ class _RecentPrescriptionsTabState extends State<_RecentPrescriptionsTab> {
       _error = null;
     });
     try {
-      // TODO: Fetch from /staff/prescriptions when endpoint is available.
-      // Using consultations as proxy.
-      final data = await StaffApiService.getAppointments(
-        status: 'completed',
-        limit: 30,
-      );
-      final list = data['appointments'] as List? ?? data['data'] as List? ?? [];
+      final staffId = await ApiConfig.getStaffId();
+      Map<String, dynamic> data;
+      if (staffId != null) {
+        data = await StaffApiService.getDoctorRecords(staffId);
+      } else {
+        data = await StaffApiService.getMedicalRecords(type: 'PRESCRIPTION');
+      }
+      final list = data['records'] as List? ?? data['data'] as List? ?? [];
       if (mounted) setState(() => _prescriptions = list);
     } catch (e) {
       if (mounted) {
@@ -549,8 +549,8 @@ class _RecentPrescriptionsTabState extends State<_RecentPrescriptionsTab> {
               child: Icon(Icons.medication_liquid,
                   color: Colors.white, size: 20),
             ),
-            title: Text(p['patientName'] ?? p['patient']?['name'] ?? 'Unknown'),
-            subtitle: Text(p['dateTime'] ?? p['date'] ?? ''),
+            title: Text(p['title']?.toString() ?? p['patientName'] ?? p['patient']?['name'] ?? 'Unknown'),
+            subtitle: Text(p['created_at']?.toString() ?? p['dateTime'] ?? p['date'] ?? ''),
             trailing: const Icon(Icons.chevron_right),
           ),
         );

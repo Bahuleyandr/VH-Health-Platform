@@ -38,6 +38,12 @@ import '../../features/directory/screens/staff_directory_screen.dart';
 // Notifications
 import '../../features/notifications/screens/notifications_screen.dart';
 
+// Schedule
+import '../../features/schedule/screens/schedule_screen.dart';
+
+// Handover
+import '../../features/nursing/screens/handover_screen.dart';
+
 // About
 import '../../features/about/screens/about_screen.dart';
 
@@ -192,6 +198,22 @@ final GoRouter appRouter = GoRouter(
           name: 'staff-directory',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: StaffDirectoryScreen()),
+        ),
+
+        // Schedule
+        GoRoute(
+          path: '/schedule',
+          name: 'schedule',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: ScheduleScreen()),
+        ),
+
+        // Handover
+        GoRoute(
+          path: '/handover',
+          name: 'handover',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: HandoverScreen()),
         ),
 
         // Notifications

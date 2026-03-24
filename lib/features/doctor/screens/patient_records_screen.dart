@@ -37,10 +37,8 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
       _error = null;
     });
     try {
-      // Patient records are accessible via the appointments endpoint.
-      // TODO: Use a dedicated /staff/patients endpoint when available.
-      final data = await StaffApiService.getAppointments(limit: 50);
-      final list = data['appointments'] as List? ?? data['data'] as List? ?? [];
+      final data = await StaffApiService.getMedicalRecords(limit: 50);
+      final list = data['records'] as List? ?? data['data'] as List? ?? [];
       if (mounted) setState(() => _appointments = list);
     } catch (e) {
       if (mounted) {
@@ -52,14 +50,32 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
     }
   }
 
+  Future<void> _searchByPhone(String phone) async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final data = await StaffApiService.getHealthRecordsByPhone(phone);
+      final list = data['records'] as List? ?? data['data'] as List? ?? [];
+      if (mounted) setState(() => _appointments = list);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   List<dynamic> get _filtered {
     if (_searchQuery.isEmpty) return _appointments;
     final q = _searchQuery.toLowerCase();
     return _appointments.where((a) {
-      final name = (a['patientName'] ?? a['patient']?['name'] ?? '')
+      final name = (a['patientName'] ?? a['patient']?['name'] ?? a['title'] ?? '')
           .toString()
           .toLowerCase();
-      final type = (a['type'] ?? a['appointmentType'] ?? '')
+      final type = (a['record_type'] ?? a['type'] ?? a['appointmentType'] ?? '')
           .toString()
           .toLowerCase();
       return name.contains(q) || type.contains(q);
@@ -94,6 +110,10 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                 fillColor: AppTheme.backgroundGrey,
               ),
               onChanged: (v) => setState(() => _searchQuery = v),
+              onSubmitted: (v) {
+                final digits = v.replaceAll(RegExp(r'\D'), '');
+                if (digits.length == 10) _searchByPhone(digits);
+              },
             ),
           ),
 
@@ -126,17 +146,21 @@ class _PatientCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final patientName = record['patientName']?.toString() ??
+    final patientName = record['title']?.toString() ??
+        record['patientName']?.toString() ??
         record['patient']?['name']?.toString() ??
         'Unknown Patient';
-    final type = record['type']?.toString() ??
+    final type = record['record_type']?.toString() ??
+        record['type']?.toString() ??
         record['appointmentType']?.toString() ??
         '—';
     final department = record['department']?.toString() ?? '';
-    final dateTime =
-        record['dateTime']?.toString() ?? record['date']?.toString() ?? '';
+    final dateTime = record['created_at']?.toString() ??
+        record['dateTime']?.toString() ??
+        record['date']?.toString() ??
+        '';
     final status =
-        record['status']?.toString().toLowerCase() ?? 'scheduled';
+        record['status']?.toString().toLowerCase() ?? 'active';
     final doctor = record['doctorName']?.toString() ??
         record['doctor']?.toString() ??
         '';

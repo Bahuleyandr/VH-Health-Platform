@@ -8,12 +8,14 @@ class NotificationItem {
   final String title;
   final String body;
   final DateTime timestamp;
+  final String? type;
   bool isRead;
 
   NotificationItem({
     required this.title,
     required this.body,
     required this.timestamp,
+    this.type,
     this.isRead = false,
   });
 }
@@ -97,6 +99,7 @@ class NotificationProvider extends ChangeNotifier {
         title: notification?.title ?? message.data['title'] ?? 'Notification',
         body: notification?.body ?? message.data['body'] ?? '',
         timestamp: DateTime.now(),
+        type: message.data['type']?.toString(),
       ),
     );
     notifyListeners();
@@ -116,6 +119,7 @@ class NotificationProvider extends ChangeNotifier {
           title: item['title'] ?? 'Notification',
           body: item['message'] ?? item['body'] ?? '',
           timestamp: DateTime.tryParse(item['created_at'] ?? '') ?? DateTime.now(),
+          type: item['type']?.toString(),
           isRead: item['is_read'] == true,
         ));
       }

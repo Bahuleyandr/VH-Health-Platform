@@ -193,6 +193,20 @@ class RoleFeatures {
     route: '/queue',
     color: Color(0xFF1565C0),
   );
+  static const DashboardFeature _schedule = DashboardFeature(
+    id: 'schedule',
+    title: 'Shift Schedule',
+    icon: Icons.schedule,
+    route: '/schedule',
+    color: Color(0xFF00838F),
+  );
+  static const DashboardFeature _handover = DashboardFeature(
+    id: 'handover',
+    title: 'Handover',
+    icon: Icons.swap_horiz,
+    route: '/handover',
+    color: Color(0xFF00695C),
+  );
   static const DashboardFeature _profile = DashboardFeature(
     id: 'profile',
     title: 'Profile',
@@ -213,6 +227,7 @@ class RoleFeatures {
     return switch (role) {
       StaffRole.doctor => [
           _attendance,
+          _schedule,
           _queue,
           _appointments,
           _patientRecords,
@@ -225,10 +240,12 @@ class RoleFeatures {
         ],
       StaffRole.nurse => [
           _attendance,
+          _schedule,
           _appointments,
           _patientRecords,
           _vitals,
           _nursingNotes,
+          _handover,
           _investigationResults,
           _leave,
           _staffDirectory,
@@ -237,6 +254,7 @@ class RoleFeatures {
         ],
       StaffRole.hr => [
           _attendance,
+          _schedule,
           _hrDashboard,
           _staffManagement,
           _performance,
@@ -247,6 +265,7 @@ class RoleFeatures {
         ],
       StaffRole.admin || StaffRole.superAdmin => [
           _attendance,
+          _schedule,
           _appointments,
           _patientRecords,
           _prescriptions,
@@ -264,6 +283,7 @@ class RoleFeatures {
         ],
       StaffRole.pharmacy => [
           _attendance,
+          _schedule,
           _pharmacyOrders,
           _leave,
           _staffDirectory,
@@ -272,6 +292,7 @@ class RoleFeatures {
         ],
       StaffRole.lab => [
           _attendance,
+          _schedule,
           _investigationsUpload,
           _investigationResults,
           _leave,
@@ -281,6 +302,7 @@ class RoleFeatures {
         ],
       StaffRole.general => [
           _attendance,
+          _schedule,
           _housekeepingTasks,
           _leave,
           _staffDirectory,

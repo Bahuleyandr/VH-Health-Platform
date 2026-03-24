@@ -18,8 +18,14 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   Map<String, dynamic>? _attendanceStatus;
   String? _staffId;
+  String? _phone;
   StaffRole _role = StaffRole.general;
   bool _loading = true;
+
+  // Stats
+  int _appointmentCount = 0;
+  List<Map<String, dynamic>> _upcomingAppointments = [];
+  List<dynamic> _recentNotifications = [];
 
   @override
   void initState() {
@@ -31,19 +37,58 @@ class _DashboardScreenState extends State<DashboardScreen> {
     setState(() => _loading = true);
     try {
       _staffId = await ApiConfig.getStaffId();
+      _phone = await ApiConfig.getPhone();
       final roleStr = await AuthService.getRole();
-      final status = await StaffApiService.getAttendanceStatus();
-      if (mounted) {
-        setState(() {
-          _role = StaffRole.fromString(roleStr);
-          _attendanceStatus = status;
-        });
+      _role = StaffRole.fromString(roleStr);
+
+      // Load all in parallel
+      final futures = <Future>[];
+
+      futures.add(StaffApiService.getAttendanceStatus().then(
+        (s) => _attendanceStatus = s,
+        onError: (_) {},
+      ));
+
+      // Appointments for clinical roles
+      if (_role == StaffRole.doctor ||
+          _role == StaffRole.nurse ||
+          _role.isAdminTier) {
+        final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+        futures.add(
+          StaffApiService.getAppointments(
+            staffId: _staffId,
+            date: today,
+            status: 'scheduled',
+            limit: 5,
+          ).then((data) {
+            final list = data['appointments'] as List? ?? [];
+            _appointmentCount = data['total'] ?? list.length;
+            _upcomingAppointments = list
+                .take(5)
+                .map((a) => a is Map<String, dynamic>
+                    ? a
+                    : <String, dynamic>{})
+                .toList();
+          }, onError: (_) {}),
+        );
       }
+
+      // Notifications
+      if (_phone != null) {
+        futures.add(
+          StaffApiService.getNotifications(_phone!).then(
+            (n) => _recentNotifications = n.take(5).toList(),
+            onError: (_) {},
+          ),
+        );
+      }
+
+      await Future.wait(futures);
     } catch (_) {
-      // Non-blocking — still load the role
+      // Non-blocking
       try {
         final roleStr = await AuthService.getRole();
-        if (mounted) setState(() => _role = StaffRole.fromString(roleStr));
+        if (mounted) _role = StaffRole.fromString(roleStr);
       } catch (_) {}
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -115,7 +160,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 color: Colors.white60, fontSize: 12),
                           ),
                           const SizedBox(width: 8),
-                          // Role badge
                           Container(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 10, vertical: 3),
@@ -156,14 +200,52 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           // Attendance status card
                           _AttendanceStatusCard(
                             isCheckedIn: checkedIn,
-                            checkInTime: _attendanceStatus?['checkInTime'],
+                            checkInTime:
+                                _attendanceStatus?['checkInTime'],
                             onTap: () => context.go('/attendance'),
                           ),
                           const SizedBox(height: 16),
 
+                          // Quick stats row
+                          _buildQuickStats(),
+                          const SizedBox(height: 16),
+
+                          // Quick actions
+                          const Text(
+                            'Quick Actions',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          _buildQuickActions(),
+                          const SizedBox(height: 16),
+
+                          // Upcoming appointments (clinical roles)
+                          if (_upcomingAppointments.isNotEmpty) ...[
+                            _buildSectionHeader(
+                                'Upcoming Appointments', '/appointments'),
+                            const SizedBox(height: 8),
+                            ..._upcomingAppointments
+                                .map(_buildAppointmentCard),
+                            const SizedBox(height: 16),
+                          ],
+
+                          // Recent activity
+                          if (_recentNotifications.isNotEmpty) ...[
+                            _buildSectionHeader(
+                                'Recent Activity', '/notifications'),
+                            const SizedBox(height: 8),
+                            ..._recentNotifications
+                                .map(_buildActivityItem),
+                            const SizedBox(height: 16),
+                          ],
+
                           // Feature grid
                           const Text(
-                            'Features',
+                            'All Features',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
@@ -174,7 +256,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           GridView.count(
                             crossAxisCount: 3,
                             shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
+                            physics:
+                                const NeverScrollableScrollPhysics(),
                             mainAxisSpacing: 12,
                             crossAxisSpacing: 12,
                             childAspectRatio: 1.0,
@@ -197,6 +280,269 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
   }
+
+  Widget _buildQuickStats() {
+    final stats = <_StatItem>[];
+
+    if (_role == StaffRole.doctor ||
+        _role == StaffRole.nurse ||
+        _role.isAdminTier) {
+      stats.add(_StatItem(
+        icon: Icons.calendar_today,
+        label: 'Appointments',
+        value: '$_appointmentCount',
+        color: const Color(0xFF6A1B9A),
+      ));
+    }
+
+    stats.add(_StatItem(
+      icon: Icons.notifications_active,
+      label: 'Notifications',
+      value: '${_recentNotifications.length}',
+      color: const Color(0xFFE65100),
+    ));
+
+    if (stats.isEmpty) return const SizedBox.shrink();
+
+    return Row(
+      children: stats.map((s) {
+        return Expanded(
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                children: [
+                  Icon(s.icon, color: s.color, size: 24),
+                  const SizedBox(height: 6),
+                  Text(
+                    s.value,
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: s.color,
+                    ),
+                  ),
+                  Text(
+                    s.label,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildQuickActions() {
+    final actions = <_QuickAction>[];
+
+    // Everyone gets attendance
+    actions.add(_QuickAction(
+      icon: Icons.fingerprint,
+      label: 'Check In/Out',
+      route: '/attendance',
+      color: const Color(0xFF1565C0),
+    ));
+
+    // Schedule for all
+    actions.add(_QuickAction(
+      icon: Icons.schedule,
+      label: 'Shift Schedule',
+      route: '/schedule',
+      color: const Color(0xFF00838F),
+    ));
+
+    // Role-specific
+    if (_role == StaffRole.doctor) {
+      actions.add(_QuickAction(
+        icon: Icons.medication_liquid,
+        label: 'Prescriptions',
+        route: '/prescriptions',
+        color: const Color(0xFF00838F),
+      ));
+      actions.add(_QuickAction(
+        icon: Icons.biotech,
+        label: 'Investigations',
+        route: '/investigations',
+        color: const Color(0xFF0097A7),
+      ));
+    } else if (_role == StaffRole.nurse) {
+      actions.add(_QuickAction(
+        icon: Icons.monitor_heart,
+        label: 'Vitals',
+        route: '/vitals',
+        color: const Color(0xFFC62828),
+      ));
+      actions.add(_QuickAction(
+        icon: Icons.swap_horiz,
+        label: 'Handover',
+        route: '/handover',
+        color: const Color(0xFF00695C),
+      ));
+    } else if (_role == StaffRole.pharmacy) {
+      actions.add(_QuickAction(
+        icon: Icons.medication,
+        label: 'Pharmacy',
+        route: '/pharmacy',
+        color: const Color(0xFFE65100),
+      ));
+    } else if (_role == StaffRole.lab) {
+      actions.add(_QuickAction(
+        icon: Icons.upload_file,
+        label: 'Upload Results',
+        route: '/investigations',
+        color: const Color(0xFF0097A7),
+      ));
+    }
+
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: actions.map((a) {
+        return ActionChip(
+          avatar: Icon(a.icon, size: 18, color: a.color),
+          label: Text(a.label),
+          onPressed: () => context.go(a.route),
+          backgroundColor: a.color.withOpacity(0.08),
+          side: BorderSide(color: a.color.withOpacity(0.2)),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildSectionHeader(String title, String route) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: AppTheme.textPrimary,
+          ),
+        ),
+        TextButton(
+          onPressed: () => context.go(route),
+          child: const Text('See all'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAppointmentCard(Map<String, dynamic> apt) {
+    final patientName = apt['patientName'] ?? apt['patient']?['name'] ?? 'Patient';
+    final time = apt['time'] ?? apt['scheduledTime'] ?? '';
+    final type = apt['type'] ?? apt['appointmentType'] ?? '';
+    String timeStr = '';
+    if (time is String && time.isNotEmpty) {
+      try {
+        timeStr = DateFormat('HH:mm').format(DateTime.parse(time));
+      } catch (_) {
+        timeStr = time;
+      }
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: const CircleAvatar(
+          backgroundColor: Color(0xFFE8EAF6),
+          child: Icon(Icons.person, color: Color(0xFF3949AB)),
+        ),
+        title: Text(
+          patientName.toString(),
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text(
+          [if (timeStr.isNotEmpty) timeStr, if (type.toString().isNotEmpty) type]
+              .join(' • '),
+        ),
+        trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+        onTap: () => context.go('/appointments'),
+      ),
+    );
+  }
+
+  Widget _buildActivityItem(dynamic notification) {
+    final n = notification is Map<String, dynamic>
+        ? notification
+        : <String, dynamic>{};
+    final title = n['title'] ?? 'Notification';
+    final body = n['body'] ?? n['message'] ?? '';
+    final ts = n['createdAt'] ?? n['timestamp'] ?? '';
+    String timeStr = '';
+    if (ts.toString().isNotEmpty) {
+      try {
+        final dt = DateTime.parse(ts.toString());
+        final diff = DateTime.now().difference(dt);
+        if (diff.inMinutes < 60) {
+          timeStr = '${diff.inMinutes}m ago';
+        } else if (diff.inHours < 24) {
+          timeStr = '${diff.inHours}h ago';
+        } else {
+          timeStr = DateFormat('d MMM').format(dt);
+        }
+      } catch (_) {}
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 6),
+      child: ListTile(
+        dense: true,
+        leading: const Icon(Icons.circle, size: 8, color: AppTheme.primaryBlue),
+        title: Text(
+          title.toString(),
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+        ),
+        subtitle: body.toString().isNotEmpty
+            ? Text(
+                body.toString(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12),
+              )
+            : null,
+        trailing: timeStr.isNotEmpty
+            ? Text(
+                timeStr,
+                style: const TextStyle(fontSize: 11, color: Colors.grey),
+              )
+            : null,
+      ),
+    );
+  }
+}
+
+class _StatItem {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+  const _StatItem({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+}
+
+class _QuickAction {
+  final IconData icon;
+  final String label;
+  final String route;
+  final Color color;
+  const _QuickAction({
+    required this.icon,
+    required this.label,
+    required this.route,
+    required this.color,
+  });
 }
 
 class _AttendanceStatusCard extends StatelessWidget {
@@ -227,7 +573,9 @@ class _AttendanceStatusCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: (isCheckedIn ? AppTheme.successGreen : AppTheme.warningAmber)
+              color: (isCheckedIn
+                      ? AppTheme.successGreen
+                      : AppTheme.warningAmber)
                   .withOpacity(0.3),
               blurRadius: 12,
               offset: const Offset(0, 4),
@@ -243,7 +591,9 @@ class _AttendanceStatusCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                isCheckedIn ? Icons.check_circle : Icons.radio_button_unchecked,
+                isCheckedIn
+                    ? Icons.check_circle
+                    : Icons.radio_button_unchecked,
                 color: Colors.white,
                 size: 28,
               ),
@@ -271,7 +621,8 @@ class _AttendanceStatusCard extends StatelessWidget {
                   ] else
                     const Text(
                       'Tap to manage attendance',
-                      style: TextStyle(color: Colors.white70, fontSize: 13),
+                      style:
+                          TextStyle(color: Colors.white70, fontSize: 13),
                     ),
                 ],
               ),
