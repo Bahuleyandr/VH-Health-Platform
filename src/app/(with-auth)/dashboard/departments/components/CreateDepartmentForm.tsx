@@ -1,8 +1,8 @@
 // src/app/(with-auth)/dashboard/departments/components/CreateDepartmentForm.tsx
 "use client";
 
-import { useCreateDepartment } from "@/hooks/api-hooks";
 import { useState } from "react";
+import { useCreateDepartment } from "@/hooks/api-hooks";
 
 export function CreateDepartmentForm() {
   const [isOpen, setIsOpen] = useState(false);

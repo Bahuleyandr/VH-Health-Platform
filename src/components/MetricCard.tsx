@@ -11,11 +11,8 @@ export function MetricCard({
       <div className="mt-2 flex items-end justify-between">
         <p className="text-2xl font-semibold">{value}</p>
         {delta != null && (
-          <span
-            className={`text-sm ${positive ? "text-emerald-600" : "text-red-600"}`}
-            aria-label={`${positive ? "Up" : "Down"} ${Math.abs(delta)}%`}
-          >
-            <span aria-hidden="true">{positive ? "▲" : "▼"}</span> {Math.abs(delta)}%
+          <span className={`text-sm ${positive ? "text-emerald-600" : "text-red-600"}`}>
+            {positive ? "▲" : "▼"} {Math.abs(delta)}%
           </span>
         )}
       </div>

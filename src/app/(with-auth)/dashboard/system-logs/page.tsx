@@ -1,18 +1,17 @@
 // src/app/(with-auth)/dashboard/system-logs/page.tsx
 "use client";
 
+import { useEffect, useState, useCallback, Suspense } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import type { AuditLog, SystemLog, LogFilters } from "@/lib/types";
 import { useSearchParams, useRouter } from "next/navigation";
-import { useEffect, useState, useCallback, Suspense } from "react";
-
 import { AuditLogsTable } from "./components/AuditLogsTable";
-import { KeyboardShortcuts } from "./components/KeyboardShortcuts";
-import { LogFilters as LogFiltersComponent } from "./components/LogFilters";
-import { LogLevelIndicator } from "./components/LogLevelIndicator";
-import { LogMonitor } from "./components/LogMonitor";
-import { LogStats } from "./components/LogStats";
 import { SystemLogsTable } from "./components/SystemLogsTable";
+import { LogFilters as LogFiltersComponent } from "./components/LogFilters";
+import { LogStats } from "./components/LogStats";
+import { LogMonitor } from "./components/LogMonitor";
+import { KeyboardShortcuts } from "./components/KeyboardShortcuts";
+import { LogLevelIndicator } from "./components/LogLevelIndicator";
 
 type Pagination = {
   totalPages?: number;

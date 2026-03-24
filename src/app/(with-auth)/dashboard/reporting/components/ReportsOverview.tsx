@@ -1,9 +1,9 @@
 // src/app/(with-auth)/dashboard/reporting/components/ReportsOverview.tsx
 "use client";
 
-import { Spinner } from "@/components/ui/spinner";
-import { fetchAdminAPI } from "@/lib/api";
 import { useState, useEffect, useCallback } from "react";
+import { fetchAdminAPI } from "@/lib/api";
+import { Spinner } from "@/components/ui/spinner";
 
 interface OverviewStats {
   totalAppointments: number;
@@ -94,24 +94,22 @@ export function ReportsOverview() {
       <div className="bg-white p-4 rounded-lg shadow">
         <div className="flex items-center gap-4">
           <div>
-            <label htmlFor="overview-date-from" className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
               From Date
             </label>
             <input
               type="date"
-              id="overview-date-from"
               value={dateRange.from}
               onChange={(e) => handleDateChange("from", e.target.value)}
               className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
           <div>
-            <label htmlFor="overview-date-to" className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
               To Date
             </label>
             <input
               type="date"
-              id="overview-date-to"
               value={dateRange.to}
               onChange={(e) => handleDateChange("to", e.target.value)}
               className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"

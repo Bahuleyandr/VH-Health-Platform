@@ -1,12 +1,10 @@
 // src/app/(with-auth)/dashboard/doctors/components/DoctorsTable.tsx
 "use client";
 
-import { AlertDialog } from "@/components/ui/alert-dialog";
-import { fetchAdminAPI } from "@/lib/api";
 import { Doctor } from "@/lib/types";
 import Link from "next/link";
 import { useState } from "react";
-import toast from "react-hot-toast";
+import { fetchAdminAPI } from "@/lib/api";
 
 interface DoctorsTableProps {
   doctors: Doctor[];
@@ -15,29 +13,35 @@ interface DoctorsTableProps {
 
 export function DoctorsTable({ doctors, onDoctorDeleted }: DoctorsTableProps) {
   const [deleting, setDeleting] = useState<number | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null);
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
+  const handleDelete = async (doctorId: number, doctorName: string) => {
+    if (
+      !window.confirm(
+        `Are you sure you want to delete Dr. ${doctorName}'s account? This action cannot be undone.`,
+      )
+    ) {
+      return;
+    }
 
-    setDeleting(deleteTarget.id);
+    setDeleting(doctorId);
     try {
-      await fetchAdminAPI(`/doctors/${deleteTarget.id}`, {
+      await fetchAdminAPI(`/doctors/${doctorId}`, {
         method: "DELETE",
       });
 
-      onDoctorDeleted?.();
-      toast.success(`Dr. ${deleteTarget.name} deleted successfully`);
-    } catch {
-      toast.error("Failed to delete doctor. Please try again.");
+      // Call the callback to refresh the list
+      if (onDoctorDeleted) {
+        onDoctorDeleted();
+      }
+    } catch (error) {
+      console.error("Deletion failed:", error);
+      alert("Failed to delete doctor. Please try again.");
     } finally {
       setDeleting(null);
-      setDeleteTarget(null);
     }
   };
 
   return (
-    <>
     <div className="bg-white shadow rounded-lg overflow-hidden">
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200">
@@ -128,7 +132,7 @@ export function DoctorsTable({ doctors, onDoctorDeleted }: DoctorsTableProps) {
                       Edit
                     </Link>
                     <button
-                      onClick={() => setDeleteTarget({ id: doctor.user_id, name: doctor.name })}
+                      onClick={() => handleDelete(doctor.user_id, doctor.name)}
                       disabled={deleting === doctor.user_id}
                       className={`${
                         deleting === doctor.user_id
@@ -146,17 +150,5 @@ export function DoctorsTable({ doctors, onDoctorDeleted }: DoctorsTableProps) {
         </table>
       </div>
     </div>
-
-    <AlertDialog
-      open={!!deleteTarget}
-      onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
-      title="Delete doctor"
-      description={`Are you sure you want to delete Dr. ${deleteTarget?.name ?? ""}'s account? This action cannot be undone.`}
-      confirmLabel="Delete"
-      variant="destructive"
-      onConfirm={handleDelete}
-      loading={deleting !== null}
-    />
-    </>
   );
 }

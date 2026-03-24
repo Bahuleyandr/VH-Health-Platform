@@ -1,8 +1,8 @@
 // src/hooks/useApi.ts
 "use client";
 
-import { fetchAdminAPI } from "@/lib/api";
 import { useCallback } from "react";
+import { fetchAdminAPI } from "@/lib/api";
 
 /**
  * Valid JSON types that can be sent as request body

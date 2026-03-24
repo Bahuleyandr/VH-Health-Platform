@@ -1,6 +1,5 @@
-import { Metadata } from 'next';
-
 import CleanDashboard from './CleanDashboard';
+import { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Dashboard | VH Admin Portal',

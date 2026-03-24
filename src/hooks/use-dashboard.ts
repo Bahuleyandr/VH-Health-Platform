@@ -1,10 +1,10 @@
 // src/hooks/use-dashboard.ts
 "use client";
 
-import { getJSON } from "@/lib/api";
-import { API_ENDPOINTS } from "@/lib/api-config";
-import type { DashboardData } from "@/lib/types";
 import { useQuery } from "@tanstack/react-query";
+import { API_ENDPOINTS } from "@/lib/api-config";
+import { getJSON } from "@/lib/api";
+import type { DashboardData } from "@/lib/types";
 
 export function useDashboardData() {
   return useQuery<DashboardData>({

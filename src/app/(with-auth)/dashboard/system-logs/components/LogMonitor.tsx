@@ -1,8 +1,8 @@
 // src/app/(with-auth)/dashboard/system-logs/components/LogMonitor.tsx
 "use client";
 
-import { AuditLog, SystemLog } from "@/lib/types";
 import { useState, useEffect } from "react";
+import { AuditLog, SystemLog } from "@/lib/types";
 
 interface LogMonitorProps {
   logs: AuditLog[] | SystemLog[];

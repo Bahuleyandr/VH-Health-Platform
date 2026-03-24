@@ -48,16 +48,13 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/api/proxy/:path*',
-        headers: [{ key: 'Origin', value: process.env.NEXT_PUBLIC_ALLOWED_ORIGIN || 'http://localhost:3000' }],
+        headers: [{ key: 'Origin', value: 'https://vh-health-portal.vercel.app' }],
       },
       {
         source: '/:path*',
         headers: [
           { key: 'Access-Control-Allow-Credentials', value: 'true' },
-          {
-            key: 'Access-Control-Allow-Origin',
-            value: process.env.NEXT_PUBLIC_ALLOWED_ORIGIN || 'https://vh-health-portal.vercel.app',
-          },
+          { key: 'Access-Control-Allow-Origin', value: '*' },
           { key: 'Access-Control-Allow-Methods', value: 'GET,DELETE,PATCH,POST,PUT' },
           {
             key: 'Access-Control-Allow-Headers',
