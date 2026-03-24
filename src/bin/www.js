@@ -9,6 +9,8 @@ dotenv.config();
 import http from 'http';
 import app from '../app.js';
 import { runAllScheduledTasksNow } from '../utils/scheduler.js';
+import { initWebSocket } from '../utils/websocket/wsServer.js';
+import { runMigrations } from '../utils/migrations/runMigrations.js';
 
 
 
@@ -53,7 +55,11 @@ function onListening() {
   const bind = typeof addr === 'string' ? 'pipe ' + addr : 'port ' + addr.port;
   console.log(`✅ VH Health Backend running on ${bind}`);
 
-  // Run all scheduled tasks once at startup
+  // Initialize WebSocket server
+  initWebSocket(server);
+
+  // Run database migrations then scheduled tasks
+  runMigrations().catch(err => console.error('Migration error:', err.message));
   runAllScheduledTasksNow();
 }
 

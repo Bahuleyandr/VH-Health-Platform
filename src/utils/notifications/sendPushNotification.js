@@ -2,6 +2,7 @@
 
 import admin from 'firebase-admin';
 import logger from '../../logging/logger.js';
+import { sendToUser } from '../websocket/wsServer.js';
 
 /**
  * Send push notification using Firebase Admin SDK
@@ -11,7 +12,15 @@ import logger from '../../logging/logger.js';
  * @param {string} options.body - Notification body
  * @param {Object} [options.data] - Optional custom key-value data
  */
-export async function sendPushNotification({ tokens, title, body, data = {} }) {
+export async function sendPushNotification({ tokens, title, body, data = {}, userId = null }) {
+  // Also push via WebSocket if userId is provided
+  if (userId) {
+    try {
+      sendToUser(String(userId), 'notification', { title, body, data });
+    } catch {
+      // WebSocket delivery is best-effort
+    }
+  }
   if (!tokens || (Array.isArray(tokens) && tokens.length === 0)) {
     logger.warn('📭 No FCM tokens provided for push notification');
     return { successCount: 0, failureCount: 0 };
