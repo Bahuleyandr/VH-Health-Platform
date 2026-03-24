@@ -18,7 +18,7 @@ export const useAttendanceAnalytics = (params?: {
     queryKey: ["admin", "attendance", "analytics", queryString],
     queryFn: () =>
       fetchAdminAPI(
-        `/admin/attendance/analytics${queryString ? `?${queryString}` : ""}`
+        `/admin/staff/attendance/analytics${queryString ? `?${queryString}` : ""}`
       ),
     staleTime: 60_000,
   });
@@ -28,7 +28,7 @@ export const useAttendanceAnalytics = (params?: {
 export const useAttendanceAnomalies = () => {
   return useQuery({
     queryKey: ["admin", "attendance", "anomalies"],
-    queryFn: () => fetchAdminAPI("/admin/attendance/anomalies"),
+    queryFn: () => fetchAdminAPI("/admin/staff/attendance/anomalies"),
     staleTime: 30_000,
   });
 };
@@ -39,7 +39,7 @@ export const useLateArrivals = (date: string, department?: string) => {
     queryKey: ["admin", "attendance", "late", { date, department }],
     queryFn: () =>
       fetchAdminAPI(
-        `/admin/attendance/late-arrivals?date=${date}${
+        `/admin/staff/attendance/late-arrivals?date=${date}${
           department ? `&department=${department}` : ""
         }`
       ),
@@ -52,7 +52,7 @@ export const useAbsentReport = (date: string, department?: string) => {
     queryKey: ["admin", "attendance", "absent", { date, department }],
     queryFn: () =>
       fetchAdminAPI(
-        `/admin/attendance/absent-report?date=${date}${
+        `/admin/staff/attendance/absent-report?date=${date}${
           department ? `&department=${department}` : ""
         }`
       ),
