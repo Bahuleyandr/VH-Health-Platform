@@ -41,9 +41,9 @@ Future<void> triggerSOS([BuildContext? ctx]) async {
   // ── 2. Backend POST (fire-and-forget) ────────────────────────────────────
   unawaited(ApiConfig.authenticatedHeaders().then(
     (headers) => http.post(
-      Uri.parse('${ApiConfig.baseUrl}/sos'),
+      Uri.parse('${ApiConfig.baseUrl}/sos/'),
       headers: headers,
-      body: '{"phone":"$phone","latitude":${lat ?? "null"},"longitude":${lng ?? "null"}}',
+      body: '{"phone":"$phone","latitude":${lat ?? "null"},"longitude":${lng ?? "null"},"emergencyType":"medical"}',
     ),
   ));
 
