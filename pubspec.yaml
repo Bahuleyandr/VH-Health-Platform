@@ -12,6 +12,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+
+  # ── Shared core ────────────────────────────────────────────────────────────
+  vhhealth_core:
+    path: ../vhhealth-core
     
   # ── Localisation ───────────────────────────────────────────────────────────
   flutter_localizations:
