@@ -10,6 +10,7 @@ import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { AuthDebugger } from '@/components/auth/AuthDebugger';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useAuth } from '@/contexts/AuthContext';
+import { AnnouncementBanner } from './notifications/components/AnnouncementBannerManager';
 import styles from './Dashboard.module.css';
 
 type NavItem = {
@@ -186,6 +187,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* Main Content */}
         <main id="main-content" role="main" className={styles.main}>
+          <AnnouncementBanner />
           {children}
         </main>
       </div>
