@@ -1,16 +1,24 @@
+/// Staff-specific API configuration.
+///
+/// Re-exports core's [ApiConfig] for baseUrl, apiKey, jsonHeaders, etc.
+/// Adds staff-specific JWT and credential storage using separate keys
+/// so staff and patient tokens never collide.
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:vhhealth_core/config/api_config.dart' as core;
+
+export 'package:vhhealth_core/config/api_config.dart' hide ApiConfig;
 
 class ApiConfig {
   ApiConfig._();
-  static const String baseUrl = 'https://api.vhhealth.app/api/v1';
-  static const String apiKey = 'vhhealth123';
+
   static const _storage = FlutterSecureStorage();
 
-  static Map<String, String> get jsonHeaders => {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-      };
+  // ── Delegate shared config to core ─────────────────────────────────────
+  static String get baseUrl => core.ApiConfig.baseUrl;
+  static String get apiKey => core.ApiConfig.apiKey;
+  static Map<String, String> get jsonHeaders => core.ApiConfig.jsonHeaders;
 
+  // ── Staff-specific authenticated headers (uses staff_jwt key) ──────────
   static Future<Map<String, String>> authenticatedHeaders() async {
     final jwt = await _storage.read(key: 'staff_jwt');
     return {
@@ -20,6 +28,7 @@ class ApiConfig {
     };
   }
 
+  // ── Staff credential storage ───────────────────────────────────────────
   static Future<void> saveJwt(String jwt) async {
     await _storage.write(key: 'staff_jwt', value: jwt);
   }

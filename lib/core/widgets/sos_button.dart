@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:vhhealth_core/widgets/sos_button.dart' as core;
 import '../theme/app_theme.dart';
 
+/// Staff-specific SOS button — animated AppBar icon that triggers
+/// the shared SOS flow from vhhealth_core after a confirmation dialog.
 class SosButton extends StatefulWidget {
   const SosButton({super.key});
 
@@ -54,13 +57,8 @@ class _SosButtonState extends State<SosButton>
             style: FilledButton.styleFrom(backgroundColor: AppTheme.errorRed),
             onPressed: () {
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('🚨 Emergency alert sent to response team'),
-                  backgroundColor: AppTheme.errorRed,
-                  duration: Duration(seconds: 4),
-                ),
-              );
+              // Trigger core SOS flow (location + backend + dialer)
+              core.triggerSOS(context);
             },
             child: const Text('Send Alert'),
           ),
