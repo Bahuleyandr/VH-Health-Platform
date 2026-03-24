@@ -13,9 +13,10 @@ import { scheduleArchiveMigrationJob } from './archiveMigrationJob.js';
 
 // Notifications
 import { sendAppointmentReminders } from './notifications/appointmentReminderJob.js';
+import { sendInvestigationNotifications } from './notifications/InvestigationNotificationJob.js';
 import { scheduleCleanupJob as scheduleR2CleanupJob, executeCleanup } from './r2CleanupJob.js';
 import loadSwaggerDocument from './swaggerLoader.js';
-// import { sendInvestigationNotifications } from './notifications/investigationNotificationJob.js'; // 🔕 Disabled for now
+import { verifyLatestBackup } from './backupVerification.js';
 
 // 🗓️ Daily at 00:00 - Purge old logs
 cron.schedule('0 0 * * *', () => {
@@ -39,11 +40,13 @@ cron.schedule('0 0 * * *', () => {
   }
 });
 
-// 🗓️ Daily at 02:00 - Backup database
+// 🗓️ Daily at 02:00 - Backup database + verification
 cron.schedule('0 2 * * *', () => {
   logger.info('Scheduled Task: Backing up database...');
   try {
     backupDb('.env', 'local');
+    // After a small delay, verify the latest backup
+    setTimeout(() => verifyLatestBackup(), 30000);
   } catch (err) {
     logger.error('Error during backupDb task:', err);
   }
@@ -86,17 +89,15 @@ cron.schedule('0 8 * * *', async () => {
   }
 });
 
-/*
-// 🔕 Daily at 09:00 - Send in-app investigation report notifications (currently disabled)
-// cron.schedule('0 9 * * *', async () => {
-//   logger.info('Scheduled Task: Sending investigation report notifications...');
-//   try {
-//     await sendInvestigationNotifications();
-//   } catch (err) {
-//     logger.error('Error sending investigation notifications:', err);
-//   }
-// });
-*/
+// 🗓️ Daily at 09:00 - Send in-app investigation report notifications
+cron.schedule('0 9 * * *', async () => {
+  logger.info('Scheduled Task: Sending investigation report notifications...');
+  try {
+    await sendInvestigationNotifications();
+  } catch (err) {
+    logger.error('Error sending investigation notifications:', err);
+  }
+});
 
 // ✅ Manual Trigger for all tasks
 export async function runAllScheduledTasksNow() {
@@ -116,7 +117,7 @@ export async function runAllScheduledTasksNow() {
     cleanupBackups(path.resolve('backups', 'render'));
 
     await sendAppointmentReminders();
-    // await sendInvestigationNotifications(); // 🔕 Temporarily skipped
+    await sendInvestigationNotifications();
 
     logger.info('✅ All manual tasks completed.');
   } catch (err) {
