@@ -43,8 +43,8 @@ class ThemeColors {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return BoxShadow(
       color: isDark
-          ? Colors.black.withOpacity(0.3)
-          : Colors.grey.withOpacity(0.2),
+          ? Colors.black.withValues(alpha: 0.3)
+          : Colors.grey.withValues(alpha: 0.2),
       blurRadius: isDark ? 8 : 10,
       offset: const Offset(0, 2),
     );
