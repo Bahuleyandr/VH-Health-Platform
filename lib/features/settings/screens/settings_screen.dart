@@ -1,13 +1,96 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../../../core/config/api_config.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/services/staff_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
+
+  Future<void> _showSetupPinDialog(BuildContext context) async {
+    final pinCtrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Set Up PIN'),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            controller: pinCtrl,
+            obscureText: true,
+            keyboardType: TextInputType.number,
+            maxLength: 6,
+            decoration: const InputDecoration(
+              labelText: 'Enter 4–6 digit PIN',
+              prefixIcon: Icon(Icons.pin_outlined),
+            ),
+            validator: (v) {
+              if (v == null || v.isEmpty) return 'PIN is required';
+              if (v.length < 4) return 'Minimum 4 digits';
+              return null;
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                Navigator.pop(context, true);
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && context.mounted) {
+      try {
+        final employeeId = await ApiConfig.getEmployeeId() ?? '';
+        await StaffApiService.setupPin(
+            employeeId: employeeId, pin: pinCtrl.text);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ PIN set up successfully'),
+              backgroundColor: AppTheme.successGreen,
+            ),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(e.toString().replaceFirst('Exception: ', '')),
+              backgroundColor: AppTheme.errorRed,
+            ),
+          );
+        }
+      }
+    }
+    pinCtrl.dispose();
+  }
+
+  Future<void> _showManageDevicesSheet(BuildContext context) async {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => const _ManageDevicesSheet(),
+    );
+  }
 
   Future<void> _logout(BuildContext context) async {
     final confirmed = await showDialog<bool>(
@@ -134,32 +217,23 @@ class SettingsScreen extends StatelessWidget {
           _SettingsCard(
             children: [
               _SettingsTile(
-                icon: Icons.fingerprint,
-                title: 'Biometric Login',
-                subtitle: 'Use fingerprint to sign in',
+                icon: Icons.pin_outlined,
+                title: 'Set Up PIN',
+                subtitle: 'Set or update your 4–6 digit quick-access PIN',
                 trailing: const Icon(Icons.chevron_right,
                     color: AppTheme.textSecondary),
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                        content:
-                            Text('Biometric setup requires device enrollment')),
-                  );
-                },
+                onTap: () => _showSetupPinDialog(context),
               ),
               const Divider(height: 1, indent: 56),
+              _BiometricToggleTile(),
+              const Divider(height: 1, indent: 56),
               _SettingsTile(
-                icon: Icons.pin_outlined,
-                title: 'Change PIN',
-                subtitle: 'Update your 4–6 digit quick-access PIN',
+                icon: Icons.devices,
+                title: 'Manage Devices',
+                subtitle: 'View and remove registered devices',
                 trailing: const Icon(Icons.chevron_right,
                     color: AppTheme.textSecondary),
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                        content: Text('PIN change coming soon')),
-                  );
-                },
+                onTap: () => _showManageDevicesSheet(context),
               ),
             ],
           ),
@@ -295,6 +369,207 @@ class _SettingsTile extends StatelessWidget {
           : null,
       trailing: trailing,
       onTap: onTap,
+    );
+  }
+}
+
+class _BiometricToggleTile extends StatefulWidget {
+  @override
+  State<_BiometricToggleTile> createState() => _BiometricToggleTileState();
+}
+
+class _BiometricToggleTileState extends State<_BiometricToggleTile> {
+  bool _enabled = false;
+  bool _loading = false;
+
+  Future<void> _toggle(bool value) async {
+    setState(() => _loading = true);
+    try {
+      final deviceToken = await AuthService.getDeviceToken() ?? '';
+      await StaffApiService.toggleBiometric(
+        enabled: value,
+        deviceToken: deviceToken,
+      );
+      setState(() => _enabled = value);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content:
+                Text(value ? '✅ Biometric enabled' : 'Biometric disabled'),
+            backgroundColor: AppTheme.successGreen,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: AppTheme.errorRed,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: const Icon(Icons.fingerprint, color: AppTheme.primaryBlue),
+      title: const Text('Biometric Login',
+          style: TextStyle(
+              fontWeight: FontWeight.w500, color: AppTheme.textPrimary)),
+      subtitle: const Text('Use fingerprint or face to sign in',
+          style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+      trailing: _loading
+          ? const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2))
+          : Switch(
+              value: _enabled,
+              activeColor: AppTheme.primaryBlue,
+              onChanged: _toggle,
+            ),
+    );
+  }
+}
+
+class _ManageDevicesSheet extends StatefulWidget {
+  const _ManageDevicesSheet();
+
+  @override
+  State<_ManageDevicesSheet> createState() => _ManageDevicesSheetState();
+}
+
+class _ManageDevicesSheetState extends State<_ManageDevicesSheet> {
+  List<dynamic> _devices = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final data = await StaffApiService.getRegisteredDevices();
+      _devices = data['devices'] as List? ?? [];
+    } catch (e) {
+      _error = e.toString().replaceFirst('Exception: ', '');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _removeDevice(String deviceId) async {
+    try {
+      await StaffApiService.removeRegisteredDevice(deviceId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Device removed'),
+            backgroundColor: AppTheme.successGreen,
+          ),
+        );
+        _load();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: AppTheme.errorRed,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.5,
+      maxChildSize: 0.85,
+      minChildSize: 0.3,
+      expand: false,
+      builder: (_, scrollCtrl) => Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                const Icon(Icons.devices, color: AppTheme.primaryBlue),
+                const SizedBox(width: 8),
+                const Text('Registered Devices',
+                    style: TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.bold)),
+                const Spacer(),
+                IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context)),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                    ? Center(child: Text(_error!))
+                    : _devices.isEmpty
+                        ? const Center(
+                            child: Text('No devices registered',
+                                style: TextStyle(
+                                    color: AppTheme.textSecondary)))
+                        : ListView.builder(
+                            controller: scrollCtrl,
+                            itemCount: _devices.length,
+                            itemBuilder: (_, i) {
+                              final d = _devices[i];
+                              final name = d['deviceName']?.toString() ??
+                                  d['name']?.toString() ??
+                                  'Unknown Device';
+                              final id = d['_id']?.toString() ??
+                                  d['id']?.toString() ??
+                                  d['deviceId']?.toString() ??
+                                  '';
+                              final platform =
+                                  d['platform']?.toString() ?? '';
+                              return ListTile(
+                                leading: Icon(
+                                  platform.toLowerCase().contains('ios')
+                                      ? Icons.phone_iphone
+                                      : Icons.phone_android,
+                                  color: AppTheme.primaryBlue,
+                                ),
+                                title: Text(name),
+                                subtitle: platform.isNotEmpty
+                                    ? Text(platform,
+                                        style: const TextStyle(
+                                            fontSize: 12,
+                                            color:
+                                                AppTheme.textSecondary))
+                                    : null,
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.delete_outline,
+                                      color: AppTheme.errorRed),
+                                  onPressed: () => _removeDevice(id),
+                                ),
+                              );
+                            },
+                          ),
+          ),
+        ],
+      ),
     );
   }
 }

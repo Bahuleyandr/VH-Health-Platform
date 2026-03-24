@@ -237,6 +237,171 @@ class StaffApiService {
     return _get('/auth/staff/attendance/today');
   }
 
+  // ─── Staff Auth Enhancements ───────────────────────────────────────────────
+
+  /// POST /auth/staff/setup-pin — set up quick-access PIN
+  static Future<Map<String, dynamic>> setupPin({
+    required String employeeId,
+    required String pin,
+  }) async {
+    return _post('/auth/staff/setup-pin', {
+      'employeeId': employeeId,
+      'pin': pin,
+    });
+  }
+
+  /// POST /auth/staff/toggle-biometric — enable/disable biometric login
+  static Future<Map<String, dynamic>> toggleBiometric({
+    required bool enabled,
+    required String deviceToken,
+  }) async {
+    return _post('/auth/staff/toggle-biometric', {
+      'enabled': enabled,
+      'deviceToken': deviceToken,
+    });
+  }
+
+  /// POST /auth/staff/quick-login — PIN or biometric quick login
+  static Future<Map<String, dynamic>> quickLogin({
+    required String employeeId,
+    String? pin,
+    String? biometricToken,
+    String? deviceToken,
+  }) async {
+    return _post('/auth/staff/quick-login', {
+      'employeeId': employeeId,
+      if (pin != null) 'pin': pin,
+      if (biometricToken != null) 'biometricToken': biometricToken,
+      if (deviceToken != null) 'deviceToken': deviceToken,
+    });
+  }
+
+  /// POST /auth/staff/register-device — register a trusted device
+  static Future<Map<String, dynamic>> registerTrustedDevice({
+    required String deviceToken,
+    required String deviceName,
+    required String platform,
+  }) async {
+    return _post('/auth/staff/register-device', {
+      'deviceToken': deviceToken,
+      'deviceName': deviceName,
+      'platform': platform,
+    });
+  }
+
+  /// POST /auth/staff/verify-device — verify a device token
+  static Future<Map<String, dynamic>> verifyDevice({
+    required String deviceToken,
+  }) async {
+    return _post('/auth/staff/verify-device', {
+      'deviceToken': deviceToken,
+    });
+  }
+
+  /// GET /auth/staff/profile — get staff profile from auth service
+  static Future<Map<String, dynamic>> getAuthProfile() async {
+    return _get('/auth/staff/profile');
+  }
+
+  /// GET /auth/staff/devices — list registered devices
+  static Future<Map<String, dynamic>> getRegisteredDevices() async {
+    return _get('/auth/staff/devices');
+  }
+
+  /// DELETE /auth/staff/device/:deviceId — remove a registered device
+  static Future<Map<String, dynamic>> removeRegisteredDevice(
+      String deviceId) async {
+    final headers = await ApiConfig.authenticatedHeaders();
+    final resp = await http.delete(
+      Uri.parse('${ApiConfig.baseUrl}/auth/staff/device/$deviceId'),
+      headers: headers,
+    );
+    return _handle(resp);
+  }
+
+  /// GET /auth/staff/attendance/history — attendance history from auth service
+  static Future<Map<String, dynamic>> getAttendanceHistory({
+    String? startDate,
+    String? endDate,
+    int? page,
+    int? limit,
+  }) async {
+    return _get('/auth/staff/attendance/history', query: {
+      if (startDate != null) 'startDate': startDate,
+      if (endDate != null) 'endDate': endDate,
+      if (page != null) 'page': page.toString(),
+      if (limit != null) 'limit': limit.toString(),
+    });
+  }
+
+  // ─── HR Endpoints ──────────────────────────────────────────────────────────
+
+  /// GET /staff/hr/performance-report — performance reports
+  static Future<Map<String, dynamic>> getPerformanceReport({
+    String? department,
+    String? period,
+  }) async {
+    return _get('/staff/hr/performance-report', query: {
+      if (department != null) 'department': department,
+      if (period != null) 'period': period,
+    });
+  }
+
+  /// GET /staff/hr/onboarding/:staff_id — onboarding checklist
+  static Future<Map<String, dynamic>> getOnboardingChecklist(
+      String staffId) async {
+    return _get('/staff/hr/onboarding/$staffId');
+  }
+
+  /// GET /staff/hr/department/:department/summary — department summary
+  static Future<Map<String, dynamic>> getDepartmentSummary(
+      String department) async {
+    return _get('/staff/hr/department/$department/summary');
+  }
+
+  /// GET /staff/hr/attendance-analytics — attendance analytics
+  static Future<Map<String, dynamic>> getAttendanceAnalytics({
+    String? startDate,
+    String? endDate,
+    String? department,
+  }) async {
+    return _get('/staff/hr/attendance-analytics', query: {
+      if (startDate != null) 'startDate': startDate,
+      if (endDate != null) 'endDate': endDate,
+      if (department != null) 'department': department,
+    });
+  }
+
+  /// GET /staff/hr/export-report — export staff report
+  static Future<Map<String, dynamic>> exportStaffReport({
+    String? format,
+    String? department,
+    String? reportType,
+  }) async {
+    return _get('/staff/hr/export-report', query: {
+      if (format != null) 'format': format,
+      if (department != null) 'department': department,
+      if (reportType != null) 'reportType': reportType,
+    });
+  }
+
+  /// POST /staff/hr/performance-review — create a performance review
+  static Future<Map<String, dynamic>> createPerformanceReview({
+    required String staffId,
+    required String period,
+    required double overallRating,
+    required String comments,
+    String? goals,
+  }) async {
+    return _post('/staff/hr/performance-review', {
+      'staff_id': staffId,
+      'period': period,
+      'overall_rating': overallRating,
+      'comments': comments,
+      if (goals != null) 'goals': goals,
+    });
+  }
+
   // ─── Notifications ────────────────────────────────────────────────────────
 
   /// GET /notifications/:phone — fetch notifications for staff

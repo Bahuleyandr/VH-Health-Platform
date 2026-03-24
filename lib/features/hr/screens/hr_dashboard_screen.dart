@@ -39,6 +39,13 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
     try {
       final data =
           await StaffApiService.getHRDashboard(timeframe: _timeframe);
+
+      // Merge attendance analytics for richer data
+      try {
+        final analytics = await StaffApiService.getAttendanceAnalytics();
+        data['attendanceAnalytics'] = analytics;
+      } catch (_) {}
+
       if (mounted) setState(() => _data = data);
     } catch (e) {
       if (mounted) {

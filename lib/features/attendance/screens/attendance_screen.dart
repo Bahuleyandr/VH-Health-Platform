@@ -37,12 +37,21 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           status['status'] == 'checked-in';
       _checkInTime = status['checkInTime']?.toString();
 
-      final staffId = await ApiConfig.getStaffId();
-      if (staffId != null) {
-        final hist = await StaffApiService.getAttendance(staffId);
-        _history = hist['records'] as List? ??
-            hist['attendance'] as List? ??
+      // Try auth attendance history first, fallback to staff attendance
+      try {
+        final authHist = await StaffApiService.getAttendanceHistory();
+        _history = authHist['records'] as List? ??
+            authHist['history'] as List? ??
+            authHist['attendance'] as List? ??
             [];
+      } catch (_) {
+        final staffId = await ApiConfig.getStaffId();
+        if (staffId != null) {
+          final hist = await StaffApiService.getAttendance(staffId);
+          _history = hist['records'] as List? ??
+              hist['attendance'] as List? ??
+              [];
+        }
       }
     } catch (e) {
       _error = e.toString().replaceFirst('Exception: ', '');

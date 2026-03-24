@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/services/staff_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -95,14 +96,19 @@ class _AddReviewTabState extends State<_AddReviewTab> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _submitting = true);
     try {
-      // TODO: Call backend API when performance review endpoint is ready.
-      // Expected: POST /staff/hr/performance
-      // Body: { employeeId, period, overallRating, comments, goals }
-      await Future.delayed(const Duration(milliseconds: 600));
+      await StaffApiService.createPerformanceReview(
+        staffId: _employeeIdCtrl.text.trim(),
+        period: _reviewPeriod,
+        overallRating: _overallRating,
+        comments: _commentsCtrl.text.trim(),
+        goals: _goalsCtrl.text.trim().isNotEmpty
+            ? _goalsCtrl.text.trim()
+            : null,
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('✅ Performance review saved (backend API pending)'),
+            content: Text('✅ Performance review saved'),
             backgroundColor: AppTheme.successGreen,
           ),
         );
@@ -130,32 +136,6 @@ class _AddReviewTabState extends State<_AddReviewTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // API pending notice
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppTheme.warningAmber.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(8),
-              border:
-                  Border.all(color: AppTheme.warningAmber.withOpacity(0.3)),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.info_outline,
-                    color: AppTheme.warningAmber, size: 18),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Backend integration coming soon. Reviews are previewed locally.',
-                    style: TextStyle(
-                        color: AppTheme.warningAmber, fontSize: 12),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-
           Form(
             key: _formKey,
             child: Column(
@@ -319,36 +299,143 @@ class _RatingLabel extends StatelessWidget {
   }
 }
 
-class _ReviewListTab extends StatelessWidget {
+class _ReviewListTab extends StatefulWidget {
   const _ReviewListTab();
 
   @override
+  State<_ReviewListTab> createState() => _ReviewListTabState();
+}
+
+class _ReviewListTabState extends State<_ReviewListTab> {
+  List<dynamic> _reviews = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final data = await StaffApiService.getPerformanceReport();
+      _reviews = data['reviews'] as List? ??
+          data['reports'] as List? ??
+          data['data'] as List? ??
+          [];
+    } catch (e) {
+      _error = e.toString().replaceFirst('Exception: ', '');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // TODO: Fetch performance reviews from backend when API is available
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.star_rate_outlined,
-              size: 56, color: AppTheme.textSecondary),
-          SizedBox(height: 16),
-          Text(
-            'Performance Reviews',
-            style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textPrimary),
-          ),
-          SizedBox(height: 8),
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 40),
-            child: Text(
-              'Performance reviews will appear here once the backend API is connected.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: AppTheme.textSecondary),
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline,
+                color: AppTheme.errorRed, size: 40),
+            const SizedBox(height: 8),
+            Text(_error!,
+                style: const TextStyle(color: AppTheme.textSecondary)),
+            TextButton(onPressed: _load, child: const Text('Retry')),
+          ],
+        ),
+      );
+    }
+    if (_reviews.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.star_rate_outlined,
+                size: 56, color: AppTheme.textSecondary),
+            SizedBox(height: 16),
+            Text('No reviews yet',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.textPrimary)),
+          ],
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _reviews.length,
+        itemBuilder: (_, i) {
+          final r = _reviews[i];
+          final name = r['staffName'] ?? r['staff_id'] ?? r['employeeId'] ?? '—';
+          final period = r['period'] ?? '—';
+          final rating = r['overall_rating'] ?? r['overallRating'] ?? 0;
+          final comments = r['comments'] ?? '';
+          return Card(
+            margin: const EdgeInsets.only(bottom: 10),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(name.toString(),
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.textPrimary)),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF57F17).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.star,
+                                color: Color(0xFFF57F17), size: 14),
+                            const SizedBox(width: 2),
+                            Text(rating.toString(),
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFFF57F17),
+                                    fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(period,
+                      style: const TextStyle(
+                          fontSize: 12, color: AppTheme.textSecondary)),
+                  if (comments.toString().isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(comments.toString(),
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 13, color: AppTheme.textPrimary)),
+                  ],
+                ],
+              ),
             ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }

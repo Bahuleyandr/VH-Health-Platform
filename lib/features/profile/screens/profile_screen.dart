@@ -48,7 +48,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (identifier == null) throw Exception('No identifier found');
 
       final data = await StaffApiService.getProfile(identifier);
-      final staff = data['staff'] ?? data;
+      final staff = Map<String, dynamic>.from(data['staff'] ?? data);
+
+      // Merge auth profile data as supplementary source
+      try {
+        final authData = await StaffApiService.getAuthProfile();
+        final authProfile = authData['staff'] ?? authData;
+        if (authProfile is Map) {
+          authProfile.forEach((k, v) {
+            if (v != null && (staff[k] == null || staff[k].toString().isEmpty)) {
+              staff[k] = v;
+            }
+          });
+        }
+      } catch (_) {
+        // Auth profile is supplementary — don't fail if unavailable
+      }
+
       if (mounted) {
         setState(() => _profile = staff);
         _phoneCtrl.text =

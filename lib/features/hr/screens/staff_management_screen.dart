@@ -13,9 +13,11 @@ class StaffManagementScreen extends StatefulWidget {
 
 class _StaffManagementScreenState extends State<StaffManagementScreen> {
   List<dynamic> _staff = [];
+  Map<String, dynamic>? _deptSummary;
   bool _loading = true;
   String? _error;
   String _searchQuery = '';
+  String? _selectedDept;
   final _searchCtrl = TextEditingController();
 
   @override
@@ -36,9 +38,6 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
       _error = null;
     });
     try {
-      // TODO: Replace with dedicated staff list endpoint when available.
-      // Currently using HR dashboard data as a fallback.
-      // Expected endpoint: GET /staff or GET /staff/hr/list
       final data = await StaffApiService.getHRDashboard();
       final list = data['staff'] as List? ??
           data['staffList'] as List? ??
@@ -102,6 +101,35 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
             ),
           ),
 
+          // Department summary bar
+          if (_deptSummary != null)
+            Container(
+              color: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${_selectedDept ?? 'Department'}: '
+                      '${_deptSummary!['totalStaff'] ?? _deptSummary!['count'] ?? '—'} staff',
+                      style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.primaryBlue),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: () =>
+                        setState(() {
+                          _deptSummary = null;
+                          _selectedDept = null;
+                        }),
+                  ),
+                ],
+              ),
+            ),
+
           Expanded(
             child: RefreshIndicator(
               onRefresh: _load,
@@ -125,6 +153,27 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _loadDeptSummary(String department) async {
+    try {
+      final data = await StaffApiService.getDepartmentSummary(department);
+      if (mounted) {
+        setState(() {
+          _deptSummary = data;
+          _selectedDept = department;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: AppTheme.errorRed,
+          ),
+        );
+      }
+    }
   }
 
   void _showAddStaffDialog(BuildContext context) {

@@ -4,7 +4,7 @@ import '../../../core/services/auth_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../services/login_service.dart';
 
-enum _LoginMode { password, pin }
+enum _LoginMode { password, pin, quickLogin }
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -23,6 +23,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   bool _loading = false;
   bool _rememberMe = true;
+  bool _deviceRegistered = false;
   String? _error;
 
   @override
@@ -37,6 +38,11 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() {
         _empIdController.text = saved['employeeId']!;
       });
+    }
+    // Check if device is registered for quick login
+    final registered = await AuthService.isDeviceRegistered();
+    if (mounted && registered && _empIdController.text.isNotEmpty) {
+      setState(() => _deviceRegistered = true);
     }
   }
 
@@ -55,7 +61,14 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
     try {
-      if (_mode == _LoginMode.password) {
+      if (_mode == _LoginMode.quickLogin) {
+        final deviceToken = await AuthService.getDeviceToken();
+        await AuthService.quickLogin(
+          employeeId: _empIdController.text,
+          pin: _pinController.text.isNotEmpty ? _pinController.text : null,
+          deviceToken: deviceToken,
+        );
+      } else if (_mode == _LoginMode.password) {
         await LoginService.loginWithPassword(
           employeeId: _empIdController.text,
           password: _passwordController.text,
@@ -186,12 +199,40 @@ class _LoginScreenState extends State<LoginScreen> {
                               onTap: () =>
                                   setState(() => _mode = _LoginMode.pin),
                             ),
+                            if (_deviceRegistered) ...[
+                              const SizedBox(width: 8),
+                              _ModeChip(
+                                label: 'Quick',
+                                selected: _mode == _LoginMode.quickLogin,
+                                onTap: () => setState(
+                                    () => _mode = _LoginMode.quickLogin),
+                              ),
+                            ],
                           ],
                         ),
                         const SizedBox(height: 16),
 
-                        // Password / PIN field
-                        if (_mode == _LoginMode.password)
+                        // Password / PIN / Quick login field
+                        if (_mode == _LoginMode.quickLogin)
+                          TextFormField(
+                            controller: _pinController,
+                            obscureText: true,
+                            keyboardType: TextInputType.number,
+                            maxLength: 6,
+                            decoration: const InputDecoration(
+                              labelText: 'PIN (or use biometric)',
+                              hintText: 'Enter PIN for quick access',
+                              prefixIcon: Icon(Icons.speed),
+                            ),
+                            validator: (v) {
+                              if (v == null || v.isEmpty) {
+                                return 'Enter your PIN';
+                              }
+                              if (v.length < 4) return 'Minimum 4 digits';
+                              return null;
+                            },
+                          )
+                        else if (_mode == _LoginMode.password)
                           TextFormField(
                             controller: _passwordController,
                             obscureText: _obscurePassword,
@@ -299,7 +340,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                 )
                               : Text(_mode == _LoginMode.password
                                   ? 'Sign In with Password'
-                                  : 'Sign In with PIN'),
+                                  : _mode == _LoginMode.quickLogin
+                                      ? 'Quick Sign In'
+                                      : 'Sign In with PIN'),
                         ),
 
                         const SizedBox(height: 32),

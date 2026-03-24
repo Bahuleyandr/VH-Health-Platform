@@ -106,6 +106,62 @@ class AuthService {
   static Future<String> getRole() => ApiConfig.getRole();
   static Future<void> setRole(String role) => ApiConfig.saveRole(role);
 
+  /// Quick login via PIN/biometric for registered devices
+  static Future<Map<String, dynamic>> quickLogin({
+    required String employeeId,
+    String? pin,
+    String? biometricToken,
+    String? deviceToken,
+  }) async {
+    final response = await http.post(
+      Uri.parse('${ApiConfig.baseUrl}/auth/staff/quick-login'),
+      headers: ApiConfig.jsonHeaders,
+      body: jsonEncode({
+        'employeeId': employeeId,
+        if (pin != null) 'pin': pin,
+        if (biometricToken != null) 'biometricToken': biometricToken,
+        if (deviceToken != null) 'deviceToken': deviceToken,
+      }),
+    );
+
+    final data = jsonDecode(response.body);
+    if (response.statusCode == 200 && data['success'] == true) {
+      final token = data['data']?['token'] ?? data['data']?['jwt'];
+      if (token != null) {
+        await ApiConfig.saveJwt(token);
+        await ApiConfig.saveEmployeeId(employeeId);
+
+        final staffId = data['data']?['staff']?['_id'] ??
+            data['data']?['staff']?['id'] ??
+            data['data']?['uid'];
+        if (staffId != null) await ApiConfig.saveStaffId(staffId.toString());
+
+        final role = data['data']?['staff']?['role'] ??
+            data['data']?['role'] ??
+            'GENERAL_STAFF';
+        await ApiConfig.saveRole(role.toString());
+      }
+      return data['data'] ?? data;
+    }
+    throw Exception(data['message'] ?? 'Quick login failed');
+  }
+
+  /// Check if device is registered for quick login
+  static Future<bool> isDeviceRegistered() async {
+    final deviceToken = await _storage.read(key: 'device_token');
+    return deviceToken != null && deviceToken.isNotEmpty;
+  }
+
+  /// Save device token locally
+  static Future<void> saveDeviceToken(String token) async {
+    await _storage.write(key: 'device_token', value: token);
+  }
+
+  /// Get saved device token
+  static Future<String?> getDeviceToken() async {
+    return await _storage.read(key: 'device_token');
+  }
+
   static Future<Map<String, String>?> getSavedCredentials() async {
     final employeeId = await _storage.read(key: 'employee_id');
     return employeeId != null ? {'employeeId': employeeId} : null;
