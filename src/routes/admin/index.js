@@ -28,6 +28,7 @@ import {
   getRecentActivity,
   getSystemAlerts,
   getModuleHealth,
+  getSystemHealth,
   refreshDashboardCache,
   generateDashboardReport,
 
