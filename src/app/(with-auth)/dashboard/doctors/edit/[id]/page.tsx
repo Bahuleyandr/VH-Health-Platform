@@ -1,13 +1,12 @@
 // src/app/(with-auth)/dashboard/doctors/edit/[id]/page.tsx
 "use client";
 
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { fetchAdminAPI } from "@/lib/api";
 import type { Department, Doctor } from "@/lib/types";
-import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
-
 import { EditDoctorForm } from "./components/EditDoctorForm";
+import Link from "next/link";
 
 function isObj(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null;

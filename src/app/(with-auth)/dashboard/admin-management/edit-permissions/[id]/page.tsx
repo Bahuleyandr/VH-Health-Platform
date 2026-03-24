@@ -1,13 +1,13 @@
 // src/app/(with-auth)/dashboard/admin-management/edit-permissions/[id]/page.tsx
 "use client";
 
-import { usePermissions } from "@/hooks/usePermissions";
+import { useEffect, useState, useCallback } from "react";
+import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import type { AdminUser } from "@/lib/types";
 import { getJSON, putJSON } from "@/lib/api";
 import { API_ENDPOINTS } from "@/lib/api-config";
-import type { AdminUser } from "@/lib/types";
-import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState, useCallback } from "react";
+import { usePermissions } from "@/hooks/usePermissions";
 
 const ALL_PERMISSIONS = [
   { value: "adminManagement", label: "Admin Management" },

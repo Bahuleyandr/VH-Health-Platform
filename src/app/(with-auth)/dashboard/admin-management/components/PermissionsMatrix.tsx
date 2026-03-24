@@ -1,8 +1,8 @@
 // src/app/(with-auth)/dashboard/admin-management/components/PermissionsMatrix.tsx
 "use client";
 
-import type { AdminUser } from "@/lib/types";
 import { useState, useMemo } from "react";
+import type { AdminUser } from "@/lib/types";
 
 interface PermissionsMatrixProps {
   admins: AdminUser[];

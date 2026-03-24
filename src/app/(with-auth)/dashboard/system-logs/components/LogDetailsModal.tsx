@@ -44,18 +44,12 @@ export function LogDetailsModal({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
       className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50"
       onClick={onClose}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClose(); }}
     >
       <div
-        role="button"
-        tabIndex={0}
         className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white"
         onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-bold text-gray-900">

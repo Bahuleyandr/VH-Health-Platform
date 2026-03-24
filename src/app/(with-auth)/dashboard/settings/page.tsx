@@ -1,36 +1,47 @@
 // src/app/(with-auth)/dashboard/settings/page.tsx
 "use client";
 
+import { useEffect, useState, Suspense } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import type { SystemSetting } from "@/lib/types";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Suspense } from "react";
-
 import { SettingsListForm } from "./components/SettingsListForm";
 
 function SettingsContent() {
-  const queryClient = useQueryClient();
+  const [settings, setSettings] = useState<SystemSetting[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const {
-    data: settings = [],
-    isLoading,
-    error,
-  } = useQuery({
-    queryKey: ["system-settings"],
-    queryFn: async () => {
+  async function fetchSettings() {
+    try {
+      setLoading(true);
+      setError(null);
+
       const response = await fetchAdminAPI<{ settings: SystemSetting[] }>(
         "/system/settings",
         { method: "GET" },
       );
-      return response?.settings ?? [];
-    },
-  });
+
+      setSettings(response?.settings ?? []);
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error ? err.message : "Failed to fetch settings";
+      setError(msg);
+      setSettings([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    // No eslint-disable needed — deps are intentional
+    fetchSettings();
+  }, []);
 
   const handleSettingUpdated = () => {
-    queryClient.invalidateQueries({ queryKey: ["system-settings"] });
+    fetchSettings();
   };
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
@@ -41,7 +52,7 @@ function SettingsContent() {
   if (error) {
     return (
       <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-        Error: {error instanceof Error ? error.message : "Failed to fetch settings"}
+        Error: {error}
       </div>
     );
   }

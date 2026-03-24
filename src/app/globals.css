@@ -3,7 +3,7 @@
 /* Tailwind v4 base */
 @import "tailwindcss";
 
-/* Animations */
+/* Animations (install: npm i tailwindcss-animate) */
 @plugin "tailwindcss-animate";
 
 /* Dark mode variant targeting a .dark root on <html> or <body> */

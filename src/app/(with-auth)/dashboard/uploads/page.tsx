@@ -1,8 +1,8 @@
 // src/app/(with-auth)/dashboard/uploads/page.tsx
 "use client";
 
-import { adminService } from "@/services/admin.service";
 import { useEffect, useState } from "react";
+import { adminService } from "@/services/admin.service";
 
 // Generic JSON type to avoid `any`
 type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
@@ -43,12 +43,7 @@ export default function UploadsPage() {
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-semibold">Uploads / File Management</h1>
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="text-center">
-            <div className="mx-auto h-10 w-10 animate-spin rounded-full border-b-2 border-blue-600" />
-            <p className="mt-3 text-sm text-gray-500">Loading…</p>
-          </div>
-        </div>
+        <div>Loading…</div>
       ) : (
         <>
           <Section title="Summary" data={summary} />

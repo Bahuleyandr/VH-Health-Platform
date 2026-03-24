@@ -1,9 +1,9 @@
 // src/app/(with-auth)/dashboard/settings/components/SettingsListForm.tsx
 "use client";
 
-import { fetchAdminAPI } from "@/lib/api";
 import { SystemSetting } from "@/lib/types";
 import { useState } from "react";
+import { fetchAdminAPI } from "@/lib/api";
 
 interface SettingsListFormProps {
   settings: SystemSetting[];

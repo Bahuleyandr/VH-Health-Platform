@@ -1,11 +1,11 @@
 // src/app/(with-auth)/dashboard/doctors/components/CreateDoctorForm.tsx
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { fetchAdminAPI } from "@/lib/api";
 import { Department } from "@/lib/types";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
 
 export function CreateDoctorForm({
   departments,

@@ -1,9 +1,9 @@
 // src/app/(with-auth)/dashboard/departments/components/EditDepartmentModal.tsx
 "use client";
 
+import { useState, useEffect } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import { Department } from "@/lib/types";
-import { useState, useEffect } from "react";
 
 interface EditDepartmentModalProps {
   department: Department;

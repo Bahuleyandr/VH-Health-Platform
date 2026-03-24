@@ -1,36 +1,75 @@
 // src/app/(with-auth)/dashboard/doctors/page.tsx
 "use client";
 
+import { useCallback, useEffect, useState } from "react";
 import { fetchAdminAPI } from "@/lib/api";
-import { normalizeList } from "@/lib/normalize-response";
 import type { Doctor } from "@/lib/types";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { DoctorsTable } from "./components/DoctorsTable";
 import Link from "next/link";
 
-import { DoctorsTable } from "./components/DoctorsTable";
+function isObj(x: unknown): x is Record<string, unknown> {
+  return typeof x === "object" && x !== null;
+}
 
-const normalizeDoctors = normalizeList<Doctor>("doctors");
+function isDoctor(x: unknown): x is Doctor {
+  if (!isObj(x)) return false;
+  // Minimal shape check; add fields if your type requires more
+  const id = (x as Record<string, unknown>).id;
+  const name = (x as Record<string, unknown>).name;
+  return (
+    (typeof id === "number" || typeof id === "string") &&
+    typeof name === "string"
+  );
+}
 
 export default function DoctorsPage() {
-  const queryClient = useQueryClient();
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const {
-    data: doctors = [],
-    isLoading,
-    error,
-  } = useQuery({
-    queryKey: ["doctors"],
-    queryFn: async () => {
+  const fetchDoctors = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // The API may return an array or an object with { doctors } (or sometimes { data })
       const resp = await fetchAdminAPI<unknown>("/doctors");
-      return normalizeDoctors(resp);
-    },
-  });
+
+      let list: Doctor[] = [];
+
+      if (Array.isArray(resp)) {
+        list = (resp as unknown[]).filter(isDoctor);
+      } else if (isObj(resp)) {
+        const obj = resp as Record<string, unknown>;
+        const doctorsProp = obj["doctors"];
+        const dataProp = obj["data"];
+
+        if (Array.isArray(doctorsProp)) {
+          list = (doctorsProp as unknown[]).filter(isDoctor);
+        } else if (Array.isArray(dataProp)) {
+          list = (dataProp as unknown[]).filter(isDoctor);
+        }
+      }
+
+      setDoctors(list);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch doctors");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Simple effect; no unused "cancelled" flag
+    fetchDoctors();
+  }, [fetchDoctors]);
 
   const handleDoctorDeleted = () => {
-    queryClient.invalidateQueries({ queryKey: ["doctors"] });
+    // Refresh the list after deletion
+    fetchDoctors();
   };
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="p-6">
         <div className="flex justify-center items-center h-64">
@@ -44,7 +83,7 @@ export default function DoctorsPage() {
     return (
       <div className="p-6">
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-          Error: {error instanceof Error ? error.message : "Failed to fetch doctors"}
+          Error: {error}
         </div>
       </div>
     );

@@ -1,14 +1,13 @@
 "use client";
 
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { UsersAPIResponse } from "@/lib/types";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
-
+import { UsersTable } from "./components/UsersTable";
 import { PaginationControls } from "./components/PaginationControls";
 import { UserFilters } from "./components/UserFilters";
-import { UsersTable } from "./components/UsersTable";
 
 function UsersContent() {
   const searchParams = useSearchParams();

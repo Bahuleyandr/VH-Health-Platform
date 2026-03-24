@@ -70,7 +70,12 @@ module.exports = {
     'react/react-in-jsx-scope': 'off',
     'react/jsx-uses-react': 'off',
     'react/no-unescaped-entities': 'error', // keep this — it caught your 404 text
-    '@next/next/no-html-link-for-pages': ['error', 'src/app'],
+    '@next/next/no-html-link-for-pages': [
+      'error',
+      {
+        pagesDir: ['pages', 'src/pages', 'app', 'src/app'], // App Router included
+      },
+    ],
 
     // Tailwind v4 beta: keep plugin, mute noisy rules for now
     'tailwindcss/no-custom-classname': 'off',
@@ -111,11 +116,5 @@ module.exports = {
     'coverage/**',
     'public/**',
     'next-env.d.ts',
-    'src/scripts/*.js',
-    'transforms/**',
-    '.eslintrc.cjs',
-    'eslint.config.mjs',
-    'postcss.config.mjs',
-    'reset-password.js',
   ],
 };

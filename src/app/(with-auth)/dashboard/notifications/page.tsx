@@ -1,37 +1,76 @@
 // src/app/(with-auth)/dashboard/notifications/page.tsx
 "use client";
 
+import { useEffect, useState, Suspense, useCallback } from "react";
 import { fetchAdminAPI } from "@/lib/api";
-import { normalizeList } from "@/lib/normalize-response";
 import type { Notification } from "@/lib/types";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Suspense } from "react";
-
-import { NotificationsTable } from "./components/NotificationsTable";
 import { SendAnnouncementForm } from "./components/SendAnnouncementForm";
+import { NotificationsTable } from "./components/NotificationsTable";
 
-const normalizeNotifications = normalizeList<Notification>("notifications");
+function isObj(x: unknown): x is Record<string, unknown> {
+  return typeof x === "object" && x !== null;
+}
+
+function isNotification(x: unknown): x is Notification {
+  if (!isObj(x)) return false;
+  const id = (x as Record<string, unknown>).id;
+  const message = (x as Record<string, unknown>).message;
+  const title = (x as Record<string, unknown>).title;
+  return (
+    (typeof id === "number" || typeof id === "string") &&
+    (typeof message === "string" || typeof title === "string")
+  );
+}
+
+function toNotificationArray(x: unknown): Notification[] {
+  if (Array.isArray(x))
+    return (x as unknown[]).filter(isNotification) as Notification[];
+  if (isObj(x)) {
+    const obj = x as Record<string, unknown>;
+    const n1 = obj.notifications;
+    const n2 = obj.data;
+    if (Array.isArray(n1))
+      return (n1 as unknown[]).filter(isNotification) as Notification[];
+    if (Array.isArray(n2))
+      return (n2 as unknown[]).filter(isNotification) as Notification[];
+  }
+  return [];
+}
 
 function NotificationsContent() {
-  const queryClient = useQueryClient();
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const {
-    data: notifications = [],
-    isLoading,
-    error,
-  } = useQuery({
-    queryKey: ["notifications"],
-    queryFn: async () => {
+  const fetchNotifications = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Backend may return an array or an object with { notifications } / { data }
       const resp = await fetchAdminAPI<unknown>("/notifications");
-      return normalizeNotifications(resp);
-    },
-  });
+      const list = toNotificationArray(resp);
+
+      setNotifications(list);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to fetch notifications",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
 
   const handleAnnouncementSent = () => {
-    queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    // Refresh notifications after sending
+    fetchNotifications();
   };
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
@@ -42,7 +81,7 @@ function NotificationsContent() {
   if (error) {
     return (
       <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-        Error: {error instanceof Error ? error.message : "Failed to fetch notifications"}
+        Error: {error}
       </div>
     );
   }

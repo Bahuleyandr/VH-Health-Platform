@@ -1,8 +1,8 @@
 // src/components/SystemAlerts.tsx
 "use client";
 
-import { adminService } from "@/services/admin.service";
 import { useEffect, useState } from "react";
+import { adminService } from "@/services/admin.service";
 
 interface Alert {
   type: "warning" | "error" | "info";
@@ -26,8 +26,8 @@ export function SystemAlerts() {
     try {
       const response = await adminService.getSystemAlerts();
       setAlerts(response.data);
-    } catch {
-      // Silently fail — alerts are non-critical UI
+    } catch (error) {
+      console.error("Failed to fetch alerts:", error);
     } finally {
       setLoading(false);
     }

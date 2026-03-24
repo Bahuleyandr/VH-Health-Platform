@@ -20,11 +20,10 @@
  * 3. Try accessing directly: http://localhost:3000/images/hospital-logo.png
  */
 
+import { useEffect, useRef, useState } from 'react';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { QueryProvider } from '@/providers/query-provider';
 import Image from 'next/image';
-import { useEffect, useRef, useState } from 'react';
-
 import styles from './Login.module.css';
 
 function LoginInner() {
@@ -305,9 +304,9 @@ function LoginInner() {
               />
               Remember me
             </label>
-            <button type="button" className={styles.forgotLink} onClick={() => {}}>
+            <a href="#" className={styles.forgotLink} onClick={(e) => e.preventDefault()}>
               Forgot password?
-            </button>
+            </a>
           </div>
 
           {/* Submit Button */}
@@ -340,9 +339,9 @@ function LoginInner() {
       <div className={styles.footer}>
         <p>© 2024 VH Health Hospital. All rights reserved.</p>
         <div className={styles.footerLinks}>
-          <button type="button" className={styles.footerLink}>Terms</button>
-          <button type="button" className={styles.footerLink}>Privacy</button>
-          <button type="button" className={styles.footerLink}>Support</button>
+          <a href="#" className={styles.footerLink} onClick={(e) => e.preventDefault()}>Terms</a>
+          <a href="#" className={styles.footerLink} onClick={(e) => e.preventDefault()}>Privacy</a>
+          <a href="#" className={styles.footerLink} onClick={(e) => e.preventDefault()}>Support</a>
         </div>
       </div>
     </div>

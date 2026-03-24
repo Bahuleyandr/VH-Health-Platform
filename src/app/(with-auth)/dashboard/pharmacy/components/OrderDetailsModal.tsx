@@ -1,8 +1,8 @@
 // src/app/(with-auth)/dashboard/pharmacy/components/OrderDetailsModal.tsx
 "use client";
 
-import { fetchAdminAPI } from "@/lib/api";
 import { useEffect, useState, useCallback } from "react";
+import { fetchAdminAPI } from "@/lib/api";
 
 // Define proper types for order details
 interface OrderItem {

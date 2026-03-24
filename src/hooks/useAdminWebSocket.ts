@@ -1,9 +1,7 @@
 // src/hooks/useAdminWebSocket.ts
-import { WS_BASE_URL } from "@/lib/api-config";
+import { useWebSocket } from "./useWebSocket";
 import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-
-import { useWebSocket } from "./useWebSocket";
 
 // Message types
 export interface SystemAlertMessage {
@@ -41,7 +39,7 @@ export function useAdminWebSocket() {
   const queryClient = useQueryClient();
 
   // Normalize base URL and avoid double slashes
-  const base = WS_BASE_URL.replace(/\/+$/, "");
+  const base = (process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:3001").replace(/\/+$/, "");
   const url = `${base}/admin`;
 
   // Allow union with string in case your wrapper forwards raw text sometimes
@@ -113,9 +111,15 @@ export function useAdminWebSocket() {
         }
       },
 
-      onOpen: () => {},
-      onClose: () => {},
-      onError: () => {},
+      onOpen: () => {
+        // console.debug("Admin WebSocket connected");
+      },
+      onClose: () => {
+        // console.debug("Admin WebSocket disconnected");
+      },
+      onError: (error) => {
+        // console.error("Admin WebSocket error:", error);
+      },
     });
 
   return {

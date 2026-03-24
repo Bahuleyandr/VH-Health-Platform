@@ -1,8 +1,8 @@
 // src/components/auth/RequirePermissions.tsx
 "use client";
 
-import { usePermissions } from "@/hooks/usePermissions";
 import type { ReactNode } from "react";
+import { usePermissions } from "@/hooks/usePermissions";
 
 interface RequirePermissionsProps {
   requiredRole?: "ADMIN" | "SUPER_ADMIN";

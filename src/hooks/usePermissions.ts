@@ -1,9 +1,9 @@
 // src/hooks/usePermissions.ts
 'use client';
 
+import { useMemo, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import type { AdminUser } from '@/lib/types';
-import { useMemo, useCallback } from 'react';
 
 type AdminRole = 'ADMIN' | 'SUPER_ADMIN';
 
