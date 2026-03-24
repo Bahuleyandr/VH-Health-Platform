@@ -4,51 +4,38 @@
 import { RequirePermissions } from "@/components/auth/RequirePermissions";
 import { getJSON } from "@/lib/api";
 import { API_ENDPOINTS } from "@/lib/api-config";
+import { normalizeList } from "@/lib/normalize-response";
 import type { AdminUser } from "@/lib/types";
-import { useEffect, useState, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { AdminsTable } from "./components/AdminsTable";
 import { AdminStats } from "./components/AdminStats";
 import { CreateAdminForm } from "./components/CreateAdminForm";
 import { PermissionsMatrix } from "./components/PermissionsMatrix";
 
+const normalizeAdmins = normalizeList<AdminUser>("admins");
 
 export default function AdminManagementPage() {
-  const [admins, setAdmins] = useState<AdminUser[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  const fetchAdmins = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const {
+    data: admins = [],
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ["admins"],
+    queryFn: async () => {
+      const data = await getJSON<unknown>(API_ENDPOINTS.auth.adminManagement);
+      return normalizeAdmins(data);
+    },
+  });
 
-      // Backend may return either an array or an object with { admins: [...] }
-      const data = await getJSON<AdminUser[] | { admins: AdminUser[] }>(
-        API_ENDPOINTS.auth.adminManagement,
-      );
-      const list = Array.isArray(data)
-        ? data
-        : ((data as { admins?: AdminUser[] })?.admins ?? []);
+  const handleAdminCreated = () =>
+    queryClient.invalidateQueries({ queryKey: ["admins"] });
+  const handleAdminUpdated = () =>
+    queryClient.invalidateQueries({ queryKey: ["admins"] });
 
-      setAdmins(list);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to fetch administrators",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void fetchAdmins();
-  }, [fetchAdmins]);
-
-  const handleAdminCreated = () => void fetchAdmins();
-  const handleAdminUpdated = () => void fetchAdmins();
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="p-6">
         <div className="flex justify-center items-center h-64">
@@ -62,7 +49,7 @@ export default function AdminManagementPage() {
     return (
       <div className="p-6">
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-          Error: {error}
+          Error: {error instanceof Error ? error.message : "Failed to fetch administrators"}
         </div>
       </div>
     );

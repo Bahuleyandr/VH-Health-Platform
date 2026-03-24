@@ -3,46 +3,34 @@
 
 import { fetchAdminAPI } from "@/lib/api";
 import type { SystemSetting } from "@/lib/types";
-import { useEffect, useState, Suspense } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Suspense } from "react";
 
 import { SettingsListForm } from "./components/SettingsListForm";
 
 function SettingsContent() {
-  const [settings, setSettings] = useState<SystemSetting[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  async function fetchSettings() {
-    try {
-      setLoading(true);
-      setError(null);
-
+  const {
+    data: settings = [],
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ["system-settings"],
+    queryFn: async () => {
       const response = await fetchAdminAPI<{ settings: SystemSetting[] }>(
         "/system/settings",
         { method: "GET" },
       );
-
-      setSettings(response?.settings ?? []);
-    } catch (err: unknown) {
-      const msg =
-        err instanceof Error ? err.message : "Failed to fetch settings";
-      setError(msg);
-      setSettings([]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    // No eslint-disable needed — deps are intentional
-    fetchSettings();
-  }, []);
+      return response?.settings ?? [];
+    },
+  });
 
   const handleSettingUpdated = () => {
-    fetchSettings();
+    queryClient.invalidateQueries({ queryKey: ["system-settings"] });
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex justify-center items-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
@@ -53,7 +41,7 @@ function SettingsContent() {
   if (error) {
     return (
       <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-        Error: {error}
+        Error: {error instanceof Error ? error.message : "Failed to fetch settings"}
       </div>
     );
   }

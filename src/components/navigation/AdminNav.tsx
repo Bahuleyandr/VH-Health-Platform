@@ -88,10 +88,12 @@ export default function AdminNav() {
   });
 
   return (
-    <nav className="space-y-1">
+    <nav aria-label="Admin navigation" className="space-y-1">
       {visible.map((item) => {
         const active =
-          pathname === item.href || pathname.startsWith(item.href + "/");
+          item.href === "/dashboard"
+            ? pathname === item.href
+            : pathname === item.href || pathname.startsWith(item.href + "/");
         return (
           <Link
             key={item.href}

@@ -115,10 +115,11 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
       {/* Filters */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="filter-patient" className="block text-sm font-medium text-gray-700 mb-1">
             Patient
           </label>
           <select
+            id="filter-patient"
             name="patient_id"
             value={filters.patient_id}
             onChange={handleFilterChange}
@@ -134,10 +135,11 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="filter-doctor" className="block text-sm font-medium text-gray-700 mb-1">
             Doctor
           </label>
           <select
+            id="filter-doctor"
             name="doctor_id"
             value={filters.doctor_id}
             onChange={handleFilterChange}
@@ -153,10 +155,11 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="filter-report-type" className="block text-sm font-medium text-gray-700 mb-1">
             Report Type
           </label>
           <select
+            id="filter-report-type"
             name="report_type"
             value={filters.report_type}
             onChange={handleFilterChange}
@@ -170,11 +173,12 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="filter-date-from" className="block text-sm font-medium text-gray-700 mb-1">
             From Date
           </label>
           <input
             type="date"
+            id="filter-date-from"
             name="date_from"
             value={filters.date_from}
             onChange={handleFilterChange}
@@ -183,11 +187,12 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="filter-date-to" className="block text-sm font-medium text-gray-700 mb-1">
             To Date
           </label>
           <input
             type="date"
+            id="filter-date-to"
             name="date_to"
             value={filters.date_to}
             onChange={handleFilterChange}

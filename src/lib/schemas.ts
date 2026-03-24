@@ -23,6 +23,21 @@ export const AdminUserSchema = UserSchema.extend({
   last_login: z.string(), // ISO date string
 });
 
+/**
+ * Lenient schema for parsing admin user data from localStorage.
+ * Uses .passthrough() so extra fields are preserved, and optional
+ * fields won't fail on incomplete cached data.
+ */
+export const StoredAdminUserSchema = z
+  .object({
+    id: z.union([z.string(), z.number()]),
+    role: z.enum(["SUPER_ADMIN", "ADMIN", "DOCTOR", "NURSE", "PHARMACIST", "TECHNICIAN", "RECEPTIONIST", "PATIENT"]),
+    permissions: z.array(z.string()).optional().default([]),
+    name: z.string().optional(),
+    email: z.string().optional(),
+  })
+  .passthrough();
+
 /* =========================
  * Domain Schemas
  * ========================= */

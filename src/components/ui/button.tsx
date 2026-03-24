@@ -1,5 +1,7 @@
 // src/components/ui/button.tsx
+import { cn } from "@/lib/utils";
 import * as React from "react";
+
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?:
@@ -32,11 +34,12 @@ const sizes = {
 };
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  function Button({ className = "", variant = "default", size = "default", ...props }, ref) {
+  function Button({ className, variant = "default", size = "default", type = "button", ...props }, ref) {
     return (
       <button
         ref={ref}
-        className={`${baseStyles} ${variants[variant]} ${sizes[size]} ${className}`}
+        type={type}
+        className={cn(baseStyles, variants[variant], sizes[size], className)}
         {...props}
       />
     );

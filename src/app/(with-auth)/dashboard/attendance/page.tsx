@@ -44,7 +44,12 @@ export default function AttendancePage() {
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-semibold">Staff Attendance</h1>
       {loading ? (
-        <div>Loading…</div>
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <div className="mx-auto h-10 w-10 animate-spin rounded-full border-b-2 border-blue-600" />
+            <p className="mt-3 text-sm text-gray-500">Loading…</p>
+          </div>
+        </div>
       ) : (
         <>
           <Section title="Analytics" data={analytics} />

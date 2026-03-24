@@ -40,12 +40,18 @@ export function KeyboardShortcuts() {
 
       {showShortcuts && (
         <div
+          role="button"
+          tabIndex={0}
           className="fixed inset-0 bg-gray-600 bg-opacity-50 z-50"
           onClick={() => setShowShortcuts(false)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowShortcuts(false); }}
         >
           <div
+            role="button"
+            tabIndex={0}
             className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl p-6 max-w-sm"
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-gray-900">

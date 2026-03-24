@@ -326,6 +326,7 @@ export function CommandPalette() {
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   onKeyDown={handleKeyNavigation}
+                  // eslint-disable-next-line jsx-a11y/no-autofocus
                   autoFocus
                 />
                 <kbd className="ml-3 flex h-6 w-6 items-center justify-center rounded border border-gray-300 text-xs text-gray-500">
@@ -338,12 +339,15 @@ export function CommandPalette() {
                   {filteredCommands.map((command, index) => (
                     <li
                       key={command.id}
+                      role="option"
+                      aria-selected={index === selectedIndex}
                       className={`mx-2 flex cursor-pointer select-none items-center rounded-md px-3 py-2 ${
                         index === selectedIndex
                           ? "bg-blue-50 text-blue-600"
                           : "hover:bg-gray-100"
                       }`}
                       onClick={command.action}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') command.action(); }}
                       onMouseEnter={() => setSelectedIndex(index)}
                     >
                       <div className="mr-3 flex h-10 w-10 flex-none items-center justify-center rounded-lg bg-gray-100">
