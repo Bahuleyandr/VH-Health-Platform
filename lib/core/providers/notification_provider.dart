@@ -35,7 +35,10 @@ class NotificationProvider extends ChangeNotifier {
       );
 
       if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body.trim());
+        final decoded = jsonDecode(response.body.trim());
+        final List<dynamic> data = decoded is List 
+            ? decoded 
+            : (decoded['data'] is List ? decoded['data'] : decoded['data']?['notifications'] ?? []);
         _unreadCount = data.where((n) => n['is_read'] == false).length;
         notifyListeners();
       } else if (response.statusCode == 408) {

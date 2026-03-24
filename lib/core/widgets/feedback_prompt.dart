@@ -57,11 +57,11 @@ class _FeedbackPromptState extends State<FeedbackPrompt> {
     try {
       final response = await http.post(
         Uri.parse('${ApiConfig.baseUrl}/feedback'),
-        headers: ApiConfig.jsonHeaders,
+        headers: await ApiConfig.authenticatedHeaders(),
         body: jsonEncode({
           'phone': widget.phone,
-          'ref_id': widget.refId,
-          'type': widget.type,
+          'appointment_id': widget.refId,
+          'category': widget.type,
           'rating': _rating,
           'comment': _commentController.text.trim(),
         }),

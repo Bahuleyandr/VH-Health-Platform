@@ -52,7 +52,7 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
         headers: await ApiConfig.authenticatedHeaders(),
         body: jsonEncode({
           'phone': _phoneController.text.trim(),
-          'question': _questionController.text.trim(),
+          'comment': _questionController.text.trim(),
         }),
       );
 

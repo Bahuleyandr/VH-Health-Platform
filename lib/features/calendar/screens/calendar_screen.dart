@@ -72,7 +72,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
           headers: calHeaders,
         ),
         http.get(
-          Uri.parse('${ApiConfig.baseUrl}/pharmacy-orders/uid/$uid'),
+          Uri.parse('${ApiConfig.baseUrl}/pharmacy-orders/orders/uid/$uid'),
           headers: calHeaders,
         ),
       ]);
