@@ -124,6 +124,10 @@ export {
   getDepartmentUtilization, getPatientSatisfaction, getUsageAnalytics,
 };
 
+// Staff
+import { getStaffByShift, bulkShiftAssignment } from "./staff";
+export { getStaffByShift, bulkShiftAssignment };
+
 // Notifications
 import { getNotificationTemplates, sendAnnouncement, sendTargetedNotification, getNotificationStats } from "./notifications";
 export { getNotificationTemplates, sendAnnouncement, sendTargetedNotification, getNotificationStats };
@@ -227,6 +231,10 @@ export const api = {
   getDepartmentUtilization,
   getPatientSatisfaction,
   getUsageAnalytics,
+
+  // Staff
+  getStaffByShift,
+  bulkShiftAssignment,
 
   // Notifications
   getNotificationTemplates,

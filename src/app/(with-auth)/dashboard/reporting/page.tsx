@@ -6,6 +6,7 @@ import { fetchAdminAPI } from "@/lib/api";
 import { Doctor, User } from "@/lib/types";
 import { ReportGenerator } from "./components/ReportGenerator";
 import { ReportsOverview } from "./components/ReportsOverview";
+import { DataExporter } from "./components/DataExporter";
 import { Spinner } from "@/components/ui/spinner";
 
 export default function ReportingPage() {
@@ -13,7 +14,7 @@ export default function ReportingPage() {
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"overview" | "export">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "export" | "bulk">("overview");
 
   useEffect(() => {
     fetchData();
@@ -92,7 +93,17 @@ export default function ReportingPage() {
                 : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
             }`}
           >
-            Data Export
+            Bulk Export
+          </button>
+          <button
+            onClick={() => setActiveTab("bulk")}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeTab === "bulk"
+                ? "border-blue-500 text-blue-600"
+                : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+            }`}
+          >
+            Records Export
           </button>
         </nav>
       </div>
@@ -101,6 +112,8 @@ export default function ReportingPage() {
       <div>
         {activeTab === "overview" ? (
           <ReportsOverview />
+        ) : activeTab === "export" ? (
+          <DataExporter />
         ) : (
           <div className="bg-white p-6 rounded-lg shadow">
             <h2 className="text-xl font-semibold mb-4">
