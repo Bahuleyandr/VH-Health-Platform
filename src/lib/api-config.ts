@@ -13,11 +13,7 @@ export const WS_BASE_URL =
 const DEFAULT_ORIGIN =
   (typeof window !== "undefined" && window.location.origin) ||
   "http://localhost:3000";
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
-
-if (!API_KEY && typeof window !== "undefined" && process.env.NODE_ENV === "development") {
-  console.warn("[api-config] NEXT_PUBLIC_API_KEY is not set. API requests may fail.");
-}
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "vhhealth123";
 
 // WebSocket endpoints
 export const WS_ENDPOINTS = {
