@@ -6,11 +6,7 @@ import {
   loginAdmin as apiLoginAdmin,
   APIError,
 } from "./api";
-<<<<<<< HEAD
-=======
-import { API_ENDPOINTS } from "./api-config";
 import { StoredAdminUserSchema } from "./schemas";
->>>>>>> 7ca9048 (Comprehensive code review fixes: security, consistency, UX, and a11y)
 import type { AdminUser } from "./types";
 
 /* =========================

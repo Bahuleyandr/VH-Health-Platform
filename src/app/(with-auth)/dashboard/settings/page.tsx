@@ -1,15 +1,10 @@
 // src/app/(with-auth)/dashboard/settings/page.tsx
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
+import { Suspense } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import type { SystemSetting } from "@/lib/types";
-<<<<<<< HEAD
-=======
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Suspense } from "react";
-
->>>>>>> 7ca9048 (Comprehensive code review fixes: security, consistency, UX, and a11y)
 import { SettingsListForm } from "./components/SettingsListForm";
 
 function SettingsContent() {

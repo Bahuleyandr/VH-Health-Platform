@@ -1,18 +1,12 @@
 // src/app/(with-auth)/dashboard/doctors/page.tsx
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import { normalizeList } from "@/lib/normalize-response";
 import type { Doctor } from "@/lib/types";
-<<<<<<< HEAD
-=======
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-
->>>>>>> 7ca9048 (Comprehensive code review fixes: security, consistency, UX, and a11y)
 import { DoctorsTable } from "./components/DoctorsTable";
-import Link from "next/link";
 
 const normalizeDoctors = normalizeList<Doctor>("doctors");
 

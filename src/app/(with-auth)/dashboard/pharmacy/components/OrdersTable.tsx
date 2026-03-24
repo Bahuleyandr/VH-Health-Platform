@@ -4,6 +4,7 @@
 import type { PharmacyOrder } from "@/lib/types";
 import { useState, useEffect } from "react";
 import { fetchAdminAPI } from "@/lib/api";
+import toast from "react-hot-toast";
 import { OrderDetailsModal } from "./OrderDetailsModal";
 
 type OrderStatus = PharmacyOrder["status"]; // "COMPLETED" | "CANCELLED" | "PENDING"
@@ -56,14 +57,8 @@ export function OrdersTable({
       );
 
       onOrderUpdated?.();
-<<<<<<< HEAD
-    } catch (error) {
-      console.error("Failed to update order status:", error);
-      alert("Failed to update order status. Please try again.");
-=======
     } catch {
       toast.error("Failed to update order status. Please try again.");
->>>>>>> 7ca9048 (Comprehensive code review fixes: security, consistency, UX, and a11y)
     } finally {
       setUpdatingOrderId(null);
     }

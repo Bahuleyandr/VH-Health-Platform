@@ -1,17 +1,11 @@
 // src/app/(with-auth)/dashboard/notifications/page.tsx
 "use client";
 
-import { useEffect, useState, Suspense, useCallback } from "react";
+import { Suspense } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import { normalizeList } from "@/lib/normalize-response";
 import type { Notification } from "@/lib/types";
-<<<<<<< HEAD
-=======
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Suspense } from "react";
-
-import { NotificationsTable } from "./components/NotificationsTable";
->>>>>>> 7ca9048 (Comprehensive code review fixes: security, consistency, UX, and a11y)
 import { SendAnnouncementForm } from "./components/SendAnnouncementForm";
 import { NotificationsTable } from "./components/NotificationsTable";
 
