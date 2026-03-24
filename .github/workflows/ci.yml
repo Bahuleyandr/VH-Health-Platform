@@ -42,4 +42,4 @@ jobs:
 
       - run: npm run lint
 
-      - run: npx jest --forceExit --detectOpenHandles
+      - run: node --experimental-vm-modules node_modules/jest/bin/jest.js --forceExit --detectOpenHandles
