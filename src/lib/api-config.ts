@@ -183,6 +183,14 @@ export const API_ENDPOINTS = {
     workloadAnalysis: "/api/v1/doctors/workload-analysis", // GET
     deactivate: "/api/v1/doctors/:id/deactivate", // DELETE
     deleteAccount: "/api/v1/doctors/:id/account", // DELETE
+
+    admin: {
+      overview: "/api/v1/doctors/admin/overview", // GET
+      manage: "/api/v1/doctors/admin/manage", // GET
+      analyticsById: "/api/v1/doctors/admin/:id/analytics", // GET
+      create: "/api/v1/doctors/admin/create", // POST
+      bulkOperations: "/api/v1/doctors/admin/bulk-operations", // POST
+    },
   },
 
   // Departments
@@ -208,12 +216,12 @@ export const API_ENDPOINTS = {
 
     // Admin ops
     bulkOperations: "/api/v1/departments/bulk-operations", // POST
-    exportCsv: "/api/v1/departments/export/csv", // GET
-    exportReport: "/api/v1/departments/:id/export/report", // GET
-    recentActivities: "/api/v1/departments/activities/recent", // GET
-    financial: "/api/v1/departments/:id/financial", // GET
-    history: "/api/v1/departments/:id/history", // GET
-    staffAllocation: "/api/v1/departments/:id/staff-allocation", // GET
+    exportCsv: "/api/v1/departments/admin/export/csv", // GET
+    exportReport: "/api/v1/departments/admin/:id/export/report", // GET
+    recentActivities: "/api/v1/departments/admin/activities/recent", // GET
+    financial: "/api/v1/departments/admin/:id/financial", // GET
+    history: "/api/v1/departments/admin/:id/history", // GET
+    staffAllocation: "/api/v1/departments/admin/:id/staff-allocation", // GET
   },
 
   // Appointments
@@ -233,6 +241,13 @@ export const API_ENDPOINTS = {
       conflicts: "/api/v1/appointments/admin/conflicts",
       capacity: "/api/v1/appointments/admin/capacity",
       noShows: "/api/v1/appointments/admin/no-shows",
+      bulkUpdateStatus: "/api/v1/appointments/admin/bulk-update-status",
+      overrideBook: "/api/v1/appointments/admin/override-book",
+      resolveConflict: "/api/v1/appointments/admin/resolve-conflict",
+      sendReminders: "/api/v1/appointments/admin/send-reminders",
+      bulkDelete: "/api/v1/appointments/admin/bulk-delete",
+      search: "/api/v1/appointments/admin/search",
+      export: "/api/v1/appointments/admin/export",
     },
   },
 
@@ -332,13 +347,15 @@ export const API_ENDPOINTS = {
     emergencyRoutes: "/api/v1/sos/emergency/routes", // GET/POST (protected)
   },
 
-  // Analytics (general)
+  // Analytics (general) — mounted under /api/v1/admin/analytics
   analytics: {
-    dashboard: "/api/v1/analytics/dashboard", // GET
-    userGrowth: "/api/v1/analytics/user-growth", // GET
-    appointmentTrends: "/api/v1/analytics/appointment-trends", // GET
-    departmentUtilization: "/api/v1/analytics/department-utilization", // GET
-    revenue: "/api/v1/analytics/revenue", // GET
+    dashboard: "/api/v1/admin/analytics/dashboard", // GET
+    userGrowth: "/api/v1/admin/analytics/registrations", // GET
+    appointmentTrends: "/api/v1/admin/analytics/trends", // GET
+    departmentUtilization: "/api/v1/admin/analytics/departments", // GET
+    satisfaction: "/api/v1/admin/analytics/satisfaction", // GET
+    usage: "/api/v1/admin/analytics/usage", // GET
+    revenue: "/api/v1/admin/analytics/revenue", // GET
   },
 
   // Devices

@@ -80,19 +80,49 @@ import { getUsers, getUsersByRole, updateUserStatus, getInactiveUsers, reactivat
 export { getUsers, getUsersByRole, updateUserStatus, getInactiveUsers, reactivateUser };
 
 // Departments
-import { getDepartments, createDepartment, updateDepartment, deleteDepartment } from "./departments";
-export { getDepartments, createDepartment, updateDepartment, deleteDepartment };
+import {
+  getDepartments, createDepartment, updateDepartment, deleteDepartment,
+  getDepartmentStaffAllocation, getDepartmentHistory, exportDepartmentsCsv,
+} from "./departments";
+export {
+  getDepartments, createDepartment, updateDepartment, deleteDepartment,
+  getDepartmentStaffAllocation, getDepartmentHistory, exportDepartmentsCsv,
+};
 
 // Doctors
-import { getDoctors, deleteDoctor, getDoctorProfile, updateDoctorAvailability } from "./doctors";
-export { getDoctors, deleteDoctor, getDoctorProfile, updateDoctorAvailability };
+import {
+  getDoctors, deleteDoctor, getDoctorProfile, updateDoctorAvailability,
+  getDoctorOverview, getDoctorManagementList, getDoctorAnalytics,
+  createDoctor, doctorBulkOperations, getDoctorWorkloadAnalysis,
+} from "./doctors";
+export {
+  getDoctors, deleteDoctor, getDoctorProfile, updateDoctorAvailability,
+  getDoctorOverview, getDoctorManagementList, getDoctorAnalytics,
+  createDoctor, doctorBulkOperations, getDoctorWorkloadAnalysis,
+};
 
 // Appointments
 import {
   getAppointments, getAppointmentAnalytics, getAppointmentConflicts,
   getAppointmentCapacity, getNoShows,
+  bulkUpdateAppointmentStatus, overrideBookAppointment, resolveAppointmentConflict,
+  sendAppointmentReminders, bulkDeleteAppointments, searchAppointments, exportAppointments,
 } from "./appointments";
-export { getAppointments, getAppointmentAnalytics, getAppointmentConflicts, getAppointmentCapacity, getNoShows };
+export {
+  getAppointments, getAppointmentAnalytics, getAppointmentConflicts, getAppointmentCapacity, getNoShows,
+  bulkUpdateAppointmentStatus, overrideBookAppointment, resolveAppointmentConflict,
+  sendAppointmentReminders, bulkDeleteAppointments, searchAppointments, exportAppointments,
+};
+
+// Analytics
+import {
+  getAnalyticsDashboard, getUserGrowthAnalytics, getAppointmentTrends,
+  getDepartmentUtilization, getPatientSatisfaction, getUsageAnalytics,
+} from "./analytics";
+export {
+  getAnalyticsDashboard, getUserGrowthAnalytics, getAppointmentTrends,
+  getDepartmentUtilization, getPatientSatisfaction, getUsageAnalytics,
+};
 
 // Notifications
 import { getNotificationTemplates, sendAnnouncement, sendTargetedNotification, getNotificationStats } from "./notifications";
@@ -162,17 +192,41 @@ export const api = {
   createDepartment,
   updateDepartment,
   deleteDepartment,
+  getDepartmentStaffAllocation,
+  getDepartmentHistory,
+  exportDepartmentsCsv,
 
   // Doctors
   getDoctors,
   deleteDoctor,
   getDoctorProfile,
   updateDoctorAvailability,
+  getDoctorOverview,
+  getDoctorManagementList,
+  getDoctorAnalytics,
+  createDoctor,
+  doctorBulkOperations,
+  getDoctorWorkloadAnalysis,
 
   // Appointments
   getAppointments,
   getAppointmentAnalytics,
   getAppointmentConflicts,
+  bulkUpdateAppointmentStatus,
+  overrideBookAppointment,
+  resolveAppointmentConflict,
+  sendAppointmentReminders,
+  bulkDeleteAppointments,
+  searchAppointments,
+  exportAppointments,
+
+  // Analytics
+  getAnalyticsDashboard,
+  getUserGrowthAnalytics,
+  getAppointmentTrends,
+  getDepartmentUtilization,
+  getPatientSatisfaction,
+  getUsageAnalytics,
 
   // Notifications
   getNotificationTemplates,

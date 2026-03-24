@@ -1,5 +1,6 @@
 // src/lib/api/departments.ts
 import { getJSON, postJSON, putJSON, deleteJSON } from "./core";
+import type { QueryParams } from "./core";
 import { API_ENDPOINTS } from "../api-config";
 
 export function getDepartments<T = unknown>() {
@@ -22,4 +23,18 @@ export function updateDepartment<T = unknown>(
 
 export function deleteDepartment<T = unknown>(id: string) {
   return deleteJSON<T>(API_ENDPOINTS.departments.delete.replace(":departmentId", id));
+}
+
+// --- New admin endpoints ---
+
+export function getDepartmentStaffAllocation<T = unknown>(id: string) {
+  return getJSON<T>(API_ENDPOINTS.departments.staffAllocation.replace(":id", id));
+}
+
+export function getDepartmentHistory<T = unknown>(id: string, params?: QueryParams) {
+  return getJSON<T>(API_ENDPOINTS.departments.history.replace(":id", id), params);
+}
+
+export function exportDepartmentsCsv<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.departments.exportCsv);
 }
