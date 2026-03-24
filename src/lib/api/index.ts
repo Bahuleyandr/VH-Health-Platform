@@ -2,10 +2,11 @@
 // Barrel file — re-exports from all domain-specific API modules
 // so existing imports continue to work unchanged
 
+// Use import+re-export so symbols are in local scope for the `api` namespace below
+
 // Core types & helpers
-export {
+import {
   APIError,
-  APIResponse,
   getJSON,
   postJSON,
   putJSON,
@@ -13,18 +14,15 @@ export {
   fetchAdminAPI,
   API_ENDPOINTS,
 } from "./core";
-export type { QueryParams } from "./core";
+export type { APIResponse, QueryParams } from "./core";
+export { APIError, getJSON, postJSON, putJSON, deleteJSON, fetchAdminAPI, API_ENDPOINTS };
 
 // Auth
-export {
-  generateOTP,
-  verifyOTP,
-  loginAdmin,
-  getAuthStats,
-} from "./auth";
+import { generateOTP, verifyOTP, loginAdmin, getAuthStats } from "./auth";
+export { generateOTP, verifyOTP, loginAdmin, getAuthStats };
 
 // Dashboard & Analytics
-export {
+import {
   getDashboardData,
   getUserAnalytics,
   getSystemInfo,
@@ -47,107 +45,78 @@ export {
   refreshDashboardCache,
   generateDashboardReport,
 } from "./dashboard";
+export {
+  getDashboardData, getUserAnalytics, getSystemInfo, getActivityAudit,
+  getRecentActivities, getAdminDashboard, getQuickStats, getUserStats,
+  getDoctorStats, getDepartmentStats, getAppointmentStats, getRecordStats,
+  getEmergencyStats, getStaffStats, getAppointmentSummary, getRecentActivity,
+  getSystemAlerts, getModuleHealth, getSystemHealth, refreshDashboardCache,
+  generateDashboardReport,
+};
 
 // Attendance
-export {
-  getAttendanceAnalytics,
-  getAttendanceAnomalies,
-  getLateArrivals,
-  getEarlyDepartures,
-  getAbsentReport,
+import {
+  getAttendanceAnalytics, getAttendanceAnomalies, getLateArrivals,
+  getEarlyDepartures, getAbsentReport,
 } from "./attendance";
+export { getAttendanceAnalytics, getAttendanceAnomalies, getLateArrivals, getEarlyDepartures, getAbsentReport };
 
 // SOS/Emergency
-export {
-  getSosAnalytics,
-  getSosAlerts,
-  getEmergencyServices,
-  getSosPerformanceReport,
-  updateSosConfig,
-  broadcastEmergencyAlert,
-  escalateAlert,
+import {
+  getSosAnalytics, getSosAlerts, getEmergencyServices, getSosPerformanceReport,
+  updateSosConfig, broadcastEmergencyAlert, escalateAlert,
 } from "./sos";
+export { getSosAnalytics, getSosAlerts, getEmergencyServices, getSosPerformanceReport, updateSosConfig, broadcastEmergencyAlert, escalateAlert };
 
 // Uploads
-export {
-  getUploadSummary,
-  getQuarantinedFiles,
-  getHipaaAuditReport,
-  rescanFile,
-  cleanupExpiredFiles,
-  bulkUpdateHipaaProtection,
-  purgeQuarantinedFiles,
+import {
+  getUploadSummary, getQuarantinedFiles, getHipaaAuditReport, rescanFile,
+  cleanupExpiredFiles, bulkUpdateHipaaProtection, purgeQuarantinedFiles,
 } from "./uploads";
+export { getUploadSummary, getQuarantinedFiles, getHipaaAuditReport, rescanFile, cleanupExpiredFiles, bulkUpdateHipaaProtection, purgeQuarantinedFiles };
 
 // Users
-export {
-  getUsers,
-  getUsersByRole,
-  updateUserStatus,
-  getInactiveUsers,
-  reactivateUser,
-} from "./users";
+import { getUsers, getUsersByRole, updateUserStatus, getInactiveUsers, reactivateUser } from "./users";
+export { getUsers, getUsersByRole, updateUserStatus, getInactiveUsers, reactivateUser };
 
 // Departments
-export {
-  getDepartments,
-  createDepartment,
-  updateDepartment,
-  deleteDepartment,
-} from "./departments";
+import { getDepartments, createDepartment, updateDepartment, deleteDepartment } from "./departments";
+export { getDepartments, createDepartment, updateDepartment, deleteDepartment };
 
 // Doctors
-export {
-  getDoctors,
-  deleteDoctor,
-  getDoctorProfile,
-  updateDoctorAvailability,
-} from "./doctors";
+import { getDoctors, deleteDoctor, getDoctorProfile, updateDoctorAvailability } from "./doctors";
+export { getDoctors, deleteDoctor, getDoctorProfile, updateDoctorAvailability };
 
 // Appointments
-export {
-  getAppointments,
-  getAppointmentAnalytics,
-  getAppointmentConflicts,
-  getAppointmentCapacity,
-  getNoShows,
+import {
+  getAppointments, getAppointmentAnalytics, getAppointmentConflicts,
+  getAppointmentCapacity, getNoShows,
 } from "./appointments";
+export { getAppointments, getAppointmentAnalytics, getAppointmentConflicts, getAppointmentCapacity, getNoShows };
 
 // Notifications
-export {
-  getNotificationTemplates,
-  sendAnnouncement,
-  sendTargetedNotification,
-  getNotificationStats,
-} from "./notifications";
+import { getNotificationTemplates, sendAnnouncement, sendTargetedNotification, getNotificationStats } from "./notifications";
+export { getNotificationTemplates, sendAnnouncement, sendTargetedNotification, getNotificationStats };
 
 // Admin Management
-export {
-  createAdminUser,
-  deactivateAdmin,
-  reactivateAdmin,
-  updateAdminPermissions,
-} from "./admin";
+import { createAdminUser, deactivateAdmin, reactivateAdmin, updateAdminPermissions } from "./admin";
+export { createAdminUser, deactivateAdmin, reactivateAdmin, updateAdminPermissions };
 
 // Settings
-export {
-  updateSystemSetting,
-  getSystemSettings,
-} from "./settings";
+import { updateSystemSetting, getSystemSettings } from "./settings";
+export { updateSystemSetting, getSystemSettings };
 
 // Infrastructure & Logs
-export {
-  getAuditLogs,
-  toggleUserStatus,
-} from "./infrastructure";
+import { getAuditLogs, toggleUserStatus } from "./infrastructure";
+export { getAuditLogs, toggleUserStatus };
 
-// Convenience namespace export (back-compat)
+// Convenience namespace export (back-compat for `import { api } from "@/lib/api"`)
 export const api = {
   // Auth
   loginAdmin,
   generateOTP,
   verifyOTP,
-  
+
   // Dashboard
   getDashboardData,
   getQuickStats,
@@ -156,60 +125,60 @@ export const api = {
   getDepartmentStats,
   getAppointmentStats,
   getStaffStats,
-  
+
   // Activity & Monitoring
   getRecentActivity,
-  getRecentActivities, // back-compat alias
+  getRecentActivities,
   getSystemAlerts,
   getModuleHealth,
-  
+
   // Attendance
   getAttendanceAnalytics,
   getAttendanceAnomalies,
   getLateArrivals,
   getEarlyDepartures,
   getAbsentReport,
-  
+
   // SOS/Emergency
   getSosAnalytics,
   getSosAlerts,
   getEmergencyServices,
   broadcastEmergencyAlert,
   escalateAlert,
-  
+
   // Uploads
   getUploadSummary,
   getQuarantinedFiles,
   getHipaaAuditReport,
   cleanupExpiredFiles,
-  
+
   // Users
   getUsers,
   updateUserStatus,
   reactivateUser,
-  
+
   // Departments
   getDepartments,
   createDepartment,
   updateDepartment,
   deleteDepartment,
-  
+
   // Doctors
   getDoctors,
   deleteDoctor,
   getDoctorProfile,
   updateDoctorAvailability,
-  
+
   // Appointments
   getAppointments,
   getAppointmentAnalytics,
   getAppointmentConflicts,
-  
+
   // Notifications
   getNotificationTemplates,
   sendAnnouncement,
   sendTargetedNotification,
-  
+
   // Admin Management
   createAdminUser,
   deactivateAdmin,
