@@ -21,6 +21,16 @@ class AuthService {
   static Future<String?> getEmployeeId() => _storage.read(key: 'employeeId');
   static Future<void> setEmployeeId(String id) => _storage.write(key: 'employeeId', value: id);
 
+  // ── Staff ID (internal DB id) ───────────────────────────────────────────
+  static Future<String?> getStaffId() => _storage.read(key: 'staffId');
+  static Future<void> setStaffId(String id) => _storage.write(key: 'staffId', value: id);
+
+  // ── Login check ──────────────────────────────────────────────────────────
+  static Future<bool> isLoggedIn() async {
+    final jwt = await getJwt();
+    return jwt != null && jwt.isNotEmpty;
+  }
+
   // ── Clear everything ─────────────────────────────────────────────────────
   static Future<void> clearAll() async {
     await _storage.deleteAll();
