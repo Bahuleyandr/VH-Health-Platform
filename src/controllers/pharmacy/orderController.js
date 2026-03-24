@@ -3,6 +3,7 @@ import logger from '../../logging/logger.js';
 import * as orderService from '../../services/pharmacy/orderService.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { broadcast } from '../../utils/websocket/wsServer.js';
 
 // Place pharmacy order
 export const placeOrder = async (req, res) => {
@@ -110,6 +111,13 @@ export const updateOrderStatus = async (req, res) => {
     if (!result) {
       return error(res, 'Order not found', HTTP_STATUS.NOT_FOUND);
     }
+
+    // Emit WebSocket event for order status change
+    broadcast('queue-updates', {
+      orderId: req.params.orderId,
+      status,
+      updatedBy: req.user?.uid,
+    });
 
     success(res, result, 'Order status updated successfully');
   } catch (err) {

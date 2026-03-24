@@ -39,6 +39,7 @@ import investigationRoutes from './routes/investigation/index.js';
 import notificationRoutes from './routes/notification/index.js';
 import pharmacyRoutes from './routes/pharmacy/index.js';
 import recordRoutes from './routes/record/index.js';
+import searchRoutes from './routes/searchRoutes.js';
 import staffRoutes from './routes/staff/index.js';
 import userRoutes from './routes/user/index.js';
 import { bedRouter, wardRouter } from './routes/bed/bedRoutes.js';
@@ -165,6 +166,7 @@ app.use('/api/v1/devices', deviceRoutes);
 // Support services
 app.use('/api/v1/feedback', patientRateLimiter, routes.feedback);
 app.use('/api/v1/sos', patientRateLimiter, routes.sos);
+app.use('/api/v1/search', jwtAuth, searchRoutes);
 app.use('/api/v1/upload', routes.upload);
 
 // GDPR Data Export

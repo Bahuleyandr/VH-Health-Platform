@@ -4,6 +4,7 @@ import logger from '../../logging/logger.js';
 import appointmentService from '../../services/appointment/appointmentService.js';
 import appointmentValidationService from '../../services/appointment/appointmentValidationService.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { broadcast, sendToUser } from '../../utils/websocket/wsServer.js';
 
 export const updateAppointmentStatus = async (req, res) => {
   try {
@@ -38,6 +39,24 @@ export const updateAppointmentStatus = async (req, res) => {
       notes,
       req.user?.name
     );
+
+    // Emit WebSocket event for appointment status change
+    broadcast('appointment-updates', {
+      appointmentId: id,
+      status: statusValidation.status,
+      updatedBy: req.user?.name,
+    });
+    // Notify patient and doctor directly
+    if (updatedAppointment.patient_id) {
+      sendToUser(updatedAppointment.patient_id, 'appointment-status-changed', {
+        appointmentId: id, status: statusValidation.status,
+      });
+    }
+    if (updatedAppointment.doctor_id) {
+      sendToUser(updatedAppointment.doctor_id, 'appointment-status-changed', {
+        appointmentId: id, status: statusValidation.status,
+      });
+    }
 
     success(res, {
       appointment: updatedAppointment,

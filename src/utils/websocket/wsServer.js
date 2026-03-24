@@ -1,0 +1,131 @@
+// src/utils/websocket/wsServer.js
+
+import { WebSocketServer } from 'ws';
+import { verifyToken } from '../jwtUtils.js';
+import logger from '../../logging/logger.js';
+
+/** @type {Map<string, Set<import('ws').WebSocket>>} userId → Set of sockets */
+const clients = new Map();
+
+/** @type {Map<import('ws').WebSocket, { userId: string, channels: Set<string> }>} */
+const socketMeta = new Map();
+
+let wss = null;
+
+const HEARTBEAT_INTERVAL = 30_000; // 30s
+
+export function initWebSocket(server) {
+  wss = new WebSocketServer({ server, path: '/ws' });
+
+  logger.info('🔌 WebSocket server initialized on /ws');
+
+  wss.on('connection', (ws, req) => {
+    // Authenticate via query string ?token=xxx or Authorization header
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const token = url.searchParams.get('token') || req.headers.authorization?.replace('Bearer ', '');
+
+    if (!token) {
+      ws.close(4001, 'Authentication required');
+      return;
+    }
+
+    let decoded;
+    try {
+      decoded = verifyToken(token);
+    } catch {
+      ws.close(4001, 'Invalid token');
+      return;
+    }
+
+    const userId = decoded.uid || decoded.id || decoded.sub;
+    if (!userId) {
+      ws.close(4001, 'Invalid token payload');
+      return;
+    }
+
+    // Register client
+    if (!clients.has(userId)) clients.set(userId, new Set());
+    clients.get(userId).add(ws);
+    socketMeta.set(ws, { userId, channels: new Set() });
+
+    logger.info(`🔌 WS connected: user=${userId}`);
+
+    // Ping/pong heartbeat
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
+
+    ws.on('message', (raw) => {
+      try {
+        const msg = JSON.parse(raw);
+        if (msg.action === 'subscribe' && msg.channel) {
+          socketMeta.get(ws)?.channels.add(msg.channel);
+          ws.send(JSON.stringify({ event: 'subscribed', channel: msg.channel }));
+        } else if (msg.action === 'unsubscribe' && msg.channel) {
+          socketMeta.get(ws)?.channels.delete(msg.channel);
+          ws.send(JSON.stringify({ event: 'unsubscribed', channel: msg.channel }));
+        }
+      } catch {
+        // ignore malformed messages
+      }
+    });
+
+    ws.on('close', () => {
+      const meta = socketMeta.get(ws);
+      if (meta) {
+        clients.get(meta.userId)?.delete(ws);
+        if (clients.get(meta.userId)?.size === 0) clients.delete(meta.userId);
+        socketMeta.delete(ws);
+      }
+    });
+
+    ws.on('error', (err) => {
+      logger.error(`WS error for user=${userId}:`, err.message);
+    });
+
+    // Send welcome
+    ws.send(JSON.stringify({ event: 'connected', userId }));
+  });
+
+  // Heartbeat interval to detect dead connections
+  const interval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+      if (!ws.isAlive) return ws.terminate();
+      ws.isAlive = false;
+      ws.ping();
+    });
+  }, HEARTBEAT_INTERVAL);
+
+  wss.on('close', () => clearInterval(interval));
+}
+
+/**
+ * Broadcast to all clients subscribed to a channel.
+ */
+export function broadcast(channel, data) {
+  if (!wss) return;
+  const payload = JSON.stringify({ event: channel, data });
+  for (const [ws, meta] of socketMeta) {
+    if (meta.channels.has(channel) && ws.readyState === 1) {
+      ws.send(payload);
+    }
+  }
+}
+
+/**
+ * Send a message to a specific user (all their connected sockets).
+ */
+export function sendToUser(userId, event, data) {
+  const sockets = clients.get(String(userId));
+  if (!sockets) return;
+  const payload = JSON.stringify({ event, data });
+  for (const ws of sockets) {
+    if (ws.readyState === 1) ws.send(payload);
+  }
+}
+
+/**
+ * Get count of connected clients.
+ */
+export function getConnectedCount() {
+  return wss ? wss.clients.size : 0;
+}
