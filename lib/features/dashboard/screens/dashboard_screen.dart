@@ -64,7 +64,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _attendanceStatus?['isCheckedIn'] == true ||
         _attendanceStatus?['status'] == 'checked-in';
     final features = RoleFeatures.getFeaturesForRole(_role);
-    final navItems = RoleFeatures.getBottomNavForRole(_role);
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundGrey,
@@ -196,17 +195,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
       ),
-      bottomNavigationBar: _buildBottomNav(context, navItems),
-    );
-  }
-
-  Widget _buildBottomNav(BuildContext context, List<BottomNavItem> navItems) {
-    return BottomNavigationBar(
-      currentIndex: 0,
-      onTap: (i) {
-        if (i < navItems.length) context.go(navItems[i].route);
-      },
-      items: navItems.map((n) => n.item).toList(),
     );
   }
 }

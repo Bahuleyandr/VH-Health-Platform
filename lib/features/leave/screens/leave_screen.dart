@@ -54,8 +54,7 @@ class _LeaveScreenState extends State<LeaveScreen>
   Widget build(BuildContext context) {
     return StaffScaffold(
       title: 'Leave Management',
-      currentIndex: 2,
-      showBottomNav: true,
+      showBottomNav: false,
       body: Column(
         children: [
           // Balance card

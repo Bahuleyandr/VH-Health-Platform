@@ -101,8 +101,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     return StaffScaffold(
       title: 'My Profile',
-      currentIndex: 3,
-      showBottomNav: true,
+      showBottomNav: false,
       actions: [
         if (!_loading && _profile != null)
           IconButton(

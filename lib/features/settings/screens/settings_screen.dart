@@ -52,8 +52,7 @@ class SettingsScreen extends StatelessWidget {
 
     return StaffScaffold(
       title: 'Settings',
-      currentIndex: 4,
-      showBottomNav: true,
+      showBottomNav: false,
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

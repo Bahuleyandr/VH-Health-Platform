@@ -89,8 +89,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   Widget build(BuildContext context) {
     return StaffScaffold(
       title: 'Attendance',
-      currentIndex: 1,
-      showBottomNav: true,
+      showBottomNav: false,
       body: RefreshIndicator(
         onRefresh: _loadData,
         child: _loading
