@@ -184,7 +184,7 @@ class StaffApiService {
     required String status,
     String? notes,
   }) async {
-    return _put('/staff/pharmacy/orders', {
+    return _post('/staff/pharmacy/orders', {
       'phone': phone,
       'orderId': orderId,
       'status': status,
@@ -203,7 +203,7 @@ class StaffApiService {
     int page = 1,
     int limit = 20,
   }) async {
-    return _get('/appointments', query: {
+    return _get('/appointments/list', query: {
       if (department != null) 'department': department,
       if (staffId != null) 'staffId': staffId,
       if (date != null) 'date': date,
@@ -227,14 +227,14 @@ class StaffApiService {
 
   // ─── Auth / Quick ─────────────────────────────────────────────────────────────
 
-  /// GET /auth/staff/attendance-status — today's check-in status
+  /// GET /auth/staff/attendance/today — today's check-in status
   static Future<Map<String, dynamic>> getAttendanceStatus() async {
-    return _get('/auth/staff/attendance-status');
+    return _get('/auth/staff/attendance/today');
   }
 
-  /// GET /auth/staff/today-attendance
+  /// GET /auth/staff/attendance/today (alias)
   static Future<Map<String, dynamic>> getTodayAttendance() async {
-    return _get('/auth/staff/today-attendance');
+    return _get('/auth/staff/attendance/today');
   }
 
   // ─── Notifications ────────────────────────────────────────────────────────
