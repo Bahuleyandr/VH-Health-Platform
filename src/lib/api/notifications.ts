@@ -18,10 +18,50 @@ export function sendTargetedNotification<T = unknown>(data: {
   recipients: string[];
   title: string;
   message: string;
+  type?: string;
 }) {
   return postJSON<T>(API_ENDPOINTS.notifications.targeted, data);
 }
 
+export function sendBulkNotification<T = unknown>(data: {
+  title: string;
+  message: string;
+  type?: string;
+  target?: string;
+  targetValue?: string;
+  scheduledAt?: string;
+}) {
+  return postJSON<T>(API_ENDPOINTS.notifications.bulk, data);
+}
+
 export function getNotificationStats<T = unknown>() {
   return getJSON<T>(API_ENDPOINTS.notifications.statsSummary);
+}
+
+export function getNotificationOverview<T = unknown>() {
+  return getJSON<T>("/api/v1/notifications/admin/overview");
+}
+
+export function getNotificationManageList<T = unknown>(params?: { page?: number; limit?: number }) {
+  return getJSON<T>("/api/v1/notifications/admin/manage", params);
+}
+
+export function getDeliveryStats<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.notifications.deliveryStats);
+}
+
+export function getScheduledPending<T = unknown>() {
+  return getJSON<T>(API_ENDPOINTS.notifications.scheduledPending);
+}
+
+export function createNotification<T = unknown>(data: {
+  title: string;
+  message: string;
+  type?: string;
+  recipients?: string[];
+  priority?: string;
+  scheduledAt?: string;
+}) {
+  // Uses the legacy admin POST endpoint
+  return postJSON<T>("/api/v1/notifications/admin", data);
 }

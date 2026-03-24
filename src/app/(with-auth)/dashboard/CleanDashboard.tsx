@@ -1,8 +1,8 @@
-// \src\app\(with-auth)\dashboard\CleanDashboard.tsx
+// src/app/(with-auth)/dashboard/CleanDashboard.tsx
 
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_ENDPOINTS, API_BASE_URL, getHeaders } from '@/lib/api-config';
 
 // ---- Types ----
@@ -29,6 +29,13 @@ type SystemHealth = {
   uptime: string;
   responseTime: number; // ms
   errorRate: number; // %
+  modules?: Array<{ name: string; status: HealthStatus }>;
+};
+
+type AppointmentQueue = {
+  waiting: number;
+  inProgress: number;
+  completed: number;
 };
 
 type DashboardResponse = {
@@ -47,21 +54,26 @@ export default function CleanDashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [quick, setQuick] = useState<Quick>({});
+  const [prevQuick, setPrevQuick] = useState<Quick>({});
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [health, setHealth] = useState<SystemHealth | null>(null);
   const [charts, setCharts] = useState<{ labels: string[]; users: number[]; appts: number[] }>({ labels: [], users: [], appts: [] });
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  const [secondsAgo, setSecondsAgo] = useState(0);
+  const [queue, setQueue] = useState<AppointmentQueue>({ waiting: 0, inProgress: 0, completed: 0 });
+  const [prevQueue, setPrevQueue] = useState<AppointmentQueue>({ waiting: 0, inProgress: 0, completed: 0 });
 
   // ---- Helpers ----
   const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') ?? undefined : undefined;
   const headers = getHeaders(token);
 
-  async function get<T>(path: string): Promise<T> {
+  const get = useCallback(async function get<T>(path: string): Promise<T> {
     const res = await fetch(`${API_BASE_URL}${path}`, { headers });
     if (!res.ok) throw new Error(`${path} → ${res.status}`);
     return res.json();
-  }
+  }, []);
 
-  async function post<T>(path: string, body?: unknown): Promise<T> {
+  const post = useCallback(async function post<T>(path: string, body?: unknown): Promise<T> {
     const res = await fetch(`${API_BASE_URL}${path}`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
@@ -69,7 +81,7 @@ export default function CleanDashboard() {
     });
     if (!res.ok) throw new Error(`${path} → ${res.status}`);
     return res.json();
-  }
+  }, []);
 
   function toTimeAgo(iso?: string) {
     if (!iso) return 'just now';
@@ -80,32 +92,54 @@ export default function CleanDashboard() {
     return `${Math.floor(diff / 86400)} days ago`;
   }
 
+  // ---- Live "seconds ago" ticker ----
+  useEffect(() => {
+    const t = setInterval(() => {
+      setSecondsAgo(Math.floor((Date.now() - lastUpdated.getTime()) / 1000));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [lastUpdated]);
+
   // ---- Load data ----
-  async function loadAll() {
+  const loadAll = useCallback(async function loadAll() {
     setLoading(true);
     try {
-      // Dashboard bundle
       const dash = await get<DashboardResponse>(API_ENDPOINTS.admin.dashboard);
-
-      // Quick stats
       const quickStats = await get<{ data?: Quick }>(API_ENDPOINTS.admin.stats.quick).catch(() => null);
-
-      // Recent activity
       const recent = await get<{ data?: ActivityItem[]; items?: ActivityItem[] }>(
         API_ENDPOINTS.admin.activity.recent + '?limit=10&offset=0'
       ).catch(() => null);
-
-      // System health
       const sys = await get<{ data?: SystemHealth }>(API_ENDPOINTS.admin.health.system).catch(() => null);
+
+      // Appointment stats for queue
+      const apptStats = await get<{ data?: { waiting?: number; in_progress?: number; completed?: number; inProgress?: number } }>(
+        API_ENDPOINTS.admin.stats.appointments
+      ).catch(() => null);
+
+      // Module health
+      const moduleHealth = await get<{ data?: Array<{ name: string; status: HealthStatus }> }>(
+        API_ENDPOINTS.admin.health.modules
+      ).catch(() => null);
 
       // Normalize
       const overview = dash?.overview ?? {};
-      setQuick({
+      const newQuick: Quick = {
         totalUsers: quickStats?.data?.totalUsers ?? overview.totalUsers ?? 0,
         presentStaff: overview.presentStaff ?? 0,
         availableDoctors: overview.availableDoctors ?? 0,
         appointmentsToday: overview.appointmentsToday ?? 0,
-      });
+      };
+      setPrevQuick(quick);
+      setQuick(newQuick);
+
+      // Queue
+      const newQueue: AppointmentQueue = {
+        waiting: apptStats?.data?.waiting ?? 0,
+        inProgress: apptStats?.data?.inProgress ?? apptStats?.data?.in_progress ?? 0,
+        completed: apptStats?.data?.completed ?? 0,
+      };
+      setPrevQueue(queue);
+      setQueue(newQueue);
 
       const ug = dash?.charts?.userGrowth ?? [];
       const at = dash?.charts?.appointmentTrends ?? [];
@@ -127,19 +161,26 @@ export default function CleanDashboard() {
         }))
       );
 
-      setHealth(
-        sys?.data ??
-          dash?.systemHealth ?? {
-            status: 'healthy' as HealthStatus,
-            uptime: '99.99%',
-            responseTime: 45,
-            errorRate: 0.1,
-          }
-      );
+      const healthData = sys?.data ??
+        dash?.systemHealth ?? {
+          status: 'healthy' as HealthStatus,
+          uptime: '99.99%',
+          responseTime: 45,
+          errorRate: 0.1,
+        };
+
+      // Merge module health
+      if (moduleHealth?.data) {
+        healthData.modules = moduleHealth.data;
+      }
+
+      setHealth(healthData);
+      setLastUpdated(new Date());
+      setSecondsAgo(0);
     } finally {
       setLoading(false);
     }
-  }
+  }, [get, quick, queue]);
 
   async function refreshCache() {
     setRefreshing(true);
@@ -153,7 +194,7 @@ export default function CleanDashboard() {
 
   useEffect(() => {
     loadAll();
-    const t = setInterval(loadAll, 60_000);
+    const t = setInterval(loadAll, 30_000); // 30s refresh
     return () => clearInterval(t);
   }, []);
 
@@ -166,12 +207,32 @@ export default function CleanDashboard() {
     return 'Good night';
   }, []);
 
+  function getMetricStatus(current?: number, label?: string): HealthStatus {
+    if (label === 'Available Doctors' && (current ?? 0) === 0) return 'critical';
+    if (label === 'Available Doctors' && (current ?? 0) < 3) return 'warning';
+    if (label === 'Staff on Duty' && (current ?? 0) === 0) return 'critical';
+    if (label === 'Staff on Duty' && (current ?? 0) < 5) return 'warning';
+    return 'healthy';
+  }
+
+  function trendArrow(current: number, previous: number): string {
+    if (current > previous) return '↑';
+    if (current < previous) return '↓';
+    return '';
+  }
+
   const statCards = [
-    { label: 'Total Patients', value: quick.totalUsers ?? 0, icon: '🏥' },
-    { label: 'Staff on Duty', value: quick.presentStaff ?? 0, icon: '👥' },
-    { label: 'Available Doctors', value: quick.availableDoctors ?? 0, icon: '🩺' },
-    { label: "Today's Appointments", value: quick.appointmentsToday ?? 0, icon: '📋' },
+    { label: 'Total Patients', value: quick.totalUsers ?? 0, prev: prevQuick.totalUsers ?? 0, icon: '🏥' },
+    { label: 'Staff on Duty', value: quick.presentStaff ?? 0, prev: prevQuick.presentStaff ?? 0, icon: '👥' },
+    { label: 'Available Doctors', value: quick.availableDoctors ?? 0, prev: prevQuick.availableDoctors ?? 0, icon: '🩺' },
+    { label: "Today's Appointments", value: quick.appointmentsToday ?? 0, prev: prevQuick.appointmentsToday ?? 0, icon: '📋' },
   ];
+
+  const statusDotColor = (s: HealthStatus) =>
+    s === 'healthy' ? '#22c55e' : s === 'warning' ? '#eab308' : '#ef4444';
+
+  const healthBarColor = (value: number, thresholds: [number, number]) =>
+    value <= thresholds[0] ? '#22c55e' : value <= thresholds[1] ? '#eab308' : '#ef4444';
 
   // ---- UI ----
   return (
@@ -191,7 +252,19 @@ export default function CleanDashboard() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            {/* Live indicator badge */}
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{
+                  backgroundColor: secondsAgo < 35 ? '#22c55e' : secondsAgo < 60 ? '#eab308' : '#ef4444',
+                  animation: 'pulse 2s infinite',
+                }}
+              />
+              Updated {secondsAgo < 5 ? 'just now' : `${secondsAgo}s ago`}
+            </span>
+
             <button
               onClick={refreshCache}
               disabled={refreshing}
@@ -208,22 +281,64 @@ export default function CleanDashboard() {
       <main className="mx-auto max-w-7xl px-4 py-6 space-y-6">
         {/* Stats */}
         <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {statCards.map((s) => (
-            <div key={s.label} className="rounded-xl border border-border bg-card p-4 shadow-sm">
-              <div className="flex items-start justify-between">
-                <span className="text-2xl" aria-hidden>{s.icon}</span>
+          {statCards.map((s) => {
+            const status = getMetricStatus(s.value, s.label);
+            const arrow = trendArrow(s.value, s.prev);
+            return (
+              <div key={s.label} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+                <div className="flex items-start justify-between">
+                  <span className="text-2xl" aria-hidden>{s.icon}</span>
+                  <span
+                    className="h-3 w-3 rounded-full mt-1"
+                    style={{ backgroundColor: statusDotColor(status) }}
+                    title={status}
+                  />
+                </div>
+                <div className="mt-3">
+                  <p className="text-sm text-muted-foreground">{s.label}</p>
+                  <p className="mt-1 text-3xl font-bold tracking-tight">
+                    {(s.value ?? 0).toLocaleString()}
+                    {arrow && (
+                      <span className={`ml-1 text-lg ${arrow === '↑' ? 'text-emerald-500' : 'text-red-500'}`}>
+                        {arrow}
+                      </span>
+                    )}
+                  </p>
+                </div>
               </div>
-              <div className="mt-3">
-                <p className="text-sm text-muted-foreground">{s.label}</p>
-                <p className="mt-1 text-3xl font-bold tracking-tight">{(s.value ?? 0).toLocaleString()}</p>
+            );
+          })}
+        </section>
+
+        {/* Appointment Queue */}
+        <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {[
+            { label: 'Waiting', value: queue.waiting, prev: prevQueue.waiting, color: '#eab308', bg: 'rgba(234,179,8,0.1)' },
+            { label: 'In Progress', value: queue.inProgress, prev: prevQueue.inProgress, color: '#3b82f6', bg: 'rgba(59,130,246,0.1)' },
+            { label: 'Completed', value: queue.completed, prev: prevQueue.completed, color: '#22c55e', bg: 'rgba(34,197,94,0.1)' },
+          ].map((q) => {
+            const arrow = trendArrow(q.value, q.prev);
+            return (
+              <div key={q.label} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: q.color }} />
+                  <span className="text-sm font-medium text-muted-foreground">Queue: {q.label}</span>
+                </div>
+                <p className="text-2xl font-bold">
+                  {q.value}
+                  {arrow && (
+                    <span className={`ml-1 text-base ${arrow === '↑' ? 'text-amber-500' : 'text-emerald-500'}`}>
+                      {arrow}
+                    </span>
+                  )}
+                </p>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </section>
 
         {/* Charts + Activity */}
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Chart card */}
           <div className="lg:col-span-2 rounded-xl border border-border bg-card p-4">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-base font-semibold">Analytics Overview</h2>
@@ -238,7 +353,6 @@ export default function CleanDashboard() {
             <MiniBars labels={charts.labels} a={charts.users} b={charts.appts} />
           </div>
 
-          {/* Activity card */}
           <div className="rounded-xl border border-border bg-card p-4">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-base font-semibold">Recent Activity</h2>
@@ -263,12 +377,12 @@ export default function CleanDashboard() {
           </div>
         </section>
 
-        {/* System health */}
-        <section className="rounded-xl border border-border bg-card p-4">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-base font-semibold">System Health</h2>
+        {/* System Health Panel */}
+        <section className="rounded-xl border border-border bg-card p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold">System Health</h2>
             <span
-              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
                 health?.status === 'healthy'
                   ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
                   : health?.status === 'warning'
@@ -276,17 +390,61 @@ export default function CleanDashboard() {
                   : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
               }`}
             >
-              <span className="text-lg" aria-hidden>
+              <span className="text-base" aria-hidden>
                 {health?.status === 'healthy' ? '✅' : health?.status === 'warning' ? '⚠️' : '⛔'}
               </span>
               {health?.status ?? 'healthy'}
             </span>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-            <Metric label="Uptime" value={health?.uptime ?? '99.99%'} />
-            <Metric label="Resp. Time" value={`${health?.responseTime ?? 45} ms`} />
-            <Metric label="Error Rate" value={`${health?.errorRate ?? 0.1}%`} />
-            <Metric label="Last Refresh" value={new Date().toLocaleTimeString()} />
+
+          {/* Gauge bars */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <GaugeBar
+              label="Uptime"
+              value={parseFloat(health?.uptime?.replace('%', '') ?? '99.99')}
+              max={100}
+              unit="%"
+              color={healthBarColor(100 - parseFloat(health?.uptime?.replace('%', '') ?? '99.99'), [1, 5])}
+            />
+            <GaugeBar
+              label="Response Time"
+              value={health?.responseTime ?? 45}
+              max={500}
+              unit="ms"
+              color={healthBarColor(health?.responseTime ?? 45, [100, 300])}
+            />
+            <GaugeBar
+              label="Error Rate"
+              value={health?.errorRate ?? 0.1}
+              max={10}
+              unit="%"
+              color={healthBarColor(health?.errorRate ?? 0.1, [1, 5])}
+            />
+          </div>
+
+          {/* Module health indicators */}
+          {health?.modules && health.modules.length > 0 && (
+            <div>
+              <h3 className="text-sm font-medium text-muted-foreground mb-2">Module Health</h3>
+              <div className="flex flex-wrap gap-2">
+                {health.modules.map((m) => (
+                  <span
+                    key={m.name}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs"
+                  >
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{ backgroundColor: statusDotColor(m.status) }}
+                    />
+                    {m.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-3 text-xs text-muted-foreground">
+            Last refresh: {lastUpdated.toLocaleTimeString()} · Auto-refresh every 30s
           </div>
         </section>
       </main>
@@ -300,6 +458,33 @@ export default function CleanDashboard() {
           </div>
         </div>
       )}
+
+      {/* Pulse animation */}
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ---- Gauge Bar Component ----
+function GaugeBar({ label, value, max, unit, color }: { label: string; value: number; max: number; unit: string; color: string }) {
+  const pct = Math.min((value / max) * 100, 100);
+  return (
+    <div className="rounded-lg bg-muted p-3">
+      <div className="flex items-center justify-between mb-1.5">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="text-sm font-semibold">{value}{unit}</p>
+      </div>
+      <div className="h-2 w-full rounded-full bg-background/60 overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${pct}%`, backgroundColor: color }}
+        />
+      </div>
     </div>
   );
 }
