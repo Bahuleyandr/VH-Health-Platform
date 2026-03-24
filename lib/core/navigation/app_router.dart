@@ -34,6 +34,9 @@ import '../../features/housekeeping/screens/tasks_screen.dart';
 // Directory
 import '../../features/directory/screens/staff_directory_screen.dart';
 
+// Notifications
+import '../../features/notifications/screens/notifications_screen.dart';
+
 // Shell
 import '../widgets/main_scaffold.dart';
 
@@ -179,6 +182,14 @@ final GoRouter appRouter = GoRouter(
           name: 'staff-directory',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: StaffDirectoryScreen()),
+        ),
+
+        // Notifications
+        GoRoute(
+          path: '/notifications',
+          name: 'notifications',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: NotificationsScreen()),
         ),
       ],
     ),

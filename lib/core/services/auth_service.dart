@@ -34,6 +34,11 @@ class AuthService {
             data['data']?['role'] ??
             'GENERAL_STAFF';
         await ApiConfig.saveRole(role.toString());
+
+        // Save phone if available (needed for device/notification registration)
+        final phone = data['data']?['staff']?['phone'] ??
+            data['data']?['phone'];
+        if (phone != null) await ApiConfig.savePhone(phone.toString());
       }
       return data['data'] ?? data;
     }
@@ -68,6 +73,11 @@ class AuthService {
             data['data']?['role'] ??
             'GENERAL_STAFF';
         await ApiConfig.saveRole(role.toString());
+
+        // Save phone if available (needed for device/notification registration)
+        final phone = data['data']?['staff']?['phone'] ??
+            data['data']?['phone'];
+        if (phone != null) await ApiConfig.savePhone(phone.toString());
       }
       return data['data'] ?? data;
     }

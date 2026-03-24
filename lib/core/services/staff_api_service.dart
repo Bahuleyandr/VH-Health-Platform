@@ -236,4 +236,57 @@ class StaffApiService {
   static Future<Map<String, dynamic>> getTodayAttendance() async {
     return _get('/auth/staff/today-attendance');
   }
+
+  // ─── Notifications ────────────────────────────────────────────────────────
+
+  /// GET /notifications/:phone — fetch notifications for staff
+  static Future<List<dynamic>> getNotifications(String phone) async {
+    final headers = await ApiConfig.authenticatedHeaders();
+    final resp = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/notifications/$phone'),
+      headers: headers,
+    );
+    if (resp.statusCode == 200) {
+      final data = jsonDecode(resp.body);
+      // Response may be a list directly or wrapped in { data: [...] }
+      if (data is List) return data;
+      if (data is Map && data['data'] is List) return data['data'];
+      if (data is Map && data['success'] == true && data['data'] is List) {
+        return data['data'];
+      }
+      return [];
+    }
+    throw Exception('Failed to fetch notifications (${resp.statusCode})');
+  }
+
+  /// PATCH /notifications/:phone/mark-all-read
+  static Future<void> markAllNotificationsRead(String phone) async {
+    final headers = await ApiConfig.authenticatedHeaders();
+    await http.patch(
+      Uri.parse('${ApiConfig.baseUrl}/notifications/$phone/mark-all-read'),
+      headers: headers,
+    );
+  }
+
+  // ─── Device Registration ──────────────────────────────────────────────────
+
+  /// POST /devices/register — register FCM token
+  static Future<void> registerDevice({
+    required String phone,
+    required String fcmToken,
+    required String platform,
+  }) async {
+    final headers = await ApiConfig.authenticatedHeaders();
+    await http.post(
+      Uri.parse('${ApiConfig.baseUrl}/devices/register'),
+      headers: headers,
+      body: jsonEncode({
+        'phone': phone,
+        'fcmToken': fcmToken,
+        'deviceId': '${platform}_staff_${phone.hashCode}',
+        'deviceName': 'VHHealth Staff App',
+        'platform': platform,
+      }),
+    );
+  }
 }
