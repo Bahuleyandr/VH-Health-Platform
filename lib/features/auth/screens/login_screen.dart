@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/services/auth_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../services/login_service.dart';
 
@@ -21,7 +22,23 @@ class _LoginScreenState extends State<LoginScreen> {
   _LoginMode _mode = _LoginMode.password;
   bool _obscurePassword = true;
   bool _loading = false;
+  bool _rememberMe = true;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedCredentials();
+  }
+
+  Future<void> _loadSavedCredentials() async {
+    final saved = await AuthService.getSavedCredentials();
+    if (saved != null && saved['employeeId'] != null && mounted) {
+      setState(() {
+        _empIdController.text = saved['employeeId']!;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -211,6 +228,35 @@ class _LoginScreenState extends State<LoginScreen> {
                               return null;
                             },
                           ),
+
+                        // Remember me
+                        Row(
+                          children: [
+                            SizedBox(
+                              height: 24,
+                              width: 24,
+                              child: Checkbox(
+                                value: _rememberMe,
+                                activeColor: AppTheme.primaryBlue,
+                                onChanged: (v) =>
+                                    setState(() => _rememberMe = v ?? true),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            GestureDetector(
+                              onTap: () =>
+                                  setState(() => _rememberMe = !_rememberMe),
+                              child: Text(
+                                'Remember Employee ID',
+                                style: TextStyle(
+                                  color: AppTheme.textSecondary,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
 
                         if (_error != null) ...[
                           const SizedBox(height: 12),

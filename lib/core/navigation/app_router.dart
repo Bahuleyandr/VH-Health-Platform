@@ -37,6 +37,9 @@ import '../../features/directory/screens/staff_directory_screen.dart';
 // Notifications
 import '../../features/notifications/screens/notifications_screen.dart';
 
+// About
+import '../../features/about/screens/about_screen.dart';
+
 // Shell
 import '../widgets/main_scaffold.dart';
 
@@ -190,6 +193,14 @@ final GoRouter appRouter = GoRouter(
           name: 'notifications',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: NotificationsScreen()),
+        ),
+
+        // About
+        GoRoute(
+          path: '/about',
+          name: 'about',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: AboutScreen()),
         ),
       ],
     ),
