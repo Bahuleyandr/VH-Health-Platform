@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import { fetchAdminAPI } from "@/lib/api";
+import toast from "react-hot-toast";
 
 interface ExportLogsButtonProps {
   logType: "audit" | "system";
@@ -85,14 +86,8 @@ export function ExportLogsButton({
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-<<<<<<< HEAD
-    } catch (err) {
-      console.error("Export failed:", err);
-      alert("Failed to export logs. Please try again.");
-=======
     } catch {
       toast.error("Failed to export logs. Please try again.");
->>>>>>> 7ca9048 (Comprehensive code review fixes: security, consistency, UX, and a11y)
     } finally {
       setExporting(false);
     }

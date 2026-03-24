@@ -1,26 +1,18 @@
 // src/app/(with-auth)/dashboard/admin-management/page.tsx
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
 import { getJSON } from "@/lib/api";
 import { API_ENDPOINTS } from "@/lib/api-config";
 import { normalizeList } from "@/lib/normalize-response";
 import type { AdminUser } from "@/lib/types";
-<<<<<<< HEAD
-import { CreateAdminForm } from "./components/CreateAdminForm";
-=======
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-
->>>>>>> 7ca9048 (Comprehensive code review fixes: security, consistency, UX, and a11y)
+import { CreateAdminForm } from "./components/CreateAdminForm";
 import { AdminsTable } from "./components/AdminsTable";
 import { AdminStats } from "./components/AdminStats";
 import { PermissionsMatrix } from "./components/PermissionsMatrix";
-<<<<<<< HEAD
 import { RequirePermissions } from "@/components/auth/RequirePermissions";
-=======
 
 const normalizeAdmins = normalizeList<AdminUser>("admins");
->>>>>>> 7ca9048 (Comprehensive code review fixes: security, consistency, UX, and a11y)
 
 export default function AdminManagementPage() {
   const queryClient = useQueryClient();
