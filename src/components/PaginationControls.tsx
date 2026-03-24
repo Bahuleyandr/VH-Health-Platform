@@ -27,6 +27,7 @@ export function PaginationControls({ pagination }: { pagination: Pagination }) {
         <button
           onClick={handlePrev}
           disabled={!pagination.hasPrev}
+          aria-disabled={!pagination.hasPrev}
           className={`relative inline-flex items-center px-4 py-2 text-sm font-medium rounded-md ${
             pagination.hasPrev
               ? "bg-white text-gray-700 hover:bg-gray-50"
@@ -38,6 +39,7 @@ export function PaginationControls({ pagination }: { pagination: Pagination }) {
         <button
           onClick={handleNext}
           disabled={!pagination.hasNext}
+          aria-disabled={!pagination.hasNext}
           className={`relative ml-3 inline-flex items-center px-4 py-2 text-sm font-medium rounded-md ${
             pagination.hasNext
               ? "bg-white text-gray-700 hover:bg-gray-50"
@@ -64,6 +66,7 @@ export function PaginationControls({ pagination }: { pagination: Pagination }) {
             <button
               onClick={handlePrev}
               disabled={!pagination.hasPrev}
+              aria-disabled={!pagination.hasPrev}
               className={`relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 ${
                 pagination.hasPrev ? "hover:bg-gray-50" : "cursor-not-allowed"
               }`}
@@ -83,6 +86,7 @@ export function PaginationControls({ pagination }: { pagination: Pagination }) {
             <button
               onClick={handleNext}
               disabled={!pagination.hasNext}
+              aria-disabled={!pagination.hasNext}
               className={`relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 ${
                 pagination.hasNext ? "hover:bg-gray-50" : "cursor-not-allowed"
               }`}

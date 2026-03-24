@@ -86,7 +86,7 @@ export function ExportLogsButton({
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch (err) {
+    } catch {
       toast.error("Failed to export logs. Please try again.");
     } finally {
       setExporting(false);

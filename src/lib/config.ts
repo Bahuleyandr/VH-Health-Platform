@@ -34,3 +34,23 @@ export const config = {
     upload: 120000, // 2 minutes
   },
 };
+
+/**
+ * Centralized polling/refetch intervals for React Query and WebSocket hooks.
+ * Use these instead of hardcoded numbers to keep intervals consistent and documented.
+ */
+export const POLLING_INTERVALS = {
+  /** 5s — Emergency/SOS, critical real-time data */
+  realtime: 5_000,
+  /** 15s — Attendance, active monitoring dashboards */
+  frequent: 15_000,
+  /** 30s — General data refresh (appointments, users) */
+  standard: 30_000,
+  /** 60s — Analytics, reports, low-priority data */
+  slow: 60_000,
+} as const;
+
+/**
+ * Default pagination page size.
+ */
+export const DEFAULT_PAGE_SIZE = 10;

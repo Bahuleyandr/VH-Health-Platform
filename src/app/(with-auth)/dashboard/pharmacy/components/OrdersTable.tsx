@@ -58,7 +58,7 @@ export function OrdersTable({
       );
 
       onOrderUpdated?.();
-    } catch (error) {
+    } catch {
       toast.error("Failed to update order status. Please try again.");
     } finally {
       setUpdatingOrderId(null);

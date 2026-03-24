@@ -1,6 +1,7 @@
 // src/components/auth/ProtectedRoute.tsx
 "use client";
 
+import { StoredAdminUserSchema } from "@/lib/schemas";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -56,14 +57,18 @@ export function ProtectedRoute({
 
       if (userStr) {
         try {
-          const user = JSON.parse(userStr) as {
-            role?: Role;
-            permissions?: string[];
-          };
-          if (user?.role) setUserRole(user.role);
-          if (Array.isArray(user?.permissions)) setUserPerms(user.permissions);
+          const parsed: unknown = JSON.parse(userStr);
+          const result = StoredAdminUserSchema.safeParse(parsed);
+          if (result.success) {
+            setUserRole(result.data.role as Role);
+            setUserPerms(result.data.permissions);
+          } else {
+            // Clear corrupted data
+            localStorage.removeItem("adminUser");
+          }
         } catch {
           // don't crash on bad JSON in storage
+          localStorage.removeItem("adminUser");
         }
       }
     } finally {
