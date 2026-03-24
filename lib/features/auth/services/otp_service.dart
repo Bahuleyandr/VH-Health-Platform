@@ -81,6 +81,12 @@ class OtpService {
         await secureStorage.write(key: 'phone', value: userPhone);
         await secureStorage.write(key: 'isNewUser', value: isNewUser.toString());
         
+        // Store user ID for appointment booking and other features
+        final userId = user?['id'];
+        if (userId != null) {
+          await secureStorage.write(key: 'user_id', value: userId.toString());
+        }
+        
         if (kDebugMode) {
           developer.log('✅ Backend login completed successfully', name: 'Auth');
           developer.log('📱 Phone: $userPhone, New User: $isNewUser', name: 'Auth');
