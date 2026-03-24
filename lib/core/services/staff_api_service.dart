@@ -225,6 +225,13 @@ class StaffApiService {
     });
   }
 
+  // ─── Health Records ────────────────────────────────────────────────────────────
+
+  /// GET /records/health-records/:phone — fetch patient health records by phone
+  static Future<Map<String, dynamic>> getHealthRecords(String phone) async {
+    return _get('/records/health-records/$phone');
+  }
+
   // ─── Auth / Quick ─────────────────────────────────────────────────────────────
 
   /// GET /auth/staff/attendance/today — today's check-in status
@@ -431,6 +438,137 @@ class StaffApiService {
       Uri.parse('${ApiConfig.baseUrl}/notifications/$phone/mark-all-read'),
       headers: headers,
     );
+  }
+
+  // ─── Health Records / Vitals ──────────────────────────────────────────────
+
+  /// POST /health/records — create a health record with vital signs
+  static Future<Map<String, dynamic>> recordVitals({
+    required int patientId,
+    Map<String, dynamic>? vitalSigns,
+    Map<String, dynamic>? measurements,
+    String? notes,
+    int? recordedBy,
+  }) async {
+    return _post('/health/records', {
+      'patient_id': patientId,
+      'record_type': 'VITALS',
+      if (vitalSigns != null) 'vital_signs': vitalSigns,
+      if (measurements != null) 'measurements': measurements,
+      if (notes != null) 'notes': notes,
+      if (recordedBy != null) 'recorded_by': recordedBy,
+    });
+  }
+
+  /// GET /health/patient/:patient_id/trends — vital trends for a patient
+  static Future<Map<String, dynamic>> getPatientVitalTrends(
+    int patientId, {
+    int? days,
+    String? vitalType,
+  }) async {
+    return _get('/health/patient/$patientId/trends', query: {
+      if (days != null) 'days': days.toString(),
+      if (vitalType != null) 'vital_type': vitalType,
+    });
+  }
+
+  // ─── Medical Records / Prescriptions ─────────────────────────────────────
+
+  /// POST /records/create — create a medical record (prescription, consultation, etc.)
+  static Future<Map<String, dynamic>> createPrescription({
+    required int patientId,
+    required String title,
+    String? description,
+    String? diagnosis,
+    String? treatment,
+    String? medications,
+    int? privacyLevel,
+  }) async {
+    return _post('/records/create', {
+      'patient_id': patientId,
+      'record_type': 'PRESCRIPTION',
+      'title': title,
+      if (description != null) 'description': description,
+      if (diagnosis != null) 'diagnosis': diagnosis,
+      if (treatment != null) 'treatment': treatment,
+      if (medications != null) 'medications': medications,
+      if (privacyLevel != null) 'privacy_level': privacyLevel,
+    });
+  }
+
+  /// GET /records/doctor/:doctor_id — records created by a doctor
+  static Future<Map<String, dynamic>> getDoctorRecords(String doctorId) async {
+    return _get('/records/doctor/$doctorId');
+  }
+
+  /// GET /records/records — list all medical records with filters
+  static Future<Map<String, dynamic>> getMedicalRecords({
+    String? type,
+    String? dateFrom,
+    String? dateTo,
+    int? patientId,
+    int? doctorId,
+    int page = 1,
+    int limit = 20,
+  }) async {
+    return _get('/records/records', query: {
+      if (type != null) 'type': type,
+      if (dateFrom != null) 'date_from': dateFrom,
+      if (dateTo != null) 'date_to': dateTo,
+      if (patientId != null) 'patient_id': patientId.toString(),
+      if (doctorId != null) 'doctor_id': doctorId.toString(),
+      'page': page.toString(),
+      'limit': limit.toString(),
+    });
+  }
+
+  /// GET /records/patient/:patient_id — records for a specific patient
+  static Future<Map<String, dynamic>> getPatientRecords(int patientId) async {
+    return _get('/records/patient/$patientId');
+  }
+
+  /// GET /records/health-records/:phone — health records by phone
+  static Future<Map<String, dynamic>> getHealthRecordsByPhone(String phone) async {
+    return _get('/records/health-records/$phone');
+  }
+
+  // ─── Investigations ──────────────────────────────────────────────────────
+
+  /// GET /investigations/status/pending — pending investigations
+  static Future<Map<String, dynamic>> getPendingInvestigations() async {
+    return _get('/investigations/status/pending');
+  }
+
+  /// GET /investigations/doctor/:doctor_id — investigations for a doctor
+  static Future<Map<String, dynamic>> getDoctorInvestigations(String doctorId) async {
+    return _get('/investigations/doctor/$doctorId');
+  }
+
+  /// PUT /investigations/:id/results — add results to an investigation
+  static Future<Map<String, dynamic>> addInvestigationResults(
+    String investigationId,
+    Map<String, dynamic> results,
+  ) async {
+    return _put('/investigations/$investigationId/results', results);
+  }
+
+  /// PUT /investigations/:id/status — update investigation status
+  static Future<Map<String, dynamic>> updateInvestigationStatus(
+    String investigationId,
+    String status,
+  ) async {
+    return _put('/investigations/$investigationId/status', {'status': status});
+  }
+
+  /// GET /investigations/list — list investigations with filters
+  static Future<Map<String, dynamic>> listInvestigations({
+    int page = 1,
+    int limit = 20,
+  }) async {
+    return _get('/investigations/list', query: {
+      'page': page.toString(),
+      'limit': limit.toString(),
+    });
   }
 
   // ─── Device Registration ──────────────────────────────────────────────────

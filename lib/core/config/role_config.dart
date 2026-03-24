@@ -186,6 +186,13 @@ class RoleFeatures {
     route: '/nursing-notes',
     color: Color(0xFF00695C),
   );
+  static const DashboardFeature _queue = DashboardFeature(
+    id: 'queue',
+    title: 'Patient Queue',
+    icon: Icons.queue,
+    route: '/queue',
+    color: Color(0xFF1565C0),
+  );
   static const DashboardFeature _profile = DashboardFeature(
     id: 'profile',
     title: 'Profile',
@@ -206,6 +213,7 @@ class RoleFeatures {
     return switch (role) {
       StaffRole.doctor => [
           _attendance,
+          _queue,
           _appointments,
           _patientRecords,
           _prescriptions,
@@ -296,11 +304,11 @@ class RoleFeatures {
           ),
           const BottomNavItem(
             item: BottomNavigationBarItem(
-              icon: Icon(Icons.calendar_month_outlined),
-              activeIcon: Icon(Icons.calendar_month),
-              label: 'Appointments',
+              icon: Icon(Icons.queue_outlined),
+              activeIcon: Icon(Icons.queue),
+              label: 'Queue',
             ),
-            route: '/appointments',
+            route: '/queue',
           ),
           const BottomNavItem(
             item: BottomNavigationBarItem(

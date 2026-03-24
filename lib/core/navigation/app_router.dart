@@ -18,6 +18,7 @@ import '../../features/settings/screens/settings_screen.dart';
 // Doctor
 import '../../features/doctor/screens/patient_records_screen.dart';
 import '../../features/doctor/screens/prescriptions_screen.dart';
+import '../../features/doctor/screens/queue_screen.dart';
 
 // Nursing
 import '../../features/nursing/screens/vitals_screen.dart';
@@ -135,6 +136,12 @@ final GoRouter appRouter = GoRouter(
           name: 'prescriptions',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: PrescriptionsScreen()),
+        ),
+        GoRoute(
+          path: '/queue',
+          name: 'queue',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: QueueScreen()),
         ),
 
         // Nursing

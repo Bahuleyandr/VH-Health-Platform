@@ -69,8 +69,8 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.doctor:
         return [
           _NavItem('Home', Icons.dashboard_outlined, Icons.dashboard, '/dashboard'),
-          _NavItem('Patients', Icons.medical_information_outlined, Icons.medical_information, '/patient-records'),
-          _NavItem('Schedule', Icons.calendar_month_outlined, Icons.calendar_month, '/appointments'),
+          _NavItem('Queue', Icons.queue_outlined, Icons.queue, '/queue'),
+          _NavItem('Records', Icons.folder_shared_outlined, Icons.folder_shared, '/patient-records'),
           _NavItem('Profile', Icons.person_outlined, Icons.person, '/profile'),
         ];
       case StaffRole.nurse:
