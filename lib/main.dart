@@ -1,26 +1,42 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'core/navigation/app_router.dart';
-import 'core/theme/app_theme.dart';
+import 'core/providers/theme_provider.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Global error widget — shows a friendly message instead of red screen
+  ErrorWidget.builder = (FlutterErrorDetails details) {
+    return Material(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline, size: 48, color: Colors.red),
+              const SizedBox(height: 12),
+              const Text(
+                'Something went wrong',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                details.exceptionAsString(),
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  };
+
   runApp(const VHHealthStaffApp());
-}
-
-class ThemeNotifier extends ChangeNotifier {
-  ThemeMode _mode = ThemeMode.light;
-  ThemeMode get mode => _mode;
-
-  void toggleTheme() {
-    _mode = _mode == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;
-    notifyListeners();
-  }
-
-  void setTheme(ThemeMode mode) {
-    _mode = mode;
-    notifyListeners();
-  }
 }
 
 class VHHealthStaffApp extends StatelessWidget {
@@ -29,15 +45,15 @@ class VHHealthStaffApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => ThemeNotifier(),
-      child: Consumer<ThemeNotifier>(
-        builder: (context, themeNotifier, _) {
+      create: (_) => ThemeProvider(),
+      child: Consumer<ThemeProvider>(
+        builder: (context, themeProvider, _) {
           return MaterialApp.router(
             title: 'VHHealth Staff',
             debugShowCheckedModeBanner: false,
-            theme: AppTheme.lightTheme,
-            darkTheme: AppTheme.darkTheme,
-            themeMode: themeNotifier.mode,
+            theme: themeProvider.lightTheme,
+            darkTheme: themeProvider.darkTheme,
+            themeMode: themeProvider.themeMode,
             routerConfig: appRouter,
           );
         },

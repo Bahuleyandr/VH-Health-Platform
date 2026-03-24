@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../../../core/providers/theme_provider.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
-import '../../../main.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -35,10 +35,20 @@ class SettingsScreen extends StatelessWidget {
     }
   }
 
+  String _themeModeLabel(ThemeMode mode) {
+    switch (mode) {
+      case ThemeMode.system:
+        return 'Follow system setting';
+      case ThemeMode.light:
+        return 'Always light';
+      case ThemeMode.dark:
+        return 'Always dark';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final themeNotifier = context.watch<ThemeNotifier>();
-    final isDark = themeNotifier.mode == ThemeMode.dark;
+    final themeProvider = context.watch<ThemeProvider>();
 
     return StaffScaffold(
       title: 'Settings',
@@ -51,16 +61,43 @@ class SettingsScreen extends StatelessWidget {
           _SectionHeader(title: 'Appearance'),
           _SettingsCard(
             children: [
-              SwitchListTile(
-                title: const Text('Dark Mode'),
-                subtitle: const Text('Toggle dark/light theme'),
-                secondary: Icon(
-                  isDark ? Icons.dark_mode : Icons.light_mode,
+              ListTile(
+                leading: Icon(
+                  themeProvider.themeMode == ThemeMode.dark
+                      ? Icons.dark_mode
+                      : themeProvider.themeMode == ThemeMode.light
+                          ? Icons.light_mode
+                          : Icons.brightness_auto,
                   color: AppTheme.primaryBlue,
                 ),
-                value: isDark,
-                activeColor: AppTheme.primaryBlue,
-                onChanged: (_) => themeNotifier.toggleTheme(),
+                title: const Text('Theme'),
+                subtitle: Text(_themeModeLabel(themeProvider.themeMode)),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: SegmentedButton<ThemeMode>(
+                  segments: const [
+                    ButtonSegment(
+                      value: ThemeMode.system,
+                      label: Text('System'),
+                      icon: Icon(Icons.brightness_auto, size: 18),
+                    ),
+                    ButtonSegment(
+                      value: ThemeMode.light,
+                      label: Text('Light'),
+                      icon: Icon(Icons.light_mode, size: 18),
+                    ),
+                    ButtonSegment(
+                      value: ThemeMode.dark,
+                      label: Text('Dark'),
+                      icon: Icon(Icons.dark_mode, size: 18),
+                    ),
+                  ],
+                  selected: {themeProvider.themeMode},
+                  onSelectionChanged: (selected) {
+                    themeProvider.setThemeMode(selected.first);
+                  },
+                ),
               ),
             ],
           ),
@@ -167,14 +204,11 @@ class SettingsScreen extends StatelessWidget {
             children: [
               _SettingsTile(
                 icon: Icons.info_outlined,
-                title: 'App Version',
-                subtitle: '1.0.0+1',
-              ),
-              const Divider(height: 1, indent: 56),
-              _SettingsTile(
-                icon: Icons.local_hospital_outlined,
-                title: 'VHHealth Staff Portal',
-                subtitle: 'Hospital staff management system',
+                title: 'About VHHealth Staff',
+                subtitle: 'Version 1.0.0 · App info & features',
+                trailing: const Icon(Icons.chevron_right,
+                    color: AppTheme.textSecondary),
+                onTap: () => context.push('/about'),
               ),
             ],
           ),
