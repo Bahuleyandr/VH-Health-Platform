@@ -85,7 +85,7 @@ export const API_ENDPOINTS = {
 
     // System Alerts (matching alertsService.js)
     alerts: {
-      system: "/api/v1/admin/alerts/system", // GET - getSystemAlerts()
+      system: "/api/v1/admin/alerts", // GET - getSystemAlerts()
     },
 
     // Health Monitoring (matching healthService.js)
@@ -96,17 +96,17 @@ export const API_ENDPOINTS = {
 
     // Reports (matching reportService.js)
     reports: {
-      refreshCache: "/api/v1/admin/reports/refresh-cache", // POST - refreshDashboardCache()
-      generate: "/api/v1/admin/reports/generate", // POST - generateDashboardReport()
+      refreshCache: "/api/v1/admin/refresh-cache", // POST - refreshDashboardCache()
+      generate: "/api/v1/admin/export/report", // POST - generateDashboardReport()
     },
 
     // Attendance Management (matching attendanceService.js)
     attendance: {
-      analytics: "/api/v1/admin/attendance/analytics", // GET - getAttendanceAnalytics()
-      anomalies: "/api/v1/admin/attendance/anomalies", // GET - getAttendanceAnomalies()
-      lateArrivals: "/api/v1/admin/attendance/late-arrivals", // GET - getLateArrivals()
-      earlyDepartures: "/api/v1/admin/attendance/early-departures", // GET - getEarlyDepartures()
-      absentReport: "/api/v1/admin/attendance/absent-report", // GET - getAbsentReport()
+      analytics: "/api/v1/admin/staff/attendance/analytics", // GET - getAttendanceAnalytics()
+      anomalies: "/api/v1/admin/staff/attendance/anomalies", // GET - getAttendanceAnomalies()
+      lateArrivals: "/api/v1/admin/staff/attendance/late-arrivals", // GET - getLateArrivals()
+      earlyDepartures: "/api/v1/admin/staff/attendance/early-departures", // GET - getEarlyDepartures()
+      absentReport: "/api/v1/admin/staff/attendance/absent-report", // GET - getAbsentReport()
     },
 
     // SOS/Emergency Management (matching sosService.js)
@@ -155,14 +155,14 @@ export const API_ENDPOINTS = {
     byRole: "/api/v1/users/role/:role", // GET
     byId: "/api/v1/users/:identifier", // GET/PUT/DELETE
     status: "/api/v1/users/:identifier/status", // PUT
-    dashboard: "/api/v1/users/dashboard", // GET
-    analytics: "/api/v1/users/analytics", // GET
+    dashboard: "/api/v1/users/admin/dashboard", // GET
+    analytics: "/api/v1/users/admin/analytics", // GET
     systemInfo: "/api/v1/users/system-info", // GET
-    activityAudit: "/api/v1/users/activity-audit", // GET
-    inactiveUsers: "/api/v1/users/inactive-users", // GET
-    generateReport: "/api/v1/users/generate-report", // POST
+    activityAudit: "/api/v1/users/admin/activity-audit", // GET
+    inactiveUsers: "/api/v1/users/admin/inactive-users", // GET
+    generateReport: "/api/v1/users/admin/generate-report", // POST
     bulkImport: "/api/v1/users/bulk-import", // POST
-    reactivate: "/api/v1/users/reactivate/:userId", // POST
+    reactivate: "/api/v1/users/admin/reactivate/:userId", // POST
 
     // Search & lookup
     search: "/api/v1/staff/search", // GET
@@ -200,11 +200,11 @@ export const API_ENDPOINTS = {
     overview: "/api/v1/departments/overview", // GET
 
     // Analytics & Reports
-    stats: "/api/v1/:id/stats", // GET
-    analytics: "/api/v1/:id/analytics", // GET
-    performance: "/api/v1/:id/performance", // GET
-    trends: "/api/v1/:id/trends", // GET
-    comparison: "/api/v1/comparison", // GET
+    stats: "/api/v1/departments/:id/stats", // GET
+    analytics: "/api/v1/departments/:id/analytics", // GET
+    performance: "/api/v1/departments/:id/performance", // GET
+    trends: "/api/v1/departments/:id/trends", // GET
+    comparison: "/api/v1/departments/comparison", // GET
 
     // Admin ops
     bulkOperations: "/api/v1/departments/bulk-operations", // POST
@@ -261,15 +261,15 @@ export const API_ENDPOINTS = {
     markAllReadByUser: "/api/v1/notifications/user/:user_id/read-all", // PATCH
 
     // Admin
-    templates: "/api/v1/notifications/templates", // GET/POST
-    announcement: "/api/v1/notifications/announcement", // POST
-    targeted: "/api/v1/notifications/targeted", // POST
-    bulk: "/api/v1/notifications/bulk", // POST
-    sendFromTemplate: "/api/v1/notifications/send-from-template", // POST
-    cleanup: "/api/v1/notifications/cleanup", // DELETE
+    templates: "/api/v1/notifications/admin/templates", // GET/POST
+    announcement: "/api/v1/notifications/admin/announcement", // POST
+    targeted: "/api/v1/notifications/admin/targeted", // POST
+    bulk: "/api/v1/notifications/admin/bulk-operations", // POST
+    sendFromTemplate: "/api/v1/notifications/admin/send-from-template", // POST
+    cleanup: "/api/v1/notifications/admin/cleanup", // DELETE
 
     // Stats & monitoring
-    deliveryStats: "/api/v1/notifications/delivery-stats", // GET
+    deliveryStats: "/api/v1/notifications/admin/delivery-stats", // GET
     statsSummary: "/api/v1/notifications/stats/summary", // GET
     emergencyActive: "/api/v1/notifications/emergency/active", // GET
     scheduledPending: "/api/v1/notifications/scheduled/pending", // GET

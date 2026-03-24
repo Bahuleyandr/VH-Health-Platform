@@ -27,7 +27,7 @@ export const useAllAlerts = (limit = 50, offset = 0) => {
 export const useEmergencyServices = () => {
   return useQuery({
     queryKey: ["admin", "sos", "services"],
-    queryFn: () => fetchAdminAPI("/admin/sos/services"),
+    queryFn: () => fetchAdminAPI("/admin/sos/emergency-services"),
     staleTime: 300000, // Cache for 5 minutes
   });
 };

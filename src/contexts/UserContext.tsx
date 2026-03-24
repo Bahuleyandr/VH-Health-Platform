@@ -91,7 +91,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
-      await fetchAdminAPI("/admin/auth/logout", { method: "POST" });
+      await fetchAdminAPI("/auth/admin/logout", { method: "POST" });
     } catch (err: unknown) {
       console.error("Logout error:", getErrorMessage(err));
     } finally {
