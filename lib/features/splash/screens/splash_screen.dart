@@ -46,10 +46,18 @@ class _SplashScreenState extends State<SplashScreen>
     final phone = await _secureStorage.read(key: 'phone');
     final biometricEnabled = await _secureStorage.read(key: 'biometric_enabled');
 
-    // ── 1. Firebase + JWT available → go to dashboard ──
+    // ── 1. Firebase + JWT available → check profile, then dashboard ──
     if (firebaseUser != null && jwt != null && mounted) {
-      AppRouter.setUserData(phone ?? '', 'User');
-context.go('/home');
+      final name = await _secureStorage.read(key: 'user_name');
+      final isNewUser = await _secureStorage.read(key: 'isNewUser');
+      AppRouter.setUserData(phone ?? '', name ?? 'User');
+
+      // Profile completion gate: new users or users without a name
+      if (isNewUser == 'true' || (name == null && phone != null && phone.isNotEmpty)) {
+        context.go('/profile-setup', extra: phone ?? '');
+        return;
+      }
+      context.go('/home');
       return;
     }
 
@@ -65,8 +73,15 @@ context.go('/home');
         );
 
         if (didAuth && mounted) {
-          AppRouter.setUserData(phone, 'User');
-context.go('/home');
+          final name = await _secureStorage.read(key: 'user_name');
+          final isNewUser = await _secureStorage.read(key: 'isNewUser');
+          AppRouter.setUserData(phone, name ?? 'User');
+
+          if (isNewUser == 'true' || name == null) {
+            context.go('/profile-setup', extra: phone);
+            return;
+          }
+          context.go('/home');
           return;
         }
       }
