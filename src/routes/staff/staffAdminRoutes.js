@@ -3,6 +3,10 @@ import express from 'express';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as staffAdminController from '../../controllers/staff/staffAdminController.js';
 import * as replacementController from '../../controllers/staff/replacementController.js';
+import * as attendanceController from '../../controllers/staff/attendanceController.js';
+import * as overtimeController from '../../controllers/staff/overtimeController.js';
+import * as shiftController from '../../controllers/staff/shiftController.js';
+import * as bulkController from '../../controllers/staff/bulkAttendanceController.js';
 
 const router = express.Router();
 
@@ -22,6 +26,9 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/attendance/late-arrivals', staffAdminController.getLateArrivals],
     ['/attendance/early-departures', staffAdminController.getEarlyDepartures],
     ['/attendance/absent-report', staffAdminController.getAbsentReport],
+    ['/attendance/disputes/pending', attendanceController.getPendingDisputes],
+    ['/attendance/geofence-breaches', attendanceController.getGeofenceBreaches],
+    ['/attendance/bulk-template', bulkController.getBulkTemplate],
     
     // HR Oversight
     ['/hr/pending-reviews', staffAdminController.getPendingReviews],
@@ -31,6 +38,12 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     // Leave Approvals (portal-facing)
     ['/leave/pending', staffAdminController.getAllLeaveRequests],
     ['/replacement/pending-hr', replacementController.getPendingReplacements],
+    
+    // Shifts
+    ['/shifts', shiftController.getAllShifts],
+
+    // Overtime
+    ['/overtime/pending', overtimeController.getPendingOvertimeRequests],
     
     // Staff Reports
     ['/reports/efficiency', staffAdminController.getEfficiencyReport],
@@ -46,14 +59,23 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
   
   post: [
     // Bulk Operations
-    ['/bulk/attendance-correction', staffAdminController.bulkAttendanceCorrection],
+    ['/bulk/attendance-correction', bulkController.bulkCorrectAttendance],
     ['/bulk/shift-assignment', staffAdminController.bulkShiftAssignment],
     ['/bulk/leave-approval', staffAdminController.bulkLeaveApproval],
+
+    // Attendance disputes
+    ['/attendance/disputes/:id/resolve', attendanceController.resolveDispute],
 
     // Leave approval actions (portal-facing)
     ['/leave/:leaveId/approve', staffAdminController.approveLeaveRequest],
     ['/leave/:leaveId/reject', staffAdminController.approveLeaveRequest],
     ['/replacement/:id/hr-approve', replacementController.hrApproveReplacement],
+    
+    // Shift operations
+    ['/shifts/assign', shiftController.assignShift],
+
+    // Overtime operations
+    ['/overtime/:id/approve', overtimeController.approveOvertime],
     
     // Override Operations
     ['/override/attendance', staffAdminController.overrideAttendance],

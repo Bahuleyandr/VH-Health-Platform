@@ -2,6 +2,8 @@ import express from 'express';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as hrController from '../../controllers/staff/hrController.js';
 import * as replacementController from '../../controllers/staff/replacementController.js';
+import * as overtimeController from '../../controllers/staff/overtimeController.js';
+import * as shiftController from '../../controllers/staff/shiftController.js';
 import {
   performanceReviewValidation,
   onboardingValidation,
@@ -38,6 +40,13 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
     // Replacement requests
     ['/replacement/pending', replacementController.getPendingReplacements],
     ['/replacement/history', replacementController.getReplacementHistory],
+
+    // Shifts
+    ['/shifts', shiftController.getAllShifts],
+    ['/shift/my-shift', shiftController.getMyShift],
+
+    // Overtime
+    ['/overtime', overtimeController.getMyOvertimeRequests],
   ],
   
   post: [
@@ -51,6 +60,10 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
     ['/replacement/request', replacementController.requestReplacement],
     ['/replacement/:id/respond', replacementController.respondToReplacement],
     ['/replacement/:id/hr-approve', replacementController.hrApproveReplacement],
+
+    // Overtime
+    ['/overtime/request', overtimeController.requestOvertime],
+    ['/overtime/:id/approve', overtimeController.approveOvertime],
   ],
   
   put: [
