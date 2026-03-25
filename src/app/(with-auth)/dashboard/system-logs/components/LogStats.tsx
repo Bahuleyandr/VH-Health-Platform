@@ -2,6 +2,7 @@
 "use client";
 
 import { AuditLog, SystemLog } from "@/lib/types";
+import { ClipboardList, Clock, Users, TrendingUp, AlertCircle, AlertTriangle, Info, Code2, FileText } from "lucide-react";
 
 interface LogStatsProps {
   logs: AuditLog[] | SystemLog[];
@@ -42,19 +43,7 @@ export function LogStats({ logs, type }: LogStatsProps) {
               </p>
             </div>
             <div className="text-muted-foreground">
-              <svg
-                className="w-8 h-8"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                />
-              </svg>
+              <ClipboardList className="w-8 h-8" />
             </div>
           </div>
         </div>
@@ -66,19 +55,7 @@ export function LogStats({ logs, type }: LogStatsProps) {
               <p className="text-2xl font-bold text-primary mt-1">{last24h}</p>
             </div>
             <div className="text-primary/60">
-              <svg
-                className="w-8 h-8"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
+              <Clock className="w-8 h-8" />
             </div>
           </div>
         </div>
@@ -92,19 +69,7 @@ export function LogStats({ logs, type }: LogStatsProps) {
               </p>
             </div>
             <div className="text-success/60">
-              <svg
-                className="w-8 h-8"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
-                />
-              </svg>
+              <Users className="w-8 h-8" />
             </div>
           </div>
         </div>
@@ -122,19 +87,7 @@ export function LogStats({ logs, type }: LogStatsProps) {
               </p>
             </div>
             <div className="text-purple-400">
-              <svg
-                className="w-8 h-8"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
-                />
-              </svg>
+              <TrendingUp className="w-8 h-8" />
             </div>
           </div>
         </div>
@@ -180,19 +133,7 @@ export function LogStats({ logs, type }: LogStatsProps) {
             )}
           </div>
           <div className="text-destructive/60">
-            <svg
-              className="w-8 h-8"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
+            <AlertCircle className="w-8 h-8" />
           </div>
         </div>
       </div>
@@ -206,19 +147,7 @@ export function LogStats({ logs, type }: LogStatsProps) {
             </p>
           </div>
           <div className="text-yellow-400">
-            <svg
-              className="w-8 h-8"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-              />
-            </svg>
+            <AlertTriangle className="w-8 h-8" />
           </div>
         </div>
       </div>
@@ -230,19 +159,7 @@ export function LogStats({ logs, type }: LogStatsProps) {
             <p className="text-2xl font-bold text-primary mt-1">{infoCount}</p>
           </div>
           <div className="text-primary/60">
-            <svg
-              className="w-8 h-8"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
+            <Info className="w-8 h-8" />
           </div>
         </div>
       </div>
@@ -256,19 +173,7 @@ export function LogStats({ logs, type }: LogStatsProps) {
             </p>
           </div>
           <div className="text-muted-foreground">
-            <svg
-              className="w-8 h-8"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
-              />
-            </svg>
+            <Code2 className="w-8 h-8" />
           </div>
         </div>
       </div>
@@ -282,19 +187,7 @@ export function LogStats({ logs, type }: LogStatsProps) {
             </p>
           </div>
           <div className="text-muted-foreground">
-            <svg
-              className="w-8 h-8"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-              />
-            </svg>
+            <FileText className="w-8 h-8" />
           </div>
         </div>
       </div>

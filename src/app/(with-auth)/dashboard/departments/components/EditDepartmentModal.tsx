@@ -4,6 +4,7 @@
 import { useState, useEffect } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import { Department } from "@/lib/types";
+import { CloseIcon } from "@/components/icons";
 
 interface EditDepartmentModalProps {
   department: Department;
@@ -80,19 +81,7 @@ export function EditDepartmentModal({
             onClick={onClose}
             className="text-muted-foreground hover:text-muted-foreground"
           >
-            <svg
-              className="h-6 w-6"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
+            <CloseIcon className="h-6 w-6" />
           </button>
         </div>
 

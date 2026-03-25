@@ -8,6 +8,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { AuditLogsTable } from "./components/AuditLogsTable";
 import { SystemLogsTable } from "./components/SystemLogsTable";
 import { LogFilters as LogFiltersComponent } from "./components/LogFilters";
+import { CloudDownload } from "lucide-react";
 import { LogStats } from "./components/LogStats";
 import { LogMonitor } from "./components/LogMonitor";
 import { KeyboardShortcuts } from "./components/KeyboardShortcuts";
@@ -300,19 +301,7 @@ function SystemLogsContent() {
             onClick={handleExport}
             className="px-4 py-2 bg-muted text-foreground rounded-md hover:bg-muted transition-colors flex items-center gap-2"
           >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"
-              />
-            </svg>
+            <CloudDownload className="w-5 h-5" />
             Export Logs
           </button>
 
