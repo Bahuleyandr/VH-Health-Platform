@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { CommandPalette } from '@/components/CommandPalette';
+import { KeyboardShortcutsModal } from '@/components/KeyboardShortcutsModal';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { AuthDebugger } from '@/components/auth/AuthDebugger';
@@ -193,6 +194,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Dev-only helper */}
       <AuthDebugger />
+
+      {/* Keyboard shortcuts help modal — press ? to open */}
+      <KeyboardShortcutsModal />
     </div>
   );
 }
