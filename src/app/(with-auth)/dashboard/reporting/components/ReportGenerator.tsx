@@ -221,19 +221,7 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
           disabled={isLoading}
           className="flex items-center gap-2 px-6 py-2 bg-destructive text-white rounded-md hover:bg-destructive/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
-            />
-          </svg>
+          <FileTextIcon className="w-5 h-5" />
           {isLoading ? "Generating..." : "Export as PDF"}
         </button>
 
@@ -242,19 +230,7 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
           disabled={isLoading}
           className="flex items-center gap-2 px-6 py-2 bg-success text-white rounded-md hover:bg-success/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-            />
-          </svg>
+          <BarChartIcon className="w-5 h-5" />
           {isLoading ? "Generating..." : "Export as Excel"}
         </button>
       </div>
