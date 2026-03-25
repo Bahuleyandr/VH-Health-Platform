@@ -8,11 +8,11 @@ export interface ShiftAssignment {
 }
 
 export function getStaffByShift<T = unknown>(shift: string) {
-  return getJSON<T>(`/staff/shift/${shift}`);
+  return getJSON<T>(`/api/v1/staff/shift/${shift}`);
 }
 
 export function bulkShiftAssignment<T = unknown>(
   assignments: ShiftAssignment[]
 ) {
-  return postJSON<T>("/admin/staff/bulk/shift-assignment", { assignments });
+  return postJSON<T>("/api/v1/admin/staff/bulk/shift-assignment", { assignments });
 }

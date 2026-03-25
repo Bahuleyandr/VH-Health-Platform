@@ -16,9 +16,12 @@ function hasDeleteAccountEndpoint(x: unknown): x is { deleteAccount: string } {
 }
 
 export function deleteDoctor<T = unknown>(id: number) {
-  const endpoint = hasDeleteAccountEndpoint(API_ENDPOINTS.doctors)
-    ? API_ENDPOINTS.doctors.deleteAccount.replace(":id", String(id))
-    : `/doctors/${id}`; // fallback
+  if (!hasDeleteAccountEndpoint(API_ENDPOINTS.doctors)) {
+    throw new Error(
+      `deleteDoctor: API_ENDPOINTS.doctors.deleteAccount is not configured`
+    );
+  }
+  const endpoint = API_ENDPOINTS.doctors.deleteAccount.replace(":id", String(id));
   return deleteJSON<T>(endpoint);
 }
 
