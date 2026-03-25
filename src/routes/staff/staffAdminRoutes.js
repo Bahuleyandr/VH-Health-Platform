@@ -2,6 +2,7 @@
 import express from 'express';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as staffAdminController from '../../controllers/staff/staffAdminController.js';
+import * as replacementController from '../../controllers/staff/replacementController.js';
 
 const router = express.Router();
 
@@ -26,6 +27,10 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/hr/pending-reviews', staffAdminController.getPendingReviews],
     ['/hr/leave-requests', staffAdminController.getAllLeaveRequests],
     ['/hr/onboarding-status', staffAdminController.getOnboardingStatus],
+
+    // Leave Approvals (portal-facing)
+    ['/leave/pending', staffAdminController.getAllLeaveRequests],
+    ['/replacement/pending-hr', replacementController.getPendingReplacements],
     
     // Staff Reports
     ['/reports/efficiency', staffAdminController.getEfficiencyReport],
@@ -44,6 +49,11 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/bulk/attendance-correction', staffAdminController.bulkAttendanceCorrection],
     ['/bulk/shift-assignment', staffAdminController.bulkShiftAssignment],
     ['/bulk/leave-approval', staffAdminController.bulkLeaveApproval],
+
+    // Leave approval actions (portal-facing)
+    ['/leave/:leaveId/approve', staffAdminController.approveLeaveRequest],
+    ['/leave/:leaveId/reject', staffAdminController.approveLeaveRequest],
+    ['/replacement/:id/hr-approve', replacementController.hrApproveReplacement],
     
     // Override Operations
     ['/override/attendance', staffAdminController.overrideAttendance],

@@ -14,11 +14,12 @@ export async function sendAppointmentReminders() {
 
     const result = await db.query(
       `SELECT a.id, a.uid, a.phone, a.appointment_date, a.doctor_id, u.device_token, u.name AS user_name,
-              d.name AS doctor_name, dept.name AS department_name
+              du.name AS doctor_name, dept.name AS department_name
        FROM appointments a
        JOIN users u ON a.uid = u.uid
-       JOIN doctors d ON a.doctor_id = d.id
-       JOIN departments dept ON d.department_id = dept.id
+       JOIN users du ON a.doctor_id = du.id
+       LEFT JOIN doctors doc ON doc.user_id = du.id
+       LEFT JOIN departments dept ON doc.department_id = dept.id
        WHERE a.appointment_date >= $1 AND a.appointment_date < $2
          AND a.status != 'cancelled' AND u.device_token IS NOT NULL`,
       [today.toISOString(), tomorrow.toISOString()]

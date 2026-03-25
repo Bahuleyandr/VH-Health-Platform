@@ -1,6 +1,7 @@
 import express from 'express';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as hrController from '../../controllers/staff/hrController.js';
+import * as replacementController from '../../controllers/staff/replacementController.js';
 import {
   performanceReviewValidation,
   onboardingValidation,
@@ -32,7 +33,11 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
     ['/attendance-analytics', hrController.getAttendanceAnalytics],
     
     // Export Reports
-    ['/export-report', exportReportValidation, hrController.exportStaffReport]
+    ['/export-report', exportReportValidation, hrController.exportStaffReport],
+
+    // Replacement requests
+    ['/replacement/pending', replacementController.getPendingReplacements],
+    ['/replacement/history', replacementController.getReplacementHistory],
   ],
   
   post: [
@@ -40,7 +45,12 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
     ['/performance-review', performanceReviewValidation, hrController.createPerformanceReview],
     
     // Apply for Leave
-    ['/leave/apply', leaveApplicationValidation, hrController.applyForLeave]
+    ['/leave/apply', leaveApplicationValidation, hrController.applyForLeave],
+
+    // Replacement requests
+    ['/replacement/request', replacementController.requestReplacement],
+    ['/replacement/:id/respond', replacementController.respondToReplacement],
+    ['/replacement/:id/hr-approve', replacementController.hrApproveReplacement],
   ],
   
   put: [
