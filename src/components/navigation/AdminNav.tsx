@@ -59,6 +59,7 @@ export const navigationItems: NavItem[] = [
 
   // NEW
   { name: "Attendance", href: "/dashboard/attendance", requiredRole: "ADMIN" },
+  { name: "Leave Approvals", href: "/dashboard/leave-approvals", requiredRole: "ADMIN" },
   { name: "Emergency/SOS", href: "/dashboard/sos" },
   { name: "Uploads", href: "/dashboard/uploads", requiredRole: "ADMIN" },
 
