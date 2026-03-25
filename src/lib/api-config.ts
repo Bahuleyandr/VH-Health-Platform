@@ -381,7 +381,10 @@ export const API_ENDPOINTS = {
     swagger: "/api-docs", // GET
     debug: "/api/v1/debug/routes", // GET (protected)
     rbac: "/api/v1/rbac/routes", // GET/POST (protected)
-    auditLog: "/api/v1/rbac/admin/audit-log", // GET (protected)
+    auditLog: "/api/v1/logs/audit", // GET (protected) - served by logRoutes
+    auditLogExport: "/api/v1/logs/audit/export", // GET - CSV export
+    systemLog: "/api/v1/logs/system", // GET - system/admin activity logs
+    systemLogExport: "/api/v1/logs/system/export", // GET - CSV export
     toggleUserStatus: "/api/v1/rbac/admin/toggle-user-status", // POST (protected)
   },
 };
