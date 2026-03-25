@@ -68,13 +68,13 @@ export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
     if (!lastLogin)
       return {
         text: "Never",
-        className: "text-gray-400" as string,
+        className: "text-muted-foreground" as string,
         fullDate: "",
       };
 
     const t = Date.parse(lastLogin);
     if (Number.isNaN(t))
-      return { text: "Invalid date", className: "text-gray-400", fullDate: "" };
+      return { text: "Invalid date", className: "text-muted-foreground", fullDate: "" };
 
     const date = new Date(t);
     const now = Date.now();
@@ -87,17 +87,17 @@ export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
       hour: "2-digit",
       minute: "2-digit",
     });
-    let className = "text-gray-500";
+    let className = "text-muted-foreground";
 
     if (diffDays === 0) {
       text = "Today";
-      className = "text-green-600 font-medium";
+      className = "text-success font-medium";
     } else if (diffDays === 1) {
       text = "Yesterday";
-      className = "text-blue-600";
+      className = "text-primary";
     } else if (diffDays <= 7) {
       text = `${diffDays} days ago`;
-      className = "text-blue-600";
+      className = "text-primary";
     } else if (diffDays > 30) {
       className = "text-orange-600";
     }
@@ -116,53 +116,53 @@ export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
   return (
     <div className="bg-white shadow rounded-lg overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+        <table className="min-w-full divide-y divide-border">
+          <thead className="bg-muted">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Administrator
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Role
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Permissions
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Status
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Last Login
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Actions
               </th>
             </tr>
           </thead>
 
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="bg-white divide-y divide-border">
             {rows.map((admin) => {
               const loginInfo = formatLastLogin(admin.last_login);
               const toggling = updatingAdminId === admin.id;
               const toggleAllowed = canToggleFor(admin.is_active);
 
               return (
-                <tr key={admin.id} className="hover:bg-gray-50">
+                <tr key={admin.id} className="hover:bg-muted">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div>
-                      <div className="text-sm font-medium text-gray-900">
+                      <div className="text-sm font-medium text-foreground">
                         {admin.name}
                       </div>
-                      <div className="text-sm text-gray-500">{admin.email}</div>
+                      <div className="text-sm text-muted-foreground">{admin.email}</div>
                     </div>
                   </td>
 
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{admin.role}</div>
+                    <div className="text-sm text-foreground">{admin.role}</div>
                   </td>
 
                   <td className="px-6 py-4">
-                    <div className="text-sm text-gray-600">
+                    <div className="text-sm text-muted-foreground">
                       {getPermissionsSummary(admin.permissions)}
                     </div>
                   </td>
@@ -171,8 +171,8 @@ export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
                     <span
                       className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                         admin.is_active
-                          ? "bg-green-100 text-green-800"
-                          : "bg-red-100 text-red-800"
+                          ? "bg-success/10 text-success"
+                          : "bg-destructive/10 text-destructive"
                       }`}
                     >
                       {admin.is_active ? "Active" : "Inactive"}
@@ -193,12 +193,12 @@ export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
                       {canEditPermissions ? (
                         <Link
                           href={`/dashboard/admin-management/edit-permissions/${admin.id}`}
-                          className="text-blue-600 hover:text-blue-900 transition-colors"
+                          className="text-primary hover:text-primary transition-colors"
                         >
                           Edit Permissions
                         </Link>
                       ) : (
-                        <span className="text-gray-400 cursor-not-allowed">
+                        <span className="text-muted-foreground cursor-not-allowed">
                           Edit Permissions
                         </span>
                       )}
@@ -208,10 +208,10 @@ export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
                         disabled={toggling || !toggleAllowed}
                         className={`transition-colors ${
                           toggling || !toggleAllowed
-                            ? "text-gray-400 cursor-not-allowed"
+                            ? "text-muted-foreground cursor-not-allowed"
                             : admin.is_active
-                              ? "text-red-600 hover:text-red-900"
-                              : "text-green-600 hover:text-green-900"
+                              ? "text-destructive hover:text-destructive"
+                              : "text-success hover:text-success"
                         }`}
                         title={
                           toggleAllowed

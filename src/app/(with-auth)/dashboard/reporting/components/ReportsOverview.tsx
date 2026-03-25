@@ -73,12 +73,12 @@ export function ReportsOverview() {
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 text-red-600 rounded-lg p-4">
+      <div className="bg-destructive/10 border border-destructive/30 text-destructive rounded-lg p-4">
         <h3 className="font-semibold mb-1">Error Loading Reports</h3>
         <p>{error}</p>
         <button
           onClick={fetchReportData}
-          className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+          className="mt-2 px-4 py-2 bg-destructive text-white rounded hover:bg-destructive/90"
         >
           Retry
         </button>
@@ -94,7 +94,7 @@ export function ReportsOverview() {
       <div className="bg-white p-4 rounded-lg shadow">
         <div className="flex items-center gap-4">
           <div>
-            <label htmlFor="overview-date-from" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="overview-date-from" className="block text-sm font-medium text-foreground mb-1">
               From Date
             </label>
             <input
@@ -102,11 +102,11 @@ export function ReportsOverview() {
               id="overview-date-from"
               value={dateRange.from}
               onChange={(e) => handleDateChange("from", e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
           <div>
-            <label htmlFor="overview-date-to" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="overview-date-to" className="block text-sm font-medium text-foreground mb-1">
               To Date
             </label>
             <input
@@ -114,13 +114,13 @@ export function ReportsOverview() {
               id="overview-date-to"
               value={dateRange.to}
               onChange={(e) => handleDateChange("to", e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
           <div className="flex items-end">
             <button
               onClick={fetchReportData}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90"
             >
               Update Report
             </button>
@@ -132,11 +132,11 @@ export function ReportsOverview() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium text-gray-600">
+            <h3 className="text-sm font-medium text-muted-foreground">
               Total Appointments
             </h3>
             <svg
-              className="w-5 h-5 text-blue-500"
+              className="w-5 h-5 text-primary"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -149,17 +149,17 @@ export function ReportsOverview() {
               />
             </svg>
           </div>
-          <p className="text-2xl font-bold text-gray-900">
+          <p className="text-2xl font-bold text-foreground">
             {stats.totalAppointments.toLocaleString()}
           </p>
-          <p className="text-sm text-gray-500 mt-1">In selected period</p>
+          <p className="text-sm text-muted-foreground mt-1">In selected period</p>
         </div>
 
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium text-gray-600">Total Revenue</h3>
+            <h3 className="text-sm font-medium text-muted-foreground">Total Revenue</h3>
             <svg
-              className="w-5 h-5 text-green-500"
+              className="w-5 h-5 text-success"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -172,15 +172,15 @@ export function ReportsOverview() {
               />
             </svg>
           </div>
-          <p className="text-2xl font-bold text-gray-900">
+          <p className="text-2xl font-bold text-foreground">
             ₹{stats.totalRevenue.toLocaleString()}
           </p>
-          <p className="text-sm text-gray-500 mt-1">Total earnings</p>
+          <p className="text-sm text-muted-foreground mt-1">Total earnings</p>
         </div>
 
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium text-gray-600">
+            <h3 className="text-sm font-medium text-muted-foreground">
               Active Patients
             </h3>
             <svg
@@ -197,29 +197,29 @@ export function ReportsOverview() {
               />
             </svg>
           </div>
-          <p className="text-2xl font-bold text-gray-900">
+          <p className="text-2xl font-bold text-foreground">
             {stats.totalPatients.toLocaleString()}
           </p>
-          <p className="text-sm text-gray-500 mt-1">Unique patients</p>
+          <p className="text-sm text-muted-foreground mt-1">Unique patients</p>
         </div>
 
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium text-gray-600">
+            <h3 className="text-sm font-medium text-muted-foreground">
               Average Rating
             </h3>
             <svg
-              className="w-5 h-5 text-yellow-500"
+              className="w-5 h-5 text-warning"
               fill="currentColor"
               viewBox="0 0 20 20"
             >
               <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
             </svg>
           </div>
-          <p className="text-2xl font-bold text-gray-900">
+          <p className="text-2xl font-bold text-foreground">
             {stats.averageRating.toFixed(1)}
           </p>
-          <p className="text-sm text-gray-500 mt-1">Out of 5.0</p>
+          <p className="text-sm text-muted-foreground mt-1">Out of 5.0</p>
         </div>
       </div>
 
@@ -237,10 +237,10 @@ export function ReportsOverview() {
               return (
                 <div
                   key={index}
-                  className="flex-1 bg-blue-500 hover:bg-blue-600 rounded-t transition-colors relative group"
+                  className="flex-1 bg-primary hover:bg-primary/90 rounded-t transition-colors relative group"
                   style={{ height: `${height}%` }}
                 >
-                  <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                  <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-card text-white text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
                     {day.count} appointments
                     <br />
                     {new Date(day.date).toLocaleDateString()}
@@ -249,7 +249,7 @@ export function ReportsOverview() {
               );
             })}
           </div>
-          <div className="mt-2 text-xs text-gray-500 text-center">
+          <div className="mt-2 text-xs text-muted-foreground text-center">
             Daily appointments
           </div>
         </div>
@@ -270,11 +270,11 @@ export function ReportsOverview() {
                     <span className="text-sm font-medium">
                       {dept.department}
                     </span>
-                    <span className="text-sm text-gray-600">
+                    <span className="text-sm text-muted-foreground">
                       ₹{dept.revenue.toLocaleString()}
                     </span>
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div className="w-full bg-muted rounded-full h-2">
                     <div
                       className="h-2 rounded-full transition-all duration-300"
                       style={{
@@ -294,39 +294,39 @@ export function ReportsOverview() {
       <div className="bg-white p-6 rounded-lg shadow">
         <h3 className="text-lg font-semibold mb-4">Top Performing Doctors</h3>
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
+          <table className="min-w-full divide-y divide-border">
             <thead>
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Doctor Name
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Total Appointments
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Average Rating
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Performance
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200">
+            <tbody className="divide-y divide-border">
               {stats.topDoctors.map((doctor, index) => (
-                <tr key={index} className="hover:bg-gray-50">
+                <tr key={index} className="hover:bg-muted">
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
+                    <div className="text-sm font-medium text-foreground">
                       Dr. {doctor.name}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">
+                    <div className="text-sm text-foreground">
                       {doctor.appointments}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
-                      <span className="text-sm text-gray-900">
+                      <span className="text-sm text-foreground">
                         {doctor.rating.toFixed(1)}
                       </span>
                       <svg
@@ -342,10 +342,10 @@ export function ReportsOverview() {
                     <span
                       className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                         doctor.rating >= 4.5
-                          ? "bg-green-100 text-green-800"
+                          ? "bg-success/10 text-success"
                           : doctor.rating >= 4.0
-                            ? "bg-yellow-100 text-yellow-800"
-                            : "bg-red-100 text-red-800"
+                            ? "bg-warning/10 text-warning"
+                            : "bg-destructive/10 text-destructive"
                       }`}
                     >
                       {doctor.rating >= 4.5

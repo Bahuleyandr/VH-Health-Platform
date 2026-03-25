@@ -44,71 +44,71 @@ export function DoctorsTable({ doctors, onDoctorDeleted }: DoctorsTableProps) {
   return (
     <div className="bg-white shadow rounded-lg overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+        <table className="min-w-full divide-y divide-border">
+          <thead className="bg-muted">
             <tr>
               <th
                 scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
               >
                 Doctor
               </th>
               <th
                 scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
               >
                 Department
               </th>
               <th
                 scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
               >
                 Specialization
               </th>
               <th
                 scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
               >
                 Consultation Fee
               </th>
               <th
                 scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
               >
                 Status
               </th>
               <th
                 scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
               >
                 Actions
               </th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="bg-white divide-y divide-border">
             {doctors.map((doctor) => (
-              <tr key={doctor.user_id} className="hover:bg-gray-50">
+              <tr key={doctor.user_id} className="hover:bg-muted">
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div>
-                    <div className="text-sm font-medium text-gray-900">
+                    <div className="text-sm font-medium text-foreground">
                       {doctor.name}
                     </div>
-                    <div className="text-sm text-gray-500">{doctor.email}</div>
-                    <div className="text-sm text-gray-500">{doctor.phone}</div>
+                    <div className="text-sm text-muted-foreground">{doctor.email}</div>
+                    <div className="text-sm text-muted-foreground">{doctor.phone}</div>
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-900">
+                  <div className="text-sm text-foreground">
                     {doctor.department}
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-900">
+                  <div className="text-sm text-foreground">
                     {doctor.specialization}
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900">
+                  <div className="text-sm font-medium text-foreground">
                     ₹{doctor.consultation_fee}
                   </div>
                 </td>
@@ -116,8 +116,8 @@ export function DoctorsTable({ doctors, onDoctorDeleted }: DoctorsTableProps) {
                   <span
                     className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                       doctor.is_available
-                        ? "bg-green-100 text-green-800"
-                        : "bg-red-100 text-red-800"
+                        ? "bg-success/10 text-success"
+                        : "bg-destructive/10 text-destructive"
                     }`}
                   >
                     {doctor.is_available ? "Available" : "Unavailable"}
@@ -127,7 +127,7 @@ export function DoctorsTable({ doctors, onDoctorDeleted }: DoctorsTableProps) {
                   <div className="flex items-center gap-3">
                     <Link
                       href={`/dashboard/doctors/edit/${doctor.user_id}`}
-                      className="text-blue-600 hover:text-blue-900 transition-colors"
+                      className="text-primary hover:text-primary transition-colors"
                     >
                       Edit
                     </Link>
@@ -136,8 +136,8 @@ export function DoctorsTable({ doctors, onDoctorDeleted }: DoctorsTableProps) {
                       disabled={deleting === doctor.user_id}
                       className={`${
                         deleting === doctor.user_id
-                          ? "text-gray-400 cursor-not-allowed"
-                          : "text-red-600 hover:text-red-900 transition-colors"
+                          ? "text-muted-foreground cursor-not-allowed"
+                          : "text-destructive hover:text-destructive transition-colors"
                       }`}
                     >
                       {deleting === doctor.user_id ? "Deleting..." : "Delete"}

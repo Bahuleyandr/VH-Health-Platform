@@ -8,6 +8,7 @@ import { CommandPalette } from '@/components/CommandPalette';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { AuthDebugger } from '@/components/auth/AuthDebugger';
+import { MenuIcon } from '@/components/icons';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useAuth } from '@/contexts/AuthContext';
 import { AnnouncementBanner } from './notifications/components/AnnouncementBannerManager';
@@ -93,9 +94,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 aria-controls="mobile-sidebar"
                 aria-expanded={isSidebarOpen}
               >
-                <svg className="h-6 w-6" viewBox="0 0 24 24" stroke="currentColor" fill="none" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
+                <MenuIcon className="h-6 w-6" aria-hidden="true" />
               </button>
               <Breadcrumbs />
             </div>

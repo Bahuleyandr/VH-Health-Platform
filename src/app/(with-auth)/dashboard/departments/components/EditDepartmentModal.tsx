@@ -72,13 +72,13 @@ export function EditDepartmentModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-gray-600 dark:bg-gray-900 bg-opacity-50 dark:bg-opacity-70 overflow-y-auto h-full w-full z-50">
-      <div className="relative top-20 mx-auto p-5 border dark:border-gray-700 w-full max-w-lg shadow-lg rounded-md bg-white dark:bg-gray-800">
+    <div className="fixed inset-0 bg-foreground dark:bg-background bg-opacity-50 dark:bg-opacity-70 overflow-y-auto h-full w-full z-50">
+      <div className="relative top-20 mx-auto p-5 border dark:border-border w-full max-w-lg shadow-lg rounded-md bg-white dark:bg-card">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold text-gray-900">Edit Department</h3>
+          <h3 className="text-lg font-bold text-foreground">Edit Department</h3>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-500"
+            className="text-muted-foreground hover:text-muted-foreground"
           >
             <svg
               className="h-6 w-6"
@@ -98,7 +98,7 @@ export function EditDepartmentModal({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <div className="p-3 bg-red-50 border border-red-200 text-red-600 rounded">
+            <div className="p-3 bg-destructive/10 border border-destructive/30 text-destructive rounded">
               {error}
             </div>
           )}
@@ -106,9 +106,9 @@ export function EditDepartmentModal({
           <div>
             <label
               htmlFor="name"
-              className="block text-sm font-medium text-gray-700 mb-1"
+              className="block text-sm font-medium text-foreground mb-1"
             >
-              Department Name <span className="text-red-500">*</span>
+              Department Name <span className="text-destructive">*</span>
             </label>
             <input
               type="text"
@@ -116,7 +116,7 @@ export function EditDepartmentModal({
               name="name"
               value={formData.name}
               onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
               disabled={loading}
             />
           </div>
@@ -124,7 +124,7 @@ export function EditDepartmentModal({
           <div>
             <label
               htmlFor="description"
-              className="block text-sm font-medium text-gray-700 mb-1"
+              className="block text-sm font-medium text-foreground mb-1"
             >
               Description
             </label>
@@ -134,7 +134,7 @@ export function EditDepartmentModal({
               value={formData.description}
               onChange={handleChange}
               rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
               disabled={loading}
             />
           </div>
@@ -143,7 +143,7 @@ export function EditDepartmentModal({
             <button
               type="submit"
               disabled={loading}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? "Updating..." : "Update Department"}
             </button>
@@ -151,7 +151,7 @@ export function EditDepartmentModal({
               type="button"
               onClick={onClose}
               disabled={loading}
-              className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 disabled:opacity-50"
+              className="flex-1 px-4 py-2 border border-input text-foreground rounded-md hover:bg-muted disabled:opacity-50"
             >
               Cancel
             </button>

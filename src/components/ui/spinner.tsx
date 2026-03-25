@@ -8,7 +8,7 @@ export function Spinner({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
 
   return (
     <div
-      className={`animate-spin rounded-full border-gray-300 border-t-blue-600 ${sizeClasses[size]}`}
+      className={`animate-spin rounded-full border-input border-t-blue-600 ${sizeClasses[size]}`}
       aria-label="Loading"
     />
   );
@@ -22,7 +22,7 @@ export function LoadingSpinner({
   return (
     <div className="flex flex-col items-center justify-center space-y-3">
       <Spinner size="lg" />
-      <p className="text-sm text-gray-500">{message}</p>
+      <p className="text-sm text-muted-foreground">{message}</p>
     </div>
   );
 }

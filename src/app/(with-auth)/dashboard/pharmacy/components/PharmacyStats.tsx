@@ -14,14 +14,14 @@ function StatCard({
 }) {
   return (
     <div
-      className={`${bgColor} p-6 rounded-lg shadow-sm border border-gray-200`}
+      className={`${bgColor} p-6 rounded-lg shadow-sm border border-border`}
     >
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm font-medium text-gray-600">{title}</p>
-          <p className="text-2xl font-bold text-gray-900 mt-2">{value}</p>
+          <p className="text-sm font-medium text-muted-foreground">{title}</p>
+          <p className="text-2xl font-bold text-foreground mt-2">{value}</p>
         </div>
-        {icon && <div className="text-gray-400">{icon}</div>}
+        {icon && <div className="text-muted-foreground">{icon}</div>}
       </div>
     </div>
   );
@@ -39,7 +39,7 @@ export function PharmacyStats({ analytics }: { analytics: PharmacyAnalytics }) {
       <StatCard
         title="Total Revenue"
         value={`₹${analytics.total_revenue.toLocaleString("en-IN")}`}
-        bgColor="bg-green-50"
+        bgColor="bg-success/10"
         icon={
           <svg
             className="w-8 h-8"
@@ -80,7 +80,7 @@ export function PharmacyStats({ analytics }: { analytics: PharmacyAnalytics }) {
       <StatCard
         title="Pending Orders"
         value={analytics.pending_orders}
-        bgColor="bg-yellow-50"
+        bgColor="bg-warning/10"
         icon={
           <svg
             className="w-8 h-8"

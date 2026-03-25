@@ -113,15 +113,15 @@ export function OrderDetailsModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+    <div className="fixed inset-0 bg-foreground bg-opacity-50 overflow-y-auto h-full w-full z-50">
       <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-bold text-gray-900">
+          <h3 className="text-lg font-bold text-foreground">
             Order Details #{orderId}
           </h3>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-500"
+            className="text-muted-foreground hover:text-muted-foreground"
           >
             <svg
               className="w-6 h-6"
@@ -141,12 +141,12 @@ export function OrderDetailsModal({
 
         {loading && (
           <div className="flex justify-center items-center h-32">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
           </div>
         )}
 
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+          <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded mb-4">
             {error}
           </div>
         )}
@@ -155,12 +155,12 @@ export function OrderDetailsModal({
           <div className="space-y-4">
             {/* Order Information */}
             <div className="border-b pb-4">
-              <h4 className="font-semibold text-gray-700 mb-2">
+              <h4 className="font-semibold text-foreground mb-2">
                 Order Information
               </h4>
-              <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                 <div>
-                  <span className="text-gray-600">Order Date:</span>
+                  <span className="text-muted-foreground">Order Date:</span>
                   <span className="ml-2 font-medium">
                     {new Date(orderDetails.order_date).toLocaleDateString(
                       "en-GB",
@@ -173,23 +173,23 @@ export function OrderDetailsModal({
                   </span>
                 </div>
                 <div>
-                  <span className="text-gray-600">Status:</span>
+                  <span className="text-muted-foreground">Status:</span>
                   <span
                     className={`ml-2 inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                       orderDetails.status === "completed"
-                        ? "bg-green-100 text-green-800"
+                        ? "bg-success/10 text-success"
                         : orderDetails.status === "pending"
-                          ? "bg-yellow-100 text-yellow-800"
+                          ? "bg-warning/10 text-warning"
                           : orderDetails.status === "processing"
-                            ? "bg-blue-100 text-blue-800"
-                            : "bg-red-100 text-red-800"
+                            ? "bg-primary/10 text-primary"
+                            : "bg-destructive/10 text-destructive"
                     }`}
                   >
                     {orderDetails.status}
                   </span>
                 </div>
                 <div>
-                  <span className="text-gray-600">Total Amount:</span>
+                  <span className="text-muted-foreground">Total Amount:</span>
                   <span className="ml-2 font-semibold">
                     ₹{orderDetails.total_amount?.toLocaleString("en-IN")}
                   </span>
@@ -199,19 +199,19 @@ export function OrderDetailsModal({
 
             {/* Patient Information */}
             <div className="border-b pb-4">
-              <h4 className="font-semibold text-gray-700 mb-2">
+              <h4 className="font-semibold text-foreground mb-2">
                 Patient Information
               </h4>
               <div className="text-sm">
                 <p>
-                  <span className="text-gray-600">Name:</span>{" "}
+                  <span className="text-muted-foreground">Name:</span>{" "}
                   <span className="font-medium">
                     {orderDetails.patient_name}
                   </span>
                 </p>
                 {orderDetails.patient_email && (
                   <p>
-                    <span className="text-gray-600">Email:</span>{" "}
+                    <span className="text-muted-foreground">Email:</span>{" "}
                     <span className="font-medium">
                       {orderDetails.patient_email}
                     </span>
@@ -219,7 +219,7 @@ export function OrderDetailsModal({
                 )}
                 {orderDetails.patient_phone && (
                   <p>
-                    <span className="text-gray-600">Phone:</span>{" "}
+                    <span className="text-muted-foreground">Phone:</span>{" "}
                     <span className="font-medium">
                       {orderDetails.patient_phone}
                     </span>
@@ -230,19 +230,19 @@ export function OrderDetailsModal({
 
             {/* Doctor Information */}
             <div className="border-b pb-4">
-              <h4 className="font-semibold text-gray-700 mb-2">
+              <h4 className="font-semibold text-foreground mb-2">
                 Prescribing Doctor
               </h4>
               <div className="text-sm">
                 <p>
-                  <span className="text-gray-600">Name:</span>{" "}
+                  <span className="text-muted-foreground">Name:</span>{" "}
                   <span className="font-medium">
                     Dr. {orderDetails.doctor_name}
                   </span>
                 </p>
                 {orderDetails.doctor_department && (
                   <p>
-                    <span className="text-gray-600">Department:</span>{" "}
+                    <span className="text-muted-foreground">Department:</span>{" "}
                     <span className="font-medium">
                       {orderDetails.doctor_department}
                     </span>
@@ -254,28 +254,28 @@ export function OrderDetailsModal({
             {/* Order Items */}
             {orderDetails.items && orderDetails.items.length > 0 && (
               <div>
-                <h4 className="font-semibold text-gray-700 mb-2">
+                <h4 className="font-semibold text-foreground mb-2">
                   Order Items
                 </h4>
                 <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
+                  <table className="min-w-full divide-y divide-border">
+                    <thead className="bg-muted">
                       <tr>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">
                           Medicine
                         </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">
                           Quantity
                         </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">
                           Price
                         </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">
                           Total
                         </th>
                       </tr>
                     </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
+                    <tbody className="bg-white divide-y divide-border">
                       {orderDetails.items.map(
                         (item: OrderItem, index: number) => (
                           <tr key={index}>
@@ -303,7 +303,7 @@ export function OrderDetailsModal({
         <div className="mt-6 flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors"
+            className="px-4 py-2 bg-muted text-foreground rounded-md hover:bg-muted transition-colors"
           >
             Close
           </button>

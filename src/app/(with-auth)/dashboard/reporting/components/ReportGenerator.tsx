@@ -6,6 +6,7 @@ import { useState } from "react";
 import { API_BASE_URL } from "@/lib/api-config";
 import { getAuthToken } from "@/lib/api-client";
 import { getHeaders } from "@/lib/api-config";
+import { FileTextIcon, BarChartIcon } from "@/components/icons";
 
 interface ReportGeneratorProps {
   users: User[];
@@ -108,7 +109,7 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
   return (
     <div>
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-600 rounded">
+        <div className="mb-4 p-3 bg-destructive/10 border border-destructive/30 text-destructive rounded">
           {error}
         </div>
       )}
@@ -116,7 +117,7 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
       {/* Filters */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         <div>
-          <label htmlFor="filter-patient" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="filter-patient" className="block text-sm font-medium text-foreground mb-1">
             Patient
           </label>
           <select
@@ -124,7 +125,7 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
             name="patient_id"
             value={filters.patient_id}
             onChange={handleFilterChange}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
           >
             <option value="">All Patients</option>
             {users.map((user) => (
@@ -136,7 +137,7 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
         </div>
 
         <div>
-          <label htmlFor="filter-doctor" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="filter-doctor" className="block text-sm font-medium text-foreground mb-1">
             Doctor
           </label>
           <select
@@ -144,7 +145,7 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
             name="doctor_id"
             value={filters.doctor_id}
             onChange={handleFilterChange}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
           >
             <option value="">All Doctors</option>
             {doctors.map((doctor) => (
@@ -156,7 +157,7 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
         </div>
 
         <div>
-          <label htmlFor="filter-report-type" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="filter-report-type" className="block text-sm font-medium text-foreground mb-1">
             Report Type
           </label>
           <select
@@ -164,7 +165,7 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
             name="report_type"
             value={filters.report_type}
             onChange={handleFilterChange}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
           >
             <option value="all">All Records</option>
             <option value="appointments">Appointments Only</option>
@@ -174,7 +175,7 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
         </div>
 
         <div>
-          <label htmlFor="filter-date-from" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="filter-date-from" className="block text-sm font-medium text-foreground mb-1">
             From Date
           </label>
           <input
@@ -183,12 +184,12 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
             name="date_from"
             value={filters.date_from}
             onChange={handleFilterChange}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
           />
         </div>
 
         <div>
-          <label htmlFor="filter-date-to" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="filter-date-to" className="block text-sm font-medium text-foreground mb-1">
             To Date
           </label>
           <input
@@ -197,7 +198,7 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
             name="date_to"
             value={filters.date_to}
             onChange={handleFilterChange}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
           />
         </div>
 
@@ -205,7 +206,7 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
           <div className="flex items-end">
             <button
               onClick={clearFilters}
-              className="px-4 py-2 text-gray-600 hover:text-gray-800 underline"
+              className="px-4 py-2 text-muted-foreground hover:text-foreground underline"
             >
               Clear all filters
             </button>
@@ -218,7 +219,7 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
         <button
           onClick={() => handleExport("pdf")}
           disabled={isLoading}
-          className="flex items-center gap-2 px-6 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="flex items-center gap-2 px-6 py-2 bg-destructive text-white rounded-md hover:bg-destructive/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           <svg
             className="w-5 h-5"
@@ -239,7 +240,7 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
         <button
           onClick={() => handleExport("excel")}
           disabled={isLoading}
-          className="flex items-center gap-2 px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="flex items-center gap-2 px-6 py-2 bg-success text-white rounded-md hover:bg-success/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           <svg
             className="w-5 h-5"
@@ -259,9 +260,9 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
       </div>
 
       {/* Export Information */}
-      <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-        <h4 className="font-medium text-blue-900 mb-2">Export Information</h4>
-        <ul className="text-sm text-blue-800 space-y-1">
+      <div className="mt-6 p-4 bg-primary/10 border border-primary/20 rounded-lg">
+        <h4 className="font-medium text-primary mb-2">Export Information</h4>
+        <ul className="text-sm text-primary space-y-1">
           <li>
             • PDF exports include formatted reports with headers and styling
           </li>

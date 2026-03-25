@@ -79,17 +79,17 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
       className="space-y-4 p-6 border rounded-lg bg-white shadow"
     >
       <div className="flex justify-between items-center">
-        <h3 className="text-lg font-semibold text-gray-900">
+        <h3 className="text-lg font-semibold text-foreground">
           Add New Administrator
         </h3>
-        <span className="text-xs text-gray-500">* Required fields</span>
+        <span className="text-xs text-muted-foreground">* Required fields</span>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label
             htmlFor="name"
-            className="block text-sm font-medium text-gray-700 mb-1"
+            className="block text-sm font-medium text-foreground mb-1"
           >
             Full Name *
           </label>
@@ -98,7 +98,7 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
             id="name"
             name="name"
             required
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
             disabled={loading}
             placeholder="John Doe"
           />
@@ -107,7 +107,7 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
         <div>
           <label
             htmlFor="email"
-            className="block text-sm font-medium text-gray-700 mb-1"
+            className="block text-sm font-medium text-foreground mb-1"
           >
             Email Address *
           </label>
@@ -116,7 +116,7 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
             id="email"
             name="email"
             required
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
             disabled={loading}
             placeholder="admin@vhhealth.app"
           />
@@ -125,7 +125,7 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
         <div>
           <label
             htmlFor="password"
-            className="block text-sm font-medium text-gray-700 mb-1"
+            className="block text-sm font-medium text-foreground mb-1"
           >
             Password *
           </label>
@@ -135,11 +135,11 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
             name="password"
             required
             minLength={8}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
             disabled={loading}
             placeholder="Minimum 8 characters"
           />
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-muted-foreground">
             Must be at least 8 characters long
           </p>
         </div>
@@ -147,7 +147,7 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
         <div>
           <label
             htmlFor="role"
-            className="block text-sm font-medium text-gray-700 mb-1"
+            className="block text-sm font-medium text-foreground mb-1"
           >
             Role *
           </label>
@@ -155,7 +155,7 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
             id="role"
             name="role"
             required
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
             disabled={loading}
             defaultValue="ADMIN"
           >
@@ -171,8 +171,8 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
           disabled={loading}
           className={`px-4 py-2 rounded-md font-medium transition-colors ${
             loading
-              ? "bg-gray-400 text-gray-200 cursor-not-allowed"
-              : "bg-blue-600 text-white hover:bg-blue-700"
+              ? "bg-muted-foreground text-muted-foreground cursor-not-allowed"
+              : "bg-primary text-white hover:bg-primary/90"
           }`}
         >
           {loading ? "Creating..." : "Create Admin"}
@@ -180,13 +180,13 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
       </div>
 
       {success && (
-        <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded">
+        <div className="bg-success/10 border border-success text-success px-4 py-3 rounded">
           {success}
         </div>
       )}
 
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+        <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded">
           {error}
         </div>
       )}

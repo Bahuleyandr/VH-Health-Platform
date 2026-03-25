@@ -38,7 +38,7 @@ export default function AdminManagementPage() {
     return (
       <div className="p-6">
         <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
         </div>
       </div>
     );
@@ -47,7 +47,7 @@ export default function AdminManagementPage() {
   if (error) {
     return (
       <div className="p-6">
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+        <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded">
           Error: {error instanceof Error ? error.message : "Failed to fetch administrators"}
         </div>
       </div>
@@ -56,7 +56,7 @@ export default function AdminManagementPage() {
 
   return (
     <div className="p-6">
-      <h1 className="mb-6 text-3xl font-bold text-gray-900">
+      <h1 className="mb-6 text-3xl font-bold text-foreground">
         Administrator Management
       </h1>
 
@@ -71,13 +71,13 @@ export default function AdminManagementPage() {
       </RequirePermissions>
 
       <div className="mt-8">
-        <h2 className="mb-4 text-xl font-semibold text-gray-800">
+        <h2 className="mb-4 text-xl font-semibold text-foreground">
           Current Administrators
         </h2>
 
         {admins.length === 0 ? (
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-8 text-center">
-            <p className="text-gray-500">No administrators found.</p>
+          <div className="rounded-lg border border-border bg-muted p-8 text-center">
+            <p className="text-muted-foreground">No administrators found.</p>
           </div>
         ) : (
           <AdminsTable admins={admins} onAdminUpdated={handleAdminUpdated} />

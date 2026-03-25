@@ -49,7 +49,7 @@ export function PharmacyFilters({ onFilterChange }: PharmacyFiltersProps) {
         <div>
           <label
             htmlFor="search"
-            className="block text-sm font-medium text-gray-700 mb-1"
+            className="block text-sm font-medium text-foreground mb-1"
           >
             Search
           </label>
@@ -60,14 +60,14 @@ export function PharmacyFilters({ onFilterChange }: PharmacyFiltersProps) {
             onChange={(e) => setSearchTerm(e.target.value)}
             onKeyUp={(e) => e.key === "Enter" && handleFilterChange()}
             placeholder="Order ID, Patient name..."
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
           />
         </div>
 
         <div>
           <label
             htmlFor="status"
-            className="block text-sm font-medium text-gray-700 mb-1"
+            className="block text-sm font-medium text-foreground mb-1"
           >
             Status
           </label>
@@ -75,7 +75,7 @@ export function PharmacyFilters({ onFilterChange }: PharmacyFiltersProps) {
             id="status"
             value={status}
             onChange={(e) => setStatus(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
           >
             <option value="">All Status</option>
             <option value="pending">Pending</option>
@@ -88,7 +88,7 @@ export function PharmacyFilters({ onFilterChange }: PharmacyFiltersProps) {
         <div>
           <label
             htmlFor="dateRange"
-            className="block text-sm font-medium text-gray-700 mb-1"
+            className="block text-sm font-medium text-foreground mb-1"
           >
             Date Range
           </label>
@@ -96,7 +96,7 @@ export function PharmacyFilters({ onFilterChange }: PharmacyFiltersProps) {
             id="dateRange"
             value={dateRange}
             onChange={(e) => setDateRange(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
           >
             <option value="">All Time</option>
             <option value="today">Today</option>
@@ -109,13 +109,13 @@ export function PharmacyFilters({ onFilterChange }: PharmacyFiltersProps) {
         <div className="flex items-end gap-2">
           <button
             onClick={handleFilterChange}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+            className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
           >
             Apply Filters
           </button>
           <button
             onClick={handleReset}
-            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
+            className="px-4 py-2 border border-input text-foreground rounded-md hover:bg-muted transition-colors"
           >
             Reset
           </button>

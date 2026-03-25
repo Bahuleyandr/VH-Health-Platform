@@ -39,13 +39,13 @@ export function AdminStats({ admins }: AdminStatsProps) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
       {/* Total */}
-      <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+      <div className="bg-white p-6 rounded-lg shadow-sm border border-border">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-gray-600">Total Admins</p>
-            <p className="text-2xl font-bold text-gray-900 mt-2">{total}</p>
+            <p className="text-sm font-medium text-muted-foreground">Total Admins</p>
+            <p className="text-2xl font-bold text-foreground mt-2">{total}</p>
           </div>
-          <div className="text-gray-400" aria-hidden>
+          <div className="text-muted-foreground" aria-hidden>
             <svg
               className="w-8 h-8"
               fill="none"
@@ -64,13 +64,13 @@ export function AdminStats({ admins }: AdminStatsProps) {
       </div>
 
       {/* Active */}
-      <div className="bg-green-50 p-6 rounded-lg shadow-sm border border-green-200">
+      <div className="bg-success/10 p-6 rounded-lg shadow-sm border border-success/30">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-green-600">Active</p>
-            <p className="text-2xl font-bold text-green-900 mt-2">{active}</p>
+            <p className="text-sm font-medium text-success">Active</p>
+            <p className="text-2xl font-bold text-success mt-2">{active}</p>
           </div>
-          <div className="text-green-400" aria-hidden>
+          <div className="text-success/60" aria-hidden>
             <svg
               className="w-8 h-8"
               fill="none"
@@ -89,13 +89,13 @@ export function AdminStats({ admins }: AdminStatsProps) {
       </div>
 
       {/* Inactive */}
-      <div className="bg-red-50 p-6 rounded-lg shadow-sm border border-red-200">
+      <div className="bg-destructive/10 p-6 rounded-lg shadow-sm border border-destructive/30">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-red-600">Inactive</p>
-            <p className="text-2xl font-bold text-red-900 mt-2">{inactive}</p>
+            <p className="text-sm font-medium text-destructive">Inactive</p>
+            <p className="text-2xl font-bold text-destructive mt-2">{inactive}</p>
           </div>
-          <div className="text-red-400" aria-hidden>
+          <div className="text-destructive/60" aria-hidden>
             <svg
               className="w-8 h-8"
               fill="none"
@@ -114,15 +114,15 @@ export function AdminStats({ admins }: AdminStatsProps) {
       </div>
 
       {/* Super Admins */}
-      <div className="bg-blue-50 p-6 rounded-lg shadow-sm border border-blue-200">
+      <div className="bg-primary/10 p-6 rounded-lg shadow-sm border border-primary/20">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-blue-600">Super Admins</p>
-            <p className="text-2xl font-bold text-blue-900 mt-2">
+            <p className="text-sm font-medium text-primary">Super Admins</p>
+            <p className="text-2xl font-bold text-primary mt-2">
               {superAdmins}
             </p>
           </div>
-          <div className="text-blue-400" aria-hidden>
+          <div className="text-primary/60" aria-hidden>
             <svg
               className="w-8 h-8"
               fill="none"

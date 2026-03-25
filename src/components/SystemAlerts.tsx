@@ -48,9 +48,9 @@ export function SystemAlerts() {
 
 function AlertItem({ alert }: { alert: Alert }) {
   const bgColor = {
-    error: "bg-red-50 border-red-200",
-    warning: "bg-yellow-50 border-yellow-200",
-    info: "bg-blue-50 border-blue-200",
+    error: "bg-destructive/10 border-destructive/30",
+    warning: "bg-warning/10 border-warning/30",
+    info: "bg-primary/10 border-primary/20",
   }[alert.type];
 
   return (
@@ -59,7 +59,7 @@ function AlertItem({ alert }: { alert: Alert }) {
       {alert.action && (
         <a
           href={alert.action}
-          className="text-sm text-blue-600 hover:underline"
+          className="text-sm text-primary hover:underline"
         >
           View Details →
         </a>

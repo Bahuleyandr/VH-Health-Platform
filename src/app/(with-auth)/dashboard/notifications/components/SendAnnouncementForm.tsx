@@ -70,7 +70,7 @@ export function SendAnnouncementForm({ onSuccess }: SendAnnouncementFormProps) {
       <div>
         <label
           htmlFor="title"
-          className="block text-sm font-medium text-gray-700 mb-1"
+          className="block text-sm font-medium text-foreground mb-1"
         >
           Title
         </label>
@@ -79,14 +79,14 @@ export function SendAnnouncementForm({ onSuccess }: SendAnnouncementFormProps) {
           id="title"
           name="title"
           required
-          className="border p-2 rounded w-full focus:ring-blue-500 focus:border-blue-500"
+          className="border p-2 rounded w-full focus:ring-primary focus:border-primary"
           disabled={loading}
         />
       </div>
       <div>
         <label
           htmlFor="body"
-          className="block text-sm font-medium text-gray-700 mb-1"
+          className="block text-sm font-medium text-foreground mb-1"
         >
           Message
         </label>
@@ -95,7 +95,7 @@ export function SendAnnouncementForm({ onSuccess }: SendAnnouncementFormProps) {
           name="body"
           required
           rows={4}
-          className="border p-2 rounded w-full focus:ring-blue-500 focus:border-blue-500"
+          className="border p-2 rounded w-full focus:ring-primary focus:border-primary"
           disabled={loading}
         />
       </div>
@@ -104,15 +104,15 @@ export function SendAnnouncementForm({ onSuccess }: SendAnnouncementFormProps) {
         disabled={loading}
         className={`px-4 py-2 rounded font-medium ${
           loading
-            ? "bg-gray-400 text-gray-200 cursor-not-allowed"
-            : "bg-blue-500 text-white hover:bg-blue-600"
+            ? "bg-muted-foreground text-muted-foreground cursor-not-allowed"
+            : "bg-primary text-white hover:bg-primary/90"
         }`}
       >
         {loading ? "Sending..." : "Send Announcement"}
       </button>
       {message && (
         <p
-          className={`mt-2 text-sm ${isError ? "text-red-600" : "text-green-600"}`}
+          className={`mt-2 text-sm ${isError ? "text-destructive" : "text-success"}`}
         >
           {message}
         </p>

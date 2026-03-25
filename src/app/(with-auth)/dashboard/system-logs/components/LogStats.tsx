@@ -33,15 +33,15 @@ export function LogStats({ logs, type }: LogStatsProps) {
 
     return (
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+        <div className="bg-white p-4 rounded-lg shadow-sm border border-border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Total Actions</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">
+              <p className="text-sm font-medium text-muted-foreground">Total Actions</p>
+              <p className="text-2xl font-bold text-foreground mt-1">
                 {auditLogs.length}
               </p>
             </div>
-            <div className="text-gray-400">
+            <div className="text-muted-foreground">
               <svg
                 className="w-8 h-8"
                 fill="none"
@@ -59,13 +59,13 @@ export function LogStats({ logs, type }: LogStatsProps) {
           </div>
         </div>
 
-        <div className="bg-blue-50 p-4 rounded-lg shadow-sm border border-blue-200">
+        <div className="bg-primary/10 p-4 rounded-lg shadow-sm border border-primary/20">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-blue-600">Last 24 Hours</p>
-              <p className="text-2xl font-bold text-blue-900 mt-1">{last24h}</p>
+              <p className="text-sm font-medium text-primary">Last 24 Hours</p>
+              <p className="text-2xl font-bold text-primary mt-1">{last24h}</p>
             </div>
-            <div className="text-blue-400">
+            <div className="text-primary/60">
               <svg
                 className="w-8 h-8"
                 fill="none"
@@ -83,15 +83,15 @@ export function LogStats({ logs, type }: LogStatsProps) {
           </div>
         </div>
 
-        <div className="bg-green-50 p-4 rounded-lg shadow-sm border border-green-200">
+        <div className="bg-success/10 p-4 rounded-lg shadow-sm border border-success/30">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-green-600">Unique Users</p>
-              <p className="text-2xl font-bold text-green-900 mt-1">
+              <p className="text-sm font-medium text-success">Unique Users</p>
+              <p className="text-2xl font-bold text-success mt-1">
                 {uniqueUsers}
               </p>
             </div>
-            <div className="text-green-400">
+            <div className="text-success/60">
               <svg
                 className="w-8 h-8"
                 fill="none"
@@ -168,18 +168,18 @@ export function LogStats({ logs, type }: LogStatsProps) {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-      <div className="bg-red-50 p-4 rounded-lg shadow-sm border border-red-200">
+      <div className="bg-destructive/10 p-4 rounded-lg shadow-sm border border-destructive/30">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-red-600">Errors</p>
-            <p className="text-2xl font-bold text-red-900 mt-1">{errorCount}</p>
+            <p className="text-sm font-medium text-destructive">Errors</p>
+            <p className="text-2xl font-bold text-destructive mt-1">{errorCount}</p>
             {recentErrors > 0 && (
-              <p className="text-xs text-red-600 mt-1">
+              <p className="text-xs text-destructive mt-1">
                 {recentErrors} in last hour
               </p>
             )}
           </div>
-          <div className="text-red-400">
+          <div className="text-destructive/60">
             <svg
               className="w-8 h-8"
               fill="none"
@@ -197,11 +197,11 @@ export function LogStats({ logs, type }: LogStatsProps) {
         </div>
       </div>
 
-      <div className="bg-yellow-50 p-4 rounded-lg shadow-sm border border-yellow-200">
+      <div className="bg-warning/10 p-4 rounded-lg shadow-sm border border-warning/30">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-yellow-600">Warnings</p>
-            <p className="text-2xl font-bold text-yellow-900 mt-1">
+            <p className="text-sm font-medium text-warning">Warnings</p>
+            <p className="text-2xl font-bold text-warning mt-1">
               {warnCount}
             </p>
           </div>
@@ -223,13 +223,13 @@ export function LogStats({ logs, type }: LogStatsProps) {
         </div>
       </div>
 
-      <div className="bg-blue-50 p-4 rounded-lg shadow-sm border border-blue-200">
+      <div className="bg-primary/10 p-4 rounded-lg shadow-sm border border-primary/20">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-blue-600">Info</p>
-            <p className="text-2xl font-bold text-blue-900 mt-1">{infoCount}</p>
+            <p className="text-sm font-medium text-primary">Info</p>
+            <p className="text-2xl font-bold text-primary mt-1">{infoCount}</p>
           </div>
-          <div className="text-blue-400">
+          <div className="text-primary/60">
             <svg
               className="w-8 h-8"
               fill="none"
@@ -247,15 +247,15 @@ export function LogStats({ logs, type }: LogStatsProps) {
         </div>
       </div>
 
-      <div className="bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-300">
+      <div className="bg-muted p-4 rounded-lg shadow-sm border border-input">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-gray-600">Debug</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">
+            <p className="text-sm font-medium text-muted-foreground">Debug</p>
+            <p className="text-2xl font-bold text-foreground mt-1">
               {debugCount}
             </p>
           </div>
-          <div className="text-gray-400">
+          <div className="text-muted-foreground">
             <svg
               className="w-8 h-8"
               fill="none"
@@ -273,15 +273,15 @@ export function LogStats({ logs, type }: LogStatsProps) {
         </div>
       </div>
 
-      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+      <div className="bg-white p-4 rounded-lg shadow-sm border border-border">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-gray-600">Total Logs</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">
+            <p className="text-sm font-medium text-muted-foreground">Total Logs</p>
+            <p className="text-2xl font-bold text-foreground mt-1">
               {systemLogs.length}
             </p>
           </div>
-          <div className="text-gray-400">
+          <div className="text-muted-foreground">
             <svg
               className="w-8 h-8"
               fill="none"

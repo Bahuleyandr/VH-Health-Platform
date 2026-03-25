@@ -77,7 +77,7 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
       <div className="p-4">
         <button
           onClick={() => setShowFilters(!showFilters)}
-          className="flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-gray-900"
+          className="flex items-center gap-2 text-sm font-medium text-foreground hover:text-foreground"
         >
           <svg
             className={`w-5 h-5 transition-transform ${showFilters ? "rotate-180" : ""}`}
@@ -94,7 +94,7 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
           </svg>
           Filters
           {activeFilterCount > 0 && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">
               {activeFilterCount}
             </span>
           )}
@@ -108,7 +108,7 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
             <div>
               <label
                 htmlFor="search"
-                className="block text-sm font-medium text-gray-700 mb-1"
+                className="block text-sm font-medium text-foreground mb-1"
               >
                 Search
               </label>
@@ -123,7 +123,7 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
                     ? "User ID, action, details..."
                     : "Message, service..."
                 }
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
 
@@ -131,7 +131,7 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
             <div>
               <label
                 htmlFor="dateRange"
-                className="block text-sm font-medium text-gray-700 mb-1"
+                className="block text-sm font-medium text-foreground mb-1"
               >
                 Date Range
               </label>
@@ -139,7 +139,7 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
                 id="dateRange"
                 value={dateRange}
                 onChange={(e) => setDateRange(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
               >
                 <option value="">All Time</option>
                 <option value="today">Today</option>
@@ -155,7 +155,7 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
               <div>
                 <label
                   htmlFor="level"
-                  className="block text-sm font-medium text-gray-700 mb-1"
+                  className="block text-sm font-medium text-foreground mb-1"
                 >
                   Log Level
                 </label>
@@ -163,7 +163,7 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
                   id="level"
                   value={level}
                   onChange={(e) => setLevel(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   <option value="">All Levels</option>
                   <option value="ERROR">Error</option>
@@ -179,7 +179,7 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
               <div>
                 <label
                   htmlFor="action"
-                  className="block text-sm font-medium text-gray-700 mb-1"
+                  className="block text-sm font-medium text-foreground mb-1"
                 >
                   Action
                 </label>
@@ -187,7 +187,7 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
                   id="action"
                   value={action}
                   onChange={(e) => setAction(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   <option value="">All Actions</option>
                   {AUDIT_ACTIONS.map((act) => (
@@ -203,13 +203,13 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
             <div className="flex items-end gap-2">
               <button
                 onClick={handleApplyFilters}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
               >
                 Apply
               </button>
               <button
                 onClick={handleReset}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
+                className="px-4 py-2 border border-input text-foreground rounded-md hover:bg-muted transition-colors"
               >
                 Reset
               </button>

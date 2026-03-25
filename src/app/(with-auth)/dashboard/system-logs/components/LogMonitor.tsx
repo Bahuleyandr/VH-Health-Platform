@@ -31,7 +31,7 @@ export function LogMonitor({ logs, type, isActive }: LogMonitorProps) {
   if (!isActive || newLogsCount === 0) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 animate-pulse">
+    <div className="fixed bottom-4 right-4 bg-primary text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 animate-pulse">
       <svg
         className="w-5 h-5"
         fill="none"
@@ -50,7 +50,7 @@ export function LogMonitor({ logs, type, isActive }: LogMonitorProps) {
       </span>
       <button
         onClick={() => setNewLogsCount(0)}
-        className="ml-2 text-xs hover:text-gray-200"
+        className="ml-2 text-xs hover:text-muted-foreground"
       >
         Dismiss
       </button>

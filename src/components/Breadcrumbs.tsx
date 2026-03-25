@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import styles from "@/app/(with-auth)/dashboard/Dashboard.module.css"; // adjust the path if your alias differs
+import { HomeIcon } from "@/components/icons";
 
 export function Breadcrumbs() {
   const pathname = usePathname() || "/";
@@ -26,45 +27,58 @@ export function Breadcrumbs() {
       ? ["dashboard", ...trail.slice(0, i + 1)].join("/")
       : trail.slice(0, i + 1).join("/"));
 
+  // For mobile: show only the last 2 items plus "..." if there are more
+  const shouldCollapse = trail.length > 2;
+
+  const renderSep = () => (
+    <svg
+      className={styles.bcSep}
+      fill="currentColor"
+      viewBox="0 0 20 20"
+      aria-hidden="true"
+    >
+      <path
+        fillRule="evenodd"
+        d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+
   return (
     <nav className={styles.breadcrumb} aria-label="Breadcrumb">
       <ol className={styles.bcList}>
-        {/* Home */}
+        {/* Home — always visible */}
         <li className={styles.bcItem}>
           <Link
             href={isDashboardRoot ? "/dashboard" : "/"}
             className={styles.bcLink}
           >
-            <svg
-              className={styles.bcHomeIcon}
-              fill="currentColor"
-              viewBox="0 0 20 20"
-              aria-hidden="true"
-            >
-              <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" />
-            </svg>
-            <span>Home</span>
+            <HomeIcon className={styles.bcHomeIcon} aria-hidden="true" />
+            <span className="hidden sm:inline">Home</span>
           </Link>
         </li>
+
+        {/* Ellipsis placeholder for mobile when trail has more than 2 segments */}
+        {shouldCollapse && (
+          <li className={`${styles.bcItem} ${styles.bcEllipsis}`} aria-hidden="true">
+            {renderSep()}
+            <span style={{ padding: '0 0.25rem', color: 'var(--muted-foreground)' }}>…</span>
+          </li>
+        )}
 
         {/* Dynamic segments */}
         {trail.map((seg, i) => {
           const isLast = i === trail.length - 1;
+          // On mobile, hide all but the last 2 items (via CSS class)
+          const isMobileHidden = shouldCollapse && i < trail.length - 2;
+
           return (
-            <li className={styles.bcItem} key={`${seg}-${i}`}>
-              {/* Separator */}
-              <svg
-                className={styles.bcSep}
-                fill="currentColor"
-                viewBox="0 0 20 20"
-                aria-hidden="true"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-                  clipRule="evenodd"
-                />
-              </svg>
+            <li
+              className={`${styles.bcItem}${isMobileHidden ? ` ${styles.bcItemHidden}` : ''}`}
+              key={`${seg}-${i}`}
+            >
+              {renderSep()}
 
               {isLast ? (
                 <span className={styles.bcCurrent} aria-current="page">

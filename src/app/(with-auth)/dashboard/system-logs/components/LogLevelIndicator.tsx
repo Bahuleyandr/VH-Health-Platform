@@ -20,15 +20,15 @@ export function LogLevelIndicator({ logs }: LogLevelIndicatorProps) {
   if (total === 0) return null;
 
   const levels = [
-    { name: "ERROR", color: "bg-red-500", count: levelCounts.ERROR || 0 },
-    { name: "WARN", color: "bg-yellow-500", count: levelCounts.WARN || 0 },
-    { name: "INFO", color: "bg-blue-500", count: levelCounts.INFO || 0 },
-    { name: "DEBUG", color: "bg-gray-500", count: levelCounts.DEBUG || 0 },
+    { name: "ERROR", color: "bg-destructive", count: levelCounts.ERROR || 0 },
+    { name: "WARN", color: "bg-warning", count: levelCounts.WARN || 0 },
+    { name: "INFO", color: "bg-primary", count: levelCounts.INFO || 0 },
+    { name: "DEBUG", color: "bg-muted-foreground", count: levelCounts.DEBUG || 0 },
   ];
 
   return (
     <div className="mb-4">
-      <div className="flex h-2 bg-gray-200 rounded-full overflow-hidden">
+      <div className="flex h-2 bg-muted rounded-full overflow-hidden">
         {levels.map((level) => {
           const percentage = (level.count / total) * 100;
           if (percentage === 0) return null;
@@ -43,7 +43,7 @@ export function LogLevelIndicator({ logs }: LogLevelIndicatorProps) {
           );
         })}
       </div>
-      <div className="flex justify-between mt-2 text-xs text-gray-600">
+      <div className="flex justify-between mt-2 text-xs text-muted-foreground">
         {levels.map((level) => {
           const percentage = (level.count / total) * 100;
           if (percentage === 0) return null;

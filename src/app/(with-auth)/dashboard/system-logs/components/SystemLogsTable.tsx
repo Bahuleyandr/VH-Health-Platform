@@ -7,10 +7,10 @@ import { ExtendedSystemLog } from "@/lib/types";
 import { LogDetailsModal } from "./LogDetailsModal";
 
 const levelColorMap: Record<string, string> = {
-  ERROR: "bg-red-100 text-red-800 border-red-300",
-  WARN: "bg-yellow-100 text-yellow-800 border-yellow-300",
-  INFO: "bg-blue-100 text-blue-800 border-blue-300",
-  DEBUG: "bg-gray-100 text-gray-800 border-gray-300",
+  ERROR: "bg-destructive/10 text-destructive border-destructive/50",
+  WARN: "bg-warning/10 text-warning border-warning/50",
+  INFO: "bg-primary/10 text-primary border-primary/30",
+  DEBUG: "bg-muted text-foreground border-input",
 };
 
 const levelIconMap: Record<string, ReactNode> = {
@@ -110,7 +110,7 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
     return (
       <div className="bg-white shadow rounded-lg p-8">
         <div className="flex justify-center items-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
         </div>
       </div>
     );
@@ -119,7 +119,7 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
   if (logs.length === 0) {
     return (
       <div className="bg-white shadow rounded-lg p-8">
-        <div className="text-center text-gray-500">
+        <div className="text-center text-muted-foreground">
           No system logs found for the selected filters.
         </div>
       </div>
@@ -129,33 +129,33 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
   return (
     <div className="bg-white shadow rounded-lg overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+        <table className="min-w-full divide-y divide-border">
+          <thead className="bg-muted">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Timestamp
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Level
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Service
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Message
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Actions
               </th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="bg-white divide-y divide-border">
             {logs.map((log) => (
               <tr
                 key={log.id}
-                className={`hover:bg-gray-50 ${log.level === "ERROR" ? "bg-red-50" : ""}`}
+                className={`hover:bg-muted ${log.level === "ERROR" ? "bg-destructive/10" : ""}`}
               >
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
                   <div>
                     {new Date(log.timestamp).toLocaleDateString("en-GB", {
                       day: "2-digit",
@@ -163,7 +163,7 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
                       year: "numeric",
                     })}
                   </div>
-                  <div className="text-xs text-gray-400">
+                  <div className="text-xs text-muted-foreground">
                     {new Date(log.timestamp).toLocaleTimeString("en-GB", {
                       hour: "2-digit",
                       minute: "2-digit",
@@ -180,11 +180,11 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
                   </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900">
+                  <div className="text-sm font-medium text-foreground">
                     {log.service || "API"}
                   </div>
                   {log.module ? (
-                    <div className="text-xs text-gray-500">{log.module}</div>
+                    <div className="text-xs text-muted-foreground">{log.module}</div>
                   ) : null}
                 </td>
                 <td className="px-6 py-4 text-sm">
@@ -192,7 +192,7 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
                     {log.message.length > 150 || log.message.includes("\n") ? (
                       <>
                         <div
-                          className={`font-mono text-gray-800 ${expandedRows.has(log.id) ? "" : "truncate"}`}
+                          className={`font-mono text-foreground ${expandedRows.has(log.id) ? "" : "truncate"}`}
                         >
                           {expandedRows.has(log.id)
                             ? formatStackTrace(log.message)
@@ -200,23 +200,23 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
                         </div>
                         <button
                           onClick={() => toggleRow(log.id)}
-                          className="text-blue-600 hover:text-blue-800 text-xs mt-1"
+                          className="text-primary hover:text-primary text-xs mt-1"
                         >
                           {expandedRows.has(log.id) ? "Show less" : "Show more"}
                         </button>
                       </>
                     ) : (
-                      <div className="font-mono text-gray-800">
+                      <div className="font-mono text-foreground">
                         {log.message}
                       </div>
                     )}
                     {log.metadata ? (
-                      <div className="mt-2 text-xs text-gray-500">
+                      <div className="mt-2 text-xs text-muted-foreground">
                         <details>
-                          <summary className="cursor-pointer hover:text-gray-700">
+                          <summary className="cursor-pointer hover:text-foreground">
                             Metadata
                           </summary>
-                          <pre className="mt-1 p-2 bg-gray-100 rounded overflow-x-auto">
+                          <pre className="mt-1 p-2 bg-muted rounded overflow-x-auto">
                             {JSON.stringify(log.metadata, null, 2)}
                           </pre>
                         </details>
@@ -230,7 +230,7 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
                       setSelectedLog(log);
                       setIsModalOpen(true);
                     }}
-                    className="text-blue-600 hover:text-blue-800"
+                    className="text-primary hover:text-primary"
                   >
                     View
                   </button>

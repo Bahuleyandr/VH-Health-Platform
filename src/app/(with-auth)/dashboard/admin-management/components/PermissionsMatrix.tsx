@@ -168,7 +168,7 @@ export function PermissionsMatrix({ admins }: PermissionsMatrixProps) {
       <div className="mt-6">
         <button
           onClick={() => setShowMatrix(true)}
-          className="text-blue-600 hover:text-blue-800 font-medium text-sm"
+          className="text-primary hover:text-primary font-medium text-sm"
         >
           Show Permissions Matrix →
         </button>
@@ -179,7 +179,7 @@ export function PermissionsMatrix({ admins }: PermissionsMatrixProps) {
   return (
     <div className="mt-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-medium text-gray-900">Permissions Matrix</h3>
+        <h3 className="text-lg font-medium text-foreground">Permissions Matrix</h3>
         <div className="flex gap-3">
           <button
             onClick={fetchAuditLog}
@@ -189,7 +189,7 @@ export function PermissionsMatrix({ admins }: PermissionsMatrixProps) {
           </button>
           <button
             onClick={() => setShowMatrix(false)}
-            className="text-sm text-gray-500 hover:text-gray-700"
+            className="text-sm text-muted-foreground hover:text-foreground"
           >
             Hide Matrix
           </button>
@@ -199,43 +199,43 @@ export function PermissionsMatrix({ admins }: PermissionsMatrixProps) {
       {/* ─── Read-only matrix table ─── */}
       <div className="overflow-hidden rounded-lg bg-white shadow">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+          <table className="min-w-full divide-y divide-border">
+            <thead className="bg-muted">
               <tr>
-                <th className="sticky left-0 z-10 px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 bg-gray-50">
+                <th className="sticky left-0 z-10 px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground bg-muted">
                   Admin
                 </th>
                 {ALL_PERMISSIONS.map((p) => (
-                  <th key={p} className="px-3 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500" title={p}>
+                  <th key={p} className="px-3 py-3 text-center text-xs font-medium uppercase tracking-wider text-muted-foreground" title={p}>
                     {PERMISSION_DISPLAY[p] ?? p}
                   </th>
                 ))}
-                <th className="px-3 py-3 text-center text-xs font-medium uppercase text-gray-500">
+                <th className="px-3 py-3 text-center text-xs font-medium uppercase text-muted-foreground">
                   Actions
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200">
+            <tbody className="divide-y divide-border">
               {admins.map((admin) => {
                 const isSuperAdmin = admin.role === "SUPER_ADMIN";
                 const perms = Array.isArray(admin.permissions) ? admin.permissions : [];
                 return (
-                  <tr key={admin.id} className="hover:bg-gray-50">
+                  <tr key={admin.id} className="hover:bg-muted">
                     <td className="sticky left-0 z-10 whitespace-nowrap px-6 py-4 bg-white">
-                      <div className="text-sm font-medium text-gray-900">{admin.name}</div>
-                      <div className="text-xs text-gray-500">{admin.role}</div>
+                      <div className="text-sm font-medium text-foreground">{admin.name}</div>
+                      <div className="text-xs text-muted-foreground">{admin.role}</div>
                     </td>
                     {ALL_PERMISSIONS.map((perm) => {
                       const has = isSuperAdmin || perms.includes(perm);
                       return (
                         <td key={perm} className="whitespace-nowrap px-3 py-4 text-center">
-                          <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full ${has ? "bg-green-100" : "bg-gray-100"}`}>
+                          <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full ${has ? "bg-success/10" : "bg-muted"}`}>
                             {has ? (
-                              <svg className="h-4 w-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <svg className="h-4 w-4 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                               </svg>
                             ) : (
-                              <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <svg className="h-4 w-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                               </svg>
                             )}
@@ -247,7 +247,7 @@ export function PermissionsMatrix({ admins }: PermissionsMatrixProps) {
                       {!isSuperAdmin && (
                         <button
                           onClick={() => startEdit(admin)}
-                          className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                          className="text-sm text-primary hover:text-primary font-medium"
                         >
                           Edit
                         </button>
@@ -269,18 +269,18 @@ export function PermissionsMatrix({ admins }: PermissionsMatrixProps) {
               <h3 className="text-xl font-semibold">
                 Edit Permissions — {editingAdmin.name}
               </h3>
-              <button onClick={() => setEditingAdmin(null)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+              <button onClick={() => setEditingAdmin(null)} className="text-muted-foreground hover:text-muted-foreground text-xl">×</button>
             </div>
 
             {/* Role templates */}
             <div className="mb-5">
-              <p className="text-sm font-medium text-gray-700 mb-2">Apply Role Template:</p>
+              <p className="text-sm font-medium text-foreground mb-2">Apply Role Template:</p>
               <div className="flex flex-wrap gap-2">
                 {Object.entries(ROLE_TEMPLATES).map(([key, tmpl]) => (
                   <button
                     key={key}
                     onClick={() => applyTemplate(key)}
-                    className="px-3 py-1.5 text-sm rounded-full border border-gray-300 hover:border-blue-400 hover:text-blue-600 bg-white transition-colors"
+                    className="px-3 py-1.5 text-sm rounded-full border border-input hover:border-primary hover:text-primary bg-white transition-colors"
                   >
                     {tmpl.label}
                   </button>
@@ -293,19 +293,19 @@ export function PermissionsMatrix({ admins }: PermissionsMatrixProps) {
               {Object.entries(PERMISSION_CATEGORIES).map(([catKey, cat]) => {
                 const allSelected = cat.permissions.every((p) => editPerms.includes(p));
                 return (
-                  <div key={catKey} className="border border-gray-200 rounded-lg p-4">
+                  <div key={catKey} className="border border-border rounded-lg p-4">
                     <div className="flex items-center justify-between mb-3">
-                      <h4 className="font-medium text-gray-800">{cat.label}</h4>
+                      <h4 className="font-medium text-foreground">{cat.label}</h4>
                       <div className="flex gap-2">
                         <button
                           onClick={() => selectAllCategory(cat.permissions)}
-                          className="text-xs text-green-600 hover:text-green-800"
+                          className="text-xs text-success hover:text-success"
                         >
                           Select All
                         </button>
                         <button
                           onClick={() => clearCategory(cat.permissions)}
-                          className="text-xs text-red-600 hover:text-red-800"
+                          className="text-xs text-destructive hover:text-destructive"
                         >
                           Clear All
                         </button>
@@ -316,7 +316,7 @@ export function PermissionsMatrix({ admins }: PermissionsMatrixProps) {
                         const enabled = editPerms.includes(perm);
                         return (
                           <div key={perm} className="flex items-center justify-between">
-                            <span className="text-sm text-gray-700">
+                            <span className="text-sm text-foreground">
                               {PERMISSION_DISPLAY[perm] ?? perm}
                             </span>
                             {/* Toggle switch */}
@@ -326,7 +326,7 @@ export function PermissionsMatrix({ admins }: PermissionsMatrixProps) {
                               aria-checked={enabled}
                               onClick={() => togglePerm(perm)}
                               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                                enabled ? "bg-blue-600" : "bg-gray-300"
+                                enabled ? "bg-primary" : "bg-muted"
                               }`}
                             >
                               <span
@@ -348,14 +348,14 @@ export function PermissionsMatrix({ admins }: PermissionsMatrixProps) {
             <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
               <button
                 onClick={() => setEditingAdmin(null)}
-                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-300 rounded-md"
+                className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground border border-input rounded-md"
               >
                 Cancel
               </button>
               <button
                 onClick={savePermissions}
                 disabled={saving}
-                className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-md disabled:opacity-50"
+                className="px-4 py-2 text-sm text-white bg-primary hover:bg-primary/90 rounded-md disabled:opacity-50"
               >
                 {saving ? "Saving…" : "Save Permissions"}
               </button>
@@ -369,27 +369,27 @@ export function PermissionsMatrix({ admins }: PermissionsMatrixProps) {
         <div className="bg-white rounded-lg shadow p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold">Permission Audit Log</h3>
-            <button onClick={() => setShowAudit(false)} className="text-sm text-gray-500 hover:text-gray-700">
+            <button onClick={() => setShowAudit(false)} className="text-sm text-muted-foreground hover:text-foreground">
               Close
             </button>
           </div>
           {loadingAudit ? (
             <div className="flex justify-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
             </div>
           ) : auditLog.length === 0 ? (
-            <p className="text-gray-500 text-sm py-4">No audit log entries found.</p>
+            <p className="text-muted-foreground text-sm py-4">No audit log entries found.</p>
           ) : (
-            <div className="divide-y divide-gray-200">
+            <div className="divide-y divide-border">
               {auditLog.map((entry, i) => (
                 <div key={i} className="py-3 flex items-start gap-3">
-                  <div className="flex-shrink-0 w-2 h-2 mt-2 rounded-full bg-blue-400" />
+                  <div className="flex-shrink-0 w-2 h-2 mt-2 rounded-full bg-primary/60" />
                   <div>
-                    <p className="text-sm text-gray-900">
+                    <p className="text-sm text-foreground">
                       <span className="font-medium">{entry.adminName}</span> — {entry.action}
                     </p>
-                    {entry.details && <p className="text-xs text-gray-500 mt-0.5">{entry.details}</p>}
-                    <p className="text-xs text-gray-400 mt-0.5">
+                    {entry.details && <p className="text-xs text-muted-foreground mt-0.5">{entry.details}</p>}
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       {new Date(entry.timestamp).toLocaleString()}
                     </p>
                   </div>
@@ -401,7 +401,7 @@ export function PermissionsMatrix({ admins }: PermissionsMatrixProps) {
       )}
 
       {/* Legend */}
-      <div className="text-sm text-gray-600">
+      <div className="text-sm text-muted-foreground">
         <p className="mb-2 font-medium">Permission Legend:</p>
         <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
           {Object.entries(PERMISSION_DISPLAY).map(([key, label]) => (

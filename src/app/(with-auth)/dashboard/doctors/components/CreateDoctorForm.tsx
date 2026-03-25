@@ -82,7 +82,7 @@ export function CreateDoctorForm({
     <form onSubmit={handleSubmit} className="space-y-6 max-w-2xl">
       {/* Personal Information */}
       <div className="bg-white shadow rounded-lg p-6">
-        <h2 className="text-lg font-medium text-gray-900 mb-4">
+        <h2 className="text-lg font-medium text-foreground mb-4">
           Personal Information
         </h2>
 
@@ -90,7 +90,7 @@ export function CreateDoctorForm({
           <div>
             <label
               htmlFor="name"
-              className="block text-sm font-medium text-gray-700 mb-1"
+              className="block text-sm font-medium text-foreground mb-1"
             >
               Full Name *
             </label>
@@ -99,7 +99,7 @@ export function CreateDoctorForm({
               id="name"
               name="name"
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
               disabled={loading}
               placeholder="Dr. John Doe"
             />
@@ -108,7 +108,7 @@ export function CreateDoctorForm({
           <div>
             <label
               htmlFor="email"
-              className="block text-sm font-medium text-gray-700 mb-1"
+              className="block text-sm font-medium text-foreground mb-1"
             >
               Email Address *
             </label>
@@ -117,7 +117,7 @@ export function CreateDoctorForm({
               id="email"
               name="email"
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
               disabled={loading}
               placeholder="doctor@example.com"
             />
@@ -126,7 +126,7 @@ export function CreateDoctorForm({
           <div>
             <label
               htmlFor="phone"
-              className="block text-sm font-medium text-gray-700 mb-1"
+              className="block text-sm font-medium text-foreground mb-1"
             >
               Phone Number *
             </label>
@@ -137,10 +137,10 @@ export function CreateDoctorForm({
               required
               pattern="[0-9]{10}"
               placeholder="9876543210"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
               disabled={loading}
             />
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-muted-foreground">
               10 digit number without country code
             </p>
           </div>
@@ -148,7 +148,7 @@ export function CreateDoctorForm({
           <div>
             <label
               htmlFor="password"
-              className="block text-sm font-medium text-gray-700 mb-1"
+              className="block text-sm font-medium text-foreground mb-1"
             >
               Password *
             </label>
@@ -158,7 +158,7 @@ export function CreateDoctorForm({
               name="password"
               required
               minLength={8}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
               disabled={loading}
               placeholder="Minimum 8 characters"
             />
@@ -168,7 +168,7 @@ export function CreateDoctorForm({
 
       {/* Professional Information */}
       <div className="bg-white shadow rounded-lg p-6">
-        <h2 className="text-lg font-medium text-gray-900 mb-4">
+        <h2 className="text-lg font-medium text-foreground mb-4">
           Professional Information
         </h2>
 
@@ -176,7 +176,7 @@ export function CreateDoctorForm({
           <div>
             <label
               htmlFor="department"
-              className="block text-sm font-medium text-gray-700 mb-1"
+              className="block text-sm font-medium text-foreground mb-1"
             >
               Department *
             </label>
@@ -184,7 +184,7 @@ export function CreateDoctorForm({
               id="department"
               name="department"
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
               disabled={loading}
             >
               <option value="">Select Department</option>
@@ -199,7 +199,7 @@ export function CreateDoctorForm({
           <div>
             <label
               htmlFor="specialization"
-              className="block text-sm font-medium text-gray-700 mb-1"
+              className="block text-sm font-medium text-foreground mb-1"
             >
               Specialization *
             </label>
@@ -208,7 +208,7 @@ export function CreateDoctorForm({
               id="specialization"
               name="specialization"
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
               disabled={loading}
               placeholder="e.g., Cardiology, Pediatrics"
             />
@@ -217,7 +217,7 @@ export function CreateDoctorForm({
           <div>
             <label
               htmlFor="consultation_fee"
-              className="block text-sm font-medium text-gray-700 mb-1"
+              className="block text-sm font-medium text-foreground mb-1"
             >
               Consultation Fee (₹) *
             </label>
@@ -227,7 +227,7 @@ export function CreateDoctorForm({
               name="consultation_fee"
               required
               min="0"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
               disabled={loading}
               placeholder="500"
             />
@@ -242,22 +242,22 @@ export function CreateDoctorForm({
           disabled={loading}
           className={`px-4 py-2 rounded-md font-medium ${
             loading
-              ? "bg-gray-400 text-gray-200 cursor-not-allowed"
-              : "bg-blue-600 text-white hover:bg-blue-700"
+              ? "bg-muted-foreground text-muted-foreground cursor-not-allowed"
+              : "bg-primary text-white hover:bg-primary/90"
           } transition-colors`}
         >
           {loading ? "Creating Doctor..." : "Create Doctor"}
         </button>
         <Link
           href="/dashboard/doctors"
-          className={`text-gray-500 hover:text-gray-700 ${loading ? "pointer-events-none" : ""}`}
+          className={`text-muted-foreground hover:text-foreground ${loading ? "pointer-events-none" : ""}`}
         >
           Cancel
         </Link>
       </div>
 
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+        <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded">
           {error}
         </div>
       )}

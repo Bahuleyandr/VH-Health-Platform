@@ -37,7 +37,7 @@ export function LogSearchBar({
     <div className="relative">
       <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
         <svg
-          className={`h-5 w-5 text-gray-400 ${isSearching ? "animate-pulse" : ""}`}
+          className={`h-5 w-5 text-muted-foreground ${isSearching ? "animate-pulse" : ""}`}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -55,7 +55,7 @@ export function LogSearchBar({
         value={searchTerm}
         onChange={(e) => setSearchTerm(e.target.value)}
         placeholder={placeholder}
-        className="block w-full pl-10 pr-10 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+        className="block w-full pl-10 pr-10 py-2 border border-input rounded-md leading-5 bg-white placeholder-muted-foreground focus:outline-none focus:placeholder-muted-foreground focus:ring-1 focus:ring-primary focus:border-primary sm:text-sm"
       />
       {searchTerm && (
         <button
@@ -63,7 +63,7 @@ export function LogSearchBar({
           className="absolute inset-y-0 right-0 pr-3 flex items-center"
         >
           <svg
-            className="h-5 w-5 text-gray-400 hover:text-gray-600"
+            className="h-5 w-5 text-muted-foreground hover:text-muted-foreground"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"

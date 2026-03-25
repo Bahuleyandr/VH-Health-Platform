@@ -51,7 +51,7 @@ export default function CreateDoctorPage() {
     return (
       <div className="p-6">
         <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
         </div>
       </div>
     );
@@ -63,12 +63,12 @@ export default function CreateDoctorPage() {
         <div className="mb-4">
           <Link
             href="/dashboard/doctors"
-            className="text-blue-600 hover:text-blue-800"
+            className="text-primary hover:text-primary"
           >
             ← Back to Doctors
           </Link>
         </div>
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+        <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded">
           Error: {error}
         </div>
       </div>
@@ -80,12 +80,12 @@ export default function CreateDoctorPage() {
       <div className="mb-4">
         <Link
           href="/dashboard/doctors"
-          className="text-blue-600 hover:text-blue-800"
+          className="text-primary hover:text-primary"
         >
           ← Back to Doctors
         </Link>
       </div>
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">Add New Doctor</h1>
+      <h1 className="text-3xl font-bold text-foreground mb-6">Add New Doctor</h1>
       <CreateDoctorForm departments={departments} />
     </div>
   );

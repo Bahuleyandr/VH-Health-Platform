@@ -102,12 +102,12 @@ export default function EditPermissionsPage() {
         <div className="mb-4">
           <Link
             href="/dashboard/admin-management"
-            className="text-blue-600 hover:text-blue-800"
+            className="text-primary hover:text-primary"
           >
             ← Back to Admin Management
           </Link>
         </div>
-        <div className="rounded border bg-yellow-50 p-4 text-yellow-900">
+        <div className="rounded border bg-warning/10 p-4 text-warning">
           You don’t have permission to edit administrator permissions.
         </div>
       </div>
@@ -118,7 +118,7 @@ export default function EditPermissionsPage() {
     return (
       <div className="p-6">
         <div className="flex h-64 items-center justify-center">
-          <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600" />
+          <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-primary" />
         </div>
       </div>
     );
@@ -130,12 +130,12 @@ export default function EditPermissionsPage() {
         <div className="mb-4">
           <Link
             href="/dashboard/admin-management"
-            className="text-blue-600 hover:text-blue-800"
+            className="text-primary hover:text-primary"
           >
             ← Back to Admin Management
           </Link>
         </div>
-        <div className="rounded border border-red-400 bg-red-100 px-4 py-3 text-red-700">
+        <div className="rounded border border-destructive bg-destructive/10 px-4 py-3 text-destructive">
           {error}
         </div>
       </div>
@@ -149,47 +149,47 @@ export default function EditPermissionsPage() {
       <div className="mb-4">
         <Link
           href="/dashboard/admin-management"
-          className="text-blue-600 hover:text-blue-800"
+          className="text-primary hover:text-primary"
         >
           ← Back to Admin Management
         </Link>
       </div>
 
-      <h1 className="mb-6 text-3xl font-bold text-gray-900">
+      <h1 className="mb-6 text-3xl font-bold text-foreground">
         Edit Permissions for {admin.name}
       </h1>
 
       <form onSubmit={handleSubmit} className="rounded-lg bg-white p-6 shadow">
         <div className="mb-6">
-          <div className="mb-2 text-sm text-gray-600">
+          <div className="mb-2 text-sm text-muted-foreground">
             Email:{" "}
-            <span className="font-medium text-gray-900">{admin.email}</span>
+            <span className="font-medium text-foreground">{admin.email}</span>
           </div>
-          <div className="text-sm text-gray-600">
+          <div className="text-sm text-muted-foreground">
             Role:{" "}
-            <span className="font-medium text-gray-900">{admin.role}</span>
+            <span className="font-medium text-foreground">{admin.role}</span>
           </div>
         </div>
 
         <div className="mb-6">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-medium text-gray-900">Permissions</h2>
+            <h2 className="text-lg font-medium text-foreground">Permissions</h2>
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={() =>
                   setSelectedPermissions(ALL_PERMISSIONS.map((p) => p.value))
                 }
-                className="text-sm text-blue-600 hover:text-blue-800"
+                className="text-sm text-primary hover:text-primary"
                 disabled={saving}
               >
                 Select All
               </button>
-              <span className="text-gray-400">|</span>
+              <span className="text-muted-foreground">|</span>
               <button
                 type="button"
                 onClick={() => setSelectedPermissions([])}
-                className="text-sm text-blue-600 hover:text-blue-800"
+                className="text-sm text-primary hover:text-primary"
                 disabled={saving}
               >
                 Clear All
@@ -201,19 +201,19 @@ export default function EditPermissionsPage() {
             {ALL_PERMISSIONS.map((p) => (
               <div
                 key={p.value}
-                className="flex items-center rounded-md border p-3 hover:bg-gray-50"
+                className="flex items-center rounded-md border p-3 hover:bg-muted"
               >
                 <input
                   type="checkbox"
                   id={p.value}
                   checked={selectedPermissions.includes(p.value)}
                   onChange={() => togglePermission(p.value)}
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
                   disabled={saving}
                 />
                 <label
                   htmlFor={p.value}
-                  className="ml-3 flex-1 cursor-pointer text-sm text-gray-900"
+                  className="ml-3 flex-1 cursor-pointer text-sm text-foreground"
                 >
                   {p.label}
                 </label>
@@ -228,8 +228,8 @@ export default function EditPermissionsPage() {
             disabled={saving}
             className={`rounded-md px-4 py-2 font-medium transition-colors ${
               saving
-                ? "cursor-not-allowed bg-gray-400 text-gray-200"
-                : "bg-blue-600 text-white hover:bg-blue-700"
+                ? "cursor-not-allowed bg-muted-foreground text-muted-foreground"
+                : "bg-primary text-white hover:bg-primary/90"
             }`}
           >
             {saving ? "Saving..." : "Save Permissions"}
@@ -237,14 +237,14 @@ export default function EditPermissionsPage() {
 
           <Link
             href="/dashboard/admin-management"
-            className={`text-gray-500 hover:text-gray-700 ${saving ? "pointer-events-none" : ""}`}
+            className={`text-muted-foreground hover:text-foreground ${saving ? "pointer-events-none" : ""}`}
           >
             Cancel
           </Link>
         </div>
 
         {error && (
-          <div className="mt-4 rounded border border-red-400 bg-red-100 px-4 py-3 text-red-700">
+          <div className="mt-4 rounded border border-destructive bg-destructive/10 px-4 py-3 text-destructive">
             {error}
           </div>
         )}

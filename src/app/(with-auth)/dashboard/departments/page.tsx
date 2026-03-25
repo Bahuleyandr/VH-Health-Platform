@@ -54,7 +54,7 @@ export default function DepartmentsPage() {
 
   if (error) {
     return (
-      <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 rounded-lg p-4">
+      <div className="bg-destructive/10 dark:bg-destructive/20 border border-destructive/30 dark:border-destructive/30 text-destructive dark:text-destructive/60 rounded-lg p-4">
         <h3 className="font-semibold mb-1">Error Loading Departments</h3>
         <p>
           {error instanceof Error
@@ -69,7 +69,7 @@ export default function DepartmentsPage() {
               error: "Failed to refresh departments",
             });
           }}
-          className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+          className="mt-2 px-4 py-2 bg-destructive text-white rounded hover:bg-destructive/90"
         >
           Retry
         </button>
@@ -81,13 +81,13 @@ export default function DepartmentsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">Department Management</h1>
-        <p className="text-gray-600 dark:text-gray-400 mt-2">
+        <p className="text-muted-foreground dark:text-muted-foreground mt-2">
           Manage hospital departments and their information
         </p>
       </div>
 
       {/* Search Bar */}
-      <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+      <div className="bg-white dark:bg-card p-4 rounded-lg shadow">
         <div className="flex items-center gap-4">
           <div className="flex-1">
             <input
@@ -95,10 +95,10 @@ export default function DepartmentsPage() {
               placeholder="Search departments by name or description..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              className="w-full px-4 py-2 border border-input dark:border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-white dark:bg-muted text-foreground dark:text-white"
             />
           </div>
-          <div className="text-sm text-gray-500">
+          <div className="text-sm text-muted-foreground">
             {filteredDepartments.length} of {departments.length} departments
           </div>
         </div>

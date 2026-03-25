@@ -55,17 +55,17 @@ export function ActivityFeed() {
         {activities?.length ? (
           activities.map((activity: Activity) => (
             <div key={activity.id} className="flex items-start gap-3">
-              <div className="w-2 h-2 bg-blue-500 rounded-full mt-1.5" />
+              <div className="w-2 h-2 bg-primary rounded-full mt-1.5" />
               <div className="flex-1">
                 <p className="text-sm">{activity.description}</p>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-muted-foreground">
                   {formatRelativeTime(activity.timestamp)}
                 </p>
               </div>
             </div>
           ))
         ) : (
-          <p className="text-sm text-gray-500">No recent activity.</p>
+          <p className="text-sm text-muted-foreground">No recent activity.</p>
         )}
       </div>
     </div>

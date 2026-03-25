@@ -12,9 +12,9 @@ interface NotificationComposerProps {
 }
 
 const typeStyles: Record<NotificationType, { bg: string; text: string; border: string }> = {
-  info: { bg: "bg-blue-50 dark:bg-blue-900/20", text: "text-blue-700 dark:text-blue-300", border: "border-blue-200 dark:border-blue-800" },
+  info: { bg: "bg-primary/10 dark:bg-primary/20", text: "text-primary dark:text-primary/70", border: "border-primary/20 dark:border-primary/30" },
   warning: { bg: "bg-amber-50 dark:bg-amber-900/20", text: "text-amber-700 dark:text-amber-300", border: "border-amber-200 dark:border-amber-800" },
-  critical: { bg: "bg-red-50 dark:bg-red-900/20", text: "text-red-700 dark:text-red-300", border: "border-red-200 dark:border-red-800" },
+  critical: { bg: "bg-destructive/10 dark:bg-destructive/20", text: "text-destructive dark:text-destructive/70", border: "border-destructive/30 dark:border-destructive/30" },
   success: { bg: "bg-emerald-50 dark:bg-emerald-900/20", text: "text-emerald-700 dark:text-emerald-300", border: "border-emerald-200 dark:border-emerald-800" },
 };
 
@@ -101,36 +101,36 @@ export function NotificationComposer({ onSuccess }: NotificationComposerProps) {
     <div className="space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Compose Form */}
-        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5 space-y-4">
+        <div className="rounded-xl border border-border dark:border-border bg-white dark:bg-background p-5 space-y-4">
           <h3 className="text-lg font-semibold">Compose Notification</h3>
 
           {/* Title */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Title</label>
+            <label className="block text-sm font-medium text-foreground dark:text-foreground mb-1">Title</label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Notification title"
-              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full rounded-lg border border-input dark:border-input bg-white dark:bg-card px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-transparent"
             />
           </div>
 
           {/* Message */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Message</label>
+            <label className="block text-sm font-medium text-foreground dark:text-foreground mb-1">Message</label>
             <textarea
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder="Notification message body"
               rows={4}
-              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y"
+              className="w-full rounded-lg border border-input dark:border-input bg-white dark:bg-card px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-transparent resize-y"
             />
           </div>
 
           {/* Type */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Type</label>
+            <label className="block text-sm font-medium text-foreground dark:text-foreground mb-1">Type</label>
             <div className="flex gap-2">
               {(["info", "warning", "critical", "success"] as NotificationType[]).map((t) => (
                 <button
@@ -139,7 +139,7 @@ export function NotificationComposer({ onSuccess }: NotificationComposerProps) {
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                     type === t
                       ? `${typeStyles[t].bg} ${typeStyles[t].text} ${typeStyles[t].border}`
-                      : "border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800"
+                      : "border-border dark:border-border text-muted-foreground hover:bg-muted dark:hover:bg-muted"
                   }`}
                 >
                   {typeIcons[t]} {t}
@@ -150,11 +150,11 @@ export function NotificationComposer({ onSuccess }: NotificationComposerProps) {
 
           {/* Target */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Target</label>
+            <label className="block text-sm font-medium text-foreground dark:text-foreground mb-1">Target</label>
             <select
               value={target}
               onChange={(e) => { setTarget(e.target.value as TargetType); setTargetValue(""); }}
-              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-input dark:border-input bg-white dark:bg-card px-3 py-2 text-sm"
             >
               <option value="all">All Users</option>
               <option value="department">Specific Department</option>
@@ -167,14 +167,14 @@ export function NotificationComposer({ onSuccess }: NotificationComposerProps) {
                 value={targetValue}
                 onChange={(e) => setTargetValue(e.target.value)}
                 placeholder={target === "department" ? "Department name" : target === "role" ? "Role name" : "User ID or phone"}
-                className="mt-2 w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
+                className="mt-2 w-full rounded-lg border border-input dark:border-input bg-white dark:bg-card px-3 py-2 text-sm"
               />
             )}
           </div>
 
           {/* Schedule */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Schedule</label>
+            <label className="block text-sm font-medium text-foreground dark:text-foreground mb-1">Schedule</label>
             <div className="flex gap-3">
               <label className="inline-flex items-center gap-1.5 text-sm">
                 <input type="radio" name="schedule" checked={scheduleMode === "now"} onChange={() => setScheduleMode("now")} />
@@ -191,13 +191,13 @@ export function NotificationComposer({ onSuccess }: NotificationComposerProps) {
                   type="date"
                   value={scheduledDate}
                   onChange={(e) => setScheduledDate(e.target.value)}
-                  className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
+                  className="rounded-lg border border-input dark:border-input bg-white dark:bg-card px-3 py-2 text-sm"
                 />
                 <input
                   type="time"
                   value={scheduledTime}
                   onChange={(e) => setScheduledTime(e.target.value)}
-                  className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
+                  className="rounded-lg border border-input dark:border-input bg-white dark:bg-card px-3 py-2 text-sm"
                 />
               </div>
             )}
@@ -208,14 +208,14 @@ export function NotificationComposer({ onSuccess }: NotificationComposerProps) {
             <button
               onClick={() => setShowPreview(true)}
               disabled={!canSend}
-              className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40"
+              className="px-4 py-2 rounded-lg border border-input dark:border-input text-sm font-medium hover:bg-muted dark:hover:bg-muted disabled:opacity-40"
             >
               👁 Preview
             </button>
             <button
               onClick={handleSend}
               disabled={!canSend || sending}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-40"
+              className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-40"
             >
               {sending ? "Sending…" : scheduleMode === "later" ? "⏰ Schedule" : "📤 Send Now"}
             </button>
@@ -223,14 +223,14 @@ export function NotificationComposer({ onSuccess }: NotificationComposerProps) {
 
           {/* Feedback */}
           {feedback && (
-            <div className={`rounded-lg px-3 py-2 text-sm ${feedback.isError ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"}`}>
+            <div className={`rounded-lg px-3 py-2 text-sm ${feedback.isError ? "bg-destructive/10 text-destructive dark:bg-destructive/30 dark:text-destructive/70" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"}`}>
               {feedback.msg}
             </div>
           )}
         </div>
 
         {/* Preview Panel */}
-        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5">
+        <div className="rounded-xl border border-border dark:border-border bg-white dark:bg-background p-5">
           <h3 className="text-lg font-semibold mb-4">Preview</h3>
           {title || body ? (
             <div className={`rounded-lg border p-4 ${style.bg} ${style.border}`}>
@@ -239,7 +239,7 @@ export function NotificationComposer({ onSuccess }: NotificationComposerProps) {
                 <div>
                   <p className={`font-semibold ${style.text}`}>{title || "Untitled"}</p>
                   <p className={`mt-1 text-sm ${style.text} opacity-80`}>{body || "No message"}</p>
-                  <div className="mt-3 flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+                  <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground dark:text-muted-foreground">
                     <span>Target: {target === "all" ? "All Users" : `${target}: ${targetValue || "—"}`}</span>
                     <span>•</span>
                     <span>{scheduleMode === "now" ? "Immediate" : `Scheduled: ${scheduledDate} ${scheduledTime}`}</span>
@@ -248,7 +248,7 @@ export function NotificationComposer({ onSuccess }: NotificationComposerProps) {
               </div>
             </div>
           ) : (
-            <p className="text-sm text-gray-400 dark:text-gray-500">Start typing to see a preview</p>
+            <p className="text-sm text-muted-foreground dark:text-muted-foreground">Start typing to see a preview</p>
           )}
         </div>
       </div>
