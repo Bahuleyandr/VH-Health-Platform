@@ -6,6 +6,9 @@ import '../../../core/services/staff_api_service.dart';
 import '../../../core/services/location_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../widgets/shift_card.dart';
+import '../widgets/break_tracker.dart';
+import 'dispute_screen.dart';
 
 class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({super.key});
@@ -34,6 +37,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   // History
   List<dynamic> _history = [];
 
+  // Shift and break state
+  Map<String, dynamic>? _shift;
+  String? _staffId;
+
   @override
   void initState() {
     super.initState();
@@ -54,10 +61,21 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       _error = null;
     });
     try {
+      // Get staff ID first
+      _staffId = await ApiConfig.getStaffId();
+
       final status = await StaffApiService.getAttendanceStatus();
       _checkedIn =
           status['isCheckedIn'] == true || status['status'] == 'checked-in';
       _checkInTime = status['checkInTime']?.toString();
+
+      // Load shift
+      try {
+        final shift = await StaffApiService.getMyShift();
+        _shift = shift;
+      } catch (_) {
+        _shift = null;
+      }
 
       // Load history
       try {
@@ -67,9 +85,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             hist['attendance'] as List? ??
             [];
       } catch (_) {
-        final staffId = await ApiConfig.getStaffId();
-        if (staffId != null) {
-          final hist = await StaffApiService.getAttendance(staffId);
+        if (_staffId != null) {
+          final hist = await StaffApiService.getAttendance(_staffId!);
           _history = hist['records'] as List? ?? hist['attendance'] as List? ?? [];
         }
       }
@@ -282,6 +299,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           ),
           const SizedBox(height: 16),
 
+          // Shift card
+          ShiftCard(shift: _shift),
+          const SizedBox(height: 16),
+
           // Location status
           if (_locationData != null)
             Card(
@@ -359,76 +380,22 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               ),
             ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
 
-          // Regularization button
+          // Break tracker (only when checked in)
+          if (_staffId != null && _checkedIn)
+            BreakTracker(staffId: _staffId!, checkedIn: _checkedIn),
+
+          const SizedBox(height: 16),
+
+          // Dispute button
           TextButton.icon(
-            onPressed: () => _showRegularizationDialog(),
-            icon: const Icon(Icons.edit_calendar_outlined),
-            label: const Text('Request Attendance Correction'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showRegularizationDialog() {
-    final reasonCtrl = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Request Attendance Correction'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Date: ${DateFormat('d MMM yyyy').format(DateTime.now())}',
-              style: TextStyle(color: Colors.grey.shade600),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const DisputeScreen()),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: reasonCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Reason for correction',
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 3,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              if (reasonCtrl.text.trim().isEmpty) return;
-              Navigator.pop(ctx);
-              final staffId = await ApiConfig.getStaffId();
-              if (staffId == null) return;
-              try {
-                await StaffApiService.requestRegularization(
-                  staffId: staffId,
-                  date: DateFormat('yyyy-MM-dd').format(DateTime.now()),
-                  reason: reasonCtrl.text.trim(),
-                );
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text('✅ Correction request submitted'),
-                    backgroundColor: Colors.green,
-                  ));
-                }
-              } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text(
-                        e.toString().replaceFirst('Exception: ', '')),
-                    backgroundColor: Colors.red,
-                  ));
-                }
-              }
-            },
-            child: const Text('Submit'),
+            icon: const Icon(Icons.report_problem_outlined),
+            label: const Text('Report Attendance Issue'),
           ),
         ],
       ),

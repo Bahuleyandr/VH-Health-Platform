@@ -693,4 +693,77 @@ class StaffApiService {
       }),
     );
   }
+
+  // ─── Shift Management ───────────────────────────────────────────────────────
+
+  /// GET /api/v1/staff/hr/shift — get current staff shift
+  static Future<Map<String, dynamic>> getMyShift() async {
+    return _get('/api/v1/staff/hr/shift');
+  }
+
+  // ─── Break Tracking ────────────────────────────────────────────────────────
+
+  /// POST /api/v1/staff/attendance/:staffId/break/start — start a break
+  static Future<Map<String, dynamic>> startBreak(String staffId) async {
+    return _post('/api/v1/staff/attendance/$staffId/break/start', {});
+  }
+
+  /// POST /api/v1/staff/attendance/:staffId/break/end — end a break
+  static Future<Map<String, dynamic>> endBreak(String staffId) async {
+    return _post('/api/v1/staff/attendance/$staffId/break/end', {});
+  }
+
+  /// GET /api/v1/staff/attendance/:staffId/break/today — get today's breaks
+  static Future<Map<String, dynamic>> getTodayBreaks(String staffId) async {
+    return _get('/api/v1/staff/attendance/$staffId/break/today');
+  }
+
+  // ─── Attendance Disputes ────────────────────────────────────────────────────
+
+  /// POST /api/v1/staff/attendance/:staffId/dispute — submit attendance dispute
+  static Future<Map<String, dynamic>> submitDispute({
+    required String staffId,
+    required String date,
+    required String disputeType,
+    required String description,
+    String? requestedCheckIn,
+    String? requestedCheckOut,
+  }) async {
+    return _post('/api/v1/staff/attendance/$staffId/dispute', {
+      'date': date,
+      'dispute_type': disputeType,
+      'description': description,
+      if (requestedCheckIn != null) 'requested_check_in': requestedCheckIn,
+      if (requestedCheckOut != null) 'requested_check_out': requestedCheckOut,
+    });
+  }
+
+  /// GET /api/v1/staff/attendance/:staffId/disputes — get my disputes
+  static Future<List<dynamic>> getMyDisputes(String staffId) async {
+    final result = await _get('/api/v1/staff/attendance/$staffId/disputes');
+    return result['data'] as List? ?? result as List? ?? [];
+  }
+
+  // ─── Overtime Requests ──────────────────────────────────────────────────────
+
+  /// POST /api/v1/staff/hr/overtime/request — request overtime
+  static Future<Map<String, dynamic>> requestOvertime({
+    required String date,
+    required double extraHours,
+    required String reason,
+    String type = 'comp_time',
+  }) async {
+    return _post('/api/v1/staff/hr/overtime/request', {
+      'date': date,
+      'extra_hours': extraHours,
+      'reason': reason,
+      'type': type,
+    });
+  }
+
+  /// GET /api/v1/staff/hr/overtime — get my overtime requests
+  static Future<List<dynamic>> getMyOvertimeRequests() async {
+    final result = await _get('/api/v1/staff/hr/overtime');
+    return result['data'] as List? ?? result as List? ?? [];
+  }
 }

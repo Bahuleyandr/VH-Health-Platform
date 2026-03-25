@@ -1,8 +1,8 @@
 import 'package:geolocator/geolocator.dart';
 
 class LocationService {
-  static const double _campusLat = 11.0168;
-  static const double _campusLng = 76.9558;
+  static const double _campusLat = 13.02936;  // Venkataeswara Hospitals, Nandanam, Chennai
+  static const double _campusLng = 80.24409;
   static const double _campusRadius = 200.0; // meters
 
   static Future<Map<String, dynamic>> getLocationData() async {

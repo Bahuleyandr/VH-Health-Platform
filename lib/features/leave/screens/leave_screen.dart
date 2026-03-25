@@ -4,6 +4,8 @@ import '../../../core/config/api_config.dart';
 import '../../../core/services/staff_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../attendance/screens/overtime_screen.dart';
+import '../../attendance/screens/dispute_screen.dart';
 
 class LeaveScreen extends StatefulWidget {
   const LeaveScreen({super.key});
@@ -396,6 +398,25 @@ class _LeaveScreenState extends State<LeaveScreen>
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: Colors.white)),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.timer_outlined, color: Color(0xFF007A64)),
+              title: const Text('Overtime Request', style: TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: const Text('Log extra hours worked'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const OvertimeScreen())),
+            ),
+          ),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.report_problem_outlined, color: Colors.orange),
+              title: const Text('Attendance Dispute', style: TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: const Text('Report a recording issue'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DisputeScreen())),
             ),
           ),
         ],
