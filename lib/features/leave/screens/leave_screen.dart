@@ -16,37 +16,135 @@ class _LeaveScreenState extends State<LeaveScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   Map<String, dynamic>? _leaveBalance;
+  List<dynamic> _myLeaves = [];
+  List<dynamic> _replacementRequests = [];
   bool _loading = true;
   String? _error;
+
+  // Apply form state
+  String _leaveType = 'annual';
+  DateTime? _startDate;
+  DateTime? _endDate;
+  final _reasonCtrl = TextEditingController();
+  List<dynamic> _staffList = [];
+  String? _selectedReplacementId;
+  String? _selectedReplacementName;
+  bool _submitting = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _loadBalance();
+    _tabController = TabController(length: 3, vsync: this);
+    _loadAll();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _reasonCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _loadBalance() async {
+  Future<void> _loadAll() async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
       final staffId = await ApiConfig.getStaffId();
-      if (staffId != null) {
-        final balance = await StaffApiService.getLeaveBalance(staffId);
-        if (mounted) setState(() => _leaveBalance = balance);
+      if (staffId == null) {
+        setState(() {
+          _error = 'Staff ID not found';
+          _loading = false;
+        });
+        return;
+      }
+
+      final results = await Future.wait([
+        StaffApiService.getLeaveBalance(staffId)
+            .catchError((_) => <String, dynamic>{}),
+        StaffApiService.getMyLeaves(staffId)
+            .catchError((_) => <String, dynamic>{'leaves': []}),
+        StaffApiService.getReplacementRequests()
+            .catchError((_) => <dynamic>[]),
+        StaffApiService.getStaffList().catchError((_) => <dynamic>[]),
+      ]);
+
+      if (mounted) {
+        setState(() {
+          _leaveBalance = results[0] as Map<String, dynamic>?;
+          final leavesResult = results[1] as Map<String, dynamic>;
+          _myLeaves = leavesResult['leaves'] as List? ??
+              leavesResult['data'] as List? ??
+              leavesResult['applications'] as List? ??
+              leavesResult['history'] as List? ??
+              [];
+          _replacementRequests = results[2] as List<dynamic>;
+          _staffList = results[3] as List<dynamic>;
+          _loading = false;
+        });
       }
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (mounted) {
+        setState(() {
+          _error = e.toString().replaceFirst('Exception: ', '');
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _submitLeave() async {
+    if (_startDate == null || _endDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Please select dates'),
+        backgroundColor: Colors.red,
+      ));
+      return;
+    }
+    if (_reasonCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Please provide a reason'),
+        backgroundColor: Colors.red,
+      ));
+      return;
+    }
+
+    setState(() => _submitting = true);
+    try {
+      final staffId = await ApiConfig.getStaffId();
+      await StaffApiService.applyForLeaveWithReplacement(
+        staffId: staffId!,
+        leaveType: _leaveType,
+        startDate: DateFormat('yyyy-MM-dd').format(_startDate!),
+        endDate: DateFormat('yyyy-MM-dd').format(_endDate!),
+        reason: _reasonCtrl.text.trim(),
+        replacementStaffId: _selectedReplacementId,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('✅ Leave application submitted'),
+          backgroundColor: Colors.green,
+        ));
+        _reasonCtrl.clear();
+        setState(() {
+          _startDate = null;
+          _endDate = null;
+          _selectedReplacementId = null;
+          _selectedReplacementName = null;
+        });
+        _tabController.animateTo(1);
+        _loadAll();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: Colors.red,
+        ));
+      }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => _submitting = false);
     }
   }
 
@@ -57,32 +155,28 @@ class _LeaveScreenState extends State<LeaveScreen>
       showBottomNav: false,
       body: Column(
         children: [
-          // Balance card
           if (_leaveBalance != null) _buildBalanceCard(),
-
-          // Tabs
-          Container(
-            color: Colors.white,
-            child: TabBar(
-              controller: _tabController,
-              labelColor: AppTheme.primaryBlue,
-              unselectedLabelColor: AppTheme.textSecondary,
-              indicatorColor: AppTheme.primaryBlue,
-              tabs: const [
-                Tab(text: 'Apply Leave'),
-                Tab(text: 'History'),
-              ],
-            ),
+          TabBar(
+            controller: _tabController,
+            labelColor: AppTheme.primaryColor,
+            indicatorColor: AppTheme.primaryColor,
+            tabs: [
+              const Tab(text: 'Apply'),
+              Tab(text: 'My Leaves (${_myLeaves.length})'),
+              Tab(text: 'Requests (${_replacementRequests.length})'),
+            ],
           ),
-
           Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _ApplyLeaveTab(onApplied: _loadBalance),
-                _LeaveHistoryTab(leaveBalance: _leaveBalance),
-              ],
-            ),
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildApplyTab(),
+                      _buildMyLeavesTab(),
+                      _buildReplacementRequestsTab(),
+                    ],
+                  ),
           ),
         ],
       ),
@@ -90,23 +184,21 @@ class _LeaveScreenState extends State<LeaveScreen>
   }
 
   Widget _buildBalanceCard() {
-    final balances = _leaveBalance?['balances'] as List? ??
-        _leaveBalance?['leaveBalances'] as List? ??
-        [];
+    final balance = _leaveBalance ?? {};
+    // Support both nested balances list and flat keys
+    final balances =
+        balance['balances'] as List? ?? balance['leaveBalances'] as List? ?? [];
 
-    return Container(
-      color: AppTheme.primaryBlue,
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Leave Balance',
-              style: TextStyle(color: Colors.white70, fontSize: 12)),
-          const SizedBox(height: 8),
-          if (balances.isEmpty)
-            const Text('No balance info available',
-                style: TextStyle(color: Colors.white60))
-          else
+    if (balances.isNotEmpty) {
+      return Container(
+        color: AppTheme.primaryColor,
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Leave Balance',
+                style: TextStyle(color: Colors.white70, fontSize: 12)),
+            const SizedBox(height: 8),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -116,300 +208,233 @@ class _LeaveScreenState extends State<LeaveScreen>
                   final total = b['total'] ?? b['allocated'] ?? 0;
                   return Container(
                     margin: const EdgeInsets.only(right: 10),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 8),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.15),
+                      color: Colors.white.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Column(
                       children: [
-                        Text(
-                          '$remaining/$total',
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16),
-                        ),
-                        Text(
-                          type.toString().replaceAll('_', ' '),
-                          style: const TextStyle(
-                              color: Colors.white70, fontSize: 11),
-                        ),
+                        Text('$remaining/$total',
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16)),
+                        Text(type.toString().replaceAll('_', ' '),
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 11)),
                       ],
                     ),
                   );
                 }).toList(),
               ),
             ),
+          ],
+        ),
+      );
+    }
+
+    // Flat format
+    return Container(
+      padding: const EdgeInsets.all(12),
+      color: AppTheme.primaryColor.withValues(alpha: 0.1),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _balanceItem(
+              'Annual', balance['annual'] ?? balance['annual_leave'] ?? '-'),
+          _balanceItem('Sick', balance['sick'] ?? balance['sick_leave'] ?? '-'),
+          _balanceItem(
+              'Casual', balance['casual'] ?? balance['casual_leave'] ?? '-'),
+          _balanceItem('Used', balance['used'] ?? '-'),
         ],
       ),
     );
   }
-}
 
-class _ApplyLeaveTab extends StatefulWidget {
-  final VoidCallback onApplied;
-  const _ApplyLeaveTab({required this.onApplied});
-
-  @override
-  State<_ApplyLeaveTab> createState() => _ApplyLeaveTabState();
-}
-
-class _ApplyLeaveTabState extends State<_ApplyLeaveTab> {
-  final _formKey = GlobalKey<FormState>();
-  String? _leaveType;
-  DateTime? _startDate;
-  DateTime? _endDate;
-  final _reasonCtrl = TextEditingController();
-  final _emergencyCtrl = TextEditingController();
-  bool _submitting = false;
-
-  static const _leaveTypes = [
-    'CASUAL_LEAVE',
-    'SICK_LEAVE',
-    'ANNUAL_LEAVE',
-    'MATERNITY_LEAVE',
-    'PATERNITY_LEAVE',
-    'UNPAID_LEAVE',
-    'EMERGENCY_LEAVE',
-  ];
-
-  @override
-  void dispose() {
-    _reasonCtrl.dispose();
-    _emergencyCtrl.dispose();
-    super.dispose();
+  Widget _balanceItem(String label, dynamic value) {
+    return Column(children: [
+      Text('$value',
+          style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF007A64))),
+      Text(label,
+          style: const TextStyle(fontSize: 11, color: Colors.grey)),
+    ]);
   }
 
-  Future<void> _pickDate(bool isStart) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now().add(const Duration(days: 1)),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-    );
-    if (picked != null) {
-      setState(() {
-        if (isStart) {
-          _startDate = picked;
-          if (_endDate != null && _endDate!.isBefore(picked)) _endDate = null;
-        } else {
-          _endDate = picked;
-        }
-      });
-    }
-  }
-
-  Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (_startDate == null || _endDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Please select start and end dates'),
-            backgroundColor: AppTheme.warningAmber),
-      );
-      return;
-    }
-
-    setState(() => _submitting = true);
-    try {
-      final staffId = await ApiConfig.getStaffId();
-      if (staffId == null) throw Exception('Staff ID not found');
-
-      await StaffApiService.applyLeave(
-        staffId: staffId,
-        leaveType: _leaveType!,
-        startDate: DateFormat('yyyy-MM-dd').format(_startDate!),
-        endDate: DateFormat('yyyy-MM-dd').format(_endDate!),
-        reason: _reasonCtrl.text.trim(),
-        emergencyContact: _emergencyCtrl.text.trim().isEmpty
-            ? null
-            : _emergencyCtrl.text.trim(),
-      );
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Leave application submitted successfully'),
-            backgroundColor: AppTheme.successGreen,
-          ),
-        );
-        _formKey.currentState!.reset();
-        setState(() {
-          _leaveType = null;
-          _startDate = null;
-          _endDate = null;
-        });
-        widget.onApplied();
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-          backgroundColor: AppTheme.errorRed,
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _submitting = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildApplyTab() {
+    final leaveTypes = [
+      'annual',
+      'sick',
+      'casual',
+      'emergency',
+      'maternity',
+      'paternity',
+      'unpaid',
+    ];
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
-      child: Form(
-        key: _formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Leave type
+          const Text('Leave Type',
+              style: TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            value: _leaveType,
+            decoration: const InputDecoration(border: OutlineInputBorder()),
+            items: leaveTypes
+                .map((t) => DropdownMenuItem(
+                    value: t,
+                    child: Text(t[0].toUpperCase() + t.substring(1))))
+                .toList(),
+            onChanged: (v) => setState(() => _leaveType = v!),
+          ),
+          const SizedBox(height: 16),
 
-            // Leave type
-            DropdownButtonFormField<String>(
-              value: _leaveType,
-              decoration: const InputDecoration(
-                labelText: 'Leave Type',
-                prefixIcon: Icon(Icons.category_outlined),
+          // Date range
+          const Text('Dates',
+              style: TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                  child: _datePicker('Start Date', _startDate,
+                      (d) => setState(() => _startDate = d))),
+              const SizedBox(width: 12),
+              Expanded(
+                  child: _datePicker('End Date', _endDate,
+                      (d) => setState(() => _endDate = d))),
+            ],
+          ),
+          if (_startDate != null && _endDate != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                '${_endDate!.difference(_startDate!).inDays + 1} day(s)',
+                style: TextStyle(color: AppTheme.primaryColor, fontSize: 12),
               ),
-              items: _leaveTypes
-                  .map((t) => DropdownMenuItem(
-                        value: t,
-                        child: Text(t.replaceAll('_', ' ')),
-                      ))
-                  .toList(),
-              onChanged: (v) => setState(() => _leaveType = v),
-              validator: (v) => v == null ? 'Select leave type' : null,
             ),
-            const SizedBox(height: 16),
+          const SizedBox(height: 16),
 
-            // Date pickers
-            Row(
-              children: [
-                Expanded(
-                  child: _DateField(
-                    label: 'Start Date',
-                    date: _startDate,
-                    onTap: () => _pickDate(true),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _DateField(
-                    label: 'End Date',
-                    date: _endDate,
-                    onTap: () => _pickDate(false),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
+          // Reason
+          const Text('Reason',
+              style: TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _reasonCtrl,
+            decoration: const InputDecoration(
+                hintText: 'Brief reason for leave',
+                border: OutlineInputBorder()),
+            maxLines: 3,
+          ),
+          const SizedBox(height: 16),
 
-            // Duration display
-            if (_startDate != null && _endDate != null)
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryBlue.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                      color: AppTheme.primaryBlue.withOpacity(0.2)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.info_outline,
-                        color: AppTheme.primaryBlue, size: 16),
-                    const SizedBox(width: 8),
-                    Text(
-                      '${_endDate!.difference(_startDate!).inDays + 1} day(s) leave',
-                      style: const TextStyle(
-                          color: AppTheme.primaryBlue,
-                          fontWeight: FontWeight.w500),
+          // Replacement staff
+          const Text('Replacement Staff (Optional)',
+              style: TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          Text('Select a colleague to cover for you',
+              style:
+                  TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+          const SizedBox(height: 8),
+          InkWell(
+            onTap: () => _showStaffPicker(),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey.shade400),
+                  borderRadius: BorderRadius.circular(8)),
+              child: Row(
+                children: [
+                  const Icon(Icons.person_add_outlined,
+                      size: 18, color: Colors.grey),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _selectedReplacementName ??
+                          'Tap to select replacement',
+                      style: TextStyle(
+                          color: _selectedReplacementName != null
+                              ? Colors.black
+                              : Colors.grey.shade600),
                     ),
-                  ],
-                ),
+                  ),
+                  if (_selectedReplacementName != null)
+                    GestureDetector(
+                      onTap: () => setState(() {
+                        _selectedReplacementId = null;
+                        _selectedReplacementName = null;
+                      }),
+                      child: const Icon(Icons.clear,
+                          size: 16, color: Colors.grey),
+                    ),
+                ],
               ),
-            const SizedBox(height: 16),
-
-            TextFormField(
-              controller: _reasonCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Reason',
-                hintText: 'Describe the reason for leave...',
-                prefixIcon: Icon(Icons.description_outlined),
-                alignLabelWithHint: true,
-              ),
-              maxLines: 3,
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Reason is required' : null,
             ),
-            const SizedBox(height: 16),
+          ),
+          const SizedBox(height: 24),
 
-            TextFormField(
-              controller: _emergencyCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Emergency Contact (optional)',
-                hintText: 'Phone number or name',
-                prefixIcon: Icon(Icons.contact_phone_outlined),
-              ),
-              keyboardType: TextInputType.phone,
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: ElevatedButton(
+              onPressed: _submitting ? null : _submitLeave,
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryColor,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12))),
+              child: _submitting
+                  ? const CircularProgressIndicator(
+                      color: Colors.white, strokeWidth: 2)
+                  : const Text('Submit Leave Application',
+                      style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white)),
             ),
-            const SizedBox(height: 24),
-
-            ElevatedButton.icon(
-              onPressed: _submitting ? null : _submit,
-              icon: _submitting
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2))
-                  : const Icon(Icons.send, color: Colors.white),
-              label: Text(_submitting ? 'Submitting...' : 'Apply for Leave'),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
-}
 
-class _DateField extends StatelessWidget {
-  final String label;
-  final DateTime? date;
-  final VoidCallback onTap;
-
-  const _DateField(
-      {required this.label, required this.date, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
+  Widget _datePicker(
+      String label, DateTime? date, Function(DateTime) onPick) {
+    return InkWell(
+      onTap: () async {
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: date ?? DateTime.now(),
+          firstDate: DateTime.now(),
+          lastDate: DateTime.now().add(const Duration(days: 365)),
+        );
+        if (picked != null) onPick(picked);
+      },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: const Color(0xFFB0BEC5)),
-        ),
+            border: Border.all(color: Colors.grey.shade400),
+            borderRadius: BorderRadius.circular(8)),
         child: Row(
           children: [
-            const Icon(Icons.calendar_today_outlined,
-                size: 16, color: AppTheme.textSecondary),
-            const SizedBox(width: 8),
+            const Icon(Icons.calendar_today,
+                size: 16, color: Colors.grey),
+            const SizedBox(width: 6),
             Expanded(
               child: Text(
                 date != null
-                    ? DateFormat('d MMM yyyy').format(date!)
+                    ? DateFormat('d MMM').format(date)
                     : label,
                 style: TextStyle(
-                  color: date != null
-                      ? AppTheme.textPrimary
-                      : AppTheme.textSecondary,
-                  fontSize: 13,
-                ),
+                    color: date != null
+                        ? Colors.black
+                        : Colors.grey.shade600,
+                    fontSize: 13),
               ),
             ),
           ],
@@ -417,98 +442,230 @@ class _DateField extends StatelessWidget {
       ),
     );
   }
-}
 
-class _LeaveHistoryTab extends StatelessWidget {
-  final Map<String, dynamic>? leaveBalance;
+  void _showStaffPicker() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Select Replacement Staff'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 300,
+          child: _staffList.isEmpty
+              ? const Center(child: Text('No staff available'))
+              : ListView.builder(
+                  itemCount: _staffList.length,
+                  itemBuilder: (c, i) {
+                    final staff =
+                        _staffList[i] as Map<String, dynamic>;
+                    final name = staff['name'] as String? ??
+                        staff['full_name'] as String? ??
+                        'Unknown';
+                    final id =
+                        (staff['id'] ?? staff['user_id']).toString();
+                    return ListTile(
+                      leading:
+                          CircleAvatar(child: Text(name[0].toUpperCase())),
+                      title: Text(name),
+                      subtitle:
+                          Text(staff['department'] as String? ?? ''),
+                      onTap: () {
+                        setState(() {
+                          _selectedReplacementId = id;
+                          _selectedReplacementName = name;
+                        });
+                        Navigator.pop(ctx);
+                      },
+                    );
+                  },
+                ),
+        ),
+      ),
+    );
+  }
 
-  const _LeaveHistoryTab({this.leaveBalance});
-
-  @override
-  Widget build(BuildContext context) {
-    final history = leaveBalance?['history'] as List? ??
-        leaveBalance?['applications'] as List? ??
-        [];
-
-    if (history.isEmpty) {
-      return const Center(
+  Widget _buildMyLeavesTab() {
+    if (_myLeaves.isEmpty) {
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.event_note, size: 48, color: AppTheme.textSecondary),
-            SizedBox(height: 12),
-            Text('No leave history found',
-                style: TextStyle(color: AppTheme.textSecondary)),
+            Icon(Icons.event_note, size: 48, color: Colors.grey.shade400),
+            const SizedBox(height: 12),
+            Text('No leave applications',
+                style: TextStyle(color: Colors.grey.shade600)),
+          ],
+        ),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(8),
+      itemCount: _myLeaves.length,
+      itemBuilder: (ctx, i) {
+        final leave = _myLeaves[i] as Map<String, dynamic>;
+        final status = leave['status'] as String? ?? 'pending';
+        final statusColor = status == 'approved'
+            ? Colors.green
+            : status == 'rejected'
+                ? Colors.red
+                : Colors.orange;
+        final leaveType =
+            (leave['leave_type'] ?? leave['type'] ?? 'Leave').toString();
+        return Card(
+          child: ListTile(
+            title: Text(
+                '${leaveType.toUpperCase().replaceAll('_', ' ')} LEAVE'),
+            subtitle: Text(
+              '${leave['start_date'] ?? ''} to ${leave['end_date'] ?? ''}'
+              '${leave['reason'] != null ? '\n${leave['reason']}' : ''}',
+            ),
+            isThreeLine: leave['reason'] != null,
+            trailing: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: statusColor)),
+              child: Text(status.toUpperCase(),
+                  style: TextStyle(
+                      color: statusColor,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold)),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildReplacementRequestsTab() {
+    if (_replacementRequests.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.swap_horiz, size: 48, color: Colors.grey.shade400),
+            const SizedBox(height: 8),
+            Text('No pending replacement requests',
+                style: TextStyle(color: Colors.grey.shade600)),
           ],
         ),
       );
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: history.length,
-      itemBuilder: (context, i) {
-        final item = history[i];
-        final type =
-            item['leave_type']?.toString().replaceAll('_', ' ') ?? '—';
-        final status = item['status']?.toString() ?? 'PENDING';
-        final startDate = item['start_date']?.toString() ?? '';
-        final endDate = item['end_date']?.toString() ?? '';
-        final reason = item['reason']?.toString() ?? '';
-
-        final statusColor = switch (status.toUpperCase()) {
-          'APPROVED' => AppTheme.successGreen,
-          'REJECTED' => AppTheme.errorRed,
-          _ => AppTheme.warningAmber,
-        };
+      padding: const EdgeInsets.all(8),
+      itemCount: _replacementRequests.length,
+      itemBuilder: (ctx, i) {
+        final req = _replacementRequests[i] as Map<String, dynamic>;
+        final requesterName =
+            req['requester_name'] as String? ?? 'Unknown';
+        final dates = req['dates'] as String? ?? '';
+        final status = req['status'] as String? ?? 'pending';
+        final isPending = status == 'pending';
 
         return Card(
-          margin: const EdgeInsets.only(bottom: 8),
           child: Padding(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(type,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.textPrimary)),
+                Row(children: [
+                  const Icon(Icons.person, size: 16),
+                  const SizedBox(width: 4),
+                  Text(requesterName,
+                      style:
+                          const TextStyle(fontWeight: FontWeight.bold)),
+                  const Spacer(),
+                  if (!isPending)
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
+                          horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+                          color: status == 'accepted'
+                              ? Colors.green.shade100
+                              : Colors.red.shade100,
+                          borderRadius: BorderRadius.circular(8)),
                       child: Text(
-                        status,
+                        status.toUpperCase(),
                         style: TextStyle(
-                            color: statusColor,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600),
+                            fontSize: 10,
+                            color: status == 'accepted'
+                                ? Colors.green.shade700
+                                : Colors.red.shade700,
+                            fontWeight: FontWeight.bold),
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text('$startDate → $endDate',
-                    style: const TextStyle(
-                        color: AppTheme.textSecondary, fontSize: 12)),
-                if (reason.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(reason,
-                        style: const TextStyle(
-                            color: AppTheme.textSecondary, fontSize: 12)),
-                  ),
+                ]),
+                const SizedBox(height: 4),
+                Text('Requesting coverage for: $dates',
+                    style: TextStyle(
+                        fontSize: 12, color: Colors.grey.shade600)),
+                if (req['requester_message'] != null) ...[
+                  const SizedBox(height: 4),
+                  Text('"${req['requester_message']}"',
+                      style: const TextStyle(
+                          fontStyle: FontStyle.italic, fontSize: 12)),
+                ],
+                if (isPending) ...[
+                  const SizedBox(height: 12),
+                  Row(children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => _respondToReplacement(
+                            req['id'].toString(), 'declined'),
+                        style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            side:
+                                const BorderSide(color: Colors.red)),
+                        child: const Text('Decline'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => _respondToReplacement(
+                            req['id'].toString(), 'accepted'),
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primaryColor),
+                        child: const Text('Accept',
+                            style: TextStyle(color: Colors.white)),
+                      ),
+                    ),
+                  ]),
+                ],
               ],
             ),
           ),
         );
       },
     );
+  }
+
+  Future<void> _respondToReplacement(
+      String requestId, String status) async {
+    try {
+      await StaffApiService.respondToReplacement(
+          requestId: requestId, status: status);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(status == 'accepted'
+              ? '✅ Request accepted'
+              : '❌ Request declined'),
+          backgroundColor:
+              status == 'accepted' ? Colors.green : Colors.red,
+        ));
+        _loadAll();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content:
+              Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: Colors.red,
+        ));
+      }
+    }
   }
 }
