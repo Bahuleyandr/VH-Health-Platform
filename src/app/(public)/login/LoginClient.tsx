@@ -179,7 +179,7 @@ function LoginInner() {
 
         {/* Error Alert */}
         {error && (
-          <div className={styles.errorBox}>
+          <div role="alert" className={styles.errorBox}>
             <span>⚠️</span>
             <p className={styles.errorText}>{error}</p>
           </div>
@@ -287,7 +287,7 @@ function LoginInner() {
               </button>
             </div>
             {touched.password && fieldErrors.password && (
-              <p className={styles.errorMessage}>{fieldErrors.password}</p>
+              <p id="password-error" role="alert" className={styles.errorMessage}>{fieldErrors.password}</p>
             )}
             {capsOn && <p className={styles.capsWarning}>⚠️ Caps Lock is ON</p>}
           </div>
