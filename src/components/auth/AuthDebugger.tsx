@@ -64,7 +64,7 @@ function DevAuthDebugger() {
       <button
         type="button"
         onClick={() => setShowDebug((s) => !s)}
-        className="bg-gray-800 text-white px-3 py-1 rounded text-sm"
+        className="bg-card text-white px-3 py-1 rounded text-sm"
         aria-expanded={showDebug}
       >
         🔧 Auth Debug
@@ -88,14 +88,14 @@ function DevAuthDebugger() {
               {tokenPresent === null ? (
                 "…"
               ) : tokenPresent ? (
-                <span className="text-green-600">✅ Present</span>
+                <span className="text-success">✅ Present</span>
               ) : (
-                <span className="text-red-600">❌ Missing</span>
+                <span className="text-destructive">❌ Missing</span>
               )}
             </div>
 
             {user && (
-              <div className="mt-2 rounded bg-gray-50 p-2">
+              <div className="mt-2 rounded bg-muted p-2">
                 <strong>User (context):</strong>
                 <pre className="mt-1 overflow-auto text-xs">
                   {JSON.stringify(user, null, 2)}
@@ -104,7 +104,7 @@ function DevAuthDebugger() {
             )}
 
             {cachedUserPreview && (
-              <div className="mt-2 rounded bg-gray-50 p-2">
+              <div className="mt-2 rounded bg-muted p-2">
                 <strong>User (localStorage preview):</strong>
                 <pre className="mt-1 overflow-auto text-xs">
                   {cachedUserPreview}
@@ -113,9 +113,9 @@ function DevAuthDebugger() {
             )}
 
             {error && (
-              <div className="mt-2 rounded bg-red-50 p-2">
+              <div className="mt-2 rounded bg-destructive/10 p-2">
                 <strong>Error:</strong>
-                <p className="mt-1 text-xs text-red-600">{error}</p>
+                <p className="mt-1 text-xs text-destructive">{error}</p>
               </div>
             )}
 
@@ -123,7 +123,7 @@ function DevAuthDebugger() {
               <button
                 type="button"
                 onClick={() => checkAuth()}
-                className="w-full rounded bg-blue-500 px-3 py-1 text-white text-xs"
+                className="w-full rounded bg-primary px-3 py-1 text-white text-xs"
               >
                 Refresh Auth State
               </button>
@@ -146,7 +146,7 @@ function DevAuthDebugger() {
                     console.warn("Unable to inspect localStorage:", e);
                   }
                 }}
-                className="w-full rounded bg-gray-500 px-3 py-1 text-white text-xs"
+                className="w-full rounded bg-muted-foreground px-3 py-1 text-white text-xs"
               >
                 Log to Console
               </button>
@@ -159,7 +159,7 @@ function DevAuthDebugger() {
                   } catch {}
                   window.location.reload();
                 }}
-                className="w-full rounded bg-red-500 px-3 py-1 text-white text-xs"
+                className="w-full rounded bg-destructive px-3 py-1 text-white text-xs"
               >
                 Clear All &amp; Reload
               </button>

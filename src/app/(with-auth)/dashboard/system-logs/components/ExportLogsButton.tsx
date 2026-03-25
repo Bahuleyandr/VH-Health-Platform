@@ -128,12 +128,12 @@ export function ExportLogsButton({
         <button
           type="button"
           onClick={() => handleExport("json")} // quick default action; hook up a dropdown if needed
-          className="inline-flex justify-center items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
+          className="inline-flex justify-center items-center gap-2 px-4 py-2 bg-muted text-foreground rounded-md hover:bg-muted transition-colors"
           disabled={exporting}
         >
           {exporting ? (
             <>
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600" />
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-input" />
               Exporting...
             </>
           ) : (
@@ -162,14 +162,14 @@ export function ExportLogsButton({
         <div className="py-1" role="menu">
           <button
             onClick={() => handleExport("json")}
-            className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+            className="block w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted"
             role="menuitem"
           >
             Export as JSON
           </button>
           <button
             onClick={() => handleExport("csv")}
-            className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+            className="block w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted"
             role="menuitem"
           >
             Export as CSV

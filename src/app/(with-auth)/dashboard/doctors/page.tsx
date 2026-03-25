@@ -33,7 +33,7 @@ export default function DoctorsPage() {
     return (
       <div className="p-6">
         <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
         </div>
       </div>
     );
@@ -42,7 +42,7 @@ export default function DoctorsPage() {
   if (error) {
     return (
       <div className="p-6">
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+        <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded">
           Error: {error instanceof Error ? error.message : "Failed to fetch doctors"}
         </div>
       </div>
@@ -52,18 +52,18 @@ export default function DoctorsPage() {
   return (
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Doctor Management</h1>
+        <h1 className="text-3xl font-bold text-foreground">Doctor Management</h1>
         <Link
           href="/dashboard/doctors/create"
-          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
+          className="bg-primary text-white px-4 py-2 rounded-md hover:bg-primary/90 transition-colors"
         >
           Add New Doctor
         </Link>
       </div>
 
       {doctors.length === 0 ? (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
-          <p className="text-gray-500">
+        <div className="bg-muted border border-border rounded-lg p-8 text-center">
+          <p className="text-muted-foreground">
             No doctors found. Add your first doctor to get started.
           </p>
         </div>

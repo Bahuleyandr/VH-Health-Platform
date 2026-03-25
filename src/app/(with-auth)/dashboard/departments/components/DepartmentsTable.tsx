@@ -48,9 +48,9 @@ export function DepartmentsTable({
 
   if (departments.length === 0) {
     return (
-      <div className="bg-white dark:bg-gray-800 p-8 rounded-lg shadow text-center">
+      <div className="bg-white dark:bg-card p-8 rounded-lg shadow text-center">
         <svg
-          className="mx-auto h-12 w-12 text-gray-400"
+          className="mx-auto h-12 w-12 text-muted-foreground"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -62,10 +62,10 @@ export function DepartmentsTable({
             d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
           />
         </svg>
-        <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">
+        <h3 className="mt-2 text-sm font-medium text-foreground dark:text-white">
           No departments found
         </h3>
-        <p className="mt-1 text-sm text-gray-500">
+        <p className="mt-1 text-sm text-muted-foreground">
           Get started by creating a new department.
         </p>
       </div>
@@ -74,39 +74,39 @@ export function DepartmentsTable({
 
   return (
     <>
-      <div className="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <thead className="bg-gray-50 dark:bg-gray-900">
+      <div className="bg-white dark:bg-card shadow rounded-lg overflow-hidden">
+        <table className="min-w-full divide-y divide-border dark:divide-border">
+          <thead className="bg-muted dark:bg-background">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground dark:text-muted-foreground uppercase tracking-wider">
                 Department Name
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground dark:text-muted-foreground uppercase tracking-wider">
                 Description
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground dark:text-muted-foreground uppercase tracking-wider">
                 Created At
               </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Actions
               </th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="bg-white divide-y divide-border">
             {departments.map((department) => (
-              <tr key={department.id} className="hover:bg-gray-50">
+              <tr key={department.id} className="hover:bg-muted">
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900">
+                  <div className="text-sm font-medium text-foreground">
                     {department.name}
                   </div>
                 </td>
                 <td className="px-6 py-4">
-                  <div className="text-sm text-gray-500">
+                  <div className="text-sm text-muted-foreground">
                     {department.description || "No description provided"}
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-500">
+                  <div className="text-sm text-muted-foreground">
                     {department.created_at
                       ? new Date(department.created_at).toLocaleDateString()
                       : "N/A"}
@@ -122,7 +122,7 @@ export function DepartmentsTable({
                   <button
                     onClick={() => handleDelete(department)}
                     disabled={deletingId === department.id}
-                    className="text-red-600 hover:text-red-900 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="text-destructive hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {deletingId === department.id ? "Deleting..." : "Delete"}
                   </button>

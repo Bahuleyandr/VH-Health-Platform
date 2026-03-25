@@ -179,7 +179,7 @@ function PharmacyContent() {
     return (
       <div className="p-6">
         <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
         </div>
       </div>
     );
@@ -188,7 +188,7 @@ function PharmacyContent() {
   if (error) {
     return (
       <div className="p-6">
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+        <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded">
           Error: {error}
         </div>
       </div>
@@ -197,22 +197,22 @@ function PharmacyContent() {
 
   return (
     <div className="p-6">
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">
+      <h1 className="text-3xl font-bold text-foreground mb-6">
         Pharmacy Management
       </h1>
 
       {analytics && <PharmacyStats analytics={analytics} />}
 
       <div className="mt-8">
-        <h2 className="text-xl font-semibold text-gray-800 mb-4">
+        <h2 className="text-xl font-semibold text-foreground mb-4">
           Pharmacy Orders
         </h2>
 
         <PharmacyFiltersComponent onFilterChange={handleFilterChange} />
 
         {orders.length === 0 ? (
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
-            <p className="text-gray-500">No pharmacy orders found.</p>
+          <div className="bg-muted border border-border rounded-lg p-8 text-center">
+            <p className="text-muted-foreground">No pharmacy orders found.</p>
           </div>
         ) : (
           <>
@@ -221,7 +221,7 @@ function PharmacyContent() {
             {/* Pagination Controls */}
             {totalPages > 1 && (
               <div className="mt-4 flex items-center justify-between">
-                <div className="text-sm text-gray-700">
+                <div className="text-sm text-foreground">
                   Showing page {currentPage} of {totalPages}
                 </div>
                 <div className="flex gap-2">
@@ -230,8 +230,8 @@ function PharmacyContent() {
                     disabled={currentPage === 1}
                     className={`px-4 py-2 rounded-md font-medium transition-colors ${
                       currentPage === 1
-                        ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                        : "bg-blue-600 text-white hover:bg-blue-700"
+                        ? "bg-muted text-muted-foreground cursor-not-allowed"
+                        : "bg-primary text-white hover:bg-primary/90"
                     }`}
                   >
                     Previous
@@ -257,8 +257,8 @@ function PharmacyContent() {
                           onClick={() => handlePageChange(pageNum)}
                           className={`px-3 py-1 rounded-md transition-colors ${
                             currentPage === pageNum
-                              ? "bg-blue-600 text-white"
-                              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                              ? "bg-primary text-white"
+                              : "bg-muted text-foreground hover:bg-muted"
                           }`}
                         >
                           {pageNum}
@@ -272,8 +272,8 @@ function PharmacyContent() {
                     disabled={currentPage === totalPages}
                     className={`px-4 py-2 rounded-md font-medium transition-colors ${
                       currentPage === totalPages
-                        ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                        : "bg-blue-600 text-white hover:bg-blue-700"
+                        ? "bg-muted text-muted-foreground cursor-not-allowed"
+                        : "bg-primary text-white hover:bg-primary/90"
                     }`}
                   >
                     Next

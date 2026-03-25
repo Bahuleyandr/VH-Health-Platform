@@ -20,7 +20,7 @@ export function KeyboardShortcuts() {
     <>
       <button
         onClick={() => setShowShortcuts(!showShortcuts)}
-        className="text-gray-500 hover:text-gray-700 p-2 rounded-md hover:bg-gray-100"
+        className="text-muted-foreground hover:text-foreground p-2 rounded-md hover:bg-muted"
         title="Keyboard shortcuts"
       >
         <svg
@@ -42,7 +42,7 @@ export function KeyboardShortcuts() {
         <div
           role="button"
           tabIndex={0}
-          className="fixed inset-0 bg-gray-600 bg-opacity-50 z-50"
+          className="fixed inset-0 bg-foreground bg-opacity-50 z-50"
           onClick={() => setShowShortcuts(false)}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowShortcuts(false); }}
         >
@@ -54,12 +54,12 @@ export function KeyboardShortcuts() {
             onKeyDown={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-gray-900">
+              <h3 className="text-lg font-bold text-foreground">
                 Keyboard Shortcuts
               </h3>
               <button
                 onClick={() => setShowShortcuts(false)}
-                className="text-gray-400 hover:text-gray-500"
+                className="text-muted-foreground hover:text-muted-foreground"
               >
                 <svg
                   className="w-5 h-5"
@@ -83,17 +83,17 @@ export function KeyboardShortcuts() {
                   key={shortcut.key}
                   className="flex justify-between items-center"
                 >
-                  <kbd className="px-2 py-1 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded">
+                  <kbd className="px-2 py-1 text-xs font-semibold text-foreground bg-muted border border-border rounded">
                     {shortcut.key}
                   </kbd>
-                  <span className="text-sm text-gray-600">
+                  <span className="text-sm text-muted-foreground">
                     {shortcut.description}
                   </span>
                 </div>
               ))}
             </div>
 
-            <p className="mt-4 text-xs text-gray-500 text-center">
+            <p className="mt-4 text-xs text-muted-foreground text-center">
               Press any key to close
             </p>
           </div>

@@ -50,12 +50,12 @@ export default function ReportingPage() {
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 text-red-600 rounded-lg p-4">
+      <div className="bg-destructive/10 border border-destructive/30 text-destructive rounded-lg p-4">
         <h3 className="font-semibold mb-1">Error Loading Data</h3>
         <p>{error}</p>
         <button
           onClick={fetchData}
-          className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+          className="mt-2 px-4 py-2 bg-destructive text-white rounded hover:bg-destructive/90"
         >
           Retry
         </button>
@@ -67,20 +67,20 @@ export default function ReportingPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">Reports & Analytics</h1>
-        <p className="text-gray-600 mt-2">
+        <p className="text-muted-foreground mt-2">
           View comprehensive analytics and export medical records data
         </p>
       </div>
 
       {/* Tab Navigation */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-border">
         <nav className="-mb-px flex space-x-8">
           <button
             onClick={() => setActiveTab("overview")}
             className={`py-2 px-1 border-b-2 font-medium text-sm ${
               activeTab === "overview"
-                ? "border-blue-500 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:border-input"
             }`}
           >
             Analytics Overview
@@ -89,8 +89,8 @@ export default function ReportingPage() {
             onClick={() => setActiveTab("export")}
             className={`py-2 px-1 border-b-2 font-medium text-sm ${
               activeTab === "export"
-                ? "border-blue-500 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:border-input"
             }`}
           >
             Bulk Export
@@ -99,8 +99,8 @@ export default function ReportingPage() {
             onClick={() => setActiveTab("bulk")}
             className={`py-2 px-1 border-b-2 font-medium text-sm ${
               activeTab === "bulk"
-                ? "border-blue-500 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:border-input"
             }`}
           >
             Records Export
@@ -119,7 +119,7 @@ export default function ReportingPage() {
             <h2 className="text-xl font-semibold mb-4">
               Export Medical Records
             </h2>
-            <p className="mb-6 text-gray-600">
+            <p className="mb-6 text-muted-foreground">
               Select filters to generate a report of medical records. The report
               will be downloaded to your device.
             </p>

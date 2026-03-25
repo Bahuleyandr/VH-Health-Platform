@@ -13,9 +13,9 @@ interface BannerData {
 }
 
 const typeColors = {
-  info: { bg: "bg-blue-600", text: "text-white" },
+  info: { bg: "bg-primary", text: "text-white" },
   warning: { bg: "bg-amber-500", text: "text-white" },
-  critical: { bg: "bg-red-600", text: "text-white" },
+  critical: { bg: "bg-destructive", text: "text-white" },
   success: { bg: "bg-emerald-600", text: "text-white" },
 };
 
@@ -62,9 +62,9 @@ export function AnnouncementBannerManager() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5 space-y-4">
+      <div className="rounded-xl border border-border dark:border-border bg-white dark:bg-background p-5 space-y-4">
         <h3 className="text-lg font-semibold">Announcement Banner</h3>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-muted-foreground dark:text-muted-foreground">
           Set a banner that appears at the top of all dashboard pages. Users can dismiss it.
         </p>
 
@@ -74,26 +74,26 @@ export function AnnouncementBannerManager() {
             type="checkbox"
             checked={enabled}
             onChange={(e) => setEnabled(e.target.checked)}
-            className="h-4 w-4 rounded border-gray-300"
+            className="h-4 w-4 rounded border-input"
           />
           <span className="text-sm font-medium">Enable banner</span>
         </label>
 
         {/* Text */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Banner Text</label>
+          <label className="block text-sm font-medium text-foreground dark:text-foreground mb-1">Banner Text</label>
           <input
             type="text"
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="e.g. System maintenance scheduled for tonight 10 PM"
-            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-input dark:border-input bg-white dark:bg-card px-3 py-2 text-sm"
           />
         </div>
 
         {/* Type */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Style</label>
+          <label className="block text-sm font-medium text-foreground dark:text-foreground mb-1">Style</label>
           <div className="flex gap-2">
             {(["info", "warning", "critical", "success"] as const).map((t) => (
               <button
@@ -102,7 +102,7 @@ export function AnnouncementBannerManager() {
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                   type === t
                     ? `${typeColors[t].bg} ${typeColors[t].text} border-transparent`
-                    : "border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800"
+                    : "border-border dark:border-border text-muted-foreground hover:bg-muted dark:hover:bg-muted"
                 }`}
               >
                 {t}
@@ -114,7 +114,7 @@ export function AnnouncementBannerManager() {
         {/* Preview */}
         {text.trim() && enabled && (
           <div>
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Preview:</p>
+            <p className="text-sm font-medium text-foreground dark:text-foreground mb-1">Preview:</p>
             <div className={`${colors.bg} ${colors.text} px-4 py-2.5 rounded-lg text-sm font-medium flex items-center justify-between`}>
               <span>📢 {text}</span>
               <span className="opacity-60 text-xs ml-3">✕</span>
@@ -126,13 +126,13 @@ export function AnnouncementBannerManager() {
         <div className="flex gap-2 pt-2">
           <button
             onClick={handleSave}
-            className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+            className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90"
           >
             💾 Save Banner
           </button>
           <button
             onClick={handleClear}
-            className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-800"
+            className="px-4 py-2 rounded-lg border border-input dark:border-input text-sm font-medium hover:bg-muted dark:hover:bg-muted"
           >
             Clear
           </button>

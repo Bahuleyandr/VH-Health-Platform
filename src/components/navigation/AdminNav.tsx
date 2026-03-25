@@ -96,8 +96,8 @@ export default function AdminNav() {
             href={item.href}
             className={`block rounded px-3 py-2 text-sm transition-colors ${
               active
-                ? "bg-gray-900 text-white"
-                : "text-gray-300 hover:bg-gray-800 hover:text-white"
+                ? "bg-background text-white"
+                : "text-muted-foreground hover:bg-muted hover:text-white"
             }`}
           >
             {item.name}

@@ -3,6 +3,7 @@
 
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Pagination } from "@/lib/types";
+import { ChevronLeftIcon, ChevronRightIcon } from "@/components/icons";
 
 export function PaginationControls({ pagination }: { pagination: Pagination }) {
   const router = useRouter();
@@ -30,8 +31,8 @@ export function PaginationControls({ pagination }: { pagination: Pagination }) {
           aria-disabled={!pagination.hasPrev}
           className={`relative inline-flex items-center px-4 py-2 text-sm font-medium rounded-md ${
             pagination.hasPrev
-              ? "bg-white text-gray-700 hover:bg-gray-50"
-              : "bg-gray-100 text-gray-400 cursor-not-allowed"
+              ? "bg-white text-foreground hover:bg-muted"
+              : "bg-muted text-muted-foreground cursor-not-allowed"
           }`}
         >
           Previous
@@ -42,8 +43,8 @@ export function PaginationControls({ pagination }: { pagination: Pagination }) {
           aria-disabled={!pagination.hasNext}
           className={`relative ml-3 inline-flex items-center px-4 py-2 text-sm font-medium rounded-md ${
             pagination.hasNext
-              ? "bg-white text-gray-700 hover:bg-gray-50"
-              : "bg-gray-100 text-gray-400 cursor-not-allowed"
+              ? "bg-white text-foreground hover:bg-muted"
+              : "bg-muted text-muted-foreground cursor-not-allowed"
           }`}
         >
           Next
@@ -51,7 +52,7 @@ export function PaginationControls({ pagination }: { pagination: Pagination }) {
       </div>
       <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm text-gray-700">
+          <p className="text-sm text-foreground">
             Showing page <span className="font-medium">{pagination.page}</span>{" "}
             of <span className="font-medium">{pagination.totalPages}</span> (
             <span className="font-medium">{pagination.total}</span> total
@@ -67,38 +68,26 @@ export function PaginationControls({ pagination }: { pagination: Pagination }) {
               onClick={handlePrev}
               disabled={!pagination.hasPrev}
               aria-disabled={!pagination.hasPrev}
-              className={`relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 ${
-                pagination.hasPrev ? "hover:bg-gray-50" : "cursor-not-allowed"
+              className={`relative inline-flex items-center rounded-l-md px-2 py-2 text-muted-foreground ring-1 ring-inset ring-border ${
+                pagination.hasPrev ? "hover:bg-muted" : "cursor-not-allowed"
               }`}
             >
               <span className="sr-only">Previous</span>
-              <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                <path
-                  fillRule="evenodd"
-                  d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z"
-                  clipRule="evenodd"
-                />
-              </svg>
+              <ChevronLeftIcon className="h-5 w-5" />
             </button>
-            <span className="relative inline-flex items-center px-4 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300">
+            <span className="relative inline-flex items-center px-4 py-2 text-sm font-semibold text-foreground ring-1 ring-inset ring-border">
               {pagination.page}
             </span>
             <button
               onClick={handleNext}
               disabled={!pagination.hasNext}
               aria-disabled={!pagination.hasNext}
-              className={`relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 ${
-                pagination.hasNext ? "hover:bg-gray-50" : "cursor-not-allowed"
+              className={`relative inline-flex items-center rounded-r-md px-2 py-2 text-muted-foreground ring-1 ring-inset ring-border ${
+                pagination.hasNext ? "hover:bg-muted" : "cursor-not-allowed"
               }`}
             >
               <span className="sr-only">Next</span>
-              <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                <path
-                  fillRule="evenodd"
-                  d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"
-                  clipRule="evenodd"
-                />
-              </svg>
+              <ChevronRightIcon className="h-5 w-5" />
             </button>
           </nav>
         </div>

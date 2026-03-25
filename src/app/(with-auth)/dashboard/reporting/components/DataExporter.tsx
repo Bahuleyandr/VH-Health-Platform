@@ -56,8 +56,8 @@ const EXPORTS: ExportDef[] = [
     id: "appointments",
     label: "Appointments CSV",
     description: "All appointments with patient/doctor info, status, and timestamps",
-    color: "bg-blue-600",
-    hoverColor: "hover:bg-blue-700",
+    color: "bg-primary",
+    hoverColor: "hover:bg-primary/90",
     buildUrl: (from, to) =>
       `/api/v1/appointments/admin/export?format=csv&startDate=${from}&endDate=${to}`,
     filename: (from, to) => `appointments-${from}-to-${to}.csv`,
@@ -84,8 +84,8 @@ const EXPORTS: ExportDef[] = [
     id: "records-excel",
     label: "Records (Excel)",
     description: "Medical records exported as XLSX spreadsheet",
-    color: "bg-green-600",
-    hoverColor: "hover:bg-green-700",
+    color: "bg-success",
+    hoverColor: "hover:bg-success/90",
     buildUrl: () => `/api/v1/records/admin/export/excel`,
     filename: () => `medical-records-${today()}.xlsx`,
   },
@@ -93,8 +93,8 @@ const EXPORTS: ExportDef[] = [
     id: "records-pdf",
     label: "Records (PDF)",
     description: "Formatted medical records report as PDF",
-    color: "bg-red-600",
-    hoverColor: "hover:bg-red-700",
+    color: "bg-destructive",
+    hoverColor: "hover:bg-destructive/90",
     buildUrl: () => `/api/v1/records/admin/export/pdf`,
     filename: () => `medical-records-${today()}.pdf`,
   },
@@ -197,8 +197,8 @@ export function DataExporter() {
               onClick={() => applyPreset(p)}
               className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
                 activePreset === p.label
-                  ? "bg-blue-600 text-white border-blue-600"
-                  : "bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:text-blue-600"
+                  ? "bg-primary text-white border-primary"
+                  : "bg-white text-foreground border-input hover:border-primary hover:text-primary"
               }`}
             >
               {p.label}
@@ -209,7 +209,7 @@ export function DataExporter() {
         {/* Manual date inputs */}
         <div className="flex items-center gap-4">
           <div>
-            <label htmlFor="exp-from" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="exp-from" className="block text-sm font-medium text-foreground mb-1">
               Start Date
             </label>
             <input
@@ -217,11 +217,11 @@ export function DataExporter() {
               type="date"
               value={dateRange.from}
               onChange={(e) => setDateRange((r) => ({ ...r, from: e.target.value }))}
-              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
           <div>
-            <label htmlFor="exp-to" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="exp-to" className="block text-sm font-medium text-foreground mb-1">
               End Date
             </label>
             <input
@@ -229,22 +229,22 @@ export function DataExporter() {
               type="date"
               value={dateRange.to}
               onChange={(e) => setDateRange((r) => ({ ...r, to: e.target.value }))}
-              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
         </div>
       </div>
 
       {error && (
-        <div className="p-3 bg-red-50 border border-red-200 text-red-600 rounded-lg">{error}</div>
+        <div className="p-3 bg-destructive/10 border border-destructive/30 text-destructive rounded-lg">{error}</div>
       )}
 
       {/* Export Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {EXPORTS.map((exp) => (
           <div key={exp.id} className="bg-white rounded-lg shadow p-5 flex flex-col">
-            <h4 className="font-semibold text-gray-900 mb-1">{exp.label}</h4>
-            <p className="text-sm text-gray-500 mb-4 flex-1">{exp.description}</p>
+            <h4 className="font-semibold text-foreground mb-1">{exp.label}</h4>
+            <p className="text-sm text-muted-foreground mb-4 flex-1">{exp.description}</p>
             <button
               onClick={() => downloadFile(exp)}
               disabled={loading !== null}
@@ -276,31 +276,31 @@ export function DataExporter() {
         <div className="bg-white rounded-lg shadow p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-lg font-semibold">Export Preview</h3>
-            <button onClick={() => setPreview(null)} className="text-sm text-gray-500 hover:text-gray-700">
+            <button onClick={() => setPreview(null)} className="text-sm text-muted-foreground hover:text-foreground">
               Dismiss
             </button>
           </div>
-          <div className="mb-3 flex flex-wrap gap-4 text-sm text-gray-600">
+          <div className="mb-3 flex flex-wrap gap-4 text-sm text-muted-foreground">
             <span><strong>Rows:</strong> {preview.rows.toLocaleString()}</span>
             <span><strong>Columns:</strong> {preview.columns.length}</span>
             <span><strong>Range:</strong> {preview.dateRange.from} → {preview.dateRange.to}</span>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-border text-sm">
+              <thead className="bg-muted">
                 <tr>
                   {preview.columns.map((col) => (
-                    <th key={col} className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                    <th key={col} className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase">
                       {col}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-border">
                 {preview.sampleRows.map((row, i) => (
-                  <tr key={i} className="hover:bg-gray-50">
+                  <tr key={i} className="hover:bg-muted">
                     {preview.columns.map((col) => (
-                      <td key={col} className="px-3 py-2 text-gray-700 whitespace-nowrap max-w-[200px] truncate">
+                      <td key={col} className="px-3 py-2 text-foreground whitespace-nowrap max-w-[200px] truncate">
                         {row[col]}
                       </td>
                     ))}
@@ -310,7 +310,7 @@ export function DataExporter() {
             </table>
           </div>
           {preview.rows > 5 && (
-            <p className="mt-2 text-xs text-gray-400">Showing first 5 of {preview.rows.toLocaleString()} rows</p>
+            <p className="mt-2 text-xs text-muted-foreground">Showing first 5 of {preview.rows.toLocaleString()} rows</p>
           )}
         </div>
       )}

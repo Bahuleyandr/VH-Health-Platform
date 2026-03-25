@@ -45,8 +45,8 @@ export default function UploadsPage() {
       {loading ? (
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
-            <div className="mx-auto h-10 w-10 animate-spin rounded-full border-b-2 border-blue-600" />
-            <p className="mt-3 text-sm text-gray-500">Loading…</p>
+            <div className="mx-auto h-10 w-10 animate-spin rounded-full border-b-2 border-primary" />
+            <p className="mt-3 text-sm text-muted-foreground">Loading…</p>
           </div>
         </div>
       ) : (
@@ -78,7 +78,7 @@ function Section({ title, data }: { title: string; data: Json }) {
   return (
     <section>
       <h2 className="text-xl font-medium mb-2">{title}</h2>
-      <pre className="bg-gray-50 p-3 rounded overflow-auto text-sm">
+      <pre className="bg-muted p-3 rounded overflow-auto text-sm">
         {JSON.stringify(data, null, 2)}
       </pre>
     </section>

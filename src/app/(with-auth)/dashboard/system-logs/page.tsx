@@ -256,7 +256,7 @@ function SystemLogsContent() {
     return (
       <div className="p-6">
         <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
         </div>
       </div>
     );
@@ -265,7 +265,7 @@ function SystemLogsContent() {
   return (
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">
+        <h1 className="text-3xl font-bold text-foreground">
           System & Audit Logs
         </h1>
         <div className="flex items-center gap-4">
@@ -276,9 +276,9 @@ function SystemLogsContent() {
                 type="checkbox"
                 checked={autoRefresh}
                 onChange={(e) => setAutoRefresh(e.target.checked)}
-                className="h-4 w-4 text-blue-600 rounded border-gray-300"
+                className="h-4 w-4 text-primary rounded border-input"
               />
-              <span className="ml-2 text-sm text-gray-700">Auto-refresh</span>
+              <span className="ml-2 text-sm text-foreground">Auto-refresh</span>
             </label>
             {autoRefresh ? (
               <select
@@ -286,7 +286,7 @@ function SystemLogsContent() {
                 onChange={(e) =>
                   setRefreshInterval(parseInt(e.target.value, 10))
                 }
-                className="text-sm border border-gray-300 rounded px-2 py-1"
+                className="text-sm border border-input rounded px-2 py-1"
               >
                 <option value="10">10s</option>
                 <option value="30">30s</option>
@@ -298,7 +298,7 @@ function SystemLogsContent() {
 
           <button
             onClick={handleExport}
-            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors flex items-center gap-2"
+            className="px-4 py-2 bg-muted text-foreground rounded-md hover:bg-muted transition-colors flex items-center gap-2"
           >
             <svg
               className="w-5 h-5"
@@ -321,20 +321,20 @@ function SystemLogsContent() {
       </div>
 
       {error ? (
-        <div className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+        <div className="mb-4 bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded">
           Error: {error}
         </div>
       ) : null}
 
       {/* Tab Navigation */}
-      <div className="mb-6 border-b border-gray-200">
+      <div className="mb-6 border-b border-border">
         <nav className="-mb-px flex space-x-8" aria-label="Tabs">
           <button
             onClick={() => handleTabChange("audit")}
             className={`${
               currentTab === "audit"
-                ? "border-blue-500 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:border-input"
             } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
           >
             Audit Logs ({auditLogs.length})
@@ -343,8 +343,8 @@ function SystemLogsContent() {
             onClick={() => handleTabChange("system")}
             className={`${
               currentTab === "system"
-                ? "border-blue-500 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:border-input"
             } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
           >
             System Logs ({systemLogs.length})
@@ -379,7 +379,7 @@ function SystemLogsContent() {
       {/* Pagination */}
       {totalPages > 1 ? (
         <div className="mt-6 flex items-center justify-between">
-          <div className="text-sm text-gray-700">
+          <div className="text-sm text-foreground">
             Showing page {currentPage} of {totalPages}
           </div>
           <div className="flex gap-2">
@@ -388,8 +388,8 @@ function SystemLogsContent() {
               disabled={currentPage === 1}
               className={`px-4 py-2 rounded-md font-medium transition-colors ${
                 currentPage === 1
-                  ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                  : "bg-blue-600 text-white hover:bg-blue-700"
+                  ? "bg-muted text-muted-foreground cursor-not-allowed"
+                  : "bg-primary text-white hover:bg-primary/90"
               }`}
             >
               Previous
@@ -411,8 +411,8 @@ function SystemLogsContent() {
                     onClick={() => handlePageChange(pageNum)}
                     className={`px-3 py-1 rounded-md transition-colors ${
                       currentPage === pageNum
-                        ? "bg-blue-600 text-white"
-                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                        ? "bg-primary text-white"
+                        : "bg-muted text-foreground hover:bg-muted"
                     }`}
                   >
                     {pageNum}
@@ -426,8 +426,8 @@ function SystemLogsContent() {
               disabled={currentPage === totalPages}
               className={`px-4 py-2 rounded-md font-medium transition-colors ${
                 currentPage === totalPages
-                  ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                  : "bg-blue-600 text-white hover:bg-blue-700"
+                  ? "bg-muted text-muted-foreground cursor-not-allowed"
+                  : "bg-primary text-white hover:bg-primary/90"
               }`}
             >
               Next

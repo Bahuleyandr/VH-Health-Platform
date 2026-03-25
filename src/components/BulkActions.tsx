@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import toast from "react-hot-toast";
+import { DownloadIcon, TrashIcon } from "@/components/icons";
 
 interface BulkActionsProps {
   selectedCount: number;
@@ -52,41 +53,13 @@ export function BulkActions({
       label: "Export",
       onClick: onExport,
       variant: "default" as const,
-      icon: (
-        <svg
-          className="w-4 h-4 mr-2"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-          />
-        </svg>
-      ),
+      icon: <DownloadIcon className="w-4 h-4 mr-2" />,
     },
     {
       label: isDeleting ? "Deleting..." : "Delete",
       onClick: handleDelete,
       variant: "danger" as const,
-      icon: (
-        <svg
-          className="w-4 h-4 mr-2"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-          />
-        </svg>
-      ),
+      icon: <TrashIcon className="w-4 h-4 mr-2" />,
     },
   ];
 
@@ -95,30 +68,30 @@ export function BulkActions({
   const getButtonClass = (variant: string) => {
     switch (variant) {
       case "primary":
-        return "bg-blue-600 text-white hover:bg-blue-700";
+        return "bg-primary text-white hover:bg-primary/90";
       case "danger":
-        return "bg-red-600 text-white hover:bg-red-700";
+        return "bg-destructive text-white hover:bg-destructive/90";
       default:
-        return "bg-gray-600 text-white hover:bg-gray-700";
+        return "bg-foreground text-white hover:bg-muted";
     }
   };
 
   return (
     <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
-      <div className="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-4 flex items-center gap-4 border border-gray-200 dark:border-gray-700">
+      <div className="bg-white dark:bg-card shadow-lg rounded-lg p-4 flex items-center gap-4 border border-border dark:border-border">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <span className="text-sm font-medium text-foreground dark:text-foreground">
             {selectedCount} selected
           </span>
           <button
             onClick={onClearSelection}
-            className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            className="text-sm text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-muted-foreground"
           >
             Clear
           </button>
         </div>
 
-        <div className="h-6 w-px bg-gray-300 dark:bg-gray-600" />
+        <div className="h-6 w-px bg-muted dark:bg-foreground" />
 
         <div className="flex items-center gap-2">
           {allActions.map((action, index) => (

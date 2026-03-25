@@ -44,12 +44,12 @@ export function CreateDepartmentForm() {
   };
 
   return (
-    <div className="rounded-lg bg-white p-6 shadow dark:bg-gray-800">
+    <div className="rounded-lg bg-white p-6 shadow dark:bg-card">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-xl font-semibold">Create New Department</h2>
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="font-medium text-blue-600 hover:text-blue-700"
+          className="font-medium text-primary hover:text-primary"
           type="button"
         >
           {isOpen ? "Cancel" : "+ Add Department"}
@@ -61,9 +61,9 @@ export function CreateDepartmentForm() {
           <div>
             <label
               htmlFor="name"
-              className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              className="mb-1 block text-sm font-medium text-foreground dark:text-foreground"
             >
-              Department Name <span className="text-red-500">*</span>
+              Department Name <span className="text-destructive">*</span>
             </label>
             <input
               type="text"
@@ -71,7 +71,7 @@ export function CreateDepartmentForm() {
               name="name"
               value={formData.name}
               onChange={handleChange}
-              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              className="w-full rounded-md border border-input bg-white px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary dark:border-input dark:bg-muted dark:text-white"
               placeholder="e.g., Cardiology, Neurology"
               disabled={createDepartment.isPending}
               required
@@ -81,7 +81,7 @@ export function CreateDepartmentForm() {
           <div>
             <label
               htmlFor="description"
-              className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              className="mb-1 block text-sm font-medium text-foreground dark:text-foreground"
             >
               Description
             </label>
@@ -91,7 +91,7 @@ export function CreateDepartmentForm() {
               value={formData.description}
               onChange={handleChange}
               rows={3}
-              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              className="w-full rounded-md border border-input bg-white px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary dark:border-input dark:bg-muted dark:text-white"
               placeholder="Brief description of the department..."
               disabled={createDepartment.isPending}
             />
@@ -101,7 +101,7 @@ export function CreateDepartmentForm() {
             <button
               type="submit"
               disabled={createDepartment.isPending}
-              className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-md bg-primary px-4 py-2 text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {createDepartment.isPending ? "Creating..." : "Create Department"}
             </button>
@@ -112,7 +112,7 @@ export function CreateDepartmentForm() {
                 setFormData({ name: "", description: "" });
               }}
               disabled={createDepartment.isPending}
-              className="rounded-md border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700/50"
+              className="rounded-md border border-input px-4 py-2 text-foreground hover:bg-muted disabled:opacity-50 dark:border-input dark:text-foreground dark:hover:bg-muted/50"
             >
               Cancel
             </button>

@@ -46,15 +46,15 @@ function NotificationsContent() {
   return (
     <>
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 border-b border-gray-200 dark:border-gray-700">
+      <div className="flex gap-1 mb-6 border-b border-border dark:border-border">
         {tabs.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
             className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors ${
               activeTab === tab.key
-                ? "bg-blue-50 text-blue-700 border-b-2 border-blue-600 dark:bg-blue-900/30 dark:text-blue-300"
-                : "text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800"
+                ? "bg-primary/10 text-primary border-b-2 border-primary dark:bg-primary/30 dark:text-primary/70"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted dark:text-muted-foreground dark:hover:bg-muted"
             }`}
           >
             <span className="mr-1.5">{tab.icon}</span>
@@ -73,10 +73,10 @@ function NotificationsContent() {
           <h3 className="text-lg font-semibold mb-4">Notification History</h3>
           {isLoading ? (
             <div className="flex justify-center items-center h-32">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
             </div>
           ) : error ? (
-            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+            <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded">
               Error: {error instanceof Error ? error.message : "Failed to fetch"}
             </div>
           ) : (

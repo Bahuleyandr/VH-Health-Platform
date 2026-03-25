@@ -8,10 +8,10 @@ type AppointmentRow = Appointment & {
 };
 
 const statusColorMap: Record<Appointment["status"] | "PENDING", string> = {
-  SCHEDULED: "bg-blue-100 text-blue-800",
-  COMPLETED: "bg-green-100 text-green-800",
-  CANCELLED: "bg-red-100 text-red-800",
-  PENDING: "bg-yellow-100 text-yellow-800",
+  SCHEDULED: "bg-primary/10 text-primary",
+  COMPLETED: "bg-success/10 text-success",
+  CANCELLED: "bg-destructive/10 text-destructive",
+  PENDING: "bg-warning/10 text-warning",
 };
 
 function formatApptDate(appt: AppointmentRow) {
@@ -42,41 +42,41 @@ export function AppointmentsTable({
 }) {
   return (
     <div className="bg-white shadow rounded-lg overflow-x-auto">
-      <table className="min-w-full divide-y divide-gray-200">
-        <thead className="bg-gray-50">
+      <table className="min-w-full divide-y divide-border">
+        <thead className="bg-muted">
           <tr>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+            <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
               Patient & Doctor
             </th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+            <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
               Appointment Date
             </th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+            <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
               Department
             </th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+            <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
               Status
             </th>
           </tr>
         </thead>
 
-        <tbody className="bg-white divide-y divide-gray-200">
+        <tbody className="bg-white divide-y divide-border">
           {appointments.map((appt) => (
             <tr key={appt.id}>
               <td className="px-6 py-4 whitespace-nowrap">
-                <div className="text-sm font-medium text-gray-900">
+                <div className="text-sm font-medium text-foreground">
                   {appt.patient_name ?? `Patient #${appt.patient_id}`}
                 </div>
-                <div className="text-sm text-gray-500">
+                <div className="text-sm text-muted-foreground">
                   Dr. {appt.doctor_name ?? `#${appt.doctor_id}`}
                 </div>
               </td>
 
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-foreground">
                 {formatApptDate(appt)}
               </td>
 
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
                 {appt.department ?? "-"}
               </td>
 

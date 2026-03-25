@@ -88,9 +88,9 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
 
   return (
     <>
-      <div className="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <thead className="bg-gray-50 dark:bg-gray-900">
+      <div className="bg-white dark:bg-card shadow rounded-lg overflow-hidden">
+        <table className="min-w-full divide-y divide-border dark:divide-border">
+          <thead className="bg-muted dark:bg-background">
             <tr>
               <th scope="col" className="px-6 py-3 text-left">
                 <input
@@ -98,19 +98,19 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
                   type="checkbox"
                   checked={isAllSelected}
                   onChange={toggleAll}
-                  className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                  className="h-4 w-4 text-primary rounded border-input focus:ring-primary"
                 />
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground dark:text-muted-foreground uppercase tracking-wider">
                 Name
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground dark:text-muted-foreground uppercase tracking-wider">
                 Email
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground dark:text-muted-foreground uppercase tracking-wider">
                 Status
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground dark:text-muted-foreground uppercase tracking-wider">
                 Role
               </th>
               <th className="relative px-6 py-3">
@@ -118,27 +118,27 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
               </th>
             </tr>
           </thead>
-          <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+          <tbody className="bg-white dark:bg-card divide-y divide-border dark:divide-border">
             {users.map((user) => (
               <tr
                 key={user.id}
-                className={`hover:bg-gray-50 dark:hover:bg-gray-700 ${isSelected(user.id) ? "bg-blue-50 dark:bg-blue-900/20" : ""}`}
+                className={`hover:bg-muted dark:hover:bg-muted ${isSelected(user.id) ? "bg-primary/10 dark:bg-primary/20" : ""}`}
               >
                 <td className="px-6 py-4 whitespace-nowrap">
                   <input
                     type="checkbox"
                     checked={isSelected(user.id)}
                     onChange={() => toggleSelection(user.id)}
-                    className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                    className="h-4 w-4 text-primary rounded border-input focus:ring-primary"
                   />
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900 dark:text-white">
+                  <div className="text-sm font-medium text-foreground dark:text-white">
                     {user.name}
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                  <div className="text-sm text-muted-foreground dark:text-muted-foreground">
                     {user.email}
                   </div>
                 </td>
@@ -146,14 +146,14 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
                   <span
                     className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                       user.is_active
-                        ? "bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400"
-                        : "bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400"
+                        ? "bg-success/10 text-success dark:bg-success/20 dark:text-success/70"
+                        : "bg-destructive/10 text-destructive dark:bg-destructive/20 dark:text-destructive/60"
                     }`}
                   >
                     {user.is_active ? "Active" : "Inactive"}
                   </span>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground dark:text-muted-foreground">
                   {hasRole(user) ? user.role : "User"}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">

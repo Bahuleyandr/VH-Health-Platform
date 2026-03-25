@@ -17,14 +17,14 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
 
   const getActionColor = (action: string) => {
     if (action.includes("CREATE") || action.includes("ADD"))
-      return "text-green-600";
+      return "text-success";
     if (action.includes("UPDATE") || action.includes("EDIT"))
-      return "text-blue-600";
+      return "text-primary";
     if (action.includes("DELETE") || action.includes("REMOVE"))
-      return "text-red-600";
+      return "text-destructive";
     if (action.includes("LOGIN") || action.includes("LOGOUT"))
       return "text-purple-600";
-    return "text-gray-600";
+    return "text-muted-foreground";
   };
 
   const formatDetails = (details: string) => {
@@ -40,7 +40,7 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
     return (
       <div className="bg-white shadow rounded-lg p-8">
         <div className="flex justify-center items-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
         </div>
       </div>
     );
@@ -49,7 +49,7 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
   if (logs.length === 0) {
     return (
       <div className="bg-white shadow rounded-lg p-8">
-        <div className="text-center text-gray-500">
+        <div className="text-center text-muted-foreground">
           No audit logs found for the selected filters.
         </div>
       </div>
@@ -59,51 +59,51 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
   return (
     <div className="bg-white shadow rounded-lg overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+        <table className="min-w-full divide-y divide-border">
+          <thead className="bg-muted">
             <tr>
               <th
                 scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
               >
                 Timestamp
               </th>
               <th
                 scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
               >
                 User
               </th>
               <th
                 scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
               >
                 Action
               </th>
               <th
                 scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
               >
                 Details
               </th>
               <th
                 scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
               >
                 IP Address
               </th>
               <th
                 scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
               >
                 Actions
               </th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="bg-white divide-y divide-border">
             {logs.map((log) => (
-              <tr key={log.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+              <tr key={log.id} className="hover:bg-muted">
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
                   <div>
                     {new Date(log.created_at).toLocaleDateString("en-GB", {
                       day: "2-digit",
@@ -111,7 +111,7 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
                       year: "numeric",
                     })}
                   </div>
-                  <div className="text-xs text-gray-400">
+                  <div className="text-xs text-muted-foreground">
                     {new Date(log.created_at).toLocaleTimeString("en-GB", {
                       hour: "2-digit",
                       minute: "2-digit",
@@ -120,11 +120,11 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900">
+                  <div className="text-sm font-medium text-foreground">
                     User #{log.user_id}
                   </div>
                   {log.user_name && (
-                    <div className="text-sm text-gray-500">{log.user_name}</div>
+                    <div className="text-sm text-muted-foreground">{log.user_name}</div>
                   )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
@@ -134,7 +134,7 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
                     {log.action}
                   </span>
                 </td>
-                <td className="px-6 py-4 text-sm text-gray-800">
+                <td className="px-6 py-4 text-sm text-foreground">
                   <div className="max-w-xs">
                     {log.details.length > 100 ? (
                       <>
@@ -145,12 +145,12 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
                               expandedRow === log.id ? null : log.id,
                             )
                           }
-                          className="text-blue-600 hover:text-blue-800 text-xs mt-1"
+                          className="text-primary hover:text-primary text-xs mt-1"
                         >
                           {expandedRow === log.id ? "Show less" : "Show more"}
                         </button>
                         {expandedRow === log.id && (
-                          <pre className="mt-2 p-2 bg-gray-100 rounded text-xs overflow-x-auto">
+                          <pre className="mt-2 p-2 bg-muted rounded text-xs overflow-x-auto">
                             {formatDetails(log.details)}
                           </pre>
                         )}
@@ -160,7 +160,7 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
                     )}
                   </div>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
                   {log.ip_address || "N/A"}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">
@@ -169,7 +169,7 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
                       setSelectedLog(log);
                       setIsModalOpen(true);
                     }}
-                    className="text-blue-600 hover:text-blue-800"
+                    className="text-primary hover:text-primary"
                   >
                     View
                   </button>

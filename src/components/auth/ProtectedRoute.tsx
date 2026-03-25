@@ -80,8 +80,8 @@ export function ProtectedRoute({
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
-          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600" />
-          <p className="mt-4 text-gray-600">Loading…</p>
+          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-primary" />
+          <p className="mt-4 text-muted-foreground">Loading…</p>
         </div>
       </div>
     );
@@ -107,14 +107,14 @@ export function ProtectedRoute({
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
-          <h2 className="text-2xl font-bold text-red-600">Access denied</h2>
-          <p className="mt-2 text-gray-600">
+          <h2 className="text-2xl font-bold text-destructive">Access denied</h2>
+          <p className="mt-2 text-muted-foreground">
             You don&apos;t have permission to access this page.
           </p>
           <button
             type="button"
             onClick={() => router.push(fallbackPath)}
-            className="mt-4 rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+            className="mt-4 rounded bg-primary px-4 py-2 text-white hover:bg-primary/90"
           >
             Go to Dashboard
           </button>

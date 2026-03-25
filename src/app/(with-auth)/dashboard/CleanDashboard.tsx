@@ -299,7 +299,7 @@ export default function CleanDashboard() {
                   <p className="mt-1 text-3xl font-bold tracking-tight">
                     {(s.value ?? 0).toLocaleString()}
                     {arrow && (
-                      <span className={`ml-1 text-lg ${arrow === '↑' ? 'text-emerald-500' : 'text-red-500'}`}>
+                      <span className={`ml-1 text-lg ${arrow === '↑' ? 'text-emerald-500' : 'text-destructive'}`}>
                         {arrow}
                       </span>
                     )}
@@ -387,7 +387,7 @@ export default function CleanDashboard() {
                   ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
                   : health?.status === 'warning'
                   ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
-                  : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+                  : 'bg-destructive/10 text-destructive dark:bg-destructive/40 dark:text-destructive/70'
               }`}
             >
               <span className="text-base" aria-hidden>

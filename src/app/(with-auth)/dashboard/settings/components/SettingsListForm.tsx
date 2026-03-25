@@ -112,7 +112,7 @@ function SettingRow({ setting, onUpdate }: SettingRowProps) {
         <select
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          className="border p-2 rounded-md w-full focus:ring-blue-500 focus:border-blue-500"
+          className="border p-2 rounded-md w-full focus:ring-primary focus:border-primary"
           disabled={loading}
         >
           <option value="true">Enabled</option>
@@ -126,7 +126,7 @@ function SettingRow({ setting, onUpdate }: SettingRowProps) {
         type={inputConfig.type}
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        className="border p-2 rounded-md w-full focus:ring-blue-500 focus:border-blue-500"
+        className="border p-2 rounded-md w-full focus:ring-primary focus:border-primary"
         disabled={loading}
         {...inputConfig.props}
       />
@@ -139,12 +139,12 @@ function SettingRow({ setting, onUpdate }: SettingRowProps) {
       className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start"
     >
       <div>
-        <label className="font-semibold text-gray-700 block">
+        <label className="font-semibold text-foreground block">
           {setting.setting_key
             .replace(/_/g, " ")
             .replace(/\b\w/g, (l) => l.toUpperCase())}
         </label>
-        <p className="text-sm text-gray-500 mt-1">
+        <p className="text-sm text-muted-foreground mt-1">
           {setting.description ||
             `Configure ${setting.setting_key.replace(/_/g, " ")}`}
         </p>
@@ -158,8 +158,8 @@ function SettingRow({ setting, onUpdate }: SettingRowProps) {
           disabled={loading || !hasChanged}
           className={`px-4 py-2 rounded-md font-medium transition-colors ${
             loading || !hasChanged
-              ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-              : "bg-blue-500 text-white hover:bg-blue-600"
+              ? "bg-muted text-muted-foreground cursor-not-allowed"
+              : "bg-primary text-white hover:bg-primary/90"
           }`}
         >
           {loading ? "Saving..." : "Save"}
@@ -169,7 +169,7 @@ function SettingRow({ setting, onUpdate }: SettingRowProps) {
         )}
         {message && !hasChanged && (
           <p
-            className={`text-sm ${isError ? "text-red-600" : "text-green-600"}`}
+            className={`text-sm ${isError ? "text-destructive" : "text-success"}`}
           >
             {message}
           </p>
@@ -198,12 +198,12 @@ export function SettingsListForm({
     <div className="space-y-6">
       {Object.keys(groupedSettings).length === 0 ? (
         <div className="bg-white p-8 rounded-lg shadow text-center">
-          <p className="text-gray-500">No settings available</p>
+          <p className="text-muted-foreground">No settings available</p>
         </div>
       ) : (
         Object.entries(groupedSettings).map(([category, categorySettings]) => (
           <div key={category} className="bg-white p-6 rounded-lg shadow">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4 pb-4 border-b">
+            <h3 className="text-lg font-semibold text-foreground mb-4 pb-4 border-b">
               {category} Settings
             </h3>
             <div className="space-y-6">

@@ -46,7 +46,7 @@ export function LogDetailsModal({
     <div
       role="button"
       tabIndex={0}
-      className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50"
+      className="fixed inset-0 bg-foreground bg-opacity-50 overflow-y-auto h-full w-full z-50"
       onClick={onClose}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClose(); }}
     >
@@ -58,12 +58,12 @@ export function LogDetailsModal({
         onKeyDown={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-bold text-gray-900">
+          <h3 className="text-lg font-bold text-foreground">
             {type === "audit" ? "Audit Log Details" : "System Log Details"}
           </h3>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-500"
+            className="text-muted-foreground hover:text-muted-foreground"
           >
             <svg
               className="w-6 h-6"
@@ -85,64 +85,64 @@ export function LogDetailsModal({
           {type === "audit" && isAuditLog(log) ? (
             <>
               <div>
-                <h4 className="text-sm font-medium text-gray-700">Timestamp</h4>
-                <p className="mt-1 text-sm text-gray-900">
+                <h4 className="text-sm font-medium text-foreground">Timestamp</h4>
+                <p className="mt-1 text-sm text-foreground">
                   {new Date(log.created_at).toLocaleString("en-GB")}
                 </p>
               </div>
 
               <div>
-                <h4 className="text-sm font-medium text-gray-700">User</h4>
-                <p className="mt-1 text-sm text-gray-900">
+                <h4 className="text-sm font-medium text-foreground">User</h4>
+                <p className="mt-1 text-sm text-foreground">
                   ID: {log.user_id}
                   {log.user_name && ` (${log.user_name})`}
                 </p>
               </div>
 
               <div>
-                <h4 className="text-sm font-medium text-gray-700">Action</h4>
-                <p className="mt-1 text-sm font-mono text-gray-900">
+                <h4 className="text-sm font-medium text-foreground">Action</h4>
+                <p className="mt-1 text-sm font-mono text-foreground">
                   {log.action}
                 </p>
               </div>
 
               <div>
-                <h4 className="text-sm font-medium text-gray-700">Details</h4>
-                <pre className="mt-1 p-3 bg-gray-100 rounded text-xs overflow-x-auto">
+                <h4 className="text-sm font-medium text-foreground">Details</h4>
+                <pre className="mt-1 p-3 bg-muted rounded text-xs overflow-x-auto">
                   {formatJSON(log.details)}
                 </pre>
               </div>
 
               {log.ip_address && (
                 <div>
-                  <h4 className="text-sm font-medium text-gray-700">
+                  <h4 className="text-sm font-medium text-foreground">
                     IP Address
                   </h4>
-                  <p className="mt-1 text-sm text-gray-900">{log.ip_address}</p>
+                  <p className="mt-1 text-sm text-foreground">{log.ip_address}</p>
                 </div>
               )}
             </>
           ) : type === "system" && isSystemLog(log) ? (
             <>
               <div>
-                <h4 className="text-sm font-medium text-gray-700">Timestamp</h4>
-                <p className="mt-1 text-sm text-gray-900">
+                <h4 className="text-sm font-medium text-foreground">Timestamp</h4>
+                <p className="mt-1 text-sm text-foreground">
                   {new Date(log.timestamp).toLocaleString("en-GB")}
                 </p>
               </div>
 
               <div>
-                <h4 className="text-sm font-medium text-gray-700">Level</h4>
+                <h4 className="text-sm font-medium text-foreground">Level</h4>
                 <p className="mt-1 text-sm">
                   <span
                     className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                       log.level === "ERROR"
-                        ? "bg-red-100 text-red-800"
+                        ? "bg-destructive/10 text-destructive"
                         : log.level === "WARN"
-                          ? "bg-yellow-100 text-yellow-800"
+                          ? "bg-warning/10 text-warning"
                           : log.level === "INFO"
-                            ? "bg-blue-100 text-blue-800"
-                            : "bg-gray-100 text-gray-800"
+                            ? "bg-primary/10 text-primary"
+                            : "bg-muted text-foreground"
                     }`}
                   >
                     {log.level}
@@ -152,8 +152,8 @@ export function LogDetailsModal({
 
               {log.service && (
                 <div>
-                  <h4 className="text-sm font-medium text-gray-700">Service</h4>
-                  <p className="mt-1 text-sm text-gray-900">
+                  <h4 className="text-sm font-medium text-foreground">Service</h4>
+                  <p className="mt-1 text-sm text-foreground">
                     {log.service}
                     {log.module && ` - ${log.module}`}
                   </p>
@@ -161,18 +161,18 @@ export function LogDetailsModal({
               )}
 
               <div>
-                <h4 className="text-sm font-medium text-gray-700">Message</h4>
-                <pre className="mt-1 p-3 bg-gray-100 rounded text-xs overflow-x-auto whitespace-pre-wrap">
+                <h4 className="text-sm font-medium text-foreground">Message</h4>
+                <pre className="mt-1 p-3 bg-muted rounded text-xs overflow-x-auto whitespace-pre-wrap">
                   {log.message}
                 </pre>
               </div>
 
               {log.metadata && (
                 <div>
-                  <h4 className="text-sm font-medium text-gray-700">
+                  <h4 className="text-sm font-medium text-foreground">
                     Metadata
                   </h4>
-                  <pre className="mt-1 p-3 bg-gray-100 rounded text-xs overflow-x-auto">
+                  <pre className="mt-1 p-3 bg-muted rounded text-xs overflow-x-auto">
                     {formatJSON(log.metadata)}
                   </pre>
                 </div>
@@ -181,8 +181,8 @@ export function LogDetailsModal({
           ) : null}
 
           <div>
-            <h4 className="text-sm font-medium text-gray-700">Log ID</h4>
-            <p className="mt-1 text-sm font-mono text-gray-900">{log.id}</p>
+            <h4 className="text-sm font-medium text-foreground">Log ID</h4>
+            <p className="mt-1 text-sm font-mono text-foreground">{log.id}</p>
           </div>
         </div>
 
@@ -192,13 +192,13 @@ export function LogDetailsModal({
               navigator.clipboard.writeText(JSON.stringify(log, null, 2));
               alert("Log details copied to clipboard!");
             }}
-            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
+            className="px-4 py-2 bg-muted text-foreground rounded-md hover:bg-muted transition-colors"
           >
             Copy JSON
           </button>
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+            className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
           >
             Close
           </button>
