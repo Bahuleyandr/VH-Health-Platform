@@ -3,6 +3,7 @@
 
 import { useState, useRef } from "react";
 import { fetchAdminAPI } from "@/lib/api";
+import { toast } from "sonner";
 
 interface SendAnnouncementFormProps {
   onSuccess?: () => void;
@@ -44,6 +45,7 @@ export function SendAnnouncementForm({ onSuccess }: SendAnnouncementFormProps) {
 
       setMessage("Announcement sent successfully.");
       setIsError(false);
+      toast.success("Announcement sent successfully");
       formRef.current?.reset();
 
       // Call the success callback if provided
@@ -55,6 +57,7 @@ export function SendAnnouncementForm({ onSuccess }: SendAnnouncementFormProps) {
         error instanceof Error ? error.message : "An unknown error occurred.";
       setMessage(errorMessage);
       setIsError(true);
+      toast.error("Failed to send announcement");
     } finally {
       setLoading(false);
     }
@@ -112,6 +115,7 @@ export function SendAnnouncementForm({ onSuccess }: SendAnnouncementFormProps) {
       </button>
       {message && (
         <p
+          role="alert"
           className={`mt-2 text-sm ${isError ? "text-destructive" : "text-success"}`}
         >
           {message}

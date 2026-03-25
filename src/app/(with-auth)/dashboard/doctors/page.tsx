@@ -7,6 +7,36 @@ import type { Doctor } from "@/lib/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { DoctorsTable } from "./components/DoctorsTable";
+import { Skeleton } from "@/components/ui/skeleton";
+
+function DoctorsTableSkeleton() {
+  return (
+    <div className="p-6">
+      <div className="flex justify-between items-center mb-6">
+        <Skeleton className="h-9 w-56" />
+        <Skeleton className="h-9 w-36 rounded-md" />
+      </div>
+      <div className="border rounded-lg overflow-hidden">
+        <div className="bg-muted/50 px-4 py-3 flex gap-4">
+          <Skeleton className="h-4 w-8" />
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="h-4 w-20 ml-auto" />
+        </div>
+        {Array.from({ length: 7 }).map((_, i) => (
+          <div key={i} className="flex gap-4 items-center px-4 py-3 border-t">
+            <Skeleton className="h-8 w-8 rounded-full flex-shrink-0" />
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-4 w-20 ml-auto" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const normalizeDoctors = normalizeList<Doctor>("doctors");
 
@@ -30,13 +60,7 @@ export default function DoctorsPage() {
   };
 
   if (isLoading) {
-    return (
-      <div className="p-6">
-        <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
-        </div>
-      </div>
-    );
+    return <DoctorsTableSkeleton />;
   }
 
   if (error) {

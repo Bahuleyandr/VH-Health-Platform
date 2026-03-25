@@ -30,12 +30,6 @@ export function BulkActions({
   if (selectedCount === 0) return null;
 
   const handleDelete = async () => {
-    if (
-      !window.confirm(`Are you sure you want to delete ${selectedCount} items?`)
-    ) {
-      return;
-    }
-
     setIsDeleting(true);
     try {
       await onDelete();

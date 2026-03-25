@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { fetchAdminAPI } from "@/lib/api";
 import { Department } from "@/lib/types";
 import Link from "next/link";
+import { toast } from "sonner";
 
 export function CreateDoctorForm({
   departments,
@@ -68,12 +69,14 @@ export function CreateDoctorForm({
         body: JSON.stringify(data),
       });
 
+      toast.success("Doctor created successfully");
       // Redirect to the doctors list on success
       router.push("/dashboard/doctors");
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "An unknown error occurred.";
       setError(errorMessage);
+      toast.error(errorMessage || "Failed to create doctor");
       setLoading(false);
     }
   };
@@ -257,7 +260,10 @@ export function CreateDoctorForm({
       </div>
 
       {error && (
-        <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded">
+        <div
+          role="alert"
+          className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded"
+        >
           {error}
         </div>
       )}

@@ -8,6 +8,44 @@ import { UsersAPIResponse } from "@/lib/types";
 import { UsersTable } from "./components/UsersTable";
 import { PaginationControls } from "./components/PaginationControls";
 import { UserFilters } from "./components/UserFilters";
+import { Skeleton } from "@/components/ui/skeleton";
+
+function UsersTableSkeleton() {
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-4 mb-4">
+        <Skeleton className="h-9 w-48" />
+        <Skeleton className="h-9 w-32" />
+      </div>
+      <div className="border rounded-lg overflow-hidden">
+        <div className="bg-muted/50 px-4 py-3 flex gap-4">
+          <Skeleton className="h-4 w-6" />
+          <Skeleton className="h-4 w-36" />
+          <Skeleton className="h-4 w-44" />
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-4 w-20 ml-auto" />
+        </div>
+        {Array.from({ length: 7 }).map((_, i) => (
+          <div key={i} className="flex gap-4 items-center px-4 py-3 border-t">
+            <Skeleton className="h-4 w-6" />
+            <Skeleton className="h-4 w-36" />
+            <Skeleton className="h-4 w-44" />
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-4 w-20 ml-auto" />
+          </div>
+        ))}
+      </div>
+      <div className="flex justify-between items-center mt-4">
+        <Skeleton className="h-4 w-36" />
+        <div className="flex gap-2">
+          <Skeleton className="h-8 w-8 rounded" />
+          <Skeleton className="h-8 w-8 rounded" />
+          <Skeleton className="h-8 w-8 rounded" />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function UsersContent() {
   const searchParams = useSearchParams();
@@ -35,11 +73,7 @@ function UsersContent() {
   };
 
   if (isLoading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
-      </div>
-    );
+    return <UsersTableSkeleton />;
   }
 
   if (error) {
@@ -68,7 +102,7 @@ export default function UsersPage() {
   return (
     <div className="p-6">
       <h2 className="text-2xl font-bold mb-4">User Management</h2>
-      <Suspense fallback={<div>Loading...</div>}>
+      <Suspense fallback={<UsersTableSkeleton />}>
         <UsersContent />
       </Suspense>
     </div>

@@ -4,6 +4,7 @@
 import { useState, useEffect } from "react";
 import { postJSON } from "@/lib/api";
 import { API_ENDPOINTS } from "@/lib/api-config";
+import { toast } from "sonner";
 
 interface CreateAdminFormProps {
   onAdminCreated?: () => void;
@@ -61,6 +62,7 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
       await postJSON(API_ENDPOINTS.auth.adminManagement, data);
 
       setSuccess("Admin user created successfully!");
+      toast.success("Admin user created successfully");
       e.currentTarget.reset();
 
       if (onAdminCreated) onAdminCreated();
@@ -68,6 +70,7 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
       const msg =
         err instanceof Error ? err.message : "An unknown error occurred.";
       setError(msg);
+      toast.error(msg || "Failed to create admin");
     } finally {
       setLoading(false);
     }
@@ -180,13 +183,19 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
       </div>
 
       {success && (
-        <div className="bg-success/10 border border-success text-success px-4 py-3 rounded">
+        <div
+          role="alert"
+          className="bg-success/10 border border-success text-success px-4 py-3 rounded"
+        >
           {success}
         </div>
       )}
 
       {error && (
-        <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded">
+        <div
+          role="alert"
+          className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded"
+        >
           {error}
         </div>
       )}

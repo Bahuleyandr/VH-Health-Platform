@@ -6,6 +6,7 @@ import { useState } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import { EditDepartmentModal } from "./EditDepartmentModal";
 import { HospitalIcon } from "@/components/icons";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 interface DepartmentsTableProps {
   departments: Department[];
@@ -21,20 +22,21 @@ export function DepartmentsTable({
   const [editingDepartment, setEditingDepartment] = useState<Department | null>(
     null,
   );
-  const [deletingId, setDeletingId] = useState<number | null>(null); // ← number, not string
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pendingDepartment, setPendingDepartment] = useState<Department | null>(null);
 
-  const handleDelete = async (department: Department) => {
-    if (
-      !window.confirm(
-        `Are you sure you want to delete the "${department.name}" department? This action cannot be undone.`,
-      )
-    ) {
-      return;
-    }
+  const handleDeleteClick = (department: Department) => {
+    setPendingDepartment(department);
+    setConfirmOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!pendingDepartment) return;
 
     try {
-      setDeletingId(department.id);
-      await fetchAdminAPI(`/departments/${department.id}`, {
+      setDeletingId(pendingDepartment.id);
+      await fetchAdminAPI(`/departments/${pendingDepartment.id}`, {
         method: "DELETE",
       });
       onDepartmentDeleted();
@@ -44,6 +46,7 @@ export function DepartmentsTable({
       );
     } finally {
       setDeletingId(null);
+      setPendingDepartment(null);
     }
   };
 
@@ -109,7 +112,7 @@ export function DepartmentsTable({
                     Edit
                   </button>
                   <button
-                    onClick={() => handleDelete(department)}
+                    onClick={() => handleDeleteClick(department)}
                     disabled={deletingId === department.id}
                     className="text-destructive hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -132,6 +135,20 @@ export function DepartmentsTable({
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        setOpen={setConfirmOpen}
+        title="Delete Department"
+        message={
+          pendingDepartment
+            ? `This will permanently delete "${pendingDepartment.name}" and cannot be undone.`
+            : "This will permanently delete this department and cannot be undone."
+        }
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={handleConfirmDelete}
+      />
     </>
   );
 }

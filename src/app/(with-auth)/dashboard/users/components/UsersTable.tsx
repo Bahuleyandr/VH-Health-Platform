@@ -1,13 +1,14 @@
 // src/app/(with-auth)/dashboard/users/components/UsersTable.tsx
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { User } from "@/lib/types";
 import { useSelection } from "@/hooks/useSelection";
 import { BulkActions } from "@/components/BulkActions";
 import { fetchAdminAPI } from "@/lib/api";
 import toast from "react-hot-toast";
 import { CheckCircle, XCircle } from "lucide-react";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 interface UsersTableProps {
   users: User[];
@@ -23,6 +24,8 @@ function hasRole(u: unknown): u is { role: string } {
   );
 }
 
+type BulkConfirmAction = "delete" | "deactivate" | "activate";
+
 export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
   const {
     selectedIds,
@@ -35,6 +38,9 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
     isPartiallySelected,
   } = useSelection(users);
 
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pendingBulkAction, setPendingBulkAction] = useState<BulkConfirmAction | null>(null);
+
   // Proper "indeterminate" handling via ref
   const headerCheckboxRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -44,14 +50,47 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
     }
   }, [isPartiallySelected, isAllSelected]);
 
-  const handleBulkDelete = async () => {
-    const promises = selectedIds.map((id) =>
-      fetchAdminAPI(`/users/${id}`, { method: "DELETE" }),
-    );
-    await Promise.all(promises);
-    onUserUpdated();
-    clearSelection();
-    toast.success(`Deleted ${selectedCount} users`);
+  const confirmBulkAction = (action: BulkConfirmAction) => {
+    setPendingBulkAction(action);
+    setConfirmOpen(true);
+  };
+
+  const executeBulkAction = async () => {
+    if (!pendingBulkAction) return;
+
+    if (pendingBulkAction === "delete") {
+      const promises = selectedIds.map((id) =>
+        fetchAdminAPI(`/users/${id}`, { method: "DELETE" }),
+      );
+      await Promise.all(promises);
+      onUserUpdated();
+      clearSelection();
+      toast.success(`Deleted ${selectedCount} users`);
+    } else if (pendingBulkAction === "deactivate") {
+      const promises = selectedIds.map((id) =>
+        fetchAdminAPI(`/users/${id}`, {
+          method: "PUT",
+          body: JSON.stringify({ is_active: false }),
+        }),
+      );
+      await Promise.all(promises);
+      toast.success(`Deactivated ${selectedCount} users`);
+      onUserUpdated();
+      clearSelection();
+    } else if (pendingBulkAction === "activate") {
+      const promises = selectedIds.map((id) =>
+        fetchAdminAPI(`/users/${id}`, {
+          method: "PUT",
+          body: JSON.stringify({ is_active: true }),
+        }),
+      );
+      await Promise.all(promises);
+      toast.success(`Activated ${selectedCount} users`);
+      onUserUpdated();
+      clearSelection();
+    }
+
+    setPendingBulkAction(null);
   };
 
   const handleBulkExport = () => {
@@ -61,31 +100,40 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
     toast.success(`Exported ${selectedCount} users`);
   };
 
-  const handleBulkActivate = async () => {
-    const promises = selectedIds.map((id) =>
-      fetchAdminAPI(`/users/${id}`, {
-        method: "PUT",
-        body: JSON.stringify({ is_active: true }),
-      }),
-    );
-    await Promise.all(promises);
-    toast.success(`Activated ${selectedCount} users`);
-    onUserUpdated();
-    clearSelection();
+  const getConfirmProps = (): { title: string; message: string; confirmLabel: string; variant: "destructive" | "default" } => {
+    switch (pendingBulkAction) {
+      case "delete":
+        return {
+          title: `Delete ${selectedCount} Users`,
+          message: `Delete ${selectedCount} selected users? This cannot be undone.`,
+          confirmLabel: "Delete",
+          variant: "destructive",
+        };
+      case "deactivate":
+        return {
+          title: `Deactivate ${selectedCount} Users`,
+          message: `These ${selectedCount} users will lose access to the system.`,
+          confirmLabel: "Deactivate",
+          variant: "destructive",
+        };
+      case "activate":
+        return {
+          title: `Activate ${selectedCount} Users`,
+          message: `These ${selectedCount} users will regain access to the system.`,
+          confirmLabel: "Activate",
+          variant: "default",
+        };
+      default:
+        return {
+          title: "Confirm Action",
+          message: "Are you sure?",
+          confirmLabel: "Confirm",
+          variant: "default",
+        };
+    }
   };
 
-  const handleBulkDeactivate = async () => {
-    const promises = selectedIds.map((id) =>
-      fetchAdminAPI(`/users/${id}`, {
-        method: "PUT",
-        body: JSON.stringify({ is_active: false }),
-      }),
-    );
-    await Promise.all(promises);
-    toast.success(`Deactivated ${selectedCount} users`);
-    onUserUpdated();
-    clearSelection();
-  };
+  const confirmProps = getConfirmProps();
 
   return (
     <>
@@ -170,23 +218,33 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
 
       <BulkActions
         selectedCount={selectedCount}
-        onDelete={handleBulkDelete}
+        onDelete={async () => { confirmBulkAction("delete"); }}
         onExport={handleBulkExport}
         onClearSelection={clearSelection}
         actions={[
           {
             label: "Activate",
-            onClick: handleBulkActivate,
+            onClick: () => confirmBulkAction("activate"),
             variant: "primary",
             icon: <CheckCircle className="w-4 h-4 mr-2" />,
           },
           {
             label: "Deactivate",
-            onClick: handleBulkDeactivate,
+            onClick: () => confirmBulkAction("deactivate"),
             variant: "default",
             icon: <XCircle className="w-4 h-4 mr-2" />,
           },
         ]}
+      />
+
+      <ConfirmDialog
+        open={confirmOpen}
+        setOpen={setConfirmOpen}
+        title={confirmProps.title}
+        message={confirmProps.message}
+        confirmLabel={confirmProps.confirmLabel}
+        variant={confirmProps.variant}
+        onConfirm={executeBulkAction}
       />
     </>
   );

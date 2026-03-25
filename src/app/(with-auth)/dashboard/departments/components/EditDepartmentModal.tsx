@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import { Department } from "@/lib/types";
 import { CloseIcon } from "@/components/icons";
+import { toast } from "sonner";
 
 interface EditDepartmentModalProps {
   department: Department;
@@ -53,11 +54,13 @@ export function EditDepartmentModal({
         }),
       });
 
+      toast.success("Department updated");
       onSuccess();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to update department",
-      );
+      const msg =
+        err instanceof Error ? err.message : "Failed to update department";
+      setError(msg);
+      toast.error("Failed to update department");
     } finally {
       setLoading(false);
     }
@@ -87,38 +90,54 @@ export function EditDepartmentModal({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <div className="p-3 bg-destructive/10 border border-destructive/30 text-destructive rounded">
+            <div
+              role="alert"
+              className="p-3 bg-destructive/10 border border-destructive/30 text-destructive rounded"
+            >
               {error}
             </div>
           )}
 
           <div>
             <label
-              htmlFor="name"
+              htmlFor="dept-name"
               className="block text-sm font-medium text-foreground mb-1"
             >
               Department Name <span className="text-destructive">*</span>
             </label>
             <input
               type="text"
-              id="name"
+              id="dept-name"
               name="name"
               value={formData.name}
               onChange={handleChange}
+              aria-invalid={error && !formData.name.trim() ? "true" : undefined}
+              aria-describedby={
+                error && !formData.name.trim() ? "dept-name-error" : undefined
+              }
               className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
               disabled={loading}
             />
+            {error && !formData.name.trim() && (
+              <p
+                id="dept-name-error"
+                role="alert"
+                className="text-sm text-destructive mt-1"
+              >
+                {error}
+              </p>
+            )}
           </div>
 
           <div>
             <label
-              htmlFor="description"
+              htmlFor="dept-description"
               className="block text-sm font-medium text-foreground mb-1"
             >
               Description
             </label>
             <textarea
-              id="description"
+              id="dept-description"
               name="description"
               value={formData.description}
               onChange={handleChange}
