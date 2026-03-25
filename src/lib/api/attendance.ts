@@ -74,3 +74,65 @@ export function getAbsentToday<T = unknown>(params?: { department?: string }) {
     ...params 
   });
 }
+
+// ─── Shifts ────────────────────────────────────────────────────────────────
+
+export function getShifts<T = unknown>() {
+  return getJSON<T>('/api/v1/staff/admin/shifts');
+}
+
+export function assignShift<T = unknown>(data: { staffId: string | number; shiftId: string | number; effectiveFrom?: string }) {
+  return postJSON<T>('/api/v1/staff/admin/shifts/assign', data);
+}
+
+// ─── Disputes ──────────────────────────────────────────────────────────────
+
+export function getPendingDisputes<T = unknown>() {
+  return getJSON<T>('/api/v1/staff/admin/attendance/disputes/pending');
+}
+
+export function resolveDispute<T = unknown>(id: string | number, data: { 
+  status: 'approved' | 'rejected'; 
+  reviewer_comment?: string; 
+  apply_correction?: boolean;
+}) {
+  return postJSON<T>(`/api/v1/staff/admin/attendance/disputes/${id}/resolve`, data);
+}
+
+// ─── Overtime ──────────────────────────────────────────────────────────────
+
+export function getPendingOvertimeRequests<T = unknown>() {
+  return getJSON<T>('/api/v1/staff/admin/overtime/pending');
+}
+
+export function approveOvertimeRequest<T = unknown>(id: string | number, data: {
+  status: 'approved' | 'rejected';
+  rejection_reason?: string;
+}) {
+  return postJSON<T>(`/api/v1/staff/admin/overtime/${id}/approve`, data);
+}
+
+// ─── Bulk Correction ───────────────────────────────────────────────────────
+
+export function getBulkTemplate<T = unknown>() {
+  return getJSON<T>('/api/v1/staff/admin/attendance/bulk-template');
+}
+
+export function bulkCorrectAttendance<T = unknown>(data: {
+  corrections: Array<{
+    staff_id: string | number;
+    date: string;
+    check_in_time?: string;
+    check_out_time?: string;
+    reason?: string;
+  }>;
+  reason?: string;
+}) {
+  return postJSON<T>('/api/v1/staff/admin/bulk/attendance-correction', data);
+}
+
+// ─── Geofence Breaches ────────────────────────────────────────────────────
+
+export function getGeofenceBreaches<T = unknown>(params?: { limit?: number; staff_id?: string | number }) {
+  return getJSON<T>('/api/v1/staff/admin/attendance/geofence-breaches', params);
+}
