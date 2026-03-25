@@ -1,10 +1,11 @@
 import db from '../../config/database.js';
 import logger from '../../logging/logger.js';
 import { calculateWorkingHours } from '../../utils/staff/attendanceCalculator.js';
+import { getStaffShift, classifyAttendance, calculateOvertime } from './shiftService.js';
 
 const CAMPUS_CONFIG = {
-  latitude: 11.0168,
-  longitude: 76.9558,
+  latitude: 13.02936,  // Venkataeswara Hospitals, Nandanam, Chennai
+  longitude: 80.24409,
   radiusMeters: 200,
   wifiSSIDs: ['VHHealth-Staff', 'VHHealth-Internal'],
 };
@@ -130,6 +131,22 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
       result.rows[0].check_out_time,
       break_duration_minutes
     );
+  }
+
+  // Enrich with shift classification
+  const shift = await getStaffShift(staff_id);
+  if (shift && result.rows[0]) {
+    const classification = classifyAttendance(shift, result.rows[0].check_in_time);
+    const overtime = result.rows[0].check_out_time
+      ? calculateOvertime(shift, result.rows[0].check_in_time, result.rows[0].check_out_time)
+      : 0;
+
+    // Update record with classification
+    await db.query(`
+      UPDATE staff_attendance SET attendance_status=$1, minutes_late=$2, overtime_hours=$3
+      WHERE id=$4
+    `, [classification.status, classification.minutesLate, overtime, result.rows[0].id])
+      .catch(() => {}); // columns may not exist yet, but we created them in migration
   }
 
   // Log attendance activity
