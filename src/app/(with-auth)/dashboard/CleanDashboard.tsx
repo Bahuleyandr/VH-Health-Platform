@@ -66,9 +66,11 @@ export default function CleanDashboard() {
   // ---- Helpers ----
   const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') ?? undefined : undefined;
   const headers = getHeaders(token);
+  const headersRef = useRef(headers);
+  headersRef.current = headers;
 
   const get = useCallback(async function get<T>(path: string): Promise<T> {
-    const res = await fetch(`${API_BASE_URL}${path}`, { headers });
+    const res = await fetch(`${API_BASE_URL}${path}`, { headers: headersRef.current });
     if (!res.ok) throw new Error(`${path} → ${res.status}`);
     return res.json();
   }, []);
@@ -76,7 +78,7 @@ export default function CleanDashboard() {
   const post = useCallback(async function post<T>(path: string, body?: unknown): Promise<T> {
     const res = await fetch(`${API_BASE_URL}${path}`, {
       method: 'POST',
-      headers: { ...headers, 'Content-Type': 'application/json' },
+      headers: { ...headersRef.current, 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
     });
     if (!res.ok) throw new Error(`${path} → ${res.status}`);
