@@ -7,6 +7,7 @@ import { useSelection } from "@/hooks/useSelection";
 import { BulkActions } from "@/components/BulkActions";
 import { fetchAdminAPI } from "@/lib/api";
 import toast from "react-hot-toast";
+import { CheckCircle, XCircle } from "lucide-react";
 
 interface UsersTableProps {
   users: User[];
@@ -177,41 +178,13 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
             label: "Activate",
             onClick: handleBulkActivate,
             variant: "primary",
-            icon: (
-              <svg
-                className="w-4 h-4 mr-2"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-            ),
+            icon: <CheckCircle className="w-4 h-4 mr-2" />,
           },
           {
             label: "Deactivate",
             onClick: handleBulkDeactivate,
             variant: "default",
-            icon: (
-              <svg
-                className="w-4 h-4 mr-2"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-            ),
+            icon: <XCircle className="w-4 h-4 mr-2" />,
           },
         ]}
       />

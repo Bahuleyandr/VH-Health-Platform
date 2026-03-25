@@ -4,6 +4,7 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import type { LogFilters as LogFiltersType } from "@/lib/types";
+import { ChevronDownIcon } from "@/components/icons";
 
 interface LogFiltersProps {
   onFilterChange: (filters: LogFiltersType) => void;
@@ -79,19 +80,9 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
           onClick={() => setShowFilters(!showFilters)}
           className="flex items-center gap-2 text-sm font-medium text-foreground hover:text-foreground"
         >
-          <svg
+          <ChevronDownIcon
             className={`w-5 h-5 transition-transform ${showFilters ? "rotate-180" : ""}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M19 9l-7 7-7-7"
-            />
-          </svg>
+          />
           Filters
           {activeFilterCount > 0 && (
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">
