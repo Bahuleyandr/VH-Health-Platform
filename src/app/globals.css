@@ -68,57 +68,57 @@
 
 /* ===== Light theme (default) ===== */
 :root {
-  /* Base */
-  --radius: 0.625rem;
+  /* Base — VHHealth brand radii: cards 12px, inputs 8px, buttons 12px */
+  --radius: 0.75rem; /* 12px → --radius-lg = 12px (cards/buttons), --radius-sm = 8px (inputs) */
 
   /* Surface & text */
-  --background: oklch(1 0 0);
+  --background: oklch(0.967 0.021 197); /* #E0F5F6 — VHHealth light teal scaffold bg */
   --foreground: oklch(0.145 0 0);
 
   /* Cards & popovers */
-  --card: oklch(1 0 0);
+  --card: oklch(1 0 0);                 /* #ffffff — white surfaces */
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
 
-  /* Brand & roles */
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
+  /* Brand & roles — VHHealth primary #007A64 */
+  --primary: oklch(0.508 0.124 168);   /* #007A64 — VHHealth teal-green */
+  --primary-foreground: oklch(1 0 0);  /* white */
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
+  --muted: oklch(0.972 0.014 193);     /* #f0fafa — teal-tinted muted */
+  --muted-foreground: oklch(0.52 0.03 178); /* #5f7170 */
+  --accent: oklch(0.967 0.021 197);    /* matches background teal tint */
+  --accent-foreground: oklch(0.508 0.124 168);
+  --destructive: oklch(0.641 0.220 22); /* #FF5252 — redAccent */
 
   /* Dashboard Status Colors */
-  --success: oklch(0.696 0.17 162.48);     /* Green - success states */
-  --warning: oklch(0.828 0.189 84.429);    /* Yellow/Orange - warning states */
-  --info: oklch(0.6 0.118 184.704);        /* Blue - informational states */
-  --danger: oklch(0.577 0.245 27.325);     /* Red - error/danger states (same as destructive) */
+  --success: oklch(0.514 0.138 143);   /* #388e3c — green */
+  --warning: oklch(0.618 0.181 47);    /* #e65100 — orange */
+  --info: oklch(0.508 0.124 168);      /* #007A64 — brand primary */
+  --danger: oklch(0.641 0.220 22);     /* #FF5252 — redAccent */
 
   /* UI chrome */
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --border: oklch(0.508 0.124 168 / 0.2); /* teal-tinted border */
+  --input: oklch(0.508 0.124 168 / 0.3);  /* teal-tinted input border */
+  --ring: oklch(0.508 0.124 168);          /* #007A64 focus ring */
 
   /* Charts */
   --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-2: oklch(0.508 0.124 168);
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
 
   /* Sidebar */
-  --sidebar: oklch(0.985 0 0);
+  --sidebar: oklch(1 0 0);              /* white sidebar in light mode */
   --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-primary: oklch(0.508 0.124 168); /* brand primary */
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.967 0.021 197);  /* light teal tint */
+  --sidebar-accent-foreground: oklch(0.508 0.124 168);
+  --sidebar-border: oklch(0.508 0.124 168 / 0.15);
+  --sidebar-ring: oklch(0.508 0.124 168);
 }
 
 /* ===== Dark theme ===== */
