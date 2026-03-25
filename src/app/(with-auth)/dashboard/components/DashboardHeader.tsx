@@ -27,7 +27,6 @@ export function DashboardHeader({
   onSearchChange,
   dashboardData,
   onShowCommandPalette,
-  showNotifications,
   onToggleNotifications,
   unreadNotifications,
   isDarkMode,

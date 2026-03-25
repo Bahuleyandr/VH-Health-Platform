@@ -87,7 +87,7 @@
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.972 0.014 193);     /* #f0fafa — teal-tinted muted */
-  --muted-foreground: oklch(0.52 0.03 178); /* #5f7170 */
+  --muted-foreground: oklch(0.45 0.03 178); /* darkened for WCAG AA 4.5:1 on #E0F5F6 bg */
   --accent: oklch(0.967 0.021 197);    /* matches background teal tint */
   --accent-foreground: oklch(0.508 0.124 168);
   --destructive: oklch(0.641 0.220 22); /* #FF5252 — redAccent */

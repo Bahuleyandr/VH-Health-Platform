@@ -34,7 +34,7 @@ export function NotificationComposer({ onSuccess }: NotificationComposerProps) {
   const [scheduleMode, setScheduleMode] = useState<"now" | "later">("now");
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
-  const [showPreview, setShowPreview] = useState(false);
+
   const [sending, setSending] = useState(false);
   const [feedback, setFeedback] = useState<{ msg: string; isError: boolean } | null>(null);
 
@@ -86,7 +86,6 @@ export function NotificationComposer({ onSuccess }: NotificationComposerProps) {
       setScheduleMode("now");
       setScheduledDate("");
       setScheduledTime("");
-      setShowPreview(false);
       onSuccess?.();
     } catch (err) {
       setFeedback({ msg: err instanceof Error ? err.message : "Failed to send", isError: true });
@@ -206,7 +205,7 @@ export function NotificationComposer({ onSuccess }: NotificationComposerProps) {
           {/* Actions */}
           <div className="flex gap-2 pt-2">
             <button
-              onClick={() => setShowPreview(true)}
+              onClick={() => {}}
               disabled={!canSend}
               className="px-4 py-2 rounded-lg border border-input dark:border-input text-sm font-medium hover:bg-muted dark:hover:bg-muted disabled:opacity-40"
             >

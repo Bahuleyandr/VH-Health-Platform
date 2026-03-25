@@ -1,7 +1,7 @@
 // src/app/(with-auth)/dashboard/admin-management/components/PermissionsMatrix.tsx
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { putJSON, getJSON } from "@/lib/api";
 import type { AdminUser } from "@/lib/types";
 import { toast } from "react-hot-toast";
@@ -288,7 +288,6 @@ export function PermissionsMatrix({ admins }: PermissionsMatrixProps) {
             {/* Permission categories with toggles */}
             <div className="space-y-4">
               {Object.entries(PERMISSION_CATEGORIES).map(([catKey, cat]) => {
-                const allSelected = cat.permissions.every((p) => editPerms.includes(p));
                 return (
                   <div key={catKey} className="border border-border rounded-lg p-4">
                     <div className="flex items-center justify-between mb-3">
