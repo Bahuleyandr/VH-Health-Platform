@@ -3,6 +3,7 @@
 
 import { useMemo } from "react";
 import type { AdminUser } from "@/lib/types";
+import { UsersIcon, CheckIcon, CloseIcon, ShieldIcon, ClockIcon } from "@/components/icons";
 
 interface AdminStatsProps {
   admins: AdminUser[];

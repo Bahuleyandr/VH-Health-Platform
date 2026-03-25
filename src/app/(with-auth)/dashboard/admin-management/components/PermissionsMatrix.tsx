@@ -5,6 +5,7 @@ import { useState, useMemo, useCallback } from "react";
 import { putJSON, getJSON } from "@/lib/api";
 import type { AdminUser } from "@/lib/types";
 import { toast } from "react-hot-toast";
+import { CheckIcon, CloseIcon } from "@/components/icons";
 
 /* ─── Permission categories ─── */
 const PERMISSION_CATEGORIES: Record<string, { label: string; permissions: string[] }> = {
@@ -231,13 +232,9 @@ export function PermissionsMatrix({ admins }: PermissionsMatrixProps) {
                         <td key={perm} className="whitespace-nowrap px-3 py-4 text-center">
                           <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full ${has ? "bg-success/10" : "bg-muted"}`}>
                             {has ? (
-                              <svg className="h-4 w-4 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                              </svg>
+                              <CheckIcon className="h-4 w-4 text-success" />
                             ) : (
-                              <svg className="h-4 w-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                              </svg>
+                              <CloseIcon className="h-4 w-4 text-muted-foreground" />
                             )}
                           </span>
                         </td>

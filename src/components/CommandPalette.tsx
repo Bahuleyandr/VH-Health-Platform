@@ -205,10 +205,10 @@ export function CommandPalette() {
           >
             <Dialog.Panel className="mx-auto max-w-2xl transform overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/5 transition-all">
               <div className="flex items-center border-b px-4">
-                <SearchIcon className="w-5 h-5 text-gray-400 mr-3" />
+                <SearchIcon className="w-5 h-5 text-muted-foreground mr-3" />
                 <input
                   type="text"
-                  className="w-full border-0 py-4 text-lg placeholder-gray-400 focus:outline-none focus:ring-0"
+                  className="w-full border-0 py-4 text-lg placeholder-muted-foreground focus:outline-none focus:ring-0"
                   placeholder="Type a command or search..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
@@ -216,7 +216,7 @@ export function CommandPalette() {
                   // eslint-disable-next-line jsx-a11y/no-autofocus
                   autoFocus
                 />
-                <kbd className="ml-3 flex h-6 w-6 items-center justify-center rounded border border-gray-300 text-xs text-gray-500">
+                <kbd className="ml-3 flex h-6 w-6 items-center justify-center rounded border border-border text-xs text-muted-foreground">
                   esc
                 </kbd>
               </div>
@@ -230,26 +230,26 @@ export function CommandPalette() {
                       aria-selected={index === selectedIndex}
                       className={`mx-2 flex cursor-pointer select-none items-center rounded-md px-3 py-2 ${
                         index === selectedIndex
-                          ? "bg-blue-50 text-blue-600"
-                          : "hover:bg-gray-100"
+                          ? "bg-primary/10 text-primary"
+                          : "hover:bg-muted"
                       }`}
                       onClick={command.action}
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') command.action(); }}
                       onMouseEnter={() => setSelectedIndex(index)}
                     >
-                      <div className="mr-3 flex h-10 w-10 flex-none items-center justify-center rounded-lg bg-gray-100">
+                      <div className="mr-3 flex h-10 w-10 flex-none items-center justify-center rounded-lg bg-muted">
                         {command.icon}
                       </div>
                       <div className="flex-auto">
                         <p className="text-sm font-medium">{command.name}</p>
                         {command.description && (
-                          <p className="text-xs text-gray-500">
+                          <p className="text-xs text-muted-foreground">
                             {command.description}
                           </p>
                         )}
                       </div>
                       {index === selectedIndex && (
-                        <kbd className="ml-3 flex h-6 items-center rounded border border-gray-300 px-2 text-xs text-gray-500">
+                        <kbd className="ml-3 flex h-6 items-center rounded border border-border px-2 text-xs text-muted-foreground">
                           Enter
                         </kbd>
                       )}
@@ -258,25 +258,25 @@ export function CommandPalette() {
                 </ul>
               ) : (
                 <div className="py-14 px-6 text-center text-sm">
-                  <p className="text-gray-500">No commands found.</p>
+                  <p className="text-muted-foreground">No commands found.</p>
                 </div>
               )}
 
-              <div className="border-t px-4 py-2 text-xs text-gray-500">
+              <div className="border-t px-4 py-2 text-xs text-muted-foreground">
                 <span className="mr-2">Tip:</span>
                 Use{" "}
-                <kbd className="mx-1 rounded border border-gray-300 px-2 py-0.5">
+                <kbd className="mx-1 rounded border border-border px-2 py-0.5">
                   ↑
                 </kbd>
-                <kbd className="mx-1 rounded border border-gray-300 px-2 py-0.5">
+                <kbd className="mx-1 rounded border border-border px-2 py-0.5">
                   ↓
                 </kbd>{" "}
                 to navigate,
-                <kbd className="mx-1 rounded border border-gray-300 px-2 py-0.5">
+                <kbd className="mx-1 rounded border border-border px-2 py-0.5">
                   Enter
                 </kbd>{" "}
                 to select,
-                <kbd className="mx-1 rounded border border-gray-300 px-2 py-0.5">
+                <kbd className="mx-1 rounded border border-border px-2 py-0.5">
                   Esc
                 </kbd>{" "}
                 to close
