@@ -6,6 +6,7 @@ import { useCreateDepartment } from "@/hooks/api-hooks";
 
 export function CreateDepartmentForm() {
   const [isOpen, setIsOpen] = useState(false);
+  const [nameError, setNameError] = useState("");
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -17,8 +18,11 @@ export function CreateDepartmentForm() {
     e.preventDefault();
 
     if (!formData.name.trim()) {
+      setNameError("Department name is required.");
       return;
     }
+
+    setNameError("");
 
     try {
       await createDepartment.mutateAsync({
@@ -37,10 +41,14 @@ export function CreateDepartmentForm() {
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => {
+    const { name, value } = e.target;
     setFormData((prev) => ({
       ...prev,
-      [e.target.name]: e.target.value,
+      [name]: value,
     }));
+    if (name === "name" && nameError) {
+      setNameError("");
+    }
   };
 
   return (
@@ -60,33 +68,44 @@ export function CreateDepartmentForm() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label
-              htmlFor="name"
+              htmlFor="dept-create-name"
               className="mb-1 block text-sm font-medium text-foreground dark:text-foreground"
             >
               Department Name <span className="text-destructive">*</span>
             </label>
             <input
               type="text"
-              id="name"
+              id="dept-create-name"
               name="name"
               value={formData.name}
               onChange={handleChange}
+              aria-invalid={nameError ? "true" : undefined}
+              aria-describedby={nameError ? "dept-create-name-error" : undefined}
               className="w-full rounded-md border border-input bg-white px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary dark:border-input dark:bg-muted dark:text-white"
               placeholder="e.g., Cardiology, Neurology"
               disabled={createDepartment.isPending}
               required
             />
+            {nameError && (
+              <p
+                id="dept-create-name-error"
+                role="alert"
+                className="text-sm text-destructive mt-1"
+              >
+                {nameError}
+              </p>
+            )}
           </div>
 
           <div>
             <label
-              htmlFor="description"
+              htmlFor="dept-create-description"
               className="mb-1 block text-sm font-medium text-foreground dark:text-foreground"
             >
               Description
             </label>
             <textarea
-              id="description"
+              id="dept-create-description"
               name="description"
               value={formData.description}
               onChange={handleChange}
@@ -110,6 +129,7 @@ export function CreateDepartmentForm() {
               onClick={() => {
                 setIsOpen(false);
                 setFormData({ name: "", description: "" });
+                setNameError("");
               }}
               disabled={createDepartment.isPending}
               className="rounded-md border border-input px-4 py-2 text-foreground hover:bg-muted disabled:opacity-50 dark:border-input dark:text-foreground dark:hover:bg-muted/50"

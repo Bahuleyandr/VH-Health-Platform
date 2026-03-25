@@ -217,6 +217,8 @@ function LoginInner() {
                   if (touched.username) validateField('username', e.target.value);
                 }}
                 onBlur={() => handleBlur('username')}
+                aria-invalid={touched.username && fieldErrors.username ? "true" : undefined}
+                aria-describedby={touched.username && fieldErrors.username ? "username-error" : undefined}
                 className={`${styles.input} ${
                   touched.username && fieldErrors.username
                     ? styles.inputError
@@ -231,7 +233,7 @@ function LoginInner() {
               )}
             </div>
             {touched.username && fieldErrors.username && (
-              <p className={styles.errorMessage}>{fieldErrors.username}</p>
+              <p id="username-error" role="alert" className={styles.errorMessage}>{fieldErrors.username}</p>
             )}
           </div>
 
@@ -267,6 +269,8 @@ function LoginInner() {
                 }}
                 onBlur={() => handleBlur('password')}
                 onKeyUp={onCapsCheck}
+                aria-invalid={touched.password && fieldErrors.password ? "true" : undefined}
+                aria-describedby={touched.password && fieldErrors.password ? "password-error" : undefined}
                 className={`${styles.input} ${
                   touched.password && fieldErrors.password
                     ? styles.inputError
