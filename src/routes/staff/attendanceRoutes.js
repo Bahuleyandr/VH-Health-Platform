@@ -10,11 +10,13 @@ const router = express.Router();
 
 wrapAutoRBAC(router, 'staffAttendanceRoutes', {
   post: [
-    ['/', markAttendanceValidation, attendanceController.markAttendance]
+    ['/', markAttendanceValidation, attendanceController.markAttendance],
+    ['/:id/regularize', attendanceController.requestRegularization],
   ],
   
   get: [
-    ['/:id', getAttendanceValidation, attendanceController.getStaffAttendance]
+    ['/:id', getAttendanceValidation, attendanceController.getStaffAttendance],
+    ['/:id/calendar', attendanceController.getAttendanceCalendar],
   ]
 });
 

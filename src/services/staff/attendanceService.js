@@ -2,6 +2,34 @@ import db from '../../config/database.js';
 import logger from '../../logging/logger.js';
 import { calculateWorkingHours } from '../../utils/staff/attendanceCalculator.js';
 
+const CAMPUS_CONFIG = {
+  latitude: 11.0168,
+  longitude: 76.9558,
+  radiusMeters: 200,
+  wifiSSIDs: ['VHHealth-Staff', 'VHHealth-Internal'],
+};
+
+function isWithinCampus(location) {
+  if (!location) return { valid: false, reason: 'No location provided' };
+  if (location.wifiSSID && CAMPUS_CONFIG.wifiSSIDs.includes(location.wifiSSID)) {
+    return { valid: true, method: 'wifi', ssid: location.wifiSSID };
+  }
+  if (location.latitude && location.longitude) {
+    const R = 6371000;
+    const lat1 = CAMPUS_CONFIG.latitude * Math.PI / 180;
+    const lat2 = location.latitude * Math.PI / 180;
+    const dLat = (location.latitude - CAMPUS_CONFIG.latitude) * Math.PI / 180;
+    const dLon = (location.longitude - CAMPUS_CONFIG.longitude) * Math.PI / 180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
+    const distance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    if (distance <= CAMPUS_CONFIG.radiusMeters) {
+      return { valid: true, method: 'gps', distanceMeters: Math.round(distance) };
+    }
+    return { valid: false, reason: `Outside campus (${Math.round(distance)}m away)`, distanceMeters: Math.round(distance) };
+  }
+  return { valid: false, reason: 'No GPS or WiFi data' };
+}
+
 export const markAttendance = async (data, markedBy, markerRole, markerName) => {
   const { 
     staff_id, check_in_time, check_out_time, 
@@ -35,6 +63,14 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
     'SELECT id FROM staff_attendance WHERE staff_id = $1 AND DATE(check_in_time) = $2',
     [staff_id, today]
   );
+
+  // Enforce geofence on check-in (not check-out to avoid getting stuck)
+  if (!check_out_time && existingAttendance.rows.length === 0) {
+    const locationCheck = isWithinCampus(location);
+    if (!locationCheck.valid && process.env.ENFORCE_GEOFENCE !== 'false') {
+      throw new Error(`OUTSIDE_CAMPUS:${locationCheck.reason}`);
+    }
+  }
 
   let result;
   if (existingAttendance.rows.length > 0) {
