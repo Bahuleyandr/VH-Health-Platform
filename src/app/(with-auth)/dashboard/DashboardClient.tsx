@@ -800,7 +800,6 @@ useEffect(() => {
       </div>
 
       {/* Command Palette Modal */}
-      {/* eslint-disable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions, jsx-a11y/no-autofocus */}
       {showCommandPalette && (
         <div className={styles.modalOverlay} onClick={() => setShowCommandPalette(false)}>
           <div className={styles.commandPalette} onClick={(e) => e.stopPropagation()}>
@@ -853,8 +852,6 @@ useEffect(() => {
           </div>
         </div>
       )}
-      {/* eslint-enable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions, jsx-a11y/no-autofocus */}
-
       {/* Notifications Dropdown */}
       {showNotifications && (
         <div className={styles.notificationsDropdown}>
@@ -863,7 +860,7 @@ useEffect(() => {
             <button onClick={() => setNotifications([])}>Clear All</button>
           </div>
           <div className={styles.notificationsList}>
-            {/* eslint-disable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+
             {notifications.map(notif => (
               <div
                 key={notif.id}
@@ -882,7 +879,7 @@ useEffect(() => {
                 </div>
               </div>
             ))}
-            {/* eslint-enable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+
           </div>
         </div>
       )}

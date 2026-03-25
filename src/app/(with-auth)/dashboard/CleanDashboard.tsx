@@ -198,7 +198,8 @@ export default function CleanDashboard() {
     loadAll();
     const t = setInterval(loadAll, 30_000); // 30s refresh
     return () => clearInterval(t);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentional: run once on mount
 
   // ---- Derived UI helpers ----
   const greeting = useMemo(() => {
@@ -487,15 +488,6 @@ function GaugeBar({ label, value, max, unit, color }: { label: string; value: nu
           style={{ width: `${pct}%`, backgroundColor: color }}
         />
       </div>
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="rounded-lg bg-muted p-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-base font-semibold">{value}</p>
     </div>
   );
 }

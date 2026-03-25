@@ -213,7 +213,6 @@ export function CommandPalette() {
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   onKeyDown={handleKeyNavigation}
-                  // eslint-disable-next-line jsx-a11y/no-autofocus
                   autoFocus
                 />
                 <kbd className="ml-3 flex h-6 w-6 items-center justify-center rounded border border-border text-xs text-muted-foreground">

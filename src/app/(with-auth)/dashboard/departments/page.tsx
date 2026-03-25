@@ -5,7 +5,6 @@ import { useState } from "react";
 import { useDepartments } from "@/hooks/api-hooks";
 import { CreateDepartmentForm } from "./components/CreateDepartmentForm";
 import { DepartmentsTable } from "./components/DepartmentsTable";
-import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
 import toast from "react-hot-toast";
 import type { Department } from "@/lib/types";

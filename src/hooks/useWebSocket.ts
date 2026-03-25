@@ -123,7 +123,7 @@ export function useWebSocket<T = unknown>(
       if (message) {
         try {
           wsRef.current.send(message);
-        } catch (err) {
+        } catch {
           // Put it back if send fails
           messageQueueRef.current.unshift(message);
           break;

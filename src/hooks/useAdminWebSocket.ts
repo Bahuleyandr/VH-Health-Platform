@@ -117,8 +117,8 @@ export function useAdminWebSocket() {
       onClose: () => {
         // console.debug("Admin WebSocket disconnected");
       },
-      onError: (error) => {
-        // console.error("Admin WebSocket error:", error);
+      onError: () => {
+        // console.error("Admin WebSocket error");
       },
     });
 
