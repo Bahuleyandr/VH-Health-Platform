@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useCallback } from "react";
+import ComplianceTab, { LeaveEncashmentCalculator } from "./ComplianceTab";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "react-hot-toast";
 import {
@@ -1440,20 +1441,33 @@ function ToolsTab() {
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
         <strong>💡 Arrears:</strong> To calculate arrears for a backdated salary revision, go to <strong>Salary Revisions</strong> tab → select an applied revision → the system will compute and create the arrears record automatically when you click &quot;Calculate Arrears&quot;. Arrears are paid automatically in the next payroll run.
       </div>
+
+      {/* ── Leave Encashment Calculator ── */}
+      <LeaveEncashmentToolWidget />
     </div>
   );
+}
+
+function LeaveEncashmentToolWidget() {
+  const { data: staffRaw } = useQuery({
+    queryKey: ["staff-for-payroll"],
+    queryFn: () => getStaffForPayroll(),
+  });
+  const staff = unwrap<StaffForPayroll[]>(staffRaw) ?? [];
+  return <LeaveEncashmentCalculator staff={staff} />;
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function PayrollPage() {
-  const [tab, setTab] = useState<"runs" | "salary" | "revisions" | "tools">("runs");
+  const [tab, setTab] = useState<"runs" | "salary" | "revisions" | "tools" | "compliance">("runs");
 
   const tabs = [
     { key: "runs", label: "📊 Payroll Runs" },
     { key: "salary", label: "💰 Salary Config" },
     { key: "revisions", label: "📝 Salary Revisions" },
     { key: "tools", label: "🛠️ Tools" },
+    { key: "compliance", label: "⚖️ Compliance" },
   ] as const;
 
   return (
@@ -1493,6 +1507,7 @@ export default function PayrollPage() {
         {tab === "salary" && <SalaryConfigTab />}
         {tab === "revisions" && <RevisionsTab />}
         {tab === "tools" && <ToolsTab />}
+        {tab === "compliance" && <ComplianceTab />}
       </div>
     </div>
   );
