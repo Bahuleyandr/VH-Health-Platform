@@ -149,7 +149,7 @@ export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
 
             <tbody className="bg-white divide-y divide-border">
               {rows.map((admin) => {
-                const loginInfo = formatLastLogin(admin.last_login);
+                const loginInfo = formatLastLogin(admin.last_login ?? null);
                 const toggling = updatingAdminId === admin.id;
                 const toggleAllowed = canToggleFor(admin.is_active);
 
