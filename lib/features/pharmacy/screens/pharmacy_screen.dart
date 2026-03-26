@@ -1,4 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/services/staff_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
@@ -10,306 +13,694 @@ class PharmacyScreen extends StatefulWidget {
   State<PharmacyScreen> createState() => _PharmacyScreenState();
 }
 
-class _PharmacyScreenState extends State<PharmacyScreen> {
-  // In a real implementation, a GET endpoint would list pharmacy orders.
-  // Currently the backend only exposes PUT /staff/pharmacy/orders.
-  // We show an update UI where staff enter order details manually.
+class _PharmacyScreenState extends State<PharmacyScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+  List<dynamic> _allOrders = [];
+  bool _loading = true;
+  String? _error;
 
-  final _formKey = GlobalKey<FormState>();
-  final _phoneCtrl = TextEditingController();
-  final _orderIdCtrl = TextEditingController();
-  final _notesCtrl = TextEditingController();
-  String? _status;
-  bool _submitting = false;
-
-  static const _statuses = [
-    'PROCESSING',
-    'READY_FOR_PICKUP',
-    'DISPENSED',
-    'CANCELLED',
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+    _loadOrders();
+  }
 
   @override
   void dispose() {
-    _phoneCtrl.dispose();
-    _orderIdCtrl.dispose();
-    _notesCtrl.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() => _submitting = true);
+  Future<void> _loadOrders() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
-      await StaffApiService.updatePharmacyOrder(
-        phone: _phoneCtrl.text.trim(),
-        orderId: _orderIdCtrl.text.trim(),
-        status: _status!,
-        notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
-      );
+      final orders = await StaffApiService.getPharmacyOrderQueue();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Pharmacy order updated successfully'),
-            backgroundColor: AppTheme.successGreen,
-          ),
-        );
-        _formKey.currentState!.reset();
-        setState(() => _status = null);
+        setState(() {
+          _allOrders = orders;
+          _loading = false;
+        });
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-            backgroundColor: AppTheme.errorRed,
-          ),
-        );
+        setState(() {
+          _error = e.toString().replaceFirst('Exception: ', '');
+          _loading = false;
+        });
       }
-    } finally {
-      if (mounted) setState(() => _submitting = false);
     }
   }
+
+  List<dynamic> get _newOrders =>
+      _allOrders.where((o) => o['status'] == 'PLACED').toList();
+
+  List<dynamic> get _activeOrders => _allOrders
+      .where((o) =>
+          ['CONFIRMED', 'PREPARING', 'DISPATCHED'].contains(o['status']))
+      .toList();
+
+  List<dynamic> get _completedOrders => _allOrders
+      .where((o) => ['DELIVERED', 'CANCELLED'].contains(o['status']))
+      .toList();
+
+  void _snack(String msg, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor:
+          isError ? AppTheme.errorRed : AppTheme.successGreen,
+    ));
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ACTIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<void> _confirmOrder(Map<String, dynamic> order) async {
+    final itemsController = TextEditingController();
+    final costController = TextEditingController();
+    final notesController = TextEditingController();
+
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 20,
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Confirm ${order['order_number'] ?? ''}',
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(ctx, false),
+                  ),
+                ],
+              ),
+
+              // Prescription photo
+              if (order['prescription_photo_url'] != null) ...[
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network(
+                    order['prescription_photo_url'],
+                    height: 180,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      height: 80,
+                      color: Colors.grey.shade200,
+                      child: const Center(child: Text('No preview')),
+                    ),
+                  ),
+                ),
+              ],
+
+              if (order['order_note'] != null &&
+                  order['order_note'].toString().isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text('Patient Note: ${order['order_note']}',
+                    style: const TextStyle(fontStyle: FontStyle.italic)),
+              ],
+
+              const SizedBox(height: 16),
+              TextField(
+                controller: itemsController,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  labelText: 'Items (one per line: name, qty, price)',
+                  hintText: 'Dolo 650, 2, 60\nPan 40, 1, 95',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: costController,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: 'Total Cost (₹)',
+                  prefixText: '₹ ',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: notesController,
+                decoration: InputDecoration(
+                  labelText: 'Notes (optional)',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  icon: const Icon(Icons.check, color: Colors.white),
+                  label: const Text('Confirm Order'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryBlue,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    // Parse items
+    final itemLines = itemsController.text.trim().split('\n');
+    final items = itemLines
+        .where((l) => l.trim().isNotEmpty)
+        .map((line) {
+          final parts = line.split(',').map((s) => s.trim()).toList();
+          return {
+            'name': parts.isNotEmpty ? parts[0] : '',
+            'qty': parts.length > 1 ? int.tryParse(parts[1]) ?? 1 : 1,
+            'price': parts.length > 2 ? double.tryParse(parts[2]) ?? 0 : 0,
+          };
+        })
+        .toList();
+
+    try {
+      await StaffApiService.confirmPharmacyOrder(order['id'], {
+        'items_list': items,
+        'total_cost': double.tryParse(costController.text) ?? 0,
+        'confirmation_notes': notesController.text.trim(),
+      });
+      _snack('Order confirmed');
+      _loadOrders();
+    } catch (e) {
+      _snack(e.toString(), isError: true);
+    }
+  }
+
+  Future<void> _markPreparing(Map<String, dynamic> order) async {
+    try {
+      await StaffApiService.markPharmacyPreparing(order['id']);
+      _snack('Marked as preparing');
+      _loadOrders();
+    } catch (e) {
+      _snack(e.toString(), isError: true);
+    }
+  }
+
+  Future<void> _dispatchOrder(Map<String, dynamic> order) async {
+    final personCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Dispatch Order'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: personCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Delivery Person Name',
+                prefixIcon: Icon(Icons.person),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: phoneCtrl,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(
+                labelText: 'Delivery Person Phone',
+                prefixIcon: Icon(Icons.phone),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Dispatch'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await StaffApiService.dispatchPharmacyOrder(order['id'], {
+        'delivery_person': personCtrl.text.trim(),
+        'delivery_person_phone': phoneCtrl.text.trim(),
+      });
+      _snack('Order dispatched');
+      _loadOrders();
+    } catch (e) {
+      _snack(e.toString(), isError: true);
+    }
+  }
+
+  Future<void> _markDelivered(Map<String, dynamic> order) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Mark Delivered?'),
+        content: Text(
+            'Confirm that order ${order['order_number']} has been delivered.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('No')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Yes, Delivered')),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await StaffApiService.markPharmacyDelivered(order['id']);
+      _snack('Marked as delivered');
+      _loadOrders();
+    } catch (e) {
+      _snack(e.toString(), isError: true);
+    }
+  }
+
+  Future<void> _cancelOrder(Map<String, dynamic> order) async {
+    final reasonCtrl = TextEditingController();
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cancel Order?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Cancel order ${order['order_number']}?'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Reason for cancellation',
+              ),
+              maxLines: 2,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('No')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Cancel Order',
+                style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await StaffApiService.cancelPharmacyOrder(
+          order['id'], reasonCtrl.text.trim());
+      _snack('Order cancelled');
+      _loadOrders();
+    } catch (e) {
+      _snack(e.toString(), isError: true);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BUILD
+  // ═══════════════════════════════════════════════════════════════════════════
 
   @override
   Widget build(BuildContext context) {
     return StaffScaffold(
       title: 'Pharmacy Orders',
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header info
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFE65100), Color(0xFFFF8F00)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(14),
+      body: Column(
+        children: [
+          // Header
+          Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFFE65100), Color(0xFFFF8F00)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
-              child: Row(
-                children: [
-                  const Icon(Icons.medication, color: Colors.white, size: 36),
-                  const SizedBox(width: 14),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Pharmacy Order Update',
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.medication, color: Colors.white, size: 36),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Pharmacy Queue',
                           style: TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
-                              fontSize: 16),
-                        ),
-                        SizedBox(height: 2),
-                        Text(
-                          'Update the status of pending pharmacy orders',
-                          style: TextStyle(color: Colors.white70, fontSize: 12),
-                        ),
-                      ],
-                    ),
+                              fontSize: 16)),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${_newOrders.length} new • ${_activeOrders.length} active',
+                        style: const TextStyle(
+                            color: Colors.white70, fontSize: 12),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            const Text(
-              'Update Order Status',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            Form(
-              key: _formKey,
-              child: Column(
-                children: [
-                  TextFormField(
-                    controller: _phoneCtrl,
-                    keyboardType: TextInputType.phone,
-                    decoration: const InputDecoration(
-                      labelText: 'Patient Phone Number',
-                      hintText: '+91 XXXXX XXXXX',
-                      prefixIcon: Icon(Icons.phone_outlined),
-                    ),
-                    validator: (v) {
-                      if (v == null || v.trim().isEmpty)
-                        return 'Phone is required';
-                      if (v.trim().length < 10)
-                        return 'Enter valid phone number';
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 14),
-
-                  TextFormField(
-                    controller: _orderIdCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Order ID',
-                      hintText: 'e.g. ORD-2024-001',
-                      prefixIcon: Icon(Icons.receipt_long_outlined),
-                    ),
-                    validator: (v) =>
-                        (v == null || v.trim().isEmpty)
-                            ? 'Order ID is required'
-                            : null,
-                  ),
-                  const SizedBox(height: 14),
-
-                  DropdownButtonFormField<String>(
-                    value: _status,
-                    decoration: const InputDecoration(
-                      labelText: 'New Status',
-                      prefixIcon: Icon(Icons.update),
-                    ),
-                    items: _statuses
-                        .map((s) => DropdownMenuItem(
-                              value: s,
-                              child: _StatusOption(status: s),
-                            ))
-                        .toList(),
-                    onChanged: (v) => setState(() => _status = v),
-                    validator: (v) =>
-                        v == null ? 'Select a status' : null,
-                  ),
-                  const SizedBox(height: 14),
-
-                  TextFormField(
-                    controller: _notesCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Notes (optional)',
-                      hintText: 'e.g. Items partially dispensed...',
-                      prefixIcon: Icon(Icons.notes_outlined),
-                      alignLabelWithHint: true,
-                    ),
-                    maxLines: 2,
-                  ),
-                  const SizedBox(height: 24),
-
-                  ElevatedButton.icon(
-                    onPressed: _submitting ? null : _submit,
-                    icon: _submitting
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                                color: Colors.white, strokeWidth: 2))
-                        : const Icon(Icons.update, color: Colors.white),
-                    label: Text(_submitting
-                        ? 'Updating...'
-                        : 'Update Pharmacy Order'),
-                    style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFE65100)),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 32),
-
-            // Status legend
-            const Text(
-              'Status Guide',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            ..._statuses.map((s) => _StatusLegendItem(status: s)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _StatusOption extends StatelessWidget {
-  final String status;
-  const _StatusOption({required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = _statusColor(status);
-    return Row(
-      children: [
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-        ),
-        const SizedBox(width: 8),
-        Text(status.replaceAll('_', ' ')),
-      ],
-    );
-  }
-}
-
-class _StatusLegendItem extends StatelessWidget {
-  final String status;
-  const _StatusLegendItem({required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = _statusColor(status);
-    final desc = switch (status) {
-      'PROCESSING' => 'Order is being prepared',
-      'READY_FOR_PICKUP' => 'Patient can collect their order',
-      'DISPENSED' => 'Medications have been given to the patient',
-      'CANCELLED' => 'Order has been cancelled',
-      _ => '',
-    };
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            margin: const EdgeInsets.only(top: 5),
-            width: 10,
-            height: 10,
-            decoration:
-                BoxDecoration(shape: BoxShape.circle, color: color),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  status.replaceAll('_', ' '),
-                  style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: color,
-                      fontSize: 13),
                 ),
-                Text(desc,
-                    style: const TextStyle(
-                        color: AppTheme.textSecondary, fontSize: 12)),
+                IconButton(
+                  icon: const Icon(Icons.refresh, color: Colors.white),
+                  onPressed: _loadOrders,
+                ),
               ],
             ),
+          ),
+
+          TabBar(
+            controller: _tabController,
+            labelColor: const Color(0xFFE65100),
+            unselectedLabelColor: Colors.grey,
+            indicatorColor: const Color(0xFFE65100),
+            tabs: [
+              Tab(text: 'New (${_newOrders.length})'),
+              Tab(text: 'Active (${_activeOrders.length})'),
+              Tab(text: 'Done (${_completedOrders.length})'),
+            ],
+          ),
+
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(_error!,
+                                style: const TextStyle(color: Colors.red)),
+                            const SizedBox(height: 12),
+                            ElevatedButton(
+                                onPressed: _loadOrders,
+                                child: const Text('Retry')),
+                          ],
+                        ),
+                      )
+                    : TabBarView(
+                        controller: _tabController,
+                        children: [
+                          _buildOrderList(_newOrders, 'No new orders'),
+                          _buildOrderList(
+                              _activeOrders, 'No active orders'),
+                          _buildOrderList(
+                              _completedOrders, 'No completed orders'),
+                        ],
+                      ),
           ),
         ],
       ),
     );
   }
+
+  Widget _buildOrderList(List<dynamic> orders, String emptyMsg) {
+    if (orders.isEmpty) {
+      return Center(
+        child: Text(emptyMsg,
+            style: TextStyle(color: Colors.grey.shade500, fontSize: 15)),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadOrders,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(12),
+        itemCount: orders.length,
+        itemBuilder: (ctx, i) => _buildOrderCard(orders[i]),
+      ),
+    );
+  }
+
+  Widget _buildOrderCard(Map<String, dynamic> order) {
+    final status = order['status'] ?? '';
+    final orderNum = order['order_number'] ?? '#${order['id']}';
+    final patientName = order['patient_name'] ?? 'Unknown';
+    final phone = order['phone'] ?? order['delivery_phone'] ?? '';
+    final deliveryType = order['delivery_type'] ?? 'delivery';
+    final slaBreach = order['sla_breached'] == true;
+    final minsSincePlaced =
+        (order['mins_since_placed'] as num?)?.round() ?? 0;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: slaBreach
+            ? const BorderSide(color: Colors.red, width: 2)
+            : BorderSide.none,
+      ),
+      elevation: 1,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(orderNum,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 15)),
+                _buildStatusChip(status),
+              ],
+            ),
+            const SizedBox(height: 8),
+
+            // Patient info
+            Row(
+              children: [
+                const Icon(Icons.person, size: 16, color: Colors.grey),
+                const SizedBox(width: 4),
+                Text(patientName, style: const TextStyle(fontSize: 14)),
+                const Spacer(),
+                if (phone.isNotEmpty)
+                  GestureDetector(
+                    onTap: () => launchUrl(Uri.parse('tel:$phone')),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.phone,
+                            size: 14, color: Color(0xFFE65100)),
+                        const SizedBox(width: 4),
+                        Text(phone,
+                            style: const TextStyle(
+                                color: Color(0xFFE65100), fontSize: 13)),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+
+            // Delivery type + time
+            Row(
+              children: [
+                Icon(
+                  deliveryType == 'pickup'
+                      ? Icons.store
+                      : Icons.delivery_dining,
+                  size: 14,
+                  color: Colors.grey,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  deliveryType == 'pickup' ? 'Pickup' : 'Delivery',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                ),
+                const Spacer(),
+                if (slaBreach)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text('⚠ SLA breach (${minsSincePlaced}m)',
+                        style: TextStyle(
+                            color: Colors.red.shade700, fontSize: 11)),
+                  )
+                else if (status == 'PLACED')
+                  Text('${minsSincePlaced}m ago',
+                      style: TextStyle(
+                          color: Colors.grey.shade500, fontSize: 12)),
+              ],
+            ),
+
+            // Order note
+            if (order['order_note'] != null &&
+                order['order_note'].toString().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('📝 ${order['order_note']}',
+                  style: const TextStyle(fontSize: 13),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis),
+            ],
+
+            // Total cost (for confirmed+)
+            if (order['total_cost'] != null) ...[
+              const SizedBox(height: 6),
+              Text('Total: ₹${order['total_cost']}',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 14)),
+            ],
+
+            const SizedBox(height: 12),
+
+            // Action buttons
+            _buildActions(order),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActions(Map<String, dynamic> order) {
+    final status = order['status'];
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        if (status == 'PLACED')
+          _ActionBtn(
+            label: 'View & Confirm',
+            icon: Icons.check_circle_outline,
+            color: AppTheme.primaryBlue,
+            onTap: () => _confirmOrder(order),
+          ),
+        if (status == 'CONFIRMED')
+          _ActionBtn(
+            label: 'Start Preparing',
+            icon: Icons.medication,
+            color: AppTheme.warningAmber,
+            onTap: () => _markPreparing(order),
+          ),
+        if (status == 'PREPARING')
+          _ActionBtn(
+            label: 'Dispatch',
+            icon: Icons.delivery_dining,
+            color: Colors.teal,
+            onTap: () => _dispatchOrder(order),
+          ),
+        if (status == 'DISPATCHED')
+          _ActionBtn(
+            label: 'Mark Delivered',
+            icon: Icons.done_all,
+            color: AppTheme.successGreen,
+            onTap: () => _markDelivered(order),
+          ),
+        if (!['DELIVERED', 'CANCELLED'].contains(status))
+          _ActionBtn(
+            label: 'Cancel',
+            icon: Icons.cancel_outlined,
+            color: AppTheme.errorRed,
+            onTap: () => _cancelOrder(order),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildStatusChip(String status) {
+    final (color, label) = switch (status) {
+      'PLACED' => (Colors.orange, 'Placed'),
+      'CONFIRMED' => (AppTheme.primaryBlue, 'Confirmed'),
+      'PREPARING' => (AppTheme.warningAmber, 'Preparing'),
+      'DISPATCHED' => (Colors.teal, 'Dispatched'),
+      'DELIVERED' => (AppTheme.successGreen, 'Delivered'),
+      'CANCELLED' => (AppTheme.errorRed, 'Cancelled'),
+      _ => (Colors.grey, status),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(label,
+          style: TextStyle(
+              color: color, fontSize: 12, fontWeight: FontWeight.w600)),
+    );
+  }
 }
 
-Color _statusColor(String status) => switch (status) {
-      'PROCESSING' => AppTheme.warningAmber,
-      'READY_FOR_PICKUP' => AppTheme.primaryBlue,
-      'DISPENSED' => AppTheme.successGreen,
-      'CANCELLED' => AppTheme.errorRed,
-      _ => AppTheme.textSecondary,
-    };
+class _ActionBtn extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _ActionBtn({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 16, color: color),
+      label: Text(label, style: TextStyle(color: color, fontSize: 12)),
+      style: OutlinedButton.styleFrom(
+        side: BorderSide(color: color.withValues(alpha: 0.4)),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    );
+  }
+}

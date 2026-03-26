@@ -308,8 +308,7 @@ class StaffApiService {
 
   // ─── Pharmacy ────────────────────────────────────────────────────────────────
 
-  /// PUT /staff/pharmacy/orders
-  /// body: { phone, orderId, status, notes? }
+  /// PUT /staff/pharmacy/orders (legacy)
   static Future<Map<String, dynamic>> updatePharmacyOrder({
     required String phone,
     required String orderId,
@@ -321,6 +320,46 @@ class StaffApiService {
       'orderId': orderId,
       'status': status,
       if (notes != null) 'notes': notes,
+    });
+  }
+
+  /// GET /pharmacy-orders/orders/queue — pharmacy order queue
+  static Future<List<dynamic>> getPharmacyOrderQueue({String? status}) async {
+    final resp = await _get('/pharmacy-orders/orders/queue', query: {
+      if (status != null) 'status': status,
+    });
+    final data = resp['data'];
+    if (data is List) return data;
+    return [];
+  }
+
+  /// POST /pharmacy-orders/orders/:id/confirm
+  static Future<Map<String, dynamic>> confirmPharmacyOrder(
+      int id, Map<String, dynamic> data) async {
+    return _post('/pharmacy-orders/orders/$id/confirm', data);
+  }
+
+  /// POST /pharmacy-orders/orders/:id/preparing
+  static Future<Map<String, dynamic>> markPharmacyPreparing(int id) async {
+    return _post('/pharmacy-orders/orders/$id/preparing', {});
+  }
+
+  /// POST /pharmacy-orders/orders/:id/dispatch
+  static Future<Map<String, dynamic>> dispatchPharmacyOrder(
+      int id, Map<String, dynamic> data) async {
+    return _post('/pharmacy-orders/orders/$id/dispatch', data);
+  }
+
+  /// POST /pharmacy-orders/orders/:id/delivered
+  static Future<Map<String, dynamic>> markPharmacyDelivered(int id) async {
+    return _post('/pharmacy-orders/orders/$id/delivered', {});
+  }
+
+  /// POST /pharmacy-orders/orders/:id/cancel
+  static Future<Map<String, dynamic>> cancelPharmacyOrder(
+      int id, String reason) async {
+    return _post('/pharmacy-orders/orders/$id/cancel', {
+      'cancellation_reason': reason,
     });
   }
 
