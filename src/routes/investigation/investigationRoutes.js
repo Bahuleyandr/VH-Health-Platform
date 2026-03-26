@@ -25,22 +25,26 @@ const router = express.Router();
 // Patient & Medical Staff Routes
 wrapAutoRBAC(router, 'investigationRoutes', {
   get: [
+    // Static routes MUST come before parameterized routes
+    ['/catalog', investigationController.getTestCatalog],
+    ['/sla-dashboard', investigationController.getInvestigationSLADashboard],
     ['/list', listInvestigationsValidator, investigationController.listInvestigations],
-    ['/:id', idValidator, investigationController.getInvestigationById],
-    ['/:id/files', uploadController.getFiles],
-    ['/:id/files/:fileId', uploadController.getFileInfo],
-    ['/:id/files/:fileId/download', uploadController.downloadFile],
+    ['/status/pending', investigationController.getPendingInvestigations],
     ['/patient/:patient_id', patientIdValidator, investigationController.getPatientInvestigations],
     ['/doctor/:doctor_id', doctorIdValidator, investigationController.getDoctorInvestigations],
     ['/type/:type', typeValidator, investigationController.getInvestigationsByType],
-    ['/status/pending', investigationController.getPendingInvestigations],
+    ['/uid/:uid', investigationController.getInvestigationsByUID],
+    ['/:id/files', uploadController.getFiles],
+    ['/:id/files/:fileId', uploadController.getFileInfo],
+    ['/:id/files/:fileId/download', uploadController.downloadFile],
+    ['/:id', idValidator, investigationController.getInvestigationById],
     
-    // Legacy routes
-    ['/:phone', investigationController.getInvestigationsByPhone],
-    ['/uid/:uid', investigationController.getInvestigationsByUID]
+    // Legacy routes (parameterized — must be last)
+    ['/:phone', investigationController.getInvestigationsByPhone]
   ],
   
   post: [
+    ['/catalog', investigationController.upsertTestCatalog],
     ['/order', investigationRequestValidator, orderController.orderInvestigation],
     ['/:id/upload', upload.single('file'), uploadController.uploadResult],    
     ['/', investigationRequestValidator, orderController.legacyInvestigationRequest]
