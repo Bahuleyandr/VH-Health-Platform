@@ -1,55 +1,31 @@
 // src/app/(with-auth)/dashboard/appointments/page.tsx
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState, useCallback } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { fetchAdminAPI } from "@/lib/api";
 import type { Appointment } from "@/lib/types";
 import { AppointmentsTable } from "./components/AppointmentsTable";
 import { PaginationControls } from "../users/components/PaginationControls";
 import { AppointmentFilters } from "./components/AppointmentFilters";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  getAppointmentSlaDashboard,
+  confirmAppointmentAdmin,
+  markNoShowAdmin,
+  completeAppointmentAdmin,
+  cancelAppointmentAdmin,
+  getAllAppointmentDocuments,
+  getAppointmentAuditTrail,
+  type AppointmentWorkflow,
+  type SlaDashboardResponse,
+  type AppointmentDocument,
+  type AuditEntry,
+} from "@/lib/api/appointments";
+import { toast } from "react-hot-toast";
 
-function AppointmentsTableSkeleton() {
-  return (
-    <div className="space-y-3">
-      <div className="flex gap-4 mb-4">
-        <Skeleton className="h-9 w-48" />
-        <Skeleton className="h-9 w-32" />
-      </div>
-      <div className="border rounded-lg overflow-hidden">
-        <div className="bg-muted/50 px-4 py-3 flex gap-4">
-          <Skeleton className="h-4 w-8" />
-          <Skeleton className="h-4 w-32" />
-          <Skeleton className="h-4 w-32" />
-          <Skeleton className="h-4 w-28" />
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="h-4 w-20 ml-auto" />
-        </div>
-        {Array.from({ length: 7 }).map((_, i) => (
-          <div key={i} className="flex gap-4 items-center px-4 py-3 border-t">
-            <Skeleton className="h-4 w-8" />
-            <Skeleton className="h-4 w-32" />
-            <Skeleton className="h-4 w-32" />
-            <Skeleton className="h-4 w-28" />
-            <Skeleton className="h-4 w-24" />
-            <Skeleton className="h-6 w-20 ml-auto rounded-full" />
-          </div>
-        ))}
-      </div>
-      <div className="flex justify-between items-center mt-4">
-        <Skeleton className="h-4 w-36" />
-        <div className="flex gap-2">
-          <Skeleton className="h-8 w-8 rounded" />
-          <Skeleton className="h-8 w-8 rounded" />
-          <Skeleton className="h-8 w-8 rounded" />
-        </div>
-      </div>
-    </div>
-  );
-}
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-// Match the row shape used by AppointmentsTable (supports joined fields)
 type AppointmentRow = Appointment & {
   patient_name?: string;
   doctor_name?: string;
@@ -70,179 +46,500 @@ type AppointmentsAPIResponse = {
   pagination: Pagination;
 };
 
-// Type guards / helpers
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function isObj(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null;
 }
-function getArrayProp(x: unknown, key: string): unknown[] | null {
-  if (!isObj(x)) return null;
-  const v = x[key];
-  return Array.isArray(v) ? v : null;
-}
-function getNumberProp(x: unknown, key: string): number | null {
-  if (!isObj(x)) return null;
-  const v = x[key];
-  return typeof v === "number" ? v : null;
-}
-function getBoolProp(x: unknown, key: string): boolean | null {
-  if (!isObj(x)) return null;
-  const v = x[key];
-  return typeof v === "boolean" ? v : null;
-}
-function getNestedNumber(
-  x: unknown,
-  key: string,
-  nestedKey: string,
-): number | null {
-  if (!isObj(x)) return null;
-  const nested = x[key];
-  if (!isObj(nested)) return null;
-  const v = nested[nestedKey];
-  return typeof v === "number" ? v : null;
-}
 
-function normalizeResponse(
-  response: unknown,
-  page: number,
-): AppointmentsAPIResponse {
-  // Case 1: Array response
+function normalizeAppointmentsResponse(response: unknown, page: number): AppointmentsAPIResponse {
   if (Array.isArray(response)) {
     const list = response as AppointmentRow[];
-    const total = list.length;
-    const limit = 10;
-    return {
-      appointments: list,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.max(1, Math.ceil(total / limit)),
-        hasNext: page * limit < total,
-        hasPrev: page > 1,
-      },
-    };
+    return { appointments: list, pagination: { page, limit: 10, total: list.length, totalPages: Math.max(1, Math.ceil(list.length / 10)), hasNext: false, hasPrev: page > 1 } };
   }
-
-  // Case 2: Object with { appointments?, pagination?, total?, hasNext? }
   if (isObj(response)) {
-    const appointments = (getArrayProp(response, "appointments") ??
-      []) as AppointmentRow[];
-    const fallbackAppointments = (getArrayProp(response, "data") ??
-      []) as AppointmentRow[];
-    const list = appointments.length ? appointments : fallbackAppointments;
-
-    const total = getNumberProp(response, "total") ?? list.length ?? 0;
-
-    const limit = getNestedNumber(response, "pagination", "limit") ?? 10;
-
-    const hasNext = getBoolProp(response, "hasNext") ?? page * limit < total;
-
-    return {
-      appointments: list,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.max(1, Math.ceil(total / limit)),
-        hasNext,
-        hasPrev: page > 1,
-      },
-    };
+    const appts = (Array.isArray((response as Record<string, unknown>)["appointments"]) ? (response as Record<string, unknown>)["appointments"] : (response as Record<string, unknown>)["data"]) as AppointmentRow[] ?? [];
+    const total = typeof (response as Record<string, unknown>)["total"] === "number" ? (response as Record<string, unknown>)["total"] as number : appts.length;
+    const limit = 10;
+    return { appointments: appts, pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)), hasNext: page * limit < total, hasPrev: page > 1 } };
   }
-
-  // Case 3: Unknown — return empty
-  return {
-    appointments: [],
-    pagination: {
-      page,
-      limit: 10,
-      total: 0,
-      totalPages: 1,
-      hasNext: false,
-      hasPrev: page > 1,
-    },
-  };
+  return { appointments: [], pagination: { page, limit: 10, total: 0, totalPages: 1, hasNext: false, hasPrev: page > 1 } };
 }
 
-function AppointmentsContent() {
+function fmtDate(s: string | null | undefined) {
+  if (!s) return "—";
+  return new Date(s).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function fmtDateTime(s: string | null | undefined) {
+  if (!s) return "—";
+  return new Date(s).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+// ── Status badge ──────────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, string> = {
+    SCHEDULED: "bg-orange-100 text-orange-700",
+    CONFIRMED: "bg-teal-100 text-teal-700",
+    COMPLETED: "bg-green-100 text-green-700",
+    CANCELLED: "bg-red-100 text-red-700",
+    NO_SHOW: "bg-gray-100 text-gray-600",
+  };
+  return (
+    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${map[status] ?? "bg-blue-100 text-blue-700"}`}>
+      {status}
+    </span>
+  );
+}
+
+// ── SLA Overview Tab ─────────────────────────────────────────────────────────
+
+function SlaOverviewTab() {
+  const [data, setData] = useState<SlaDashboardResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [confirming, setConfirming] = useState<number | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params: Record<string, string> = {};
+      if (fromDate) params.from_date = fromDate;
+      if (toDate) params.to_date = toDate;
+      const res = await getAppointmentSlaDashboard(params);
+      setData(res as SlaDashboardResponse);
+    } catch {
+      toast.error("Failed to load SLA dashboard");
+    } finally {
+      setLoading(false);
+    }
+  }, [fromDate, toDate]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleConfirm = async (appt: AppointmentWorkflow) => {
+    setConfirming(appt.id);
+    try {
+      await confirmAppointmentAdmin(appt.id, {});
+      toast.success(`Appointment #${appt.id} confirmed`);
+      load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to confirm");
+    } finally {
+      setConfirming(null);
+    }
+  };
+
+  if (loading) return <div className="space-y-4"><Skeleton className="h-32 w-full" /><Skeleton className="h-48 w-full" /></div>;
+  if (!data) return null;
+
+  const { summary, sla, by_department, pending_confirmation } = data;
+  const slaTotal = parseInt(sla.total_with_sla) || 0;
+  const slaWithin = parseInt(sla.within_sla) || 0;
+  const slaPct = slaTotal > 0 ? Math.round((slaWithin / slaTotal) * 100) : 0;
+
+  return (
+    <div className="space-y-6">
+      {/* Date filter */}
+      <div className="flex gap-3 items-center">
+        <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+          className="border rounded px-3 py-1.5 text-sm" placeholder="From" />
+        <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
+          className="border rounded px-3 py-1.5 text-sm" placeholder="To" />
+        <button onClick={load} className="bg-primary text-white text-sm px-4 py-1.5 rounded">Apply</button>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        {[
+          { label: "Total", value: summary.total, color: "bg-blue-50 text-blue-700" },
+          { label: "Confirmed", value: summary.confirmed, color: "bg-teal-50 text-teal-700" },
+          { label: "Completed", value: summary.completed, color: "bg-green-50 text-green-700" },
+          { label: "Cancelled", value: summary.cancelled, color: "bg-red-50 text-red-700" },
+          { label: "No-Show", value: summary.no_show, color: "bg-gray-50 text-gray-700" },
+          { label: "Pending Confirm", value: summary.pending_confirmation, color: "bg-orange-50 text-orange-700" },
+        ].map(c => (
+          <div key={c.label} className={`rounded-lg p-4 ${c.color}`}>
+            <div className="text-2xl font-bold">{c.value}</div>
+            <div className="text-xs mt-1">{c.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* SLA card */}
+      <div className="border rounded-lg p-4">
+        <h3 className="font-semibold mb-3">Confirmation SLA (last 7 days)</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div><div className={`text-2xl font-bold ${slaPct >= 80 ? 'text-green-600' : slaPct >= 60 ? 'text-orange-600' : 'text-red-600'}`}>{slaPct}%</div><div className="text-xs text-gray-500">Within SLA</div></div>
+          <div><div className="text-2xl font-bold text-blue-600">{sla.avg_response_minutes ? parseFloat(sla.avg_response_minutes).toFixed(0) : "—"} min</div><div className="text-xs text-gray-500">Avg Response</div></div>
+          <div><div className="text-2xl font-bold text-green-600">{sla.within_sla}</div><div className="text-xs text-gray-500">Within SLA</div></div>
+          <div><div className="text-2xl font-bold text-red-600">{sla.breached_sla}</div><div className="text-xs text-gray-500">SLA Breaches</div></div>
+        </div>
+      </div>
+
+      {/* By department */}
+      {by_department.length > 0 && (
+        <div className="border rounded-lg overflow-hidden">
+          <div className="bg-muted/50 px-4 py-2 text-sm font-semibold">By Department</div>
+          <table className="w-full text-sm">
+            <thead><tr className="border-b"><th className="px-4 py-2 text-left">Department</th><th className="px-4 py-2 text-right">Total</th><th className="px-4 py-2 text-right">Confirmed</th><th className="px-4 py-2 text-right">Completed</th><th className="px-4 py-2 text-right">Cancelled</th></tr></thead>
+            <tbody>
+              {by_department.map((d, i) => (
+                <tr key={i} className="border-b hover:bg-muted/20">
+                  <td className="px-4 py-2 font-medium">{d.department}</td>
+                  <td className="px-4 py-2 text-right">{d.total}</td>
+                  <td className="px-4 py-2 text-right text-teal-600">{d.confirmed}</td>
+                  <td className="px-4 py-2 text-right text-green-600">{d.completed}</td>
+                  <td className="px-4 py-2 text-right text-red-600">{d.cancelled}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Pending confirmation */}
+      {pending_confirmation.length > 0 && (
+        <div className="border rounded-lg overflow-hidden">
+          <div className="bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700">
+            Pending Confirmation ({pending_confirmation.length})
+          </div>
+          <table className="w-full text-sm">
+            <thead><tr className="border-b bg-muted/50"><th className="px-4 py-2 text-left">Patient</th><th className="px-4 py-2 text-left">Phone</th><th className="px-4 py-2 text-left">Doctor</th><th className="px-4 py-2 text-left">Date/Time</th><th className="px-4 py-2 text-left">Waiting</th><th className="px-4 py-2 text-left">Action</th></tr></thead>
+            <tbody>
+              {pending_confirmation.map((appt) => (
+                <tr key={appt.id} className={`border-b hover:bg-muted/20 ${appt.sla_breached ? 'bg-red-50' : ''}`}>
+                  <td className="px-4 py-2 font-medium">{appt.patient_name ?? "—"}</td>
+                  <td className="px-4 py-2">{appt.patient_phone ?? "—"}</td>
+                  <td className="px-4 py-2">{appt.doctor_name ?? "—"}</td>
+                  <td className="px-4 py-2">{fmtDate(appt.appointment_date)} {appt.appointment_time}</td>
+                  <td className="px-4 py-2">
+                    <span className={`text-xs font-medium ${appt.sla_breached ? 'text-red-600' : 'text-gray-600'}`}>
+                      {appt.mins_waiting != null ? `${Math.round(appt.mins_waiting)} min` : "—"}
+                      {appt.sla_breached && " ⚠️"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2">
+                    <button
+                      disabled={confirming === appt.id}
+                      onClick={() => handleConfirm(appt)}
+                      className="text-xs bg-teal-600 text-white px-3 py-1 rounded hover:bg-teal-700 disabled:opacity-50"
+                    >
+                      {confirming === appt.id ? "Confirming…" : "Confirm"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── All Appointments Tab ──────────────────────────────────────────────────────
+
+function AllAppointmentsTab() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [data, setData] = useState<AppointmentsAPIResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [acting, setActing] = useState<{ id: number; action: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-
-    const fetchAppointments = async () => {
+    const fetchData = async () => {
+      setLoading(true);
       try {
-        setLoading(true);
-        setError(null);
-
-        const queryParams = new URLSearchParams();
-        const pageStr = searchParams.get("page") || "1";
-        const page = Number.parseInt(pageStr, 10) || 1;
-
+        const page = parseInt(searchParams.get("page") || "1");
         const status = searchParams.get("status");
         const search = searchParams.get("search");
-
-        queryParams.set("page", String(page));
-        if (status) queryParams.set("status", status);
-        if (search) queryParams.set("search", search);
-
-        const path = `/appointments/list?${queryParams.toString()}`;
-
-        // Fetch unknown and normalize
-        const response = await fetchAdminAPI<unknown>(path);
-        const normalized = normalizeResponse(response, page);
-
-        if (!cancelled) setData(normalized);
-      } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error ? err.message : "Failed to fetch appointments",
-          );
-        }
+        const params = new URLSearchParams();
+        params.set("page", String(page));
+        if (status) params.set("status", status);
+        if (search) params.set("search", search);
+        const res = await fetchAdminAPI<unknown>(`/appointments/list?${params}`);
+        if (!cancelled) setData(normalizeAppointmentsResponse(res, page));
+      } catch {
+        if (!cancelled) setData(null);
       } finally {
         if (!cancelled) setLoading(false);
       }
     };
-
-    fetchAppointments();
-    return () => {
-      cancelled = true;
-    };
+    fetchData();
+    return () => { cancelled = true; };
   }, [searchParams]);
 
-  if (loading) {
-    return <AppointmentsTableSkeleton />;
-  }
+  const doAction = async (id: number, action: string, extra?: Record<string, string>) => {
+    setActing({ id, action });
+    try {
+      if (action === "confirm") await confirmAppointmentAdmin(id, {});
+      else if (action === "complete") await completeAppointmentAdmin(id, {});
+      else if (action === "no-show") await markNoShowAdmin(id);
+      else if (action === "cancel") await cancelAppointmentAdmin(id, { cancellation_reason: extra?.reason });
+      toast.success(`Done: ${action}`);
+      // Refresh
+      router.refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setActing(null);
+    }
+  };
 
-  if (error) {
-    return (
-      <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded">
-        Error: {error}
-      </div>
-    );
-  }
-
-  if (!data) return <div>No data available</div>;
+  if (loading) return <Skeleton className="h-64 w-full" />;
 
   return (
-    <>
+    <div className="space-y-4">
       <AppointmentFilters />
-      <AppointmentsTable appointments={data.appointments} />
-      <PaginationControls pagination={data.pagination} />
-    </>
+      {data && <AppointmentsTable appointments={data.appointments} />}
+      {data && data.appointments.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b bg-muted/50"><th className="px-3 py-2 text-left">Patient</th><th className="px-3 py-2 text-left">Phone</th><th className="px-3 py-2 text-left">Doctor</th><th className="px-3 py-2 text-left">Dept</th><th className="px-3 py-2 text-left">Date/Time</th><th className="px-3 py-2 text-left">Token</th><th className="px-3 py-2 text-left">Status</th><th className="px-3 py-2 text-left">Actions</th></tr></thead>
+            <tbody>
+              {data.appointments.map((appt) => {
+                const a = appt as AppointmentRow & AppointmentWorkflow;
+                const isActing = acting?.id === a.id;
+                return (
+                  <tr key={a.id} className="border-b hover:bg-muted/20">
+                    <td className="px-3 py-2 font-medium">{a.patient_name ?? "—"}</td>
+                    <td className="px-3 py-2">{a.phone ?? "—"}</td>
+                    <td className="px-3 py-2">{a.doctor_name ?? "—"}</td>
+                    <td className="px-3 py-2">{(a as AppointmentWorkflow).department ?? "—"}</td>
+                    <td className="px-3 py-2">{fmtDate(a.appointment_date)} {a.appointment_time}</td>
+                    <td className="px-3 py-2">{(a as AppointmentWorkflow).token_number ?? "—"}</td>
+                    <td className="px-3 py-2"><StatusBadge status={a.status?.toUpperCase()} /></td>
+                    <td className="px-3 py-2">
+                      <div className="flex gap-1 flex-wrap">
+                        {a.status?.toUpperCase() === "SCHEDULED" && (
+                          <button disabled={isActing} onClick={() => doAction(a.id, "confirm")}
+                            className="text-xs bg-teal-600 text-white px-2 py-0.5 rounded hover:bg-teal-700 disabled:opacity-50">
+                            Confirm
+                          </button>
+                        )}
+                        {a.status?.toUpperCase() === "CONFIRMED" && (
+                          <button disabled={isActing} onClick={() => doAction(a.id, "complete")}
+                            className="text-xs bg-green-600 text-white px-2 py-0.5 rounded hover:bg-green-700 disabled:opacity-50">
+                            Complete
+                          </button>
+                        )}
+                        {!["COMPLETED", "CANCELLED", "NO_SHOW"].includes(a.status?.toUpperCase()) && (
+                          <button disabled={isActing} onClick={() => doAction(a.id, "no-show")}
+                            className="text-xs bg-gray-500 text-white px-2 py-0.5 rounded hover:bg-gray-600 disabled:opacity-50">
+                            No-Show
+                          </button>
+                        )}
+                        {!["COMPLETED", "CANCELLED"].includes(a.status?.toUpperCase()) && (
+                          <button disabled={isActing} onClick={() => {
+                            const r = prompt("Cancellation reason?");
+                            if (r !== null) doAction(a.id, "cancel", { reason: r });
+                          }}
+                            className="text-xs bg-red-500 text-white px-2 py-0.5 rounded hover:bg-red-600 disabled:opacity-50">
+                            Cancel
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {data && <PaginationControls pagination={data.pagination} />}
+    </div>
+  );
+}
+
+// ── Documents Tab ─────────────────────────────────────────────────────────────
+
+function DocumentsTab() {
+  const [docs, setDocs] = useState<AppointmentDocument[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params: Record<string, string> = {};
+      if (fromDate) params.from_date = fromDate;
+      if (toDate) params.to_date = toDate;
+      const res = await getAllAppointmentDocuments(params);
+      setDocs(Array.isArray(res) ? res : []);
+    } catch {
+      toast.error("Failed to load documents");
+    } finally {
+      setLoading(false);
+    }
+  }, [fromDate, toDate]);
+
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-3 items-center">
+        <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="border rounded px-3 py-1.5 text-sm" />
+        <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="border rounded px-3 py-1.5 text-sm" />
+        <button onClick={load} className="bg-primary text-white text-sm px-4 py-1.5 rounded">Filter</button>
+      </div>
+
+      {loading ? <Skeleton className="h-48 w-full" /> : docs.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">No documents found</div>
+      ) : (
+        <div className="border rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b bg-muted/50"><th className="px-4 py-2 text-left">Patient</th><th className="px-4 py-2 text-left">Doctor</th><th className="px-4 py-2 text-left">Type</th><th className="px-4 py-2 text-left">File</th><th className="px-4 py-2 text-left">Uploaded By</th><th className="px-4 py-2 text-left">Date</th><th className="px-4 py-2 text-left">Download</th></tr></thead>
+            <tbody>
+              {docs.map((doc) => (
+                <tr key={doc.id} className="border-b hover:bg-muted/20">
+                  <td className="px-4 py-2">{doc.patient_name ?? `Patient #${doc.patient_id}`}</td>
+                  <td className="px-4 py-2">{doc.doctor_name ?? "—"}</td>
+                  <td className="px-4 py-2">
+                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                      {doc.document_type?.replace(/_/g, " ")}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 max-w-xs truncate">{doc.file_name ?? "—"}</td>
+                  <td className="px-4 py-2">{doc.uploaded_by_name ?? "—"} <span className="text-xs text-gray-400">({doc.upload_role})</span></td>
+                  <td className="px-4 py-2">{fmtDate(doc.created_at)}</td>
+                  <td className="px-4 py-2">
+                    {doc.file_url ? (
+                      <a href={doc.file_url} target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-blue-600 hover:underline">Download</a>
+                    ) : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Audit Trail Tab ───────────────────────────────────────────────────────────
+
+function AuditTrailTab() {
+  const [entries, setEntries] = useState<AuditEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params: Record<string, string> = {};
+      if (fromDate) params.from_date = fromDate;
+      if (toDate) params.to_date = toDate;
+      const res = await getAppointmentAuditTrail(params);
+      setEntries(Array.isArray(res) ? res : []);
+    } catch {
+      toast.error("Failed to load audit trail");
+    } finally {
+      setLoading(false);
+    }
+  }, [fromDate, toDate]);
+
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-3 items-center">
+        <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="border rounded px-3 py-1.5 text-sm" />
+        <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="border rounded px-3 py-1.5 text-sm" />
+        <button onClick={load} className="bg-primary text-white text-sm px-4 py-1.5 rounded">Filter</button>
+      </div>
+
+      {loading ? <Skeleton className="h-48 w-full" /> : entries.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">No audit entries found</div>
+      ) : (
+        <div className="border rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b bg-muted/50"><th className="px-4 py-2 text-left">Appt ID</th><th className="px-4 py-2 text-left">Patient</th><th className="px-4 py-2 text-left">Status Change</th><th className="px-4 py-2 text-left">Changed By</th><th className="px-4 py-2 text-left">Role</th><th className="px-4 py-2 text-left">Reason</th><th className="px-4 py-2 text-left">Time</th></tr></thead>
+            <tbody>
+              {entries.map((e) => (
+                <tr key={e.id} className="border-b hover:bg-muted/20">
+                  <td className="px-4 py-2 font-mono text-xs">#{e.appointment_id}</td>
+                  <td className="px-4 py-2">{e.patient_name ?? "—"}</td>
+                  <td className="px-4 py-2">
+                    <span className="flex items-center gap-1">
+                      {e.from_status && <StatusBadge status={e.from_status} />}
+                      {e.from_status && <span className="text-gray-400">→</span>}
+                      <StatusBadge status={e.to_status} />
+                    </span>
+                  </td>
+                  <td className="px-4 py-2">{e.changed_by_name ?? `User #${e.changed_by}`}</td>
+                  <td className="px-4 py-2 capitalize">{e.changed_by_role ?? "—"}</td>
+                  <td className="px-4 py-2 max-w-xs truncate text-gray-600">{e.reason ?? "—"}</td>
+                  <td className="px-4 py-2 text-xs text-gray-500">{fmtDateTime(e.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
+const TABS = [
+  { id: "overview", label: "Overview & SLA" },
+  { id: "appointments", label: "All Appointments" },
+  { id: "documents", label: "Documents" },
+  { id: "audit", label: "Audit Trail" },
+] as const;
+
+type TabId = (typeof TABS)[number]["id"];
+
+function AppointmentsPageContent() {
+  const [activeTab, setActiveTab] = useState<TabId>("overview");
+
+  return (
+    <div className="p-6">
+      <h2 className="text-2xl font-bold mb-6">Appointment Management</h2>
+
+      {/* Tab bar */}
+      <div className="flex gap-1 border-b mb-6">
+        {TABS.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === tab.id
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "overview" && <SlaOverviewTab />}
+      {activeTab === "appointments" && (
+        <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+          <AllAppointmentsTab />
+        </Suspense>
+      )}
+      {activeTab === "documents" && <DocumentsTab />}
+      {activeTab === "audit" && <AuditTrailTab />}
+    </div>
   );
 }
 
 export default function AppointmentsPage() {
   return (
-    <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">Appointment Management</h2>
-      <Suspense fallback={<AppointmentsTableSkeleton />}>
-        <AppointmentsContent />
-      </Suspense>
-    </div>
+    <Suspense fallback={<div className="p-6"><Skeleton className="h-96 w-full" /></div>}>
+      <AppointmentsPageContent />
+    </Suspense>
   );
 }

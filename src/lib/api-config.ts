@@ -236,6 +236,13 @@ export const API_ENDPOINTS = {
     byPhone: "/api/v1/appointments/phone/:phone", // GET
     byUid: "/api/v1/appointments/uid/:uid", // GET
 
+    queue: "/api/v1/appointments/queue/today",
+    pending: "/api/v1/appointments/pending",
+    documents: "/api/v1/appointments/documents/upload",
+    allDocuments: "/api/v1/appointments/admin/documents",
+    slaDashboard: "/api/v1/appointments/admin/sla-dashboard",
+    auditTrail: "/api/v1/appointments/admin/audit-trail",
+
     admin: {
       analytics: "/api/v1/appointments/admin/analytics",
       conflicts: "/api/v1/appointments/admin/conflicts",
