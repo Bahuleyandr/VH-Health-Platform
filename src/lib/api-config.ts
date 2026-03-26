@@ -383,6 +383,10 @@ export const API_ENDPOINTS = {
   // Investigations
   investigations: {
     routes: "/api/v1/investigations/routes", // GET/POST/PUT/DELETE (protected)
+    list: "/api/v1/investigations/list",
+    catalog: "/api/v1/investigations/catalog",
+    slaDashboard: "/api/v1/investigations/sla-dashboard",
+    pending: "/api/v1/investigations/status/pending",
     admin: {
       analytics: "/api/v1/investigations/admin/analytics",
       pending: "/api/v1/investigations/admin/pending",
