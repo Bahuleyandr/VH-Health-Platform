@@ -10,6 +10,7 @@ import '../../features/dashboard/screens/dashboard_screen.dart';
 import '../../features/attendance/screens/attendance_screen.dart';
 import '../../features/leave/screens/leave_screen.dart';
 import '../../features/appointments/screens/appointments_screen.dart';
+import '../../features/appointments/screens/appointment_queue_screen.dart';
 import '../../features/investigations/screens/investigations_screen.dart';
 import '../../features/pharmacy/screens/pharmacy_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
@@ -149,6 +150,12 @@ final GoRouter appRouter = GoRouter(
           name: 'queue',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: QueueScreen()),
+        ),
+        GoRoute(
+          path: '/appointment-queue',
+          name: 'appointment-queue',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: AppointmentQueueScreen()),
         ),
 
         // Nursing

@@ -200,6 +200,13 @@ class RoleFeatures {
     route: '/queue',
     color: Color(0xFF1565C0),
   );
+  static const DashboardFeature _appointmentQueue = DashboardFeature(
+    id: 'appointment_queue',
+    title: 'Appt Queue',
+    icon: Icons.event_available,
+    route: '/appointment-queue',
+    color: Color(0xFF00796B),
+  );
   static const DashboardFeature _schedule = DashboardFeature(
     id: 'schedule',
     title: 'Shift Schedule',
@@ -237,6 +244,7 @@ class RoleFeatures {
           _schedule,
           _queue,
           _appointments,
+          _appointmentQueue,
           _patientRecords,
           _prescriptions,
           _investigationResults,
@@ -274,6 +282,7 @@ class RoleFeatures {
           _attendance,
           _schedule,
           _appointments,
+          _appointmentQueue,
           _patientRecords,
           _prescriptions,
           _pharmacyOrders,
@@ -310,6 +319,7 @@ class RoleFeatures {
       StaffRole.general => [
           _attendance,
           _schedule,
+          _appointmentQueue,
           _housekeepingHub,
           _housekeepingTasks,
           _leave,

@@ -986,4 +986,97 @@ class StaffApiService {
     final r = await _get('/api/v1/staff/hr/payroll/queries');
     return r['data'] as List? ?? [];
   }
+
+  // ─── Appointment Workflow ─────────────────────────────────────────────────
+
+  /// GET /appointments/queue/today — today's appointment queue
+  static Future<List<dynamic>> getTodayAppointmentQueue({
+    String? doctorId,
+    String? department,
+  }) async {
+    final r = await _get('/appointments/queue/today', query: {
+      if (doctorId != null) 'doctor_id': doctorId,
+      if (department != null) 'department': department,
+    });
+    return r['data'] as List? ?? (r is List ? r as List : []);
+  }
+
+  /// GET /appointments/pending — pending appointments needing confirmation
+  static Future<List<dynamic>> getPendingAppointments({
+    String? fromDate,
+    String? toDate,
+    String? doctorId,
+  }) async {
+    final r = await _get('/appointments/pending', query: {
+      if (fromDate != null) 'from_date': fromDate,
+      if (toDate != null) 'to_date': toDate,
+      if (doctorId != null) 'doctor_id': doctorId,
+    });
+    return r['data'] as List? ?? (r is List ? r as List : []);
+  }
+
+  /// POST /appointments/:id/confirm
+  static Future<Map<String, dynamic>> confirmAppointment(
+    int id,
+    Map<String, dynamic> data,
+  ) async {
+    return _post('/appointments/$id/confirm', data);
+  }
+
+  /// POST /appointments/:id/no-show
+  static Future<Map<String, dynamic>> markNoShow(int id) async {
+    return _post('/appointments/$id/no-show', {});
+  }
+
+  /// POST /appointments/:id/complete
+  static Future<Map<String, dynamic>> completeAppointmentStaff(
+    int id, {
+    String? notes,
+  }) async {
+    return _post('/appointments/$id/complete', {
+      if (notes != null) 'notes': notes,
+    });
+  }
+
+  /// POST /appointments/:id/cancel
+  static Future<Map<String, dynamic>> cancelAppointmentStaff(
+    int id, {
+    String? reason,
+  }) async {
+    return _post('/appointments/$id/cancel', {
+      if (reason != null) 'cancellation_reason': reason,
+    });
+  }
+
+  /// POST /appointments/documents/upload — multipart upload of prescription/doc
+  static Future<Map<String, dynamic>> uploadAppointmentDocument(
+    int appointmentId,
+    String filePath,
+    String documentType, {
+    String? notes,
+    String? fileName,
+  }) async {
+    final headers = await ApiConfig.authenticatedHeaders();
+    final req = http.MultipartRequest(
+      'POST',
+      Uri.parse('${ApiConfig.baseUrl}/appointments/documents/upload'),
+    )
+      ..headers.addAll(headers)
+      ..fields['appointment_id'] = appointmentId.toString()
+      ..fields['document_type'] = documentType
+      ..files.add(await http.MultipartFile.fromPath(
+        'file',
+        filePath,
+        filename: fileName,
+      ));
+    if (notes != null) req.fields['notes'] = notes;
+
+    final streamed = await req.send();
+    final resp = await http.Response.fromStream(streamed);
+    final data = jsonDecode(resp.body);
+    if (resp.statusCode >= 200 && resp.statusCode < 300 && data['success'] == true) {
+      return (data['data'] as Map<String, dynamic>?) ?? data;
+    }
+    throw Exception(data['message'] ?? 'Upload failed (${resp.statusCode})');
+  }
 }
