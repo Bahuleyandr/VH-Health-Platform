@@ -4,6 +4,7 @@ import '../../../core/services/staff_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../reports/screens/reports_hub_screen.dart';
+import '../../payroll/screens/payslip_screen.dart';
 
 /// HR Dashboard screen — staff overview and attendance analytics.
 class HrDashboardScreen extends StatefulWidget {
@@ -255,6 +256,14 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
           subtitle: 'Incident reports, staff grievances',
           color: Colors.orange,
           onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsHubScreen())),
+        ),
+        const SizedBox(height: 10),
+        _ActionTile(
+          icon: Icons.receipt_long_outlined,
+          title: 'My Payslips',
+          subtitle: 'View & download last 3 months',
+          color: const Color(0xFF007A64),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PayslipScreen())),
         ),
       ],
     );

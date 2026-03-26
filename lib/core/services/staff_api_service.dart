@@ -923,4 +923,21 @@ class StaffApiService {
       if (photoUrl != null) 'completion_photo_url': photoUrl,
     });
   }
+
+  // ===== PAYROLL =====
+
+  /// GET /api/v1/staff/hr/payslips?months=N
+  static Future<List<dynamic>> getMyPayslips({int months = 3}) async {
+    final result = await _get(
+      '/api/v1/staff/hr/payslips',
+      query: {'months': months.toString()},
+    );
+    return result['data'] as List? ?? (result is List ? result as List : []);
+  }
+
+  /// GET /api/v1/staff/hr/payslips/:id
+  static Future<Map<String, dynamic>> getPayslipDetail(String id) async {
+    final result = await _get('/api/v1/staff/hr/payslips/$id');
+    return (result['data'] as Map<String, dynamic>?) ?? result;
+  }
 }
