@@ -1458,9 +1458,17 @@ export default function PayrollPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Payroll & HR Compensation</h1>
-        <p className="text-gray-500 mt-1">Manage payroll runs, salary configuration, and revision workflows</p>
+      <div className="mb-6 flex justify-between items-start">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Payroll & HR Compensation</h1>
+          <p className="text-gray-500 mt-1">Manage payroll runs, salary configuration, and revision workflows</p>
+        </div>
+        <a
+          href="/dashboard/payroll/comparison"
+          className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium"
+        >
+          📊 Payroll Comparison
+        </a>
       </div>
 
       {/* Tabs */}
