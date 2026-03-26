@@ -55,6 +55,7 @@ const navSections: NavSection[] = [
       { name: "Incidents",        href: "/dashboard/incidents" },
       { name: "Attendance Audit", href: "/dashboard/attendance-audit" },
       { name: "Report Audit",     href: "/dashboard/reporting" },
+      { name: "Investigations",   href: "/dashboard/investigations" },
       { name: "Staff",            href: "/dashboard/staff-roster" },
     ],
   },
