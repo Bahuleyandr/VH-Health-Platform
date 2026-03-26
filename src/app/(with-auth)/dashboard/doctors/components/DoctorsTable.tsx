@@ -78,6 +78,12 @@ export function DoctorsTable({ doctors, onDoctorDeleted }: DoctorsTableProps) {
                   scope="col"
                   className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
                 >
+                  Schedule
+                </th>
+                <th
+                  scope="col"
+                  className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
+                >
                   Status
                 </th>
                 <th
@@ -113,6 +119,20 @@ export function DoctorsTable({ doctors, onDoctorDeleted }: DoctorsTableProps) {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-foreground">
                       ₹{doctor.consultation_fee}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-wrap gap-1">
+                      {((doctor as Record<string, unknown>).available_days as string[] | undefined)?.map((day: string) => (
+                        <span
+                          key={day}
+                          className="inline-flex px-1.5 py-0.5 text-[10px] font-medium rounded bg-primary/10 text-primary"
+                        >
+                          {day.slice(0, 3)}
+                        </span>
+                      )) ?? (
+                        <span className="text-xs text-muted-foreground">Not set</span>
+                      )}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
