@@ -40,7 +40,7 @@ export const AdminUserSchema = UserSchema.extend({
 export const StoredAdminUserSchema = z
   .object({
     id: z.union([z.string(), z.number()]),
-    role: z.enum(["SUPER_ADMIN", "ADMIN", "HR", "STAFF", "DOCTOR", "NURSE", "PHARMACIST", "TECHNICIAN", "RECEPTIONIST", "PATIENT"]),
+    role: z.enum(["SUPER_ADMIN", "ADMIN", "HR", "STAFF", "DOCTOR", "NURSE", "PHARMACIST", "TECHNICIAN", "LAB_TECHNICIAN", "RECEPTIONIST", "PATIENT"]),
     permissions: z.array(z.string()).optional().default([]),
     name: z.string().optional(),
     email: z.string().optional(),
