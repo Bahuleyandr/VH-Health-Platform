@@ -10,6 +10,7 @@ import * as bulkController from '../../controllers/staff/bulkAttendanceControlle
 import * as incidentController from '../../controllers/staff/incidentController.js';
 import * as grievanceController from '../../controllers/staff/grievanceController.js';
 import * as reportAuditController from '../../controllers/staff/reportAuditController.js';
+import * as attendanceAuditController from '../../controllers/staff/attendanceAuditController.js';
 
 const router = express.Router();
 
@@ -64,11 +65,18 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/incidents', incidentController.getAllIncidents],
     ['/incidents/stats', incidentController.getIncidentStats],
 
-    // Audit routes (super-admin oversight of incidents + grievances + HR activity)
+    // Audit routes — incidents/grievances
     ['/audit/dashboard', reportAuditController.getAuditDashboard],
     ['/audit/activity', reportAuditController.getAdminActivityReport],
     ['/audit/sla', reportAuditController.getSLAReport],
     ['/audit/trail/:type/:id', reportAuditController.getReportAuditTrail],
+
+    // Audit routes — attendance
+    ['/audit/attendance/dashboard', attendanceAuditController.getAttendanceAuditDashboard],
+    ['/audit/attendance/hr-activity', attendanceAuditController.getAttendanceHRActivity],
+    ['/audit/attendance/sla', attendanceAuditController.getAttendanceSLAReport],
+    ['/audit/attendance/geofence', attendanceAuditController.getGeofenceBreachLog],
+    ['/audit/attendance/leave/:id', attendanceAuditController.getLeaveAuditTrail],
     ['/incidents/:id', incidentController.getAdminIncidentDetail],
 
     // Grievances (admin/HR)
