@@ -41,6 +41,7 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     
     // Shifts
     ['/shifts', shiftController.getAllShifts],
+    ['/shifts/presets', shiftController.getAllShifts],  // same — presets returned first
 
     // Overtime
     ['/overtime/pending', overtimeController.getPendingOvertimeRequests],
@@ -73,6 +74,7 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     
     // Shift operations
     ['/shifts/assign', shiftController.assignShift],
+    ['/shifts/custom', shiftController.createCustomShift],
 
     // Overtime operations
     ['/overtime/:id/approve', overtimeController.approveOvertime],
@@ -92,13 +94,19 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     
     // Approve/Reject Operations
     ['/approve/performance-review/:reviewId', staffAdminController.approvePerformanceReview],
-    ['/approve/leave/:leaveId', staffAdminController.approveLeaveRequest]
+    ['/approve/leave/:leaveId', staffAdminController.approveLeaveRequest],
+
+    // Custom shift update
+    ['/shifts/custom/:id', shiftController.updateCustomShift]
   ],
   
   delete: [
     // Archive/Delete Operations
     ['/archive/:staffId', staffAdminController.archiveStaffMember],
-    ['/purge/old-records', staffAdminController.purgeOldRecords]
+    ['/purge/old-records', staffAdminController.purgeOldRecords],
+
+    // Deactivate custom shift
+    ['/shifts/custom/:id', shiftController.deactivateShift]
   ]
 });
 
