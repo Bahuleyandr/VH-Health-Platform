@@ -46,6 +46,13 @@ export const API_ENDPOINTS = {
       changePassword: "/api/v1/auth/admin/change-password", // POST
     },
 
+    // Staff authentication (employee ID + password)
+    staff: {
+      login: "/api/v1/auth/staff/login", // POST { employeeId, password }
+      profile: "/api/v1/auth/staff/profile", // GET
+      logout: "/api/v1/auth/staff/logout", // POST
+    },
+
     // OTP (test/secondary)
     generateOtp: "/api/v1/auth/generate-test-otp", // POST
     verifyOtp: "/api/v1/auth/verify-test-otp", // POST
@@ -57,6 +64,41 @@ export const API_ENDPOINTS = {
     // Tokens & verification
     refreshToken: "/api/v1/auth/refresh-token", // POST
     verify: "/api/v1/verify", // GET
+  },
+
+  // Staff self-service endpoints
+  myWork: {
+    appointments: {
+      todayQueue: "/api/v1/appointments/queue/today", // GET (filtered by token's staff_id)
+      pending: "/api/v1/appointments/pending",         // GET
+      confirm: (id: number) => `/api/v1/appointments/${id}/confirm`, // POST
+      complete: (id: number) => `/api/v1/appointments/${id}/complete`, // POST
+      noShow: (id: number) => `/api/v1/appointments/${id}/no-show`,   // POST
+    },
+    attendance: {
+      myAttendance: "/api/v1/staff/attendance/my",      // GET
+      regularize: "/api/v1/staff/attendance/regularize", // POST
+      dispute: "/api/v1/staff/attendance/dispute",       // POST
+    },
+    leave: {
+      myLeave: "/api/v1/staff/hr/leave/my",   // GET
+      apply: "/api/v1/staff/hr/leave/apply",  // POST
+      balance: "/api/v1/staff/hr/leave/balance", // GET
+    },
+    payslips: {
+      list: "/api/v1/staff/hr/payroll/my-payslips", // GET
+      download: (id: string) => `/api/v1/staff/hr/payroll/my-payslips/${id}/download`, // GET
+      taxSummary: "/api/v1/staff/hr/payroll/tax-summary", // GET
+    },
+    replacements: {
+      list: "/api/v1/staff/replacements/my",   // GET
+      create: "/api/v1/staff/replacements",    // POST
+    },
+    prescriptions: {
+      completedAppointments: "/api/v1/appointments/completed/recent", // GET
+      upload: "/api/v1/staff/prescriptions/upload",                   // POST (multipart)
+      myUploads: "/api/v1/staff/prescriptions/my",                    // GET
+    },
   },
 
   // Main Admin Dashboard Routes (corrected to match backend services)

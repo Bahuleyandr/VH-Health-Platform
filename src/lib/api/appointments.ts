@@ -213,3 +213,45 @@ export function getAllAppointmentDocuments(params?: QueryParams) {
 export function getAppointmentAuditTrail(params?: QueryParams) {
   return getJSON<AuditEntry[]>(API_ENDPOINTS.appointments.auditTrail, params);
 }
+
+// ── New: Slot availability & Walk-in ──────────────────────────────────────────
+
+export interface SlotInfo {
+  time: string;
+  available: boolean;
+}
+
+export interface SlotsResponse {
+  doctor_id: number;
+  doctor_name: string;
+  date: string;
+  day: string;
+  total_slots: number;
+  available_slots: number;
+  slots: SlotInfo[];
+  available?: boolean;
+  reason?: string;
+}
+
+export function getAvailableSlots(doctor_id: number | string, date: string) {
+  return getJSON<SlotsResponse>(`/api/v1/appointments/slots?doctor_id=${doctor_id}&date=${date}`);
+}
+
+export interface WalkInPayload {
+  patient_name?: string;
+  patient_phone?: string;
+  patient_id?: number;
+  doctor_id?: number | string;
+  department?: string;
+  reason?: string;
+  notes?: string;
+  appointment_time?: string;
+}
+
+export function registerWalkInAdmin<T = unknown>(data: WalkInPayload) {
+  return postJSON<T>("/api/v1/appointments/walk-in", data);
+}
+
+export function getTodayQueueAdmin<T = unknown>(params?: QueryParams) {
+  return getJSON<T>("/api/v1/appointments/queue/today", params);
+}

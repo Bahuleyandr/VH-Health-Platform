@@ -45,12 +45,14 @@ export type Role =
   | "PATIENT"
   | "DOCTOR"
   | "ADMIN"
+  | "HR"
+  | "STAFF"
   | "NURSE"
   | "PHARMACIST"
   | "TECHNICIAN"
   | "RECEPTIONIST";
 
-/** Admin-only role union (from schemas) */
+/** Portal role union (from schemas) — includes staff roles */
 export type AdminRole = z.infer<typeof AdminRoleEnum>;
 
 /* =========================

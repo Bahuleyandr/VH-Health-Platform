@@ -1,5 +1,5 @@
 // src/lib/api-client.ts
-import { API_ENDPOINTS } from "./api-config";
+import { API_BASE_URL, API_ENDPOINTS } from "./api-config";
 import {
   getJSON,
   postJSON,
@@ -59,6 +59,46 @@ export function clearAuthData() {
 interface LoginResponse {
   token: string;
   admin?: AdminUser;
+  // Staff login response uses accessToken instead of token
+  accessToken?: string;
+  staff?: AdminUser;
+}
+
+/** Staff login via employee ID + password */
+export async function staffLogin(
+  employeeId: string,
+  password: string,
+): Promise<{
+  token: string;
+  user?: AdminUser;
+  success: boolean;
+}> {
+  const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.auth.staff.login}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ employeeId, password }),
+  });
+
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(err.message ?? "Staff login failed");
+  }
+
+  const raw = (await res.json()) as { data?: LoginResponse } & LoginResponse;
+  // Backend wraps in data or returns flat
+  const payload: LoginResponse = raw.data ?? raw;
+  const token = payload.accessToken ?? payload.token;
+
+  if (!token) throw new Error("No token received from server");
+
+  const staffUser = payload.staff ?? (payload.admin as AdminUser | undefined);
+
+  if (typeof window !== "undefined") {
+    localStorage.setItem(TOKEN_KEY, token);
+    if (staffUser) localStorage.setItem(USER_KEY, JSON.stringify(staffUser));
+  }
+
+  return { token, user: staffUser, success: true };
 }
 
 export async function adminLogin(

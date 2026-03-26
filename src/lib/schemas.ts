@@ -15,12 +15,21 @@ export const UserSchema = z.object({
   date_of_birth: z.string().optional(),
 });
 
-export const AdminRoleEnum = z.enum(["ADMIN", "SUPER_ADMIN"]);
+export const AdminRoleEnum = z.enum([
+  "SUPER_ADMIN",
+  "ADMIN",
+  "HR",
+  "STAFF",
+  "DOCTOR",
+]);
 
 export const AdminUserSchema = UserSchema.extend({
   role: AdminRoleEnum,
   permissions: z.array(z.string()),
-  last_login: z.string(), // ISO date string
+  last_login: z.string().optional(), // ISO date string (optional for staff tokens)
+  employee_id: z.string().optional(),
+  department: z.string().optional(),
+  position: z.string().optional(),
 });
 
 /**
@@ -31,10 +40,13 @@ export const AdminUserSchema = UserSchema.extend({
 export const StoredAdminUserSchema = z
   .object({
     id: z.union([z.string(), z.number()]),
-    role: z.enum(["SUPER_ADMIN", "ADMIN", "DOCTOR", "NURSE", "PHARMACIST", "TECHNICIAN", "RECEPTIONIST", "PATIENT"]),
+    role: z.enum(["SUPER_ADMIN", "ADMIN", "HR", "STAFF", "DOCTOR", "NURSE", "PHARMACIST", "TECHNICIAN", "RECEPTIONIST", "PATIENT"]),
     permissions: z.array(z.string()).optional().default([]),
     name: z.string().optional(),
     email: z.string().optional(),
+    employee_id: z.string().optional(),
+    department: z.string().optional(),
+    position: z.string().optional(),
   })
   .passthrough();
 

@@ -12,6 +12,7 @@ import React, {
 import { useRouter } from "next/navigation";
 import {
   adminLogin,
+  staffLogin,
   adminLogout,
   getAdminProfile,
   isAuthenticated,
@@ -25,6 +26,7 @@ interface AuthContextType {
   loading: boolean;
   error: string | null;
   login: (username: string, password: string) => Promise<void>;
+  loginStaff: (employeeId: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
 }
@@ -90,6 +92,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void checkAuth();
   }, [checkAuth]);
 
+  const setTokenCookie = (token: string) => {
+    document.cookie = `adminToken=${token}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`;
+  };
+
   const login = useCallback(
     async (username: string, password: string) => {
       try {
@@ -100,14 +106,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // api-client persists token/admin to localStorage; we update state & route
         if (result?.admin) {
           setUser(result.admin);
-          // Set cookie for middleware SSR access
-          document.cookie = `adminToken=${result.token}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`;
+          setTokenCookie(result.token);
           router.push("/dashboard");
         } else {
           throw new Error("Login successful but no admin data received");
         }
       } catch (e) {
         const msg = (e as Error).message || "Login failed";
+        setError(msg);
+        throw e;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [router],
+  );
+
+  const loginStaff = useCallback(
+    async (employeeId: string, password: string) => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const result = await staffLogin(employeeId, password);
+        if (result.user) {
+          setUser(result.user);
+        }
+        setTokenCookie(result.token);
+        router.push("/dashboard");
+      } catch (e) {
+        const msg = (e as Error).message || "Staff login failed";
         setError(msg);
         throw e;
       } finally {
@@ -136,7 +164,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, error, login, logout, checkAuth }}
+      value={{ user, loading, error, login, loginStaff, logout, checkAuth }}
     >
       {children}
     </AuthContext.Provider>

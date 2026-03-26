@@ -17,10 +17,14 @@ import {
   cancelAppointmentAdmin,
   getAllAppointmentDocuments,
   getAppointmentAuditTrail,
+  getAvailableSlots,
+  registerWalkInAdmin,
+  getTodayQueueAdmin,
   type AppointmentWorkflow,
   type SlaDashboardResponse,
   type AppointmentDocument,
   type AuditEntry,
+  type SlotInfo,
 } from "@/lib/api/appointments";
 import { toast } from "react-hot-toast";
 
@@ -299,7 +303,7 @@ function AllAppointmentsTab() {
       {data && data.appointments.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead><tr className="border-b bg-muted/50"><th className="px-3 py-2 text-left">Patient</th><th className="px-3 py-2 text-left">Phone</th><th className="px-3 py-2 text-left">Doctor</th><th className="px-3 py-2 text-left">Dept</th><th className="px-3 py-2 text-left">Date/Time</th><th className="px-3 py-2 text-left">Token</th><th className="px-3 py-2 text-left">Status</th><th className="px-3 py-2 text-left">Actions</th></tr></thead>
+            <thead><tr className="border-b bg-muted/50"><th className="px-3 py-2 text-left">Patient</th><th className="px-3 py-2 text-left">Phone</th><th className="px-3 py-2 text-left">Doctor</th><th className="px-3 py-2 text-left">Dept</th><th className="px-3 py-2 text-left">Date/Time</th><th className="px-3 py-2 text-left">Token</th><th className="px-3 py-2 text-left">Status</th><th className="px-3 py-2 text-left">Reminders</th><th className="px-3 py-2 text-left">Actions</th></tr></thead>
             <tbody>
               {data.appointments.map((appt) => {
                 const a = appt as AppointmentRow & AppointmentWorkflow;
@@ -313,6 +317,12 @@ function AllAppointmentsTab() {
                     <td className="px-3 py-2">{fmtDate(a.appointment_date)} {a.appointment_time}</td>
                     <td className="px-3 py-2">{(a as AppointmentWorkflow).token_number ?? "—"}</td>
                     <td className="px-3 py-2"><StatusBadge status={a.status?.toUpperCase()} /></td>
+                    <td className="px-3 py-2">
+                      <div className="flex gap-1">
+                        <span className={`text-xs px-1.5 py-0.5 rounded ${(a as unknown as Record<string, unknown>).reminder_24h_sent ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-400"}`} title="24h reminder">24h</span>
+                        <span className={`text-xs px-1.5 py-0.5 rounded ${(a as unknown as Record<string, unknown>).reminder_1h_sent ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-400"}`} title="1h reminder">1h</span>
+                      </div>
+                    </td>
                     <td className="px-3 py-2">
                       <div className="flex gap-1 flex-wrap">
                         {a.status?.toUpperCase() === "SCHEDULED" && (
@@ -489,11 +499,269 @@ function AuditTrailTab() {
   );
 }
 
+// ── Walk-in Registration Dialog ───────────────────────────────────────────────
+
+function WalkInDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: (token: number) => void }) {
+  const [patientPhone, setPatientPhone] = useState("");
+  const [patientName, setPatientName] = useState("");
+  const [doctorId, setDoctorId] = useState("");
+  const [department, setDepartment] = useState("");
+  const [reason, setReason] = useState("");
+  const [time, setTime] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!patientPhone && !patientName) {
+      toast.error("Patient phone or name required");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const payload: Record<string, string | number | undefined> = {
+        patient_phone: patientPhone || undefined,
+        patient_name: patientName || undefined,
+        department: department || undefined,
+        reason: reason || "Walk-in consultation",
+        appointment_time: time || "Walk-in",
+      };
+      if (doctorId) payload.doctor_id = parseInt(doctorId);
+      const res = await registerWalkInAdmin(payload);
+      const token = (res as Record<string, unknown>)?.data
+        ? ((res as Record<string, unknown>).data as Record<string, unknown>)?.token_number
+        : (res as Record<string, unknown>)?.token_number;
+      onSuccess(Number(token) || 0);
+      toast.success(`Walk-in registered! Token #${token}`);
+      onClose();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to register walk-in");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+        <h3 className="text-lg font-bold mb-4">Register Walk-in Patient</h3>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label className="text-sm font-medium">Patient Phone</label>
+            <input type="tel" value={patientPhone} onChange={e => setPatientPhone(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm mt-1" placeholder="10-digit mobile number" />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Patient Name</label>
+            <input type="text" value={patientName} onChange={e => setPatientName(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm mt-1" placeholder="Full name" />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Doctor ID (optional)</label>
+            <input type="number" value={doctorId} onChange={e => setDoctorId(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm mt-1" placeholder="Doctor user ID" />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Department</label>
+            <input type="text" value={department} onChange={e => setDepartment(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm mt-1" placeholder="e.g. General Medicine" />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Appointment Time (optional)</label>
+            <input type="time" value={time} onChange={e => setTime(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm mt-1" />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Reason</label>
+            <input type="text" value={reason} onChange={e => setReason(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm mt-1" placeholder="Walk-in consultation" />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose}
+              className="flex-1 border rounded px-4 py-2 text-sm hover:bg-gray-50">Cancel</button>
+            <button type="submit" disabled={submitting}
+              className="flex-1 bg-teal-600 text-white rounded px-4 py-2 text-sm hover:bg-teal-700 disabled:opacity-50">
+              {submitting ? "Registering…" : "Register Walk-in"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Doctor Queue View Tab ─────────────────────────────────────────────────────
+
+function DoctorQueueTab() {
+  const [doctorId, setDoctorId] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [queue, setQueue] = useState<AppointmentWorkflow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [walked, setWalkedIn] = useState(false);
+
+  const load = async () => {
+    if (!doctorId) { toast.error("Enter a doctor ID"); return; }
+    setLoading(true);
+    try {
+      const params: Record<string, string> = { doctor_id: doctorId };
+      if (date) params.date = date;
+      const res = await getTodayQueueAdmin<unknown>(params);
+      const rows = Array.isArray(res)
+        ? res
+        : Array.isArray((res as Record<string, unknown>)?.data)
+          ? (res as Record<string, unknown>).data
+          : [];
+      setQueue(rows as AppointmentWorkflow[]);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to load queue");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-3 items-end flex-wrap">
+        <div>
+          <label className="text-sm font-medium block mb-1">Doctor ID</label>
+          <input type="number" value={doctorId} onChange={e => setDoctorId(e.target.value)}
+            className="border rounded px-3 py-2 text-sm w-36" placeholder="User ID" />
+        </div>
+        <div>
+          <label className="text-sm font-medium block mb-1">Date</label>
+          <input type="date" value={date} onChange={e => setDate(e.target.value)}
+            className="border rounded px-3 py-2 text-sm" />
+        </div>
+        <button onClick={load} className="bg-teal-600 text-white px-4 py-2 text-sm rounded hover:bg-teal-700">
+          Load Queue
+        </button>
+      </div>
+
+      {/* Slot availability panel */}
+      {doctorId && date && <SlotAvailabilityPanel doctorId={doctorId} date={date} />}
+
+      {loading ? (
+        <Skeleton className="h-48 w-full" />
+      ) : queue.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">
+          {doctorId ? "No appointments found for this doctor/date" : "Enter a doctor ID to load their queue"}
+        </div>
+      ) : (
+        <div className="border rounded-lg overflow-hidden">
+          <div className="bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-800">
+            Dr. Queue — {date} ({queue.length} appointments)
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50">
+                <th className="px-4 py-2 text-left">Token</th>
+                <th className="px-4 py-2 text-left">Patient</th>
+                <th className="px-4 py-2 text-left">Blood Group</th>
+                <th className="px-4 py-2 text-left">Time</th>
+                <th className="px-4 py-2 text-left">Status</th>
+                <th className="px-4 py-2 text-left">Reason</th>
+                <th className="px-4 py-2 text-left">Reminders</th>
+              </tr>
+            </thead>
+            <tbody>
+              {queue
+                .sort((a, b) => (a.token_number ?? 999) - (b.token_number ?? 999))
+                .map((appt) => {
+                  const a = appt as AppointmentWorkflow & { patient_name?: string; blood_group?: string; reminder_24h_sent?: boolean; reminder_1h_sent?: boolean };
+                  return (
+                    <tr key={a.id} className="border-b hover:bg-muted/20">
+                      <td className="px-4 py-2 font-bold text-teal-700">
+                        {a.token_number ? `#${a.token_number}` : "—"}
+                      </td>
+                      <td className="px-4 py-2 font-medium">{a.patient_name ?? `Patient #${a.patient_id}`}</td>
+                      <td className="px-4 py-2">
+                        {a.blood_group
+                          ? <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">{a.blood_group}</span>
+                          : "—"}
+                      </td>
+                      <td className="px-4 py-2">{a.appointment_time ?? "—"}</td>
+                      <td className="px-4 py-2"><StatusBadge status={a.status?.toUpperCase()} /></td>
+                      <td className="px-4 py-2 max-w-xs truncate text-gray-600">{a.reason ?? "—"}</td>
+                      <td className="px-4 py-2">
+                        <div className="flex gap-1">
+                          <span className={`text-xs px-1.5 py-0.5 rounded ${a.reminder_24h_sent ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>24h</span>
+                          <span className={`text-xs px-1.5 py-0.5 rounded ${a.reminder_1h_sent ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>1h</span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Re-trigger walk-in from this tab if needed */}
+      <p className="text-xs text-gray-500">
+        Use the Walk-in button in the Overview tab or All Appointments tab to add new walk-ins.
+      </p>
+    </div>
+  );
+}
+
+// ── Slot Availability Panel ───────────────────────────────────────────────────
+
+function SlotAvailabilityPanel({ doctorId, date }: { doctorId: string; date: string }) {
+  const [slots, setSlots] = useState<SlotInfo[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!doctorId || !date) return;
+    setLoading(true);
+    setUnavailableReason(null);
+    getAvailableSlots(doctorId, date)
+      .then(res => {
+        if (res.available === false) {
+          setUnavailableReason(res.reason ?? "Unavailable");
+          setSlots([]);
+        } else {
+          setSlots(res.slots ?? []);
+        }
+      })
+      .catch(() => setSlots([]))
+      .finally(() => setLoading(false));
+  }, [doctorId, date]);
+
+  if (loading) return <Skeleton className="h-16 w-full" />;
+  if (unavailableReason) return (
+    <div className="bg-yellow-50 border border-yellow-200 rounded px-4 py-3 text-sm text-yellow-800">
+      ⚠️ {unavailableReason}
+    </div>
+  );
+  if (!slots.length) return null;
+
+  return (
+    <div className="border rounded-lg p-4">
+      <div className="text-sm font-medium mb-3 text-gray-700">
+        Available Slots ({slots.filter(s => s.available).length}/{slots.length})
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {slots.map(s => (
+          <span key={s.time}
+            className={`text-xs px-2.5 py-1 rounded-full border font-medium ${
+              s.available
+                ? "bg-teal-50 border-teal-300 text-teal-700"
+                : "bg-gray-100 border-gray-200 text-gray-400 line-through"
+            }`}>
+            {s.time}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 const TABS = [
   { id: "overview", label: "Overview & SLA" },
   { id: "appointments", label: "All Appointments" },
+  { id: "queue", label: "Doctor Queue" },
   { id: "documents", label: "Documents" },
   { id: "audit", label: "Audit Trail" },
 ] as const;
@@ -502,10 +770,26 @@ type TabId = (typeof TABS)[number]["id"];
 
 function AppointmentsPageContent() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
+  const [showWalkIn, setShowWalkIn] = useState(false);
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-bold mb-6">Appointment Management</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold">Appointment Management</h2>
+        <button
+          onClick={() => setShowWalkIn(true)}
+          className="bg-teal-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-teal-700 flex items-center gap-2"
+        >
+          <span>➕</span> Register Walk-in
+        </button>
+      </div>
+
+      {showWalkIn && (
+        <WalkInDialog
+          onClose={() => setShowWalkIn(false)}
+          onSuccess={() => {}}
+        />
+      )}
 
       {/* Tab bar */}
       <div className="flex gap-1 border-b mb-6">
@@ -530,6 +814,7 @@ function AppointmentsPageContent() {
           <AllAppointmentsTab />
         </Suspense>
       )}
+      {activeTab === "queue" && <DoctorQueueTab />}
       {activeTab === "documents" && <DocumentsTab />}
       {activeTab === "audit" && <AuditTrailTab />}
     </div>
