@@ -1131,4 +1131,99 @@ class StaffApiService {
     };
     return _post('/appointments/walk-in', body);
   }
+
+  // ── Investigation Bookings ─────────────────────────────────────────────
+
+  /// GET /investigations/bookings/queue
+  static Future<Map<String, dynamic>> getInvestigationBookingQueue({
+    String? status,
+    String? collectionType,
+    String? fromDate,
+    String? toDate,
+  }) async {
+    final query = <String, String>{};
+    if (status != null) query['status'] = status;
+    if (collectionType != null) query['collection_type'] = collectionType;
+    if (fromDate != null) query['from_date'] = fromDate;
+    if (toDate != null) query['to_date'] = toDate;
+    return _get('/investigations/bookings/queue', query: query);
+  }
+
+  /// GET /investigations/bookings/:id
+  static Future<Map<String, dynamic>> getInvestigationBookingDetail(int id) {
+    return _get('/investigations/bookings/$id');
+  }
+
+  /// GET /investigations/bookings/sla
+  static Future<Map<String, dynamic>> getInvestigationBookingSLA({
+    String? fromDate,
+    String? toDate,
+  }) async {
+    final query = <String, String>{};
+    if (fromDate != null) query['from_date'] = fromDate;
+    if (toDate != null) query['to_date'] = toDate;
+    return _get('/investigations/bookings/sla', query: query);
+  }
+
+  /// POST /investigations/bookings/:id/confirm
+  static Future<Map<String, dynamic>> confirmInvestigationBooking(
+    int id,
+    Map<String, dynamic> data,
+  ) {
+    return _post('/investigations/bookings/$id/confirm', data);
+  }
+
+  /// POST /investigations/bookings/:id/dispatch
+  static Future<Map<String, dynamic>> dispatchCollector(
+    int id,
+    Map<String, dynamic> data,
+  ) {
+    return _post('/investigations/bookings/$id/dispatch', data);
+  }
+
+  /// POST /investigations/bookings/:id/collected
+  static Future<Map<String, dynamic>> markSamplesCollected(
+    int id, {
+    String? notes,
+  }) {
+    return _post('/investigations/bookings/$id/collected', {
+      if (notes != null) 'collection_notes': notes,
+    });
+  }
+
+  /// POST /investigations/bookings/:id/processing
+  static Future<Map<String, dynamic>> startBookingProcessing(int id) {
+    return _post('/investigations/bookings/$id/processing', {});
+  }
+
+  /// POST /investigations/bookings/:id/result (multipart)
+  static Future<Map<String, dynamic>> uploadBookingResult(
+    int id,
+    String filePath, {
+    String? notes,
+    String? fileName,
+  }) async {
+    final headers = await ApiConfig.authenticatedHeaders();
+    final req = http.MultipartRequest(
+      'POST',
+      Uri.parse('${ApiConfig.baseUrl}/investigations/bookings/$id/result'),
+    )..headers.addAll(headers);
+
+    req.files.add(await http.MultipartFile.fromPath(
+      'file',
+      filePath,
+      filename: fileName,
+    ));
+    if (notes != null) req.fields['result_notes'] = notes;
+
+    final streamed = await req.send();
+    final resp = await http.Response.fromStream(streamed);
+    final data = jsonDecode(resp.body);
+    if (resp.statusCode >= 200 &&
+        resp.statusCode < 300 &&
+        data['success'] == true) {
+      return (data['data'] as Map<String, dynamic>?) ?? data;
+    }
+    throw Exception(data['message'] ?? 'Upload failed (${resp.statusCode})');
+  }
 }

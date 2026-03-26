@@ -12,6 +12,7 @@ import '../../features/leave/screens/leave_screen.dart';
 import '../../features/appointments/screens/appointments_screen.dart';
 import '../../features/appointments/screens/appointment_queue_screen.dart';
 import '../../features/investigations/screens/investigations_screen.dart';
+import '../../features/investigations/screens/lab_bookings_screen.dart';
 import '../../features/pharmacy/screens/pharmacy_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 import '../../features/settings/screens/settings_screen.dart';
@@ -112,6 +113,12 @@ final GoRouter appRouter = GoRouter(
           name: 'investigations',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: InvestigationsScreen()),
+        ),
+        GoRoute(
+          path: '/lab-bookings',
+          name: 'lab-bookings',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: LabBookingsScreen()),
         ),
         GoRoute(
           path: '/pharmacy',

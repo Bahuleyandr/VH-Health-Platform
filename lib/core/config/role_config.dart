@@ -130,6 +130,13 @@ class RoleFeatures {
     route: '/investigations',
     color: Color(0xFF0097A7),
   );
+  static const DashboardFeature _labBookings = DashboardFeature(
+    id: 'lab_bookings',
+    title: 'Lab Bookings',
+    icon: Icons.science,
+    route: '/lab-bookings',
+    color: Color(0xFF00838F),
+  );
   static const DashboardFeature _leave = DashboardFeature(
     id: 'leave',
     title: 'Leave',
@@ -262,6 +269,7 @@ class RoleFeatures {
           _nursingNotes,
           _handover,
           _investigationResults,
+          _labBookings,
           _leave,
           _staffDirectory,
           _profile,
@@ -288,6 +296,7 @@ class RoleFeatures {
           _pharmacyOrders,
           _investigationsUpload,
           _investigationResults,
+          _labBookings,
           _leave,
           _hrDashboard,
           _staffManagement,
@@ -311,6 +320,7 @@ class RoleFeatures {
           _schedule,
           _investigationsUpload,
           _investigationResults,
+          _labBookings,
           _leave,
           _staffDirectory,
           _profile,
