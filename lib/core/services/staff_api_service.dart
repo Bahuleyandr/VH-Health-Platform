@@ -766,4 +766,80 @@ class StaffApiService {
     final result = await _get('/api/v1/staff/hr/overtime');
     return result['data'] as List? ?? result as List? ?? [];
   }
+
+  // ─── Incident Reports ────────────────────────────────────────────────────────
+
+  /// POST /api/v1/staff/hr/incidents/submit — submit an incident report
+  static Future<Map<String, dynamic>> submitIncidentReport({
+    required String incidentType,
+    required String severity,
+    required String title,
+    required String description,
+    required String incidentDate,
+    String? location,
+    bool patientInvolved = false,
+    String? patientName,
+    String? witnesses,
+    String? immediateActionTaken,
+    bool isAnonymous = false,
+  }) async {
+    return await _post('/api/v1/staff/hr/incidents/submit', {
+      'incident_type': incidentType,
+      'severity': severity,
+      'title': title,
+      'description': description,
+      'incident_date': incidentDate,
+      if (location != null) 'location': location,
+      'patient_involved': patientInvolved,
+      if (patientName != null) 'patient_name': patientName,
+      if (witnesses != null) 'witnesses': witnesses,
+      if (immediateActionTaken != null) 'immediate_action_taken': immediateActionTaken,
+      'is_anonymous': isAnonymous,
+    });
+  }
+
+  /// GET /api/v1/staff/hr/incidents — get my incident reports
+  static Future<List<dynamic>> getMyIncidents() async {
+    final result = await _get('/api/v1/staff/hr/incidents');
+    return result['data'] as List? ?? result as List? ?? [];
+  }
+
+  /// GET /api/v1/staff/hr/incidents/:id — get incident detail
+  static Future<Map<String, dynamic>> getIncidentDetail(String id) async {
+    return await _get('/api/v1/staff/hr/incidents/$id');
+  }
+
+  // ─── Grievances ──────────────────────────────────────────────────────────────
+
+  /// POST /api/v1/staff/hr/grievances/submit — submit a grievance
+  static Future<Map<String, dynamic>> submitGrievance({
+    required String grievanceType,
+    required String subject,
+    required String description,
+    String? againstWhom,
+    String? department,
+    String? incidentDate,
+    bool isAnonymous = false,
+  }) async {
+    return await _post('/api/v1/staff/hr/grievances/submit', {
+      'grievance_type': grievanceType,
+      'subject': subject,
+      'description': description,
+      if (againstWhom != null) 'against_whom': againstWhom,
+      if (department != null) 'department': department,
+      if (incidentDate != null) 'incident_date': incidentDate,
+      'is_anonymous': isAnonymous,
+    });
+  }
+
+  /// GET /api/v1/staff/hr/grievances — get my grievances
+  static Future<List<dynamic>> getMyGrievances() async {
+    final result = await _get('/api/v1/staff/hr/grievances');
+    return result['data'] as List? ?? result as List? ?? [];
+  }
+
+  /// GET /api/v1/staff/hr/grievances/:id — get grievance detail
+  static Future<Map<String, dynamic>> getGrievanceDetail(String id) async {
+    return await _get('/api/v1/staff/hr/grievances/$id');
+  }
 }

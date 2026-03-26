@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/services/staff_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../reports/screens/reports_hub_screen.dart';
 
 /// HR Dashboard screen — staff overview and attendance analytics.
 class HrDashboardScreen extends StatefulWidget {
@@ -246,6 +247,14 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
           subtitle: 'Browse all staff members',
           color: const Color(0xFF455A64),
           onTap: () => context.go('/staff-directory'),
+        ),
+        const SizedBox(height: 10),
+        _ActionTile(
+          icon: Icons.warning_amber_rounded,
+          title: 'Reports & Grievances',
+          subtitle: 'Incident reports, staff grievances',
+          color: Colors.orange,
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsHubScreen())),
         ),
       ],
     );
