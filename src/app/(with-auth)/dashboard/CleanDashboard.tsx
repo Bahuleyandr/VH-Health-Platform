@@ -38,6 +38,32 @@ type AppointmentQueue = {
   completed: number;
 };
 
+type InfraHealthCheck = {
+  status?: string;
+  latency_ms?: number;
+  error?: string;
+  note?: string;
+  pending?: number;
+  sent?: number;
+  failed_permanent?: number;
+  appointments?: number;
+  pharmacy?: number;
+  investigations?: number;
+  uptime_hours?: number;
+  memory_mb?: number;
+  memory_total_mb?: number;
+  memory_percent?: number;
+  node_version?: string;
+  environment?: string;
+  provider?: string;
+};
+
+type InfraHealthData = {
+  status: string;
+  timestamp: string;
+  checks: Record<string, InfraHealthCheck>;
+};
+
 type DashboardResponse = {
   overview?: Quick;
   charts?: {
@@ -62,6 +88,7 @@ export default function CleanDashboard() {
   const [secondsAgo, setSecondsAgo] = useState(0);
   const [queue, setQueue] = useState<AppointmentQueue>({ waiting: 0, inProgress: 0, completed: 0 });
   const [prevQueue, setPrevQueue] = useState<AppointmentQueue>({ waiting: 0, inProgress: 0, completed: 0 });
+  const [infraHealth, setInfraHealth] = useState<InfraHealthData | null>(null);
 
   // ---- Helpers ----
   const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') ?? undefined : undefined;
@@ -122,6 +149,12 @@ export default function CleanDashboard() {
       const moduleHealth = await get<{ data?: Array<{ name: string; status: HealthStatus }> }>(
         API_ENDPOINTS.admin.health.modules
       ).catch(() => null);
+
+      // Infrastructure health (deep system check)
+      const infraData = await get<{ data?: InfraHealthData }>('/system/health').catch(() => null);
+      if (infraData?.data) {
+        setInfraHealth(infraData.data);
+      }
 
       // Normalize
       const overview = dash?.overview ?? {};
@@ -450,6 +483,80 @@ export default function CleanDashboard() {
             Last refresh: {lastUpdated.toLocaleTimeString()} · Auto-refresh every 30s
           </div>
         </section>
+
+        {/* Infrastructure Health (deep check from /system/health) */}
+        {infraHealth && (
+          <section className="rounded-xl border border-border bg-card p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">Infrastructure Monitor</h2>
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
+                  infraHealth.status === 'healthy'
+                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                    : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                }`}
+              >
+                {infraHealth.status === 'healthy' ? '✅ All Systems Go' : '⚠️ Degraded'}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              <InfraCard
+                label="Database"
+                status={infraHealth.checks.database?.status}
+                detail={infraHealth.checks.database?.latency_ms != null ? `${infraHealth.checks.database.latency_ms}ms` : undefined}
+              />
+              <InfraCard
+                label="R2 Storage"
+                status={infraHealth.checks.r2_storage?.status}
+                detail={infraHealth.checks.r2_storage?.note}
+              />
+              <InfraCard
+                label="Push Notifications"
+                status={infraHealth.checks.push_notifications?.status}
+              />
+              <InfraCard
+                label="SMS"
+                status={infraHealth.checks.sms?.status}
+                detail={infraHealth.checks.sms?.provider}
+              />
+              <InfraCard
+                label="Scheduler"
+                status={infraHealth.checks.scheduler?.status}
+              />
+              {infraHealth.checks.notification_backlog && (
+                <InfraCard
+                  label="Notification Backlog"
+                  status={
+                    (infraHealth.checks.notification_backlog.pending ?? 0) > 10
+                      ? 'warning'
+                      : 'healthy'
+                  }
+                  detail={`${infraHealth.checks.notification_backlog.pending ?? 0} pending`}
+                />
+              )}
+              {infraHealth.checks.stuck_orders && (
+                <InfraCard
+                  label="Stuck Orders"
+                  status={
+                    ((infraHealth.checks.stuck_orders.appointments ?? 0) +
+                      (infraHealth.checks.stuck_orders.pharmacy ?? 0) +
+                      (infraHealth.checks.stuck_orders.investigations ?? 0)) > 0
+                      ? 'warning'
+                      : 'healthy'
+                  }
+                  detail={`${infraHealth.checks.stuck_orders.appointments ?? 0} appt / ${infraHealth.checks.stuck_orders.pharmacy ?? 0} pharm / ${infraHealth.checks.stuck_orders.investigations ?? 0} inv`}
+                />
+              )}
+              {infraHealth.checks.server && (
+                <InfraCard
+                  label="Server"
+                  status="healthy"
+                  detail={`${infraHealth.checks.server.uptime_hours}h uptime · ${infraHealth.checks.server.memory_mb}MB`}
+                />
+              )}
+            </div>
+          </section>
+        )}
       </main>
 
       {/* Loading overlay */}
@@ -488,6 +595,28 @@ function GaugeBar({ label, value, max, unit, color }: { label: string; value: nu
           style={{ width: `${pct}%`, backgroundColor: color }}
         />
       </div>
+    </div>
+  );
+}
+
+// ---- Infrastructure Health Card ----
+function InfraCard({ label, status, detail }: { label: string; status?: string; detail?: string }) {
+  const isHealthy = status === 'healthy' || status === 'configured' || status === 'running';
+  const isDegraded = status === 'degraded' || status === 'warning' || status === 'dry_run' || status === 'not_initialized';
+  const isDown = status === 'down';
+
+  const dotColor = isHealthy ? '#22c55e' : isDegraded ? '#eab308' : isDown ? '#ef4444' : '#6b7280';
+  const emoji = isHealthy ? '✅' : isDegraded ? '⚠️' : isDown ? '⛔' : '❓';
+
+  return (
+    <div className="rounded-lg border border-border bg-muted/50 p-3">
+      <div className="flex items-center gap-2 mb-1">
+        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: dotColor }} />
+        <span className="text-sm font-medium">{label}</span>
+        <span className="text-xs ml-auto">{emoji}</span>
+      </div>
+      <p className="text-xs text-muted-foreground">{status ?? 'unknown'}</p>
+      {detail && <p className="text-xs text-muted-foreground/70 mt-0.5">{detail}</p>}
     </div>
   );
 }
