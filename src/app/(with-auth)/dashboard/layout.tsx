@@ -41,6 +41,7 @@ const navigation: NavItem[] = [
   { name: 'System Audit Log', href: '/dashboard/system-audit', requiredRole: 'ADMIN' },
   { name: 'Attendance Audit', href: '/dashboard/attendance-audit', requiredRole: 'ADMIN' },
   { name: 'Incident Reports', href: '/dashboard/incidents', requiredPermissions: ['userManagement'] },
+  { name: 'Housekeeping', href: '/dashboard/housekeeping', requiredPermissions: ['userManagement'] },
   { name: 'Grievances (HR)', href: '/dashboard/grievances', requiredPermissions: ['userManagement'] },
   { name: 'Bed Management', href: '/dashboard/beds', requiredPermissions: ['departmentManagement'] },
   { name: 'Notifications', href: '/dashboard/notifications', requiredPermissions: ['notificationManagement'] },
