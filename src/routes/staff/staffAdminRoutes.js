@@ -107,6 +107,14 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/payroll/export/esi', payrollController.exportESIRegister],
     ['/payroll/comparison', payrollController.getPayrollComparison],
     ['/payroll/advances', payrollController.getAllAdvances],
+    // Compliance features — GET
+    ['/payroll/fnf', payrollController.getFnFList],
+    ['/payroll/gratuity', payrollController.getAllGratuityStatus],
+    ['/payroll/declarations', payrollController.getAllDeclarations],
+    ['/payroll/leave-encashment', payrollController.getLeaveEncashments],
+    ['/payroll/queries', payrollController.getAllPayslipQueries],
+    ['/payroll/compliance-calendar', payrollController.getComplianceCalendar],
+    ['/payroll/bulk-revisions', payrollController.getBulkRevisions],
   ],
   
   post: [
@@ -166,6 +174,15 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/payroll/revisions/:id/admin-sign', salaryRevisionController.adminSignRevision],
     ['/payroll/revisions/:id/apply', salaryRevisionController.applyRevision],
     ['/payroll/revisions/:id/reject', salaryRevisionController.rejectRevision],
+    // Compliance features — POST
+    ['/payroll/fnf/create', payrollController.createFnF],
+    ['/payroll/fnf/:id/approve', payrollController.approveFnF],
+    ['/payroll/fnf/:id/mark-paid', payrollController.markFnFPaid],
+    ['/payroll/declarations/:id/approve', payrollController.approveDeclaration],
+    ['/payroll/leave-encashment/create', payrollController.calculateLeaveEncashment],
+    ['/payroll/queries/:id/reply', payrollController.replyToPayslipQuery],
+    ['/payroll/bulk-revisions/create', payrollController.createBulkRevision],
+    ['/payroll/bulk-revisions/:id/approve', payrollController.approveBulkRevision],
   ],
   
   put: [

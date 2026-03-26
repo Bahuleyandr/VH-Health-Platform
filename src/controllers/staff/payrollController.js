@@ -1036,3 +1036,402 @@ export const getPayrollComparison = async (req, res) => {
     error(res, 'Failed to fetch payroll comparison', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
+
+// ─── COMPLIANCE FEATURES ─────────────────────────────────────────────────────
+// Feature 1: F&F Settlement
+
+export const createFnF = async (req, res) => {
+  try {
+    const { staff_uid, separation_type, last_working_day, notice_shortfall_days, bonus_payable, other_deductions, other_deductions_reason, notes } = req.body;
+    if (!staff_uid || !separation_type || !last_working_day) return error(res, 'staff_uid, separation_type, last_working_day required', HTTP_STATUS.BAD_REQUEST);
+    const staffData = await db.query(`SELECT u.*, ss.basic_salary, ss.notice_period_days, ss.date_of_joining FROM users u LEFT JOIN staff_salary ss ON ss.staff_uid = u.uid WHERE u.uid = $1`, [staff_uid]);
+    if (!staffData.rows.length) return error(res, 'Staff not found', HTTP_STATUS.NOT_FOUND);
+    const s = staffData.rows[0];
+    const lastDay = new Date(last_working_day);
+    const joinDate = s.date_of_joining ? new Date(s.date_of_joining) : null;
+    const yearsOfService = joinDate ? (lastDay - joinDate) / (365.25 * 24 * 60 * 60 * 1000) : 0;
+    const gratuityEligible = yearsOfService >= 5;
+    const gratuityAmount = gratuityEligible && s.basic_salary ? Math.round((15/26) * parseFloat(s.basic_salary) * Math.floor(yearsOfService) * 100) / 100 : 0;
+    const lastMonth = lastDay.getMonth() + 1;
+    const lastYear = lastDay.getFullYear();
+    const daysInMonth = new Date(lastYear, lastMonth, 0).getDate();
+    const daysWorked = lastDay.getDate();
+    const lastMonthBasic = s.basic_salary ? Math.round((parseFloat(s.basic_salary) / daysInMonth) * daysWorked * 100) / 100 : 0;
+    const lastMonthAllowances = Math.round(lastMonthBasic * 0.65 * 100) / 100;
+    const dailyRate = s.basic_salary ? parseFloat(s.basic_salary) / 26 : 0;
+    const shortfall = Math.max(0, notice_shortfall_days || 0);
+    const noticeRecovery = Math.round(shortfall * dailyRate * 100) / 100;
+    const grossPayable = lastMonthBasic + lastMonthAllowances + gratuityAmount + (parseFloat(bonus_payable) || 0);
+    const totalDedns = noticeRecovery + (parseFloat(other_deductions) || 0);
+    const netPayable = grossPayable - totalDedns;
+    const result = await db.query(
+      `INSERT INTO full_final_settlements (staff_uid,separation_type,last_working_day,last_month_days_worked,last_month_basic,last_month_allowances,notice_period_days,notice_shortfall_days,notice_recovery_amount,years_of_service,gratuity_eligible,gratuity_amount,bonus_payable,other_deductions,other_deductions_reason,gross_payable,total_deductions,net_payable,notes,created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,
+      [staff_uid,separation_type,last_working_day,daysWorked,lastMonthBasic,lastMonthAllowances,s.notice_period_days||30,shortfall,noticeRecovery,Math.round(yearsOfService*100)/100,gratuityEligible,gratuityAmount,parseFloat(bonus_payable)||0,parseFloat(other_deductions)||0,other_deductions_reason||null,grossPayable,totalDedns,netPayable,notes||null,req.user?.uid]);
+    success(res, result.rows[0], `F&F calculated. Net payable: ₹${netPayable}`);
+  } catch (err) { logger.error('CreateFnF:', err); error(res, err.message, HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+};
+
+export const getFnFList = async (req, res) => {
+  try {
+    const { status } = req.query;
+    const params = [];
+    let where = '';
+    if (status) { params.push(status); where = `WHERE f.status = $1`; }
+    const result = await db.query(
+      `SELECT f.*, u.name as staff_name, u.department, ss.designation, ss.employee_id
+       FROM full_final_settlements f
+       JOIN users u ON f.staff_uid = u.uid
+       LEFT JOIN staff_salary ss ON ss.staff_uid = f.staff_uid
+       ${where} ORDER BY f.created_at DESC`, params);
+    success(res, result.rows, 'F&F list fetched');
+  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+};
+
+export const approveFnF = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const role = req.user?.role; const uid = req.user?.uid;
+    const fnf = await db.query('SELECT * FROM full_final_settlements WHERE id=$1', [id]);
+    if (!fnf.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
+    const f = fnf.rows[0];
+    let update;
+    if (role === 'HR' && f.status === 'draft') {
+      update = await db.query('UPDATE full_final_settlements SET status=$1,hr_approved_by=$2,hr_approved_at=NOW(),updated_at=NOW() WHERE id=$3 RETURNING *', ['hr_approved', uid, id]);
+    } else if (role === 'ADMIN' && f.status === 'hr_approved') {
+      update = await db.query('UPDATE full_final_settlements SET status=$1,admin_approved_by=$2,admin_approved_at=NOW(),updated_at=NOW() WHERE id=$3 RETURNING *', ['admin_approved', uid, id]);
+    } else return error(res, 'Cannot approve: wrong role or status', HTTP_STATUS.BAD_REQUEST);
+    success(res, update.rows[0], 'F&F approved');
+  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+};
+
+export const markFnFPaid = async (req, res) => {
+  try {
+    const { id } = req.params; const { payment_date, payment_reference } = req.body;
+    const result = await db.query('UPDATE full_final_settlements SET status=$1,payment_date=$2,payment_reference=$3,updated_at=NOW() WHERE id=$4 AND status=$5 RETURNING *', ['paid', payment_date, payment_reference, id, 'admin_approved']);
+    if (!result.rows.length) return error(res, 'Not found or not admin-approved', HTTP_STATUS.BAD_REQUEST);
+    success(res, result.rows[0], 'F&F marked as paid');
+  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+};
+
+// Feature 2: Gratuity Status
+
+export const getAllGratuityStatus = async (req, res) => {
+  try {
+    const staff = await db.query(
+      `SELECT u.uid, u.name, u.department, ss.basic_salary, ss.date_of_joining, ss.designation, ss.employee_id
+       FROM users u LEFT JOIN staff_salary ss ON ss.staff_uid = u.uid
+       WHERE u.is_active=true AND ss.date_of_joining IS NOT NULL ORDER BY ss.date_of_joining`);
+    const now = new Date();
+    const result = staff.rows.map(s => {
+      const joinDate = new Date(s.date_of_joining);
+      const yos = (now - joinDate) / (365.25*24*60*60*1000);
+      const eligible = yos >= 5;
+      const fiveYearDate = new Date(joinDate); fiveYearDate.setFullYear(fiveYearDate.getFullYear()+5);
+      return {
+        staff_uid: s.uid, name: s.name, employee_id: s.employee_id, designation: s.designation,
+        department: s.department, date_of_joining: s.date_of_joining,
+        years_of_service: Math.round(yos*100)/100,
+        gratuity_eligible: eligible,
+        projected_gratuity: s.basic_salary ? Math.round((15/26)*parseFloat(s.basic_salary)*Math.floor(yos)*100)/100 : 0,
+        days_to_five_years: eligible ? 0 : Math.max(0, Math.ceil((fiveYearDate-now)/(24*60*60*1000)))
+      };
+    });
+    success(res, result, 'Gratuity status fetched');
+  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+};
+
+// Feature 3: Investment Declarations
+
+export const upsertDeclaration = async (req, res) => {
+  try {
+    const staffUid = req.user?.uid;
+    const {
+      financial_year, ppf=0, epf_voluntary=0, elss=0, lic_premium=0, nsc=0,
+      home_loan_principal=0, tuition_fees=0, other_80c=0, health_insurance_self=0,
+      health_insurance_parents=0, education_loan_interest=0, rent_paid_monthly=0,
+      rent_receipt_provided=false, home_loan_interest=0, nps_contribution=0, notes
+    } = req.body;
+    if (!financial_year) return error(res, 'financial_year required', HTTP_STATUS.BAD_REQUEST);
+    const result = await db.query(
+      `INSERT INTO investment_declarations
+         (staff_uid,financial_year,ppf,epf_voluntary,elss,lic_premium,nsc,home_loan_principal,tuition_fees,other_80c,health_insurance_self,health_insurance_parents,education_loan_interest,rent_paid_monthly,rent_receipt_provided,home_loan_interest,nps_contribution,notes,status,submitted_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'submitted',NOW())
+       ON CONFLICT (staff_uid,financial_year) DO UPDATE SET
+         ppf=$3,epf_voluntary=$4,elss=$5,lic_premium=$6,nsc=$7,home_loan_principal=$8,
+         tuition_fees=$9,other_80c=$10,health_insurance_self=$11,health_insurance_parents=$12,
+         education_loan_interest=$13,rent_paid_monthly=$14,rent_receipt_provided=$15,
+         home_loan_interest=$16,nps_contribution=$17,notes=$18,
+         status=CASE WHEN investment_declarations.status='locked' THEN 'locked' ELSE 'submitted' END,
+         submitted_at=CASE WHEN investment_declarations.status='locked' THEN investment_declarations.submitted_at ELSE NOW() END,
+         updated_at=NOW()
+       RETURNING *`,
+      [staffUid,financial_year,ppf,epf_voluntary,elss,lic_premium,nsc,home_loan_principal,tuition_fees,other_80c,health_insurance_self,health_insurance_parents,education_loan_interest,rent_paid_monthly,rent_receipt_provided,home_loan_interest,nps_contribution,notes||null]);
+    success(res, result.rows[0], 'Declaration saved');
+  } catch (err) { logger.error('UpsertDeclaration:', err); error(res, err.message, HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+};
+
+export const getMyDeclarations = async (req, res) => {
+  try {
+    const result = await db.query('SELECT * FROM investment_declarations WHERE staff_uid=$1 ORDER BY financial_year DESC', [req.user?.uid]);
+    success(res, result.rows, 'Declarations fetched');
+  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+};
+
+export const getAllDeclarations = async (req, res) => {
+  try {
+    const { financial_year, status } = req.query;
+    let where = 'WHERE 1=1'; const params = [];
+    if (financial_year) { params.push(financial_year); where += ` AND d.financial_year=$${params.length}`; }
+    if (status) { params.push(status); where += ` AND d.status=$${params.length}`; }
+    const result = await db.query(
+      `SELECT d.*, u.name as staff_name, u.department, ss.designation, ss.employee_id
+       FROM investment_declarations d
+       JOIN users u ON d.staff_uid = u.uid
+       LEFT JOIN staff_salary ss ON ss.staff_uid = d.staff_uid
+       ${where} ORDER BY u.name`, params);
+    success(res, result.rows, 'Declarations fetched');
+  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+};
+
+export const approveDeclaration = async (req, res) => {
+  try {
+    const result = await db.query(
+      `UPDATE investment_declarations SET status='approved',approved_by=$1,approved_at=NOW(),updated_at=NOW() WHERE id=$2 RETURNING *`,
+      [req.user?.uid, req.params.id]);
+    if (!result.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
+    success(res, result.rows[0], 'Declaration approved');
+  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+};
+
+// Feature 4: Leave Encashment
+
+export const calculateLeaveEncashment = async (req, res) => {
+  try {
+    const { staff_uid, leave_days, encashment_type, financial_year } = req.body;
+    if (!staff_uid || !leave_days || !encashment_type) return error(res, 'staff_uid, leave_days, encashment_type required', HTTP_STATUS.BAD_REQUEST);
+    const staffData = await db.query('SELECT ss.basic_salary FROM staff_salary ss WHERE ss.staff_uid=$1', [staff_uid]);
+    if (!staffData.rows.length || !staffData.rows[0].basic_salary) return error(res, 'Salary config not found', HTTP_STATUS.BAD_REQUEST);
+    const dailyRate = parseFloat(staffData.rows[0].basic_salary) / 26;
+    const amount = Math.round(dailyRate * parseInt(leave_days) * 100) / 100;
+    const result = await db.query(
+      `INSERT INTO leave_encashments (staff_uid,encashment_type,leave_days,daily_rate,amount,financial_year,approved_by,approved_at,status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),'approved') RETURNING *`,
+      [staff_uid, encashment_type, leave_days, dailyRate, amount, financial_year||null, req.user?.uid]);
+    success(res, result.rows[0], `${leave_days} days × ₹${dailyRate.toFixed(2)}/day = ₹${amount}`);
+  } catch (err) { logger.error('LeaveEncashment:', err); error(res, err.message, HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+};
+
+export const getLeaveEncashments = async (req, res) => {
+  try {
+    const { staff_uid } = req.query;
+    const params = [];
+    let where = '';
+    if (staff_uid) { params.push(staff_uid); where = `WHERE le.staff_uid=$1`; }
+    const result = await db.query(
+      `SELECT le.*, u.name as staff_name, ss.employee_id
+       FROM leave_encashments le
+       JOIN users u ON le.staff_uid = u.uid
+       LEFT JOIN staff_salary ss ON ss.staff_uid = le.staff_uid
+       ${where} ORDER BY le.created_at DESC`, params);
+    success(res, result.rows, 'Leave encashments fetched');
+  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+};
+
+// Feature 6: Payslip Query System
+
+export const raisePayslipQuery = async (req, res) => {
+  try {
+    const staffUid = req.user?.uid;
+    const { payslip_id, subject, description, category } = req.body;
+    if (!payslip_id || !subject || !description) return error(res, 'payslip_id, subject, description required', HTTP_STATUS.BAD_REQUEST);
+    const payslip = await db.query('SELECT * FROM payslips WHERE id=$1 AND staff_uid=$2', [payslip_id, staffUid]);
+    if (!payslip.rows.length) return error(res, 'Payslip not found', HTTP_STATUS.NOT_FOUND);
+    const result = await db.query(
+      `INSERT INTO payslip_queries (payslip_id,staff_uid,subject,description,category) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [payslip_id, staffUid, subject, description, category||'general']);
+    success(res, result.rows[0], 'Query raised');
+  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+};
+
+export const getMyPayslipQueries = async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT pq.*, p.month, p.year, p.net_salary,
+         (SELECT json_agg(r ORDER BY r.created_at) FROM payslip_query_replies r WHERE r.query_id=pq.id) as replies
+       FROM payslip_queries pq
+       JOIN payslips p ON pq.payslip_id=p.id
+       WHERE pq.staff_uid=$1 ORDER BY pq.created_at DESC`,
+      [req.user?.uid]);
+    success(res, result.rows, 'Queries fetched');
+  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+};
+
+export const getAllPayslipQueries = async (req, res) => {
+  try {
+    const { status } = req.query;
+    const params = [];
+    let where = '';
+    if (status) { params.push(status); where = `WHERE pq.status=$1`; }
+    const result = await db.query(
+      `SELECT pq.*, p.month, p.year, p.net_salary, u.name as staff_name, ss.employee_id,
+         (SELECT json_agg(r ORDER BY r.created_at) FROM payslip_query_replies r WHERE r.query_id=pq.id) as replies
+       FROM payslip_queries pq
+       JOIN payslips p ON pq.payslip_id=p.id
+       JOIN users u ON pq.staff_uid=u.uid
+       LEFT JOIN staff_salary ss ON ss.staff_uid=pq.staff_uid
+       ${where} ORDER BY pq.created_at DESC`, params);
+    success(res, result.rows, 'All queries fetched');
+  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+};
+
+export const replyToPayslipQuery = async (req, res) => {
+  try {
+    const { id } = req.params; const { message, resolve } = req.body;
+    if (!message) return error(res, 'message required', HTTP_STATUS.BAD_REQUEST);
+    await db.query('INSERT INTO payslip_query_replies (query_id,author_uid,author_role,message) VALUES ($1,$2,$3,$4)',
+      [id, req.user?.uid, req.user?.role, message]);
+    if (resolve) {
+      await db.query(`UPDATE payslip_queries SET status='resolved',resolved_by=$1,resolved_at=NOW(),resolution_note=$2,updated_at=NOW() WHERE id=$3`,
+        [req.user?.uid, message, id]);
+    } else {
+      await db.query(`UPDATE payslip_queries SET status='in_review',updated_at=NOW() WHERE id=$1 AND status='open'`, [id]);
+    }
+    const updated = await db.query('SELECT * FROM payslip_queries WHERE id=$1', [id]);
+    success(res, updated.rows[0], resolve ? 'Query resolved' : 'Reply sent');
+  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+};
+
+// Feature 7: Compliance Calendar
+
+export const getComplianceCalendar = async (req, res) => {
+  try {
+    const now = new Date(); const year = now.getFullYear(); const month = now.getMonth()+1;
+    const pfDueMonth = month===12?1:month+1; const pfDueYear = month===12?year+1:year;
+    const pfDue = new Date(pfDueYear, pfDueMonth-1, 15);
+    const tdsQuarterDue = [
+      { months:[4,5,6], due: new Date(year,6,31), label:'Q1 TDS Return (Apr-Jun)' },
+      { months:[7,8,9], due: new Date(year,9,31), label:'Q2 TDS Return (Jul-Sep)' },
+      { months:[10,11,12], due: new Date(year+1,0,31), label:'Q3 TDS Return (Oct-Dec)' },
+      { months:[1,2,3], due: new Date(year,4,31), label:'Q4 TDS Return (Jan-Mar)' },
+    ];
+    const activeTds = tdsQuarterDue.find(q=>q.months.includes(month));
+    const ecrs = await db.query(
+      `SELECT month,year FROM payroll_runs WHERE status IN ('approved','locked') AND year=$1`, [year]
+    ).catch(()=>({rows:[]}));
+    const ecrGenerated = ecrs.rows.map(r=>`${r.year}-${String(r.month).padStart(2,'0')}`);
+    const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const deadlines = [
+      {
+        label:`PF ECR — ${monthNames[month-1]} ${year}`,
+        due_date:pfDue.toISOString().split('T')[0],
+        due_in_days:Math.ceil((pfDue-now)/(24*60*60*1000)),
+        status:ecrGenerated.includes(`${year}-${String(month).padStart(2,'0')}`)? 'ready':'pending',
+        type:'pf'
+      },
+      {
+        label:`ESI Register — ${monthNames[month-1]} ${year}`,
+        due_date:pfDue.toISOString().split('T')[0],
+        due_in_days:Math.ceil((pfDue-now)/(24*60*60*1000)),
+        status:ecrGenerated.includes(`${year}-${String(month).padStart(2,'0')}`)? 'ready':'pending',
+        type:'esi'
+      },
+    ];
+    if (activeTds) deadlines.push({
+      label:activeTds.label, due_date:activeTds.due.toISOString().split('T')[0],
+      due_in_days:Math.ceil((activeTds.due-now)/(24*60*60*1000)),
+      status:'manual', type:'tds', note:'File via TRACES portal'
+    });
+    const annualReturn = new Date(year,4,31);
+    if (annualReturn>now) deadlines.push({
+      label:`Annual TDS Return (Form 24Q) FY ${year-1}-${String(year).slice(-2)}`,
+      due_date:annualReturn.toISOString().split('T')[0],
+      due_in_days:Math.ceil((annualReturn-now)/(24*60*60*1000)),
+      status:'manual', type:'annual_tds'
+    });
+    const form16 = new Date(year,5,15);
+    if (form16>now) deadlines.push({
+      label:`Form 16 Issue Deadline FY ${year-1}-${String(year).slice(-2)}`,
+      due_date:form16.toISOString().split('T')[0],
+      due_in_days:Math.ceil((form16-now)/(24*60*60*1000)),
+      status:'manual', type:'form16'
+    });
+    deadlines.sort((a,b)=>new Date(a.due_date).getTime()-new Date(b.due_date).getTime());
+    success(res, { deadlines, current_month:month, current_year:year }, 'Compliance calendar fetched');
+  } catch (err) { logger.error('ComplianceCal:', err); error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+};
+
+// Feature 8: Bulk Salary Revision
+
+export const createBulkRevision = async (req, res) => {
+  try {
+    const { description, revision_type, target_type, target_value, increment_type, increment_value, bonus_amount, effective_from } = req.body;
+    if (!description||!revision_type||!target_type||!effective_from) return error(res,'description,revision_type,target_type,effective_from required',HTTP_STATUS.BAD_REQUEST);
+    let countQuery=`SELECT COUNT(*) as cnt FROM users u JOIN staff_salary ss ON ss.staff_uid=u.uid WHERE u.is_active=true`;
+    const params=[];
+    if (target_type==='department') { countQuery+=` AND u.department=$1`; params.push(target_value); }
+    else if (target_type==='role') { countQuery+=` AND u.role=$1`; params.push(target_value); }
+    else if (target_type==='designation') { countQuery+=` AND ss.designation=$1`; params.push(target_value); }
+    const countResult=await db.query(countQuery,params);
+    const staffCount=parseInt(countResult.rows[0].cnt);
+    if (staffCount===0) return error(res,`No active staff found for ${target_type}=${target_value}`,HTTP_STATUS.BAD_REQUEST);
+    const job=await db.query(
+      `INSERT INTO bulk_revision_jobs (description,revision_type,target_type,target_value,increment_type,increment_value,bonus_amount,effective_from,staff_count,status,created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'draft',$10) RETURNING *`,
+      [description,revision_type,target_type,target_value,increment_type,increment_value,bonus_amount,effective_from,staffCount,req.user?.uid]);
+    success(res,job.rows[0],`Bulk revision draft created. Will affect ${staffCount} staff.`);
+  } catch (err) { logger.error('CreateBulkRev:', err); error(res,err.message,HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+};
+
+export const approveBulkRevision = async (req, res) => {
+  try {
+    const { id } = req.params; const adminUid=req.user?.uid;
+    const job=await db.query('SELECT * FROM bulk_revision_jobs WHERE id=$1',[id]);
+    if (!job.rows.length) return error(res,'Not found',HTTP_STATUS.NOT_FOUND);
+    const j=job.rows[0];
+    if (j.status!=='draft') return error(res,'Already processed',HTTP_STATUS.BAD_REQUEST);
+    await db.query(`UPDATE bulk_revision_jobs SET status='approved',approved_by=$1,approved_at=NOW() WHERE id=$2`,[adminUid,id]);
+    setImmediate(async()=>{
+      try {
+        let staffQuery=`SELECT u.uid,ss.basic_salary FROM users u JOIN staff_salary ss ON ss.staff_uid=u.uid WHERE u.is_active=true`;
+        const params=[];
+        if (j.target_type==='department'){staffQuery+=` AND u.department=$1`;params.push(j.target_value);}
+        else if (j.target_type==='role'){staffQuery+=` AND u.role=$1`;params.push(j.target_value);}
+        else if (j.target_type==='designation'){staffQuery+=` AND ss.designation=$1`;params.push(j.target_value);}
+        const staffList=await db.query(staffQuery,params);
+        let processed=0;
+        for (const s of staffList.rows) {
+          try {
+            let proposed_basic=parseFloat(s.basic_salary);
+            if (j.revision_type==='increment') {
+              proposed_basic=j.increment_type==='percentage'
+                ?proposed_basic*(1+parseFloat(j.increment_value)/100)
+                :proposed_basic+parseFloat(j.increment_value);
+            }
+            await db.query(
+              `INSERT INTO salary_revisions (staff_uid,revision_number,revision_type,current_basic,proposed_basic,bonus_amount,effective_from,reason,status,hr_approved_by,hr_approved_at,admin_approved_by,admin_approved_at,applied_at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'applied',$9,NOW(),$9,NOW(),NOW())`,
+              [s.uid,`BULK-${id}-${s.uid.toString().slice(0,6)}`,j.revision_type,s.basic_salary,
+               j.revision_type==='increment'?Math.round(proposed_basic*100)/100:s.basic_salary,
+               j.bonus_amount||0,j.effective_from,j.description,adminUid]);
+            if (j.revision_type==='increment') {
+              await db.query('UPDATE staff_salary SET basic_salary=$1,updated_at=NOW() WHERE staff_uid=$2',
+                [Math.round(proposed_basic*100)/100,s.uid]);
+            }
+            processed++;
+          } catch(e){ logger.warn(`Bulk rev failed ${s.uid}: ${e.message}`); }
+        }
+        await db.query(`UPDATE bulk_revision_jobs SET status='completed',processed_count=$1,completed_at=NOW() WHERE id=$2`,[processed,id]);
+      } catch(e){ await db.query(`UPDATE bulk_revision_jobs SET status='failed',error_log=$1 WHERE id=$2`,[e.message,id]); }
+    });
+    success(res,{id,status:'processing',staff_count:j.staff_count},'Bulk revision approved and processing');
+  } catch (err) { logger.error('ApproveBulkRev:', err); error(res,err.message,HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+};
+
+export const getBulkRevisions = async (req, res) => {
+  try {
+    const result=await db.query(
+      `SELECT b.*,u.name as created_by_name FROM bulk_revision_jobs b LEFT JOIN users u ON b.created_by=u.uid ORDER BY b.created_at DESC`);
+    success(res,result.rows,'Bulk revisions fetched');
+  } catch (err) { error(res,'Failed',HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+};
