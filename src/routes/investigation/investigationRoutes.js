@@ -4,6 +4,7 @@ import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as investigationController from '../../controllers/investigation/investigationController.js';
 import * as orderController from '../../controllers/investigation/orderController.js';
 import * as uploadController from '../../controllers/investigation/uploadController.js';
+import * as bookingController from '../../controllers/investigation/bookingController.js';
 import { 
   investigationRequestValidator,
   idValidator,
@@ -30,6 +31,13 @@ wrapAutoRBAC(router, 'investigationRoutes', {
     ['/sla-dashboard', investigationController.getInvestigationSLADashboard],
     ['/list', listInvestigationsValidator, investigationController.listInvestigations],
     ['/status/pending', investigationController.getPendingInvestigations],
+
+    // Booking routes (static before parameterized)
+    ['/bookings/my', bookingController.getMyBookings],
+    ['/bookings/queue', bookingController.getBookingQueue],
+    ['/bookings/sla', bookingController.getBookingSLADashboard],
+    ['/bookings/:id', bookingController.getBookingDetail],
+
     ['/patient/:patient_id', patientIdValidator, investigationController.getPatientInvestigations],
     ['/doctor/:doctor_id', doctorIdValidator, investigationController.getDoctorInvestigations],
     ['/type/:type', typeValidator, investigationController.getInvestigationsByType],
@@ -44,6 +52,14 @@ wrapAutoRBAC(router, 'investigationRoutes', {
   ],
   
   post: [
+    // Booking routes (static before parameterized)
+    ['/bookings/create', upload.single('slip_photo'), bookingController.createBooking],
+    ['/bookings/:id/confirm', bookingController.confirmBooking],
+    ['/bookings/:id/dispatch', bookingController.dispatchCollector],
+    ['/bookings/:id/collected', bookingController.markCollected],
+    ['/bookings/:id/processing', bookingController.startProcessing],
+    ['/bookings/:id/result', upload.single('file'), bookingController.uploadResult],
+
     ['/catalog', investigationController.upsertTestCatalog],
     ['/order', investigationRequestValidator, orderController.orderInvestigation],
     ['/:id/upload', upload.single('file'), uploadController.uploadResult],    
