@@ -2,6 +2,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
@@ -9,6 +10,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:vhhealth/core/config/api_config.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
@@ -45,6 +47,10 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
   final Set<String> _expandedIds = {};
   final Set<String> _loadingFiles = {};
 
+  // Auth-based patient ID
+  String? _patientId;
+  final _secureStorage = const FlutterSecureStorage();
+
   late final bool _isGuest;
   late TabController _tabController;
 
@@ -56,10 +62,15 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     _phoneController.text = _isGuest ? '' : widget.phone;
     _tabController = TabController(length: 2, vsync: this);
     if (!_isGuest) {
-      _fetchInvestigations();
+      _loadPatientIdAndFetch();
     } else {
       _isLoadingResults = false;
     }
+  }
+
+  Future<void> _loadPatientIdAndFetch() async {
+    _patientId = await _secureStorage.read(key: 'user_id');
+    _fetchInvestigations();
   }
 
   @override
@@ -215,9 +226,11 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
       _resultsError = null;
     });
 
-    final uri = Uri.parse(
-      '${ApiConfig.baseUrl}/investigations/${widget.phone}',
-    );
+    // Prefer patient_id-based fetch; fall back to phone-based
+    final path = _patientId != null
+        ? '/investigations/patient/$_patientId'
+        : '/investigations/${widget.phone}';
+    final uri = Uri.parse('${ApiConfig.baseUrl}$path');
 
     try {
       final resp =
@@ -341,6 +354,119 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
         _fetchFiles(id);
       }
     });
+  }
+
+  void _showResultDetail(Map<String, dynamic> inv) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final dateFmt = DateFormat.yMMMd(Localizations.localeOf(context).toString());
+    final id = (inv['id'] ?? '').toString();
+    final testName = inv['test_name'] ?? inv['type'] ?? 'Investigation';
+    final status = (inv['status'] ?? 'pending').toString();
+    final type = inv['type'] ?? '';
+    final results = inv['results'] ?? inv['result'];
+    final normalRange = inv['normal_range'] ?? '';
+    final fileKey = inv['file_key'];
+
+    DateTime? orderedDate;
+    final orderedStr = inv['ordered_date'] ?? inv['created_at'] ?? inv['date'];
+    if (orderedStr != null) {
+      try { orderedDate = DateTime.parse(orderedStr.toString()).toLocal(); } catch (_) {}
+    }
+
+    DateTime? completedDate;
+    final completedStr = inv['completed_date'];
+    if (completedStr != null) {
+      try { completedDate = DateTime.parse(completedStr.toString()).toLocal(); } catch (_) {}
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.5,
+        minChildSize: 0.3,
+        maxChildSize: 0.85,
+        builder: (ctx, scrollController) => SingleChildScrollView(
+          controller: scrollController,
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: cs.onSurface.withAlpha(50),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Text(testName.toString(), style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              _detailRow('Type', type.toString(), cs),
+              _detailRow('Status', status, cs),
+              if (orderedDate != null) _detailRow('Ordered', dateFmt.format(orderedDate), cs),
+              if (completedDate != null) _detailRow('Completed', dateFmt.format(completedDate), cs),
+              if (normalRange.toString().isNotEmpty) _detailRow('Normal Range', normalRange.toString(), cs),
+              if (results != null && results.toString().isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text('Result', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: cs.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(results.toString(), style: theme.textTheme.bodyMedium),
+                ),
+              ],
+              if (fileKey != null && fileKey.toString().isNotEmpty) ...[
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      // Use the file download endpoint
+                      _fetchFiles(id);
+                      Navigator.pop(ctx);
+                      // Expand the card to show files
+                      setState(() => _expandedIds.add(id));
+                    },
+                    icon: const Icon(Icons.download_outlined),
+                    label: const Text('View / Download Report'),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _detailRow(String label, String value, ColorScheme cs) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(label, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13, fontWeight: FontWeight.w500)),
+          ),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 13))),
+        ],
+      ),
+    );
   }
 
   @override
@@ -554,7 +680,10 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
 
           return Card(
             margin: const EdgeInsets.only(bottom: 10),
-            child: Column(
+            child: InkWell(
+              onTap: () => _showResultDetail(inv),
+              borderRadius: BorderRadius.circular(12),
+              child: Column(
               children: [
                 ListTile(
                   leading: Icon(
@@ -649,6 +778,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                     ),
                 ],
               ],
+            ),
             ),
           );
         },
