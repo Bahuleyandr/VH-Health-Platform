@@ -101,8 +101,15 @@ export async function calculatePayslip(staffUid, month, year) {
   const otRate = calcOvertimeRate(sal.basic_salary);
   const overtimePay = Math.round(approvedOT * otRate * 100) / 100;
 
+  // ─── FEATURE 4: Check for pending arrears ───────────────────────────────
+  const arrearsRes = await db.query(`
+    SELECT COALESCE(SUM(arrears_amount), 0) as total FROM salary_arrears
+    WHERE staff_uid = $1 AND status = 'pending'
+  `, [staffUid]).catch(() => ({ rows: [{ total: 0 }] }));
+  const arrearsAmount = parseFloat(arrearsRes.rows[0]?.total || 0);
+
   const grossSalary = basicEarned + hraEarned + daEarned + specialEarned +
-    transportEarned + medicalEarned + overtimePay;
+    transportEarned + medicalEarned + overtimePay + arrearsAmount;
 
   // ─── Calculate deductions ────────────────────────────────────────────────
   const pfEmployee = Math.round(basicEarned * (sal.pf_employee_pct / 100) * 100) / 100;
@@ -110,14 +117,65 @@ export async function calculatePayslip(staffUid, month, year) {
   const professionalTax = calcProfessionalTax(grossSalary);
   const tds = parseFloat(sal.tds_monthly || 0);
   const totalDeductions = pfEmployee + esiEmployee + professionalTax + tds;
-  const netSalary = Math.round((grossSalary - totalDeductions) * 100) / 100;
+
+  // ─── FEATURE 5: Explicit LOP calculation ────────────────────────────────
+  // LOP = days absent (not covered by approved leave) × (basic/26)
+  const daysAbsent = Math.max(0, totalWorkingDays - daysPresent - leaveDays);
+  const lopDays = daysAbsent; // already implicitly in basicEarned prorating, but explicit here
+  const lopDailyRate = sal.basic_salary / 26;
+  const lopDeduction = Math.round(lopDays * lopDailyRate * 100) / 100;
+
+  // ─── FEATURE 3: Check for active salary advances to deduct ──────────────
+  const advanceRes = await db.query(`
+    SELECT * FROM salary_advances
+    WHERE staff_uid = $1
+      AND status = 'approved'
+      AND deduction_start_year <= $3
+      AND (deduction_start_year < $3 OR deduction_start_month <= $2)
+      AND total_deducted < amount
+    ORDER BY created_at ASC
+  `, [staffUid, month, year]).catch(() => ({ rows: [] }));
+
+  let totalAdvanceDeduction = 0;
+  const advancesToProcess = [];
+  for (const adv of advanceRes.rows) {
+    const remaining = parseFloat(adv.amount) - parseFloat(adv.total_deducted);
+    const deductThis = Math.min(parseFloat(adv.monthly_deduction), remaining);
+    totalAdvanceDeduction += deductThis;
+    advancesToProcess.push({ id: adv.id, amount: deductThis, balanceAfter: remaining - deductThis });
+  }
+
+  const netSalary = Math.round((grossSalary - totalDeductions - totalAdvanceDeduction) * 100) / 100;
+
+  // ─── FEATURE 2: Check for salary revision note ──────────────────────────
+  const revisionCheck = await db.query(`
+    SELECT sr.revision_number, sr.revision_type,
+           sr.current_basic, sr.proposed_basic,
+           sr.bonus_amount, sr.increment_pct, sr.effective_from
+    FROM salary_revisions sr
+    WHERE sr.staff_uid = $1
+      AND sr.status = 'applied'
+      AND EXTRACT(MONTH FROM sr.effective_from::date) = $2
+      AND EXTRACT(YEAR FROM sr.effective_from::date) = $3
+    LIMIT 1
+  `, [staffUid, month, year]).catch(() => ({ rows: [] }));
+
+  let revisionNote = null;
+  if (revisionCheck.rows.length > 0) {
+    const r = revisionCheck.rows[0];
+    if (r.revision_type === 'increment' && r.current_basic && r.proposed_basic) {
+      revisionNote = `Increment applied (${r.revision_number}): ₹${Number(r.current_basic).toLocaleString('en-IN')} → ₹${Number(r.proposed_basic).toLocaleString('en-IN')} effective ${new Date(r.effective_from).toLocaleDateString('en-IN')}`;
+    } else if (r.revision_type === 'bonus') {
+      revisionNote = `Bonus paid (${r.revision_number}): ₹${Number(r.bonus_amount).toLocaleString('en-IN')}`;
+    }
+  }
 
   return {
     staff_uid: staffUid,
     month, year,
     total_working_days: totalWorkingDays,
     days_present: daysPresent,
-    days_absent: Math.max(0, totalWorkingDays - daysPresent - leaveDays),
+    days_absent: daysAbsent,
     days_leave: leaveDays,
     overtime_hours: approvedOT,
     overtime_rate: Math.round(otRate * 100) / 100,
@@ -128,15 +186,21 @@ export async function calculatePayslip(staffUid, month, year) {
     transport_allowance_earned: transportEarned,
     medical_allowance_earned: medicalEarned,
     overtime_pay: overtimePay,
+    arrears_amount: arrearsAmount,
     gross_salary: Math.round(grossSalary * 100) / 100,
     pf_employee: pfEmployee,
     esi_employee: esiEmployee,
     professional_tax: professionalTax,
     tds,
     total_deductions: Math.round(totalDeductions * 100) / 100,
+    advance_deduction: totalAdvanceDeduction,
+    lop_days: lopDays,
+    lop_deduction: lopDeduction,
     net_salary: netSalary,
+    revision_note: revisionNote,
     salary_config: sal,
     attendance_factor: Math.round(attendanceFactor * 100) / 100,
+    _advances_to_process: advancesToProcess, // internal, used after saving payslip
   };
 }
 
@@ -151,18 +215,20 @@ export async function savePayslip(payrollRunId, data) {
       overtime_hours, overtime_rate,
       basic_earned, hra_earned, da_earned, special_allowance_earned,
       transport_allowance_earned, medical_allowance_earned, overtime_pay,
-      gross_salary, pf_employee, esi_employee, professional_tax, tds,
-      total_deductions, net_salary, status
+      arrears_amount, gross_salary, pf_employee, esi_employee, professional_tax, tds,
+      total_deductions, advance_deduction, lop_days, lop_deduction, net_salary,
+      revision_note, status
     ) VALUES (
-      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,'draft'
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,'draft'
     )
     ON CONFLICT (staff_uid, month, year) DO UPDATE SET
       total_working_days=$5, days_present=$6, days_absent=$7, days_leave=$8,
       overtime_hours=$9, overtime_rate=$10,
       basic_earned=$11, hra_earned=$12, da_earned=$13, special_allowance_earned=$14,
       transport_allowance_earned=$15, medical_allowance_earned=$16, overtime_pay=$17,
-      gross_salary=$18, pf_employee=$19, esi_employee=$20, professional_tax=$21,
-      tds=$22, total_deductions=$23, net_salary=$24,
+      arrears_amount=$18, gross_salary=$19, pf_employee=$20, esi_employee=$21, professional_tax=$22,
+      tds=$23, total_deductions=$24, advance_deduction=$25, lop_days=$26, lop_deduction=$27,
+      net_salary=$28, revision_note=$29,
       updated_at=NOW()
     RETURNING *
   `, [
@@ -171,8 +237,204 @@ export async function savePayslip(payrollRunId, data) {
     data.overtime_hours, data.overtime_rate,
     data.basic_earned, data.hra_earned, data.da_earned, data.special_allowance_earned,
     data.transport_allowance_earned, data.medical_allowance_earned, data.overtime_pay,
-    data.gross_salary, data.pf_employee, data.esi_employee, data.professional_tax,
-    data.tds, data.total_deductions, data.net_salary,
+    data.arrears_amount || 0, data.gross_salary, data.pf_employee, data.esi_employee,
+    data.professional_tax, data.tds, data.total_deductions,
+    data.advance_deduction || 0, data.lop_days || 0, data.lop_deduction || 0,
+    data.net_salary, data.revision_note || null,
   ]);
   return result.rows[0];
+}
+
+/**
+ * FEATURE 1: Generate annual tax summary for a staff member for a financial year.
+ * Financial year in India: April to March. E.g., FY 2025-26 = Apr 2025 to Mar 2026.
+ */
+export async function generateAnnualTaxSummary(staffUid, financialYear) {
+  const [startYearStr] = financialYear.split('-');
+  const startYear = parseInt(startYearStr);
+  const endYear = startYear + 1;
+
+  const payslips = await db.query(`
+    SELECT * FROM payslips
+    WHERE staff_uid = $1
+      AND status IN ('issued','viewed','downloaded')
+      AND (
+        (year = $2 AND month >= 4) OR
+        (year = $3 AND month <= 3)
+      )
+    ORDER BY year, month
+  `, [staffUid, startYear, endYear]);
+
+  if (payslips.rows.length === 0) {
+    throw new Error('No payslips found for this financial year');
+  }
+
+  const totals = payslips.rows.reduce((acc, p) => {
+    acc.basic       += parseFloat(p.basic_earned || 0);
+    acc.hra         += parseFloat(p.hra_earned || 0);
+    acc.da          += parseFloat(p.da_earned || 0);
+    acc.special     += parseFloat(p.special_allowance_earned || 0);
+    acc.transport   += parseFloat(p.transport_allowance_earned || 0);
+    acc.medical     += parseFloat(p.medical_allowance_earned || 0);
+    acc.overtime    += parseFloat(p.overtime_pay || 0);
+    acc.bonus       += parseFloat(p.bonus_this_month || 0);
+    acc.arrears     += parseFloat(p.arrears_amount || 0);
+    acc.gross       += parseFloat(p.gross_salary || 0);
+    acc.pf          += parseFloat(p.pf_employee || 0);
+    acc.esi         += parseFloat(p.esi_employee || 0);
+    acc.pt          += parseFloat(p.professional_tax || 0);
+    acc.tds         += parseFloat(p.tds || 0);
+    acc.advances    += parseFloat(p.advance_deduction || 0);
+    acc.deductions  += parseFloat(p.total_deductions || 0);
+    acc.net         += parseFloat(p.net_salary || 0);
+    return acc;
+  }, {
+    basic:0, hra:0, da:0, special:0, transport:0, medical:0,
+    overtime:0, bonus:0, arrears:0, gross:0,
+    pf:0, esi:0, pt:0, tds:0, advances:0, deductions:0, net:0
+  });
+
+  // Taxable income = Gross - PF - PT - Standard deduction (₹50,000)
+  const standardDeduction = 50000;
+  const taxableIncome = Math.max(0, totals.gross - totals.pf - totals.pt - standardDeduction);
+
+  // New regime tax calculation (FY 2025-26 slabs)
+  let taxPayable = 0;
+  if (taxableIncome > 300000) {
+    const slabs = [
+      [300000, 700000, 0.05],
+      [700000, 1000000, 0.10],
+      [1000000, 1200000, 0.15],
+      [1200000, 1500000, 0.20],
+      [1500000, Infinity, 0.30],
+    ];
+    for (const [low, high, rate] of slabs) {
+      if (taxableIncome > low) {
+        taxPayable += (Math.min(taxableIncome, high) - low) * rate;
+      }
+    }
+    // 4% health and education cess
+    taxPayable *= 1.04;
+  }
+
+  const summary = {
+    staff_uid: staffUid,
+    financial_year: financialYear,
+    total_basic: Math.round(totals.basic * 100) / 100,
+    total_hra: Math.round(totals.hra * 100) / 100,
+    total_da: Math.round(totals.da * 100) / 100,
+    total_special_allowance: Math.round(totals.special * 100) / 100,
+    total_transport_allowance: Math.round(totals.transport * 100) / 100,
+    total_medical_allowance: Math.round(totals.medical * 100) / 100,
+    total_overtime: Math.round(totals.overtime * 100) / 100,
+    total_bonus: Math.round(totals.bonus * 100) / 100,
+    total_arrears: Math.round(totals.arrears * 100) / 100,
+    total_gross: Math.round(totals.gross * 100) / 100,
+    total_pf: Math.round(totals.pf * 100) / 100,
+    total_esi: Math.round(totals.esi * 100) / 100,
+    total_professional_tax: Math.round(totals.pt * 100) / 100,
+    total_tds: Math.round(totals.tds * 100) / 100,
+    total_advance_deductions: Math.round(totals.advances * 100) / 100,
+    total_deductions: Math.round(totals.deductions * 100) / 100,
+    total_net: Math.round(totals.net * 100) / 100,
+    taxable_income: Math.round(taxableIncome * 100) / 100,
+    tax_payable: Math.round(taxPayable * 100) / 100,
+    months_included: payslips.rows.length,
+  };
+
+  const result = await db.query(`
+    INSERT INTO annual_tax_summaries (
+      staff_uid, financial_year, total_basic, total_hra, total_da,
+      total_special_allowance, total_transport_allowance, total_medical_allowance,
+      total_overtime, total_bonus, total_arrears, total_gross,
+      total_pf, total_esi, total_professional_tax, total_tds, total_advance_deductions,
+      total_deductions, total_net, taxable_income, tax_payable,
+      months_included, generated_at
+    ) VALUES (
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW()
+    )
+    ON CONFLICT (staff_uid, financial_year) DO UPDATE SET
+      total_basic=$3, total_hra=$4, total_da=$5,
+      total_special_allowance=$6, total_transport_allowance=$7, total_medical_allowance=$8,
+      total_overtime=$9, total_bonus=$10, total_arrears=$11, total_gross=$12,
+      total_pf=$13, total_esi=$14, total_professional_tax=$15, total_tds=$16,
+      total_advance_deductions=$17, total_deductions=$18, total_net=$19,
+      taxable_income=$20, tax_payable=$21, months_included=$22,
+      generated_at=NOW(), updated_at=NOW()
+    RETURNING *
+  `, [
+    summary.staff_uid, summary.financial_year, summary.total_basic, summary.total_hra, summary.total_da,
+    summary.total_special_allowance, summary.total_transport_allowance, summary.total_medical_allowance,
+    summary.total_overtime, summary.total_bonus, summary.total_arrears, summary.total_gross,
+    summary.total_pf, summary.total_esi, summary.total_professional_tax, summary.total_tds,
+    summary.total_advance_deductions, summary.total_deductions, summary.total_net,
+    summary.taxable_income, summary.tax_payable, summary.months_included,
+  ]);
+
+  return result.rows[0];
+}
+
+/**
+ * FEATURE 4: Calculate arrears when a salary revision is backdated.
+ */
+export async function calculateArrears(revisionId) {
+  const revision = await db.query(
+    "SELECT * FROM salary_revisions WHERE id=$1 AND status='applied'",
+    [revisionId]
+  );
+  if (revision.rows.length === 0) throw new Error('Revision not found or not applied');
+
+  const r = revision.rows[0];
+  if (!r.proposed_basic || !r.current_basic) throw new Error('No basic salary change in this revision');
+
+  const effectiveDate = new Date(r.effective_from);
+  const now = new Date();
+
+  // Check if revision was applied after effective_from (backdated)
+  if (effectiveDate >= new Date(r.applied_at || now)) {
+    return { arrears_amount: 0, message: 'No backdated arrears — revision applied before or on effective date' };
+  }
+
+  // Months where old salary was paid but new salary should have applied
+  const arrearMonths = [];
+  let d = new Date(effectiveDate);
+  d.setDate(1);
+  const appliedMonth = new Date(r.applied_at || now);
+  appliedMonth.setDate(1);
+
+  while (d < appliedMonth) {
+    arrearMonths.push({ month: d.getMonth() + 1, year: d.getFullYear() });
+    d.setMonth(d.getMonth() + 1);
+  }
+
+  if (arrearMonths.length === 0) return { arrears_amount: 0, message: 'No arrear months found' };
+
+  const diffBasic = parseFloat(r.proposed_basic) - parseFloat(r.current_basic);
+  let totalArrears = 0;
+
+  for (const { month, year } of arrearMonths) {
+    const payslip = await db.query(
+      'SELECT * FROM payslips WHERE staff_uid=$1 AND month=$2 AND year=$3',
+      [r.staff_uid, month, year]
+    );
+    if (payslip.rows.length > 0) {
+      const p = payslip.rows[0];
+      const attendanceFactor = p.days_present / (p.total_working_days || 26);
+      totalArrears += diffBasic * attendanceFactor;
+    } else {
+      totalArrears += diffBasic;
+    }
+  }
+
+  const fromDate = arrearMonths[0];
+  const toDate = arrearMonths[arrearMonths.length - 1];
+
+  const insertResult = await db.query(`
+    INSERT INTO salary_arrears (staff_uid, revision_id, from_month, from_year, to_month, to_year, arrears_amount)
+    VALUES ($1,$2,$3,$4,$5,$6,$7)
+    ON CONFLICT DO NOTHING
+    RETURNING *
+  `, [r.staff_uid, revisionId, fromDate.month, fromDate.year, toDate.month, toDate.year, Math.round(totalArrears * 100) / 100]);
+
+  return { arrears_amount: Math.round(totalArrears * 100) / 100, months: arrearMonths.length, result: insertResult.rows[0] };
 }

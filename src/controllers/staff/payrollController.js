@@ -4,8 +4,9 @@ import crypto from 'crypto';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import { calculatePayslip, savePayslip } from '../../services/staff/payrollService.js';
+import { calculatePayslip, savePayslip, generateAnnualTaxSummary, calculateArrears } from '../../services/staff/payrollService.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
+import { dispatch } from '../../utils/notifications/notificationDispatcher.js';
 
 // Try to import PDF generator — graceful fallback
 let generatePayslipPDF = null;
@@ -124,6 +125,34 @@ export const runPayroll = async (req, res) => {
         const calc = await calculatePayslip(staff.staff_uid, month, year);
         const saved = await savePayslip(runId, calc);
 
+        // ─── FEATURE 3: Process advance deductions after saving ──────────
+        if (calc._advances_to_process?.length > 0) {
+          for (const adv of calc._advances_to_process) {
+            await db.query(`
+              UPDATE salary_advances SET
+                total_deducted = total_deducted + $1,
+                months_remaining = GREATEST(0, months_remaining - 1),
+                status = CASE WHEN total_deducted + $1 >= amount THEN 'cleared' ELSE status END,
+                fully_cleared_at = CASE WHEN total_deducted + $1 >= amount THEN NOW() ELSE NULL END,
+                updated_at = NOW()
+              WHERE id = $2
+            `, [adv.amount, adv.id]);
+
+            await db.query(`
+              INSERT INTO advance_deductions (advance_id, payslip_id, staff_uid, month, year, amount_deducted, balance_after)
+              VALUES ($1,$2,$3,$4,$5,$6,$7)
+            `, [adv.id, saved.id, calc.staff_uid, calc.month, calc.year, adv.amount, adv.balanceAfter]);
+          }
+        }
+
+        // ─── FEATURE 4: Mark arrears as paid after saving ────────────────
+        if (calc.arrears_amount > 0) {
+          await db.query(`
+            UPDATE salary_arrears SET status='paid', paid_in_month=$1, paid_in_year=$2, payslip_id=$3
+            WHERE staff_uid=$4 AND status='pending'
+          `, [calc.month, calc.year, saved.id, calc.staff_uid]);
+        }
+
         // Generate and upload PDF
         if (generatePayslipPDF) {
           try {
@@ -221,6 +250,35 @@ export const issuePayslips = async (req, res) => {
 
     // Lock the run
     await db.query(`UPDATE payroll_runs SET status='locked' WHERE month=$1 AND year=$2`, [month, year]);
+
+    // ─── FEATURE 8: Send notifications to staff ──────────────────────────
+    const monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(month)-1];
+    setImmediate(async () => {
+      try {
+        const issuedStaff = await db.query(`
+          SELECT p.staff_uid, u.name, p.net_salary
+          FROM payslips p JOIN users u ON p.staff_uid = u.uid
+          WHERE p.month=$1 AND p.year=$2 AND p.status='issued'
+        `, [month, year]);
+
+        for (const staff of issuedStaff.rows) {
+          try {
+            await dispatch({
+              userId: staff.staff_uid,
+              title: `Payslip Ready — ${monthName} ${year}`,
+              body: `Your payslip for ${monthName} ${year} is available. Net Pay: ₹${Math.round(staff.net_salary).toLocaleString('en-IN')}`,
+              channels: ['push', 'inapp'],
+              data: { type: 'payslip', month: String(month), year: String(year) },
+              type: 'payslip',
+            });
+          } catch (e) {
+            logger.warn(`Payslip notification failed for ${staff.staff_uid}: ${e.message}`);
+          }
+        }
+      } catch (e) {
+        logger.warn('Payslip notification batch failed:', e.message);
+      }
+    });
 
     success(res, { issued: result.rowCount }, `${result.rowCount} payslips issued to staff`);
   } catch (err) {
@@ -329,7 +387,6 @@ export const getStaffSalaryConfig = async (req, res) => {
     `, [staffUid]);
 
     if (config.rows.length === 0) {
-      // Return user info without salary config
       const user = await db.query(
         'SELECT uid, name, role, phone FROM users WHERE uid = $1',
         [staffUid]
@@ -338,7 +395,6 @@ export const getStaffSalaryConfig = async (req, res) => {
     }
 
     const row = config.rows[0];
-    // Mask sensitive data
     if (row.bank_account) {
       row.bank_account = '****' + String(row.bank_account).slice(-4);
     }
@@ -368,7 +424,6 @@ export const upsertStaffSalaryConfig = async (req, res) => {
       return error(res, 'basic_salary is required and must be positive', HTTP_STATUS.BAD_REQUEST);
     }
 
-    // Verify staff exists
     const userCheck = await db.query('SELECT uid, name FROM users WHERE uid = $1', [staffUid]);
     if (userCheck.rows.length === 0) {
       return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
@@ -401,7 +456,6 @@ export const upsertStaffSalaryConfig = async (req, res) => {
     ]);
 
     const row = result.rows[0];
-    // Mask on return
     if (row.bank_account) row.bank_account = '****' + String(row.bank_account).slice(-4);
     if (row.pan_number) row.pan_number = row.pan_number.substring(0, 2) + '***' + row.pan_number.slice(-3);
 
@@ -413,7 +467,6 @@ export const upsertStaffSalaryConfig = async (req, res) => {
 };
 
 // ─── Admin: Manually edit a payslip component before issuing ─────────────────
-// Allows corrections to individual payslip lines before dual sign-off
 export const manualEditPayslip = async (req, res) => {
   try {
     const { id } = req.params;
@@ -422,7 +475,6 @@ export const manualEditPayslip = async (req, res) => {
 
     if (!edit_reason) return error(res, 'edit_reason is required for manual edits', HTTP_STATUS.BAD_REQUEST);
 
-    // Only allow edits before the run is HR/Admin approved
     const payslip = await db.query(`
       SELECT p.*, pr.hr_approved_at, pr.admin_approved_at
       FROM payslips p
@@ -438,7 +490,6 @@ export const manualEditPayslip = async (req, res) => {
       return error(res, 'Cannot edit an already-issued payslip', HTTP_STATUS.FORBIDDEN);
     }
 
-    // Allowed editable fields
     const allowed = [
       'basic_earned', 'hra_earned', 'da_earned', 'special_allowance_earned',
       'transport_allowance_earned', 'medical_allowance_earned', 'overtime_pay',
@@ -450,31 +501,28 @@ export const manualEditPayslip = async (req, res) => {
     const fields = Object.keys(edits).filter(k => allowed.includes(k));
     if (fields.length === 0) return error(res, 'No valid editable fields provided', HTTP_STATUS.BAD_REQUEST);
 
-    // Recalculate gross and net from edits
     const setClauses = fields.map((f, i) => `${f} = $${i + 2}`).join(', ');
     const values = fields.map(f => edits[f]);
 
-    // Apply the field edits first
     await db.query(`UPDATE payslips SET ${setClauses} WHERE id = $1`, [id, ...values]);
 
-    // Recalculate gross / total_deductions / net
     await db.query(`
       UPDATE payslips SET
         gross_salary = basic_earned + hra_earned + da_earned + special_allowance_earned
                      + transport_allowance_earned + medical_allowance_earned
-                     + overtime_pay + COALESCE(bonus_this_month, 0),
+                     + overtime_pay + COALESCE(bonus_this_month, 0) + COALESCE(arrears_amount, 0),
         total_deductions = pf_employee + esi_employee + professional_tax + tds
                          + COALESCE(other_deductions, 0),
         net_salary = (basic_earned + hra_earned + da_earned + special_allowance_earned
                     + transport_allowance_earned + medical_allowance_earned
-                    + overtime_pay + COALESCE(bonus_this_month, 0))
-                   - (pf_employee + esi_employee + professional_tax + tds + COALESCE(other_deductions, 0)),
+                    + overtime_pay + COALESCE(bonus_this_month, 0) + COALESCE(arrears_amount, 0))
+                   - (pf_employee + esi_employee + professional_tax + tds + COALESCE(other_deductions, 0)
+                      + COALESCE(advance_deduction, 0)),
         manually_edited = true,
         edit_reason = $1,
         edited_by = $2,
         edited_at = NOW(),
         updated_at = NOW(),
-        -- Invalidate old PDF — will regenerate on issue
         pdf_key = NULL,
         pdf_generated_at = NULL
       WHERE id = $3
@@ -537,7 +585,6 @@ export const adminSignPayrollRun = async (req, res) => {
       return error(res, 'HR signer and Admin countersigner cannot be the same person', HTTP_STATUS.FORBIDDEN);
     }
 
-    // Compute integrity hash over the payslip totals
     const hash = crypto
       .createHash('sha256')
       .update(`${runId}:${run.rows[0].month}:${run.rows[0].year}:${run.rows[0].total_gross}:${run.rows[0].hr_approved_by}:${adminUid}`)
@@ -555,5 +602,324 @@ export const adminSignPayrollRun = async (req, res) => {
   } catch (err) {
     logger.error('Admin Sign Payroll Run Error:', err);
     error(res, 'Failed to countersign payroll run', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ─── FEATURE 1: Annual Tax Summary ───────────────────────────────────────────
+
+// Staff: Get my annual tax summary
+export const getMyTaxSummary = async (req, res) => {
+  try {
+    const staffUid = req.user?.uid;
+    const { fy } = req.query;
+    const now = new Date();
+    const financialYear = fy || (now.getMonth() >= 3
+      ? `${now.getFullYear()}-${String(now.getFullYear() + 1).slice(-2)}`
+      : `${now.getFullYear() - 1}-${String(now.getFullYear()).slice(-2)}`);
+
+    let summary = await db.query(
+      'SELECT * FROM annual_tax_summaries WHERE staff_uid=$1 AND financial_year=$2',
+      [staffUid, financialYear]
+    );
+
+    if (summary.rows.length === 0) {
+      const generated = await generateAnnualTaxSummary(staffUid, financialYear);
+      return success(res, generated, 'Annual tax summary generated');
+    }
+
+    let pdfUrl = null;
+    if (summary.rows[0].pdf_key) {
+      pdfUrl = await getSignedFileUrl(summary.rows[0].pdf_key, 3600).catch(() => null);
+    }
+    success(res, { ...summary.rows[0], pdf_url: pdfUrl }, 'Annual tax summary fetched');
+  } catch (err) {
+    logger.error('Get Tax Summary Error:', err);
+    error(res, err.message || 'Failed to fetch tax summary', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// Admin: Generate/regenerate annual tax summary for all staff
+export const generateAllTaxSummaries = async (req, res) => {
+  try {
+    const { financial_year } = req.body;
+    if (!financial_year) return error(res, 'financial_year required (e.g. 2025-26)', HTTP_STATUS.BAD_REQUEST);
+
+    const staffList = await db.query(
+      `SELECT DISTINCT staff_uid FROM payslips WHERE status IN ('issued','viewed','downloaded')`
+    );
+    let generated = 0, failed = 0;
+
+    for (const s of staffList.rows) {
+      try {
+        await generateAnnualTaxSummary(s.staff_uid, financial_year);
+        generated++;
+      } catch (e) {
+        logger.warn(`Tax summary failed for ${s.staff_uid}: ${e.message}`);
+        failed++;
+      }
+    }
+
+    success(res, { generated, failed }, `Tax summaries generated: ${generated} staff`);
+  } catch (err) {
+    logger.error('Generate All Tax Summaries Error:', err);
+    error(res, 'Failed to generate tax summaries', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ─── FEATURE 3: Salary Advances ──────────────────────────────────────────────
+
+// Admin: Create advance/loan for staff
+export const createAdvance = async (req, res) => {
+  try {
+    const adminUid = req.user?.uid;
+    const { staff_uid, amount, reason, monthly_deduction, deduction_start_month, deduction_start_year, notes } = req.body;
+
+    if (!staff_uid || !amount || !monthly_deduction || !reason) {
+      return error(res, 'staff_uid, amount, monthly_deduction, and reason are required', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const months_remaining = Math.ceil(parseFloat(amount) / parseFloat(monthly_deduction));
+
+    const result = await db.query(`
+      INSERT INTO salary_advances (staff_uid, amount, reason, approved_by, approved_at, status,
+        monthly_deduction, months_remaining, deduction_start_month, deduction_start_year, notes)
+      VALUES ($1,$2,$3,$4,NOW(),'approved',$5,$6,$7,$8,$9)
+      RETURNING *
+    `, [
+      staff_uid, amount, reason, adminUid, monthly_deduction, months_remaining,
+      deduction_start_month || new Date().getMonth() + 1,
+      deduction_start_year || new Date().getFullYear(),
+      notes || null,
+    ]);
+
+    success(res, result.rows[0], `Advance of ₹${amount} approved. ${months_remaining} monthly deductions of ₹${monthly_deduction}`);
+  } catch (err) {
+    logger.error('Create Advance Error:', err);
+    error(res, 'Failed to create advance', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// Staff: Get my advances
+export const getMyAdvances = async (req, res) => {
+  try {
+    const staffUid = req.user?.uid;
+    const advances = await db.query(`
+      SELECT sa.*, u.name as approved_by_name,
+             (sa.amount - sa.total_deducted) as balance_remaining
+      FROM salary_advances sa
+      LEFT JOIN users u ON sa.approved_by = u.uid
+      WHERE sa.staff_uid = $1 ORDER BY sa.created_at DESC
+    `, [staffUid]);
+    success(res, advances.rows, 'Advances fetched');
+  } catch (err) {
+    logger.error('Get My Advances Error:', err);
+    error(res, 'Failed to fetch advances', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// Admin: Get all advances
+export const getAllAdvances = async (req, res) => {
+  try {
+    const { status } = req.query;
+    const params = [];
+    let where = '';
+    if (status) {
+      where = 'WHERE sa.status = $1';
+      params.push(status);
+    }
+    const advances = await db.query(`
+      SELECT sa.*, u.name as staff_name, u.department,
+             (sa.amount - sa.total_deducted) as balance_remaining
+      FROM salary_advances sa JOIN users u ON sa.staff_uid = u.uid
+      ${where} ORDER BY sa.created_at DESC
+    `, params);
+    success(res, advances.rows, 'Advances fetched');
+  } catch (err) {
+    logger.error('Get All Advances Error:', err);
+    error(res, 'Failed to fetch advances', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ─── FEATURE 4: Arrears ──────────────────────────────────────────────────────
+
+// Admin: Calculate arrears for a revision
+export const calculateRevisionArrears = async (req, res) => {
+  try {
+    const { revisionId } = req.params;
+    const result = await calculateArrears(parseInt(revisionId));
+    success(res, result, result.message || `Arrears calculated: ₹${result.arrears_amount}`);
+  } catch (err) {
+    logger.error('Calculate Arrears Error:', err);
+    error(res, err.message, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ─── FEATURE 6: Payroll Summary Export ───────────────────────────────────────
+
+export const exportPayrollSummary = async (req, res) => {
+  try {
+    const { month, year } = req.query;
+    if (!month || !year) return error(res, 'month and year required', HTTP_STATUS.BAD_REQUEST);
+
+    const payslips = await db.query(`
+      SELECT
+        u.name as employee_name,
+        ss.employee_id, ss.designation, u.department,
+        ss.bank_account, ss.bank_ifsc,
+        p.days_present, p.days_absent,
+        COALESCE(p.lop_days, 0) as lop_days,
+        p.overtime_hours,
+        p.basic_earned, p.hra_earned, p.da_earned, p.special_allowance_earned,
+        p.transport_allowance_earned, p.medical_allowance_earned,
+        p.overtime_pay,
+        COALESCE(p.bonus_this_month, 0) as bonus,
+        COALESCE(p.arrears_amount, 0) as arrears,
+        p.gross_salary, p.pf_employee, p.esi_employee, p.professional_tax, p.tds,
+        COALESCE(p.advance_deduction, 0) as advance_deduction,
+        p.total_deductions, p.net_salary, p.status
+      FROM payslips p
+      JOIN users u ON p.staff_uid = u.uid
+      LEFT JOIN staff_salary ss ON ss.staff_uid = p.staff_uid
+      WHERE p.month = $1 AND p.year = $2
+      ORDER BY u.name
+    `, [month, year]);
+
+    if (payslips.rows.length === 0) return error(res, 'No payslips found', HTTP_STATUS.NOT_FOUND);
+
+    const headers = [
+      'Employee Name','Employee ID','Designation','Department','Bank Account','IFSC',
+      'Days Present','Days Absent','LOP Days','OT Hours',
+      'Basic','HRA','DA','Special Allowance','Transport','Medical',
+      'OT Pay','Bonus','Arrears','Gross',
+      'PF','ESI','Prof Tax','TDS','Advance Deduction','Total Deductions','Net Pay','Status',
+    ];
+
+    const csvRows = [headers.join(',')];
+    for (const r of payslips.rows) {
+      const row = [
+        `"${r.employee_name || ''}"`,
+        `"${r.employee_id || ''}"`,
+        `"${r.designation || ''}"`,
+        `"${r.department || ''}"`,
+        `"${r.bank_account ? '****' + String(r.bank_account).slice(-4) : ''}"`,
+        `"${r.bank_ifsc || ''}"`,
+        r.days_present, r.days_absent, r.lop_days || 0, r.overtime_hours || 0,
+        r.basic_earned, r.hra_earned, r.da_earned, r.special_allowance_earned,
+        r.transport_allowance_earned, r.medical_allowance_earned,
+        r.overtime_pay, r.bonus, r.arrears, r.gross_salary,
+        r.pf_employee, r.esi_employee, r.professional_tax, r.tds,
+        r.advance_deduction, r.total_deductions, r.net_salary,
+        `"${r.status}"`,
+      ];
+      csvRows.push(row.join(','));
+    }
+
+    const totals = payslips.rows.reduce((acc, r) => {
+      acc.gross += parseFloat(r.gross_salary || 0);
+      acc.pf += parseFloat(r.pf_employee || 0);
+      acc.tds += parseFloat(r.tds || 0);
+      acc.net += parseFloat(r.net_salary || 0);
+      return acc;
+    }, { gross: 0, pf: 0, tds: 0, net: 0 });
+
+    csvRows.push(`"TOTAL","","","","","","","","","","","","","","","","","","","${totals.gross.toFixed(2)}","${totals.pf.toFixed(2)}","","","${totals.tds.toFixed(2)}","","","${totals.net.toFixed(2)}",""`);
+
+    const monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(month)-1];
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="payroll_${monthName}_${year}.csv"`);
+    res.send(csvRows.join('\n'));
+  } catch (err) {
+    logger.error('Export Payroll Error:', err);
+    error(res, 'Failed to export payroll', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ─── FEATURE 7: PF/ESI Registers ─────────────────────────────────────────────
+
+// PF ECR (Electronic Challan cum Return) format
+export const exportPFRegister = async (req, res) => {
+  try {
+    const { month, year } = req.query;
+    if (!month || !year) return error(res, 'month and year required', HTTP_STATUS.BAD_REQUEST);
+
+    const payslips = await db.query(`
+      SELECT u.name, ss.pf_uan, ss.employee_id, p.basic_earned, p.pf_employee
+      FROM payslips p
+      JOIN users u ON p.staff_uid = u.uid
+      JOIN staff_salary ss ON ss.staff_uid = p.staff_uid
+      WHERE p.month=$1 AND p.year=$2
+        AND p.pf_employee > 0
+        AND p.status IN ('issued','viewed','downloaded')
+      ORDER BY u.name
+    `, [month, year]);
+
+    const headers = '#,UAN,Member Name,Gross Wages,EPF Wages,EPS Wages,EDLI Wages,EPF Contribution,EPS Contribution,EPF EPS Diff,NCP Days,Refund of Advances';
+    const rows = [headers];
+
+    payslips.rows.forEach((r, i) => {
+      const epfWages = Math.min(parseFloat(r.basic_earned), 15000);
+      const epsWages = Math.min(parseFloat(r.basic_earned), 15000);
+      const epfContrib = Math.round(epfWages * 0.12 * 100) / 100;
+      const epsContrib = Math.round(epsWages * 0.0833 * 100) / 100;
+      const epfEpsDiff = Math.round((epfContrib - epsContrib) * 100) / 100;
+
+      rows.push([
+        i + 1,
+        r.pf_uan || '',
+        `"${r.name}"`,
+        parseFloat(r.basic_earned).toFixed(2),
+        epfWages.toFixed(2),
+        epsWages.toFixed(2),
+        epfWages.toFixed(2),
+        epfContrib.toFixed(2),
+        epsContrib.toFixed(2),
+        epfEpsDiff.toFixed(2),
+        0, 0,
+      ].join(','));
+    });
+
+    const monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(month)-1];
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="PF_ECR_${monthName}_${year}.csv"`);
+    res.send(rows.join('\n'));
+  } catch (err) {
+    logger.error('Export PF Register Error:', err);
+    error(res, 'Failed to export PF register', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ESI register
+export const exportESIRegister = async (req, res) => {
+  try {
+    const { month, year } = req.query;
+    if (!month || !year) return error(res, 'month and year required', HTTP_STATUS.BAD_REQUEST);
+
+    const payslips = await db.query(`
+      SELECT u.name, ss.employee_id, p.gross_salary, p.esi_employee,
+             ROUND(p.gross_salary * 0.0325, 2) as esi_employer
+      FROM payslips p
+      JOIN users u ON p.staff_uid = u.uid
+      JOIN staff_salary ss ON ss.staff_uid = p.staff_uid
+      WHERE p.month=$1 AND p.year=$2
+        AND p.esi_employee > 0
+        AND p.status IN ('issued','viewed','downloaded')
+      ORDER BY u.name
+    `, [month, year]);
+
+    const headers = 'Sr No,Employee Name,Employee Code,Gross Wages,Employee ESI (0.75%),Employer ESI (3.25%),Total ESI';
+    const rows = [headers];
+
+    payslips.rows.forEach((r, i) => {
+      const total = parseFloat(r.esi_employee) + parseFloat(r.esi_employer);
+      rows.push(`${i+1},"${r.name}","${r.employee_id || ''}",${parseFloat(r.gross_salary).toFixed(2)},${parseFloat(r.esi_employee).toFixed(2)},${parseFloat(r.esi_employer).toFixed(2)},${total.toFixed(2)}`);
+    });
+
+    const monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(month)-1];
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="ESI_Register_${monthName}_${year}.csv"`);
+    res.send(rows.join('\n'));
+  } catch (err) {
+    logger.error('Export ESI Register Error:', err);
+    error(res, 'Failed to export ESI register', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };

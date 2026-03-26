@@ -69,6 +69,8 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
     // Payroll (staff: view own payslips)
     ['/payslips', payrollController.getMyPayslips],
     ['/payslips/:id', payrollController.getPayslipDetail],
+    ['/payroll/tax-summary', payrollController.getMyTaxSummary],
+    ['/payroll/advances', payrollController.getMyAdvances],
   ],
   
   post: [
