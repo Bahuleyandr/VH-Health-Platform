@@ -351,7 +351,10 @@ class _RecordsScreenState extends State<RecordsScreen>
   Widget build(BuildContext context) {
     return FeatureScreenScaffold(
       title: 'My Records',
-      body: _loading
+      icon: Icons.folder_outlined,
+      color: const Color(0xFF007A64),
+      heroTag: 'records',
+      child: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? _errorView()

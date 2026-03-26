@@ -1580,29 +1580,148 @@ abstract class AppLocalizations {
   /// **'Storage permission is required to download files.'**
   String get downloadPermissionDenied;
 
+  /// No description provided for @yourHealthTabRecords.
+  ///
+  /// In en, this message translates to:
+  /// **'Records'**
   String get yourHealthTabRecords;
+
+  /// No description provided for @yourHealthTabConsultations.
+  ///
+  /// In en, this message translates to:
+  /// **'Consultations'**
   String get yourHealthTabConsultations;
+
+  /// No description provided for @yourHealthTabSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'Summary'**
   String get yourHealthTabSummary;
+
+  /// No description provided for @consultationDoctor.
+  ///
+  /// In en, this message translates to:
+  /// **'Doctor'**
   String get consultationDoctor;
+
+  /// No description provided for @consultationDiagnosis.
+  ///
+  /// In en, this message translates to:
+  /// **'Diagnosis'**
   String get consultationDiagnosis;
+
+  /// No description provided for @consultationNotes.
+  ///
+  /// In en, this message translates to:
+  /// **'Notes'**
   String get consultationNotes;
+
+  /// No description provided for @consultationDate.
+  ///
+  /// In en, this message translates to:
+  /// **'Date'**
   String get consultationDate;
+
+  /// No description provided for @consultationsEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No consultations found'**
   String get consultationsEmpty;
+
+  /// No description provided for @summaryAllergies.
+  ///
+  /// In en, this message translates to:
+  /// **'Allergies'**
   String get summaryAllergies;
+
+  /// No description provided for @summaryConditions.
+  ///
+  /// In en, this message translates to:
+  /// **'Conditions'**
   String get summaryConditions;
+
+  /// No description provided for @summaryOverview.
+  ///
+  /// In en, this message translates to:
+  /// **'Health Overview'**
   String get summaryOverview;
+
+  /// No description provided for @summaryNoAllergies.
+  ///
+  /// In en, this message translates to:
+  /// **'No known allergies'**
   String get summaryNoAllergies;
+
+  /// No description provided for @summaryNoConditions.
+  ///
+  /// In en, this message translates to:
+  /// **'No known conditions'**
   String get summaryNoConditions;
+
+  /// No description provided for @summaryNoData.
+  ///
+  /// In en, this message translates to:
+  /// **'No health summary available'**
   String get summaryNoData;
+
+  /// No description provided for @investigationsResultsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Investigation Results'**
   String get investigationsResultsTitle;
+
+  /// No description provided for @investigationsTabUpload.
+  ///
+  /// In en, this message translates to:
+  /// **'Upload'**
   String get investigationsTabUpload;
+
+  /// No description provided for @investigationsTabResults.
+  ///
+  /// In en, this message translates to:
+  /// **'Results'**
   String get investigationsTabResults;
+
+  /// No description provided for @investigationsStatusPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Pending'**
   String get investigationsStatusPending;
+
+  /// No description provided for @investigationsStatusCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
   String get investigationsStatusCompleted;
+
+  /// No description provided for @investigationsNoResults.
+  ///
+  /// In en, this message translates to:
+  /// **'No investigation results yet'**
   String get investigationsNoResults;
+
+  /// No description provided for @investigationsDownloadReport.
+  ///
+  /// In en, this message translates to:
+  /// **'Download Report'**
   String get investigationsDownloadReport;
+
+  /// No description provided for @investigationsDownloadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to download report'**
   String get investigationsDownloadFailed;
+
+  /// No description provided for @investigationsFiles.
+  ///
+  /// In en, this message translates to:
+  /// **'Files'**
   String get investigationsFiles;
+
+  /// No description provided for @profileIncomplete.
+  ///
+  /// In en, this message translates to:
+  /// **'Please complete your profile to continue'**
   String get profileIncomplete;
 }
 

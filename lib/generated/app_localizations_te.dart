@@ -805,51 +805,74 @@ class AppLocalizationsTe extends AppLocalizations {
       'ఫైల్‌లను డౌన్‌లోడ్ చేయడానికి నిల్వ అనుమతి అవసరం.';
 
   @override
-  String get yourHealthTabRecords => "Records";
+  String get yourHealthTabRecords => 'Records';
+
   @override
-  String get yourHealthTabConsultations => "Consultations";
+  String get yourHealthTabConsultations => 'Consultations';
+
   @override
-  String get yourHealthTabSummary => "Summary";
+  String get yourHealthTabSummary => 'Summary';
+
   @override
-  String get consultationDoctor => "Doctor";
+  String get consultationDoctor => 'Doctor';
+
   @override
-  String get consultationDiagnosis => "Diagnosis";
+  String get consultationDiagnosis => 'Diagnosis';
+
   @override
-  String get consultationNotes => "Notes";
+  String get consultationNotes => 'Notes';
+
   @override
-  String get consultationDate => "Date";
+  String get consultationDate => 'Date';
+
   @override
-  String get consultationsEmpty => "No consultations found";
+  String get consultationsEmpty => 'No consultations found';
+
   @override
-  String get summaryAllergies => "Allergies";
+  String get summaryAllergies => 'Allergies';
+
   @override
-  String get summaryConditions => "Conditions";
+  String get summaryConditions => 'Conditions';
+
   @override
-  String get summaryOverview => "Health Overview";
+  String get summaryOverview => 'Health Overview';
+
   @override
-  String get summaryNoAllergies => "No known allergies";
+  String get summaryNoAllergies => 'No known allergies';
+
   @override
-  String get summaryNoConditions => "No known conditions";
+  String get summaryNoConditions => 'No known conditions';
+
   @override
-  String get summaryNoData => "No health summary available";
+  String get summaryNoData => 'No health summary available';
+
   @override
-  String get investigationsResultsTitle => "Investigation Results";
+  String get investigationsResultsTitle => 'Investigation Results';
+
   @override
-  String get investigationsTabUpload => "Upload";
+  String get investigationsTabUpload => 'Upload';
+
   @override
-  String get investigationsTabResults => "Results";
+  String get investigationsTabResults => 'Results';
+
   @override
-  String get investigationsStatusPending => "Pending";
+  String get investigationsStatusPending => 'Pending';
+
   @override
-  String get investigationsStatusCompleted => "Completed";
+  String get investigationsStatusCompleted => 'Completed';
+
   @override
-  String get investigationsNoResults => "No investigation results yet";
+  String get investigationsNoResults => 'No investigation results yet';
+
   @override
-  String get investigationsDownloadReport => "Download Report";
+  String get investigationsDownloadReport => 'Download Report';
+
   @override
-  String get investigationsDownloadFailed => "Failed to download report";
+  String get investigationsDownloadFailed => 'Failed to download report';
+
   @override
-  String get investigationsFiles => "Files";
+  String get investigationsFiles => 'Files';
+
   @override
-  String get profileIncomplete => "Please complete your profile to continue";
+  String get profileIncomplete => 'Please complete your profile to continue';
 }
