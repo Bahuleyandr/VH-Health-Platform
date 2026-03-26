@@ -108,12 +108,33 @@ export interface SystemSetting {
 
 export interface PharmacyOrder {
   id: number;
+  order_number: string;
   patient_name: string;
-  doctor_name: string;
-  order_date: string; // ISO date string
-  status: "PENDING" | "COMPLETED" | "CANCELLED";
-  total_amount: number;
-  items: Array<{ name: string; quantity: number }>;
+  phone: string;
+  order_note: string | null;
+  prescription_photo_key: string | null;
+  prescription_photo_url: string | null;
+  delivery_type: "delivery" | "pickup";
+  delivery_address: string | null;
+  delivery_phone: string | null;
+  status: "PLACED" | "CONFIRMED" | "PREPARING" | "DISPATCHED" | "DELIVERED" | "CANCELLED" | "PENDING" | "COMPLETED";
+  total_cost: number | null;
+  items_list: Array<{ name: string; qty: number; price: number }> | null;
+  confirmed_at: string | null;
+  dispatched_at: string | null;
+  delivered_at: string | null;
+  cancelled_at: string | null;
+  cancellation_reason: string | null;
+  delivery_person: string | null;
+  delivery_person_phone: string | null;
+  sla_breached: boolean;
+  mins_since_placed: number;
+  created_at: string;
+  // Legacy compat
+  doctor_name?: string;
+  order_date?: string;
+  total_amount?: number;
+  items?: Array<{ name: string; quantity: number }>;
 }
 
 export interface PharmacyAnalytics {
@@ -121,6 +142,21 @@ export interface PharmacyAnalytics {
   total_orders: number;
   pending_orders: number;
   top_selling_medicines: Array<{ name: string; total_quantity: number }>;
+}
+
+export interface PharmacyCatalogItem {
+  id: number;
+  name: string;
+  generic_name: string | null;
+  category: string;
+  manufacturer: string | null;
+  unit_price: number | null;
+  pack_size: string | null;
+  requires_prescription: boolean;
+  in_stock: boolean;
+  stock_quantity: number;
+  reorder_level: number;
+  is_active: boolean;
 }
 
 /* =========================
