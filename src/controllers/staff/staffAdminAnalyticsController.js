@@ -9,6 +9,10 @@ export const getPerformanceAnalytics = async (req, res) => {
   try {
     const { department, timeframe = 'quarterly' } = req.query;
     
+    // Whitelist timeframe to prevent SQL injection via INTERVAL
+    const intervalMap = { quarterly: '3 months', yearly: '1 year', monthly: '1 month' };
+    const safeInterval = intervalMap[timeframe] || '1 year';
+    
     const analytics = await db.query(`
       SELECT 
         s.department,
@@ -19,7 +23,7 @@ export const getPerformanceAnalytics = async (req, res) => {
       FROM performance_reviews pr
       JOIN staff s ON pr.staff_id = s.id
       WHERE 
-        pr.created_at >= CURRENT_DATE - INTERVAL '${timeframe === 'quarterly' ? '3 months' : '1 year'}'
+        pr.created_at >= CURRENT_DATE - INTERVAL '${safeInterval}'
         ${department ? 'AND s.department = $1' : ''}
       GROUP BY s.department
     `, department ? [department] : []);

@@ -307,22 +307,25 @@ export const purgeOldRecords = async (req, res) => {
     const { older_than_days = 365, record_type = 'attendance' } = req.body;
     const purgedBy = req.user?.uid;
 
+    // Sanitize: ensure older_than_days is a positive integer
+    const safeDays = Math.max(1, Math.floor(Number(older_than_days) || 365));
+
     let result;
     switch (record_type) {
       case 'attendance':
         result = await db.query(`
           DELETE FROM staff_attendance
-          WHERE check_in_time < NOW() - INTERVAL '${older_than_days} days'
+          WHERE check_in_time < NOW() - make_interval(days => $1)
           RETURNING id
-        `);
+        `, [safeDays]);
         break;
       case 'reviews':
         result = await db.query(`
           DELETE FROM performance_reviews
-          WHERE created_at < NOW() - INTERVAL '${older_than_days} days'
+          WHERE created_at < NOW() - make_interval(days => $1)
           AND status = 'completed'
           RETURNING id
-        `);
+        `, [safeDays]);
         break;
       default:
         return error(res, 'Invalid record type', HTTP_STATUS.BAD_REQUEST);
