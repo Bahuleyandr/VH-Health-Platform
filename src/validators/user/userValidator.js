@@ -36,6 +36,7 @@ export const userValidation = [
     .trim(),
   body('emergency_contact')
     .optional()
+    .isString()
     .withMessage('Emergency contact is invalid'),
   body('blood_group')
     .optional()

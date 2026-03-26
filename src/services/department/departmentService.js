@@ -310,28 +310,36 @@ class DepartmentService {
   async getDepartmentsWithDoctors() {
     try {
       const result = await db.query(`
-        SELECT d.id, d.name, d.description, d.location,
+        SELECT d.id, d.name, d.description, d.location, d.contact_number,
                COUNT(doc.user_id) as doctor_count,
                json_agg(
                  json_build_object(
                    'id', u.id,
                    'name', u.name,
                    'specialization', doc.specialization,
-                   'is_available', doc.is_available
+                   'is_available', doc.is_available,
+                   'experience_years', doc.experience_years,
+                   'consultation_fee', doc.consultation_fee,
+                   'available_days', doc.available_days,
+                   'available_hours', doc.available_hours,
+                   'bio', doc.bio,
+                   'education', doc.education,
+                   'qualifications', doc.qualifications,
+                   'image_url', null
                  )
-               ) as doctors
+               ) FILTER (WHERE u.id IS NOT NULL) as doctors
         FROM departments d
-        LEFT JOIN doctors doc ON doc.department = d.name
+        LEFT JOIN doctors doc ON doc.department_id = d.id
         LEFT JOIN users u ON doc.user_id = u.id
         WHERE d.is_active = true
-        GROUP BY d.id, d.name, d.description, d.location
+        GROUP BY d.id, d.name, d.description, d.location, d.contact_number
         ORDER BY d.name
       `);
       
       return result.rows.map(dept => ({
         ...dept,
         doctor_count: parseInt(dept.doctor_count),
-        doctors: dept.doctors[0]?.id ? dept.doctors : []
+        doctors: dept.doctors || []
       }));
     } catch (error) {
       logger.error('Database error in getDepartmentsWithDoctors:', error);

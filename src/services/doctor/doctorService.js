@@ -262,7 +262,7 @@ export class DoctorService {
         RETURNING *
       `, [
         updates.specialization,
-        updates.department?.toUpperCase(),
+        updates.department,
         updates.experience_years,
         updates.consultation_fee,
         updates.bio,
