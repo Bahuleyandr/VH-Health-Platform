@@ -18,6 +18,7 @@ import 'package:vhhealth/features/appointments/screens/appointments_screen.dart'
 import 'package:vhhealth/features/records/screens/records_screen.dart';
 import 'package:vhhealth/features/pharmacy/screens/pharmacy_screen.dart';
 import 'package:vhhealth/features/investigations/screens/investigations_screen.dart';
+import 'package:vhhealth/features/investigations/screens/book_investigation_screen.dart';
 import 'package:vhhealth/features/feedback/screens/ask_a_doubt_screen.dart';
 import 'package:vhhealth/features/feedback/screens/feedback_history_screen.dart';
 import 'package:vhhealth/features/trivia/screens/trivia_screen.dart';
@@ -193,6 +194,10 @@ class AppRouter {
         builder: (context, state) => InvestigationsScreen(
           phone: _userPhone ?? '',
         ),
+      ),
+      GoRoute(
+        path: '/book-investigation',
+        builder: (context, state) => const BookInvestigationScreen(),
       ),
       GoRoute(
         path: '/ask-a-doubt',

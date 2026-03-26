@@ -16,6 +16,8 @@ import 'package:vhhealth/core/config/api_config.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
+import 'package:vhhealth/features/investigations/screens/book_investigation_screen.dart';
+import 'package:vhhealth/features/investigations/screens/my_bookings_screen.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 class InvestigationsScreen extends StatefulWidget {
@@ -60,7 +62,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     _isGuest = widget.phone.toLowerCase() == 'guest' ||
         widget.phone.trim().isEmpty;
     _phoneController.text = _isGuest ? '' : widget.phone;
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     if (!_isGuest) {
       _loadPatientIdAndFetch();
     } else {
@@ -488,6 +490,10 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
             unselectedLabelColor: cs.onSurfaceVariant,
             indicatorColor: cs.primary,
             tabs: [
+              const Tab(
+                icon: Icon(Icons.science_outlined, size: 18),
+                text: 'My Bookings',
+              ),
               Tab(
                 icon: const Icon(Icons.upload_file_outlined, size: 18),
                 text: l10n.investigationsTabUpload,
@@ -502,6 +508,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
             child: TabBarView(
               controller: _tabController,
               children: [
+                _buildBookingsTab(context),
                 _buildUploadTab(context),
                 _buildResultsTab(context),
               ],
@@ -509,6 +516,37 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildBookingsTab(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      children: [
+        // Book Investigation button
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const BookInvestigationScreen(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.add),
+              label: const Text('Book Investigation'),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
+          ),
+        ),
+        // My bookings list
+        const Expanded(child: MyBookingsScreen()),
+      ],
     );
   }
 
