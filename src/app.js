@@ -19,6 +19,7 @@ import jwtAuth from './middleware/jwtMiddleware.js';
 import { requireRole } from './middleware/rbacMiddleware.js';
 import loggingMiddleware from './middleware/loggingMiddleware.js';
 import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
+import { auditLogMiddleware } from './middleware/auditLog.js';
 import { patientRateLimiter, genericLimiter, adminRateLimiter } from './middleware/rateLimitMiddleware.js';
 import validateApiKey from './middleware/validateApiKey.js';
 
@@ -100,6 +101,9 @@ app.use(logger.morganMiddleware);
 // User context middleware
 app.use(attachUserContext);
 // NOTE: normalizeIdentityFields now runs AFTER authMiddleware below
+
+// Universal audit log — fire-and-forget, captures all routes, handles null user gracefully
+app.use(auditLogMiddleware);
 
 // ====================================
 // PUBLIC ROUTES (No authentication required)

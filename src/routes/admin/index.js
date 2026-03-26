@@ -4,6 +4,7 @@ import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import logger from '../../logging/logger.js';
 
 // Sub-routers (must remain mounted)
+import auditRoutes from './auditRoutes.js';
 import appointmentAdminRoutes from '../appointment/appointmentAdminRoutes.js';
 import adminDoctorRoutes from '../doctor/adminDoctorRoutes.js';
 import adminDepartmentRoutes from '../department/adminDepartmentRoutes.js';
@@ -598,6 +599,7 @@ wrapAutoRBAC(router, 'adminDashboard', {
 /*                           Mount admin sub-routers                           */
 /* -------------------------------------------------------------------------- */
 
+router.use('/audit', auditRoutes);
 router.use('/appointments', appointmentAdminRoutes);
 router.use('/doctors', adminDoctorRoutes);
 router.use('/departments', adminDepartmentRoutes);
