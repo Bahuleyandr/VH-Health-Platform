@@ -45,6 +45,7 @@ const navigation: NavItem[] = [
   { name: 'Grievances (HR)', href: '/dashboard/grievances', requiredPermissions: ['userManagement'] },
   { name: 'Bed Management', href: '/dashboard/beds', requiredPermissions: ['departmentManagement'] },
   { name: 'Notifications', href: '/dashboard/notifications', requiredPermissions: ['notificationManagement'] },
+  { name: 'Payroll & HR Comp', href: '/dashboard/payroll', requiredRole: 'ADMIN' },
   { name: 'Admin Management', href: '/dashboard/admin-management', requiredRole: 'ADMIN', requiredPermissions: ['adminManagement'] },
   { name: 'System Logs', href: '/dashboard/system-logs', requiredPermissions: ['viewAuditLogs'] },
   { name: 'Settings', href: '/dashboard/settings', requiredRole: 'ADMIN' },
