@@ -36,8 +36,26 @@ export const userValidation = [
     .trim(),
   body('emergency_contact')
     .optional()
-    .isObject()
-    .withMessage('Emergency contact must be an object')
+    .withMessage('Emergency contact is invalid'),
+  body('blood_group')
+    .optional()
+    .isIn(['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'])
+    .withMessage('Blood group must be one of: A+, A-, B+, B-, O+, O-, AB+, AB-'),
+  body('allergies')
+    .optional()
+    .isLength({ max: 1000 })
+    .withMessage('Allergies must be less than 1000 characters')
+    .trim(),
+  body('insurance_details')
+    .optional()
+    .isLength({ max: 500 })
+    .withMessage('Insurance details must be less than 500 characters')
+    .trim(),
+  body('preferred_hospital')
+    .optional()
+    .isLength({ max: 200 })
+    .withMessage('Preferred hospital must be less than 200 characters')
+    .trim()
 ];
 
 // Search validation
