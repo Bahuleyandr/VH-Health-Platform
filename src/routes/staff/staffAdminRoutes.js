@@ -105,6 +105,7 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/payroll/export/summary', payrollController.exportPayrollSummary],
     ['/payroll/export/pf', payrollController.exportPFRegister],
     ['/payroll/export/esi', payrollController.exportESIRegister],
+    ['/payroll/comparison', payrollController.getPayrollComparison],
     ['/payroll/advances', payrollController.getAllAdvances],
   ],
   

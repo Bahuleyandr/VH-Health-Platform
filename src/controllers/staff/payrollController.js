@@ -923,3 +923,116 @@ export const exportESIRegister = async (req, res) => {
     error(res, 'Failed to export ESI register', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
+
+/**
+ * Get payroll comparison data for a staff member or all staff across multiple months.
+ * Returns: { staff: [{ name, id, payslips: [{ month, year, basic, hra, da, ... }] }] }
+ */
+export const getPayrollComparison = async (req, res) => {
+  try {
+    const { staff_uid, from_month, from_year, to_month, to_year } = req.query;
+
+    if (!from_month || !from_year || !to_month || !to_year) {
+      return error(res, 'from_month, from_year, to_month, to_year required', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // Build month range
+    const fromDate = new Date(parseInt(from_year), parseInt(from_month) - 1, 1);
+    const toDate = new Date(parseInt(to_year), parseInt(to_month) - 1, 1);
+
+    const months = [];
+    for (let d = new Date(fromDate); d <= toDate; d.setMonth(d.getMonth() + 1)) {
+      months.push({ month: d.getMonth() + 1, year: d.getFullYear() });
+    }
+
+    // Fetch payslips for the date range
+    let query = `
+      SELECT
+        p.id, p.staff_uid, u.name, ss.employee_id, ss.designation, u.department,
+        p.month, p.year,
+        p.days_present, p.days_absent, p.lop_days, p.overtime_hours,
+        p.basic_earned, p.hra_earned, p.da_earned,
+        p.special_allowance_earned, p.transport_allowance_earned, p.medical_allowance_earned,
+        p.overtime_pay, p.bonus_this_month, p.arrears_amount,
+        p.gross_salary,
+        p.pf_employee, p.esi_employee, p.professional_tax, p.tds,
+        p.advance_deduction, p.total_deductions, p.net_salary,
+        p.status, p.created_at
+      FROM payslips p
+      JOIN users u ON p.staff_uid = u.uid
+      LEFT JOIN staff_salary ss ON ss.staff_uid = p.staff_uid
+      WHERE p.status IN ('issued', 'viewed', 'downloaded')
+    `;
+
+    const params = [];
+    if (staff_uid) {
+      query += ` AND p.staff_uid = $${params.length + 1}`;
+      params.push(staff_uid);
+    }
+
+    // Filter by date range
+    query += ` AND (
+      (p.year > $${params.length + 1} OR (p.year = $${params.length + 1} AND p.month >= $${params.length + 2}))
+      AND (p.year < $${params.length + 3} OR (p.year = $${params.length + 3} AND p.month <= $${params.length + 4}))
+    )`;
+    params.push(parseInt(from_year), parseInt(from_month), parseInt(to_year), parseInt(to_month));
+
+    query += ` ORDER BY p.staff_uid, p.year, p.month`;
+
+    const payslips = await db.query(query, params);
+
+    // Group by staff
+    const staffMap = {};
+    for (const p of payslips.rows) {
+      if (!staffMap[p.staff_uid]) {
+        staffMap[p.staff_uid] = {
+          staff_uid: p.staff_uid,
+          name: p.name,
+          employee_id: p.employee_id,
+          designation: p.designation,
+          department: p.department,
+          payslips: [],
+        };
+      }
+
+      staffMap[p.staff_uid].payslips.push({
+        month: p.month,
+        year: p.year,
+        days_present: p.days_present,
+        days_absent: p.days_absent,
+        lop_days: p.lop_days,
+        overtime_hours: p.overtime_hours,
+        basic_earned: parseFloat(p.basic_earned),
+        hra_earned: parseFloat(p.hra_earned),
+        da_earned: parseFloat(p.da_earned),
+        special_allowance: parseFloat(p.special_allowance_earned),
+        transport_allowance: parseFloat(p.transport_allowance_earned),
+        medical_allowance: parseFloat(p.medical_allowance_earned),
+        overtime_pay: parseFloat(p.overtime_pay),
+        bonus: parseFloat(p.bonus_this_month || 0),
+        arrears: parseFloat(p.arrears_amount || 0),
+        gross_salary: parseFloat(p.gross_salary),
+        pf: parseFloat(p.pf_employee),
+        esi: parseFloat(p.esi_employee),
+        professional_tax: parseFloat(p.professional_tax),
+        tds: parseFloat(p.tds),
+        advance_deduction: parseFloat(p.advance_deduction || 0),
+        total_deductions: parseFloat(p.total_deductions),
+        net_salary: parseFloat(p.net_salary),
+        status: p.status,
+      });
+    }
+
+    const staffList = Object.values(staffMap);
+
+    success(res, {
+      month_range: months,
+      staff: staffList,
+      total_staff: staffList.length,
+      total_payslips: payslips.rows.length,
+    }, 'Payroll comparison fetched');
+  } catch (err) {
+    logger.error('Get Payroll Comparison Error:', err);
+    error(res, 'Failed to fetch payroll comparison', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
