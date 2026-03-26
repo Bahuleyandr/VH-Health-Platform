@@ -5,6 +5,7 @@ import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { sendSMS } from '../../services/smsService.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { calculateETA } from '../delivery/deliveryTrackingController.js';
 
 // ─── Patient Endpoints ─────────────────────────────────────────────────────
 
@@ -255,6 +256,11 @@ export const dispatchCollector = async (req, res) => {
       [id, staffId, dispatchNotes || 'Collector dispatched']
     );
 
+    // Calculate ETA based on collection destination
+    const eta = calculateETA(booking.rows[0].collection_lat, booking.rows[0].collection_lng);
+    await db.query(`UPDATE investigation_bookings SET estimated_collection_mins=$1, collection_distance_km=$2, collection_tracking_active=TRUE WHERE id=$3`,
+      [eta.estimated_mins, eta.distance_km, id]);
+
     // Notify patient (fire-and-forget)
     setImmediate(async () => {
       try {
@@ -264,7 +270,7 @@ export const dispatchCollector = async (req, res) => {
           await sendPushNotification({
             tokens,
             title: 'Collector On The Way 🚗',
-            body: `Sample collector dispatched for ${booking.rows[0].booking_number}. ${collector_phone ? 'Contact: ' + collector_phone : ''}`,
+            body: `Sample collector dispatched for ${booking.rows[0].booking_number}. Estimated arrival: ~${eta.estimated_mins} minutes. ${collector_phone ? 'Contact: ' + collector_phone : ''}`,
             data: { type: 'collector_dispatched', booking_id: String(id) }
           }).catch(() => {});
         }
@@ -288,7 +294,7 @@ export const markCollected = async (req, res) => {
     const result = await db.query(`
       UPDATE investigation_bookings SET
         status='COLLECTED', collected_at=NOW(), collected_by=$1,
-        collection_notes=$2, updated_at=NOW()
+        collection_notes=$2, collection_tracking_active=FALSE, updated_at=NOW()
       WHERE id=$3 AND status IN ('DISPATCHED','CONFIRMED') RETURNING *
     `, [staffId, collection_notes, id]);
 

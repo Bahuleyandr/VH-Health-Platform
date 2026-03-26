@@ -6,6 +6,7 @@ import db from '../../config/database.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
+import { calculateETA } from '../delivery/deliveryTrackingController.js';
 
 // ── Helper: attach signed URL to order ──────────────────────────────────────
 async function attachSignedUrl(order) {
@@ -268,6 +269,11 @@ export const dispatchOrder = async (req, res) => {
       [id, order.rows[0].status, staffId]
     );
 
+    // Calculate ETA based on delivery destination
+    const eta = calculateETA(order.rows[0].delivery_lat, order.rows[0].delivery_lng);
+    await db.query(`UPDATE pharmacy_orders SET estimated_delivery_mins=$1, delivery_distance_km=$2, delivery_started_at=NOW(), delivery_tracking_active=TRUE WHERE id=$3`,
+      [eta.estimated_mins, eta.distance_km, id]);
+
     // Notify patient
     setImmediate(async () => {
       try {
@@ -276,7 +282,7 @@ export const dispatchOrder = async (req, res) => {
         if (sendSMS && patientPhone) {
           await sendSMS(
             patientPhone,
-            `Your medicines (${order.rows[0].order_number}) have been dispatched. ${delivery_person_phone ? 'Delivery contact: ' + delivery_person_phone : ''}`
+            `Your medicines (${order.rows[0].order_number}) have been dispatched. Estimated delivery: ~${eta.estimated_mins} minutes. ${delivery_person_phone ? 'Delivery contact: ' + delivery_person_phone : ''}`
           ).catch(() => {});
         }
       } catch (e) {
@@ -296,7 +302,7 @@ export const markDelivered = async (req, res) => {
   try {
     const { id } = req.params;
     const result = await db.query(
-      `UPDATE pharmacy_orders SET status='DELIVERED', delivered_at=NOW(), updated_at=NOW()
+      `UPDATE pharmacy_orders SET status='DELIVERED', delivered_at=NOW(), delivery_tracking_active=FALSE, updated_at=NOW()
        WHERE id=$1 AND status='DISPATCHED' RETURNING *`,
       [id]
     );
