@@ -147,6 +147,10 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/payroll/run', payrollController.runPayroll],
     ['/payroll/issue', payrollController.issuePayslips],
     ['/payroll/salary/:staffUid', payrollController.upsertStaffSalaryConfig],
+    // Manual edit + dual sign
+    ['/payroll/payslips/:id/edit', payrollController.manualEditPayslip],
+    ['/payroll/runs/:runId/hr-sign', payrollController.hrSignPayrollRun],
+    ['/payroll/runs/:runId/admin-sign', payrollController.adminSignPayrollRun],
     ['/payroll/revisions/propose', salaryRevisionController.proposeRevision],
     ['/payroll/revisions/:id/hr-sign', salaryRevisionController.hrSignRevision],
     ['/payroll/revisions/:id/admin-sign', salaryRevisionController.adminSignRevision],
