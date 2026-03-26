@@ -17,6 +17,7 @@ import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/features/investigations/screens/book_investigation_screen.dart';
+import 'package:vhhealth/core/widgets/contact_banner.dart';
 import 'package:vhhealth/features/investigations/screens/my_bookings_screen.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -504,6 +505,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
               ),
             ],
           ),
+          ContactBanner.homeSampleCollection(),
           Expanded(
             child: TabBarView(
               controller: _tabController,

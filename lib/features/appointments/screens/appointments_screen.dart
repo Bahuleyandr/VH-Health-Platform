@@ -11,6 +11,7 @@ import 'package:vhhealth/core/config/api_config.dart';
 import 'package:vhhealth/core/utils/calendar_utils.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
+import 'package:vhhealth/core/widgets/contact_banner.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 // ─── Data models ────────────────────────────────────────────────────────────
@@ -615,6 +616,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
               Tab(text: 'My Appointments', icon: Icon(Icons.list_alt)),
             ],
           ),
+          ContactBanner.appointments(),
           Expanded(
             child: TabBarView(
               controller: _tabController,
