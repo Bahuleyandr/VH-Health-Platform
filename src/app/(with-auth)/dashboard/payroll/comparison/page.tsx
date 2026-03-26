@@ -5,9 +5,12 @@ import { useQuery } from '@tanstack/react-query';
 import { getPayrollComparison, PayrollComparisonData } from '@/lib/api/payroll';
 import { toast } from 'sonner';
 
+type StaffEntry = PayrollComparisonData['staff'][number];
+type PayslipEntry = StaffEntry['payslips'][number];
+
 function unwrap<T>(x: unknown): T {
   if (x && typeof x === 'object' && 'data' in x) {
-    return (x as any).data as T;
+    return (x as { data: T }).data;
   }
   return x as T;
 }
@@ -38,10 +41,10 @@ export default function PayrollComparisonPage() {
 
   const comparison = unwrap<PayrollComparisonData>(comparisonRaw);
 
-  const staffList = useMemo(() => {
+  const staffList = useMemo((): StaffEntry[] => {
     return comparison?.staff
-      ?.sort((a: any, b: any) => a.name.localeCompare(b.name))
-      .filter((s: any) => !staffFilter || s.name.toLowerCase().includes(staffFilter.toLowerCase())) || [];
+      ?.sort((a: StaffEntry, b: StaffEntry) => a.name.localeCompare(b.name))
+      .filter((s: StaffEntry) => !staffFilter || s.name.toLowerCase().includes(staffFilter.toLowerCase())) || [];
   }, [comparison, staffFilter]);
 
   if (error) {
@@ -154,7 +157,7 @@ export default function PayrollComparisonPage() {
               className="w-full border rounded px-3 py-2 text-sm"
             >
               <option value="">-- Select Staff --</option>
-              {staffList.map((s: any) => (
+              {staffList.map((s: StaffEntry) => (
                 <option key={s.staff_uid} value={s.staff_uid}>
                   {s.name} ({s.employee_id})
                 </option>
@@ -220,7 +223,7 @@ function ComparisonTableAll({
   monthRange,
   monthName,
 }: {
-  staffList: any[];
+  staffList: StaffEntry[];
   monthRange: Array<{ month: number; year: number }>;
   monthName: (m: number) => string;
 }) {
@@ -245,7 +248,7 @@ function ComparisonTableAll({
               <div className="text-xs text-gray-500">{staff.employee_id}</div>
             </td>
             {monthRange.map((m) => {
-              const payslip = staff.payslips.find((p: any) => p.month === m.month && p.year === m.year);
+              const payslip = staff.payslips.find((p: PayslipEntry) => p.month === m.month && p.year === m.year);
               return (
                 <td
                   key={`${staff.staff_uid}-${m.year}-${m.month}`}
@@ -275,7 +278,7 @@ function ComparisonTableIndividual({
   monthRange,
   monthName,
 }: {
-  staff: any;
+  staff: StaffEntry;
   monthRange: Array<{ month: number; year: number }>;
   monthName: (m: number) => string;
 }) {
@@ -324,7 +327,7 @@ function ComparisonTableIndividual({
                 {comp.label}
               </td>
               {monthRange.map((m) => {
-                const payslip = staff.payslips.find((p: any) => p.month === m.month && p.year === m.year);
+                const payslip = staff.payslips.find((p: PayslipEntry) => p.month === m.month && p.year === m.year);
                 const value = payslip ? payslip[comp.key as keyof typeof payslip] : null;
                 return (
                   <td
@@ -346,7 +349,7 @@ function ComparisonTableIndividual({
         <table className="w-full text-xs">
           <tbody>
             {monthRange.map((m) => {
-              const payslip = staff.payslips.find((p: any) => p.month === m.month && p.year === m.year);
+              const payslip = staff.payslips.find((p: PayslipEntry) => p.month === m.month && p.year === m.year);
               return (
                 <tr key={`att-${m.year}-${m.month}`} className="border-t border-blue-100">
                   <td className="py-1 font-medium text-gray-700">
