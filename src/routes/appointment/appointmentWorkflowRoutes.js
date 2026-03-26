@@ -10,9 +10,11 @@ const router = express.Router();
 // ── Staff workflow ────────────────────────────────────────────────────────────
 // IMPORTANT: Static paths must come BEFORE /:id param routes
 
-// Queue and pending (no param conflict)
+// Queue, pending, slots, walk-in (static paths — must be before /:id)
 router.get('/queue/today', workflowController.getTodayQueue);
 router.get('/pending', workflowController.getPendingAppointments);
+router.get('/slots', workflowController.getAvailableSlots);
+router.post('/walk-in', workflowController.registerWalkIn);
 
 // Patient records
 router.get('/patient/records/all', docController.getPatientAllRecords);

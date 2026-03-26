@@ -4,6 +4,7 @@ import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
+import { sendAppointmentConfirmationSMS } from '../../services/smsService.js';
 
 /**
  * Staff confirms an appointment — assigns token, sets confirmed_at, notifies patient
@@ -53,21 +54,43 @@ export const confirmAppointment = async (req, res) => {
       [id, a.status, staffId, confirmation_notes || null]
     );
 
-    // Notify patient via FCM
-    const patient = await db.query('SELECT device_token, name FROM users WHERE id=$1', [a.patient_id]);
-    if (patient.rows[0]?.device_token) {
-      setImmediate(async () => {
-        try {
+    // Notify patient via FCM + SMS (fire-and-forget)
+    const patient = await db.query('SELECT device_token, name, phone FROM users WHERE id=$1', [a.patient_id]);
+    const patientRow = patient.rows[0];
+
+    // Get doctor name and department for SMS
+    const doctorRow = await db.query(
+      'SELECT u.name, doc.department FROM users u LEFT JOIN doctors doc ON doc.user_id = u.id WHERE u.id=$1',
+      [a.doctor_id]
+    );
+    const doctorName = doctorRow.rows[0]?.name || 'Doctor';
+    const department = doctorRow.rows[0]?.department || a.department || null;
+
+    setImmediate(async () => {
+      try {
+        // Push notification
+        if (patientRow?.device_token) {
           await sendPushNotification({
-            tokens: patient.rows[0].device_token,
+            tokens: patientRow.device_token,
             title: 'Appointment Confirmed ✓',
             body: `Your appointment on ${new Date(newDate).toLocaleDateString('en-IN')} at ${newTime} is confirmed. Token #${tokenNumber}`,
             data: { type: 'appointment_confirmed', appointment_id: String(id), token: String(tokenNumber) },
             userId: String(a.patient_id),
           });
-        } catch (e) { logger.warn('Appointment notification failed:', e.message); }
-      });
-    }
+        }
+        // SMS confirmation
+        const smsPhone = patientRow?.phone || a.phone;
+        await sendAppointmentConfirmationSMS(
+          smsPhone,
+          patientRow?.name || 'Patient',
+          doctorName,
+          newDate,
+          newTime,
+          tokenNumber,
+          department
+        );
+      } catch (e) { logger.warn('Appointment notification/SMS failed:', e.message); }
+    });
 
     success(res, result.rows[0], `Appointment confirmed. Token #${tokenNumber}`);
   } catch (err) {
@@ -120,6 +143,24 @@ export const completeAppointment = async (req, res) => {
       `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role) VALUES ($1,$2,'COMPLETED',$3,'staff')`,
       [id, appt.rows[0].status, staffId]
     );
+
+    // Schedule feedback request 2 hours after visit
+    setImmediate(async () => {
+      try {
+        const a = appt.rows[0];
+        await db.query(`
+          INSERT INTO scheduled_notifications (user_id, type, data, send_at, status)
+          VALUES ($1, 'feedback_request', $2, NOW() + INTERVAL '2 hours', 'pending')
+        `, [
+          a.patient_id,
+          JSON.stringify({ appointment_id: id, type: 'appointment_feedback' })
+        ]);
+        logger.info(`[Feedback] Scheduled feedback request for appointment ${id} in 2h`);
+      } catch (e) {
+        logger.warn('[Feedback] Failed to schedule feedback notification:', e.message);
+      }
+    });
+
     success(res, result.rows[0], 'Appointment completed');
   } catch (err) {
     logger.error('Complete Appointment Error:', err);
@@ -230,6 +271,173 @@ export const getPendingAppointments = async (req, res) => {
   } catch (err) {
     logger.error('Get Pending Error:', err);
     error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+/**
+ * GET /api/v1/appointments/slots?doctor_id=X&date=YYYY-MM-DD
+ * Returns available 30-min time slots for a doctor on a given date
+ */
+export const getAvailableSlots = async (req, res) => {
+  try {
+    const { doctor_id, date } = req.query;
+    if (!doctor_id || !date) {
+      return error(res, 'doctor_id and date are required', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // Doctor can be referenced by users.id OR doctors.id
+    const doctorQuery = await db.query(
+      `SELECT doc.*, u.name as doctor_name
+       FROM doctors doc
+       JOIN users u ON doc.user_id = u.id
+       WHERE doc.id = $1 OR doc.user_id = $1`,
+      [doctor_id]
+    );
+    if (!doctorQuery.rows.length) {
+      return error(res, 'Doctor not found', HTTP_STATUS.NOT_FOUND);
+    }
+    const doc = doctorQuery.rows[0];
+    const doctorUserId = doc.user_id;
+
+    const requestedDate = new Date(date);
+    const dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][requestedDate.getDay()];
+
+    // Check if doctor works this day
+    if (doc.available_days && doc.available_days.length > 0 && !doc.available_days.includes(dayName)) {
+      return success(res, {
+        available: false,
+        reason: 'Doctor not available on this day',
+        day: dayName,
+        slots: []
+      }, 'Doctor unavailable on this day');
+    }
+
+    // Get booked slots for this doctor on this date
+    const booked = await db.query(`
+      SELECT appointment_time FROM appointments
+      WHERE doctor_id = $1
+        AND DATE(appointment_date) = DATE($2)
+        AND status NOT IN ('CANCELLED', 'NO_SHOW')
+    `, [doctorUserId, date]);
+
+    const bookedTimes = new Set(booked.rows.map(r => r.appointment_time));
+
+    // Generate slots from available_hours JSONB { "Monday": { "start": "09:00", "end": "17:00" } }
+    let slots = [];
+    if (doc.available_hours && doc.available_hours[dayName]) {
+      const hours = doc.available_hours[dayName];
+      const start = hours.start || '09:00';
+      const end = hours.end || '17:00';
+      const [startH, startM] = start.split(':').map(Number);
+      const [endH, endM] = end.split(':').map(Number);
+      let current = startH * 60 + startM;
+      const endMinutes = endH * 60 + endM;
+      while (current < endMinutes) {
+        const h = Math.floor(current / 60);
+        const m = current % 60;
+        const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        slots.push({ time: timeStr, available: !bookedTimes.has(timeStr) });
+        current += 30;
+      }
+    } else {
+      // Fallback: 9am-5pm in 30-min slots
+      for (let h = 9; h < 17; h++) {
+        for (const m of [0, 30]) {
+          const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+          slots.push({ time: timeStr, available: !bookedTimes.has(timeStr) });
+        }
+      }
+    }
+
+    success(res, {
+      doctor_id: parseInt(doctor_id),
+      doctor_user_id: doctorUserId,
+      doctor_name: doc.doctor_name,
+      date,
+      day: dayName,
+      total_slots: slots.length,
+      available_slots: slots.filter(s => s.available).length,
+      slots
+    }, 'Slots fetched');
+  } catch (err) {
+    logger.error('getAvailableSlots Error:', err);
+    error(res, 'Failed to fetch slots', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+/**
+ * POST /api/v1/appointments/walk-in
+ * Register a walk-in patient — creates appointment directly in CONFIRMED state
+ */
+export const registerWalkIn = async (req, res) => {
+  try {
+    const staffId = req.user?.id;
+    const {
+      patient_name, patient_phone, patient_id,
+      doctor_id, department,
+      reason, notes,
+      appointment_time
+    } = req.body;
+
+    if (!patient_phone && !patient_id) {
+      return error(res, 'patient_phone or patient_id is required', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // Resolve patient — look up by phone or patient_id, or create minimal record
+    let patientId = patient_id ? parseInt(patient_id) : null;
+    if (!patientId && patient_phone) {
+      const existing = await db.query(
+        `SELECT id FROM users WHERE phone = $1 OR phone = $2`,
+        [patient_phone, patient_phone.replace(/\D/g, '').slice(-10)]
+      );
+      if (existing.rows.length > 0) {
+        patientId = existing.rows[0].id;
+      } else {
+        const newUser = await db.query(
+          `INSERT INTO users (phone, name, role) VALUES ($1, $2, 'PATIENT') RETURNING id`,
+          [patient_phone, patient_name || 'Walk-in Patient']
+        );
+        patientId = newUser.rows[0].id;
+      }
+    }
+
+    // Token number for today (count of today's confirmed appointments + 1)
+    const tokenQuery = await db.query(
+      `SELECT COUNT(*)+1 AS token FROM appointments WHERE DATE(appointment_date) = CURRENT_DATE AND confirmed_at IS NOT NULL`
+    );
+    const tokenNumber = parseInt(tokenQuery.rows[0].token);
+
+    const result = await db.query(`
+      INSERT INTO appointments
+        (patient_id, doctor_id, appointment_date, appointment_time, reason, notes,
+         status, confirmed_by, confirmed_at, first_contact_at, token_number, department, created_by, phone)
+      VALUES ($1, $2, NOW(), $3, $4, $5, 'CONFIRMED', $6, NOW(), NOW(), $7, $8, $9, $10)
+      RETURNING *
+    `, [
+      patientId,
+      doctor_id || null,
+      appointment_time || 'Walk-in',
+      reason || 'Walk-in consultation',
+      notes || null,
+      staffId,
+      tokenNumber,
+      department || null,
+      staffId,
+      patient_phone || null
+    ]);
+
+    const apptId = result.rows[0].id;
+    await db.query(
+      `INSERT INTO appointment_status_history
+         (appointment_id, from_status, to_status, changed_by, changed_by_role, reason)
+       VALUES ($1, NULL, 'CONFIRMED', $2, 'staff', 'Walk-in registration')`,
+      [apptId, staffId]
+    );
+
+    success(res, { ...result.rows[0], token_number: tokenNumber }, `Walk-in registered. Token #${tokenNumber}`);
+  } catch (err) {
+    logger.error('Walk-in Registration Error:', err);
+    error(res, err.message || 'Failed to register walk-in', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 

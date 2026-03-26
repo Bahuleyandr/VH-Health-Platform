@@ -25,18 +25,21 @@ export class AppointmentService {
   // Check for appointment conflicts
   async checkConflict(doctorId, appointmentDate, appointmentTime, excludeId = null) {
     try {
+      // Check conflicts against all non-cancelled, non-no-show appointments
       let query = `
-        SELECT id FROM appointments 
-        WHERE doctor_id = $1 AND appointment_date = $2 AND appointment_time = $3 
-        AND status = $4
+        SELECT id FROM appointments
+        WHERE doctor_id = $1
+          AND DATE(appointment_date) = DATE($2)
+          AND appointment_time = $3
+          AND status NOT IN ('CANCELLED', 'NO_SHOW')
       `;
-      const params = [doctorId, appointmentDate, appointmentTime, APPOINTMENT_CONFIG.STATUSES.SCHEDULED];
-      
+      const params = [doctorId, appointmentDate, appointmentTime];
+
       if (excludeId) {
-        query += ' AND id != $5';
+        query += ` AND id != $${params.length + 1}`;
         params.push(excludeId);
       }
-      
+
       const result = await db.query(query, params);
       return result.rows.length > 0 ? result.rows[0] : null;
     } catch (error) {
