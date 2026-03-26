@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/widgets/delivery_tracking_card.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 
 class PharmacyScreen extends StatefulWidget {
@@ -683,44 +684,13 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                   _InfoRow(Icons.phone, order['delivery_phone']),
               ],
 
-              // Delivery person (when dispatched)
-              if (order['status'] == 'DISPATCHED' &&
-                  order['delivery_person'] != null) ...[
+              // Delivery tracking card (when dispatched)
+              if (order['status'] == 'DISPATCHED') ...[
                 const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.teal.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.delivery_dining,
-                          color: Colors.teal, size: 28),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(order['delivery_person'] ?? '',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold)),
-                            if (order['delivery_person_phone'] != null)
-                              Text(order['delivery_person_phone'],
-                                  style: TextStyle(
-                                      color: Colors.grey.shade600,
-                                      fontSize: 13)),
-                          ],
-                        ),
-                      ),
-                      if (order['delivery_person_phone'] != null)
-                        IconButton(
-                          icon: const Icon(Icons.call, color: Colors.teal),
-                          onPressed: () => launchUrl(
-                              Uri.parse('tel:${order['delivery_person_phone']}')),
-                        ),
-                    ],
-                  ),
+                DeliveryTrackingCard(
+                  orderType: 'pharmacy',
+                  orderId: order['id'],
+                  dispatchedAt: order['dispatched_at']?.toString(),
                 ),
               ],
 

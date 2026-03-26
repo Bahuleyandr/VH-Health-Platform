@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/widgets/delivery_tracking_card.dart';
 
 class MyBookingsScreen extends StatefulWidget {
   const MyBookingsScreen({super.key});
@@ -263,6 +264,17 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
             // Status tracker
             _buildStatusTracker(statusIdx, theme),
+
+            // Delivery tracking card (when dispatched)
+            if (status == 'DISPATCHED' && collectionType == 'home')
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: DeliveryTrackingCard(
+                  orderType: 'investigation',
+                  orderId: booking['id'],
+                  dispatchedAt: booking['dispatched_at']?.toString(),
+                ),
+              ),
 
             // Download result button
             if (status == 'RESULT_READY' && booking['result_file_url'] != null)
