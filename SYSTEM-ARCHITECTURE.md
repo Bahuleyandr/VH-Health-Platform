@@ -511,3 +511,119 @@ Staff/Admin raises request → HKR-2026-XXXX →
 | SLA - Appointments | Booking → confirm: 30 min |
 | SLA - Housekeeping | Urgent: 30min, High: 2h, Normal: 4h, Low: 24h |
 | SLA - Investigation Booking | Confirm: 30min, Dispatch: 1h, Collect: 2h, Result: per test TAT |
+
+---
+
+## 13. PHARMACY SYSTEM
+
+### Order Lifecycle
+```
+Patient → Upload prescription photo / describe order → Choose delivery/pickup →
+  Status: PLACED (PHR-2026-XXXX, pharmacist alerted, SLA: 15min to confirm)
+    ↓
+  Pharmacist calls patient → Confirms items + cost → Status: CONFIRMED (SMS + push)
+    SLA: 30min to dispatch
+    ↓
+  Pharmacist prepares → Status: PREPARING
+    ↓
+  Dispatches delivery → Status: DISPATCHED (push: "On the way", delivery person phone)
+    SLA: 2h to deliver
+    ↓
+  Delivered → Status: DELIVERED (push: "Delivered", cash on delivery)
+```
+
+### Backend Routes (`/api/v1/pharmacy`)
+
+**Patient:**
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/orders/place` | Place order (multipart: prescription photo) |
+| GET | `/orders/my` | My orders |
+
+**Pharmacist/Admin:**
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/orders/queue` | Order queue (filterable, SLA-aware) |
+| GET | `/orders/sla` | SLA dashboard |
+| GET | `/orders/:id` | Order detail + history |
+| POST | `/orders/:id/confirm` | Confirm (items_list JSONB + total_cost) |
+| POST | `/orders/:id/preparing` | Mark preparing |
+| POST | `/orders/:id/dispatch` | Dispatch (delivery_person + phone) |
+| POST | `/orders/:id/delivered` | Mark delivered |
+| POST | `/orders/:id/cancel` | Cancel (with reason) |
+
+**Catalog:**
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/catalog` | Medicine catalog (search + category filter) |
+| POST | `/catalog` | Add/edit medicine (admin) |
+
+### DB Tables
+- `pharmacy_orders` — enhanced with order_number, prescription_photo_key, delivery fields, lifecycle timestamps, items_list (JSONB), SLA targets
+- `pharmacy_order_history` — full audit trail
+- `pharmacy_catalog` — 15+ medicines with category, price, pack_size, stock_quantity, reorder_level
+- `pharmacy_activity_logs` — legacy activity log
+
+### SLA Targets
+- Place → Confirm: 15 minutes
+- Confirm → Dispatch: 30 minutes
+- Dispatch → Deliver: 2 hours
+
+### Notifications
+| Event | Push | SMS |
+|-------|------|-----|
+| Order confirmed | ✓ | ✓ |
+| Order dispatched | ✓ | — |
+| Order delivered | ✓ | — |
+| New order (to pharmacist) | ✓ | — |
+
+---
+
+## 14. INVESTIGATION BOOKING SYSTEM (Patient Self-Service)
+
+### Booking Lifecycle
+```
+Patient → Book Investigation (select tests / type names / upload slip photo) →
+  Choose: Home Collection or Walk-in → Enter address if home →
+  Status: BOOKED (INV-2026-XXXX, lab staff alerted, SLA: 30min to confirm)
+    ↓
+  Lab staff calls → Confirms tests + cost → Status: CONFIRMED (SMS + push)
+    SLA: 1h to dispatch collector
+    ↓
+  Dispatches collector → Status: DISPATCHED (push: "Collector on the way")
+    SLA: 2h to collect
+    ↓
+  Samples collected → Status: COLLECTED
+    ↓
+  Lab processing → Status: PROCESSING (SLA: per test turnaround hours)
+    ↓
+  Result PDF uploaded → Status: RESULT_READY (SMS + push)
+    ↓
+  Patient downloads → Status: DELIVERED
+```
+
+### Backend Routes (`/api/v1/investigations/bookings`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/create` | Patient books (multipart: slip photo) |
+| GET | `/my` | Patient's bookings |
+| GET | `/queue` | Lab staff queue (filterable, SLA-aware) |
+| GET | `/sla` | SLA dashboard |
+| GET | `/:id` | Booking detail + history |
+| POST | `/:id/confirm` | Confirm (actual_tests + final_cost) |
+| POST | `/:id/dispatch` | Dispatch collector |
+| POST | `/:id/collected` | Mark collected |
+| POST | `/:id/processing` | Start processing |
+| POST | `/:id/result` | Upload result PDF (multipart) |
+
+### DB Tables
+- `investigation_bookings` — 7-stage lifecycle, collection address, SLA targets, auto-numbered INV-2026-XXXX
+- `investigation_booking_history` — audit trail
+- `investigation_test_catalog` — 24 tests, 6 categories, costs, TAT hours, home surcharge
+
+### SLA Targets
+- Book → Confirm: 30 minutes
+- Confirm → Dispatch: 1 hour
+- Dispatch → Collect: 2 hours
+- Collect → Result: per test turnaround_hours from catalog
