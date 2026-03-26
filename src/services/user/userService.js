@@ -28,13 +28,19 @@ export class UserService {
             address = COALESCE($7, address),
             emergency_contact = COALESCE($8, emergency_contact),
             profile_picture = COALESCE($9, profile_picture),
+            blood_group = COALESCE($10, blood_group),
+            allergies = COALESCE($11, allergies),
+            insurance_details = COALESCE($12, insurance_details),
+            preferred_hospital = COALESCE($13, preferred_hospital),
             updated_at = NOW()
           WHERE phone = $1
           RETURNING *`,
           [
             phone, data.name, data.email, data.gender,
             data.birthday, data.anniversary, data.address,
-            data.emergency_contact, data.profile_picture
+            data.emergency_contact, data.profile_picture,
+            data.blood_group, data.allergies, data.insurance_details,
+            data.preferred_hospital
           ]
         );
         
@@ -46,14 +52,17 @@ export class UserService {
           `INSERT INTO users (
             phone, name, email, gender, birthday, anniversary,
             address, emergency_contact, profile_picture, role,
+            blood_group, allergies, insurance_details, preferred_hospital,
             registered_at, last_login
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
           RETURNING *`,
           [
             phone, data.name, data.email, data.gender,
             data.birthday, data.anniversary, data.address,
             data.emergency_contact, data.profile_picture,
-            data.role || USER_CONFIG.ROLES.PATIENT
+            data.role || USER_CONFIG.ROLES.PATIENT,
+            data.blood_group, data.allergies, data.insurance_details,
+            data.preferred_hospital
           ]
         );
         
@@ -245,7 +254,8 @@ export class UserService {
     // Build dynamic update query
     const allowedFields = [
       'name', 'email', 'gender', 'birthday', 'anniversary',
-      'address', 'emergency_contact', 'profile_picture'
+      'address', 'emergency_contact', 'profile_picture',
+      'blood_group', 'allergies', 'insurance_details', 'preferred_hospital'
     ];
     
     for (const field of allowedFields) {
