@@ -106,7 +106,7 @@ export function OrdersTable({
                     #{order.id}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
-                    {new Date(order.order_date).toLocaleDateString("en-GB", {
+                    {new Date(order.order_date || order.created_at).toLocaleDateString("en-GB", {
                       day: "2-digit",
                       month: "short",
                       year: "numeric",
@@ -132,7 +132,7 @@ export function OrdersTable({
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-foreground">
-                    ₹{order.total_amount.toLocaleString("en-IN")}
+                    ₹{(order.total_amount ?? order.total_cost ?? 0).toLocaleString("en-IN")}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div className="flex items-center gap-2">
