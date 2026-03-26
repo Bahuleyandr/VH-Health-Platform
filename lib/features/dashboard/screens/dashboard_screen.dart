@@ -52,6 +52,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Map<String, dynamic>? _todayAppointment;
   String _appointmentStatus = '';
 
+  // Smart widget data
+  Timer? _smartWidgetPoller;
+  Map<String, dynamic>? _activePharmacyOrder;
+  Map<String, dynamic>? _activeInvestigationBooking;
+  Map<String, dynamic>? _recentPrescription;
+
   // Features list
   late final List<FeatureIconData> _features;
 
@@ -67,12 +73,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _loadCachedData();
       _maybeFetchFromBackend();
       _startAppointmentPolling();
+      _startSmartWidgetPolling();
     });
   }
 
   @override
   void dispose() {
     _appointmentPoller?.cancel();
+    _smartWidgetPoller?.cancel();
     super.dispose();
   }
 
@@ -169,6 +177,83 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return LucideIcons.checkCircle;
       default:
         return LucideIcons.alertCircle;
+    }
+  }
+
+  // ── Smart widget polling (60s) ──────────────────────────────────
+  void _startSmartWidgetPolling() {
+    _fetchSmartWidgetData(); // immediate first fetch
+    _smartWidgetPoller = Timer.periodic(
+      const Duration(seconds: 60),
+      (_) => _fetchSmartWidgetData(),
+    );
+  }
+
+  Future<void> _fetchSmartWidgetData() async {
+    try {
+      final headers = await ApiConfig.authenticatedAuthHeaders();
+
+      // 1. Active pharmacy order
+      try {
+        final pharmaRes = await http
+            .get(Uri.parse('${ApiConfig.baseUrl}/pharmacy-orders/orders/my'), headers: headers)
+            .timeout(const Duration(seconds: 8));
+        if (mounted && pharmaRes.statusCode == 200) {
+          final body = jsonDecode(pharmaRes.body);
+          final List<dynamic> orders = body['data'] ?? body ?? [];
+          Map<String, dynamic>? active;
+          for (final o in orders) {
+            final status = o['status']?.toString().toUpperCase() ?? '';
+            if (status != 'DELIVERED' && status != 'CANCELLED') {
+              active = Map<String, dynamic>.from(o);
+              break;
+            }
+          }
+          if (mounted) setState(() => _activePharmacyOrder = active);
+        }
+      } catch (_) {}
+
+      // 2. Active investigation booking
+      try {
+        final invRes = await http
+            .get(Uri.parse('${ApiConfig.baseUrl}/investigations/bookings/my'), headers: headers)
+            .timeout(const Duration(seconds: 8));
+        if (mounted && invRes.statusCode == 200) {
+          final body = jsonDecode(invRes.body);
+          final List<dynamic> bookings = body['data'] ?? body ?? [];
+          Map<String, dynamic>? active;
+          for (final b in bookings) {
+            final status = b['status']?.toString().toUpperCase() ?? '';
+            if (status != 'COMPLETED' && status != 'CANCELLED' && status != 'REPORT_READY') {
+              active = Map<String, dynamic>.from(b);
+              break;
+            }
+          }
+          if (mounted) setState(() => _activeInvestigationBooking = active);
+        }
+      } catch (_) {}
+
+      // 3. Recent prescription (not yet ordered via pharmacy)
+      try {
+        final rxRes = await http
+            .get(Uri.parse('${ApiConfig.baseUrl}/prescriptions/patient/my'), headers: headers)
+            .timeout(const Duration(seconds: 8));
+        if (mounted && rxRes.statusCode == 200) {
+          final body = jsonDecode(rxRes.body);
+          final List<dynamic> prescriptions = body['data'] ?? body ?? [];
+          Map<String, dynamic>? recent;
+          for (final rx in prescriptions) {
+            final pharmacyOpted = rx['pharmacy_opted'] ?? rx['pharmacyOpted'] ?? false;
+            if (pharmacyOpted == false || pharmacyOpted == 'false') {
+              recent = Map<String, dynamic>.from(rx);
+              break;
+            }
+          }
+          if (mounted) setState(() => _recentPrescription = recent);
+        }
+      } catch (_) {}
+    } catch (_) {
+      // All fire-and-forget — widgets just don't show if anything fails
     }
   }
 
@@ -356,6 +441,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   statusColor: _statusColor(_appointmentStatus),
                   statusIcon: _statusIcon(_appointmentStatus),
                 ),
+
+              // Smart contextual widgets
+              if (!isGuest) ...[
+                if (_activePharmacyOrder != null)
+                  _SmartPharmacyCard(
+                    order: _activePharmacyOrder!,
+                    onTap: () => _openFeature(context, '/pharmacy'),
+                  ),
+                if (_activeInvestigationBooking != null)
+                  _SmartInvestigationCard(
+                    booking: _activeInvestigationBooking!,
+                    onTap: () => _openFeature(context, '/investigations'),
+                  ),
+                if (_recentPrescription != null)
+                  _SmartPrescriptionCard(
+                    prescription: _recentPrescription!,
+                    onOrderTap: () => _openFeature(context, '/pharmacy'),
+                    onViewTap: () => _openFeature(context, '/records'),
+                  ),
+              ],
 
               // Quick action buttons
               if (!isGuest)
@@ -778,5 +883,301 @@ class _AppointmentCard extends StatelessWidget {
       }
     } catch (_) {}
     return '';
+  }
+}
+
+// ── Smart Pharmacy Order Card ────────────────────────────────────
+class _SmartPharmacyCard extends StatelessWidget {
+  final Map<String, dynamic> order;
+  final VoidCallback onTap;
+
+  const _SmartPharmacyCard({required this.order, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final orderNumber = order['order_number']?.toString() ?? '';
+    final status = order['status']?.toString().toUpperCase() ?? '';
+    final color = _pharmacyStatusColor(status);
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withValues(alpha: 0.25)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(LucideIcons.pill, color: color, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Pharmacy Order ${orderNumber.isNotEmpty ? orderNumber : ''}',
+                    style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: color,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          _pharmacyStatusLabel(status),
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 9,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Icon(LucideIcons.chevronRight, color: color, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _pharmacyStatusColor(String status) {
+    switch (status) {
+      case 'PLACED':
+        return Colors.orange;
+      case 'CONFIRMED':
+        return Colors.blue;
+      case 'DISPATCHED':
+        return Colors.teal;
+      case 'OUT_FOR_DELIVERY':
+        return Colors.green;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _pharmacyStatusLabel(String status) {
+    switch (status) {
+      case 'PLACED':
+        return 'PLACED';
+      case 'CONFIRMED':
+        return 'CONFIRMED';
+      case 'DISPATCHED':
+        return 'DISPATCHED 🚗';
+      case 'OUT_FOR_DELIVERY':
+        return 'ON THE WAY 🚗';
+      default:
+        return status;
+    }
+  }
+}
+
+// ── Smart Investigation Booking Card ─────────────────────────────
+class _SmartInvestigationCard extends StatelessWidget {
+  final Map<String, dynamic> booking;
+  final VoidCallback onTap;
+
+  const _SmartInvestigationCard({required this.booking, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final bookingNumber = booking['booking_number']?.toString() ?? '';
+    final status = booking['status']?.toString().toUpperCase() ?? '';
+    final color = _invStatusColor(status);
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withValues(alpha: 0.25)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(LucideIcons.flaskConical, color: color, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Lab Booking ${bookingNumber.isNotEmpty ? bookingNumber : ''}',
+                    style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: color,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      _invStatusLabel(status),
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 9,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(LucideIcons.chevronRight, color: color, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _invStatusColor(String status) {
+    switch (status) {
+      case 'BOOKED':
+        return Colors.orange;
+      case 'DISPATCHED':
+        return Colors.teal;
+      case 'SAMPLE_COLLECTED':
+        return Colors.blue;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _invStatusLabel(String status) {
+    switch (status) {
+      case 'BOOKED':
+        return 'BOOKED';
+      case 'DISPATCHED':
+        return 'COLLECTOR ON THE WAY';
+      case 'SAMPLE_COLLECTED':
+        return 'SAMPLE COLLECTED';
+      default:
+        return status;
+    }
+  }
+}
+
+// ── Smart Prescription Card ──────────────────────────────────────
+class _SmartPrescriptionCard extends StatelessWidget {
+  final Map<String, dynamic> prescription;
+  final VoidCallback onOrderTap;
+  final VoidCallback onViewTap;
+
+  const _SmartPrescriptionCard({
+    required this.prescription,
+    required this.onOrderTap,
+    required this.onViewTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final doctorName = prescription['doctor_name']?.toString() ?? 'Doctor';
+    final rxNumber = prescription['prescription_number']?.toString() ?? '';
+    final itemCount = (prescription['items'] as List?)?.length ??
+        prescription['medicine_count'] ??
+        prescription['item_count'] ??
+        0;
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.purple.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.purple.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.purple.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(LucideIcons.fileText, color: Colors.purple, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'New Prescription${rxNumber.isNotEmpty ? ' $rxNumber' : ''}',
+                  style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Dr. $doctorName${itemCount > 0 ? ' • $itemCount medicines' : ''}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    SizedBox(
+                      height: 28,
+                      child: FilledButton(
+                        onPressed: onOrderTap,
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          textStyle: const TextStyle(fontSize: 11),
+                        ),
+                        child: const Text('Order Medicines'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      height: 28,
+                      child: OutlinedButton(
+                        onPressed: onViewTap,
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          textStyle: const TextStyle(fontSize: 11),
+                        ),
+                        child: const Text('View'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
