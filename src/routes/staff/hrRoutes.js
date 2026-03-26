@@ -4,6 +4,8 @@ import * as hrController from '../../controllers/staff/hrController.js';
 import * as replacementController from '../../controllers/staff/replacementController.js';
 import * as overtimeController from '../../controllers/staff/overtimeController.js';
 import * as shiftController from '../../controllers/staff/shiftController.js';
+import * as incidentController from '../../controllers/staff/incidentController.js';
+import * as grievanceController from '../../controllers/staff/grievanceController.js';
 import {
   performanceReviewValidation,
   onboardingValidation,
@@ -47,6 +49,14 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
 
     // Overtime
     ['/overtime', overtimeController.getMyOvertimeRequests],
+
+    // Incident Reports (staff)
+    ['/incidents', incidentController.getMyIncidents],
+    ['/incidents/:id', incidentController.getIncidentDetail],
+
+    // Grievances (staff)
+    ['/grievances', grievanceController.getMyGrievances],
+    ['/grievances/:id', grievanceController.getGrievanceDetail],
   ],
   
   post: [
@@ -64,6 +74,12 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
     // Overtime
     ['/overtime/request', overtimeController.requestOvertime],
     ['/overtime/:id/approve', overtimeController.approveOvertime],
+
+    // Incident Reports (staff submit)
+    ['/incidents/submit', incidentController.submitIncident],
+
+    // Grievances (staff submit)
+    ['/grievances/submit', grievanceController.submitGrievance],
   ],
   
   put: [
