@@ -14,6 +14,8 @@ import { scheduleArchiveMigrationJob } from './archiveMigrationJob.js';
 // Notifications
 import { sendAppointmentReminders, sendTimedReminders, processPendingScheduledNotifications } from './notifications/appointmentReminderJob.js';
 import { sendInvestigationNotifications } from './notifications/InvestigationNotificationJob.js';
+import { retryFailedNotifications } from '../services/notificationRetryService.js';
+import { escalateStuckOrders } from './notifications/stuckOrderEscalation.js';
 import { scheduleCleanupJob as scheduleR2CleanupJob, executeCleanup } from './r2CleanupJob.js';
 import { purgeHousekeepingPhotos } from './housekeepingPurgeJob.js';
 import loadSwaggerDocument from './swaggerLoader.js';
@@ -105,6 +107,24 @@ cron.schedule('*/5 * * * *', async () => {
     await processPendingScheduledNotifications();
   } catch (err) {
     logger.error('[Scheduler] Scheduled notification processing error:', err.message);
+  }
+});
+
+// 🔄 Every 5 minutes - Retry failed push/SMS notifications (exponential backoff)
+cron.schedule('*/5 * * * *', async () => {
+  try {
+    await retryFailedNotifications();
+  } catch (err) {
+    logger.error('[Scheduler] Notification retry error:', err.message);
+  }
+});
+
+// ⚠️ Every 30 minutes - Escalate stuck orders (appointments, pharmacy, investigations)
+cron.schedule('*/30 * * * *', async () => {
+  try {
+    await escalateStuckOrders();
+  } catch (err) {
+    logger.error('[Scheduler] Stuck order escalation error:', err.message);
   }
 });
 
