@@ -48,3 +48,52 @@ export const getMyShift = async (req, res) => {
     error(res, 'Failed to fetch shift', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
+
+/**
+ * Create a custom shift
+ */
+export const createCustomShift = async (req, res) => {
+  try {
+    const { name, start_time, end_time, grace_period_minutes, late_threshold_minutes, absent_threshold_minutes, department } = req.body;
+    const shift = await shiftService.createCustomShift({ name, start_time, end_time, grace_period_minutes, late_threshold_minutes, absent_threshold_minutes, department });
+    success(res, shift, 'Custom shift created');
+  } catch (err) {
+    logger.error('Create Custom Shift Error:', err);
+    const status = err.message.includes('required') || err.message.includes('format') ? HTTP_STATUS.BAD_REQUEST : HTTP_STATUS.INTERNAL_SERVER_ERROR;
+    error(res, err.message, status);
+  }
+};
+
+/**
+ * Update a custom shift
+ */
+export const updateCustomShift = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const shift = await shiftService.updateCustomShift(id, req.body);
+    success(res, shift, 'Shift updated');
+  } catch (err) {
+    logger.error('Update Custom Shift Error:', err);
+    const status = err.message.includes('not found') ? HTTP_STATUS.NOT_FOUND
+      : err.message.includes('cannot') ? HTTP_STATUS.FORBIDDEN
+      : HTTP_STATUS.INTERNAL_SERVER_ERROR;
+    error(res, err.message, status);
+  }
+};
+
+/**
+ * Deactivate (soft-delete) a custom shift
+ */
+export const deactivateShift = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const shift = await shiftService.deactivateShift(id);
+    success(res, shift, 'Shift deactivated');
+  } catch (err) {
+    logger.error('Deactivate Shift Error:', err);
+    const status = err.message.includes('not found') ? HTTP_STATUS.NOT_FOUND
+      : err.message.includes('cannot') ? HTTP_STATUS.FORBIDDEN
+      : HTTP_STATUS.INTERNAL_SERVER_ERROR;
+    error(res, err.message, status);
+  }
+};

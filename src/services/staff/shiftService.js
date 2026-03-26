@@ -65,11 +65,91 @@ export function calculateOvertime(shift, checkInTime, checkOutTime) {
 }
 
 /**
- * List all active shifts
+ * List all active shifts — presets first, then custom sorted by name
  */
 export async function getAllShifts() {
-  const res = await db.query('SELECT * FROM staff_shifts WHERE is_active = true ORDER BY start_time');
+  const res = await db.query(`
+    SELECT * FROM staff_shifts
+    WHERE is_active = true
+    ORDER BY is_preset DESC, start_time ASC
+  `);
   return res.rows;
+}
+
+/**
+ * Get preset shifts only
+ */
+export async function getPresetShifts() {
+  const res = await db.query(`
+    SELECT * FROM staff_shifts WHERE is_active = true AND is_preset = true ORDER BY start_time
+  `);
+  return res.rows;
+}
+
+/**
+ * Create a custom shift (non-preset)
+ */
+export async function createCustomShift({ name, start_time, end_time, grace_period_minutes, late_threshold_minutes, absent_threshold_minutes, department }) {
+  if (!name || !start_time || !end_time) throw new Error('name, start_time, and end_time are required');
+
+  // Validate time format HH:MM
+  const timeRegex = /^\d{2}:\d{2}$/;
+  if (!timeRegex.test(start_time) || !timeRegex.test(end_time)) {
+    throw new Error('Times must be in HH:MM format');
+  }
+
+  const res = await db.query(`
+    INSERT INTO staff_shifts (name, start_time, end_time, grace_period_minutes, late_threshold_minutes, absent_threshold_minutes, department, is_preset, is_active)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, false, true)
+    RETURNING *
+  `, [
+    name.trim(),
+    start_time,
+    end_time,
+    grace_period_minutes ?? 15,
+    late_threshold_minutes ?? 30,
+    absent_threshold_minutes ?? 60,
+    department || null,
+  ]);
+  return res.rows[0];
+}
+
+/**
+ * Update a custom shift (presets cannot be edited — update their fields would affect all staff)
+ */
+export async function updateCustomShift(shiftId, updates) {
+  // Don't allow editing preset shifts
+  const existing = await db.query('SELECT is_preset FROM staff_shifts WHERE id = $1', [shiftId]);
+  if (!existing.rows.length) throw new Error('Shift not found');
+  if (existing.rows[0].is_preset) throw new Error('Preset shifts cannot be edited. Create a custom shift instead.');
+
+  const allowed = ['name', 'start_time', 'end_time', 'grace_period_minutes', 'late_threshold_minutes', 'absent_threshold_minutes', 'department'];
+  const fields = Object.keys(updates).filter(k => allowed.includes(k));
+  if (!fields.length) throw new Error('No valid fields to update');
+
+  const setClauses = fields.map((f, i) => `${f} = $${i + 2}`).join(', ');
+  const values = fields.map(f => updates[f]);
+
+  const res = await db.query(
+    `UPDATE staff_shifts SET ${setClauses} WHERE id = $1 RETURNING *`,
+    [shiftId, ...values]
+  );
+  return res.rows[0];
+}
+
+/**
+ * Deactivate a custom shift (soft delete)
+ */
+export async function deactivateShift(shiftId) {
+  const existing = await db.query('SELECT is_preset FROM staff_shifts WHERE id = $1', [shiftId]);
+  if (!existing.rows.length) throw new Error('Shift not found');
+  if (existing.rows[0].is_preset) throw new Error('Preset shifts cannot be deleted');
+
+  const res = await db.query(
+    'UPDATE staff_shifts SET is_active = false WHERE id = $1 RETURNING *',
+    [shiftId]
+  );
+  return res.rows[0];
 }
 
 /**
