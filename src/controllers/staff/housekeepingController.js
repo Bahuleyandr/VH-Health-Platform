@@ -470,3 +470,100 @@ export const getRequestDetail = async (req, res) => {
     error(res, 'Failed to fetch request', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
+
+// ─── POST /zones — admin create zone ─────────────────────────────────────────
+export const createZone = async (req, res) => {
+  try {
+    const { name, zone_type = 'general', floor, building, description } = req.body;
+
+    if (!name) return error(res, 'name is required', HTTP_STATUS.BAD_REQUEST);
+
+    const result = await db.query(`
+      INSERT INTO housekeeping_zones (name, zone_type, floor, building, is_active)
+      VALUES ($1, $2, $3, $4, true)
+      RETURNING *
+    `, [name, zone_type, floor || null, building || null]);
+
+    success(res, result.rows[0], 'Zone created');
+  } catch (err) {
+    logger.error('Create Zone Error:', err);
+    error(res, 'Failed to create zone', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ─── PUT /zones/:id — admin update zone ──────────────────────────────────────
+export const updateZone = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, zone_type, floor, building, is_active } = req.body;
+
+    const result = await db.query(`
+      UPDATE housekeeping_zones
+      SET
+        name = COALESCE($1, name),
+        zone_type = COALESCE($2, zone_type),
+        floor = COALESCE($3, floor),
+        building = COALESCE($4, building),
+        is_active = COALESCE($5, is_active)
+      WHERE id = $6
+      RETURNING *
+    `, [name || null, zone_type || null, floor || null, building || null,
+        is_active !== undefined ? is_active : null, id]);
+
+    if (result.rows.length === 0) return error(res, 'Zone not found', HTTP_STATUS.NOT_FOUND);
+
+    success(res, result.rows[0], 'Zone updated');
+  } catch (err) {
+    logger.error('Update Zone Error:', err);
+    error(res, 'Failed to update zone', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ─── POST /requests/create — admin create emergency request ──────────────────
+export const adminCreateRequest = async (req, res) => {
+  try {
+    const adminUid = req.user?.uid;
+    const {
+      zone_id, location_text, request_type = 'cleaning',
+      urgency = 'normal', description, assigned_to,
+    } = req.body;
+
+    if (!location_text && !zone_id) {
+      return error(res, 'zone_id or location_text is required', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // Look up admin's integer users.id from uid
+    const adminUser = await db.query('SELECT id FROM users WHERE uid = $1', [adminUid]);
+    if (adminUser.rows.length === 0) return error(res, 'Admin user not found', HTTP_STATUS.NOT_FOUND);
+    const adminId = adminUser.rows[0].id;
+
+    const slaMinutes = { urgent: 30, high: 60, normal: 120, low: 240 }[urgency] ?? 120;
+    const sla_due_at = new Date(Date.now() + slaMinutes * 60 * 1000).toISOString();
+
+    const result = await db.query(`
+      INSERT INTO housekeeping_requests
+        (requester_id, zone_id, location_text, request_type, urgency, description,
+         status, assigned_to, assigned_at, assigned_by, sla_due_at)
+      VALUES ($1, $2, $3, $4, $5, $6,
+              $7, $8, $9, $10, $11)
+      RETURNING *
+    `, [
+      adminId,
+      zone_id || null,
+      location_text || null,
+      request_type,
+      urgency,
+      description || null,
+      assigned_to ? 'assigned' : 'open',
+      assigned_to || null,
+      assigned_to ? new Date().toISOString() : null,
+      assigned_to ? adminId : null,
+      sla_due_at,
+    ]);
+
+    success(res, result.rows[0], `Request ${result.rows[0].request_number} created`);
+  } catch (err) {
+    logger.error('Admin Create Request Error:', err);
+    error(res, 'Failed to create request', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
