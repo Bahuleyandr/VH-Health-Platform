@@ -7,7 +7,7 @@ export interface PayrollRun {
   id: number;
   month: number;
   year: number;
-  status: "draft" | "processing" | "completed" | "locked";
+  status: "draft" | "processing" | "completed" | "approved" | "locked";
   total_staff: number;
   total_gross: string;
   total_net: string;
@@ -18,6 +18,14 @@ export interface PayrollRun {
   locked_at: string | null;
   notes: string | null;
   created_at: string;
+  // Dual sign fields
+  hr_approved_by: string | null;
+  hr_approved_at: string | null;
+  hr_comment: string | null;
+  admin_approved_by: string | null;
+  admin_approved_at: string | null;
+  admin_comment: string | null;
+  approval_hash: string | null;
 }
 
 export interface Payslip {
@@ -210,3 +218,13 @@ export const rejectRevision = <T = unknown>(
   id: string | number,
   data: { reason?: string }
 ) => postJSON<T>(`/api/v1/staff/admin/payroll/revisions/${id}/reject`, data);
+
+// Payroll run dual sign + manual edit
+export const hrSignPayrollRun = <T = unknown>(runId: string, data: { comment?: string }) =>
+  postJSON<T>(`/api/v1/staff/admin/payroll/runs/${runId}/hr-sign`, data);
+
+export const adminSignPayrollRun = <T = unknown>(runId: string, data: { comment?: string }) =>
+  postJSON<T>(`/api/v1/staff/admin/payroll/runs/${runId}/admin-sign`, data);
+
+export const manualEditPayslip = <T = unknown>(payslipId: string, data: Record<string, unknown>) =>
+  postJSON<T>(`/api/v1/staff/admin/payroll/payslips/${payslipId}/edit`, data);
