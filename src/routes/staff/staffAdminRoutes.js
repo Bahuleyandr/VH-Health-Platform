@@ -12,6 +12,8 @@ import * as incidentController from '../../controllers/staff/incidentController.
 import * as grievanceController from '../../controllers/staff/grievanceController.js';
 import * as reportAuditController from '../../controllers/staff/reportAuditController.js';
 import * as attendanceAuditController from '../../controllers/staff/attendanceAuditController.js';
+import * as payrollController from '../../controllers/staff/payrollController.js';
+import * as salaryRevisionController from '../../controllers/staff/salaryRevisionController.js';
 
 const router = express.Router();
 
@@ -90,6 +92,15 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/housekeeping/requests', housekeepingController.getAllRequests],
     ['/housekeeping/stats', housekeepingController.getHousekeepingStats],
     ['/housekeeping/zones', housekeepingController.getZones],
+
+    // Payroll (admin)
+    ['/payroll/runs', payrollController.getPayrollRuns],
+    ['/payroll/runs/:runId', payrollController.getPayrollRunDetail],
+    ['/payroll/staff', payrollController.getStaffForPayroll],
+    ['/payroll/salary/:staffUid', payrollController.getStaffSalaryConfig],
+    ['/payroll/revisions', salaryRevisionController.getRevisions],
+    ['/payroll/revisions/:id', salaryRevisionController.getRevisionDetail],
+    ['/payroll/annual-review', salaryRevisionController.getAnnualReviewStatus],
   ],
   
   post: [
@@ -131,6 +142,16 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/housekeeping/requests/:id/assign', housekeepingController.assignRequest],
     ['/housekeeping/logs/:id/verify', housekeepingController.verifyLog],
     ['/housekeeping/requests/:id/verify', housekeepingController.verifyRequest],
+
+    // Payroll (admin actions)
+    ['/payroll/run', payrollController.runPayroll],
+    ['/payroll/issue', payrollController.issuePayslips],
+    ['/payroll/salary/:staffUid', payrollController.upsertStaffSalaryConfig],
+    ['/payroll/revisions/propose', salaryRevisionController.proposeRevision],
+    ['/payroll/revisions/:id/hr-sign', salaryRevisionController.hrSignRevision],
+    ['/payroll/revisions/:id/admin-sign', salaryRevisionController.adminSignRevision],
+    ['/payroll/revisions/:id/apply', salaryRevisionController.applyRevision],
+    ['/payroll/revisions/:id/reject', salaryRevisionController.rejectRevision],
   ],
   
   put: [
