@@ -6,6 +6,7 @@ import * as overtimeController from '../../controllers/staff/overtimeController.
 import * as shiftController from '../../controllers/staff/shiftController.js';
 import * as incidentController from '../../controllers/staff/incidentController.js';
 import * as grievanceController from '../../controllers/staff/grievanceController.js';
+import * as housekeepingController from '../../controllers/staff/housekeepingController.js';
 import {
   performanceReviewValidation,
   onboardingValidation,
@@ -57,6 +58,12 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
     // Grievances (staff)
     ['/grievances', grievanceController.getMyGrievances],
     ['/grievances/:id', grievanceController.getGrievanceDetail],
+
+    // Housekeeping (staff)
+    ['/housekeeping/zones', housekeepingController.getZones],
+    ['/housekeeping/logs/my', housekeepingController.getMyCleaningLogs],
+    ['/housekeeping/requests/my', housekeepingController.getMyRequests],
+    ['/housekeeping/requests/:id', housekeepingController.getRequestDetail],
   ],
   
   post: [
@@ -80,6 +87,11 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
 
     // Grievances (staff submit)
     ['/grievances/submit', grievanceController.submitGrievance],
+
+    // Housekeeping (staff submit)
+    ['/housekeeping/log', housekeepingController.submitCleaningLog],
+    ['/housekeeping/request', housekeepingController.raiseRequest],
+    ['/housekeeping/requests/:id/complete', housekeepingController.completeRequest],
   ],
   
   put: [
