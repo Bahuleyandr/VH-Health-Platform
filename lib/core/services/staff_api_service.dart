@@ -1265,4 +1265,40 @@ class StaffApiService {
     }
     throw Exception(data['message'] ?? 'Upload failed (${resp.statusCode})');
   }
+
+  // ─── Delivery Tracking ──────────────────────────────────────────────────
+
+  /// POST /delivery/location-update — send GPS location during delivery
+  static Future<void> updateDeliveryLocation({
+    required String orderType,
+    required int orderId,
+    required double lat,
+    required double lng,
+    double? accuracy,
+    double? speed,
+    double? heading,
+    int? batteryLevel,
+  }) async {
+    await _post('/delivery/location-update', {
+      'order_type': orderType,
+      'order_id': orderId,
+      'lat': lat,
+      'lng': lng,
+      if (accuracy != null) 'accuracy': accuracy,
+      if (speed != null) 'speed': speed,
+      if (heading != null) 'heading': heading,
+      if (batteryLevel != null) 'battery_level': batteryLevel,
+    });
+  }
+
+  /// POST /delivery/stop-tracking — stop location sharing
+  static Future<void> stopDeliveryTracking({
+    required String orderType,
+    required int orderId,
+  }) async {
+    await _post('/delivery/stop-tracking', {
+      'order_type': orderType,
+      'order_id': orderId,
+    });
+  }
 }

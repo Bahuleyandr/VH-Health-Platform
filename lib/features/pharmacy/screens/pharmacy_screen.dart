@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/services/staff_api_service.dart';
@@ -20,6 +22,11 @@ class _PharmacyScreenState extends State<PharmacyScreen>
   bool _loading = true;
   String? _error;
 
+  // Delivery tracking
+  Timer? _locationTimer;
+  int? _trackingOrderId;
+  bool _sharingLocation = false;
+
   @override
   void initState() {
     super.initState();
@@ -29,8 +36,63 @@ class _PharmacyScreenState extends State<PharmacyScreen>
 
   @override
   void dispose() {
+    _stopLocationSharing();
     _tabController.dispose();
     super.dispose();
+  }
+
+  void _startLocationSharing(int orderId) {
+    _stopLocationSharing();
+    _trackingOrderId = orderId;
+    _sharingLocation = true;
+    if (mounted) setState(() {});
+
+    // Send immediately, then every 30s
+    _sendLocation();
+    _locationTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!_sharingLocation) {
+        _stopLocationSharing();
+        return;
+      }
+      _sendLocation();
+    });
+  }
+
+  void _stopLocationSharing() {
+    _locationTimer?.cancel();
+    _locationTimer = null;
+    if (_trackingOrderId != null && _sharingLocation) {
+      StaffApiService.stopDeliveryTracking(
+        orderType: 'pharmacy',
+        orderId: _trackingOrderId!,
+      ).catchError((_) {});
+    }
+    _trackingOrderId = null;
+    _sharingLocation = false;
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _sendLocation() async {
+    if (_trackingOrderId == null) return;
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
+      await StaffApiService.updateDeliveryLocation(
+        orderType: 'pharmacy',
+        orderId: _trackingOrderId!,
+        lat: pos.latitude,
+        lng: pos.longitude,
+        accuracy: pos.accuracy,
+        speed: pos.speed * 3.6, // m/s to km/h
+        heading: pos.heading,
+      );
+    } catch (_) {
+      // silent fail — don't block workflow
+    }
   }
 
   Future<void> _loadOrders() async {
@@ -287,6 +349,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
         'delivery_person_phone': phoneCtrl.text.trim(),
       });
       _snack('Order dispatched');
+      _startLocationSharing(order['id']);
       _loadOrders();
     } catch (e) {
       _snack(e.toString(), isError: true);
@@ -315,6 +378,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
 
     try {
       await StaffApiService.markPharmacyDelivered(order['id']);
+      _stopLocationSharing();
       _snack('Marked as delivered');
       _loadOrders();
     } catch (e) {
@@ -635,13 +699,32 @@ class _PharmacyScreenState extends State<PharmacyScreen>
             color: Colors.teal,
             onTap: () => _dispatchOrder(order),
           ),
-        if (status == 'DISPATCHED')
+        if (status == 'DISPATCHED') ...[
+          if (_sharingLocation && _trackingOrderId == order['id'])
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.green.shade200),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.my_location, size: 14, color: Colors.green.shade700),
+                  const SizedBox(width: 4),
+                  Text('📍 Sharing location...',
+                      style: TextStyle(fontSize: 12, color: Colors.green.shade700)),
+                ],
+              ),
+            ),
           _ActionBtn(
             label: 'Mark Delivered',
             icon: Icons.done_all,
             color: AppTheme.successGreen,
             onTap: () => _markDelivered(order),
           ),
+        ],
         if (!['DELIVERED', 'CANCELLED'].contains(status))
           _ActionBtn(
             label: 'Cancel',

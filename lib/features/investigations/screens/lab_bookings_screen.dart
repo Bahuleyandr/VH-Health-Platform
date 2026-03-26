@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -23,6 +25,11 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
   bool _loading = true;
   String? _error;
 
+  // Collection tracking
+  Timer? _locationTimer;
+  int? _trackingBookingId;
+  bool _sharingLocation = false;
+
   @override
   void initState() {
     super.initState();
@@ -32,8 +39,60 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
 
   @override
   void dispose() {
+    _stopLocationSharing();
     _tabController.dispose();
     super.dispose();
+  }
+
+  void _startLocationSharing(int bookingId) {
+    _stopLocationSharing();
+    _trackingBookingId = bookingId;
+    _sharingLocation = true;
+    if (mounted) setState(() {});
+
+    _sendLocation();
+    _locationTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!_sharingLocation) {
+        _stopLocationSharing();
+        return;
+      }
+      _sendLocation();
+    });
+  }
+
+  void _stopLocationSharing() {
+    _locationTimer?.cancel();
+    _locationTimer = null;
+    if (_trackingBookingId != null && _sharingLocation) {
+      StaffApiService.stopDeliveryTracking(
+        orderType: 'investigation',
+        orderId: _trackingBookingId!,
+      ).catchError((_) {});
+    }
+    _trackingBookingId = null;
+    _sharingLocation = false;
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _sendLocation() async {
+    if (_trackingBookingId == null) return;
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
+      await StaffApiService.updateDeliveryLocation(
+        orderType: 'investigation',
+        orderId: _trackingBookingId!,
+        lat: pos.latitude,
+        lng: pos.longitude,
+        accuracy: pos.accuracy,
+        speed: pos.speed * 3.6,
+        heading: pos.heading,
+      );
+    } catch (_) {}
   }
 
   Future<void> _fetchBookings() async {
@@ -387,17 +446,35 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
           ],
         );
       case 'DISPATCHED':
-        return Row(
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(
-              child: ElevatedButton.icon(
-                onPressed: () => _markCollected(id),
-                icon: const Icon(Icons.science, size: 16),
-                label: const Text('Mark Collected'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.purple,
-                  foregroundColor: Colors.white,
+            if (_sharingLocation && _trackingBookingId == id)
+              Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green.shade200),
                 ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.my_location, size: 14, color: Colors.green.shade700),
+                    const SizedBox(width: 4),
+                    Text('📍 Sharing location...',
+                        style: TextStyle(fontSize: 12, color: Colors.green.shade700)),
+                  ],
+                ),
+              ),
+            ElevatedButton.icon(
+              onPressed: () => _markCollected(id),
+              icon: const Icon(Icons.science, size: 16),
+              label: const Text('Mark Collected'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.purple,
+                foregroundColor: Colors.white,
               ),
             ),
           ],
@@ -585,6 +662,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
         if (notesCtrl.text.isNotEmpty) 'notes': notesCtrl.text,
       });
       _showSnack('Collector dispatched');
+      _startLocationSharing(id);
       _fetchBookings();
     } catch (e) {
       _showSnack('Error: $e', isError: true);
@@ -594,6 +672,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
   Future<void> _markCollected(int id) async {
     try {
       await StaffApiService.markSamplesCollected(id);
+      _stopLocationSharing();
       _showSnack('Samples collected');
       _fetchBookings();
     } catch (e) {
