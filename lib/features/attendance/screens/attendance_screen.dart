@@ -170,7 +170,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           content: Text(_checkedIn
               ? '✅ Checked out successfully'
               : '✅ Checked in successfully'),
-          backgroundColor: AppTheme.primaryColor,
+          backgroundColor: AppTheme.primaryBlue,
         ));
       }
       await _loadTodayStatus();
@@ -213,8 +213,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         children: [
           TabBar(
             controller: _tabController,
-            labelColor: AppTheme.primaryColor,
-            indicatorColor: AppTheme.primaryColor,
+            labelColor: AppTheme.primaryBlue,
+            indicatorColor: AppTheme.primaryBlue,
             tabs: const [
               Tab(text: 'Today'),
               Tab(text: 'Calendar'),
@@ -344,7 +344,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                       : _getLocationAndCheckIn),
               style: ElevatedButton.styleFrom(
                 backgroundColor:
-                    _checkedIn ? Colors.red.shade600 : AppTheme.primaryColor,
+                    _checkedIn ? Colors.red.shade600 : AppTheme.primaryBlue,
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12)),
               ),

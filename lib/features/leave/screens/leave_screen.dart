@@ -160,8 +160,8 @@ class _LeaveScreenState extends State<LeaveScreen>
           if (_leaveBalance != null) _buildBalanceCard(),
           TabBar(
             controller: _tabController,
-            labelColor: AppTheme.primaryColor,
-            indicatorColor: AppTheme.primaryColor,
+            labelColor: AppTheme.primaryBlue,
+            indicatorColor: AppTheme.primaryBlue,
             tabs: [
               const Tab(text: 'Apply'),
               Tab(text: 'My Leaves (${_myLeaves.length})'),
@@ -193,7 +193,7 @@ class _LeaveScreenState extends State<LeaveScreen>
 
     if (balances.isNotEmpty) {
       return Container(
-        color: AppTheme.primaryColor,
+        color: AppTheme.primaryBlue,
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -240,7 +240,7 @@ class _LeaveScreenState extends State<LeaveScreen>
     // Flat format
     return Container(
       padding: const EdgeInsets.all(12),
-      color: AppTheme.primaryColor.withValues(alpha: 0.1),
+      color: AppTheme.primaryBlue.withValues(alpha: 0.1),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
@@ -318,7 +318,7 @@ class _LeaveScreenState extends State<LeaveScreen>
               padding: const EdgeInsets.only(top: 6),
               child: Text(
                 '${_endDate!.difference(_startDate!).inDays + 1} day(s)',
-                style: TextStyle(color: AppTheme.primaryColor, fontSize: 12),
+                style: TextStyle(color: AppTheme.primaryBlue, fontSize: 12),
               ),
             ),
           const SizedBox(height: 16),
@@ -387,7 +387,7 @@ class _LeaveScreenState extends State<LeaveScreen>
             child: ElevatedButton(
               onPressed: _submitting ? null : _submitLeave,
               style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primaryColor,
+                  backgroundColor: AppTheme.primaryBlue,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12))),
               child: _submitting
@@ -649,7 +649,7 @@ class _LeaveScreenState extends State<LeaveScreen>
                         onPressed: () => _respondToReplacement(
                             req['id'].toString(), 'accepted'),
                         style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.primaryColor),
+                            backgroundColor: AppTheme.primaryBlue),
                         child: const Text('Accept',
                             style: TextStyle(color: Colors.white)),
                       ),

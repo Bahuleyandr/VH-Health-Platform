@@ -651,7 +651,7 @@ class StaffApiService {
       Map<String, dynamic> data, {File? photo}) async {
     if (photo != null) {
       // Multipart upload
-      final headers = await ApiConfig.authenticatedAuthHeaders();
+      final headers = await ApiConfig.authenticatedHeaders();
       final request = http.MultipartRequest(
         'POST',
         Uri.parse('${ApiConfig.baseUrl}/prescriptions/create'),
