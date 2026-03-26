@@ -8,104 +8,136 @@ import { usePermissions } from "@/hooks/usePermissions";
 type NavItem = {
   name: string;
   href: string;
-  requiredRole?: "ADMIN" | "SUPER_ADMIN";
-  requiredPermissions?: string[]; // all must be present (SUPER_ADMIN bypasses)
 };
 
-// Exported so it’s not “defined but never used”
-export const navigationItems: NavItem[] = [
-  { name: "Dashboard", href: "/dashboard" },
+type NavSection = {
+  title: string;
+  /** Minimum role rank needed to see this section (inclusive) */
+  minRole: "STAFF" | "HR" | "ADMIN" | "SUPER_ADMIN" | null;
+  items: NavItem[];
+};
 
+const navSections: NavSection[] = [
   {
-    name: "Users",
-    href: "/dashboard/users",
-    requiredPermissions: ["userManagement"],
+    title: "Overview",
+    minRole: null, // all authenticated users
+    items: [
+      { name: "Dashboard", href: "/dashboard" },
+    ],
   },
   {
-    name: "Doctors",
-    href: "/dashboard/doctors",
-    requiredPermissions: ["doctorManagement"],
+    title: "My Work",
+    minRole: "STAFF", // STAFF | DOCTOR | HR | ADMIN | SUPER_ADMIN
+    items: [
+      { name: "My Appointments", href: "/dashboard/my-appointments" },
+      { name: "My Attendance",   href: "/dashboard/my-attendance" },
+      { name: "My Leave",        href: "/dashboard/my-leave" },
+      { name: "My Payslips",     href: "/dashboard/my-payslips" },
+      { name: "My Replacements", href: "/dashboard/my-replacements" },
+      { name: "Upload Prescription", href: "/dashboard/upload-prescription" },
+    ],
   },
   {
-    name: "Departments",
-    href: "/dashboard/departments",
-    requiredPermissions: ["departmentManagement"],
+    title: "Operations",
+    minRole: null, // all authenticated
+    items: [
+      { name: "Appointments",    href: "/dashboard/appointments" },
+      { name: "Housekeeping",    href: "/dashboard/housekeeping" },
+      { name: "Emergency / SOS", href: "/dashboard/sos" },
+    ],
   },
   {
-    name: "Appointments",
-    href: "/dashboard/appointments",
-    requiredPermissions: ["appointmentManagement"],
-  },
-
-  // Not tied to a specific permission key in our matrix—leave open by default
-  { name: "Medical Records", href: "/dashboard/records" },
-  {
-    name: "Pharmacy",
-    href: "/dashboard/pharmacy",
-    requiredPermissions: ["pharmacyAdminRoutes"],
-  },
-  { name: "Staff", href: "/dashboard/staff" },
-
-  {
-    name: "Notifications",
-    href: "/dashboard/notifications",
-    requiredPermissions: ["notificationManagement"],
+    title: "HR Management",
+    minRole: "HR", // HR | ADMIN | SUPER_ADMIN
+    items: [
+      { name: "Leave Approvals",  href: "/dashboard/leave-approvals" },
+      { name: "Grievances",       href: "/dashboard/grievances" },
+      { name: "Incidents",        href: "/dashboard/incidents" },
+      { name: "Attendance Audit", href: "/dashboard/attendance-audit" },
+      { name: "Report Audit",     href: "/dashboard/reporting" },
+      { name: "Staff",            href: "/dashboard/staff-roster" },
+    ],
   },
   {
-    name: "Analytics",
-    href: "/dashboard/analytics",
-    requiredPermissions: ["viewAuditLogs"],
-  },
-
-  // NEW
-  { name: "Attendance", href: "/dashboard/attendance", requiredRole: "ADMIN" },
-  { name: "Leave Approvals", href: "/dashboard/leave-approvals", requiredRole: "ADMIN" },
-  { name: "Emergency/SOS", href: "/dashboard/sos" },
-  { name: "Uploads", href: "/dashboard/uploads", requiredRole: "ADMIN" },
-
-  { name: "Feedback", href: "/dashboard/feedback" },
-  { name: "Housekeeping", href: "/dashboard/housekeeping", requiredRole: "ADMIN" },
-  {
-    name: "System Settings",
-    href: "/dashboard/settings",
-    requiredRole: "ADMIN",
+    title: "Administration",
+    minRole: "ADMIN", // ADMIN | SUPER_ADMIN only
+    items: [
+      { name: "Users",           href: "/dashboard/users" },
+      { name: "Doctors",         href: "/dashboard/doctors" },
+      { name: "Departments",     href: "/dashboard/departments" },
+      { name: "Payroll",         href: "/dashboard/payroll" },
+      { name: "Analytics",       href: "/dashboard/analytics" },
+      { name: "Medical Records", href: "/dashboard/records" },
+      { name: "Pharmacy",        href: "/dashboard/pharmacy" },
+      { name: "Notifications",   href: "/dashboard/notifications" },
+      { name: "Attendance",      href: "/dashboard/attendance" },
+      { name: "Uploads",         href: "/dashboard/uploads" },
+      { name: "Feedback",        href: "/dashboard/feedback" },
+      { name: "System Settings", href: "/dashboard/settings" },
+      { name: "System Audit",    href: "/dashboard/system-audit" },
+      { name: "Audit Logs",      href: "/dashboard/audit" },
+    ],
   },
 ];
 
+// Role rank for visibility checks (higher = more privileged)
+const ROLE_RANK: Record<string, number> = {
+  STAFF: 0,
+  DOCTOR: 1,
+  HR: 2,
+  ADMIN: 3,
+  SUPER_ADMIN: 4,
+};
+
 export default function AdminNav() {
   const pathname = usePathname();
-  const { role, isSuperAdmin, hasAllPermissions } = usePermissions();
+  const { role, isSuperAdmin } = usePermissions();
 
-  const visible = navigationItems.filter((item) => {
-    const roleOk =
-      !item.requiredRole || isSuperAdmin || role === item.requiredRole;
-    const perms = item.requiredPermissions ?? [];
-    const permsOk =
-      perms.length === 0 || isSuperAdmin || hasAllPermissions(perms);
-    return roleOk && permsOk;
-  });
+  const userRank = isSuperAdmin
+    ? 4
+    : role
+    ? (ROLE_RANK[role] ?? -1)
+    : -1;
 
   return (
-    <nav aria-label="Admin navigation" className="space-y-1">
-      {visible.map((item) => {
-        const active =
-          item.href === "/dashboard"
-            ? pathname === item.href
-            : pathname === item.href || pathname.startsWith(item.href + "/");
+    <nav aria-label="Admin navigation" className="space-y-4">
+      {navSections.map((section) => {
+        // Determine if this section is visible to current user
+        const minRank = section.minRole ? (ROLE_RANK[section.minRole] ?? 99) : -Infinity;
+        if (userRank < minRank) return null;
+
         return (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`block rounded px-3 py-2 text-sm transition-colors ${
-              active
-                ? "bg-background text-white"
-                : "text-muted-foreground hover:bg-muted hover:text-white"
-            }`}
-          >
-            {item.name}
-          </Link>
+          <div key={section.title}>
+            <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">
+              {section.title}
+            </p>
+            <div className="space-y-0.5">
+              {section.items.map((item) => {
+                const active =
+                  item.href === "/dashboard"
+                    ? pathname === item.href
+                    : pathname === item.href || pathname.startsWith(item.href + "/");
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`block rounded px-3 py-2 text-sm transition-colors ${
+                      active
+                        ? "bg-background text-white"
+                        : "text-muted-foreground hover:bg-muted hover:text-white"
+                    }`}
+                  >
+                    {item.name}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
         );
       })}
     </nav>
   );
 }
+
+// Legacy export kept for backward compat
+export const navigationItems = navSections.flatMap((s) => s.items);

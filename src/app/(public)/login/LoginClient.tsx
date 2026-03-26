@@ -27,7 +27,10 @@ import Image from 'next/image';
 import styles from './Login.module.css';
 
 function LoginInner() {
-  const { login } = useAuth();
+  const { login, loginStaff } = useAuth();
+
+  // Tab state: 'admin' | 'staff'
+  const [loginMode, setLoginMode] = useState<'admin' | 'staff'>('admin');
 
   // Form state
   const [username, setUsername] = useState('');
@@ -117,7 +120,11 @@ function LoginInner() {
     setIsLoading(true);
     
     try {
-      await login(username.trim(), password);
+      if (loginMode === 'staff') {
+        await loginStaff(username.trim(), password);
+      } else {
+        await login(username.trim(), password);
+      }
       
       if (remember) {
         localStorage.setItem('vh:remember', 'true');
@@ -174,7 +181,49 @@ function LoginInner() {
         {/* Welcome Section */}
         <div className={styles.welcomeSection}>
           <h2 className={styles.welcomeTitle}>Welcome Back</h2>
-          <p className={styles.welcomeSubtitle}>Admin Portal Access</p>
+          <p className={styles.welcomeSubtitle}>
+            {loginMode === 'staff' ? 'Staff Portal Access' : 'Admin Portal Access'}
+          </p>
+        </div>
+
+        {/* Login Mode Tabs */}
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem' }}>
+          <button
+            type="button"
+            onClick={() => { setLoginMode('admin'); setError(''); setTouched({ username: false, password: false }); }}
+            style={{
+              flex: 1,
+              padding: '0.5rem',
+              borderRadius: '0.375rem',
+              border: loginMode === 'admin' ? '2px solid #6366f1' : '2px solid transparent',
+              background: loginMode === 'admin' ? '#6366f115' : 'transparent',
+              color: loginMode === 'admin' ? '#6366f1' : '#94a3b8',
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontSize: '0.875rem',
+              transition: 'all 0.15s',
+            }}
+          >
+            🛡️ Admin Login
+          </button>
+          <button
+            type="button"
+            onClick={() => { setLoginMode('staff'); setError(''); setTouched({ username: false, password: false }); }}
+            style={{
+              flex: 1,
+              padding: '0.5rem',
+              borderRadius: '0.375rem',
+              border: loginMode === 'staff' ? '2px solid #10b981' : '2px solid transparent',
+              background: loginMode === 'staff' ? '#10b98115' : 'transparent',
+              color: loginMode === 'staff' ? '#10b981' : '#94a3b8',
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontSize: '0.875rem',
+              transition: 'all 0.15s',
+            }}
+          >
+            👤 Staff Login
+          </button>
         </div>
 
         {/* Error Alert */}
@@ -189,7 +238,7 @@ function LoginInner() {
           {/* Username Field */}
           <div className={styles.inputGroup}>
             <label htmlFor="username" className={styles.label}>
-              Username
+              {loginMode === 'staff' ? 'Employee ID' : 'Username'}
             </label>
             <div className={styles.inputWrapper}>
               <span
@@ -226,7 +275,7 @@ function LoginInner() {
                     ? styles.inputSuccess
                     : ''
                 }`}
-                placeholder="Enter your username"
+                placeholder={loginMode === 'staff' ? 'Enter your employee ID' : 'Enter your username'}
               />
               {touched.username && !fieldErrors.username && username && (
                 <span className={styles.checkIcon}>✓</span>
