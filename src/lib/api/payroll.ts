@@ -311,3 +311,189 @@ export const getPayrollComparison = <T = PayrollComparisonData>(
       ...(staffUid && { staff_uid: staffUid }),
     } as QueryParams
   );
+
+// ─── Compliance API ───────────────────────────────────────────────────────────
+
+export interface FnFSettlement {
+  id: number;
+  staff_uid: string;
+  staff_name: string;
+  department: string;
+  designation: string;
+  employee_id: string;
+  separation_type: string;
+  last_working_day: string;
+  last_month_basic: string;
+  last_month_allowances: string;
+  years_of_service: string;
+  gratuity_eligible: boolean;
+  gratuity_amount: string;
+  bonus_payable: string;
+  notice_shortfall_days: number;
+  notice_recovery_amount: string;
+  other_deductions: string;
+  gross_payable: string;
+  total_deductions: string;
+  net_payable: string;
+  status: string;
+  payment_date: string | null;
+  payment_reference: string | null;
+  created_at: string;
+}
+
+export interface GratuityStatus {
+  staff_uid: string;
+  name: string;
+  employee_id: string;
+  designation: string;
+  department: string;
+  date_of_joining: string;
+  years_of_service: number;
+  gratuity_eligible: boolean;
+  projected_gratuity: number;
+  days_to_five_years: number;
+}
+
+export interface InvestmentDeclaration {
+  id: number;
+  staff_uid: string;
+  staff_name: string;
+  department: string;
+  designation: string;
+  employee_id: string;
+  financial_year: string;
+  ppf: string;
+  epf_voluntary: string;
+  elss: string;
+  lic_premium: string;
+  nsc: string;
+  home_loan_principal: string;
+  tuition_fees: string;
+  other_80c: string;
+  health_insurance_self: string;
+  health_insurance_parents: string;
+  education_loan_interest: string;
+  rent_paid_monthly: string;
+  rent_receipt_provided: boolean;
+  home_loan_interest: string;
+  nps_contribution: string;
+  status: string;
+  submitted_at: string | null;
+  approved_at: string | null;
+}
+
+export interface PayslipQuery {
+  id: number;
+  payslip_id: number;
+  staff_uid: string;
+  staff_name: string;
+  employee_id: string;
+  month: number;
+  year: number;
+  net_salary: string;
+  subject: string;
+  description: string;
+  category: string;
+  status: string;
+  created_at: string;
+  replies: Array<{
+    id: number;
+    author_uid: string;
+    author_role: string;
+    message: string;
+    created_at: string;
+  }> | null;
+}
+
+export interface ComplianceDeadline {
+  label: string;
+  due_date: string;
+  due_in_days: number;
+  status: string;
+  type: string;
+  note?: string;
+}
+
+export interface BulkRevisionJob {
+  id: number;
+  description: string;
+  revision_type: string;
+  target_type: string;
+  target_value: string | null;
+  increment_type: string | null;
+  increment_value: string | null;
+  bonus_amount: string | null;
+  effective_from: string;
+  staff_count: number;
+  processed_count: number;
+  status: string;
+  created_by_name: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface LeaveEncashment {
+  id: number;
+  staff_uid: string;
+  staff_name: string;
+  employee_id: string;
+  encashment_type: string;
+  leave_days: number;
+  daily_rate: string;
+  amount: string;
+  financial_year: string | null;
+  status: string;
+  created_at: string;
+}
+
+export const getComplianceCalendar = <T = { deadlines: ComplianceDeadline[]; current_month: number; current_year: number }>() =>
+  getJSON<T>('/api/v1/staff/admin/payroll/compliance-calendar');
+
+export const getFnFList = <T = FnFSettlement[]>(status?: string) =>
+  getJSON<T>('/api/v1/staff/admin/payroll/fnf', status ? { status } as QueryParams : undefined);
+
+export const createFnF = <T = FnFSettlement>(data: {
+  staff_uid: string; separation_type: string; last_working_day: string;
+  notice_shortfall_days?: number; bonus_payable?: number;
+  other_deductions?: number; other_deductions_reason?: string; notes?: string;
+}) => postJSON<T>('/api/v1/staff/admin/payroll/fnf/create', data);
+
+export const approveFnF = <T = FnFSettlement>(id: number) =>
+  postJSON<T>(`/api/v1/staff/admin/payroll/fnf/${id}/approve`, {});
+
+export const markFnFPaid = <T = FnFSettlement>(id: number, payment_date: string, payment_reference: string) =>
+  postJSON<T>(`/api/v1/staff/admin/payroll/fnf/${id}/mark-paid`, { payment_date, payment_reference });
+
+export const getGratuityStatus = <T = GratuityStatus[]>() =>
+  getJSON<T>('/api/v1/staff/admin/payroll/gratuity');
+
+export const getAllDeclarations = <T = InvestmentDeclaration[]>(params?: { financial_year?: string; status?: string }) =>
+  getJSON<T>('/api/v1/staff/admin/payroll/declarations', params as QueryParams);
+
+export const approveDeclaration = <T = InvestmentDeclaration>(id: number) =>
+  postJSON<T>(`/api/v1/staff/admin/payroll/declarations/${id}/approve`, {});
+
+export const getAllPayslipQueries = <T = PayslipQuery[]>(status?: string) =>
+  getJSON<T>('/api/v1/staff/admin/payroll/queries', status ? { status } as QueryParams : undefined);
+
+export const replyToPayslipQuery = <T = PayslipQuery>(id: number, message: string, resolve?: boolean) =>
+  postJSON<T>(`/api/v1/staff/admin/payroll/queries/${id}/reply`, { message, resolve: resolve ?? false });
+
+export const getBulkRevisions = <T = BulkRevisionJob[]>() =>
+  getJSON<T>('/api/v1/staff/admin/payroll/bulk-revisions');
+
+export const createBulkRevision = <T = BulkRevisionJob>(data: {
+  description: string; revision_type: string; target_type: string;
+  target_value?: string; increment_type?: string; increment_value?: number;
+  bonus_amount?: number; effective_from: string;
+}) => postJSON<T>('/api/v1/staff/admin/payroll/bulk-revisions/create', data);
+
+export const approveBulkRevision = <T = BulkRevisionJob>(id: number) =>
+  postJSON<T>(`/api/v1/staff/admin/payroll/bulk-revisions/${id}/approve`, {});
+
+export const getLeaveEncashments = <T = LeaveEncashment[]>(staff_uid?: string) =>
+  getJSON<T>('/api/v1/staff/admin/payroll/leave-encashment', staff_uid ? { staff_uid } as QueryParams : undefined);
+
+export const calculateLeaveEncashment = <T = LeaveEncashment>(data: {
+  staff_uid: string; leave_days: number; encashment_type: string; financial_year?: string;
+}) => postJSON<T>('/api/v1/staff/admin/payroll/leave-encashment/create', data);
