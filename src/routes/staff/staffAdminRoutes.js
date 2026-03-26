@@ -9,6 +9,7 @@ import * as shiftController from '../../controllers/staff/shiftController.js';
 import * as bulkController from '../../controllers/staff/bulkAttendanceController.js';
 import * as incidentController from '../../controllers/staff/incidentController.js';
 import * as grievanceController from '../../controllers/staff/grievanceController.js';
+import * as reportAuditController from '../../controllers/staff/reportAuditController.js';
 
 const router = express.Router();
 
@@ -62,6 +63,12 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     // Incident Reports (admin)
     ['/incidents', incidentController.getAllIncidents],
     ['/incidents/stats', incidentController.getIncidentStats],
+
+    // Audit routes (super-admin oversight of incidents + grievances + HR activity)
+    ['/audit/dashboard', reportAuditController.getAuditDashboard],
+    ['/audit/activity', reportAuditController.getAdminActivityReport],
+    ['/audit/sla', reportAuditController.getSLAReport],
+    ['/audit/trail/:type/:id', reportAuditController.getReportAuditTrail],
     ['/incidents/:id', incidentController.getAdminIncidentDetail],
 
     // Grievances (admin/HR)
