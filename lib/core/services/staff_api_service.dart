@@ -1079,4 +1079,25 @@ class StaffApiService {
     }
     throw Exception(data['message'] ?? 'Upload failed (${resp.statusCode})');
   }
+
+  // ── Walk-in Registration ──────────────────────────────────────────────────
+
+  static Future<Map<String, dynamic>> registerWalkIn({
+    required String patientPhone,
+    String? patientName,
+    int? doctorId,
+    String? department,
+    String? reason,
+    String? appointmentTime,
+  }) async {
+    final body = <String, dynamic>{
+      'patient_phone': patientPhone,
+      if (patientName != null && patientName.isNotEmpty) 'patient_name': patientName,
+      if (doctorId != null) 'doctor_id': doctorId,
+      if (department != null && department.isNotEmpty) 'department': department,
+      'reason': reason ?? 'Walk-in consultation',
+      'appointment_time': appointmentTime ?? 'Walk-in',
+    };
+    return _post('/appointments/walk-in', body);
+  }
 }

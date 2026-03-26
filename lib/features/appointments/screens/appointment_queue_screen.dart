@@ -425,6 +425,12 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
   Widget build(BuildContext context) {
     return StaffScaffold(
       title: 'Appointment Queue',
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _showWalkInDialog,
+        backgroundColor: const Color(0xFF00796B),
+        icon: const Icon(Icons.person_add, color: Colors.white),
+        label: const Text('Walk-in', style: TextStyle(color: Colors.white)),
+      ),
       body: Column(
         children: [
           TabBar(
@@ -505,6 +511,131 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
           onConfirm: _showConfirmSheet,
         ),
       ),
+    );
+  }
+
+  void _showWalkInDialog() {
+    final phoneCtrl = TextEditingController();
+    final nameCtrl = TextEditingController();
+    final deptCtrl = TextEditingController();
+    final reasonCtrl = TextEditingController();
+    bool submitting = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 20, right: 20, top: 20,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.person_add, color: Color(0xFF00796B)),
+                  const SizedBox(width: 8),
+                  const Text('Register Walk-in', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Spacer(),
+                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: phoneCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(
+                  labelText: 'Patient Phone *',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.phone),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Patient Name',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.person),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: deptCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Department',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.local_hospital),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Reason',
+                  border: OutlineInputBorder(),
+                  hintText: 'Walk-in consultation',
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00796B),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  onPressed: submitting ? null : () async {
+                    if (phoneCtrl.text.trim().isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Patient phone is required')),
+                      );
+                      return;
+                    }
+                    setSheet(() => submitting = true);
+                    try {
+                      final result = await StaffApiService.registerWalkIn(
+                        patientPhone: phoneCtrl.text.trim(),
+                        patientName: nameCtrl.text.trim(),
+                        department: deptCtrl.text.trim(),
+                        reason: reasonCtrl.text.trim(),
+                      );
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      final token = result['token_number'] ?? result['data']?['token_number'];
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Walk-in registered! Token #$token'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                        _loadQueue(); // Refresh queue
+                      }
+                    } catch (e) {
+                      setSheet(() => submitting = false);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Failed: ${e.toString()}'), backgroundColor: Colors.red),
+                        );
+                      }
+                    }
+                  },
+                  child: submitting
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Text('Register Walk-in', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+        );
+      }),
     );
   }
 
