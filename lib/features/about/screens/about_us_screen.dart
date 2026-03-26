@@ -9,7 +9,12 @@ class AboutUsScreen extends StatelessWidget {
   const AboutUsScreen({super.key});
 
   // Hospital contact details
-  static const _hospitalPhone = '+914424313948';
+  static const _appointmentPhone = '+914445114511';
+  static const _appointmentPhone2 = '+914445111111';
+  static const _sampleCollectionPhone = '+919384543289';
+  static const _sampleCollectionPhone2 = '+919500210210';
+  static const _emergencyPhone = '+914445004500';
+  static const _emergencyPhone2 = '+919094004500';
   static const _hospitalEmail = 'info@venkataeswara.com';
   static const _hospitalAddress = '36-A, Chamiers Road, Nandanam, Chennai - 600035';
   static const _hospitalLat = 13.02936;
@@ -35,8 +40,37 @@ class AboutUsScreen extends StatelessWidget {
     }
   }
 
-  Future<void> _callHospital() async {
-    await _launchUrl('tel:$_hospitalPhone');
+  void _showPhoneOptions(BuildContext context, String title, List<(String, String)> numbers) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              ...numbers.map((entry) => ListTile(
+                leading: const CircleAvatar(
+                  backgroundColor: Color(0x1A007A64),
+                  child: Icon(Icons.phone, color: Color(0xFF007A64), size: 20),
+                ),
+                title: Text(entry.$1, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: 1)),
+                trailing: const Icon(Icons.call, color: Color(0xFF007A64)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _launchUrl('tel:${entry.$2}');
+                },
+              )),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _emailHospital() async {
@@ -83,28 +117,37 @@ class AboutUsScreen extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   _ContactAction(
-                    icon: Icons.phone,
-                    label: 'Call',
-                    color: Colors.green,
-                    onTap: _callHospital,
+                    icon: Icons.calendar_month,
+                    label: 'Appointments',
+                    color: Colors.teal,
+                    onTap: () => _showPhoneOptions(context, 'Doctor Appointments', [
+                      ('044-4511 4511', _appointmentPhone),
+                      ('4511 1111', _appointmentPhone2),
+                    ]),
+                  ),
+                  _ContactAction(
+                    icon: Icons.science_outlined,
+                    label: 'Home Sample',
+                    color: Colors.blue,
+                    onTap: () => _showPhoneOptions(context, 'Free Home Sample Collection', [
+                      ('93845 43289', _sampleCollectionPhone),
+                      ('95002 10210', _sampleCollectionPhone2),
+                    ]),
+                  ),
+                  _ContactAction(
+                    icon: Icons.emergency,
+                    label: 'Ambulance',
+                    color: Colors.red,
+                    onTap: () => _showPhoneOptions(context, 'Emergency Ambulance', [
+                      ('044-4500 4500', _emergencyPhone),
+                      ('90940 04500', _emergencyPhone2),
+                    ]),
                   ),
                   _ContactAction(
                     icon: Icons.navigation_rounded,
                     label: 'Navigate',
-                    color: Colors.blue,
+                    color: Colors.green,
                     onTap: _navigateToHospital,
-                  ),
-                  _ContactAction(
-                    icon: Icons.email_outlined,
-                    label: 'Email',
-                    color: Colors.orange,
-                    onTap: _emailHospital,
-                  ),
-                  _ContactAction(
-                    icon: Icons.emergency,
-                    label: 'Emergency',
-                    color: Colors.red,
-                    onTap: () => _launchUrl('tel:$_hospitalPhone'),
                   ),
                 ],
               ),
