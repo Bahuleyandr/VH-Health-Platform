@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:url_launcher/url_launcher.dart';
 import 'package:vhhealth/core/config/api_config.dart';
 import 'package:vhhealth/core/utils/calendar_utils.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
@@ -36,6 +37,9 @@ class _AppointmentInfo {
   final String time;
   final String status;
   final String? reason;
+  final int? tokenNumber;
+  final String? confirmationNotes;
+  final bool hasDocuments;
 
   const _AppointmentInfo({
     required this.id,
@@ -45,6 +49,9 @@ class _AppointmentInfo {
     required this.time,
     required this.status,
     this.reason,
+    this.tokenNumber,
+    this.confirmationNotes,
+    this.hasDocuments = false,
   });
 
   bool get isUpcoming {
@@ -190,6 +197,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
             time: a['appointment_time']?.toString() ?? '',
             status: a['status']?.toString().toLowerCase() ?? 'scheduled',
             reason: a['reason']?.toString(),
+            tokenNumber: a['token_number'] != null ? int.tryParse(a['token_number'].toString()) : null,
+            confirmationNotes: a['confirmation_notes']?.toString(),
+            hasDocuments: false, // updated when documents are fetched
           );
         }).toList();
         if (mounted) {
@@ -285,6 +295,60 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
     } catch (_) {
       setState(() => _submitting = false);
       _showError(l10n.genericError);
+    }
+  }
+
+  // ── View prescription/documents ───────────────────────────────────────────
+
+  Future<void> _viewPrescription(_AppointmentInfo appt) async {
+    try {
+      final resp = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/appointments/${appt.id}/documents'),
+        headers: await ApiConfig.authenticatedAuthHeaders(),
+      );
+      if (!mounted) return;
+      if (resp.statusCode == 200) {
+        final body = jsonDecode(resp.body);
+        final List<dynamic> docs = body['data'] ?? body ?? [];
+        if (docs.isEmpty) {
+          _showError('No documents available for this appointment');
+          return;
+        }
+        // Show a bottom sheet with document links
+        showModalBottomSheet(
+          context: context,
+          builder: (ctx) => Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Documents', style: Theme.of(ctx).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                ...docs.map((d) {
+                  final m = d as Map<String, dynamic>;
+                  final url = m['file_url']?.toString();
+                  final name = m['file_name'] ?? m['document_type'] ?? 'Document';
+                  return ListTile(
+                    leading: const Icon(Icons.description),
+                    title: Text(name),
+                    subtitle: Text(m['document_type']?.toString().replaceAll('_', ' ') ?? ''),
+                    trailing: url != null ? const Icon(Icons.open_in_new) : null,
+                    onTap: url == null ? null : () async {
+                      final uri = Uri.parse(url);
+                      if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    },
+                  );
+                }).toList(),
+              ],
+            ),
+          ),
+        );
+      } else {
+        _showError('Failed to load documents');
+      }
+    } catch (e) {
+      _showError('Failed to load documents');
     }
   }
 
@@ -424,36 +488,42 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
   }
 
   Color _statusColor(String status) {
-    switch (status) {
+    switch (status.toLowerCase()) {
       case 'scheduled':
-        return Colors.blue;
-      case 'confirmed':
-        return Colors.green;
-      case 'in_progress':
         return Colors.orange;
+      case 'confirmed':
+        return const Color(0xFF00796B); // teal
+      case 'in_progress':
+        return Colors.blue;
       case 'completed':
-        return Colors.grey;
+        return Colors.green;
       case 'cancelled':
         return Colors.red;
+      case 'no_show':
+        return Colors.grey;
       default:
-        return Colors.blue;
+        return Colors.blueGrey;
     }
   }
 
   String _statusLabel(String status) {
-    switch (status) {
+    switch (status.toLowerCase()) {
       case 'scheduled':
         return 'Scheduled';
       case 'confirmed':
-        return 'Confirmed';
+        return 'Confirmed ✓';
       case 'in_progress':
         return 'In Progress';
       case 'completed':
         return 'Completed';
       case 'cancelled':
         return 'Cancelled';
+      case 'no_show':
+        return 'No Show';
       default:
-        return status[0].toUpperCase() + status.substring(1);
+        return status.isNotEmpty
+            ? status[0].toUpperCase() + status.substring(1)
+            : status;
     }
   }
 
@@ -771,13 +841,45 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
                 Text(appt.time, style: theme.textTheme.bodySmall),
               ],
             ),
+            if (appt.tokenNumber != null) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Icon(Icons.confirmation_number, size: 14, color: const Color(0xFF00796B)),
+                  const SizedBox(width: 4),
+                  Text('Token #${appt.tokenNumber}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF00796B),
+                        fontWeight: FontWeight.w600,
+                      )),
+                ],
+              ),
+            ],
             if (appt.reason != null && appt.reason!.isNotEmpty) ...[
               const SizedBox(height: 4),
               Text('Reason: ${appt.reason}',
                   style: theme.textTheme.bodySmall
                       ?.copyWith(fontStyle: FontStyle.italic)),
             ],
-            if (appt.isUpcoming && appt.status != 'cancelled') ...[
+            if (appt.confirmationNotes != null && appt.confirmationNotes!.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text('Note: ${appt.confirmationNotes}',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: Colors.grey[600])),
+            ],
+            if (appt.status == 'completed') ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => _viewPrescription(appt),
+                  icon: const Icon(Icons.description_outlined, size: 18),
+                  label: const Text('View Prescription'),
+                  style: TextButton.styleFrom(foregroundColor: const Color(0xFF00796B)),
+                ),
+              ),
+            ],
+            if (appt.isUpcoming && appt.status == 'scheduled') ...[
               const SizedBox(height: 8),
               Align(
                 alignment: Alignment.centerRight,

@@ -189,6 +189,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         onTap: (ctx) => _openFeature(ctx, '/appointments'),
       ),
       FeatureIconData(
+        icon: LucideIcons.folderOpen,
+        label: 'Records',
+        color: const Color(0xFFB2DFDB),
+        onTap: (ctx) => _openFeature(ctx, '/records'),
+      ),
+      FeatureIconData(
         icon: LucideIcons.pill,
         label: 'Pharmacy',
         color: const Color(0xFFD1C4E9),
@@ -364,7 +370,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         icon: LucideIcons.fileText,
                         label: 'Records',
                         color: cs.tertiary,
-                        onTap: () => _openFeature(context, '/your-health'),
+                        onTap: () => _openFeature(context, '/records'),
                       ),
                       _QuickActionButton(
                         icon: LucideIcons.pill,

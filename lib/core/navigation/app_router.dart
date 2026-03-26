@@ -15,6 +15,7 @@ import 'package:vhhealth/features/your_health/screens/your_health_screen.dart';
 import 'package:vhhealth/features/notifications/screens/notifications_screen.dart';
 import 'package:vhhealth/features/settings/screens/settings_screen.dart';
 import 'package:vhhealth/features/appointments/screens/appointments_screen.dart';
+import 'package:vhhealth/features/records/screens/records_screen.dart';
 import 'package:vhhealth/features/pharmacy/screens/pharmacy_screen.dart';
 import 'package:vhhealth/features/investigations/screens/investigations_screen.dart';
 import 'package:vhhealth/features/feedback/screens/ask_a_doubt_screen.dart';
@@ -223,6 +224,10 @@ class AppRouter {
         builder: (context, state) => CalendarScreen(
           uid: _userPhone ?? '',
         ),
+      ),
+      GoRoute(
+        path: '/records',
+        builder: (context, state) => const RecordsScreen(),
       ),
       
       // Alternative route names for backward compatibility
