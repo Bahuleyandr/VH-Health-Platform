@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { X, RefreshCw, CheckCircle, Flag, UserPlus, Eye } from "lucide-react";
+import { X, RefreshCw, CheckCircle, Flag, UserPlus, Eye, Plus, Edit2 } from "lucide-react";
 import {
   getHousekeepingStats,
   getHousekeepingLogs,
@@ -11,6 +11,9 @@ import {
   verifyLog,
   assignHousekeepingRequest,
   verifyHousekeepingRequest,
+  createHousekeepingZone,
+  updateHousekeepingZone,
+  adminCreateHousekeepingRequest,
   type HousekeepingLog,
   type HousekeepingRequest,
   type HousekeepingZone,
@@ -81,26 +84,36 @@ function Badge({ value, styleMap }: { value: string; styleMap: Record<string, st
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
+type Tab = "dashboard" | "logs" | "requests" | "zones" | "performance";
+
 export default function HousekeepingPage() {
-  const [tab, setTab] = useState<"dashboard" | "logs" | "requests">("dashboard");
+  const [tab, setTab] = useState<Tab>("dashboard");
+
+  const TABS: { id: Tab; label: string }[] = [
+    { id: "dashboard", label: "Dashboard" },
+    { id: "logs", label: "Logs" },
+    { id: "requests", label: "Requests" },
+    { id: "zones", label: "Zones" },
+    { id: "performance", label: "Staff Performance" },
+  ];
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <h1 className="text-2xl font-bold text-gray-800 mb-6">🧹 Housekeeping Management</h1>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-6 w-fit">
-        {(["dashboard", "logs", "requests"] as const).map((t) => (
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-6 w-fit flex-wrap">
+        {TABS.map((t) => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
+            key={t.id}
+            onClick={() => setTab(t.id)}
             className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
-              tab === t
+              tab === t.id
                 ? "bg-white text-gray-800 shadow-sm"
                 : "text-gray-600 hover:text-gray-800"
             }`}
           >
-            {t.charAt(0).toUpperCase() + t.slice(1)}
+            {t.label}
           </button>
         ))}
       </div>
@@ -108,6 +121,8 @@ export default function HousekeepingPage() {
       {tab === "dashboard" && <DashboardTab />}
       {tab === "logs" && <LogsTab />}
       {tab === "requests" && <RequestsTab />}
+      {tab === "zones" && <ZonesTab />}
+      {tab === "performance" && <PerformanceTab />}
     </div>
   );
 }
@@ -414,6 +429,7 @@ function RequestsTab() {
   const [filters, setFilters] = useState({ status: "", urgency: "", assigned_to: "", from: "", to: "" });
   const [assignModal, setAssignModal] = useState<HousekeepingRequest | null>(null);
   const [detailPanel, setDetailPanel] = useState<HousekeepingRequest | null>(null);
+  const [newRequestModal, setNewRequestModal] = useState(false);
 
   const { data: raw, isLoading, refetch } = useQuery({
     queryKey: ["hk-requests", filters],
@@ -421,6 +437,7 @@ function RequestsTab() {
   });
 
   const { data: zonesRaw } = useQuery({ queryKey: ["hk-zones"], queryFn: getHousekeepingZones });
+  const zones = zonesRaw ? unwrap<HousekeepingZone[]>(zonesRaw) : [];
 
   const result = raw ? unwrap<{ requests: HousekeepingRequest[]; total: number }>(raw) : null;
   const requests = result?.requests ?? [];
@@ -433,23 +450,31 @@ function RequestsTab() {
 
   return (
     <div className="space-y-4">
-      {/* Filters */}
-      <div className="bg-white rounded-xl border p-4 grid grid-cols-2 md:grid-cols-5 gap-3">
-        <select className="border rounded-lg px-3 py-2 text-sm" value={filters.status} onChange={(e) => setFilters(f => ({ ...f, status: e.target.value }))}>
-          <option value="">All Status</option>
-          {["open", "assigned", "in_progress", "completed", "verified", "closed", "cancelled"].map((s) => (
-            <option key={s} value={s}>{s.replace(/_/g, " ").toUpperCase()}</option>
-          ))}
-        </select>
-        <select className="border rounded-lg px-3 py-2 text-sm" value={filters.urgency} onChange={(e) => setFilters(f => ({ ...f, urgency: e.target.value }))}>
-          <option value="">All Urgency</option>
-          {["urgent", "high", "normal", "low"].map((u) => (
-            <option key={u} value={u}>{u.toUpperCase()}</option>
-          ))}
-        </select>
-        <input placeholder="Assigned to (Staff ID)" className="border rounded-lg px-3 py-2 text-sm" value={filters.assigned_to} onChange={(e) => setFilters(f => ({ ...f, assigned_to: e.target.value }))} />
-        <input type="date" className="border rounded-lg px-3 py-2 text-sm" value={filters.from} onChange={(e) => setFilters(f => ({ ...f, from: e.target.value }))} />
-        <input type="date" className="border rounded-lg px-3 py-2 text-sm" value={filters.to} onChange={(e) => setFilters(f => ({ ...f, to: e.target.value }))} />
+      {/* Filters + New Request */}
+      <div className="flex flex-wrap gap-3 items-start">
+        <div className="bg-white rounded-xl border p-4 grid grid-cols-2 md:grid-cols-5 gap-3 flex-1">
+          <select className="border rounded-lg px-3 py-2 text-sm" value={filters.status} onChange={(e) => setFilters(f => ({ ...f, status: e.target.value }))}>
+            <option value="">All Status</option>
+            {["open", "assigned", "in_progress", "completed", "verified", "closed", "cancelled"].map((s) => (
+              <option key={s} value={s}>{s.replace(/_/g, " ").toUpperCase()}</option>
+            ))}
+          </select>
+          <select className="border rounded-lg px-3 py-2 text-sm" value={filters.urgency} onChange={(e) => setFilters(f => ({ ...f, urgency: e.target.value }))}>
+            <option value="">All Urgency</option>
+            {["urgent", "high", "normal", "low"].map((u) => (
+              <option key={u} value={u}>{u.toUpperCase()}</option>
+            ))}
+          </select>
+          <input placeholder="Assigned to (Staff ID)" className="border rounded-lg px-3 py-2 text-sm" value={filters.assigned_to} onChange={(e) => setFilters(f => ({ ...f, assigned_to: e.target.value }))} />
+          <input type="date" className="border rounded-lg px-3 py-2 text-sm" value={filters.from} onChange={(e) => setFilters(f => ({ ...f, from: e.target.value }))} />
+          <input type="date" className="border rounded-lg px-3 py-2 text-sm" value={filters.to} onChange={(e) => setFilters(f => ({ ...f, to: e.target.value }))} />
+        </div>
+        <button
+          onClick={() => setNewRequestModal(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700 whitespace-nowrap"
+        >
+          <Plus size={16} /> New Request
+        </button>
       </div>
 
       <div className="flex justify-between items-center">
@@ -535,11 +560,17 @@ function RequestsTab() {
           onClose={() => setDetailPanel(null)}
         />
       )}
+
+      {newRequestModal && (
+        <NewRequestModal
+          zones={zones}
+          onClose={() => setNewRequestModal(false)}
+          onCreated={() => { qc.invalidateQueries({ queryKey: ["hk-requests"] }); setNewRequestModal(false); }}
+        />
+      )}
     </div>
   );
 }
-
-// ─── Assign Modal ─────────────────────────────────────────────────────────────
 
 function AssignModal({
   req,
@@ -558,9 +589,11 @@ function AssignModal({
     queryFn: () => getJSON<unknown>("/api/v1/staff/admin/search?limit=100"),
   });
 
-  const staffList: Array<{ id: number; name: string }> = (() => {
+  // Staff search returns s.* from staff table — user_id is the integer FK to users.id
+  // assigned_to in housekeeping_requests is integer FK to users.id
+  const staffList: Array<{ user_id: number; name: string }> = (() => {
     if (!staffRaw) return [];
-    const d = unwrap<{ staff?: Array<{ id: number; name: string }> }>(staffRaw);
+    const d = unwrap<{ staff?: Array<{ user_id: number; name: string }> }>(staffRaw);
     return d?.staff ?? [];
   })();
 
@@ -588,13 +621,13 @@ function AssignModal({
               >
                 <option value="">— Select staff member —</option>
                 {staffList.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
+                  <option key={s.user_id} value={s.user_id}>{s.name}</option>
                 ))}
               </select>
             ) : (
               <input
                 type="number"
-                placeholder="Enter staff ID"
+                placeholder="Enter staff user ID"
                 className="w-full border rounded-lg px-3 py-2 text-sm"
                 value={staffId}
                 onChange={(e) => setStaffId(e.target.value)}
@@ -619,6 +652,118 @@ function AssignModal({
             className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-50"
           >
             {mut.isPending ? "Assigning..." : "Assign"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NewRequestModal({
+  zones,
+  onClose,
+  onCreated,
+}: {
+  zones: HousekeepingZone[];
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [form, setForm] = useState({
+    zone_id: "",
+    location_text: "",
+    request_type: "cleaning",
+    urgency: "normal",
+    description: "",
+  });
+
+  const mut = useMutation({
+    mutationFn: () => adminCreateHousekeepingRequest({
+      zone_id: form.zone_id ? parseInt(form.zone_id) : undefined,
+      location_text: form.location_text || undefined,
+      request_type: form.request_type,
+      urgency: form.urgency,
+      description: form.description || undefined,
+    }),
+    onSuccess: () => { toast.success("Request created"); onCreated(); },
+    onError: (e: unknown) => toast.error((e as Error).message),
+  });
+
+  const valid = form.zone_id || form.location_text.trim();
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="font-semibold text-gray-800">New Emergency Request</h3>
+          <button onClick={onClose}><X size={18} className="text-gray-400" /></button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-medium text-gray-600 mb-1 block">Zone</label>
+            <select
+              className="w-full border rounded-lg px-3 py-2 text-sm"
+              value={form.zone_id}
+              onChange={(e) => setForm(f => ({ ...f, zone_id: e.target.value }))}
+            >
+              <option value="">— Select zone (or enter location below) —</option>
+              {zones.map((z) => (
+                <option key={z.id} value={z.id}>{z.name} ({z.zone_type})</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-600 mb-1 block">Location text (if no zone)</label>
+            <input
+              className="w-full border rounded-lg px-3 py-2 text-sm"
+              placeholder="e.g. Corridor near OPD"
+              value={form.location_text}
+              onChange={(e) => setForm(f => ({ ...f, location_text: e.target.value }))}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-600 mb-1 block">Type</label>
+              <select
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+                value={form.request_type}
+                onChange={(e) => setForm(f => ({ ...f, request_type: e.target.value }))}
+              >
+                {["cleaning", "deep_clean", "waste_removal", "sanitization", "maintenance", "other"].map((t) => (
+                  <option key={t} value={t}>{t.replace(/_/g, " ")}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 mb-1 block">Urgency</label>
+              <select
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+                value={form.urgency}
+                onChange={(e) => setForm(f => ({ ...f, urgency: e.target.value }))}
+              >
+                {["urgent", "high", "normal", "low"].map((u) => (
+                  <option key={u} value={u}>{u.toUpperCase()}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-600 mb-1 block">Description</label>
+            <textarea
+              className="w-full border rounded-lg p-3 text-sm h-20 resize-none"
+              placeholder="Describe the issue..."
+              value={form.description}
+              onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))}
+            />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 mt-4">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg border text-sm">Cancel</button>
+          <button
+            onClick={() => mut.mutate()}
+            disabled={mut.isPending || !valid}
+            className="px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {mut.isPending ? "Creating..." : "Create Request"}
           </button>
         </div>
       </div>
@@ -695,6 +840,392 @@ function InfoRow({ label, value }: { label: string; value: string | null | undef
     <div>
       <div className="text-xs font-medium text-gray-500">{label}</div>
       <div className="text-sm text-gray-800 mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+// ─── Zones Tab ────────────────────────────────────────────────────────────────
+
+const ZONE_TYPES = ["general", "ward", "corridor", "icu", "ot", "emergency", "pharmacy", "lab", "outpatient", "cafeteria", "restroom", "storage"];
+
+function ZonesTab() {
+  const qc = useQueryClient();
+  const [showAll, setShowAll] = useState(false);
+  const [addModal, setAddModal] = useState(false);
+  const [editZone, setEditZone] = useState<HousekeepingZone | null>(null);
+
+  const { data: raw, isLoading, refetch } = useQuery({
+    queryKey: ["hk-zones-all"],
+    queryFn: () => getJSON<unknown>("/api/v1/staff/admin/housekeeping/zones"),
+  });
+
+  // Get all zones including inactive
+  const allZones: HousekeepingZone[] = (() => {
+    if (!raw) return [];
+    const d = unwrap<HousekeepingZone[] | { zones?: HousekeepingZone[] }>(raw);
+    if (Array.isArray(d)) return d;
+    return (d as { zones?: HousekeepingZone[] }).zones ?? [];
+  })();
+
+  const zones = showAll ? allZones : allZones.filter(z => z.is_active);
+
+  const toggleMut = useMutation({
+    mutationFn: (zone: HousekeepingZone) =>
+      updateHousekeepingZone(zone.id, { is_active: !zone.is_active }),
+    onSuccess: () => { toast.success("Zone updated"); qc.invalidateQueries({ queryKey: ["hk-zones-all"] }); qc.invalidateQueries({ queryKey: ["hk-zones"] }); },
+    onError: (e: unknown) => toast.error((e as Error).message),
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-500">{zones.length} zones</span>
+          <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showAll}
+              onChange={(e) => setShowAll(e.target.checked)}
+              className="rounded"
+            />
+            Show inactive
+          </label>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => refetch()} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"><RefreshCw size={14} /></button>
+          <button
+            onClick={() => setAddModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700"
+          >
+            <Plus size={16} /> Add Zone
+          </button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
+      ) : zones.length === 0 ? (
+        <div className="text-center py-16 text-gray-400">No zones found</div>
+      ) : (
+        <div className="bg-white rounded-xl border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b">
+              <tr>
+                {["Name", "Type", "Floor", "Building", "Status", "Actions"].map((h) => (
+                  <th key={h} className="px-4 py-3 text-left font-semibold text-gray-600 text-xs">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {zones.map((zone) => (
+                <tr key={zone.id} className={`border-b hover:bg-gray-50 ${!zone.is_active ? "opacity-50" : ""}`}>
+                  <td className="px-4 py-3 font-medium text-gray-800">{zone.name}</td>
+                  <td className="px-4 py-3">
+                    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold border bg-blue-50 text-blue-700 border-blue-200 capitalize">
+                      {zone.zone_type}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-500">{zone.floor ?? "—"}</td>
+                  <td className="px-4 py-3 text-gray-500">{zone.building ?? "—"}</td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() => toggleMut.mutate(zone)}
+                      disabled={toggleMut.isPending}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${zone.is_active ? "bg-teal-500" : "bg-gray-300"}`}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${zone.is_active ? "translate-x-4" : "translate-x-0.5"}`} />
+                    </button>
+                  </td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() => setEditZone(zone)}
+                      className="flex items-center gap-1 px-2 py-1 rounded bg-gray-50 text-gray-600 hover:bg-gray-100 text-xs font-medium border border-gray-200"
+                    >
+                      <Edit2 size={11} /> Edit
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {addModal && (
+        <ZoneFormModal
+          onClose={() => setAddModal(false)}
+          onSaved={() => { qc.invalidateQueries({ queryKey: ["hk-zones-all"] }); qc.invalidateQueries({ queryKey: ["hk-zones"] }); setAddModal(false); }}
+        />
+      )}
+
+      {editZone && (
+        <ZoneFormModal
+          zone={editZone}
+          onClose={() => setEditZone(null)}
+          onSaved={() => { qc.invalidateQueries({ queryKey: ["hk-zones-all"] }); qc.invalidateQueries({ queryKey: ["hk-zones"] }); setEditZone(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ZoneFormModal({
+  zone,
+  onClose,
+  onSaved,
+}: {
+  zone?: HousekeepingZone;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    name: zone?.name ?? "",
+    zone_type: zone?.zone_type ?? "general",
+    floor: zone?.floor ?? "",
+    building: zone?.building ?? "",
+    is_active: zone?.is_active ?? true,
+  });
+
+  const mut = useMutation({
+    mutationFn: () =>
+      zone
+        ? updateHousekeepingZone(zone.id, { ...form, floor: form.floor || undefined, building: form.building || undefined })
+        : createHousekeepingZone({ ...form, floor: form.floor || undefined, building: form.building || undefined }),
+    onSuccess: () => { toast.success(zone ? "Zone updated" : "Zone created"); onSaved(); },
+    onError: (e: unknown) => toast.error((e as Error).message),
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="font-semibold text-gray-800">{zone ? "Edit Zone" : "Add New Zone"}</h3>
+          <button onClick={onClose}><X size={18} className="text-gray-400" /></button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-medium text-gray-600 mb-1 block">Zone Name *</label>
+            <input
+              className="w-full border rounded-lg px-3 py-2 text-sm"
+              placeholder="e.g. ICU East Wing"
+              value={form.name}
+              onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-600 mb-1 block">Zone Type</label>
+            <select
+              className="w-full border rounded-lg px-3 py-2 text-sm"
+              value={form.zone_type}
+              onChange={(e) => setForm(f => ({ ...f, zone_type: e.target.value }))}
+            >
+              {ZONE_TYPES.map((t) => (
+                <option key={t} value={t}>{t.toUpperCase()}</option>
+              ))}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-600 mb-1 block">Floor</label>
+              <input
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+                placeholder="e.g. Ground, First"
+                value={form.floor}
+                onChange={(e) => setForm(f => ({ ...f, floor: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 mb-1 block">Building</label>
+              <input
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+                placeholder="e.g. Main Block"
+                value={form.building}
+                onChange={(e) => setForm(f => ({ ...f, building: e.target.value }))}
+              />
+            </div>
+          </div>
+          {zone && (
+            <div className="flex items-center gap-3">
+              <label className="text-sm font-medium text-gray-700">Active</label>
+              <button
+                type="button"
+                onClick={() => setForm(f => ({ ...f, is_active: !f.is_active }))}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${form.is_active ? "bg-teal-500" : "bg-gray-300"}`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${form.is_active ? "translate-x-4" : "translate-x-0.5"}`} />
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 mt-4">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg border text-sm">Cancel</button>
+          <button
+            onClick={() => mut.mutate()}
+            disabled={mut.isPending || !form.name.trim()}
+            className="px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {mut.isPending ? "Saving..." : zone ? "Update Zone" : "Create Zone"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Staff Performance Tab ────────────────────────────────────────────────────
+
+function PerformanceTab() {
+  const { data: raw, isLoading, refetch } = useQuery({
+    queryKey: ["hk-stats-perf"],
+    queryFn: () => getHousekeepingStats(),
+    refetchInterval: 120000,
+  });
+
+  const stats = raw ? unwrap<HousekeepingStats>(raw) : null;
+
+  if (isLoading) return <div className="space-y-4"><Skeleton className="h-48 w-full" /><Skeleton className="h-48 w-full" /></div>;
+  if (!stats) return null;
+
+  const { top_staff, recent_flags, logs, requests } = stats;
+
+  // Build flag reason breakdown from recent_flags
+  const flagReasons: Record<string, number> = {};
+  const flagByStaff: Record<string, number> = {};
+  for (const f of recent_flags) {
+    const reason = f.flag_reason ?? "unspecified";
+    flagReasons[reason] = (flagReasons[reason] ?? 0) + 1;
+    const staff = f.staff_name ?? "Unknown";
+    flagByStaff[staff] = (flagByStaff[staff] ?? 0) + 1;
+  }
+
+  const sortedFlagStaff = Object.entries(flagByStaff).sort((a, b) => b[1] - a[1]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-lg font-semibold text-gray-800">Staff Performance Overview (30 days)</h2>
+        <button onClick={() => refetch()} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+          <RefreshCw size={14} /> Refresh
+        </button>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard label="Total Logs" value={logs.total} color="teal" />
+        <StatCard label="Verified Logs" value={logs.verified} color="blue" />
+        <StatCard label="Flagged Logs" value={logs.flagged} color="red" />
+        <StatCard label="Tasks Completed" value={requests.completed} color="orange" />
+      </div>
+
+      {/* Top Performers Table */}
+      <div className="bg-white rounded-xl border p-5">
+        <h3 className="font-semibold text-gray-700 mb-4">🏆 Top Performers</h3>
+        {top_staff.length === 0 ? (
+          <p className="text-gray-400 text-sm text-center py-4">No data available yet</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  {["Rank", "Staff Name", "Tasks Completed", "Avg Completion"].map((h) => (
+                    <th key={h} className="px-4 py-3 text-left font-semibold text-gray-600 text-xs">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {top_staff.map((s, i) => (
+                  <tr key={s.id} className="border-t hover:bg-gray-50">
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
+                        i === 0 ? "bg-yellow-100 text-yellow-700" :
+                        i === 1 ? "bg-gray-100 text-gray-600" :
+                        i === 2 ? "bg-orange-100 text-orange-600" : "text-gray-400"
+                      }`}>{i + 1}</span>
+                    </td>
+                    <td className="px-4 py-3 font-medium text-gray-800">{s.name}</td>
+                    <td className="px-4 py-3 text-teal-700 font-semibold">{s.completions}</td>
+                    <td className="px-4 py-3 text-gray-500">
+                      {s.avg_minutes ? `${Math.round(parseInt(s.avg_minutes))} min` : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Flags Breakdown */}
+      {recent_flags.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Staff with most flags */}
+          <div className="bg-white rounded-xl border border-red-100 p-5">
+            <h3 className="font-semibold text-red-700 mb-4">⚠️ Staff with Flags</h3>
+            {sortedFlagStaff.length === 0 ? (
+              <p className="text-gray-400 text-sm">No flagged staff</p>
+            ) : (
+              <div className="space-y-2">
+                {sortedFlagStaff.map(([name, count]) => (
+                  <div key={name} className="flex items-center justify-between py-1.5 border-b last:border-0">
+                    <span className="text-sm text-gray-700">{name}</span>
+                    <span className="text-xs font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full border border-red-200">
+                      {count} flag{count > 1 ? "s" : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Flag reason breakdown */}
+          <div className="bg-white rounded-xl border border-red-100 p-5">
+            <h3 className="font-semibold text-red-700 mb-4">🔍 Flag Reasons</h3>
+            {Object.keys(flagReasons).length === 0 ? (
+              <p className="text-gray-400 text-sm">No flag reasons</p>
+            ) : (
+              <div className="space-y-2">
+                {Object.entries(flagReasons)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([reason, count]) => (
+                    <div key={reason} className="flex items-start gap-2 py-1.5 border-b last:border-0">
+                      <span className="flex-1 text-sm text-gray-600 break-words">{reason}</span>
+                      <span className="text-xs font-semibold text-orange-600 shrink-0">{count}×</span>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Recent flags detail */}
+      {recent_flags.length > 0 && (
+        <div className="bg-white rounded-xl border p-5">
+          <h3 className="font-semibold text-gray-700 mb-4">Recent Flagged Logs</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  {["Log#", "Staff", "Zone", "Reason", "Date"].map((h) => (
+                    <th key={h} className="px-4 py-2 text-left font-semibold text-gray-600 text-xs">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {recent_flags.map((f) => (
+                  <tr key={f.id} className="border-t hover:bg-red-50">
+                    <td className="px-4 py-2 font-mono text-xs text-red-700">{f.log_number}</td>
+                    <td className="px-4 py-2 text-gray-700">{f.staff_name ?? "—"}</td>
+                    <td className="px-4 py-2 text-gray-500">{f.zone_name ?? "—"}</td>
+                    <td className="px-4 py-2 text-red-600 text-xs max-w-[200px] truncate" title={f.flag_reason ?? ""}>{f.flag_reason ?? "—"}</td>
+                    <td className="px-4 py-2 text-gray-400 text-xs">{fmtDate(f.logged_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
