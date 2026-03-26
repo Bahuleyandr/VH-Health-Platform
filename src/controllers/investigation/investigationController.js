@@ -477,3 +477,95 @@ export const getInvestigationsByUID = async (req, res) => {
     error(res, 'Failed to retrieve investigations by UID', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
+
+// ─── Test Catalog ───
+
+export const getTestCatalog = async (req, res) => {
+  try {
+    const { category } = req.query;
+    const where = category ? 'WHERE category=$1 AND is_active=TRUE' : 'WHERE is_active=TRUE';
+    const result = await db.query(
+      `SELECT * FROM investigation_test_catalog ${where} ORDER BY category, name`,
+      category ? [category] : []
+    );
+    success(res, result.rows, 'Test catalog');
+  } catch (err) {
+    logger.error('Get Test Catalog Error:', err);
+    error(res, 'Failed to fetch test catalog', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+export const upsertTestCatalog = async (req, res) => {
+  try {
+    const { id, name, code, category, normal_range, unit, default_cost, turnaround_hours, requires_fasting, patient_instructions, description } = req.body;
+    if (!name || !category) return error(res, 'name and category required', HTTP_STATUS.BAD_REQUEST);
+    let result;
+    if (id) {
+      result = await db.query(
+        `UPDATE investigation_test_catalog SET name=$1,code=$2,category=$3,normal_range=$4,unit=$5,default_cost=$6,turnaround_hours=$7,requires_fasting=$8,patient_instructions=$9,description=$10 WHERE id=$11 RETURNING *`,
+        [name, code||null, category, normal_range||null, unit||null, default_cost||null, turnaround_hours||24, requires_fasting||false, patient_instructions||null, description||null, id]
+      );
+    } else {
+      result = await db.query(
+        `INSERT INTO investigation_test_catalog (name,code,category,normal_range,unit,default_cost,turnaround_hours,requires_fasting,patient_instructions,description) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+        [name, code||null, category, normal_range||null, unit||null, default_cost||null, turnaround_hours||24, requires_fasting||false, patient_instructions||null, description||null]
+      );
+    }
+    success(res, result.rows[0], id ? 'Updated' : 'Added');
+  } catch (err) {
+    logger.error('Upsert Test Catalog Error:', err);
+    error(res, 'Failed to save test catalog entry', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ─── SLA Dashboard ───
+
+export const getInvestigationSLADashboard = async (req, res) => {
+  try {
+    const { from_date, to_date } = req.query;
+    const from = from_date || new Date(Date.now() - 7*24*60*60*1000).toISOString().split('T')[0];
+    const to = to_date || new Date().toISOString().split('T')[0];
+
+    const [summary, byStatus, byPriority, urgentPending, recentCompleted] = await Promise.all([
+      db.query(
+        `SELECT COUNT(*) as total,
+          COUNT(CASE WHEN status IN ('completed','COMPLETED','result_ready') THEN 1 END) as completed,
+          COUNT(CASE WHEN status='PENDING' THEN 1 END) as pending,
+          COUNT(CASE WHEN priority IN ('URGENT','STAT') AND status NOT IN ('completed','COMPLETED') THEN 1 END) as urgent_pending,
+          AVG(CASE WHEN result_uploaded_at IS NOT NULL THEN EXTRACT(EPOCH FROM (result_uploaded_at-ordered_date))/3600 END) as avg_tat_hours
+        FROM investigations WHERE DATE(ordered_date) BETWEEN $1 AND $2`, [from, to]
+      ),
+      db.query(
+        `SELECT status, COUNT(*) as count FROM investigations WHERE DATE(ordered_date) BETWEEN $1 AND $2 GROUP BY status`, [from, to]
+      ),
+      db.query(
+        `SELECT priority, COUNT(*) as count FROM investigations WHERE DATE(ordered_date) BETWEEN $1 AND $2 GROUP BY priority`, [from, to]
+      ),
+      db.query(
+        `SELECT i.*, u.name as patient_name, u.phone as patient_phone, d.name as doctor_name,
+          ROUND(EXTRACT(EPOCH FROM (NOW()-i.ordered_date))/3600) as hours_waiting
+        FROM investigations i LEFT JOIN users u ON i.patient_id=u.id LEFT JOIN users d ON i.doctor_id=d.id
+        WHERE i.priority IN ('URGENT','STAT') AND i.status NOT IN ('completed','COMPLETED')
+        ORDER BY i.ordered_date ASC LIMIT 20`
+      ),
+      db.query(
+        `SELECT i.*, u.name as patient_name,
+          ROUND(EXTRACT(EPOCH FROM (COALESCE(i.result_uploaded_at,i.completed_date)-i.ordered_date))/3600,1) as tat_hours
+        FROM investigations i LEFT JOIN users u ON i.patient_id=u.id
+        WHERE i.status IN ('completed','COMPLETED') ORDER BY COALESCE(i.completed_date,i.updated_at) DESC LIMIT 20`
+      )
+    ]);
+
+    success(res, {
+      summary: summary.rows[0],
+      by_status: byStatus.rows,
+      by_priority: byPriority.rows,
+      urgent_pending: urgentPending.rows,
+      recent_completed: recentCompleted.rows,
+      date_range: { from, to }
+    });
+  } catch (err) {
+    logger.error('SLA Dashboard Error:', err);
+    error(res, 'Failed to fetch SLA dashboard', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
