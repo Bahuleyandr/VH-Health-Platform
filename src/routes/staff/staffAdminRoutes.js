@@ -7,6 +7,8 @@ import * as attendanceController from '../../controllers/staff/attendanceControl
 import * as overtimeController from '../../controllers/staff/overtimeController.js';
 import * as shiftController from '../../controllers/staff/shiftController.js';
 import * as bulkController from '../../controllers/staff/bulkAttendanceController.js';
+import * as incidentController from '../../controllers/staff/incidentController.js';
+import * as grievanceController from '../../controllers/staff/grievanceController.js';
 
 const router = express.Router();
 
@@ -55,7 +57,17 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/search', staffAdminController.advancedStaffSearch],
     
     // Export
-    ['/export/:type', staffAdminController.exportStaffData]
+    ['/export/:type', staffAdminController.exportStaffData],
+
+    // Incident Reports (admin)
+    ['/incidents', incidentController.getAllIncidents],
+    ['/incidents/stats', incidentController.getIncidentStats],
+    ['/incidents/:id', incidentController.getAdminIncidentDetail],
+
+    // Grievances (admin/HR)
+    ['/grievances', grievanceController.getAllGrievances],
+    ['/grievances/stats', grievanceController.getGrievanceStats],
+    ['/grievances/:id', grievanceController.getGrievanceAdminDetail],
   ],
   
   post: [
@@ -85,7 +97,13 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     
     // System Operations
     ['/generate-payroll-data', staffAdminController.generatePayrollData],
-    ['/sync-biometric', staffAdminController.syncBiometricData]
+    ['/sync-biometric', staffAdminController.syncBiometricData],
+
+    // Incident update (admin)
+    ['/incidents/:id/update', incidentController.updateIncident],
+
+    // Grievance update (admin/HR)
+    ['/grievances/:id/update', grievanceController.updateGrievance],
   ],
   
   put: [
