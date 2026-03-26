@@ -7,6 +7,7 @@ import * as shiftController from '../../controllers/staff/shiftController.js';
 import * as incidentController from '../../controllers/staff/incidentController.js';
 import * as grievanceController from '../../controllers/staff/grievanceController.js';
 import * as housekeepingController from '../../controllers/staff/housekeepingController.js';
+import * as payrollController from '../../controllers/staff/payrollController.js';
 import {
   performanceReviewValidation,
   onboardingValidation,
@@ -64,6 +65,10 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
     ['/housekeeping/logs/my', housekeepingController.getMyCleaningLogs],
     ['/housekeeping/requests/my', housekeepingController.getMyRequests],
     ['/housekeeping/requests/:id', housekeepingController.getRequestDetail],
+
+    // Payroll (staff: view own payslips)
+    ['/payslips', payrollController.getMyPayslips],
+    ['/payslips/:id', payrollController.getPayslipDetail],
   ],
   
   post: [
