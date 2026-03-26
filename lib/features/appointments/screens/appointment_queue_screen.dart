@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../../core/services/staff_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../doctor/screens/prescriptions_screen.dart';
 
 class AppointmentQueueScreen extends StatefulWidget {
   const AppointmentQueueScreen({super.key});
@@ -299,17 +300,26 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Upload Prescription?'),
-        content: const Text('Do you want to upload a prescription or document for this visit?'),
+        title: const Text('Create E-Prescription?'),
+        content: const Text('Create a structured e-prescription for this visit? The patient can order medicines directly from it.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Skip')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryTeal, foregroundColor: Colors.white),
+          OutlinedButton(
             onPressed: () {
               Navigator.pop(ctx);
               _showUploadDocSheet(appt);
             },
-            child: const Text('Upload'),
+            child: const Text('Upload Doc'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryTeal, foregroundColor: Colors.white),
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => PrescriptionsScreen(prefilledAppointment: appt),
+              ));
+            },
+            child: const Text('E-Prescription'),
           ),
         ],
       ),

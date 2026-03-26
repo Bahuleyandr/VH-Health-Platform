@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
 
@@ -641,6 +642,53 @@ class StaffApiService {
       if (days != null) 'days': days.toString(),
       if (vitalType != null) 'vital_type': vitalType,
     });
+  }
+
+  // ─── E-Prescriptions ──────────────────────────────────────────────────────
+
+  /// POST /prescriptions/create — create structured e-prescription
+  static Future<Map<String, dynamic>> createEPrescription(
+      Map<String, dynamic> data, {File? photo}) async {
+    if (photo != null) {
+      // Multipart upload
+      final headers = await ApiConfig.authenticatedAuthHeaders();
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('${ApiConfig.baseUrl}/prescriptions/create'),
+      );
+      request.headers.addAll(headers);
+      // Add fields
+      data.forEach((key, value) {
+        if (value != null) {
+          request.fields[key] = value is String ? value : jsonEncode(value);
+        }
+      });
+      request.files.add(
+          await http.MultipartFile.fromPath('handwritten_photo', photo.path));
+      final streamedResp = await request.send();
+      final resp = await http.Response.fromStream(streamedResp);
+      return _handle(resp);
+    }
+    return _post('/prescriptions/create', data);
+  }
+
+  /// GET /prescriptions/:id — get prescription detail
+  static Future<Map<String, dynamic>> getEPrescription(int id) async {
+    return _get('/prescriptions/$id');
+  }
+
+  /// GET /prescriptions/all — list all prescriptions (admin/staff)
+  static Future<List<dynamic>> getEPrescriptionsList({
+    String? doctorId,
+    String? fromDate,
+    String? toDate,
+  }) async {
+    final data = await _get('/prescriptions/all', query: {
+      if (doctorId != null) 'doctor_id': doctorId,
+      if (fromDate != null) 'from_date': fromDate,
+      if (toDate != null) 'to_date': toDate,
+    });
+    return data['data'] as List? ?? [];
   }
 
   // ─── Medical Records / Prescriptions ─────────────────────────────────────
