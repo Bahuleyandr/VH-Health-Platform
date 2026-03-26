@@ -64,6 +64,7 @@ export const navigationItems: NavItem[] = [
   { name: "Uploads", href: "/dashboard/uploads", requiredRole: "ADMIN" },
 
   { name: "Feedback", href: "/dashboard/feedback" },
+  { name: "Housekeeping", href: "/dashboard/housekeeping", requiredRole: "ADMIN" },
   {
     name: "System Settings",
     href: "/dashboard/settings",

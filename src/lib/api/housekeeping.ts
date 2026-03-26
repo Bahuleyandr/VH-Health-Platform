@@ -1,4 +1,4 @@
-import { getJSON, postJSON } from "./core";
+import { getJSON, postJSON, putJSON } from "./core";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -137,6 +137,35 @@ export function assignHousekeepingRequest<T = unknown>(
 
 export function verifyHousekeepingRequest<T = unknown>(id: number) {
   return postJSON<T>(`/api/v1/staff/admin/housekeeping/requests/${id}/verify`, {});
+}
+
+// ─── Zone CRUD ───────────────────────────────────────────────────────────────
+
+export function createHousekeepingZone<T = HousekeepingZone>(data: {
+  name: string;
+  zone_type?: string;
+  floor?: string;
+  building?: string;
+}) {
+  return postJSON<T>("/api/v1/staff/admin/housekeeping/zones", data);
+}
+
+export function updateHousekeepingZone<T = HousekeepingZone>(
+  id: number,
+  data: { name?: string; zone_type?: string; floor?: string; building?: string; is_active?: boolean }
+) {
+  return putJSON<T>(`/api/v1/staff/admin/housekeeping/zones/${id}`, data);
+}
+
+export function adminCreateHousekeepingRequest<T = HousekeepingRequest>(data: {
+  zone_id?: number;
+  location_text?: string;
+  request_type?: string;
+  urgency?: string;
+  description?: string;
+  assigned_to?: number;
+}) {
+  return postJSON<T>("/api/v1/staff/admin/housekeeping/requests/create", data);
 }
 
 // ─── Stats ───────────────────────────────────────────────────────────────────
