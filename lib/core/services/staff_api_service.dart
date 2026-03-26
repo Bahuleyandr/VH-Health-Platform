@@ -842,4 +842,85 @@ class StaffApiService {
   static Future<Map<String, dynamic>> getGrievanceDetail(String id) async {
     return await _get('/api/v1/staff/hr/grievances/$id');
   }
+
+  // ─── Housekeeping ─────────────────────────────────────────────────────────
+
+  /// GET /api/v1/staff/hr/housekeeping/zones
+  static Future<List<dynamic>> getHousekeepingZones() async {
+    final result = await _get('/api/v1/staff/hr/housekeeping/zones');
+    return result['data'] as List? ?? result as List? ?? [];
+  }
+
+  /// POST /api/v1/staff/hr/housekeeping/log
+  static Future<Map<String, dynamic>> submitCleaningLog({
+    required String cleaningType,
+    int? zoneId,
+    String? locationText,
+    String? notes,
+    String? photoKey,
+    String? photoUrl,
+    double? latitude,
+    double? longitude,
+  }) async {
+    return await _post('/api/v1/staff/hr/housekeeping/log', {
+      'cleaning_type': cleaningType,
+      if (zoneId != null) 'zone_id': zoneId,
+      if (locationText != null) 'location_text': locationText,
+      if (notes != null) 'notes': notes,
+      if (photoKey != null) 'photo_key': photoKey,
+      if (photoUrl != null) 'photo_url': photoUrl,
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
+    });
+  }
+
+  /// GET /api/v1/staff/hr/housekeeping/logs/my
+  static Future<List<dynamic>> getMyCleaningLogs() async {
+    final result = await _get('/api/v1/staff/hr/housekeeping/logs/my');
+    return result['data'] as List? ?? result as List? ?? [];
+  }
+
+  /// POST /api/v1/staff/hr/housekeeping/request
+  static Future<Map<String, dynamic>> raiseHousekeepingRequest({
+    required String locationText,
+    required String requestType,
+    required String urgency,
+    int? zoneId,
+    String? description,
+    String? photoKey,
+    String? photoUrl,
+    double? latitude,
+    double? longitude,
+  }) async {
+    return await _post('/api/v1/staff/hr/housekeeping/request', {
+      'location_text': locationText,
+      'request_type': requestType,
+      'urgency': urgency,
+      if (zoneId != null) 'zone_id': zoneId,
+      if (description != null) 'description': description,
+      if (photoKey != null) 'photo_key': photoKey,
+      if (photoUrl != null) 'photo_url': photoUrl,
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
+    });
+  }
+
+  /// GET /api/v1/staff/hr/housekeeping/requests/my
+  static Future<Map<String, dynamic>> getMyHousekeepingRequests() async {
+    return await _get('/api/v1/staff/hr/housekeeping/requests/my');
+  }
+
+  /// POST /api/v1/staff/hr/housekeeping/requests/:id/complete
+  static Future<Map<String, dynamic>> completeHousekeepingRequest({
+    required String requestId,
+    String? completionNotes,
+    String? photoKey,
+    String? photoUrl,
+  }) async {
+    return await _post('/api/v1/staff/hr/housekeeping/requests/$requestId/complete', {
+      if (completionNotes != null) 'completion_notes': completionNotes,
+      if (photoKey != null) 'completion_photo_key': photoKey,
+      if (photoUrl != null) 'completion_photo_url': photoUrl,
+    });
+  }
 }
