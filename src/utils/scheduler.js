@@ -12,7 +12,7 @@ import purgeLogs from '../scripts/cleanup-logs.js';
 import { scheduleArchiveMigrationJob } from './archiveMigrationJob.js';
 
 // Notifications
-import { sendAppointmentReminders } from './notifications/appointmentReminderJob.js';
+import { sendAppointmentReminders, sendTimedReminders, processPendingScheduledNotifications } from './notifications/appointmentReminderJob.js';
 import { sendInvestigationNotifications } from './notifications/InvestigationNotificationJob.js';
 import { scheduleCleanupJob as scheduleR2CleanupJob, executeCleanup } from './r2CleanupJob.js';
 import { purgeHousekeepingPhotos } from './housekeepingPurgeJob.js';
@@ -80,13 +80,31 @@ cron.schedule('0 4 * * 0', () => {
   }
 });
 
-// 🕗 Daily at 08:00 - Send appointment reminders
+// 🕗 Daily at 08:00 - Send appointment reminders (existing daily push-only)
 cron.schedule('0 8 * * *', async () => {
   logger.info('Scheduled Task: Sending appointment reminders...');
   try {
     await sendAppointmentReminders();
   } catch (err) {
     logger.error('Error sending appointment reminders:', err);
+  }
+});
+
+// ⏰ Every hour - Send 24h and 1h SMS+push appointment reminders
+cron.schedule('0 * * * *', async () => {
+  try {
+    await sendTimedReminders();
+  } catch (err) {
+    logger.error('[Scheduler] Timed appointment reminders error:', err.message);
+  }
+});
+
+// 🔔 Every 5 minutes - Process pending scheduled notifications (feedback requests, etc.)
+cron.schedule('*/5 * * * *', async () => {
+  try {
+    await processPendingScheduledNotifications();
+  } catch (err) {
+    logger.error('[Scheduler] Scheduled notification processing error:', err.message);
   }
 });
 
@@ -141,6 +159,8 @@ export async function runAllScheduledTasksNow() {
     cleanupBackups(path.resolve('backups', 'render'));
 
     await sendAppointmentReminders();
+    await sendTimedReminders();
+    await processPendingScheduledNotifications();
     await sendInvestigationNotifications();
 
     logger.info('✅ All manual tasks completed.');

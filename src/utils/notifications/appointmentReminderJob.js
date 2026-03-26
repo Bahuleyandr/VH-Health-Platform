@@ -2,6 +2,146 @@ import db from '../../config/database.js';
 import logger from '../../logging/logger.js';
 import { sendPushNotification } from './sendPushNotification.js';
 import { NotificationTemplates } from './templates.js';
+import { sendAppointmentReminderSMS } from '../../services/smsService.js';
+
+/**
+ * Hourly 24h/1h SMS+push reminders for upcoming appointments
+ * Called every hour from scheduler
+ */
+export async function sendTimedReminders() {
+  const now = new Date();
+
+  try {
+    // 24h window: appointments between now+23h and now+24h
+    const in23h = new Date(now.getTime() + 23 * 60 * 60 * 1000);
+    const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+    // 1h window: appointments between now+30min and now+90min
+    const in30m = new Date(now.getTime() + 30 * 60 * 1000);
+    const in90m = new Date(now.getTime() + 90 * 60 * 1000);
+
+    const [res24h, res1h] = await Promise.all([
+      db.query(`
+        SELECT a.id, a.appointment_time, a.token_number,
+               u.name AS patient_name, u.phone AS patient_phone, u.device_token,
+               d.name AS doctor_name, doc.department
+        FROM appointments a
+        JOIN users u ON a.patient_id = u.id
+        LEFT JOIN users d ON a.doctor_id = d.id
+        LEFT JOIN doctors doc ON doc.user_id = a.doctor_id
+        WHERE a.status = 'CONFIRMED'
+          AND a.appointment_date BETWEEN $1 AND $2
+          AND a.reminder_24h_sent IS NOT TRUE
+      `, [in23h, in24h]),
+      db.query(`
+        SELECT a.id, a.appointment_time, a.token_number,
+               u.name AS patient_name, u.phone AS patient_phone, u.device_token,
+               d.name AS doctor_name
+        FROM appointments a
+        JOIN users u ON a.patient_id = u.id
+        LEFT JOIN users d ON a.doctor_id = d.id
+        WHERE a.status = 'CONFIRMED'
+          AND a.appointment_date BETWEEN $1 AND $2
+          AND a.reminder_1h_sent IS NOT TRUE
+      `, [in30m, in90m]),
+    ]);
+
+    // Send 24h reminders
+    for (const appt of res24h.rows) {
+      try {
+        await sendAppointmentReminderSMS(
+          appt.patient_phone, appt.patient_name, appt.doctor_name,
+          appt.appointment_time, 24, appt.token_number
+        );
+        if (appt.device_token) {
+          await sendPushNotification({
+            tokens: appt.device_token,
+            title: 'Appointment Tomorrow 📅',
+            body: `Reminder: Your appointment is tomorrow at ${appt.appointment_time} with Dr. ${appt.doctor_name}. Token #${appt.token_number}`,
+            data: { type: 'appointment_reminder_24h', appointment_id: String(appt.id) },
+            userId: null,
+          }).catch(() => {});
+        }
+        await db.query('UPDATE appointments SET reminder_24h_sent=TRUE WHERE id=$1', [appt.id]);
+        logger.info(`[Reminders] 24h reminder sent for appointment ${appt.id}`);
+      } catch (e) {
+        logger.warn(`[Reminders] 24h reminder failed for ${appt.id}: ${e.message}`);
+      }
+    }
+
+    // Send 1h reminders
+    for (const appt of res1h.rows) {
+      try {
+        await sendAppointmentReminderSMS(
+          appt.patient_phone, appt.patient_name, appt.doctor_name,
+          appt.appointment_time, 1, appt.token_number
+        );
+        if (appt.device_token) {
+          await sendPushNotification({
+            tokens: appt.device_token,
+            title: 'Appointment in 1 Hour ⏰',
+            body: `Your appointment at ${appt.appointment_time} with Dr. ${appt.doctor_name} is in ~1 hour. Token #${appt.token_number}`,
+            data: { type: 'appointment_reminder_1h', appointment_id: String(appt.id) },
+            userId: null,
+          }).catch(() => {});
+        }
+        await db.query('UPDATE appointments SET reminder_1h_sent=TRUE WHERE id=$1', [appt.id]);
+        logger.info(`[Reminders] 1h reminder sent for appointment ${appt.id}`);
+      } catch (e) {
+        logger.warn(`[Reminders] 1h reminder failed for ${appt.id}: ${e.message}`);
+      }
+    }
+
+    logger.info(`[Reminders] Done: ${res24h.rows.length} 24h + ${res1h.rows.length} 1h reminders sent`);
+  } catch (err) {
+    logger.error('[Reminders] sendTimedReminders error:', err.message);
+  }
+}
+
+/**
+ * Process pending scheduled notifications (feedback requests, etc.)
+ * Called every 5 minutes from scheduler
+ */
+export async function processPendingScheduledNotifications() {
+  try {
+    const pending = await db.query(`
+      SELECT sn.*, u.device_token, u.phone, u.name
+      FROM scheduled_notifications sn
+      JOIN users u ON sn.user_id = u.id
+      WHERE sn.status = 'pending' AND sn.send_at <= NOW()
+      ORDER BY sn.send_at
+      LIMIT 50
+    `);
+
+    for (const notif of pending.rows) {
+      try {
+        if (notif.type === 'feedback_request' && notif.device_token) {
+          const data = notif.data || {};
+          await sendPushNotification({
+            tokens: notif.device_token,
+            title: 'How was your visit? ⭐',
+            body: 'Please take a moment to rate your experience at Venkataeswara Hospitals.',
+            data: {
+              type: 'feedback_request',
+              appointment_id: String(data.appointment_id || '')
+            },
+            userId: String(notif.user_id),
+          }).catch(() => {});
+        }
+        await db.query(`UPDATE scheduled_notifications SET status='sent', sent_at=NOW() WHERE id=$1`, [notif.id]);
+      } catch (e) {
+        logger.warn(`[ScheduledNotif] Failed for notif ${notif.id}: ${e.message}`);
+        await db.query(`UPDATE scheduled_notifications SET status='failed' WHERE id=$1`, [notif.id]).catch(() => {});
+      }
+    }
+
+    if (pending.rows.length > 0) {
+      logger.info(`[ScheduledNotif] Processed ${pending.rows.length} pending notifications`);
+    }
+  } catch (err) {
+    logger.error('[ScheduledNotif] processPendingScheduledNotifications error:', err.message);
+  }
+}
 
 export async function sendAppointmentReminders() {
   logger.info('📅 Sending appointment reminders for today...');
