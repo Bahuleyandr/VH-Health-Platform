@@ -65,13 +65,22 @@ export const DepartmentSchema = z.object({
 export const DoctorSchema = z.object({
   user_id: z.number(),
   name: z.string(),
-  email: z.string().email(),
-  phone: z.string(),
+  email: z.string().email().optional().nullable(),
+  phone: z.string().optional().nullable(),
   department: z.string(),
   specialization: z.string(),
   consultation_fee: z.number(),
   is_available: z.boolean(),
   rating: z.number().optional(),
+  experience_years: z.number().optional(),
+  bio: z.string().optional().nullable(),
+  education: z.string().optional().nullable(),
+  qualifications: z.array(z.string()).optional().nullable(),
+  available_days: z.array(z.string()).optional().nullable(),
+  available_hours: z.record(z.string(), z.object({
+    start: z.string(),
+    end: z.string(),
+  })).optional().nullable(),
 });
 
 export const PatientSchema = z.object({
