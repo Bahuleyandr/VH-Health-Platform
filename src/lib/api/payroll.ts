@@ -253,3 +253,61 @@ export const createAdvance = <T = unknown>(data: Record<string, unknown>) =>
 // Arrears
 export const calculateArrears = <T = unknown>(revisionId: string | number) =>
   postJSON<T>(`/api/v1/staff/admin/payroll/revisions/${revisionId}/arrears`, {});
+
+// Payroll Comparison
+export interface PayrollComparisonData {
+  month_range: Array<{ month: number; year: number }>;
+  staff: Array<{
+    staff_uid: string;
+    name: string;
+    employee_id: string;
+    designation: string;
+    department: string;
+    payslips: Array<{
+      month: number;
+      year: number;
+      days_present: number;
+      days_absent: number;
+      lop_days: number;
+      overtime_hours: number;
+      basic_earned: number;
+      hra_earned: number;
+      da_earned: number;
+      special_allowance: number;
+      transport_allowance: number;
+      medical_allowance: number;
+      overtime_pay: number;
+      bonus: number;
+      arrears: number;
+      gross_salary: number;
+      pf: number;
+      esi: number;
+      professional_tax: number;
+      tds: number;
+      advance_deduction: number;
+      total_deductions: number;
+      net_salary: number;
+      status: string;
+    }>;
+  }>;
+  total_staff: number;
+  total_payslips: number;
+}
+
+export const getPayrollComparison = <T = PayrollComparisonData>(
+  fromMonth: number,
+  fromYear: number,
+  toMonth: number,
+  toYear: number,
+  staffUid?: string
+) =>
+  getJSON<T>(
+    '/api/v1/staff/admin/payroll/comparison',
+    {
+      from_month: fromMonth,
+      from_year: fromYear,
+      to_month: toMonth,
+      to_year: toYear,
+      ...(staffUid && { staff_uid: staffUid }),
+    } as QueryParams
+  );
