@@ -84,6 +84,9 @@ const navSections: NavSection[] = [
 // Role rank for visibility checks (higher = more privileged)
 const ROLE_RANK: Record<string, number> = {
   STAFF: 0,
+  LAB_TECHNICIAN: 0,
+  TECHNICIAN: 0,
+  NURSE: 0,
   DOCTOR: 1,
   HR: 2,
   ADMIN: 3,
