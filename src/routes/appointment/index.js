@@ -6,6 +6,7 @@ import appointmentAdminRoutes from './appointmentAdminRoutes.js';
 import appointmentCrudRoutes from './appointmentCrudRoutes.js';
 import appointmentLegacyRoutes from './appointmentLegacyRoutes.js';
 import appointmentListRoutes from './appointmentListRoutes.js';
+import appointmentWorkflowRoutes from './appointmentWorkflowRoutes.js';
 
 const router = express.Router();
 logger.info('✅ Appointment routes loaded with RBAC protection');
@@ -31,6 +32,8 @@ wrapAutoRBAC(
 );
 
 // Mount sub-routes
+// Workflow routes first (static paths: /queue/today, /pending, /patient/records/*, /admin/*)
+router.use('/', appointmentWorkflowRoutes);
 router.use('/', appointmentListRoutes);
 router.use('/', appointmentCrudRoutes);
 router.use('/', appointmentLegacyRoutes);
