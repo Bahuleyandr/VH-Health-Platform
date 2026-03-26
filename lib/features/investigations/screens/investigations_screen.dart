@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/config/api_config.dart';
@@ -78,6 +81,8 @@ class _UploadTabState extends State<_UploadTab> {
   final _resultCtrl = TextEditingController();
   String? _testType;
   bool _submitting = false;
+  File? _file;
+  String? _fileName;
 
   static const _testTypes = [
     'Blood Test - CBC',
@@ -116,6 +121,8 @@ class _UploadTabState extends State<_UploadTab> {
             _resultCtrl.text.trim().isEmpty ? null : _resultCtrl.text.trim(),
         notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
         date: DateFormat('yyyy-MM-dd').format(DateTime.now()),
+        filePath: _file?.path,
+        fileName: _fileName,
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -125,7 +132,11 @@ class _UploadTabState extends State<_UploadTab> {
           ),
         );
         _formKey.currentState!.reset();
-        setState(() => _testType = null);
+        setState(() {
+          _testType = null;
+          _file = null;
+          _fileName = null;
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -227,32 +238,63 @@ class _UploadTabState extends State<_UploadTab> {
             ),
             const SizedBox(height: 16),
             GestureDetector(
-              onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                      content: Text(
-                          'File picker integration requires file_picker package')),
-                );
+              onTap: _submitting ? null : () async {
+                try {
+                  final result = await FilePicker.platform.pickFiles(
+                    type: FileType.custom,
+                    allowedExtensions: ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'],
+                  );
+                  if (result?.files.single.path != null) {
+                    setState(() {
+                      _file = File(result!.files.single.path!);
+                      _fileName = result.files.single.name;
+                    });
+                  }
+                } catch (_) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Failed to pick file'),
+                        backgroundColor: AppTheme.errorRed,
+                      ),
+                    );
+                  }
+                }
               },
               child: Container(
                 height: 80,
                 width: double.infinity,
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: _file != null ? AppTheme.accentCyan.withOpacity(0.08) : Colors.white,
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
-                      color: const Color(0xFFB0BEC5),
+                      color: _file != null ? AppTheme.accentCyan : const Color(0xFFB0BEC5),
                       style: BorderStyle.solid),
                 ),
-                child: const Column(
+                child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.upload_file_outlined,
-                        color: AppTheme.textSecondary),
-                    SizedBox(height: 4),
-                    Text('Attach Report File (optional)',
-                        style: TextStyle(
-                            color: AppTheme.textSecondary, fontSize: 13)),
+                    Icon(
+                      _file != null ? Icons.check_circle_outline : Icons.upload_file_outlined,
+                      color: _file != null ? AppTheme.accentCyan : AppTheme.textSecondary,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _fileName ?? 'Attach Report File (optional)',
+                      style: TextStyle(
+                        color: _file != null ? AppTheme.accentCyan : AppTheme.textSecondary,
+                        fontSize: 13,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (_file != null)
+                      GestureDetector(
+                        onTap: () => setState(() { _file = null; _fileName = null; }),
+                        child: const Padding(
+                          padding: EdgeInsets.only(top: 2),
+                          child: Text('Clear', style: TextStyle(color: AppTheme.errorRed, fontSize: 11)),
+                        ),
+                      ),
                   ],
                 ),
               ),

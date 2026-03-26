@@ -257,6 +257,7 @@ class StaffApiService {
 
   /// POST /staff/medical/investigations
   /// body: { phone, testType, result, notes, fileUrl?, date }
+  /// When filePath is provided, uses multipart upload.
   static Future<Map<String, dynamic>> uploadInvestigation({
     required String phone,
     required String testType,
@@ -264,7 +265,37 @@ class StaffApiService {
     String? notes,
     String? fileUrl,
     String? date,
+    String? filePath,
+    String? fileName,
   }) async {
+    if (filePath != null) {
+      // Multipart upload with file
+      final headers = await ApiConfig.authenticatedHeaders();
+      final req = http.MultipartRequest(
+        'POST',
+        Uri.parse('${ApiConfig.baseUrl}/staff/medical/investigations'),
+      )
+        ..headers.addAll(headers)
+        ..fields['phone'] = phone
+        ..fields['testType'] = testType;
+      if (result != null) req.fields['result'] = result;
+      if (notes != null) req.fields['notes'] = notes;
+      if (date != null) req.fields['date'] = date;
+      req.files.add(await http.MultipartFile.fromPath(
+        'file',
+        filePath,
+        filename: fileName,
+      ));
+
+      final streamed = await req.send();
+      final resp = await http.Response.fromStream(streamed);
+      final data = jsonDecode(resp.body);
+      if (resp.statusCode >= 200 && resp.statusCode < 300 && data['success'] == true) {
+        return (data['data'] as Map<String, dynamic>?) ?? data;
+      }
+      throw Exception(data['message'] ?? 'Upload failed (${resp.statusCode})');
+    }
+
     return _post('/staff/medical/investigations', {
       'phone': phone,
       'testType': testType,
