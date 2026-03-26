@@ -1,10 +1,11 @@
 import express from 'express';
 import logger from '../../logging/logger.js';
-import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
+import { wrapRoutesWithValidation, wrapAutoRBAC } from '../../config/routeWrapper.js';
 import adminRoutes from './adminRoutes.js';
 import inventoryRoutes from './inventoryRoutes.js';
 import medicationRoutes from './medicationRoutes.js';
 import orderRoutes from './orderRoutes.js';
+import * as pharmacyOrderController from '../../controllers/pharmacy/pharmacyOrderController.js';
 
 const router = express.Router();
 
@@ -35,6 +36,16 @@ wrapRoutesWithValidation(
     requirePhone: false
   }
 );
+
+// Catalog routes (before sub-routers)
+wrapAutoRBAC(router, 'pharmacyCatalogRoutes', {
+  get: [
+    ['/catalog', [], pharmacyOrderController.getCatalog]
+  ],
+  post: [
+    ['/catalog', [], pharmacyOrderController.upsertCatalog]
+  ]
+});
 
 // Mount sub-routers
 router.use('/orders', orderRoutes);

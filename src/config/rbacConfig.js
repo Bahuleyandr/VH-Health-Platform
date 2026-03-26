@@ -36,6 +36,12 @@ export default {
   pharmacyRoutes: [PHARMACY_STAFF, DOCTOR, ADMIN],
   // If you use a separate key for /pharmacy-orders in wrappers:
   pharmacyOrdersRoutes: [PHARMACY_STAFF, DOCTOR, ADMIN],
+  // Pharmacy lifecycle — patient can place + view own orders
+  pharmacyPatientOrderRoutes: [PATIENT, PHARMACY_STAFF, DOCTOR, ADMIN],
+  // Pharmacy staff/admin lifecycle actions
+  pharmacyLifecycleRoutes: [PHARMACY_STAFF, ADMIN],
+  // Pharmacy catalog management
+  pharmacyCatalogRoutes: [PHARMACY_STAFF, ADMIN],
 
   recordRoutes: [ADMIN, GENERAL_STAFF, DOCTOR, NURSING_STAFF],
   // ✅ Fix: use NURSING_STAFF constant instead of string 'NURSE'
