@@ -15,7 +15,6 @@ import 'package:vhhealth/features/your_health/screens/your_health_screen.dart';
 import 'package:vhhealth/features/notifications/screens/notifications_screen.dart';
 import 'package:vhhealth/features/settings/screens/settings_screen.dart';
 import 'package:vhhealth/features/appointments/screens/appointments_screen.dart';
-import 'package:vhhealth/features/records/screens/records_screen.dart';
 import 'package:vhhealth/features/pharmacy/screens/pharmacy_screen.dart';
 import 'package:vhhealth/features/investigations/screens/investigations_screen.dart';
 import 'package:vhhealth/features/investigations/screens/book_investigation_screen.dart';
@@ -151,9 +150,15 @@ class AppRouter {
           ),
           GoRoute(
             path: '/health',
-            pageBuilder: (context, state) => NoTransitionPage(
-              child: YourHealthScreen(phone: _userPhone ?? ''),
-            ),
+            pageBuilder: (context, state) {
+              final extra = state.extra as Map<String, dynamic>?;
+              return NoTransitionPage(
+                child: YourHealthScreen(
+                  phone: _userPhone ?? '',
+                  initialTab: extra?['tab'] as int? ?? 0,
+                ),
+              );
+            },
           ),
           GoRoute(
             path: '/notifications',
@@ -232,7 +237,7 @@ class AppRouter {
       ),
       GoRoute(
         path: '/records',
-        builder: (context, state) => const RecordsScreen(),
+        redirect: (_, __) => '/health',
       ),
       
       // Alternative route names for backward compatibility

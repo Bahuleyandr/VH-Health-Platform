@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -120,6 +121,49 @@ Future<void> _fetchNotifications() async {
     }
   }
 
+  void _handleNotificationTap(Map<String, dynamic> notification) {
+    // Extract type from top-level or nested data
+    final type = notification['type']?.toString() ??
+        (notification['data'] is Map
+            ? (notification['data'] as Map)['type']?.toString()
+            : null) ??
+        '';
+    final data = notification['data'] is Map
+        ? notification['data'] as Map<String, dynamic>
+        : <String, dynamic>{};
+
+    switch (type) {
+      case 'appointment_confirmed':
+      case 'appointment_cancelled':
+      case 'appointment_reminder':
+      case 'appointment_rescheduled':
+        context.push('/appointments');
+        break;
+      case 'investigation_result':
+      case 'investigation_result_ready':
+      case 'investigation_confirmed':
+      case 'investigation_booking':
+      case 'collector_dispatched':
+        context.push('/investigations');
+        break;
+      case 'pharmacy_confirmed':
+      case 'pharmacy_dispatched':
+      case 'pharmacy_delivered':
+      case 'pharmacy_order':
+        context.push('/pharmacy');
+        break;
+      case 'document_uploaded':
+        context.push('/health', extra: {'tab': 1});
+        break;
+      case 'feedback_request':
+        context.push('/ask-a-doubt');
+        break;
+      default:
+        // No navigation — just mark as read
+        break;
+    }
+  }
+
   Future<void> _markAsRead(int id) async {
     final token = await _getBearerToken();
     if (token == null) return;
@@ -231,6 +275,7 @@ Future<void> _fetchNotifications() async {
                               setState(() {
                                 notifications[index]['read'] = true;
                               });
+                              _handleNotificationTap(notif);
                             },
                             tileColor: isRead ? null : Colors.teal.withAlpha(20),
                             shape: RoundedRectangleBorder(

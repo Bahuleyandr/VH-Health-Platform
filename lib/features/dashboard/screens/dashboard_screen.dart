@@ -297,6 +297,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
     if (routeName == '/your-health') {
       context.push('/health');
+    } else if (routeName == '/records') {
+      // Records merged into Your Health — open Hospital Docs tab (index 1)
+      context.push('/health', extra: {'tab': 1});
     } else {
       context.push(routeName);
     }
