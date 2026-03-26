@@ -152,6 +152,9 @@ export interface InvestigationBooking {
   sla_dispatch_target: string | null;
   sla_collect_target: string | null;
   sla_result_target: string | null;
+  estimated_collection_mins?: number | null;
+  collection_distance_km?: number | null;
+  collection_tracking_active?: boolean;
   created_at: string;
   updated_at: string;
 }

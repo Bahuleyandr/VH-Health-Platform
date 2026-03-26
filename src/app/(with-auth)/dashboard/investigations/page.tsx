@@ -890,6 +890,7 @@ function LabBookingsTab() {
               <th className="px-3 py-2">Tests</th>
               <th className="px-3 py-2">Type</th>
               <th className="px-3 py-2">Status</th>
+              <th className="px-3 py-2">ETA</th>
               <th className="px-3 py-2">Time</th>
               <th className="px-3 py-2">Cost</th>
               <th className="px-3 py-2">Actions</th>
@@ -897,7 +898,7 @@ function LabBookingsTab() {
           </thead>
           <tbody>
             {bookings.length === 0 ? (
-              <tr><td colSpan={9} className="px-3 py-8 text-center text-muted-foreground">No bookings found</td></tr>
+              <tr><td colSpan={10} className="px-3 py-8 text-center text-muted-foreground">No bookings found</td></tr>
             ) : (
               bookings.map((b) => {
                 const isBreach = b.sla_breached;
@@ -921,6 +922,15 @@ function LabBookingsTab() {
                         label={b.status.replace("_", " ")}
                         className={statusColor(b.status)}
                       />
+                    </td>
+                    <td className="px-3 py-2 text-xs">
+                      {b.status === "DISPATCHED" && b.estimated_collection_mins ? (
+                        <span className="flex items-center gap-1">
+                          {b.collection_tracking_active && <span title="Live tracking">📍</span>}
+                          ~{b.estimated_collection_mins}m
+                          {b.collection_distance_km ? <span className="text-muted-foreground ml-1">({b.collection_distance_km}km)</span> : null}
+                        </span>
+                      ) : "—"}
                     </td>
                     <td className="px-3 py-2 font-mono text-xs">
                       {timeStr}
