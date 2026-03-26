@@ -958,4 +958,32 @@ class StaffApiService {
     final result = await _get('/api/v1/staff/hr/payroll/advances');
     return result['data'] as List? ?? (result is List ? result as List : []);
   }
+
+  // ─── Compliance: Investment Declarations ───────────────────────────────────
+
+  /// POST /api/v1/staff/hr/payroll/declarations/submit
+  static Future<Map<String, dynamic>> submitInvestmentDeclaration(
+      Map<String, dynamic> data) async {
+    return await _post('/api/v1/staff/hr/payroll/declarations/submit', data);
+  }
+
+  /// GET /api/v1/staff/hr/payroll/declarations
+  static Future<List<dynamic>> getMyDeclarations() async {
+    final r = await _get('/api/v1/staff/hr/payroll/declarations');
+    return r['data'] as List? ?? [];
+  }
+
+  // ─── Compliance: Payslip Queries ──────────────────────────────────────────
+
+  /// POST /api/v1/staff/hr/payroll/queries/raise
+  static Future<Map<String, dynamic>> raisePayslipQuery(
+      Map<String, dynamic> data) async {
+    return await _post('/api/v1/staff/hr/payroll/queries/raise', data);
+  }
+
+  /// GET /api/v1/staff/hr/payroll/queries
+  static Future<List<dynamic>> getMyPayslipQueries() async {
+    final r = await _get('/api/v1/staff/hr/payroll/queries');
+    return r['data'] as List? ?? [];
+  }
 }

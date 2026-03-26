@@ -1,0 +1,438 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../../../core/services/staff_api_service.dart';
+import '../../../core/theme/app_theme.dart';
+
+class InvestmentDeclarationScreen extends StatefulWidget {
+  const InvestmentDeclarationScreen({super.key});
+
+  @override
+  State<InvestmentDeclarationScreen> createState() =>
+      _InvestmentDeclarationScreenState();
+}
+
+class _InvestmentDeclarationScreenState
+    extends State<InvestmentDeclarationScreen> {
+  final _formKey = GlobalKey<FormState>();
+  bool _loading = false;
+  bool _submitting = false;
+  List<dynamic> _declarations = [];
+  String? _error;
+
+  // FY
+  late String _selectedFY;
+
+  // 80C controllers
+  final _ppf = TextEditingController();
+  final _epfVol = TextEditingController();
+  final _elss = TextEditingController();
+  final _lic = TextEditingController();
+  final _nsc = TextEditingController();
+  final _homeLoanPrincipal = TextEditingController();
+  final _tuition = TextEditingController();
+  final _other80c = TextEditingController();
+
+  // 80D controllers
+  final _hiSelf = TextEditingController();
+  final _hiParents = TextEditingController();
+
+  // Other deductions
+  final _nps = TextEditingController();
+  final _homeLoanInterest = TextEditingController();
+  final _eduLoanInterest = TextEditingController();
+
+  // Rent
+  final _rentMonthly = TextEditingController();
+  bool _rentReceipt = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    final m = now.month;
+    final y = now.year;
+    _selectedFY = m >= 4 ? '$y-${(y + 1).toString().substring(2)}' : '${y - 1}-${y.toString().substring(2)}';
+    _loadDeclarations();
+
+    // Add listeners for live totals
+    for (final c in _allControllers) {
+      c.addListener(() => setState(() {}));
+    }
+  }
+
+  List<TextEditingController> get _allControllers => [
+        _ppf, _epfVol, _elss, _lic, _nsc, _homeLoanPrincipal, _tuition,
+        _other80c, _hiSelf, _hiParents, _nps, _homeLoanInterest,
+        _eduLoanInterest, _rentMonthly
+      ];
+
+  @override
+  void dispose() {
+    for (final c in _allControllers) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  double _val(TextEditingController c) =>
+      double.tryParse(c.text.replaceAll(',', '')) ?? 0.0;
+
+  double get _total80C {
+    final raw = _val(_ppf) + _val(_epfVol) + _val(_elss) + _val(_lic) +
+        _val(_nsc) + _val(_homeLoanPrincipal) + _val(_tuition) + _val(_other80c);
+    return raw.clamp(0.0, 150000.0);
+  }
+
+  double get _total80D {
+    final self = _val(_hiSelf).clamp(0.0, 25000.0);
+    final parents = _val(_hiParents).clamp(0.0, 25000.0);
+    return self + parents;
+  }
+
+  double get _npsDeduction => _val(_nps).clamp(0.0, 50000.0);
+  double get _homeLoanInterestDeduction => _val(_homeLoanInterest).clamp(0.0, 200000.0);
+  double get _totalDeductions => _total80C + _total80D + _npsDeduction + _homeLoanInterestDeduction + _val(_eduLoanInterest);
+
+  List<String> get _fyOptions {
+    final now = DateTime.now();
+    final m = now.month;
+    final y = now.year;
+    return List.generate(3, (i) {
+      final yr = m >= 4 ? y - i : y - 1 - i;
+      return '$yr-${(yr + 1).toString().substring(2)}';
+    });
+  }
+
+  Future<void> _loadDeclarations() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      final list = await StaffApiService.getMyDeclarations();
+      if (mounted) {
+        setState(() { _declarations = list; });
+        // Pre-fill if current FY declaration exists
+        final existing = list.firstWhere(
+          (d) => d['financial_year'] == _selectedFY,
+          orElse: () => null,
+        );
+        if (existing != null) _prefill(existing);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _prefill(Map<String, dynamic> d) {
+    void set(TextEditingController c, dynamic v) =>
+        c.text = v != null && v != '0' && v != '0.00' ? '$v' : '';
+    set(_ppf, d['ppf']);
+    set(_epfVol, d['epf_voluntary']);
+    set(_elss, d['elss']);
+    set(_lic, d['lic_premium']);
+    set(_nsc, d['nsc']);
+    set(_homeLoanPrincipal, d['home_loan_principal']);
+    set(_tuition, d['tuition_fees']);
+    set(_other80c, d['other_80c']);
+    set(_hiSelf, d['health_insurance_self']);
+    set(_hiParents, d['health_insurance_parents']);
+    set(_nps, d['nps_contribution']);
+    set(_homeLoanInterest, d['home_loan_interest']);
+    set(_eduLoanInterest, d['education_loan_interest']);
+    set(_rentMonthly, d['rent_paid_monthly']);
+    _rentReceipt = d['rent_receipt_provided'] == true;
+    setState(() {});
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _submitting = true);
+    try {
+      await StaffApiService.submitInvestmentDeclaration({
+        'financial_year': _selectedFY,
+        'ppf': _val(_ppf),
+        'epf_voluntary': _val(_epfVol),
+        'elss': _val(_elss),
+        'lic_premium': _val(_lic),
+        'nsc': _val(_nsc),
+        'home_loan_principal': _val(_homeLoanPrincipal),
+        'tuition_fees': _val(_tuition),
+        'other_80c': _val(_other80c),
+        'health_insurance_self': _val(_hiSelf),
+        'health_insurance_parents': _val(_hiParents),
+        'education_loan_interest': _val(_eduLoanInterest),
+        'rent_paid_monthly': _val(_rentMonthly),
+        'rent_receipt_provided': _rentReceipt,
+        'home_loan_interest': _val(_homeLoanInterest),
+        'nps_contribution': _val(_nps),
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Declaration submitted successfully!'),
+            backgroundColor: Color(0xFF007A64),
+          ),
+        );
+        _loadDeclarations();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: Colors.red.shade600,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  Widget _section(String title, List<Widget> fields) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6, offset: const Offset(0, 2))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF007A64).withOpacity(0.08),
+              borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12)),
+            ),
+            child: Row(children: [
+              const Icon(Icons.label_outline, size: 16, color: Color(0xFF007A64)),
+              const SizedBox(width: 8),
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF007A64), fontSize: 14)),
+            ]),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: Column(children: fields),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _field(String label, TextEditingController controller, {String? hint, double? max}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: TextFormField(
+        controller: controller,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint ?? '0',
+          prefixText: '₹ ',
+          suffixText: max != null ? '(max ₹${_fmtK(max)})' : null,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          isDense: true,
+        ),
+        style: const TextStyle(fontSize: 14),
+      ),
+    );
+  }
+
+  String _fmtK(double v) {
+    if (v >= 100000) return '${(v / 100000).toStringAsFixed(0)}L';
+    if (v >= 1000) return '${(v / 1000).toStringAsFixed(0)}k';
+    return v.toStringAsFixed(0);
+  }
+
+  String _fmtCurrency(double v) {
+    return '₹${v.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d)(?=(\d{2})+(?!\d))'), (m) => '${m[1]},')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Tax Declaration (80C/80D)'),
+        backgroundColor: const Color(0xFF007A64),
+        foregroundColor: Colors.white,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _selectedFY,
+                dropdownColor: Colors.white,
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                iconEnabledColor: Colors.white,
+                items: _fyOptions.map((fy) => DropdownMenuItem(value: fy, child: Text('FY $fy'))).toList(),
+                onChanged: (fy) {
+                  if (fy == null) return;
+                  setState(() => _selectedFY = fy);
+                  final existing = _declarations.firstWhere(
+                    (d) => d['financial_year'] == fy,
+                    orElse: () => null,
+                  );
+                  if (existing != null) _prefill(existing);
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+      body: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            // Totals summary card
+            Container(
+              padding: const EdgeInsets.all(16),
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF007A64), Color(0xFF00A685)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Estimated Tax Deductions', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _TotalChip(label: '80C (max ₹1.5L)', value: _fmtCurrency(_total80C), cap: _total80C >= 150000),
+                      _TotalChip(label: '80D', value: _fmtCurrency(_total80D)),
+                      _TotalChip(label: 'NPS', value: _fmtCurrency(_npsDeduction)),
+                    ],
+                  ),
+                  const Divider(color: Colors.white24, height: 20),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                    const Text('Total Deductions', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                    Text(_fmtCurrency(_totalDeductions), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+                  ]),
+                ],
+              ),
+            ),
+
+            _section('80C Investments (Max ₹1,50,000)', [
+              _field('PPF', _ppf),
+              _field('EPF Voluntary', _epfVol),
+              _field('ELSS (Mutual Funds)', _elss),
+              _field('LIC Premium', _lic),
+              _field('NSC', _nsc),
+              _field('Home Loan Principal', _homeLoanPrincipal),
+              _field('Tuition Fees (children)', _tuition),
+              _field('Other 80C', _other80c),
+            ]),
+
+            _section('80D Health Insurance', [
+              _field('Health Insurance — Self', _hiSelf, max: 25000),
+              _field('Health Insurance — Parents', _hiParents, max: 25000),
+            ]),
+
+            _section('Other Deductions', [
+              _field('NPS Contribution (80CCD)', _nps, max: 50000),
+              _field('Home Loan Interest (24b)', _homeLoanInterest, max: 200000),
+              _field('Education Loan Interest (80E)', _eduLoanInterest),
+            ]),
+
+            _section('HRA / Rent', [
+              _field('Monthly Rent Paid', _rentMonthly),
+              SwitchListTile(
+                value: _rentReceipt,
+                onChanged: (v) => setState(() => _rentReceipt = v),
+                title: const Text('Rent Receipts Provided', style: TextStyle(fontSize: 14)),
+                activeColor: const Color(0xFF007A64),
+                contentPadding: EdgeInsets.zero,
+              ),
+            ]),
+
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _submitting ? null : _submit,
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF007A64),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: _submitting
+                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Text('Submit Declaration', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            if (_declarations.isNotEmpty) ...[
+              const Text('Past Declarations', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+              const SizedBox(height: 8),
+              ..._declarations.map((d) => _DeclarationCard(d: d)),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TotalChip extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool cap;
+  const _TotalChip({required this.label, required this.value, this.cap = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(children: [
+      Text(value, style: TextStyle(
+        color: cap ? Colors.amber.shade300 : Colors.white,
+        fontWeight: FontWeight.bold, fontSize: 15)),
+      const SizedBox(height: 2),
+      Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10)),
+    ]);
+  }
+}
+
+class _DeclarationCard extends StatelessWidget {
+  final Map<String, dynamic> d;
+  const _DeclarationCard({required this.d});
+
+  Color get _statusColor {
+    switch (d['status']) {
+      case 'approved': return Colors.green;
+      case 'submitted': return Colors.blue;
+      case 'locked': return Colors.purple;
+      default: return Colors.grey;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        title: Text('FY ${d['financial_year']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+        subtitle: Text('Submitted: ${d['submitted_at'] != null ? d['submitted_at'].toString().split('T')[0] : '—'}'),
+        trailing: Chip(
+          label: Text(d['status'] ?? '—', style: const TextStyle(fontSize: 11, color: Colors.white)),
+          backgroundColor: _statusColor,
+          padding: EdgeInsets.zero,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+      ),
+    );
+  }
+}

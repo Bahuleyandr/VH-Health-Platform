@@ -3,6 +3,8 @@ import 'package:intl/intl.dart';
 import '../../../core/services/staff_api_service.dart';
 import 'payslip_detail_screen.dart';
 import 'tax_summary_screen.dart';
+import 'investment_declaration_screen.dart';
+import 'payslip_query_screen.dart';
 
 class PayslipScreen extends StatefulWidget {
   const PayslipScreen({super.key});
@@ -100,6 +102,20 @@ class _PayslipScreenState extends State<PayslipScreen> {
                 ],
               ),
             ),
+          ),
+          // Tax Declaration quick-action card
+          _QuickActionBanner(
+            icon: Icons.receipt_long_outlined,
+            label: '📋 Tax Declaration (80C/80D)',
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const InvestmentDeclarationScreen())),
+            color: const Color(0xFF1565C0),
+          ),
+          // Payslip Queries quick-action card
+          _QuickActionBanner(
+            icon: Icons.chat_bubble_outline,
+            label: '💬 Payslip Queries',
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PayslipQueryScreen())),
+            color: const Color(0xFF6A1B9A),
           ),
           Expanded(
             child: _loading
@@ -341,6 +357,55 @@ class _SummaryItem extends StatelessWidget {
           style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
         ),
       ],
+    );
+  }
+}
+
+class _QuickActionBanner extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final Color color;
+
+  const _QuickActionBanner({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [color, color.withOpacity(0.8)],
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: Colors.white, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.white70, size: 20),
+          ],
+        ),
+      ),
     );
   }
 }
