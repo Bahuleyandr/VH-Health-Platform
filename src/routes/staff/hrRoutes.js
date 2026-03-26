@@ -71,6 +71,9 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
     ['/payslips/:id', payrollController.getPayslipDetail],
     ['/payroll/tax-summary', payrollController.getMyTaxSummary],
     ['/payroll/advances', payrollController.getMyAdvances],
+    // Compliance: staff self-service
+    ['/payroll/declarations', payrollController.getMyDeclarations],
+    ['/payroll/queries', payrollController.getMyPayslipQueries],
   ],
   
   post: [
@@ -99,6 +102,9 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
     ['/housekeeping/log', housekeepingController.submitCleaningLog],
     ['/housekeeping/request', housekeepingController.raiseRequest],
     ['/housekeeping/requests/:id/complete', housekeepingController.completeRequest],
+    // Compliance: staff self-service POST
+    ['/payroll/declarations/submit', payrollController.upsertDeclaration],
+    ['/payroll/queries/raise', payrollController.raisePayslipQuery],
   ],
   
   put: [
