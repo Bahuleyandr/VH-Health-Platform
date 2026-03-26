@@ -1,5 +1,6 @@
 // src/controllers/staff/payrollController.js
 import db from '../../config/database.js';
+import crypto from 'crypto';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
@@ -172,11 +173,54 @@ export const issuePayslips = async (req, res) => {
     const { month, year } = req.body;
     if (!month || !year) return error(res, 'month and year required', HTTP_STATUS.BAD_REQUEST);
 
+    // Require both HR and Admin signatures before issuing
+    const run = await db.query(
+      `SELECT * FROM payroll_runs WHERE month=$1 AND year=$2`,
+      [month, year]
+    );
+
+    if (run.rows.length === 0) {
+      return error(res, 'No payroll run found for this month. Run payroll first.', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const r = run.rows[0];
+    if (!r.hr_approved_at) {
+      return error(res, 'HR must sign the payroll run before payslips can be issued', HTTP_STATUS.FORBIDDEN);
+    }
+    if (!r.admin_approved_at) {
+      return error(res, 'Admin must countersign the payroll run before payslips can be issued', HTTP_STATUS.FORBIDDEN);
+    }
+
+    // Regenerate PDFs for any manually-edited payslips
+    const editedPayslips = await db.query(
+      `SELECT p.*, ss.* FROM payslips p
+       JOIN staff_salary ss ON ss.staff_uid = p.staff_uid
+       WHERE p.month=$1 AND p.year=$2 AND p.manually_edited=true AND p.pdf_key IS NULL`,
+      [month, year]
+    );
+
+    if (generatePayslipPDF && editedPayslips.rows.length > 0) {
+      for (const p of editedPayslips.rows) {
+        try {
+          const staffRes = await db.query('SELECT * FROM users WHERE uid=$1', [p.staff_uid]);
+          const pdfBuf = await generatePayslipPDF(p, staffRes.rows[0] || {});
+          const pdfKey = `payroll/${year}/${String(month).padStart(2,'0')}/payslip_${p.staff_uid}_${year}_${String(month).padStart(2,'0')}.pdf`;
+          await uploadFileToR2(pdfBuf, pdfKey, 'application/pdf');
+          await db.query('UPDATE payslips SET pdf_key=$1, pdf_generated_at=NOW() WHERE id=$2', [pdfKey, p.id]);
+        } catch (pdfErr) {
+          logger.warn(`PDF regen failed for payslip ${p.id}: ${pdfErr.message}`);
+        }
+      }
+    }
+
     const result = await db.query(`
       UPDATE payslips SET status='issued', issued_at=NOW()
       WHERE month=$1 AND year=$2 AND status='draft'
       RETURNING id
     `, [month, year]);
+
+    // Lock the run
+    await db.query(`UPDATE payroll_runs SET status='locked' WHERE month=$1 AND year=$2`, [month, year]);
 
     success(res, { issued: result.rowCount }, `${result.rowCount} payslips issued to staff`);
   } catch (err) {
@@ -365,5 +409,151 @@ export const upsertStaffSalaryConfig = async (req, res) => {
   } catch (err) {
     logger.error('Upsert Salary Config Error:', err);
     error(res, 'Failed to save salary config', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ─── Admin: Manually edit a payslip component before issuing ─────────────────
+// Allows corrections to individual payslip lines before dual sign-off
+export const manualEditPayslip = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const editorUid = req.user?.uid;
+    const { edit_reason, ...edits } = req.body;
+
+    if (!edit_reason) return error(res, 'edit_reason is required for manual edits', HTTP_STATUS.BAD_REQUEST);
+
+    // Only allow edits before the run is HR/Admin approved
+    const payslip = await db.query(`
+      SELECT p.*, pr.hr_approved_at, pr.admin_approved_at
+      FROM payslips p
+      JOIN payroll_runs pr ON p.payroll_run_id = pr.id
+      WHERE p.id = $1
+    `, [id]);
+
+    if (payslip.rows.length === 0) return error(res, 'Payslip not found', HTTP_STATUS.NOT_FOUND);
+    if (payslip.rows[0].hr_approved_at || payslip.rows[0].admin_approved_at) {
+      return error(res, 'Cannot edit a payslip after HR or Admin has signed the payroll run', HTTP_STATUS.FORBIDDEN);
+    }
+    if (payslip.rows[0].status === 'issued') {
+      return error(res, 'Cannot edit an already-issued payslip', HTTP_STATUS.FORBIDDEN);
+    }
+
+    // Allowed editable fields
+    const allowed = [
+      'basic_earned', 'hra_earned', 'da_earned', 'special_allowance_earned',
+      'transport_allowance_earned', 'medical_allowance_earned', 'overtime_pay',
+      'bonus_this_month', 'pf_employee', 'esi_employee', 'professional_tax',
+      'tds', 'other_deductions', 'days_present', 'days_absent', 'days_leave',
+      'overtime_hours',
+    ];
+
+    const fields = Object.keys(edits).filter(k => allowed.includes(k));
+    if (fields.length === 0) return error(res, 'No valid editable fields provided', HTTP_STATUS.BAD_REQUEST);
+
+    // Recalculate gross and net from edits
+    const setClauses = fields.map((f, i) => `${f} = $${i + 2}`).join(', ');
+    const values = fields.map(f => edits[f]);
+
+    // Apply the field edits first
+    await db.query(`UPDATE payslips SET ${setClauses} WHERE id = $1`, [id, ...values]);
+
+    // Recalculate gross / total_deductions / net
+    await db.query(`
+      UPDATE payslips SET
+        gross_salary = basic_earned + hra_earned + da_earned + special_allowance_earned
+                     + transport_allowance_earned + medical_allowance_earned
+                     + overtime_pay + COALESCE(bonus_this_month, 0),
+        total_deductions = pf_employee + esi_employee + professional_tax + tds
+                         + COALESCE(other_deductions, 0),
+        net_salary = (basic_earned + hra_earned + da_earned + special_allowance_earned
+                    + transport_allowance_earned + medical_allowance_earned
+                    + overtime_pay + COALESCE(bonus_this_month, 0))
+                   - (pf_employee + esi_employee + professional_tax + tds + COALESCE(other_deductions, 0)),
+        manually_edited = true,
+        edit_reason = $1,
+        edited_by = $2,
+        edited_at = NOW(),
+        updated_at = NOW(),
+        -- Invalidate old PDF — will regenerate on issue
+        pdf_key = NULL,
+        pdf_generated_at = NULL
+      WHERE id = $3
+    `, [edit_reason, editorUid, id]);
+
+    const updated = await db.query('SELECT * FROM payslips WHERE id = $1', [id]);
+    success(res, updated.rows[0], 'Payslip updated — PDF will regenerate on issue');
+  } catch (err) {
+    logger.error('Manual Edit Payslip Error:', err);
+    error(res, 'Failed to edit payslip', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ─── HR: Sign payroll run (first approval) ────────────────────────────────────
+export const hrSignPayrollRun = async (req, res) => {
+  try {
+    const { runId } = req.params;
+    const hrUid = req.user?.uid;
+    const { comment } = req.body;
+
+    const run = await db.query('SELECT * FROM payroll_runs WHERE id = $1', [runId]);
+    if (run.rows.length === 0) return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
+    if (run.rows[0].status !== 'completed') {
+      return error(res, 'Payroll run must be in completed state before signing', HTTP_STATUS.BAD_REQUEST);
+    }
+    if (run.rows[0].hr_approved_at) {
+      return error(res, 'HR has already signed this payroll run', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    await db.query(`
+      UPDATE payroll_runs SET
+        hr_approved_by = $1, hr_approved_at = NOW(), hr_comment = $2
+      WHERE id = $3
+    `, [hrUid, comment || null, runId]);
+
+    const updated = await db.query('SELECT * FROM payroll_runs WHERE id = $1', [runId]);
+    success(res, updated.rows[0], 'HR signature applied — awaiting Admin countersign before payslips can be issued');
+  } catch (err) {
+    logger.error('HR Sign Payroll Run Error:', err);
+    error(res, 'Failed to sign payroll run', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ─── Admin: Countersign payroll run (second/final approval) ───────────────────
+export const adminSignPayrollRun = async (req, res) => {
+  try {
+    const { runId } = req.params;
+    const adminUid = req.user?.uid;
+    const { comment } = req.body;
+
+    const run = await db.query('SELECT * FROM payroll_runs WHERE id = $1', [runId]);
+    if (run.rows.length === 0) return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
+    if (!run.rows[0].hr_approved_at) {
+      return error(res, 'HR must sign before Admin countersign', HTTP_STATUS.BAD_REQUEST);
+    }
+    if (run.rows[0].admin_approved_at) {
+      return error(res, 'Admin has already countersigned this payroll run', HTTP_STATUS.BAD_REQUEST);
+    }
+    if (run.rows[0].hr_approved_by === adminUid) {
+      return error(res, 'HR signer and Admin countersigner cannot be the same person', HTTP_STATUS.FORBIDDEN);
+    }
+
+    // Compute integrity hash over the payslip totals
+    const hash = crypto
+      .createHash('sha256')
+      .update(`${runId}:${run.rows[0].month}:${run.rows[0].year}:${run.rows[0].total_gross}:${run.rows[0].hr_approved_by}:${adminUid}`)
+      .digest('hex');
+
+    await db.query(`
+      UPDATE payroll_runs SET
+        admin_approved_by = $1, admin_approved_at = NOW(), admin_comment = $2,
+        approval_hash = $3, status = 'approved'
+      WHERE id = $4
+    `, [adminUid, comment || null, hash, runId]);
+
+    const updated = await db.query('SELECT * FROM payroll_runs WHERE id = $1', [runId]);
+    success(res, updated.rows[0], 'Admin countersign complete — payslips can now be issued to staff');
+  } catch (err) {
+    logger.error('Admin Sign Payroll Run Error:', err);
+    error(res, 'Failed to countersign payroll run', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
