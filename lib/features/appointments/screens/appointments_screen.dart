@@ -85,6 +85,11 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
 
+  // Slot picker state
+  List<Map<String, dynamic>> _availableSlots = [];
+  bool _loadingSlots = false;
+  String? _selectedSlotTime; // "HH:mm"
+
   bool _loadingDepts = true;
   bool _submitting = false;
   late final bool _isGuest;
@@ -218,7 +223,16 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate() || _submitting) return;
-    if (_selectedDate == null || _selectedTime == null) {
+    if (_selectedDate == null) {
+      _showError('Please select a date');
+      return;
+    }
+    // When slots are shown, require a slot selection
+    if (_availableSlots.isNotEmpty && _selectedSlotTime == null) {
+      _showError('Please select an available time slot');
+      return;
+    }
+    if (_availableSlots.isEmpty && _selectedTime == null) {
       _showError(AppLocalizations.of(context)!.selectDoctorAndDate);
       return;
     }
@@ -457,7 +471,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
       firstDate: now,
       lastDate: now.add(const Duration(days: 90)),
     );
-    if (picked != null && mounted) setState(() => _selectedDate = picked);
+    if (picked != null && mounted) {
+      setState(() => _selectedDate = picked);
+      _fetchSlots();
+    }
   }
 
   Future<void> _pickTime() async {
@@ -466,6 +483,47 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
       initialTime: _selectedTime ?? const TimeOfDay(hour: 9, minute: 0),
     );
     if (picked != null && mounted) setState(() => _selectedTime = picked);
+  }
+
+  Future<void> _fetchSlots() async {
+    if (_selectedDoctor == null || _selectedDate == null) return;
+    final dateStr =
+        '${_selectedDate!.year}-${_selectedDate!.month.toString().padLeft(2, '0')}-${_selectedDate!.day.toString().padLeft(2, '0')}';
+    setState(() {
+      _loadingSlots = true;
+      _availableSlots = [];
+      _selectedSlotTime = null;
+      _selectedTime = null;
+    });
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      final resp = await http.get(
+        Uri.parse(
+            '${ApiConfig.baseUrl}/appointments/slots?doctor_id=${_selectedDoctor!.id}&date=$dateStr'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+      if (resp.statusCode == 200) {
+        final body = jsonDecode(resp.body);
+        final data = body['data'] ?? body;
+        if (data['available'] == false) {
+          // Doctor not available this day
+          if (mounted) setState(() => _availableSlots = []);
+        } else {
+          final slots = (data['slots'] as List<dynamic>? ?? [])
+              .map((s) => s as Map<String, dynamic>)
+              .toList();
+          if (mounted) setState(() => _availableSlots = slots);
+        }
+      }
+    } catch (_) {
+      // Silently fail — let user pick time manually if slots can't load
+    } finally {
+      if (mounted) setState(() => _loadingSlots = false);
+    }
   }
 
   String _deptLabel(AppLocalizations l10n, String englishName) {
@@ -623,6 +681,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
                 setState(() {
                   _selectedDept = val;
                   _selectedDoctor = null;
+                  _availableSlots = [];
+                  _selectedSlotTime = null;
+                  _selectedTime = null;
                 });
               },
               validator: (v) => v == null ? l10n.selectDoctorAndDate : null,
@@ -646,7 +707,15 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
                             : doc.name),
                       ))
                   .toList(),
-              onChanged: (val) => setState(() => _selectedDoctor = val),
+              onChanged: (val) {
+                setState(() {
+                  _selectedDoctor = val;
+                  _availableSlots = [];
+                  _selectedSlotTime = null;
+                  _selectedTime = null;
+                });
+                if (val != null && _selectedDate != null) _fetchSlots();
+              },
               validator: (v) => v == null ? 'Please select a doctor' : null,
               style: theme.textTheme.bodyLarge?.copyWith(color: cs.onSurface),
               dropdownColor: theme.cardColor,
@@ -680,19 +749,101 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
             onTap: _pickDate,
           ),
 
-          // Time picker
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(Icons.access_time, color: cs.primary),
-            title: Text(
-              _selectedTime != null
-                  ? _selectedTime!.format(context)
-                  : 'Select Time',
-              style: theme.textTheme.bodyLarge,
+          // Time slot picker
+          if (_loadingSlots)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            )
+          else if (_availableSlots.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 8),
+              child: Text(
+                'Select Time Slot',
+                style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+              ),
             ),
-            trailing: Icon(Icons.arrow_drop_down, color: cs.onSurface),
-            onTap: _pickTime,
-          ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _availableSlots.map((slot) {
+                final time = slot['time'] as String;
+                final available = slot['available'] as bool? ?? false;
+                final isSelected = _selectedSlotTime == time;
+                return GestureDetector(
+                  onTap: available
+                      ? () {
+                          setState(() {
+                            _selectedSlotTime = time;
+                            final parts = time.split(':');
+                            _selectedTime = TimeOfDay(
+                              hour: int.parse(parts[0]),
+                              minute: int.parse(parts[1]),
+                            );
+                          });
+                        }
+                      : null,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? const Color(0xFF00796B)
+                          : available
+                              ? const Color(0xFFE0F2F1)
+                              : Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: isSelected
+                            ? const Color(0xFF00796B)
+                            : available
+                                ? const Color(0xFF80CBC4)
+                                : Colors.grey.shade300,
+                      ),
+                    ),
+                    child: Text(
+                      time,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: isSelected
+                            ? Colors.white
+                            : available
+                                ? const Color(0xFF00796B)
+                                : Colors.grey.shade400,
+                        decoration: available ? null : TextDecoration.lineThrough,
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            if (_selectedSlotTime != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Selected: $_selectedSlotTime',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: const Color(0xFF00796B),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+          ] else ...[
+            // Fallback: manual time picker when no slots available
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.access_time, color: cs.primary),
+              title: Text(
+                _selectedTime != null
+                    ? _selectedTime!.format(context)
+                    : 'Select Time',
+                style: theme.textTheme.bodyLarge,
+              ),
+              trailing: Icon(Icons.arrow_drop_down, color: cs.onSurface),
+              onTap: _pickTime,
+            ),
+          ],
           const SizedBox(height: 24),
 
           ElevatedButton(
