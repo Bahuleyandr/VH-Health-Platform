@@ -34,6 +34,9 @@ interface PharmacyOrderLifecycle {
   sla_breached: boolean;
   mins_since_placed: number;
   created_at: string;
+  estimated_delivery_mins: number | null;
+  delivery_distance_km: number | null;
+  delivery_tracking_active: boolean;
 }
 
 interface SLAData {
@@ -269,6 +272,7 @@ function OrdersTab() {
                 <th className="py-2 px-3">Type</th>
                 <th className="py-2 px-3">Total</th>
                 <th className="py-2 px-3">Status</th>
+                <th className="py-2 px-3">ETA</th>
                 <th className="py-2 px-3">Time</th>
                 <th className="py-2 px-3">Actions</th>
               </tr>
@@ -292,6 +296,15 @@ function OrdersTab() {
                   <td className="py-2 px-3">{o.total_cost ? `₹${o.total_cost}` : "—"}</td>
                   <td className="py-2 px-3">
                     <StatusBadge status={o.status} />
+                  </td>
+                  <td className="py-2 px-3 text-xs">
+                    {o.status === "DISPATCHED" && o.estimated_delivery_mins ? (
+                      <span className="flex items-center gap-1">
+                        {o.delivery_tracking_active && <span title="Live tracking">📍</span>}
+                        ~{o.estimated_delivery_mins}m
+                        {o.delivery_distance_km ? <span className="text-muted-foreground ml-1">({o.delivery_distance_km}km)</span> : null}
+                      </span>
+                    ) : "—"}
                   </td>
                   <td className="py-2 px-3 text-muted-foreground">
                     {Math.round(o.mins_since_placed)}m
@@ -507,13 +520,20 @@ function OrderDetailModal({
           <div className="mt-3 text-right font-bold">Total: ₹{order.total_cost}</div>
         )}
 
-        {/* Delivery person */}
+        {/* Delivery person + tracking */}
         {order.delivery_person && (
           <div className="mt-3 p-3 bg-teal-50 rounded-lg">
             <p className="text-sm text-teal-700">
               🚗 {order.delivery_person}
               {order.delivery_person_phone && ` • ${order.delivery_person_phone}`}
             </p>
+            {order.status === "DISPATCHED" && order.estimated_delivery_mins && (
+              <p className="text-sm text-teal-600 mt-1">
+                {order.delivery_tracking_active && "📍 Live • "}
+                ETA: ~{order.estimated_delivery_mins} min
+                {order.delivery_distance_km ? ` • ${order.delivery_distance_km} km away` : ""}
+              </p>
+            )}
           </div>
         )}
 
