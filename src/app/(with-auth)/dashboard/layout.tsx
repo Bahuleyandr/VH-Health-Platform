@@ -38,6 +38,7 @@ const navigation: NavItem[] = [
   { name: 'Leave Approvals', href: '/dashboard/leave-approvals', requiredPermissions: ['userManagement'] },
   { name: 'Shift Management', href: '/dashboard/shifts', requiredPermissions: ['userManagement'] },
   { name: 'Reports Audit', href: '/dashboard/audit', requiredRole: 'ADMIN' },
+  { name: 'Attendance Audit', href: '/dashboard/attendance-audit', requiredRole: 'ADMIN' },
   { name: 'Incident Reports', href: '/dashboard/incidents', requiredPermissions: ['userManagement'] },
   { name: 'Grievances (HR)', href: '/dashboard/grievances', requiredPermissions: ['userManagement'] },
   { name: 'Bed Management', href: '/dashboard/beds', requiredPermissions: ['departmentManagement'] },
