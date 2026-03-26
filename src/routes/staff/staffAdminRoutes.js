@@ -156,6 +156,8 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/housekeeping/requests/:id/assign', housekeepingController.assignRequest],
     ['/housekeeping/logs/:id/verify', housekeepingController.verifyLog],
     ['/housekeeping/requests/:id/verify', housekeepingController.verifyRequest],
+    ['/housekeeping/zones', housekeepingController.createZone],
+    ['/housekeeping/requests/create', housekeepingController.adminCreateRequest],
 
     // Payroll (admin actions)
     ['/payroll/run', payrollController.runPayroll],
@@ -194,7 +196,10 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/approve/leave/:leaveId', staffAdminController.approveLeaveRequest],
 
     // Custom shift update
-    ['/shifts/custom/:id', shiftController.updateCustomShift]
+    ['/shifts/custom/:id', shiftController.updateCustomShift],
+
+    // Housekeeping zone update
+    ['/housekeeping/zones/:id', housekeepingController.updateZone],
   ],
   
   delete: [
