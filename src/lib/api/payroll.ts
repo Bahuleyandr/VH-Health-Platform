@@ -228,3 +228,28 @@ export const adminSignPayrollRun = <T = unknown>(runId: string, data: { comment?
 
 export const manualEditPayslip = <T = unknown>(payslipId: string, data: Record<string, unknown>) =>
   postJSON<T>(`/api/v1/staff/admin/payroll/payslips/${payslipId}/edit`, data);
+
+// ─── New Features ─────────────────────────────────────────────────────────────
+
+// CSV export URL builders (use window.open() for direct file download)
+export const exportPayrollSummaryUrl = (month: number, year: number): string =>
+  `/api/v1/staff/admin/payroll/export/summary?month=${month}&year=${year}`;
+export const exportPFRegisterUrl = (month: number, year: number): string =>
+  `/api/v1/staff/admin/payroll/export/pf?month=${month}&year=${year}`;
+export const exportESIRegisterUrl = (month: number, year: number): string =>
+  `/api/v1/staff/admin/payroll/export/esi?month=${month}&year=${year}`;
+
+// Annual tax summaries
+export const generateTaxSummaries = <T = unknown>(data: { financial_year: string }) =>
+  postJSON<T>('/api/v1/staff/admin/payroll/tax-summary/all', data);
+
+// Salary advances
+export const getAllAdvances = <T = unknown>(status?: string) =>
+  getJSON<T>('/api/v1/staff/admin/payroll/advances', status ? ({ status } as QueryParams) : undefined);
+
+export const createAdvance = <T = unknown>(data: Record<string, unknown>) =>
+  postJSON<T>('/api/v1/staff/admin/payroll/advances/create', data);
+
+// Arrears
+export const calculateArrears = <T = unknown>(revisionId: string | number) =>
+  postJSON<T>(`/api/v1/staff/admin/payroll/revisions/${revisionId}/arrears`, {});
