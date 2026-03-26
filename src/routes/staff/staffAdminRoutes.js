@@ -101,6 +101,11 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/payroll/revisions', salaryRevisionController.getRevisions],
     ['/payroll/revisions/:id', salaryRevisionController.getRevisionDetail],
     ['/payroll/annual-review', salaryRevisionController.getAnnualReviewStatus],
+    // New payroll features
+    ['/payroll/export/summary', payrollController.exportPayrollSummary],
+    ['/payroll/export/pf', payrollController.exportPFRegister],
+    ['/payroll/export/esi', payrollController.exportESIRegister],
+    ['/payroll/advances', payrollController.getAllAdvances],
   ],
   
   post: [
@@ -147,6 +152,10 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/payroll/run', payrollController.runPayroll],
     ['/payroll/issue', payrollController.issuePayslips],
     ['/payroll/salary/:staffUid', payrollController.upsertStaffSalaryConfig],
+    // New payroll features — POST
+    ['/payroll/tax-summary/all', payrollController.generateAllTaxSummaries],
+    ['/payroll/advances/create', payrollController.createAdvance],
+    ['/payroll/revisions/:revisionId/arrears', payrollController.calculateRevisionArrears],
     // Manual edit + dual sign
     ['/payroll/payslips/:id/edit', payrollController.manualEditPayslip],
     ['/payroll/runs/:runId/hr-sign', payrollController.hrSignPayrollRun],

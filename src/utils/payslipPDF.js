@@ -102,18 +102,20 @@ export async function generatePayslipPDF(payslipData, staffDetails) {
     doc.rect(leftX, attTop, pageWidth, 26).fill('#f0faf9').stroke('#ccc');
     doc.fillColor('#007A64').fontSize(8).font('Helvetica-Bold')
       .text('Working Days', leftX + 10, attTop + 5);
-    doc.text('Days Present', leftX + 100, attTop + 5);
-    doc.text('Days Absent', leftX + 195, attTop + 5);
-    doc.text('Leave Days', leftX + 285, attTop + 5);
-    doc.text('Overtime Hours', leftX + 370, attTop + 5);
+    doc.text('Days Present', leftX + 90, attTop + 5);
+    doc.text('Days Absent', leftX + 180, attTop + 5);
+    doc.text('LOP Days', leftX + 265, attTop + 5);
+    doc.text('Leave Days', leftX + 345, attTop + 5);
+    doc.text('OT Hours', leftX + 435, attTop + 5);
 
     const attValY = attTop + 14;
     doc.fillColor('#000').font('Helvetica').fontSize(8)
-      .text(String(payslipData.total_working_days), leftX + 30, attValY)
-      .text(String(payslipData.days_present), leftX + 120, attValY)
-      .text(String(payslipData.days_absent), leftX + 215, attValY)
-      .text(String(payslipData.days_leave), leftX + 305, attValY)
-      .text(String(parseFloat(payslipData.overtime_hours || 0).toFixed(1)) + ' hrs', leftX + 393, attValY);
+      .text(String(payslipData.total_working_days), leftX + 20, attValY)
+      .text(String(payslipData.days_present), leftX + 100, attValY)
+      .text(String(payslipData.days_absent), leftX + 190, attValY)
+      .text(String(parseFloat(payslipData.lop_days || 0)), leftX + 275, attValY)
+      .text(String(payslipData.days_leave), leftX + 355, attValY)
+      .text(String(parseFloat(payslipData.overtime_hours || 0).toFixed(1)) + ' hrs', leftX + 445, attValY);
 
     // ─── Earnings & Deductions Table ─────────────────────────────────────────
     const tableTop = attTop + 36;
@@ -143,11 +145,24 @@ export async function generatePayslipPDF(payslipData, staffDetails) {
       ['Bonus', payslipData.bonus_this_month],
     ].filter(([, v]) => parseFloat(v || 0) > 0);
 
+    // Arrears added to earnings if present
+    if (parseFloat(payslipData.arrears_amount || 0) > 0) {
+      earnings.push(['Arrears', payslipData.arrears_amount]);
+    }
+
     const deductions = [
+      // FEATURE 5: LOP line item
+      ...(parseFloat(payslipData.lop_days || 0) > 0
+        ? [[`Loss of Pay (${payslipData.lop_days}d)`, payslipData.lop_deduction]]
+        : []),
       ['PF (Employee 12%)', payslipData.pf_employee],
       ['ESI (0.75%)', payslipData.esi_employee],
       ['Professional Tax', payslipData.professional_tax],
       ['TDS', payslipData.tds],
+      // FEATURE 3: Advance deduction
+      ...(parseFloat(payslipData.advance_deduction || 0) > 0
+        ? [['Salary Advance Deduction', payslipData.advance_deduction]]
+        : []),
     ].filter(([, v]) => parseFloat(v || 0) > 0);
 
     let rowY = tableTop + 20;
@@ -192,8 +207,19 @@ export async function generatePayslipPDF(payslipData, staffDetails) {
     doc.fillColor('#333').font('Helvetica').fontSize(8)
       .text(`Net Pay in Words: ${numberToWords(Math.round(payslipData.net_salary))} Rupees Only`, leftX, wordsY);
 
+    // ─── FEATURE 2: Revision note banner ────────────────────────────────────
+    let revNoteHeight = 0;
+    if (payslipData.revision_note) {
+      const revY = wordsY + 16;
+      doc.rect(leftX, revY, pageWidth, 18).fill('#e8f5f3');
+      doc.fillColor('#007A64').fontSize(8).font('Helvetica')
+        .text(`ℹ️  ${payslipData.revision_note}`, leftX + 8, revY + 5, { width: pageWidth - 16 });
+      doc.fillColor('black');
+      revNoteHeight = 26;
+    }
+
     // ─── Footer ───────────────────────────────────────────────────────────────
-    const footerY = wordsY + 30;
+    const footerY = wordsY + 30 + revNoteHeight;
     doc.moveTo(leftX, footerY).lineTo(leftX + pageWidth, footerY).lineWidth(0.5).stroke('#aaa');
     doc.fillColor('#888').fontSize(7).font('Helvetica')
       .text('This is a computer-generated payslip and does not require a signature.', leftX, footerY + 6, { align: 'center', width: pageWidth })
