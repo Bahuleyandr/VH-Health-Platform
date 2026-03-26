@@ -940,4 +940,22 @@ class StaffApiService {
     final result = await _get('/api/v1/staff/hr/payslips/$id');
     return (result['data'] as Map<String, dynamic>?) ?? result;
   }
+
+  /// GET /api/v1/staff/hr/payroll/tax-summary?fy=2025-26
+  /// Returns annual tax summary (Form 16 basis) for the given financial year.
+  static Future<Map<String, dynamic>> getMyTaxSummary({String? fy}) async {
+    final query = fy != null ? {'fy': fy} : null;
+    final result = await _get(
+      '/api/v1/staff/hr/payroll/tax-summary',
+      query: query,
+    );
+    return (result['data'] as Map<String, dynamic>?) ?? result;
+  }
+
+  /// GET /api/v1/staff/hr/payroll/advances
+  /// Returns list of salary advances / loans for the current staff.
+  static Future<List<dynamic>> getMyAdvances() async {
+    final result = await _get('/api/v1/staff/hr/payroll/advances');
+    return result['data'] as List? ?? (result is List ? result as List : []);
+  }
 }

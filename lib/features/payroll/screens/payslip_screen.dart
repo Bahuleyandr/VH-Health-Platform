@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/staff_api_service.dart';
 import 'payslip_detail_screen.dart';
+import 'tax_summary_screen.dart';
 
 class PayslipScreen extends StatefulWidget {
   const PayslipScreen({super.key});
@@ -63,7 +64,45 @@ class _PayslipScreenState extends State<PayslipScreen> {
           ),
         ],
       ),
-      body: _loading
+      body: Column(
+        children: [
+          // Annual Tax Summary navigation card
+          InkWell(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const TaxSummaryScreen()),
+            ),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [const Color(0xFF007A64), const Color(0xFF007A64).withOpacity(0.8)],
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.summarize_outlined, color: Colors.white, size: 20),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'Annual Tax Summary (Form 16)',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right, color: Colors.white70, size: 20),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: _loading
           ? const Center(child: CircularProgressIndicator(color: Color(0xFF007A64)))
           : _error != null
               ? Center(
@@ -123,6 +162,9 @@ class _PayslipScreenState extends State<PayslipScreen> {
                         },
                       ),
                     ),
+          ),
+        ],
+      ),
     );
   }
 }

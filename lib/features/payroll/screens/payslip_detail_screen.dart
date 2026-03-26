@@ -183,13 +183,47 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
           ),
           const SizedBox(height: 16),
 
+          // ─── FEATURE 2: Revision note banner ────────────────────────────
+          if (p['revision_note'] != null && (p['revision_note'] as String).isNotEmpty) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE8F5F3),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF007A64).withOpacity(0.4)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.info_outline, color: Color(0xFF007A64), size: 18),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      p['revision_note'] as String,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF007A64),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
           // ─── Attendance ─────────────────────────────────────────────────
           _Section(
             title: '📅 Attendance',
             rows: [
               _Row('Working Days', '${p['total_working_days'] ?? 0}'),
               _Row('Days Present', '${p['days_present'] ?? 0}', isGood: true),
-              _Row('Days Absent', '${p['days_absent'] ?? 0}', isBad: true),
+              _Row('Days Absent', '${p['days_absent'] ?? 0}', isBad: (p['days_absent'] as num? ?? 0) > 0),
+              // FEATURE 5: LOP line item
+              if ((p['lop_days'] as num? ?? 0) > 0)
+                _Row('Loss of Pay Days', '${p['lop_days']} days', isBad: true),
               _Row('Leave Days', '${p['days_leave'] ?? 0}'),
               _Row('Overtime Hours', '${(p['overtime_hours'] as num?)?.toStringAsFixed(1) ?? '0.0'} hrs'),
             ],
@@ -215,6 +249,9 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
                 _Row('Overtime Pay', '₹${fmt.format(p['overtime_pay'])}'),
               if ((p['bonus_this_month'] as num? ?? 0) > 0)
                 _Row('Bonus', '₹${fmt.format(p['bonus_this_month'])}'),
+              // FEATURE 4: Arrears
+              if ((p['arrears_amount'] as num? ?? 0) > 0)
+                _Row('Arrears Paid', '₹${fmt.format(p['arrears_amount'])}', isGood: true),
               _Row('Gross Salary', '₹${fmt.format(p['gross_salary'] ?? 0)}', isBold: true, color: const Color(0xFF007A64)),
             ],
           ),
@@ -223,6 +260,9 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
           _Section(
             title: '📉 Deductions',
             rows: [
+              // FEATURE 5: LOP deduction
+              if ((p['lop_days'] as num? ?? 0) > 0)
+                _Row('Loss of Pay (${p['lop_days']} days)', '₹${fmt.format(p['lop_deduction'] ?? 0)}', isBad: true),
               if ((p['pf_employee'] as num? ?? 0) > 0)
                 _Row('PF (Employee 12%)', '₹${fmt.format(p['pf_employee'])}'),
               if ((p['esi_employee'] as num? ?? 0) > 0)
@@ -231,6 +271,9 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
                 _Row('Professional Tax', '₹${fmt.format(p['professional_tax'])}'),
               if ((p['tds'] as num? ?? 0) > 0)
                 _Row('TDS', '₹${fmt.format(p['tds'])}'),
+              // FEATURE 3: Advance deduction
+              if ((p['advance_deduction'] as num? ?? 0) > 0)
+                _Row('Salary Advance Deduction', '₹${fmt.format(p['advance_deduction'])}', isBad: true),
               _Row('Total Deductions', '₹${fmt.format(p['total_deductions'] ?? 0)}', isBold: true, color: Colors.red.shade700),
             ],
           ),
