@@ -25,15 +25,24 @@ export function generateSecureFileKey(originalName, category = 'general', patien
   return keyPath;
 }
 
-export async function optimizeImage(buffer, mimetype, isHipaaProtected = false) {
+export async function optimizeImage(buffer, mimetype, isHipaaProtected = false, category = null) {
   try {
     let processor = sharp(buffer);
     const metadata = await processor.metadata();
-    
+
+    // Operational photos (housekeeping, incidents): much smaller, don't need high res
+    const isOperational = category && HOSPITAL_UPLOAD_CONFIG.operationalCategories?.includes(category);
+
     // Higher quality for HIPAA protected medical images
-    const quality = isHipaaProtected ? 98 : HOSPITAL_UPLOAD_CONFIG.imageQuality;
-    const maxWidth = isHipaaProtected ? 8192 : HOSPITAL_UPLOAD_CONFIG.imageMaxWidth;
-    const maxHeight = isHipaaProtected ? 8192 : HOSPITAL_UPLOAD_CONFIG.imageMaxHeight;
+    const quality = isHipaaProtected ? 98
+      : isOperational ? HOSPITAL_UPLOAD_CONFIG.operationalImageQuality
+      : HOSPITAL_UPLOAD_CONFIG.imageQuality;
+    const maxWidth = isHipaaProtected ? 8192
+      : isOperational ? HOSPITAL_UPLOAD_CONFIG.operationalImageMaxWidth
+      : HOSPITAL_UPLOAD_CONFIG.imageMaxWidth;
+    const maxHeight = isHipaaProtected ? 8192
+      : isOperational ? HOSPITAL_UPLOAD_CONFIG.operationalImageMaxHeight
+      : HOSPITAL_UPLOAD_CONFIG.imageMaxHeight;
     
     // Resize if too large
     if (metadata.width > maxWidth || metadata.height > maxHeight) {

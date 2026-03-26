@@ -2,6 +2,7 @@
 import express from 'express';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as staffAdminController from '../../controllers/staff/staffAdminController.js';
+import * as housekeepingController from '../../controllers/staff/housekeepingController.js';
 import * as replacementController from '../../controllers/staff/replacementController.js';
 import * as attendanceController from '../../controllers/staff/attendanceController.js';
 import * as overtimeController from '../../controllers/staff/overtimeController.js';
@@ -83,6 +84,12 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/grievances', grievanceController.getAllGrievances],
     ['/grievances/stats', grievanceController.getGrievanceStats],
     ['/grievances/:id', grievanceController.getGrievanceAdminDetail],
+
+    // Housekeeping (admin)
+    ['/housekeeping/logs', housekeepingController.getAllCleaningLogs],
+    ['/housekeeping/requests', housekeepingController.getAllRequests],
+    ['/housekeeping/stats', housekeepingController.getHousekeepingStats],
+    ['/housekeeping/zones', housekeepingController.getZones],
   ],
   
   post: [
@@ -119,6 +126,11 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
 
     // Grievance update (admin/HR)
     ['/grievances/:id/update', grievanceController.updateGrievance],
+
+    // Housekeeping (admin actions)
+    ['/housekeeping/requests/:id/assign', housekeepingController.assignRequest],
+    ['/housekeeping/logs/:id/verify', housekeepingController.verifyLog],
+    ['/housekeeping/requests/:id/verify', housekeepingController.verifyRequest],
   ],
   
   put: [

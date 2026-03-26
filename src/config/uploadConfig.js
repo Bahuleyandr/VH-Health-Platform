@@ -24,13 +24,22 @@ export const HOSPITAL_UPLOAD_CONFIG = {
   imageMaxWidth: 4096, // High resolution for medical imaging
   imageMaxHeight: 4096,
   imageQuality: 95, // High quality for medical images
+
+  // Operational photo settings (housekeeping, incidents, grievances)
+  // Much smaller — 800px max, 70% quality, ~50-100KB vs 1-5MB for medical
+  operationalImageMaxWidth: 1280,
+  operationalImageMaxHeight: 1280,
+  operationalImageQuality: 72,
+  operationalCategories: ['housekeeping_log', 'housekeeping_request', 'incident_photo', 'grievance_evidence'],
   allowedCategories: [
     'medical_record', 'prescription', 'lab_report', 'xray', 'mri', 'ct_scan',
     'ultrasound', 'ecg', 'eeg', 'pathology_report', 'discharge_summary',
     'consent_form', 'insurance_document', 'id_document', 'profile_picture',
     'surgery_notes', 'progress_notes', 'referral_letter', 'vaccination_record',
     'allergy_record', 'medication_list', 'treatment_plan', 'consultation_notes',
-    'telemedicine_recording', 'rehabilitation_plan', 'mental_health_assessment'
+    'telemedicine_recording', 'rehabilitation_plan', 'mental_health_assessment',
+    // Operational / non-clinical
+    'housekeeping_log', 'housekeeping_request', 'incident_photo', 'grievance_evidence'
   ],
   hipaaCategories: [
     'medical_record', 'lab_report', 'pathology_report', 'surgery_notes',
@@ -43,7 +52,12 @@ export const HOSPITAL_UPLOAD_CONFIG = {
     'prescription': 2 * 365, // 2 years
     'profile_picture': 1 * 365, // 1 year
     'consultation_notes': 7 * 365,
-    'default': 3 * 365 // 3 years default
+    'default': 3 * 365, // 3 years default
+    // Operational photos — short retention
+    'housekeeping_log':     90,   // 90 days — cleaning evidence
+    'housekeeping_request': 90,   // 90 days — request photos
+    'incident_photo':       365,  // 1 year — incident evidence (compliance)
+    'grievance_evidence':   365   // 1 year — grievance evidence
   }
 };
 

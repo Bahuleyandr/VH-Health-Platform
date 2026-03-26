@@ -15,6 +15,7 @@ import { scheduleArchiveMigrationJob } from './archiveMigrationJob.js';
 import { sendAppointmentReminders } from './notifications/appointmentReminderJob.js';
 import { sendInvestigationNotifications } from './notifications/InvestigationNotificationJob.js';
 import { scheduleCleanupJob as scheduleR2CleanupJob, executeCleanup } from './r2CleanupJob.js';
+import { purgeHousekeepingPhotos } from './housekeepingPurgeJob.js';
 import loadSwaggerDocument from './swaggerLoader.js';
 import { verifyLatestBackup } from './backupVerification.js';
 
@@ -110,6 +111,15 @@ cron.schedule('30 3 * * *', async () => {
     logger.info(`✅ Audit log cleanup: ${result.rowCount} rows deleted`);
   } catch (err) {
     logger.error('Error during audit log cleanup:', err);
+  }
+});
+
+// 🗓️ Daily at 03:45 - Purge housekeeping photos past retention window
+cron.schedule('45 3 * * *', async () => {
+  try {
+    await purgeHousekeepingPhotos();
+  } catch (err) {
+    logger.error('Error during housekeeping photo purge:', err);
   }
 });
 
