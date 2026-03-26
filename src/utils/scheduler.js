@@ -99,6 +99,20 @@ cron.schedule('0 9 * * *', async () => {
   }
 });
 
+// 🗓️ Daily at 03:30 - Purge audit logs older than 90 days
+cron.schedule('30 3 * * *', async () => {
+  logger.info('Scheduled Task: Purging audit logs older than 90 days...');
+  try {
+    const { default: db } = await import('../config/database.js');
+    const result = await db.query(
+      `DELETE FROM audit_log WHERE created_at < NOW() - INTERVAL '90 days'`
+    );
+    logger.info(`✅ Audit log cleanup: ${result.rowCount} rows deleted`);
+  } catch (err) {
+    logger.error('Error during audit log cleanup:', err);
+  }
+});
+
 // ✅ Manual Trigger for all tasks
 export async function runAllScheduledTasksNow() {
   logger.info('Running all scheduled tasks manually...');
