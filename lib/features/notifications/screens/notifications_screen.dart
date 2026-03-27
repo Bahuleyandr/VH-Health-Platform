@@ -173,7 +173,7 @@ Future<void> _fetchNotifications() async {
     );
 
     try {
-      await http.patch(uri, headers: await ApiConfig.authenticatedAuthHeaders());
+      await http.patch(uri, headers: await ApiConfig.authenticatedAuthHeaders()).timeout(const Duration(seconds: 15));
     } catch (e) {
       debugPrint('Error marking notification as read: $e');
     }

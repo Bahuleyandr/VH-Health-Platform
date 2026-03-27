@@ -66,15 +66,15 @@ class _CalendarScreenState extends State<CalendarScreen> {
         http.get(
           Uri.parse('${ApiConfig.baseUrl}/appointments/uid/$uid'),
           headers: calHeaders,
-        ),
+        ).timeout(const Duration(seconds: 15)),
         http.get(
           Uri.parse('${ApiConfig.baseUrl}/investigations/uid/$uid'),
           headers: calHeaders,
-        ),
+        ).timeout(const Duration(seconds: 15)),
         http.get(
           Uri.parse('${ApiConfig.baseUrl}/pharmacy-orders/orders/uid/$uid'),
           headers: calHeaders,
-        ),
+        ).timeout(const Duration(seconds: 15)),
       ]);
 
       if (!mounted) return;

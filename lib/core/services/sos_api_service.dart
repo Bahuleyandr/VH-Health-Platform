@@ -27,7 +27,7 @@ class SosApiService {
         Uri.parse('${ApiConfig.baseUrl}/sos/'),
         headers: headers,
         body: jsonEncode(body),
-      );
+      ).timeout(const Duration(seconds: 15));
       if (response.statusCode == 200 || response.statusCode == 201) {
         return jsonDecode(response.body) as Map<String, dynamic>;
       }
@@ -42,7 +42,7 @@ class SosApiService {
       final response = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/sos/emergency-contact'),
         headers: headers,
-      );
+      ).timeout(const Duration(seconds: 15));
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as Map<String, dynamic>;
       }
@@ -57,7 +57,7 @@ class SosApiService {
       final response = await http.post(
         Uri.parse('${ApiConfig.baseUrl}/sos/cancel/$alertId'),
         headers: headers,
-      );
+      ).timeout(const Duration(seconds: 15));
       return response.statusCode == 200;
     } catch (_) {
       return false;
@@ -71,7 +71,7 @@ class SosApiService {
       final response = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/sos/my-alerts'),
         headers: headers,
-      );
+      ).timeout(const Duration(seconds: 15));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return (data['data']?['alerts'] ?? []) as List<dynamic>;
@@ -92,7 +92,7 @@ class SosApiService {
       if (longitude != null) params['longitude'] = longitude.toString();
       final uri = Uri.parse('${ApiConfig.baseUrl}/sos/nearby-services')
           .replace(queryParameters: params.isNotEmpty ? params : null);
-      final response = await http.get(uri, headers: headers);
+      final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 15));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return (data['data']?['services'] ?? []) as List<dynamic>;
@@ -108,7 +108,7 @@ class SosApiService {
       final response = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/sos/medical-info'),
         headers: headers,
-      );
+      ).timeout(const Duration(seconds: 15));
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as Map<String, dynamic>;
       }

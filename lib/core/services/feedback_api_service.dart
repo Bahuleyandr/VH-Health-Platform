@@ -13,7 +13,7 @@ class FeedbackApiService {
       final response = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/feedback/my-feedback'),
         headers: headers,
-      );
+      ).timeout(const Duration(seconds: 15));
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as Map<String, dynamic>;
       }
@@ -28,7 +28,7 @@ class FeedbackApiService {
       final response = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/feedback/my-stats'),
         headers: headers,
-      );
+      ).timeout(const Duration(seconds: 15));
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as Map<String, dynamic>;
       }
@@ -53,7 +53,7 @@ class FeedbackApiService {
         Uri.parse('${ApiConfig.baseUrl}/feedback/quick-rating'),
         headers: headers,
         body: jsonEncode(body),
-      );
+      ).timeout(const Duration(seconds: 15));
       return response.statusCode == 200 || response.statusCode == 201;
     } catch (_) {
       return false;

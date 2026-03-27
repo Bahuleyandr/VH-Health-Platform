@@ -96,7 +96,7 @@ class _RecordsScreenState extends State<RecordsScreen>
       final resp = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/appointments/patient/records/all'),
         headers: await ApiConfig.authenticatedAuthHeaders(),
-      );
+      ).timeout(const Duration(seconds: 15));
       if (resp.statusCode == 200) {
         final body = jsonDecode(resp.body);
         final data = body['data'] ?? body;
@@ -162,7 +162,7 @@ class _RecordsScreenState extends State<RecordsScreen>
       final resp = await http.delete(
         Uri.parse('${ApiConfig.baseUrl}/appointments/patient/records/${record.id}'),
         headers: await ApiConfig.authenticatedAuthHeaders(),
-      );
+      ).timeout(const Duration(seconds: 15));
       if (resp.statusCode == 200) {
         if (mounted) {
           setState(() => _myUploads.removeWhere((r) => r.id == record.id));
@@ -236,7 +236,7 @@ class _RecordsScreenState extends State<RecordsScreen>
               req.fields['record_date'] =
                   '${_recordDate!.year}-${_recordDate!.month.toString().padLeft(2, '0')}-${_recordDate!.day.toString().padLeft(2, '0')}';
             }
-            final streamed = await req.send();
+            final streamed = await req.send().timeout(const Duration(seconds: 30));
             final resp = await http.Response.fromStream(streamed);
             if (resp.statusCode == 200 || resp.statusCode == 201) {
               if (ctx.mounted) Navigator.pop(ctx);

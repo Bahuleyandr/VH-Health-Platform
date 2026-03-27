@@ -147,7 +147,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
 
     try {
       final resp =
-          await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders());
+          await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders()).timeout(const Duration(seconds: 15));
       if (!mounted) return;
 
       if (resp.statusCode == 200) {
@@ -235,7 +235,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
 
     try {
       final resp =
-          await http.get(url, headers: await ApiConfig.authenticatedAuthHeaders());
+          await http.get(url, headers: await ApiConfig.authenticatedAuthHeaders()).timeout(const Duration(seconds: 15));
       if (!mounted) return;
 
       if (resp.statusCode == 200) {
@@ -289,7 +289,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
       final resp = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/appointments/patient/records/all'),
         headers: await ApiConfig.authenticatedAuthHeaders(),
-      );
+      ).timeout(const Duration(seconds: 15));
 
       if (!mounted) return;
 
@@ -372,7 +372,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
       final resp = await http.delete(
         Uri.parse('${ApiConfig.baseUrl}/appointments/patient/records/$id'),
         headers: await ApiConfig.authenticatedAuthHeaders(),
-      );
+      ).timeout(const Duration(seconds: 15));
       if (resp.statusCode == 200) {
         if (mounted) {
           setState(() => _myUploads.removeWhere((r) => r['id'] == id));
@@ -450,7 +450,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
               req.fields['record_date'] =
                   '${recordDate!.year}-${recordDate!.month.toString().padLeft(2, '0')}-${recordDate!.day.toString().padLeft(2, '0')}';
             }
-            final streamed = await req.send();
+            final streamed = await req.send().timeout(const Duration(seconds: 30));
             final resp = await http.Response.fromStream(streamed);
             if (resp.statusCode == 200 || resp.statusCode == 201) {
               if (ctx.mounted) Navigator.pop(ctx);
@@ -574,7 +574,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
       final resp = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/prescriptions/patient/my'),
         headers: headers,
-      );
+      ).timeout(const Duration(seconds: 15));
       final data = jsonDecode(resp.body);
       if (data['success'] == true && mounted) {
         setState(() => _prescriptions = data['data'] ?? []);
@@ -603,7 +603,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
 
     try {
       final resp =
-          await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders());
+          await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders()).timeout(const Duration(seconds: 15));
       if (!mounted) return;
 
       if (resp.statusCode == 200) {
@@ -646,15 +646,15 @@ class _YourHealthScreenState extends State<YourHealthScreen>
         http.get(
           Uri.parse('${ApiConfig.baseUrl}/health/patient/$_patientId/summary'),
           headers: headers,
-        ),
+        ).timeout(const Duration(seconds: 15)),
         http.get(
           Uri.parse('${ApiConfig.baseUrl}/health/patient/$_patientId/allergies'),
           headers: headers,
-        ),
+        ).timeout(const Duration(seconds: 15)),
         http.get(
           Uri.parse('${ApiConfig.baseUrl}/health/patient/$_patientId/conditions'),
           headers: headers,
-        ),
+        ).timeout(const Duration(seconds: 15)),
       ]);
 
       if (!mounted) return;
@@ -719,7 +719,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
         ..headers.addAll(uploadHeaders)
         ..files.add(await http.MultipartFile.fromPath('file', file.path, filename: fileName));
 
-      final streamedRes = await req.send();
+      final streamedRes = await req.send().timeout(const Duration(seconds: 30));
       final res = await http.Response.fromStream(streamedRes);
 
       if (!mounted) return;
@@ -1551,7 +1551,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
                             if (deliveryType == 'delivery') 'delivery_address': addressCtrl.text.trim(),
                             'delivery_phone': phoneCtrl.text.trim(),
                           }),
-                        );
+                        ).timeout(const Duration(seconds: 15));
                         final data = jsonDecode(resp.body);
                         if (ctx.mounted) Navigator.pop(ctx);
                         if (data['success'] == true) {

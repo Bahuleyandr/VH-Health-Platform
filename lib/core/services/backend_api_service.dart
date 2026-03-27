@@ -11,7 +11,7 @@ class BackendApiService {
       Uri.parse('${ApiConfig.baseUrl}/auth/firebase/firebase-login'),
       headers: ApiConfig.jsonHeaders,
       body: jsonEncode({'idToken': token}),
-    );
+    ).timeout(const Duration(seconds: 15));
     return response;
   }
 
@@ -21,7 +21,7 @@ class BackendApiService {
       Uri.parse('${ApiConfig.baseUrl}/auth/firebase/complete-profile'),
       headers: ApiConfig.jsonHeaders,
       body: jsonEncode(profile),
-    );
+    ).timeout(const Duration(seconds: 15));
     return response.statusCode == 200 || response.statusCode == 201;
   }
 

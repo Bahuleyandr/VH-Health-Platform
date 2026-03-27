@@ -46,7 +46,7 @@ class DeviceService {
           'deviceName': '$_platform-device',
           'platform': _platform,
         }),
-      );
+      ).timeout(const Duration(seconds: 15));
       return response.statusCode == 200 || response.statusCode == 201;
     } catch (e) {
       debugPrint('DeviceService.registerDevice error: $e');
@@ -61,7 +61,7 @@ class DeviceService {
       final response = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/devices/my-devices'),
         headers: headers,
-      );
+      ).timeout(const Duration(seconds: 15));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return (data['data']?['devices'] ?? []) as List<dynamic>;
@@ -82,7 +82,7 @@ class DeviceService {
           'phone': phone,
           'deviceId': deviceId,
         }),
-      );
+      ).timeout(const Duration(seconds: 15));
       return response.statusCode == 200;
     } catch (_) {
       return false;
@@ -105,7 +105,7 @@ class DeviceService {
           'deviceId': deviceId,
           'fcmToken': fcmToken,
         }),
-      );
+      ).timeout(const Duration(seconds: 15));
       return response.statusCode == 200;
     } catch (_) {
       return false;
@@ -126,7 +126,7 @@ class DeviceService {
         'phone': phone,
         'deviceId': deviceId,
       });
-      final streamed = await request.send();
+      final streamed = await request.send().timeout(const Duration(seconds: 15));
       return streamed.statusCode == 200;
     } catch (e) {
       debugPrint('DeviceService.unregisterDevice error: $e');

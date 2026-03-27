@@ -15,7 +15,7 @@ class FirebaseSessionService {
         Uri.parse('${ApiConfig.baseUrl}/auth/firebase/update-fcm-token'),
         headers: headers,
         body: jsonEncode({'fcmToken': fcmToken}),
-      );
+      ).timeout(const Duration(seconds: 15));
       return response.statusCode == 200;
     } catch (e) {
       debugPrint('FirebaseSessionService.updateFcmToken error: $e');
@@ -30,7 +30,7 @@ class FirebaseSessionService {
       final response = await http.post(
         Uri.parse('${ApiConfig.baseUrl}/auth/firebase/revoke-session'),
         headers: headers,
-      );
+      ).timeout(const Duration(seconds: 15));
       return response.statusCode == 200;
     } catch (e) {
       debugPrint('FirebaseSessionService.revokeSession error: $e');
