@@ -563,16 +563,11 @@ class _YourHealthScreenState extends State<YourHealthScreen>
       _prescriptionsError = null;
     });
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final resp = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/prescriptions/patient/my'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 15));
-      final data = jsonDecode(resp.body);
-      if (data['success'] == true && mounted) {
-        setState(() => _prescriptions = data['data'] ?? []);
+      final response = await ApiClient.get('/prescriptions/patient/my');
+      if (response.isSuccess && mounted) {
+        setState(() => _prescriptions = response.dataAsList());
       } else if (mounted) {
-        setState(() => _prescriptionsError = data['message'] ?? 'Failed');
+        setState(() => _prescriptionsError = response.message ?? 'Failed');
       }
     } catch (e) {
       if (mounted) setState(() => _prescriptionsError = e.toString());
@@ -590,20 +585,17 @@ class _YourHealthScreenState extends State<YourHealthScreen>
       _consultationsError = null;
     });
 
-    final uri = Uri.parse(
-      '${ApiConfig.baseUrl}/records/consultations/${widget.phone}',
-    );
-
     try {
-      final resp =
-          await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders()).timeout(const Duration(seconds: 15));
+      final response = await ApiClient.get('/records/consultations/${widget.phone}');
       if (!mounted) return;
 
-      if (resp.statusCode == 200) {
-        final body = jsonDecode(resp.body);
-        final List<dynamic> data = body is List
-            ? body
-            : (body['data']?['records'] ?? body['data'] ?? []) as List<dynamic>;
+      if (response.isSuccess) {
+        final rawData = response.data;
+        final List<dynamic> data = rawData is List
+            ? rawData
+            : (rawData is Map
+                ? (rawData['records'] ?? rawData ?? [])
+                : []) as List<dynamic>;
         setState(() {
           _consultations = data;
           _isLoadingConsultations = false;
@@ -632,22 +624,11 @@ class _YourHealthScreenState extends State<YourHealthScreen>
       _summaryError = null;
     });
 
-    final headers = await ApiConfig.authenticatedAuthHeaders();
-
     try {
       final results = await Future.wait([
-        http.get(
-          Uri.parse('${ApiConfig.baseUrl}/health/patient/$_patientId/summary'),
-          headers: headers,
-        ).timeout(const Duration(seconds: 15)),
-        http.get(
-          Uri.parse('${ApiConfig.baseUrl}/health/patient/$_patientId/allergies'),
-          headers: headers,
-        ).timeout(const Duration(seconds: 15)),
-        http.get(
-          Uri.parse('${ApiConfig.baseUrl}/health/patient/$_patientId/conditions'),
-          headers: headers,
-        ).timeout(const Duration(seconds: 15)),
+        ApiClient.get('/health/patient/$_patientId/summary'),
+        ApiClient.get('/health/patient/$_patientId/allergies'),
+        ApiClient.get('/health/patient/$_patientId/conditions'),
       ]);
 
       if (!mounted) return;
@@ -656,19 +637,16 @@ class _YourHealthScreenState extends State<YourHealthScreen>
       List<dynamic> allergies = [];
       List<dynamic> conditions = [];
 
-      if (results[0].statusCode == 200) {
-        final body = jsonDecode(results[0].body);
-        summary = body['data'] ?? body;
+      if (results[0].isSuccess) {
+        summary = results[0].dataAsMap();
       }
-      if (results[1].statusCode == 200) {
-        final body = jsonDecode(results[1].body);
-        final d = body['data'] ?? body;
-        allergies = d is List ? d : (d['allergies'] ?? []);
+      if (results[1].isSuccess) {
+        final d = results[1].data;
+        allergies = d is List ? d : (d is Map ? (d['allergies'] ?? []) : []);
       }
-      if (results[2].statusCode == 200) {
-        final body = jsonDecode(results[2].body);
-        final d = body['data'] ?? body;
-        conditions = d is List ? d : (d['conditions'] ?? []);
+      if (results[2].isSuccess) {
+        final d = results[2].data;
+        conditions = d is List ? d : (d is Map ? (d['conditions'] ?? []) : []);
       }
 
       setState(() {
@@ -704,20 +682,14 @@ class _YourHealthScreenState extends State<YourHealthScreen>
 
       setState(() => _isUploading = true);
 
-      final uploadHeaders = await ApiConfig.authenticatedAuthHeaders();
-      final req = http.MultipartRequest(
-        'POST',
-        Uri.parse('${ApiConfig.baseUrl}/upload'),
-      )
-        ..headers.addAll(uploadHeaders)
-        ..files.add(await http.MultipartFile.fromPath('file', file.path, filename: fileName));
-
-      final streamedRes = await req.send().timeout(const Duration(seconds: 30));
-      final res = await http.Response.fromStream(streamedRes);
+      final response = await ApiClient.multipart(
+        '/upload',
+        files: [await http.MultipartFile.fromPath('file', file.path, filename: fileName)],
+      );
 
       if (!mounted) return;
 
-      if (res.statusCode == 200) {
+      if (response.isSuccess) {
         messenger.showSnackBar(SnackBar(
           content: Text('$fileName uploaded successfully'),
           backgroundColor: theme.colorScheme.primary,
@@ -1535,20 +1507,17 @@ class _YourHealthScreenState extends State<YourHealthScreen>
                     onPressed: ordering ? null : () async {
                       setSheet(() => ordering = true);
                       try {
-                        final headers = await ApiConfig.authenticatedHeaders();
-                        final resp = await http.post(
-                          Uri.parse('${ApiConfig.baseUrl}/prescriptions/${rx['id']}/order-pharmacy'),
-                          headers: headers,
-                          body: jsonEncode({
+                        final response = await ApiClient.post(
+                          '/prescriptions/${rx['id']}/order-pharmacy',
+                          body: {
                             'delivery_type': deliveryType,
                             if (deliveryType == 'delivery') 'delivery_address': addressCtrl.text.trim(),
                             'delivery_phone': phoneCtrl.text.trim(),
-                          }),
-                        ).timeout(const Duration(seconds: 15));
-                        final data = jsonDecode(resp.body);
+                          },
+                        );
                         if (ctx.mounted) Navigator.pop(ctx);
-                        if (data['success'] == true) {
-                          final orderNum = data['data']?['order_number'] ?? '';
+                        if (response.isSuccess) {
+                          final orderNum = response.data?['order_number'] ?? '';
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
@@ -1562,7 +1531,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text(data['message'] ?? 'Failed to place order'),
+                                content: Text(response.message ?? 'Failed to place order'),
                                 backgroundColor: Colors.red,
                               ),
                             );
