@@ -155,7 +155,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
         ..files.add(await http.MultipartFile.fromPath('file', _file!.path,
             filename: _fileName));
 
-      final res = await http.Response.fromStream(await req.send());
+      final res = await http.Response.fromStream(await req.send().timeout(const Duration(seconds: 30)));
       if (res.statusCode == 200) {
         final decoded = jsonDecode(res.body);
         fileKey = decoded['data']?['storageKey'] ?? decoded['storageKey'];
@@ -169,7 +169,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
         backgroundColor: theme.colorScheme.error,
         behavior: SnackBarBehavior.floating,
       ));
-      setState(() => _isSubmitting = false);
+      if (mounted) setState(() => _isSubmitting = false);
       return;
     }
 
@@ -182,7 +182,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
           'test_name': _testNameController.text.trim(),
           'file_key': fileKey,
         }),
-      );
+      ).timeout(const Duration(seconds: 15));
 
       if (apiRes.statusCode == 200) {
         messenger.showSnackBar(SnackBar(
@@ -237,7 +237,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
 
     try {
       final resp =
-          await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders());
+          await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders()).timeout(const Duration(seconds: 15));
       if (!mounted) return;
 
       if (resp.statusCode == 200) {
@@ -276,7 +276,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
 
     try {
       final resp =
-          await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders());
+          await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders()).timeout(const Duration(seconds: 15));
       if (!mounted) return;
 
       if (resp.statusCode == 200) {
@@ -308,7 +308,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
 
     try {
       final resp =
-          await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders());
+          await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders()).timeout(const Duration(seconds: 15));
       if (!mounted) return;
 
       if (resp.statusCode == 200) {

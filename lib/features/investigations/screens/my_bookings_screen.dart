@@ -63,7 +63,8 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       final res = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/investigations/bookings/my'),
         headers: headers,
-      );
+      ).timeout(const Duration(seconds: 15));
+      if (!mounted) return;
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         setState(() {
@@ -77,6 +78,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
         });
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = 'Error: ${e.toString()}';
         _loading = false;

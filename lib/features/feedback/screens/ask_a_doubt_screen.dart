@@ -56,8 +56,8 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
         }),
       );
 
-      setState(() => _isSubmitting = false);
       if (!mounted) return;
+      setState(() => _isSubmitting = false);
 
       if (res.statusCode == 200 || res.statusCode == 201) {
         messenger.showSnackBar(SnackBar(

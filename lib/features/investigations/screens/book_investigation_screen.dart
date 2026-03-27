@@ -73,7 +73,8 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
       final res = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/investigations/catalog'),
         headers: headers,
-      );
+      ).timeout(const Duration(seconds: 15));
+      if (!mounted) return;
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final list = data['data'] is List ? data['data'] : [];
@@ -85,6 +86,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
         setState(() => _loadingCatalog = false);
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() => _loadingCatalog = false);
     }
   }
@@ -200,8 +202,9 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
         ));
       }
 
-      final streamRes = await req.send();
+      final streamRes = await req.send().timeout(const Duration(seconds: 30));
       final res = await http.Response.fromStream(streamRes);
+      if (!mounted) return;
       final body = jsonDecode(res.body);
 
       if (res.statusCode == 200 && body['success'] == true) {
@@ -215,7 +218,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
     } catch (e) {
       _showError('Error: ${e.toString()}');
     } finally {
-      setState(() => _isSubmitting = false);
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 

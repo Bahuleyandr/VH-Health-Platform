@@ -69,7 +69,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
       maxHeight: 1920,
       imageQuality: 85,
     );
-    if (picked != null) {
+    if (picked != null && mounted) {
       setState(() {
         _prescriptionPhoto = File(picked.path);
         _prescriptionName = picked.name;

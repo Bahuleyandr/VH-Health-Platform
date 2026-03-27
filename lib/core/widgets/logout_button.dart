@@ -62,18 +62,14 @@ class LogoutButton extends StatelessWidget {
         ]);
       } catch (_) {}
 
-      // Clear storage
+      // Clear storage and sign out before navigating
       await storage.deleteAll();
-      
-      // ✅ FIXED: Use root navigator to navigate to login
-      if (context.mounted) {
-        AppRouter.clearUserData();
-context.go('/login');
-      }
-      
-      // Sign out after navigation
-      await Future.delayed(const Duration(milliseconds: 300));
       await FirebaseAuth.instance.signOut();
+      AppRouter.clearUserData();
+
+      if (context.mounted) {
+        context.go('/login');
+      }
       
     } catch (e) {
       debugPrint('Logout error: $e');

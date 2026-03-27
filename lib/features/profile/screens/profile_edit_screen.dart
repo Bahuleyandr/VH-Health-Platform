@@ -193,7 +193,10 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       ),
     );
 
-    if (success) context.pop();
+    if (success) {
+      context.pop();
+      return;
+    }
     setState(() => _isSubmitting = false);
   }
 

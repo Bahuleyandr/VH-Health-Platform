@@ -178,10 +178,10 @@ class SettingsController {
         // Best-effort — don't block logout if these fail
       }
       await _secureStorage.deleteAll();
+      await FirebaseAuth.instance.signOut();
+      AppRouter.clearUserData();
       if (context.mounted) {
-        await FirebaseAuth.instance.signOut();
-AppRouter.clearUserData();
-context.go('/login');
+        context.go('/login');
       }
     }
   }

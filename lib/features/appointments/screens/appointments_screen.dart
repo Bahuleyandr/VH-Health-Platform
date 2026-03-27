@@ -137,7 +137,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
       final resp = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/departments/departments-with-doctors'),
         headers: await ApiConfig.authenticatedAuthHeaders(),
-      );
+      ).timeout(const Duration(seconds: 15));
       if (resp.statusCode == 200) {
         final body = jsonDecode(resp.body);
         final rawData = body['data'];
@@ -187,7 +187,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
       final resp = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/appointments/patient/$_patientId'),
         headers: await ApiConfig.authenticatedAuthHeaders(),
-      );
+      ).timeout(const Duration(seconds: 15));
       if (resp.statusCode == 200) {
         final body = jsonDecode(resp.body);
         final data = body['data'] ?? body;
@@ -269,10 +269,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
               ? 'General consultation'
               : _reasonController.text.trim(),
         }),
-      );
+      ).timeout(const Duration(seconds: 15));
 
-      setState(() => _submitting = false);
       if (!mounted) return;
+      setState(() => _submitting = false);
 
       if (resp.statusCode == 200 || resp.statusCode == 201) {
         _showSuccess(l10n.appointmentConfirmationNote);
@@ -320,7 +320,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
       final resp = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/appointments/${appt.id}/documents'),
         headers: await ApiConfig.authenticatedAuthHeaders(),
-      );
+      ).timeout(const Duration(seconds: 15));
       if (!mounted) return;
       if (resp.statusCode == 200) {
         final body = jsonDecode(resp.body);
@@ -392,7 +392,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
       final resp = await http.delete(
         Uri.parse('${ApiConfig.baseUrl}/appointments/${appt.id}'),
         headers: await ApiConfig.authenticatedAuthHeaders(),
-      );
+      ).timeout(const Duration(seconds: 15));
       if (resp.statusCode == 200) {
         _showSuccess('Appointment cancelled');
         _fetchAppointments();
@@ -506,7 +506,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
         },
-      );
+      ).timeout(const Duration(seconds: 15));
       if (resp.statusCode == 200) {
         final body = jsonDecode(resp.body);
         final data = body['data'] ?? body;
