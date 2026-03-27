@@ -1,11 +1,9 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
 
 /// Reusable delivery tracking card for pharmacy orders and investigation bookings.
 /// Shows ETA, distance, delivery person info, and a progress indicator.
@@ -48,18 +46,16 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
 
   Future<void> _fetchTracking() async {
     try {
-      final uri = Uri.parse(
-          '${ApiConfig.baseUrl}/delivery/track/${widget.orderType}/${widget.orderId}');
-      final res = await http
-          .get(uri, headers: await ApiConfig.authenticatedAuthHeaders())
-          .timeout(const Duration(seconds: 8));
+      final response = await ApiClient.get(
+        '/delivery/track/${widget.orderType}/${widget.orderId}',
+        timeout: const Duration(seconds: 8),
+      );
 
       if (!mounted) return;
 
-      if (res.statusCode == 200) {
-        final body = jsonDecode(res.body);
+      if (response.isSuccess) {
         setState(() {
-          _trackingData = body['data'];
+          _trackingData = response.dataAsMap();
           _loading = false;
         });
       } else {
