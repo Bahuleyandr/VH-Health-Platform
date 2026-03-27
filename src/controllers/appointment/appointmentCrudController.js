@@ -25,11 +25,7 @@ export const createAppointment = async (req, res) => {
 
     if (!validation.valid) {
       if (validation.conflict) {
-        return res.status(HTTP_STATUS.CONFLICT).json({
-          success: false,
-          message: 'Time slot already booked',
-          conflicting_appointment_id: validation.conflict.id
-        });
+        return error(res, 'Time slot already booked', HTTP_STATUS.CONFLICT, { conflicting_appointment_id: validation.conflict.id });
       }
       return error(res, validation.errors.join(', '), HTTP_STATUS.BAD_REQUEST);
     }
@@ -59,6 +55,15 @@ export const updateAppointment = async (req, res) => {
       notes: req.body.notes
     };
 
+    // P1 IDOR: Verify the authenticated user owns/can access this appointment
+    const appointment = await appointmentService.getAppointmentById(id);
+    if (!appointment) {
+      return error(res, APPOINTMENT_CONFIG.MESSAGES.APPOINTMENT_NOT_FOUND, HTTP_STATUS.NOT_FOUND);
+    }
+    if (!checkAppointmentPermission(req.user, appointment, 'update')) {
+      return error(res, 'Insufficient permissions to update this appointment', HTTP_STATUS.FORBIDDEN);
+    }
+
     // Validate the update request
     const validation = await appointmentValidationService.validateUpdateRequest(
       id,
@@ -68,11 +73,7 @@ export const updateAppointment = async (req, res) => {
 
     if (!validation.valid) {
       if (validation.conflict) {
-        return res.status(HTTP_STATUS.CONFLICT).json({
-          success: false,
-          message: 'Time slot already booked',
-          conflicting_appointment_id: validation.conflict.id
-        });
+        return error(res, 'Time slot already booked', HTTP_STATUS.CONFLICT, { conflicting_appointment_id: validation.conflict.id });
       }
       return error(res, validation.errors.join(', '), HTTP_STATUS.BAD_REQUEST);
     }

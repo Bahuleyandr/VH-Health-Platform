@@ -9,30 +9,25 @@ import { success, error } from '../../utils/responseHelper.js';
 export const adminDoctorController = {
   // Test endpoint
   test: (req, res) => {
-    res.json({ 
-      message: 'Admin doctor routes working!',
+    success(res, {
       timestamp: new Date().toISOString(),
       version: '2.0.0',
       user: req.user?.role || 'anonymous'
-    });
+    }, 'Admin doctor routes working!');
   },
 
   // Get doctor management overview
   getDoctorOverview: async (req, res) => {
     try {
       const overview = await adminDoctorService.getDoctorOverview();
-      
-      res.json({
-        message: 'Doctor management overview retrieved successfully',
+
+      success(res, {
         overview,
         generated_at: new Date().toLocaleDateString('en-GB')
-      });
+      }, 'Doctor management overview retrieved successfully');
     } catch (err) {
       logger.error('Error fetching doctor overview:', err);
-      res.status(500).json({
-        message: 'Failed to retrieve doctor overview',
-        error: err.message
-      });
+      error(res, 'Failed to retrieve doctor overview');
     }
   },
 
@@ -41,12 +36,9 @@ export const adminDoctorController = {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({
-          message: 'Validation error',
-          errors: errors.array()
-        });
+        return error(res, 'Validation error', 400, errors.array());
       }
-      
+
       const filters = {
         page: parseInt(req.query.page) || 1,
         limit: parseInt(req.query.limit) || 20,
@@ -57,21 +49,17 @@ export const adminDoctorController = {
         experience_max: req.query.experience_max,
         search: req.query.search
       };
-      
+
       const result = await adminDoctorService.getDoctorManagementList(filters);
-      
-      res.json({
-        message: 'Doctor management data retrieved successfully',
+
+      success(res, {
         doctors: result.doctors,
         pagination: result.pagination,
         filters: result.filters
-      });
+      }, 'Doctor management data retrieved successfully');
     } catch (err) {
       logger.error('Error fetching doctor management list:', err);
-      res.status(500).json({
-        message: 'Failed to retrieve doctor management data',
-        error: err.message
-      });
+      error(res, 'Failed to retrieve doctor management data');
     }
   },
 
@@ -80,34 +68,25 @@ export const adminDoctorController = {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({
-          message: 'Validation error',
-          errors: errors.array()
-        });
+        return error(res, 'Validation error', 400, errors.array());
       }
-      
+
       const result = await adminDoctorService.createDoctorAccount(req.body);
-      
+
       logger.info(`[adminDoctorRoutes] Doctor account created: ${req.body.name} (${req.body.phone}) by ${req.user?.uid}`);
-      
-      res.status(201).json({
-        message: 'Doctor account created successfully',
+
+      success(res, {
         user: result.user,
         doctor_profile: result.doctor_profile
-      });
+      }, 'Doctor account created successfully', 201);
     } catch (err) {
       logger.error('Error creating doctor account:', err);
-      
+
       if (err.message.includes('already exists')) {
-        return res.status(409).json({
-          message: err.message
-        });
+        return error(res, err.message, 409);
       }
-      
-      res.status(500).json({
-        message: 'Failed to create doctor account',
-        error: err.message
-      });
+
+      error(res, 'Failed to create doctor account');
     }
   },
 
@@ -116,27 +95,18 @@ export const adminDoctorController = {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({
-          message: 'Validation error',
-          errors: errors.array()
-        });
+        return error(res, 'Validation error', 400, errors.array());
       }
-      
+
       const { operation, doctor_ids, data } = req.body;
       const result = await adminDoctorService.performBulkOperation(operation, doctor_ids, data);
-      
+
       logger.info(`[adminDoctorRoutes] Bulk ${operation} performed on ${doctor_ids.length} doctors by ${req.user?.uid}`);
-      
-      res.json({
-        message: `Bulk ${operation} operation completed successfully`,
-        ...result
-      });
+
+      success(res, result, `Bulk ${operation} operation completed successfully`);
     } catch (err) {
       logger.error('Error performing bulk operations:', err);
-      res.status(500).json({
-        message: 'Failed to perform bulk operation',
-        error: err.message
-      });
+      error(res, 'Failed to perform bulk operation');
     }
   },
 
@@ -145,26 +115,23 @@ export const adminDoctorController = {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({
-          message: 'Validation error',
-          errors: errors.array()
-        });
+        return error(res, 'Validation error', 400, errors.array());
       }
-      
+
       const { id } = req.params;
-      
+
       // Verify doctor exists
       const doctorCheck = await db.query(
         'SELECT u.name FROM users u JOIN doctors d ON u.id = d.user_id WHERE u.id = $1 AND u.role = $2',
         [id, 'DOCTOR']
       );
-      
+
       if (doctorCheck.rows.length === 0) {
-        return res.status(404).json({ message: 'Doctor not found' });
+        return error(res, 'Doctor not found', 404);
       }
-      
+
       const result = await db.query(`
-        UPDATE doctors SET 
+        UPDATE doctors SET
           specialization = COALESCE($1, specialization),
           department = COALESCE($2, department),
           experience_years = COALESCE($3, experience_years),
@@ -191,22 +158,18 @@ export const adminDoctorController = {
         req.body.is_available,
         id
       ]);
-      
+
       logger.info(`[adminDoctorRoutes] Doctor profile updated: ${id} by ${req.user?.uid}`);
-      
-      res.json({
-        message: 'Doctor profile updated successfully',
+
+      success(res, {
         doctor: {
           ...result.rows[0],
           name: doctorCheck.rows[0].name
         }
-      });
+      }, 'Doctor profile updated successfully');
     } catch (err) {
       logger.error('Error updating doctor profile:', err);
-      res.status(500).json({
-        message: 'Failed to update doctor profile',
-        error: err.message
-      });
+      error(res, 'Failed to update doctor profile');
     }
   },
 
@@ -215,39 +178,28 @@ export const adminDoctorController = {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({
-          message: 'Validation error',
-          errors: errors.array()
-        });
+        return error(res, 'Validation error', 400, errors.array());
       }
-      
+
       const { id } = req.params;
-      
+
       if (typeof req.body.is_available !== 'boolean') {
-        return res.status(400).json({
-          message: 'is_available must be a boolean value'
-        });
+        return error(res, 'is_available must be a boolean value', 400);
       }
-      
+
       const result = await adminDoctorService.updateDoctorAvailability(id, req.body);
-      
+
       logger.info(`[adminDoctorRoutes] Doctor ${id} availability updated by ${req.user?.uid}`);
-      
-      res.json({
-        message: 'Doctor availability updated successfully',
-        ...result
-      });
+
+      success(res, result, 'Doctor availability updated successfully');
     } catch (err) {
       logger.error('Error updating doctor availability:', err);
-      
+
       if (err.message === 'Doctor not found') {
-        return res.status(404).json({ message: err.message });
+        return error(res, 'Doctor not found', 404);
       }
-      
-      res.status(500).json({
-        message: 'Failed to update doctor availability',
-        error: err.message
-      });
+
+      error(res, 'Failed to update doctor availability');
     }
   },
 
@@ -256,39 +208,27 @@ export const adminDoctorController = {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({
-          message: 'Validation error',
-          errors: errors.array()
-        });
+        return error(res, 'Validation error', 400, errors.array());
       }
-      
+
       const { id } = req.params;
       const result = await adminDoctorService.deleteDoctorAccount(id, req.body);
-      
+
       logger.info(`[adminDoctorRoutes] Doctor account deleted: ${result.doctor.name} by ${req.user?.uid} (${result.appointments_handled.future_appointments} appointments handled)`);
-      
-      res.json({
-        message: 'Doctor account deleted successfully',
-        ...result
-      });
+
+      success(res, result, 'Doctor account deleted successfully');
     } catch (err) {
       logger.error('Error deleting doctor account:', err);
-      
+
       if (err.message === 'Doctor not found') {
-        return res.status(404).json({ message: err.message });
+        return error(res, 'Doctor not found', 404);
       }
-      
+
       if (err.message.includes('future appointments')) {
-        return res.status(400).json({
-          message: err.message,
-          suggestion: 'Provide transfer_patients_to doctor ID or cancel appointments first'
-        });
+        return error(res, 'Cannot delete doctor with future appointments. Provide transfer_patients_to doctor ID or cancel appointments first', 400);
       }
-      
-      res.status(500).json({
-        message: 'Failed to delete doctor account',
-        error: err.message
-      });
+
+      error(res, 'Failed to delete doctor account');
     }
   },
 
@@ -298,10 +238,7 @@ export const adminDoctorController = {
       const { name, department, intro, imageUrl } = req.body;
       
       if (!name || !department) {
-        return res.status(HTTP_STATUS.BAD_REQUEST).json({
-          error: RESPONSE_MESSAGES.VALIDATION_FAILED,
-          details: 'Doctor name and department are required.'
-        });
+        return error(res, 'Doctor name and department are required', HTTP_STATUS.BAD_REQUEST);
       }
       
       const result = await db.query(
@@ -326,10 +263,7 @@ export const adminDoctorController = {
       );
       
       if (deleteResult.rowCount === 0) {
-        return res.status(HTTP_STATUS.NOT_FOUND).json({
-          error: RESPONSE_MESSAGES.NOT_FOUND,
-          details: 'Doctor not found or already deleted.'
-        });
+        return error(res, 'Doctor not found or already deleted', HTTP_STATUS.NOT_FOUND);
       }
       
       logger.info(`[adminDoctorRoutes] Doctor deleted: ${doctorId} by ${req.user?.uid}`);

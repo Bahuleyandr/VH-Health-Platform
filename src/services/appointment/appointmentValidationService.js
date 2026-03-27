@@ -18,8 +18,8 @@ export class AppointmentValidationService {
       errors.push('Doctor not found');
     }
 
-    // Check for role-based access
-    if (user.role === 'PATIENT' && user.id !== parseInt(bookingData.patient_id)) {
+    // P1 IDOR: Check for role-based access (String comparison for type safety)
+    if (user.role === 'PATIENT' && String(user.id) !== String(bookingData.patient_id)) {
       errors.push('Can only book appointments for yourself');
     }
 
@@ -61,8 +61,8 @@ export class AppointmentValidationService {
       errors.push('Can only update scheduled appointments');
     }
 
-    // Check permissions
-    if (user.role === 'PATIENT' && appointment.patient_id !== user.id) {
+    // P1 IDOR: Check permissions (String comparison for type safety)
+    if (user.role === 'PATIENT' && String(appointment.patient_id) !== String(user.id)) {
       errors.push('Can only update your own appointments');
     }
 

@@ -146,7 +146,7 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
       UPDATE staff_attendance SET attendance_status=$1, minutes_late=$2, overtime_hours=$3
       WHERE id=$4
     `, [classification.status, classification.minutesLate, overtime, result.rows[0].id])
-      .catch(() => {}); // columns may not exist yet, but we created them in migration
+      .catch(e => logger.warn('Attendance classification update failed (columns may not exist yet):', e.message));
   }
 
   // Log attendance activity

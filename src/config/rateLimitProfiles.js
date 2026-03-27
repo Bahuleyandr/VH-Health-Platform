@@ -20,5 +20,26 @@ export const RATE_LIMIT_PROFILES = {
     windowMs: 15 * 60 * 1000,
     max: 60,
     message: 'Too many requests. Please try again later.'
+  },
+
+  // P0: Per-phone OTP rate limiting — max 3 OTP requests per phone per 10 minutes
+  otp: {
+    windowMs: 10 * 60 * 1000, // 10 minutes
+    max: 3,
+    message: 'Too many OTP requests for this phone number. Please try again later.'
+  },
+
+  // Data export rate limiting — max 5 exports per user per hour
+  dataExport: {
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 5,
+    message: 'Too many data export requests. Please try again later.'
+  },
+
+  // P2: SOS rate limiting — max 3 alerts per user per hour
+  sos: {
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 3,
+    message: 'Too many emergency alerts. If this is a real emergency, please call emergency services directly.'
   }
 };

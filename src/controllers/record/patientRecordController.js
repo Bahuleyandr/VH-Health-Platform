@@ -38,9 +38,7 @@ export async function getHealthRecordsByPhone(req, res) {
     if (userRole === PATIENT) {
       const userPhone = req.user?.phone;
       if (userPhone && normalizePhone(userPhone) !== phone) {
-        return res.status(403).json({
-          error: 'Access denied: Patients can only view their own records'
-        });
+        return error(res, 'Access denied: Patients can only view their own records', 403);
       }
     }
 
@@ -72,10 +70,7 @@ export async function getHealthRecordsByPhone(req, res) {
 export async function createHealthRecord(req, res) {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(HTTP_STATUS.BAD_REQUEST).json({
-      errors: errors.array(),
-      message: RESPONSE_MESSAGES.VALIDATION_FAILED
-    });
+    return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
   }
 
   try {
@@ -86,9 +81,7 @@ export async function createHealthRecord(req, res) {
 
     // Role-based creation check
     if (!accessControl.canCreateRecord(req.user?.role, phone, req.user?.phone)) {
-      return res.status(403).json({
-        error: 'Access denied: You cannot create records for other patients'
-      });
+      return error(res, 'Access denied: You cannot create records for other patients', 403);
     }
 
     const record = await recordService.createHealthRecord(

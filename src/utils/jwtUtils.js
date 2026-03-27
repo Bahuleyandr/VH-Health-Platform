@@ -40,15 +40,12 @@ if (!process.env.JWT_SECRET) {
 let JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
-// If still no JWT_SECRET, provide helpful error message and fallback
+// If still no JWT_SECRET, crash on startup — never use a hardcoded fallback
 if (!JWT_SECRET) {
-  logger.error('❌ JWT_SECRET is missing from environment variables');
+  logger.error('❌ FATAL: JWT_SECRET is missing from environment variables.');
   logger.error('🔍 Checked files: .env.local, .env, .env.render');
   logger.error('📁 Current working directory:', process.cwd());
-  
-  // Use fallback for development to prevent app from crashing
-  logger.warn('⚠️ Using fallback JWT_SECRET for development. Please fix your environment variables!');
-  JWT_SECRET = 'fallback-jwt-secret-for-development-only-please-set-proper-env-var-in-production';
+  process.exit(1);
 }
 
 /**
@@ -79,15 +76,19 @@ export function generateToken(payload, expiresIn) {
 }
 
 /**
- * Verifies a JWT token.
+ * Verifies a JWT token (signature + expiry).
  * @param {string} token - JWT token to verify.
  * @returns {Object|null} - Decoded payload if valid, otherwise null.
+ *   On failure, returns null. Check verifyToken.lastError for the reason.
  */
 export function verifyToken(token) {
+  verifyToken.lastError = null;
   try {
     return jwt.verify(token, JWT_SECRET);
   } catch (error) {
+    verifyToken.lastError = error.name; // 'TokenExpiredError' | 'JsonWebTokenError' | 'NotBeforeError'
     logger.error('❌ JWT Verification Failed:', error.message || error);
     return null;
   }
 }
+verifyToken.lastError = null;

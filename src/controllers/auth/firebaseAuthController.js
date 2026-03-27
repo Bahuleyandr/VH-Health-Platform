@@ -24,7 +24,7 @@ export const firebaseLogin = async (req, res) => {
       return error(res, 'Firebase token has been revoked', HTTP_STATUS.UNAUTHORIZED);
     }
     
-    error(res, err.message || 'Invalid Firebase ID token', HTTP_STATUS.UNAUTHORIZED);
+    error(res, 'Invalid Firebase ID token', HTTP_STATUS.UNAUTHORIZED);
   }
 };
 
@@ -38,7 +38,7 @@ export const completeProfile = async (req, res) => {
     success(res, result, 'Profile completed successfully');
   } catch (err) {
     logger.error('Profile Completion Error:', err);
-    error(res, err.message || 'Failed to complete profile', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to complete profile', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -52,7 +52,7 @@ export const linkAccount = async (req, res) => {
     success(res, result, 'Account linked successfully');
   } catch (err) {
     logger.error('Account Linking Error:', err);
-    error(res, err.message || 'Failed to link account', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to link account', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -66,7 +66,7 @@ export const updateFcmToken = async (req, res) => {
     success(res, result, 'FCM token updated successfully');
   } catch (err) {
     logger.error('FCM Token Update Error:', err);
-    error(res, err.message || 'Failed to update FCM token', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to update FCM token', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -80,7 +80,7 @@ export const revokeSession = async (req, res) => {
     success(res, result, 'Firebase session revoked successfully');
   } catch (err) {
     logger.error('Session Revocation Error:', err);
-    error(res, err.message || 'Failed to revoke session', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to revoke session', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -149,6 +149,6 @@ export const registerUser = async (req, res) => {
     success(res, result, 'User registered successfully');
   } catch (err) {
     logger.error('Legacy Register Error:', err);
-    error(res, err.message || 'Registration failed', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Registration failed', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };

@@ -14,35 +14,23 @@ export const updateStatus = async (req, res) => {
     // Check permissions
     const allowedRoles = ['LAB_TECHNICIAN', 'DOCTOR', 'RADIOLOGIST', 'ADMIN'];
     if (!allowedRoles.includes(userRole)) {
-      return res.status(403).json({
-        message: 'Access denied: Lab technician or doctor privileges required',
-        requestedBy: updatedBy
-      });
+      return error(res, 'Access denied: Lab technician or doctor privileges required', 403);
     }
     
     const { investigation_ids, status, notes } = req.body;
     
     // Validate input
     if (!investigation_ids || !Array.isArray(investigation_ids) || investigation_ids.length === 0) {
-      return res.status(400).json({
-        message: 'Investigation IDs array is required',
-        requestedBy: updatedBy
-      });
+      return error(res, 'Investigation IDs array is required', 400);
     }
-    
+
     if (!status) {
-      return res.status(400).json({
-        message: 'Status is required',
-        requestedBy: updatedBy
-      });
+      return error(res, 'Status is required', 400);
     }
-    
+
     // Limit bulk operations to prevent abuse
     if (investigation_ids.length > 100) {
-      return res.status(400).json({
-        message: 'Cannot update more than 100 investigations at once',
-        requestedBy: updatedBy
-      });
+      return error(res, 'Cannot update more than 100 investigations at once', 400);
     }
     
     const results = await bulkService.bulkUpdateStatus(
@@ -69,10 +57,7 @@ export const updateStatus = async (req, res) => {
     logger.error('Bulk Update Status Error:', err);
     
     if (err.message === 'Invalid status') {
-      return res.status(400).json({
-        message: err.message,
-        requestedBy: req.user?.uid
-      });
+      return error(res, err.message, 400);
     }
     
     error(res, 'Failed to bulk update status', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -88,35 +73,23 @@ export const cancelInvestigations = async (req, res) => {
     // Check permissions - more restrictive for cancellation
     const allowedRoles = ['DOCTOR', 'ADMIN'];
     if (!allowedRoles.includes(userRole)) {
-      return res.status(403).json({
-        message: 'Access denied: Doctor or admin privileges required for cancellation',
-        requestedBy: cancelledBy
-      });
+      return error(res, 'Access denied: Doctor or admin privileges required for cancellation', 403);
     }
-    
+
     const { investigation_ids, reason } = req.body;
-    
+
     // Validate input
     if (!investigation_ids || !Array.isArray(investigation_ids) || investigation_ids.length === 0) {
-      return res.status(400).json({
-        message: 'Investigation IDs array is required',
-        requestedBy: cancelledBy
-      });
+      return error(res, 'Investigation IDs array is required', 400);
     }
-    
+
     if (!reason || reason.trim().length < 10) {
-      return res.status(400).json({
-        message: 'Cancellation reason is required (minimum 10 characters)',
-        requestedBy: cancelledBy
-      });
+      return error(res, 'Cancellation reason is required (minimum 10 characters)', 400);
     }
-    
+
     // Limit bulk operations
     if (investigation_ids.length > 50) {
-      return res.status(400).json({
-        message: 'Cannot cancel more than 50 investigations at once',
-        requestedBy: cancelledBy
-      });
+      return error(res, 'Cannot cancel more than 50 investigations at once', 400);
     }
     
     const results = await bulkService.bulkCancel(
@@ -154,27 +127,18 @@ export const assignToTechnician = async (req, res) => {
     // Check permissions
     const allowedRoles = ['LAB_TECHNICIAN', 'RADIOLOGIST', 'ADMIN'];
     if (!allowedRoles.includes(userRole)) {
-      return res.status(403).json({
-        message: 'Access denied: Lab supervisor privileges required',
-        requestedBy: assignedBy
-      });
+      return error(res, 'Access denied: Lab supervisor privileges required', 403);
     }
-    
+
     const { investigation_ids, technician_id } = req.body;
-    
+
     // Validate input
     if (!investigation_ids || !Array.isArray(investigation_ids) || investigation_ids.length === 0) {
-      return res.status(400).json({
-        message: 'Investigation IDs array is required',
-        requestedBy: assignedBy
-      });
+      return error(res, 'Investigation IDs array is required', 400);
     }
-    
+
     if (!technician_id) {
-      return res.status(400).json({
-        message: 'Technician ID is required',
-        requestedBy: assignedBy
-      });
+      return error(res, 'Technician ID is required', 400);
     }
     
     const results = await bulkService.bulkAssignTechnician(
@@ -210,39 +174,27 @@ export const scheduleInvestigations = async (req, res) => {
     // Check permissions
     const allowedRoles = ['RECEPTIONIST', 'NURSE', 'LAB_TECHNICIAN', 'ADMIN'];
     if (!allowedRoles.includes(userRole)) {
-      return res.status(403).json({
-        message: 'Access denied: Staff privileges required',
-        requestedBy: scheduledBy
-      });
+      return error(res, 'Access denied: Staff privileges required', 403);
     }
-    
+
     const { investigation_ids, scheduled_date, time_slot } = req.body;
-    
+
     // Validate input
     if (!investigation_ids || !Array.isArray(investigation_ids) || investigation_ids.length === 0) {
-      return res.status(400).json({
-        message: 'Investigation IDs array is required',
-        requestedBy: scheduledBy
-      });
+      return error(res, 'Investigation IDs array is required', 400);
     }
-    
+
     if (!scheduled_date) {
-      return res.status(400).json({
-        message: 'Scheduled date is required',
-        requestedBy: scheduledBy
-      });
+      return error(res, 'Scheduled date is required', 400);
     }
-    
+
     // Validate scheduled date is not in past
     const scheduledDateObj = new Date(scheduled_date);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     if (scheduledDateObj < today) {
-      return res.status(400).json({
-        message: 'Scheduled date cannot be in the past',
-        requestedBy: scheduledBy
-      });
+      return error(res, 'Scheduled date cannot be in the past', 400);
     }
     
     const results = await bulkService.bulkSchedule(

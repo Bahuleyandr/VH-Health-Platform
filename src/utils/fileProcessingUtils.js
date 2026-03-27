@@ -2,7 +2,8 @@
 
 import { exec } from 'child_process';
 import crypto from 'crypto';
-import fs from 'fs/promises';
+import fs, { mkdtemp, rm } from 'fs/promises';
+import os from 'os';
 import path from 'path';
 import sharp from 'sharp';
 import { HOSPITAL_UPLOAD_CONFIG } from '../config/uploadConfig.js';
@@ -72,9 +73,11 @@ export async function optimizeImage(buffer, mimetype, isHipaaProtected = false, 
 }
 
 export async function compressPDF(buffer, isHipaaProtected = false) {
+  let tempDir;
   try {
-    const tempIn = `/tmp/${Date.now()}_${crypto.randomBytes(8).toString('hex')}_in.pdf`;
-    const tempOut = `/tmp/${Date.now()}_${crypto.randomBytes(8).toString('hex')}_out.pdf`;
+    tempDir = await mkdtemp(path.join(os.tmpdir(), 'vh-health-'));
+    const tempIn = path.join(tempDir, 'input.pdf');
+    const tempOut = path.join(tempDir, 'output.pdf');
 
     await fs.writeFile(tempIn, buffer);
 
@@ -90,20 +93,19 @@ export async function compressPDF(buffer, isHipaaProtected = false) {
     });
 
     const compressedBuffer = await fs.readFile(tempOut);
-    
-    // Cleanup temp files
-    await Promise.all([
-      fs.unlink(tempIn).catch(() => {}),
-      fs.unlink(tempOut).catch(() => {})
-    ]);
 
     // Only return compressed if it's actually smaller or same quality needed
-    return compressedBuffer.length < buffer.length || isHipaaProtected 
-      ? compressedBuffer 
+    return compressedBuffer.length < buffer.length || isHipaaProtected
+      ? compressedBuffer
       : buffer;
   } catch (err) {
     logger.warn('PDF compression failed, using original:', err.message);
     return buffer;
+  } finally {
+    // Cleanup temp directory
+    if (tempDir) {
+      try { await rm(tempDir, { recursive: true }); } catch (e) { logger.warn('Temp cleanup failed:', e.message); }
+    }
   }
 }
 

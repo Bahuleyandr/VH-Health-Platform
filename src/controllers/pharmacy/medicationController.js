@@ -23,12 +23,7 @@ export const getAllMedications = async (req, res) => {
     }, 'Medications retrieved successfully');
   } catch (err) {
     logger.error('Get Medications Error:', err);
-    res.status(500).json({
-      message: 'Failed to retrieve medications - medications table may not exist',
-      error: err.message,
-      suggestion: 'Create medications table with proper schema',
-      requestedBy: req.user?.uid
-    });
+    error(res, 'Failed to retrieve medications', 500);
   }
 };
 

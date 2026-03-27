@@ -67,10 +67,7 @@ export async function deleteMedicalRecord(req, res) {
     const recordDetails = await recordService.getMedicalRecordById(id);
 
     if (!recordDetails) {
-      return res.status(404).json({ 
-        message: RECORD_MESSAGES.NOT_FOUND,
-        id
-      });
+      return error(res, RECORD_MESSAGES.NOT_FOUND, 404);
     }
 
     // Soft delete

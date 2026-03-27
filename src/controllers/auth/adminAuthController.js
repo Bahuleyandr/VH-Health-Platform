@@ -53,7 +53,7 @@ export const forgotPassword = async (req, res) => {
     return success(res, result, 'Password reset OTP sent successfully');
   } catch (err) {
     logger.error('[ForgotPassword]:', err);
-    return error(res, err.message || 'Failed to send password reset OTP', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return error(res, 'Failed to send password reset OTP', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -75,7 +75,7 @@ export const resetPassword = async (req, res) => {
     return success(res, result, 'Password reset successfully');
   } catch (err) {
     logger.error('[ResetPassword]:', err);
-    return error(res, err.message || 'Failed to reset password', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return error(res, 'Failed to reset password', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -100,7 +100,7 @@ export const changePassword = async (req, res) => {
   } catch (err) {
     logger.error('[ChangeAdminPassword]:', err);
     if (err?.message === 'Current password is incorrect') {
-      return error(res, err.message, HTTP_STATUS.UNAUTHORIZED);
+      return error(res, 'Current password is incorrect', HTTP_STATUS.UNAUTHORIZED);
     }
     return error(res, 'Failed to change password', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -189,7 +189,7 @@ export const createAdmin = async (req, res) => {
   } catch (err) {
     logger.error('[CreateAdmin]:', err);
     if (String(err?.message || '').includes('already exists')) {
-      return error(res, err.message, HTTP_STATUS.CONFLICT);
+      return error(res, 'Admin account already exists', HTTP_STATUS.CONFLICT);
     }
     return error(res, 'Failed to create admin account', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -231,7 +231,7 @@ export const deactivateAdmin = async (req, res) => {
   } catch (err) {
     logger.error('[DeactivateAdmin]:', err);
     if (err?.message === 'Admin not found') {
-      return error(res, err.message, HTTP_STATUS.NOT_FOUND);
+      return error(res, 'Admin not found', HTTP_STATUS.NOT_FOUND);
     }
     return error(res, 'Failed to deactivate admin account', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -256,7 +256,7 @@ export const reactivateAdmin = async (req, res) => {
   } catch (err) {
     logger.error('[ReactivateAdmin]:', err);
     if (err?.message === 'Admin not found') {
-      return error(res, err.message, HTTP_STATUS.NOT_FOUND);
+      return error(res, 'Admin not found', HTTP_STATUS.NOT_FOUND);
     }
     return error(res, 'Failed to reactivate admin account', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }

@@ -20,7 +20,7 @@ export const uploadAppointmentDocument = async (req, res) => {
       return error(res, 'appointment_id and file are required', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const appt = await db.query('SELECT * FROM appointments WHERE id=$1', [appointment_id]);
+    const appt = await db.query('SELECT id, patient_id, doctor_id FROM appointments WHERE id=$1', [appointment_id]);
     if (!appt.rows.length) return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
     const a = appt.rows[0];
 
@@ -42,7 +42,7 @@ export const uploadAppointmentDocument = async (req, res) => {
         (appointment_id, patient_id, doctor_id, uploaded_by, upload_role,
          document_type, file_key, file_url, file_name, file_size, file_mime, notes)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-      RETURNING *
+      RETURNING id, appointment_id, patient_id, doctor_id, uploaded_by, upload_role, document_type, file_key, file_url, file_name, file_size, file_mime, notes, created_at
     `, [
       appointment_id, a.patient_id, a.doctor_id, uploadedById, uploadRole,
       document_type || 'prescription', fileKey, fileUrl,
@@ -70,7 +70,7 @@ export const uploadAppointmentDocument = async (req, res) => {
     success(res, result.rows[0], 'Document uploaded');
   } catch (err) {
     logger.error('Upload Appointment Doc Error:', err);
-    error(res, err.message || 'Failed to upload document', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to upload document', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -81,7 +81,7 @@ export const getAppointmentDocuments = async (req, res) => {
   try {
     const { appointment_id } = req.params;
     const result = await db.query(
-      `SELECT ad.*, u.name as uploaded_by_name
+      `SELECT ad.id, ad.appointment_id, ad.patient_id, ad.doctor_id, ad.uploaded_by, ad.upload_role, ad.document_type, ad.file_key, ad.file_url, ad.file_name, ad.file_size, ad.file_mime, ad.notes, ad.created_at, u.name as uploaded_by_name
        FROM appointment_documents ad
        LEFT JOIN users u ON ad.uploaded_by = u.id
        WHERE ad.appointment_id=$1 AND ad.is_visible_to_patient=TRUE
@@ -112,7 +112,7 @@ export const getPatientAllRecords = async (req, res) => {
 
     const [apptDocs, ownRecords] = await Promise.all([
       db.query(`
-        SELECT ad.*, 'appointment' as source,
+        SELECT ad.id, ad.appointment_id, ad.patient_id, ad.doctor_id, ad.uploaded_by, ad.upload_role, ad.document_type, ad.file_key, ad.file_url, ad.file_name, ad.file_size, ad.file_mime, ad.notes, ad.created_at, 'appointment' as source,
           a.appointment_date, a.appointment_time,
           d.name as doctor_name, doc.department as doctor_department
         FROM appointment_documents ad
@@ -123,7 +123,7 @@ export const getPatientAllRecords = async (req, res) => {
         ORDER BY ad.created_at DESC
       `, [patientId]),
       db.query(
-        `SELECT *, 'patient_upload' as source FROM patient_records WHERE patient_id=$1 ORDER BY created_at DESC`,
+        `SELECT id, patient_id, document_type, title, file_key, file_url, file_name, file_size, file_mime, source_hospital, record_date, notes, created_at, 'patient_upload' as source FROM patient_records WHERE patient_id=$1 ORDER BY created_at DESC`,
         [patientId]
       ),
     ]);
@@ -176,7 +176,7 @@ export const uploadPatientRecord = async (req, res) => {
       INSERT INTO patient_records
         (patient_id, document_type, title, file_key, file_url, file_name, file_size, file_mime, source_hospital, record_date, notes)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-      RETURNING *
+      RETURNING id, patient_id, document_type, title, file_key, file_url, file_name, file_size, file_mime, source_hospital, record_date, notes, created_at
     `, [
       patientId, document_type || 'other', title,
       fileKey, fileUrl, req.file.originalname, req.file.size, req.file.mimetype,
@@ -186,7 +186,7 @@ export const uploadPatientRecord = async (req, res) => {
     success(res, result.rows[0], 'Record uploaded');
   } catch (err) {
     logger.error('Patient Upload Error:', err);
-    error(res, err.message || 'Failed to upload', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to upload record', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -197,7 +197,7 @@ export const deletePatientRecord = async (req, res) => {
   try {
     const patientId = req.user?.id;
     const { id } = req.params;
-    const record = await db.query('SELECT * FROM patient_records WHERE id=$1 AND patient_id=$2', [id, patientId]);
+    const record = await db.query('SELECT id, file_key FROM patient_records WHERE id=$1 AND patient_id=$2', [id, patientId]);
     if (!record.rows.length) return error(res, 'Record not found', HTTP_STATUS.NOT_FOUND);
 
     const fileKey = record.rows[0].file_key;
@@ -229,7 +229,7 @@ export const getAllDocumentsAdmin = async (req, res) => {
     params.push(parseInt(offset));
 
     const result = await db.query(`
-      SELECT ad.*, u.name as uploaded_by_name,
+      SELECT ad.id, ad.appointment_id, ad.patient_id, ad.doctor_id, ad.uploaded_by, ad.upload_role, ad.document_type, ad.file_key, ad.file_url, ad.file_name, ad.file_size, ad.file_mime, ad.notes, ad.created_at, u.name as uploaded_by_name,
         p.name as patient_name, d.name as doctor_name,
         a.appointment_date, a.appointment_time
       FROM appointment_documents ad

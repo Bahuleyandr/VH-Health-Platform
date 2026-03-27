@@ -39,6 +39,10 @@ wrapRoutesWithValidation(
 );
 
 // User notification routes - accessible by all authenticated users
+// Note: `notificationRoutes` is an Express Router object passed as a handler.
+// This is valid because Express Routers are middleware functions — when a request
+// matches the path registered here, it is forwarded to the notificationRoutes
+// router which matches its own internal route definitions to find the final handler.
 wrapAutoRBAC(router, 'notificationRoutes', {
   get: [
     // Get notifications by phone or user ID
