@@ -37,10 +37,35 @@ export function calculateETA(destLat, destLng) {
 export const updateDeliveryLocation = async (req, res) => {
   try {
     const deliveryPersonId = req.user?.id;
+    if (!deliveryPersonId) {
+      return error(res, 'Authentication required', HTTP_STATUS.UNAUTHORIZED);
+    }
+
+    // Verify the user has a delivery-capable role
+    if (!['DELIVERY_STAFF', 'GENERAL_STAFF', 'ADMIN', 'PHARMACY_STAFF'].includes(req.user?.role)) {
+      return error(res, 'Only delivery staff can update delivery location', HTTP_STATUS.FORBIDDEN);
+    }
+
     const { order_type, order_id, lat, lng, accuracy, speed, heading, battery_level } = req.body;
 
     if (!order_type || !order_id || !lat || !lng) {
       return error(res, 'order_type, order_id, lat, lng required', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // Verify the delivery person is assigned to this order
+    // Check if someone else is already tracking this order
+    const existingAssignment = await db.query(
+      `SELECT DISTINCT delivery_person_id FROM delivery_location_updates
+       WHERE order_type = $1 AND order_id = $2 AND delivery_person_id IS NOT NULL
+       ORDER BY delivery_person_id LIMIT 1`,
+      [order_type, order_id]
+    );
+    if (existingAssignment.rows.length > 0 &&
+        String(existingAssignment.rows[0].delivery_person_id) !== String(deliveryPersonId)) {
+      // A different delivery person is assigned — only ADMIN can override
+      if (req.user?.role !== 'ADMIN') {
+        return error(res, 'Another delivery person is assigned to this order', HTTP_STATUS.FORBIDDEN);
+      }
     }
 
     // Save location update

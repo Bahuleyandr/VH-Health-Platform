@@ -166,12 +166,14 @@ export class AuthService {
     try {
       const { rows } = await db.query(
         `
-        SELECT 
+        SELECT
           id          AS uid,
           username,
           email,
           role,
           status,
+          failed_login_attempts,
+          last_failed_login,
           ${ADMIN_PASSWORD_COLUMN} AS pwd
         FROM ${ADMIN_TABLE}
         WHERE lower(username) = lower($1) OR lower(email) = lower($1)
@@ -186,6 +188,26 @@ export class AuthService {
 
       if (admin.status && String(admin.status).toLowerCase() !== 'active') {
         throw new Error('Account is deactivated');
+      }
+
+      // Enforce account lockout after too many failed attempts
+      const MAX_FAILED_ATTEMPTS = 5;
+      const LOCKOUT_DURATION_MINUTES = 15;
+
+      if (admin.failed_login_attempts >= MAX_FAILED_ATTEMPTS) {
+        const lastFailedAt = admin.last_failed_login || admin.updated_at;
+        if (lastFailedAt) {
+          const lockoutExpiry = new Date(new Date(lastFailedAt).getTime() + LOCKOUT_DURATION_MINUTES * 60 * 1000);
+          if (new Date() < lockoutExpiry) {
+            logger.warn(`Admin account locked: ${identity} (${admin.failed_login_attempts} failed attempts)`);
+            throw new Error('Account temporarily locked due to too many failed attempts. Try again later.');
+          }
+        }
+        // Lockout period has expired, reset the counter
+        await db.query(
+          `UPDATE ${ADMIN_TABLE} SET failed_login_attempts = 0 WHERE id = $1`,
+          [admin.uid]
+        );
       }
 
       const ok = await bcrypt.compare(password, admin.pwd);

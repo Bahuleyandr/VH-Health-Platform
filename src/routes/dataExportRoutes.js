@@ -34,13 +34,13 @@ router.get('/my-data', async (req, res) => {
 
     // Collect all patient data
     const [appointments, healthRecords, records, investigations, pharmacyOrders, feedback, notifications] = await Promise.all([
-      db.query(`SELECT id, patient_id, doctor_id, appointment_date, appointment_time, status, reason, notes, token_number, department, created_at, updated_at FROM appointments WHERE uid = $1 OR phone = $2`, [uid, phone]),
-      db.query(`SELECT id, phone, record_type, record_data, doctor_name, notes, created_at FROM health_records WHERE phone = $1`, [phone]),
-      db.query(`SELECT id, phone, record_type, file_key, file_name, notes, created_at FROM records WHERE phone = $1`, [phone]),
-      db.query(`SELECT id, phone, investigation_type, status, results, notes, created_at FROM investigations WHERE phone = $1`, [phone]),
-      db.query(`SELECT id, phone, order_note, file_key, status, urgent, notes, created_at, updated_at FROM pharmacy_orders WHERE phone = $1`, [phone]),
-      db.query(`SELECT id, phone, rating, comment, appointment_id, created_at FROM feedback WHERE phone = $1`, [phone]),
-      db.query(`SELECT id, phone, title, body, type, read, created_at FROM notifications WHERE phone = $1`, [phone]),
+      db.query(`SELECT id, patient_id, doctor_id, appointment_date, appointment_time, status, reason, notes, token_number, department, created_at, updated_at FROM appointments WHERE uid = $1 OR phone = $2 LIMIT 10000`, [uid, phone]),
+      db.query(`SELECT id, phone, record_type, record_data, doctor_name, notes, created_at FROM health_records WHERE phone = $1 LIMIT 10000`, [phone]),
+      db.query(`SELECT id, phone, record_type, file_key, file_name, notes, created_at FROM records WHERE phone = $1 LIMIT 10000`, [phone]),
+      db.query(`SELECT id, phone, investigation_type, status, results, notes, created_at FROM investigations WHERE phone = $1 LIMIT 10000`, [phone]),
+      db.query(`SELECT id, phone, order_note, file_key, status, urgent, notes, created_at, updated_at FROM pharmacy_orders WHERE phone = $1 LIMIT 10000`, [phone]),
+      db.query(`SELECT id, phone, rating, comment, appointment_id, created_at FROM feedback WHERE phone = $1 LIMIT 10000`, [phone]),
+      db.query(`SELECT id, phone, title, body, type, read, created_at FROM notifications WHERE phone = $1 LIMIT 10000`, [phone]),
     ]);
 
     const exportData = {
@@ -95,23 +95,30 @@ router.delete('/my-data', async (req, res) => {
 
     // Soft-delete across all tables that support deleted_at
     // Using best-effort: if a table doesn't have deleted_at column, skip it
+    // Whitelist of allowed table names to prevent SQL injection via dynamic table names
+    const allowedTables = ['users', 'appointments', 'health_records', 'records', 'investigations', 'pharmacy_orders', 'feedback', 'notifications'];
+
     const tables = [
-      { table: 'users', where: 'uid = $1', params: [uid] },
-      { table: 'appointments', where: 'uid = $1 OR phone = $2', params: [uid, phone] },
-      { table: 'health_records', where: 'phone = $1', params: [phone] },
-      { table: 'records', where: 'phone = $1', params: [phone] },
-      { table: 'investigations', where: 'phone = $1', params: [phone] },
-      { table: 'pharmacy_orders', where: 'phone = $1', params: [phone] },
-      { table: 'feedback', where: 'phone = $1', params: [phone] },
-      { table: 'notifications', where: 'phone = $1', params: [phone] },
+      { table: 'users', where: 'uid = $2', params: [uid] },
+      { table: 'appointments', where: 'uid = $2 OR phone = $3', params: [uid, phone] },
+      { table: 'health_records', where: 'phone = $2', params: [phone] },
+      { table: 'records', where: 'phone = $2', params: [phone] },
+      { table: 'investigations', where: 'phone = $2', params: [phone] },
+      { table: 'pharmacy_orders', where: 'phone = $2', params: [phone] },
+      { table: 'feedback', where: 'phone = $2', params: [phone] },
+      { table: 'notifications', where: 'phone = $2', params: [phone] },
     ];
 
     const results = [];
     for (const { table, where, params } of tables) {
       try {
+        if (!allowedTables.includes(table)) {
+          throw new Error('Invalid table');
+        }
+        // Parameterize the timestamp as $1; table name is safe (whitelisted above)
         const result = await db.query(
-          `UPDATE ${table} SET deleted_at = '${now}' WHERE ${where} AND deleted_at IS NULL`,
-          params
+          `UPDATE ${table} SET deleted_at = $1 WHERE ${where} AND deleted_at IS NULL`,
+          [now, ...params]
         );
         results.push({ table, affected: result.rowCount });
       } catch (err) {

@@ -19,6 +19,15 @@ class DatabaseManager {
           max: 20,
           idleTimeoutMillis: 30000,
           connectionTimeoutMillis: 2000,
+          statement_timeout: 30000,
+        });
+
+        this.pool.on('error', (err) => {
+          logger.error('Unexpected database pool error:', err);
+        });
+
+        this.pool.on('connect', () => {
+          logger.debug('New database connection established');
         });
 
         // Test connection
@@ -76,6 +85,22 @@ class DatabaseManager {
     } catch (error) {
       logger.error('❌ Failed to get database client:', error.message);
       throw error;
+    }
+  }
+
+  async healthCheck() {
+    try {
+      const result = await this.query('SELECT 1 as ok');
+      return {
+        healthy: true,
+        pool: {
+          total: this.pool.totalCount,
+          idle: this.pool.idleCount,
+          waiting: this.pool.waitingCount
+        }
+      };
+    } catch (err) {
+      return { healthy: false, error: err.message };
     }
   }
 

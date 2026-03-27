@@ -30,39 +30,59 @@ const s3Client = new S3Client({
   credentials: {
     accessKeyId: CF_R2_ACCESS_KEY_ID,
     secretAccessKey: CF_R2_SECRET_ACCESS_KEY
+  },
+  requestHandler: {
+    requestTimeout: 30000
   }
 });
 
+async function withRetry(fn, maxRetries = 2, baseDelay = 1000) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt === maxRetries) throw err;
+      const delay = baseDelay * Math.pow(2, attempt);
+      logger.warn(`R2 operation failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`, err.message);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+}
+
 // ✅ Upload File to R2
 export async function uploadFileToR2(buffer, key, contentType = 'application/octet-stream') {
-  try {
-    const command = new PutObjectCommand({
-      Bucket: CF_R2_BUCKET,
-      Key: key,
-      Body: buffer,
-      ContentType: contentType
-    });
-    await s3Client.send(command);
-    return `${CF_R2_URL}/${key}`;
-  } catch (err) {
-    logger.error(`❌ Failed to upload ${key}:`, err);
-    throw err;
-  }
+  return withRetry(async () => {
+    try {
+      const command = new PutObjectCommand({
+        Bucket: CF_R2_BUCKET,
+        Key: key,
+        Body: buffer,
+        ContentType: contentType
+      });
+      await s3Client.send(command);
+      return `${CF_R2_URL}/${key}`;
+    } catch (err) {
+      logger.error(`❌ Failed to upload ${key}:`, err);
+      throw err;
+    }
+  });
 }
 
 // ✅ Get File Buffer from R2
 export async function getFileFromR2(key) {
-  try {
-    const command = new GetObjectCommand({
-      Bucket: CF_R2_BUCKET,
-      Key: key
-    });
-    const response = await s3Client.send(command);
-    return response.Body.transformToByteArray();
-  } catch (err) {
-    logger.error(`❌ Failed to get file ${key}:`, err);
-    throw err;
-  }
+  return withRetry(async () => {
+    try {
+      const command = new GetObjectCommand({
+        Bucket: CF_R2_BUCKET,
+        Key: key
+      });
+      const response = await s3Client.send(command);
+      return response.Body.transformToByteArray();
+    } catch (err) {
+      logger.error(`❌ Failed to get file ${key}:`, err);
+      throw err;
+    }
+  });
 }
 
 // ✅ Delete Object from R2
@@ -100,9 +120,11 @@ export async function copyObject(sourceKey, destinationKey) {
 
 // ✅ Generate Signed URL for GET access
 export async function getSignedFileUrl(key, expiresInSeconds = 3600) {
-  const command = new GetObjectCommand({
-    Bucket: CF_R2_BUCKET,
-    Key: key
+  return withRetry(async () => {
+    const command = new GetObjectCommand({
+      Bucket: CF_R2_BUCKET,
+      Key: key
+    });
+    return await getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
   });
-  return await getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
 }

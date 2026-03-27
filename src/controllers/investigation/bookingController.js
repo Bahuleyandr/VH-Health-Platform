@@ -99,7 +99,7 @@ export const createBooking = async (req, res) => {
             title: '🔬 New Investigation Booking',
             body: `${patient.rows[0]?.name || 'Patient'} booked: ${parsedTests?.length ? parsedTests.length + ' tests' : custom_test_names || 'Prescription slip'}. ${collection_type === 'home' ? 'Home collection' : 'Walk-in'}`,
             data: { type: 'investigation_booking', booking_id: String(result.rows[0].id) }
-          }).catch(() => {});
+          }).catch(e => logger.warn('Failed to send new booking push notification:', e.message));
         }
       } catch (e) { logger.warn('Lab alert failed:', e.message); }
     });
@@ -107,7 +107,7 @@ export const createBooking = async (req, res) => {
     success(res, result.rows[0], `Investigation booked. ${result.rows[0].booking_number}`);
   } catch (e) {
     logger.error('createBooking error:', e);
-    error(res, e.message, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to create investigation booking', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -132,7 +132,7 @@ export const getMyBookings = async (req, res) => {
     success(res, bookings, 'My bookings fetched');
   } catch (e) {
     logger.error('getMyBookings error:', e);
-    error(res, e.message, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to fetch bookings', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -177,7 +177,7 @@ export const getBookingQueue = async (req, res) => {
     success(res, bookings, 'Booking queue fetched');
   } catch (e) {
     logger.error('getBookingQueue error:', e);
-    error(res, e.message, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to fetch booking queue', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -217,10 +217,10 @@ export const confirmBooking = async (req, res) => {
             title: 'Investigation Confirmed ✓',
             body: `Your investigation booking ${booking.rows[0].booking_number} is confirmed. ${booking.rows[0].collection_type === 'home' ? 'A collector will be dispatched shortly.' : 'Please visit the lab at your preferred time.'}`,
             data: { type: 'investigation_confirmed', booking_id: String(id) }
-          }).catch(() => {});
+          }).catch(e => logger.warn('Failed to send booking confirmation push notification:', e.message));
         }
         if (patient.rows[0]?.phone) {
-          await sendSMS(patient.rows[0].phone, `Dear ${booking.rows[0].patient_name}, your investigation ${booking.rows[0].booking_number} is confirmed. ${booking.rows[0].collection_type === 'home' ? 'Collector will be dispatched soon.' : 'Please visit Venkataeswara Hospitals lab.'} Estimated cost: ₹${result.rows[0].final_cost || result.rows[0].estimated_cost || 'TBD'}`).catch(() => {});
+          await sendSMS(patient.rows[0].phone, `Dear ${booking.rows[0].patient_name}, your investigation ${booking.rows[0].booking_number} is confirmed. ${booking.rows[0].collection_type === 'home' ? 'Collector will be dispatched soon.' : 'Please visit Venkataeswara Hospitals lab.'} Estimated cost: ₹${result.rows[0].final_cost || result.rows[0].estimated_cost || 'TBD'}`).catch(e => logger.warn('Failed to send booking confirmation SMS:', e.message));
         }
       } catch (e) { logger.warn('Confirm notification failed:', e.message); }
     });
@@ -228,7 +228,7 @@ export const confirmBooking = async (req, res) => {
     success(res, result.rows[0], 'Booking confirmed');
   } catch (e) {
     logger.error('confirmBooking error:', e);
-    error(res, e.message, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to confirm booking', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -272,7 +272,7 @@ export const dispatchCollector = async (req, res) => {
             title: 'Collector On The Way 🚗',
             body: `Sample collector dispatched for ${booking.rows[0].booking_number}. Estimated arrival: ~${eta.estimated_mins} minutes. ${collector_phone ? 'Contact: ' + collector_phone : ''}`,
             data: { type: 'collector_dispatched', booking_id: String(id) }
-          }).catch(() => {});
+          }).catch(e => logger.warn('Failed to send dispatch push notification:', e.message));
         }
       } catch (e) { logger.warn('Dispatch notification failed:', e.message); }
     });
@@ -280,7 +280,7 @@ export const dispatchCollector = async (req, res) => {
     success(res, result.rows[0], 'Collector dispatched');
   } catch (e) {
     logger.error('dispatchCollector error:', e);
-    error(res, e.message, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to dispatch collector', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -308,7 +308,7 @@ export const markCollected = async (req, res) => {
     success(res, result.rows[0], 'Samples collected');
   } catch (e) {
     logger.error('markCollected error:', e);
-    error(res, e.message, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to mark samples as collected', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -344,7 +344,7 @@ export const startProcessing = async (req, res) => {
     success(res, result.rows[0], 'Processing started');
   } catch (e) {
     logger.error('startProcessing error:', e);
-    error(res, e.message, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to start processing', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -392,10 +392,10 @@ export const uploadResult = async (req, res) => {
             title: 'Investigation Results Ready 🔬',
             body: `Results for ${booking.rows[0].booking_number} are ready. Tap to view and download.`,
             data: { type: 'investigation_result_ready', booking_id: String(id) }
-          }).catch(() => {});
+          }).catch(e => logger.warn('Failed to send result ready push notification:', e.message));
         }
         if (patient.rows[0]?.phone) {
-          await sendSMS(patient.rows[0].phone, `Dear ${booking.rows[0].patient_name}, your investigation results (${booking.rows[0].booking_number}) are ready. Please check your VHHealth app to view/download.`).catch(() => {});
+          await sendSMS(patient.rows[0].phone, `Dear ${booking.rows[0].patient_name}, your investigation results (${booking.rows[0].booking_number}) are ready. Please check your VHHealth app to view/download.`).catch(e => logger.warn('Failed to send result ready SMS:', e.message));
         }
       } catch (e) { logger.warn('Result notification failed:', e.message); }
     });
@@ -403,7 +403,7 @@ export const uploadResult = async (req, res) => {
     success(res, result.rows[0], 'Result uploaded and patient notified');
   } catch (e) {
     logger.error('uploadResult error:', e);
-    error(res, e.message, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to upload result', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -432,7 +432,7 @@ export const getBookingDetail = async (req, res) => {
     success(res, { booking: b, history: history.rows }, 'Booking detail');
   } catch (e) {
     logger.error('getBookingDetail error:', e);
-    error(res, e.message, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to fetch booking detail', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -475,6 +475,6 @@ export const getBookingSLADashboard = async (req, res) => {
     }, 'Booking SLA dashboard');
   } catch (e) {
     logger.error('getBookingSLADashboard error:', e);
-    error(res, e.message, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to fetch SLA dashboard', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
