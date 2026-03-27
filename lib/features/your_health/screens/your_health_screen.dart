@@ -425,38 +425,37 @@ class _YourHealthScreenState extends State<YourHealthScreen>
           }
           setSheet(() => uploading = true);
           try {
-            final headers = await ApiConfig.authenticatedAuthHeaders();
-            final req = http.MultipartRequest(
-              'POST',
-              Uri.parse('${ApiConfig.baseUrl}/appointments/patient/records/upload'),
-            )
-              ..headers.addAll(headers)
-              ..fields['title'] = titleCtrl.text.trim()
-              ..fields['document_type'] = docType
-              ..files.add(await http.MultipartFile.fromPath(
-                'file', pickedFilePath!,
-                filename: pickedFileName,
-              ));
+            final fields = <String, String>{
+              'title': titleCtrl.text.trim(),
+              'document_type': docType,
+            };
             if (hospitalCtrl.text.trim().isNotEmpty) {
-              req.fields['source_hospital'] = hospitalCtrl.text.trim();
+              fields['source_hospital'] = hospitalCtrl.text.trim();
             }
             if (recordDate != null) {
-              req.fields['record_date'] =
+              fields['record_date'] =
                   '${recordDate!.year}-${recordDate!.month.toString().padLeft(2, '0')}-${recordDate!.day.toString().padLeft(2, '0')}';
             }
-            final streamed = await req.send().timeout(const Duration(seconds: 30));
-            final resp = await http.Response.fromStream(streamed);
-            if (resp.statusCode == 200 || resp.statusCode == 201) {
+            final response = await ApiClient.multipart(
+              '/appointments/patient/records/upload',
+              fields: fields,
+              files: [
+                await http.MultipartFile.fromPath(
+                  'file', pickedFilePath!,
+                  filename: pickedFileName,
+                ),
+              ],
+            );
+            if (response.isSuccess) {
               if (ctx.mounted) Navigator.pop(ctx);
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Record uploaded ✓'), backgroundColor: Colors.green),
+                  const SnackBar(content: Text('Record uploaded'), backgroundColor: Colors.green),
                 );
                 _fetchPatientRecords();
               }
             } else {
-              final body = jsonDecode(resp.body);
-              throw Exception(body['message'] ?? 'Upload failed');
+              throw Exception(response.message ?? 'Upload failed');
             }
           } catch (e) {
             if (ctx.mounted) {
