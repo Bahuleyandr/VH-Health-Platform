@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/widgets/offline_banner.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 class ConsultationsTab extends StatefulWidget {
@@ -18,6 +19,7 @@ class _ConsultationsTabState extends State<ConsultationsTab> {
   List<dynamic> _consultations = [];
   bool _isLoading = true;
   String? _error;
+  String? _staleLabel;
 
   @override
   void initState() {
@@ -33,12 +35,13 @@ class _ConsultationsTabState extends State<ConsultationsTab> {
     });
 
     try {
-      final response =
-          await ApiClient.get('/records/consultations/${widget.phone}');
+      final result =
+          await ApiClient.cachedGet('/records/consultations/${widget.phone}');
       if (!mounted) return;
+      _staleLabel = result.staleLabel;
 
-      if (response.isSuccess) {
-        final rawData = response.data;
+      if (result.isSuccess) {
+        final rawData = result.data;
         final List<dynamic> data = rawData is List
             ? rawData
             : (rawData is Map
@@ -54,6 +57,22 @@ class _ConsultationsTabState extends State<ConsultationsTab> {
           _error = 'Failed to load consultations';
         });
       }
+      // Listen for fresh data from background refresh
+      result.onFresh?.then((fresh) {
+        if (!mounted) return;
+        if (fresh.isSuccess) {
+          final rawData = fresh.data;
+          final List<dynamic> data = rawData is List
+              ? rawData
+              : (rawData is Map
+                  ? (rawData['records'] ?? rawData ?? [])
+                  : []) as List<dynamic>;
+          setState(() {
+            _staleLabel = null;
+            _consultations = data;
+          });
+        }
+      });
     } catch (e) {
       debugPrint('Consultations fetch failed: $e');
       if (!mounted) return;
@@ -115,7 +134,11 @@ class _ConsultationsTabState extends State<ConsultationsTab> {
       );
     }
 
-    return RefreshIndicator(
+    return Column(
+      children: [
+        OfflineBanner(staleLabel: _staleLabel),
+        Expanded(
+          child: RefreshIndicator(
       onRefresh: _fetchConsultations,
       child: ListView.builder(
         padding: const EdgeInsets.all(12),
@@ -191,6 +214,9 @@ class _ConsultationsTabState extends State<ConsultationsTab> {
           );
         },
       ),
+    ),
+        ),
+      ],
     );
   }
 }

@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/widgets/offline_banner.dart';
 
 class PrescriptionsTab extends StatefulWidget {
   final String phone;
@@ -18,6 +19,7 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
   List<dynamic> _prescriptions = [];
   bool _isLoading = true;
   String? _error;
+  String? _staleLabel;
 
   @override
   void initState() {
@@ -32,12 +34,24 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
       _error = null;
     });
     try {
-      final response = await ApiClient.get('/prescriptions/patient/my');
-      if (response.isSuccess && mounted) {
-        setState(() => _prescriptions = response.dataAsList());
-      } else if (mounted) {
-        setState(() => _error = response.message ?? 'Failed');
+      final result = await ApiClient.cachedGet('/prescriptions/patient/my');
+      if (!mounted) return;
+      _staleLabel = result.staleLabel;
+      if (result.isSuccess) {
+        setState(() => _prescriptions = result.dataAsList());
+      } else {
+        setState(() => _error = result.message ?? 'Failed');
       }
+      // Listen for fresh data from background refresh
+      result.onFresh?.then((fresh) {
+        if (!mounted) return;
+        if (fresh.isSuccess) {
+          setState(() {
+            _staleLabel = null;
+            _prescriptions = fresh.dataAsList();
+          });
+        }
+      });
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -86,7 +100,11 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
         ),
       );
     }
-    return RefreshIndicator(
+    return Column(
+      children: [
+        OfflineBanner(staleLabel: _staleLabel),
+        Expanded(
+          child: RefreshIndicator(
       onRefresh: _fetchPrescriptions,
       child: ListView.builder(
         padding: const EdgeInsets.all(12),
@@ -156,6 +174,9 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
           );
         },
       ),
+    ),
+        ),
+      ],
     );
   }
 

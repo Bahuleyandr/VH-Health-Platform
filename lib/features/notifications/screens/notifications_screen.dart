@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
+import 'package:vhhealth/core/widgets/offline_banner.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -20,6 +21,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   List<dynamic> notifications = [];
   bool loading = true;
   String? _error;
+  String? _staleLabel;
 
   @override
   void initState() {
@@ -45,19 +47,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
 
     try {
-      final response = await ApiClient.get('/notifications/${widget.phone}');
+      final result = await ApiClient.cachedGet('/notifications/${widget.phone}');
 
       if (!mounted) return;
+      _staleLabel = result.staleLabel;
 
-      if (response.isSuccess) {
-        final data = response.data;
+      if (result.isSuccess) {
+        final data = result.data;
         final List<dynamic> list;
         if (data is List) {
           list = data;
         } else if (data is Map && data['notifications'] is List) {
           list = data['notifications'] as List<dynamic>;
         } else {
-          list = response.dataAsList();
+          list = result.dataAsList();
         }
         setState(() {
           notifications = list;
@@ -65,10 +68,29 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         });
       } else {
         setState(() {
-          _error = response.message ?? 'Failed to fetch notifications';
+          _error = result.message ?? 'Failed to fetch notifications';
           loading = false;
         });
       }
+      // Listen for fresh data from background refresh
+      result.onFresh?.then((fresh) {
+        if (!mounted) return;
+        if (fresh.isSuccess) {
+          final data = fresh.data;
+          final List<dynamic> list;
+          if (data is List) {
+            list = data;
+          } else if (data is Map && data['notifications'] is List) {
+            list = data['notifications'] as List<dynamic>;
+          } else {
+            list = fresh.dataAsList();
+          }
+          setState(() {
+            _staleLabel = null;
+            notifications = list;
+          });
+        }
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -139,7 +161,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       icon: Icons.notifications_outlined,
       color: color,
       heroTag: 'notifications',
-      child: DataStateBuilder<dynamic>(
+      child: Column(
+        children: [
+          OfflineBanner(staleLabel: _staleLabel),
+          Expanded(
+            child: DataStateBuilder<dynamic>(
         isLoading: loading,
         error: _error,
         data: notifications,
@@ -208,6 +234,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       },
                     ),
         ),
+          ),
+        ],
       ),
     );
   }
