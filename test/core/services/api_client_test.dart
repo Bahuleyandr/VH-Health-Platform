@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/services/connectivity_service.dart';
 
 // ---------------------------------------------------------------------------
 // Helper: build a fake http.Response and run it through the same public
@@ -310,6 +311,39 @@ void main() {
 
       ApiClient.onSessionExpired = null;
       expect(ApiClient.onSessionExpired, isNull);
+    });
+
+    test('onSessionExpired receives null message when none provided', () {
+      String? captured = 'not-called';
+      ApiClient.onSessionExpired = (msg) => captured = msg;
+
+      // Simulate calling with null (as would happen if backend returns no message)
+      ApiClient.onSessionExpired!(null);
+      expect(captured, isNull);
+    });
+
+    test('multiple calls to onSessionExpired invoke the latest callback', () {
+      final calls = <String?>[];
+      ApiClient.onSessionExpired = (msg) => calls.add(msg);
+
+      ApiClient.onSessionExpired!('first');
+      ApiClient.onSessionExpired!('second');
+
+      expect(calls, ['first', 'second']);
+    });
+  });
+
+  group('ConnectivityService initial state', () {
+    test('isOnline defaults to true', () {
+      // The static field _isOnline is initialized to true, so before any
+      // network check, the service assumes the device is online.
+      expect(ConnectivityService.isOnline, isTrue);
+    });
+
+    test('onChange stream is a broadcast stream', () {
+      // onChange should be listenable by multiple subscribers
+      final stream = ConnectivityService.onChange;
+      expect(stream.isBroadcast, isTrue);
     });
   });
 
