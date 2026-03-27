@@ -45,10 +45,7 @@ export const notificationController = {
     } catch (err) {
       logger.error('Error in getByPhone:', err.message);
       if (err.message.includes('Access denied')) {
-        return res.status(HTTP_STATUS.FORBIDDEN).json({ 
-          message: err.message,
-          requestedBy: req.user?.uid
-        });
+        return error(res, err.message, HTTP_STATUS.FORBIDDEN);
       }
       // Graceful fallback
       success(res, {
@@ -65,10 +62,7 @@ export const notificationController = {
   getByUserId: async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        errors: errors.array(),
-        message: RESPONSE_MESSAGES.VALIDATION_FAILED
-      });
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
     try {
@@ -93,10 +87,7 @@ export const notificationController = {
     } catch (err) {
       logger.error('Error in getByUserId:', err.message);
       if (err.message.includes('Access denied')) {
-        return res.status(HTTP_STATUS.FORBIDDEN).json({ 
-          message: err.message,
-          requestedBy: req.user?.uid
-        });
+        return error(res, err.message, HTTP_STATUS.FORBIDDEN);
       }
       error(res, 'Failed to retrieve user notifications', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
@@ -108,10 +99,7 @@ export const notificationController = {
   getById: async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        errors: errors.array(),
-        message: RESPONSE_MESSAGES.VALIDATION_FAILED
-      });
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
     try {
@@ -132,11 +120,7 @@ export const notificationController = {
     } catch (err) {
       logger.error('Error in getById:', err.message);
       if (err.message.includes('not found') || err.message.includes('access denied')) {
-        return res.status(HTTP_STATUS.NOT_FOUND).json({ 
-          message: 'Notification not found or access denied',
-          id: req.params.id,
-          requestedBy: req.user?.uid
-        });
+        return error(res, 'Notification not found or access denied', HTTP_STATUS.NOT_FOUND);
       }
       error(res, 'Failed to retrieve notification', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
@@ -148,10 +132,7 @@ export const notificationController = {
   getList: async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        errors: errors.array(),
-        message: RESPONSE_MESSAGES.VALIDATION_FAILED
-      });
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
     try {
@@ -188,10 +169,7 @@ export const notificationController = {
   markAsRead: async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        errors: errors.array(),
-        message: RESPONSE_MESSAGES.VALIDATION_FAILED
-      });
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
     try {
@@ -211,10 +189,7 @@ export const notificationController = {
     } catch (err) {
       logger.error('Error in markAsRead:', err.message);
       if (err.message.includes('not found') || err.message.includes('access denied')) {
-        return res.status(HTTP_STATUS.NOT_FOUND).json({ 
-          message: 'Notification not found or access denied',
-          requestedBy: req.user?.uid
-        });
+        return error(res, 'Notification not found or access denied', HTTP_STATUS.NOT_FOUND);
       }
       error(res, 'Failed to update notification', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
@@ -242,10 +217,7 @@ export const notificationController = {
     } catch (err) {
       logger.error('Error in markAllAsReadByPhone:', err.message);
       if (err.message.includes('Access denied')) {
-        return res.status(HTTP_STATUS.FORBIDDEN).json({ 
-          message: err.message,
-          requestedBy: req.user?.uid
-        });
+        return error(res, err.message, HTTP_STATUS.FORBIDDEN);
       }
       error(res, 'Failed to mark all notifications as read', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
@@ -257,10 +229,7 @@ export const notificationController = {
   markAllAsReadByUserId: async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        errors: errors.array(),
-        message: RESPONSE_MESSAGES.VALIDATION_FAILED
-      });
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
     try {
@@ -281,10 +250,7 @@ export const notificationController = {
     } catch (err) {
       logger.error('Error in markAllAsReadByUserId:', err.message);
       if (err.message.includes('Access denied')) {
-        return res.status(HTTP_STATUS.FORBIDDEN).json({ 
-          message: err.message,
-          requestedBy: req.user?.uid
-        });
+        return error(res, err.message, HTTP_STATUS.FORBIDDEN);
       }
       error(res, 'Failed to mark all notifications as read', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
@@ -296,10 +262,7 @@ export const notificationController = {
   create: async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        errors: errors.array(),
-        message: RESPONSE_MESSAGES.VALIDATION_FAILED
-      });
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
     try {
@@ -325,10 +288,7 @@ export const notificationController = {
         return error(res, err.message, HTTP_STATUS.FORBIDDEN);
       }
       if (err.message.includes('not found')) {
-        return res.status(HTTP_STATUS.NOT_FOUND).json({ 
-          message: err.message,
-          requestedBy: req.user?.uid
-        });
+        return error(res, err.message, HTTP_STATUS.NOT_FOUND);
       }
       error(res, 'Failed to create notification', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
@@ -340,10 +300,7 @@ export const notificationController = {
   sendBulk: async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        errors: errors.array(),
-        message: RESPONSE_MESSAGES.VALIDATION_FAILED
-      });
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
     try {
@@ -368,10 +325,7 @@ export const notificationController = {
         return error(res, err.message, HTTP_STATUS.FORBIDDEN);
       }
       if (err.message.includes('not found')) {
-        return res.status(HTTP_STATUS.NOT_FOUND).json({
-          message: err.message,
-          requestedBy: req.user?.uid
-        });
+        return error(res, err.message, HTTP_STATUS.NOT_FOUND);
       }
       error(res, 'Failed to send bulk notifications', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
@@ -383,10 +337,7 @@ export const notificationController = {
   getStats: async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        errors: errors.array(),
-        message: RESPONSE_MESSAGES.VALIDATION_FAILED
-      });
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
     try {
@@ -471,10 +422,7 @@ export const notificationController = {
   delete: async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        errors: errors.array(),
-        message: RESPONSE_MESSAGES.VALIDATION_FAILED
-      });
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
     try {
@@ -499,10 +447,7 @@ export const notificationController = {
         return error(res, err.message, HTTP_STATUS.FORBIDDEN);
       }
       if (err.message.includes('not found')) {
-        return res.status(HTTP_STATUS.NOT_FOUND).json({ 
-          message: err.message,
-          requestedBy: req.user?.uid
-        });
+        return error(res, err.message, HTTP_STATUS.NOT_FOUND);
       }
       error(res, 'Failed to delete notification', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }

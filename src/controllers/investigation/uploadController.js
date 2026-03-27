@@ -23,17 +23,11 @@ export const uploadResult = async (req, res) => {
     // Access control - only medical staff can upload
     const allowedRoles = ['DOCTOR', 'LAB_TECHNICIAN', 'RADIOLOGIST', 'ADMIN'];
     if (!allowedRoles.includes(userRole)) {
-      return res.status(403).json({
-        message: 'Access denied: Medical staff privileges required',
-        requestedBy: uploadedBy
-      });
+      return error(res, 'Access denied: Medical staff privileges required', 403);
     }
-    
+
     if (!file) {
-      return res.status(400).json({
-        message: 'No file uploaded',
-        requestedBy: uploadedBy
-      });
+      return error(res, 'No file uploaded', 400);
     }
     
     // Log file details for debugging
@@ -63,20 +57,11 @@ export const uploadResult = async (req, res) => {
     
     // Specific error handling
     if (err.message === 'Investigation not found') {
-      return res.status(404).json({
-        message: 'Investigation not found',
-        requestedBy: req.user?.uid
-      });
+      return error(res, 'Investigation not found', 404);
     } else if (err.message.includes('Invalid file type')) {
-      return res.status(400).json({
-        message: err.message,
-        requestedBy: req.user?.uid
-      });
+      return error(res, err.message, 400);
     } else if (err.message.includes('File size exceeds')) {
-      return res.status(400).json({
-        message: err.message,
-        requestedBy: req.user?.uid
-      });
+      return error(res, err.message, 400);
     }
     
     error(res, 'Failed to upload file', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -101,10 +86,7 @@ export const getFiles = async (req, res) => {
       `, [id, requestedBy]);
       
       if (investigationCheck.rows.length === 0) {
-        return res.status(403).json({
-          message: 'Access denied: Cannot view files for other patients',
-          requestedBy
-        });
+        return error(res, 'Access denied: Cannot view files for other patients', 403);
       }
     }
     
@@ -144,20 +126,14 @@ export const downloadFile = async (req, res) => {
       `, [id, requestedBy]);
       
       if (investigationCheck.rows.length === 0) {
-        return res.status(403).json({
-          message: 'Access denied',
-          requestedBy
-        });
+        return error(res, 'Access denied', 403);
       }
     }
     
     const fileData = await getFileStream(fileId);
-    
+
     if (!fileData) {
-      return res.status(404).json({
-        message: 'File not found',
-        requestedBy
-      });
+      return error(res, 'File not found', 404);
     }
     
     await logAudit(req, 'investigation-file-downloaded', {
@@ -177,10 +153,7 @@ export const downloadFile = async (req, res) => {
     logger.error('Download File Error:', err);
     
     if (err.message === 'File not found' || err.message === 'File not found on disk') {
-      return res.status(404).json({
-        message: 'File not found',
-        requestedBy: req.user?.uid
-      });
+      return error(res, 'File not found', 404);
     }
     
     error(res, 'Failed to download file', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -197,17 +170,11 @@ export const removeFile = async (req, res) => {
     // Only admins and the uploader can delete files
     const file = await getFileById(fileId);
     if (!file) {
-      return res.status(404).json({
-        message: 'File not found',
-        requestedBy: deletedBy
-      });
+      return error(res, 'File not found', 404);
     }
-    
+
     if (userRole !== 'ADMIN' && file.uploaded_by !== deletedBy) {
-      return res.status(403).json({
-        message: 'Access denied: Only admin or file uploader can delete files',
-        requestedBy: deletedBy
-      });
+      return error(res, 'Access denied: Only admin or file uploader can delete files', 403);
     }
     
     await deleteFile(fileId, deletedBy);
@@ -227,12 +194,9 @@ export const removeFile = async (req, res) => {
     logger.error('Delete File Error:', err);
     
     if (err.message === 'File not found') {
-      return res.status(404).json({
-        message: 'File not found',
-        requestedBy: req.user?.uid
-      });
+      return error(res, 'File not found', 404);
     }
-    
+
     error(res, 'Failed to delete file', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
@@ -244,20 +208,14 @@ export const getFileInfo = async (req, res) => {
     const requestedBy = req.user?.uid;
     
     const file = await getFileById(fileId);
-    
+
     if (!file) {
-      return res.status(404).json({
-        message: 'File not found',
-        requestedBy
-      });
+      return error(res, 'File not found', 404);
     }
-    
+
     // Verify file belongs to the investigation
     if (file.investigation_id !== parseInt(id)) {
-      return res.status(400).json({
-        message: 'File does not belong to this investigation',
-        requestedBy
-      });
+      return error(res, 'File does not belong to this investigation', 400);
     }
     
     success(res, {

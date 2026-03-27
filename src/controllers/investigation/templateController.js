@@ -39,12 +39,9 @@ export const getTemplate = async (req, res) => {
     const template = await templateService.getTemplateById(id);
     
     if (!template) {
-      return res.status(404).json({
-        message: 'Template not found',
-        requestedBy
-      });
+      return error(res, 'Template not found', 404);
     }
-    
+
     await logAudit(req, 'investigation-template-viewed', { template_id: id });
     
     success(res, {
@@ -66,10 +63,7 @@ export const createTemplate = async (req, res) => {
     
     // Only admins and senior doctors can create templates
     if (!['ADMIN', 'DOCTOR'].includes(userRole)) {
-      return res.status(403).json({
-        message: 'Access denied: Admin or doctor privileges required',
-        requestedBy: createdBy
-      });
+      return error(res, 'Access denied: Admin or doctor privileges required', 403);
     }
     
     const templateData = {
@@ -103,20 +97,14 @@ export const applyTemplate = async (req, res) => {
     
     // Only doctors can apply templates
     if (userRole !== 'DOCTOR' && userRole !== 'ADMIN') {
-      return res.status(403).json({
-        message: 'Access denied: Doctor privileges required',
-        requestedBy: appliedBy
-      });
+      return error(res, 'Access denied: Doctor privileges required', 403);
     }
-    
+
     const { id } = req.params;
     const { patient_id, doctor_id } = req.body;
-    
+
     if (!patient_id || !doctor_id) {
-      return res.status(400).json({
-        message: 'Patient ID and Doctor ID are required',
-        requestedBy: appliedBy
-      });
+      return error(res, 'Patient ID and Doctor ID are required', 400);
     }
     
     const investigations = await templateService.applyTemplate(
@@ -142,10 +130,7 @@ export const applyTemplate = async (req, res) => {
     logger.error('Apply Template Error:', err);
     
     if (err.message === 'Template not found or inactive') {
-      return res.status(404).json({
-        message: err.message,
-        requestedBy: req.user?.uid
-      });
+      return error(res, err.message, 404);
     }
     
     error(res, 'Failed to apply template', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -159,25 +144,19 @@ export const updateTemplate = async (req, res) => {
     const updatedBy = req.user?.uid;
     
     if (!['ADMIN', 'DOCTOR'].includes(userRole)) {
-      return res.status(403).json({
-        message: 'Access denied: Admin or doctor privileges required',
-        requestedBy: updatedBy
-      });
+      return error(res, 'Access denied: Admin or doctor privileges required', 403);
     }
-    
+
     const { id } = req.params;
     const updateData = {
       ...req.body,
       updated_by: updatedBy
     };
-    
+
     const template = await templateService.updateTemplate(id, updateData);
-    
+
     if (!template) {
-      return res.status(404).json({
-        message: 'Template not found',
-        requestedBy: updatedBy
-      });
+      return error(res, 'Template not found', 404);
     }
     
     await logAudit(req, 'investigation-template-updated', { template_id: id });
@@ -200,21 +179,15 @@ export const deactivateTemplate = async (req, res) => {
     const deactivatedBy = req.user?.uid;
     
     if (userRole !== 'ADMIN') {
-      return res.status(403).json({
-        message: 'Access denied: Admin privileges required',
-        requestedBy: deactivatedBy
-      });
+      return error(res, 'Access denied: Admin privileges required', 403);
     }
-    
+
     const { id } = req.params;
-    
+
     const result = await templateService.deactivateTemplate(id, deactivatedBy);
-    
+
     if (!result) {
-      return res.status(404).json({
-        message: 'Template not found',
-        requestedBy: deactivatedBy
-      });
+      return error(res, 'Template not found', 404);
     }
     
     await logAudit(req, 'investigation-template-deactivated', { template_id: id });

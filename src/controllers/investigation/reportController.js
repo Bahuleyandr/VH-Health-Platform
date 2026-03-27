@@ -22,19 +22,12 @@ export const generateReport = async (req, res) => {
     );
     
     if (!investigation) {
-      return res.status(404).json({
-        message: 'Investigation not found or access denied',
-        requestedBy
-      });
+      return error(res, 'Investigation not found or access denied', 404);
     }
-    
+
     // Only generate report for completed investigations
     if (investigation.status !== 'COMPLETED') {
-      return res.status(400).json({
-        message: 'Reports can only be generated for completed investigations',
-        status: investigation.status,
-        requestedBy
-      });
+      return error(res, 'Reports can only be generated for completed investigations', 400);
     }
     
     const pdfBuffer = await reportService.generateInvestigationReport(id);
@@ -73,18 +66,12 @@ export const generateSummaryReport = async (req, res) => {
       // Patients can only generate their own summary reports
       const userResult = await db.query('SELECT id FROM users WHERE uid = $1', [requestedBy]);
       if (!userResult.rows.length || userResult.rows[0].id !== parseInt(patient_id)) {
-        return res.status(403).json({
-          message: 'Access denied: Cannot generate reports for other patients',
-          requestedBy
-        });
+        return error(res, 'Access denied: Cannot generate reports for other patients', 403);
       }
     }
-    
+
     if (!patient_id) {
-      return res.status(400).json({
-        message: 'Patient ID is required',
-        requestedBy
-      });
+      return error(res, 'Patient ID is required', 400);
     }
     
     const summaryData = await reportService.generatePatientSummaryReport({
@@ -125,10 +112,7 @@ export const exportToExcel = async (req, res) => {
     // Only staff can export to Excel
     const allowedRoles = ['DOCTOR', 'NURSE', 'LAB_TECHNICIAN', 'RADIOLOGIST', 'ADMIN'];
     if (!allowedRoles.includes(userRole)) {
-      return res.status(403).json({
-        message: 'Access denied: Staff privileges required',
-        requestedBy
-      });
+      return error(res, 'Access denied: Staff privileges required', 403);
     }
     
     const { 
@@ -178,10 +162,7 @@ export const generateStatisticsReport = async (req, res) => {
     
     // Only management can generate statistics reports
     if (!['ADMIN', 'DOCTOR'].includes(userRole)) {
-      return res.status(403).json({
-        message: 'Access denied: Management privileges required',
-        requestedBy
-      });
+      return error(res, 'Access denied: Management privileges required', 403);
     }
     
     const { period = 'monthly', year = new Date().getFullYear() } = req.query;
@@ -218,26 +199,17 @@ export const emailReport = async (req, res) => {
     // Check permissions
     const allowedRoles = ['DOCTOR', 'LAB_TECHNICIAN', 'RADIOLOGIST', 'ADMIN'];
     if (!allowedRoles.includes(userRole)) {
-      return res.status(403).json({
-        message: 'Access denied: Medical staff privileges required',
-        requestedBy: sentBy
-      });
+      return error(res, 'Access denied: Medical staff privileges required', 403);
     }
-    
+
     if (!email) {
-      return res.status(400).json({
-        message: 'Email address is required',
-        requestedBy: sentBy
-      });
+      return error(res, 'Email address is required', 400);
     }
-    
+
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      return res.status(400).json({
-        message: 'Invalid email format',
-        requestedBy: sentBy
-      });
+      return error(res, 'Invalid email format', 400);
     }
     
     const result = await reportService.emailInvestigationReport(
@@ -263,10 +235,7 @@ export const emailReport = async (req, res) => {
     logger.error('Email Report Error:', err);
     
     if (err.message === 'Investigation not found') {
-      return res.status(404).json({
-        message: err.message,
-        requestedBy: req.user?.uid
-      });
+      return error(res, err.message, 404);
     }
     
     error(res, 'Failed to email report', HTTP_STATUS.INTERNAL_SERVER_ERROR);

@@ -10,11 +10,7 @@ import { success, error } from '../utils/responseHelper.js';
 export const createEmergencyAlert = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(HTTP_STATUS.BAD_REQUEST).json({
-      success: false,
-      errors: errors.array(),
-      message: 'Validation failed'
-    });
+    return error(res, 'Validation failed', HTTP_STATUS.BAD_REQUEST, errors.array());
   }
 
   try {

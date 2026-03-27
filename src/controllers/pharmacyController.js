@@ -11,7 +11,7 @@ export async function placePharmacyOrder(req, res) {
   const { phone, order_note, file_key } = req.body;
 
   if (!phone || !order_note) {
-    return res.status(400).json({ error: 'Phone and order_note are required' });
+    return error(res, 'Phone and order_note are required', 400);
   }
 
   if (req.user?.role === 'PATIENT') {
@@ -39,7 +39,7 @@ export async function getPharmacyOrdersByPhone(req, res) {
   const { phone } = req.params;
 
   if (!phone) {
-    return res.status(400).json({ error: 'Phone parameter is required' });
+    return error(res, 'Phone parameter is required', 400);
   }
 
   if (req.user?.role === 'PATIENT') {
@@ -71,14 +71,14 @@ export async function getPharmacyOrdersByUID(req, res) {
   const { uid } = req.params;
 
   if (!uid) {
-    return res.status(400).json({ error: 'UID is required' });
+    return error(res, 'UID is required', 400);
   }
 
   try {
     const phone = await resolvePhoneFromUID(uid);
 
     if (!phone) {
-      return res.status(404).json({ error: 'UID not found in users table' });
+      return error(res, 'UID not found in users table', 404);
     }
 
     const result = await db.query(
@@ -87,12 +87,12 @@ export async function getPharmacyOrdersByUID(req, res) {
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'No pharmacy orders found for this user' });
+      return error(res, 'No pharmacy orders found for this user', 404);
     }
 
-    return res.status(200).json({ success: true, pharmacyOrders: result.rows });
+    return success(res, { pharmacyOrders: result.rows }, 'Pharmacy orders retrieved successfully');
   } catch (err) {
-    logger.error('Get Pharmacy Orders By UID Error:', err); // ✅ correctly logs the error // ✅ fixed
-    return res.status(500).json({ error: 'Internal server error' });
+    logger.error('Get Pharmacy Orders By UID Error:', err);
+    return error(res, 'Internal server error');
   }
 }
