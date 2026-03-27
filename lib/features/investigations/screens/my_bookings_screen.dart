@@ -1,11 +1,9 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/delivery_tracking_card.dart';
 
 class MyBookingsScreen extends StatefulWidget {
@@ -59,21 +57,16 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       _error = null;
     });
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final res = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/investigations/bookings/my'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 15));
+      final response = await ApiClient.get('/investigations/bookings/my');
       if (!mounted) return;
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
+      if (response.isSuccess) {
         setState(() {
-          _bookings = data['data'] is List ? data['data'] : [];
+          _bookings = response.dataAsList();
           _loading = false;
         });
       } else {
         setState(() {
-          _error = 'Failed to load bookings';
+          _error = response.message ?? 'Failed to load bookings';
           _loading = false;
         });
       }
@@ -109,48 +102,21 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
-            const SizedBox(height: 16),
-            FilledButton(onPressed: _fetchBookings, child: const Text('Retry')),
-          ],
+    return DataStateBuilder<dynamic>(
+      isLoading: _loading,
+      error: _error,
+      data: _bookings,
+      onRetry: _fetchBookings,
+      emptyIcon: Icons.science_outlined,
+      emptyTitle: 'No bookings yet',
+      emptySubtitle: 'Book an investigation to get started',
+      builder: (context, bookings) => RefreshIndicator(
+        onRefresh: _fetchBookings,
+        child: ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: bookings.length,
+          itemBuilder: (context, i) => _buildBookingCard(bookings[i], theme),
         ),
-      );
-    }
-
-    if (_bookings.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.science_outlined,
-                size: 64, color: theme.colorScheme.onSurfaceVariant),
-            const SizedBox(height: 16),
-            Text('No bookings yet',
-                style: theme.textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Text('Book an investigation to get started',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant)),
-          ],
-        ),
-      );
-    }
-
-    return RefreshIndicator(
-      onRefresh: _fetchBookings,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _bookings.length,
-        itemBuilder: (context, i) => _buildBookingCard(_bookings[i], theme),
       ),
     );
   }

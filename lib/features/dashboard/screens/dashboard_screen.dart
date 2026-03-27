@@ -342,14 +342,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _fetchAndStoreDashboard() async {
     try {
-      final uri = Uri.parse('${ApiConfig.baseUrl}/dashboard?phone=${widget.phone}');
-      final headers = await ApiConfig.authenticatedAuthHeaders();
-      final res = await http.get(uri, headers: headers).timeout(const Duration(seconds: 10));
+      final response = await ApiClient.get(
+        '/dashboard',
+        queryParameters: {'phone': widget.phone},
+        timeout: const Duration(seconds: 10),
+      );
       if (!mounted) return;
 
-      if (res.statusCode == 200) {
-        final body = json.decode(res.body);
-        final data = body['data'] ?? body;
+      if (response.isSuccess) {
+        final data = response.data ?? {};
         final name = data['name'] ?? widget.name;
         final last = data['lastAppointment'];
         final next = data['nextAppointment'];

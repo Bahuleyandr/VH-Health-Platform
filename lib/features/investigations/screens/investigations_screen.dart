@@ -147,19 +147,16 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     String? fileKey;
 
     try {
-      final uploadHeaders = await ApiConfig.authenticatedAuthHeaders();
-      final req = http.MultipartRequest(
-        'POST',
-        Uri.parse('${ApiConfig.baseUrl}/upload'),
-      )
-        ..headers.addAll(uploadHeaders)
-        ..files.add(await http.MultipartFile.fromPath('file', _file!.path,
-            filename: _fileName));
-
-      final res = await http.Response.fromStream(await req.send().timeout(const Duration(seconds: 30)));
-      if (res.statusCode == 200) {
-        final decoded = jsonDecode(res.body);
-        fileKey = decoded['data']?['storageKey'] ?? decoded['storageKey'];
+      final uploadResponse = await ApiClient.multipart(
+        '/upload',
+        files: [
+          await http.MultipartFile.fromPath('file', _file!.path,
+              filename: _fileName),
+        ],
+      );
+      if (uploadResponse.isSuccess) {
+        final data = uploadResponse.dataAsMap();
+        fileKey = data['storageKey'] ?? uploadResponse.raw?['storageKey'];
         if (fileKey == null) throw Exception('Key missing');
       } else {
         throw Exception('Upload failed');
@@ -175,17 +172,13 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     }
 
     try {
-      final apiRes = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/investigations'),
-        headers: await ApiConfig.authenticatedHeaders(),
-        body: jsonEncode({
-          'phone': _phoneController.text.trim(),
-          'test_name': _testNameController.text.trim(),
-          'file_key': fileKey,
-        }),
-      ).timeout(const Duration(seconds: 15));
+      final apiRes = await ApiClient.post('/investigations', body: {
+        'phone': _phoneController.text.trim(),
+        'test_name': _testNameController.text.trim(),
+        'file_key': fileKey,
+      });
 
-      if (apiRes.statusCode == 200) {
+      if (apiRes.isSuccess) {
         messenger.showSnackBar(SnackBar(
           content: Text(l10n.investigationsConfirmationNote),
           backgroundColor: theme.colorScheme.primary,
@@ -201,9 +194,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
           _fileName = null;
         });
       } else {
-        final msg = (jsonDecode(apiRes.body)['message'] ??
-                l10n.investigationsFailed)
-            .toString();
+        final msg = (apiRes.message ?? l10n.investigationsFailed).toString();
         messenger.showSnackBar(SnackBar(
           content: Text(msg),
           backgroundColor: theme.colorScheme.error,
@@ -234,19 +225,16 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     final path = _patientId != null
         ? '/investigations/patient/$_patientId'
         : '/investigations/${widget.phone}';
-    final uri = Uri.parse('${ApiConfig.baseUrl}$path');
 
     try {
-      final resp =
-          await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders()).timeout(const Duration(seconds: 15));
+      final response = await ApiClient.get(path);
       if (!mounted) return;
 
-      if (resp.statusCode == 200) {
-        final body = jsonDecode(resp.body);
-        final data = body['data'] ?? body;
+      if (response.isSuccess) {
+        final data = response.data;
         final List<dynamic> investigations = data is List
             ? data
-            : (data['investigations'] ?? []) as List<dynamic>;
+            : (data is Map ? (data['investigations'] ?? []) : []) as List<dynamic>;
         setState(() {
           _investigations = investigations;
           _isLoadingResults = false;
@@ -271,20 +259,14 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
 
     setState(() => _loadingFiles.add(investigationId));
 
-    final uri = Uri.parse(
-      '${ApiConfig.baseUrl}/investigations/$investigationId/files',
-    );
-
     try {
-      final resp =
-          await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders()).timeout(const Duration(seconds: 15));
+      final response = await ApiClient.get('/investigations/$investigationId/files');
       if (!mounted) return;
 
-      if (resp.statusCode == 200) {
-        final body = jsonDecode(resp.body);
-        final data = body['data'] ?? body;
+      if (response.isSuccess) {
+        final data = response.data;
         final List<dynamic> files =
-            data is List ? data : (data['files'] ?? []) as List<dynamic>;
+            data is List ? data : (data is Map ? (data['files'] ?? []) : []) as List<dynamic>;
         setState(() {
           _fileCache[investigationId] = files;
           _loadingFiles.remove(investigationId);

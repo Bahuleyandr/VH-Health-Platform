@@ -1,9 +1,7 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:table_calendar/table_calendar.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -61,47 +59,33 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Future<void> _loadBackendEvents(String uid) async {
     final loc = AppLocalizations.of(context)!;
     try {
-      final calHeaders = await ApiConfig.authenticatedAuthHeaders();
       final responses = await Future.wait([
-        http.get(
-          Uri.parse('${ApiConfig.baseUrl}/appointments/uid/$uid'),
-          headers: calHeaders,
-        ).timeout(const Duration(seconds: 15)),
-        http.get(
-          Uri.parse('${ApiConfig.baseUrl}/investigations/uid/$uid'),
-          headers: calHeaders,
-        ).timeout(const Duration(seconds: 15)),
-        http.get(
-          Uri.parse('${ApiConfig.baseUrl}/pharmacy-orders/orders/uid/$uid'),
-          headers: calHeaders,
-        ).timeout(const Duration(seconds: 15)),
+        ApiClient.get('/appointments/uid/$uid'),
+        ApiClient.get('/investigations/uid/$uid'),
+        ApiClient.get('/pharmacy-orders/orders/uid/$uid'),
       ]);
 
       if (!mounted) return;
 
       final Map<DateTime, List<Map<String, dynamic>>> newEvents = {};
 
-      final appointmentData = jsonDecode(responses[0].body);
-      final investigationData = jsonDecode(responses[1].body);
-      final pharmacyData = jsonDecode(responses[2].body);
-
       _parseAndAddEvents(
         newEvents,
-        appointmentData['data'],
+        responses[0].isSuccess ? (responses[0].data is List ? responses[0].data : null) : null,
         'appointment',
         (item) => item['department'] ?? loc.eventTypesAppointment,
         (item) => item['date'] ?? item['created_at'],
       );
       _parseAndAddEvents(
         newEvents,
-        investigationData['data'],
+        responses[1].isSuccess ? (responses[1].data is List ? responses[1].data : null) : null,
         'investigation',
         (item) => item['test_name'] ?? loc.eventTypesInvestigation,
         (item) => item['created_at'],
       );
       _parseAndAddEvents(
         newEvents,
-        pharmacyData['data'],
+        responses[2].isSuccess ? (responses[2].data is List ? responses[2].data : null) : null,
         'pharmacy',
         (_) => loc.eventTypesPharmacyOrder,
         (item) => item['created_at'],

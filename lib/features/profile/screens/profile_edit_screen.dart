@@ -134,15 +134,12 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     bool success = false;
 
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-
       // Build emergency_contact as string (backend accepts string or object)
       final ecText = _emergencyContactController.text.trim();
 
-      final res = await http.put(
-        Uri.parse('${ApiConfig.baseUrl}/users/${widget.phone}'),
-        headers: headers,
-        body: jsonEncode({
+      final response = await ApiClient.put(
+        '/users/${widget.phone}',
+        body: {
           'name'               : _nameController.text.trim(),
           'email'              : _emailController.text.trim().isNotEmpty
               ? _emailController.text.trim()
@@ -165,10 +162,10 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           'preferred_hospital' : _preferredHospitalController.text.trim().isNotEmpty
               ? _preferredHospitalController.text.trim()
               : null,
-        }),
-      ).timeout(const Duration(seconds: 15));
-      success = res.statusCode == 200 || res.statusCode == 204;
-      if (!success) debugPrint('API error: ${res.statusCode} – ${res.body}');
+        },
+      );
+      success = response.isSuccess;
+      if (!success) debugPrint('API error: ${response.statusCode} – ${response.message}');
     } catch (e) {
       debugPrint('Network error: $e');
     }
