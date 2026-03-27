@@ -10,9 +10,14 @@ import 'firebase_options.dart';
 import 'package:vhhealth/core/providers/theme_provider.dart';
 import 'package:vhhealth/core/providers/language_provider.dart';
 import 'package:vhhealth/core/providers/notification_provider.dart';
+import 'package:vhhealth/core/providers/user_provider.dart';
 
 // App Router
 import 'package:vhhealth/core/navigation/app_router.dart';
+
+// Core Services
+import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/services/connectivity_service.dart';
 
 // App Utilities
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -22,6 +27,16 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // Wire 401 handler: when any API call returns Unauthorized, redirect to login.
+  ApiClient.onSessionExpired = (message) {
+    AppRouter.clearUserData();
+    AppRouter.router.go('/login');
+  };
+
+  // Start network connectivity monitoring.
+  ConnectivityService.startMonitoring();
+
   runApp(const VHRoot());
 }
 
@@ -35,6 +50,7 @@ class VHRoot extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => LanguageProvider()),
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
+        ChangeNotifierProvider(create: (_) => UserProvider()),
       ],
       child: Consumer2<ThemeProvider, LanguageProvider>(
         builder: (context, themeProv, langProv, _) {

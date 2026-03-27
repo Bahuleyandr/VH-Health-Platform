@@ -2,18 +2,19 @@ import 'package:go_router/go_router.dart';
 import 'package:vhhealth/core/navigation/app_router.dart';
 
 import 'dart:async';
-import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons/lucide_icons.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/services/connectivity_service.dart';
 import 'package:vhhealth/core/widgets/language_dropdown.dart';
+import 'package:vhhealth/core/widgets/offline_banner.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/core/widgets/circular_feature_dial.dart';
 import 'package:vhhealth/core/providers/theme_provider.dart';
@@ -47,13 +48,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? cachedName;
   Color _focusColor = Colors.blue;
   
+  // Offline support
+  String? _staleLabel;
+  StreamSubscription<bool>? _connectivitySub;
+
   // Real-time appointment polling
   Timer? _appointmentPoller;
   Map<String, dynamic>? _todayAppointment;
   String _appointmentStatus = '';
+  int _apptPollFailures = 0;
 
   // Smart widget data
   Timer? _smartWidgetPoller;
+  int _smartPollFailures = 0;
   Map<String, dynamic>? _activePharmacyOrder;
   Map<String, dynamic>? _activeInvestigationBooking;
   Map<String, dynamic>? _recentPrescription;
@@ -69,6 +76,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     nextAppointment = widget.nextAppointment;
     cachedName = widget.name;
 
+    _connectivitySub = ConnectivityService.onChange.listen((isOnline) {
+      if (isOnline && mounted) {
+        _fetchAndStoreDashboard();
+      }
+    });
+
     SchedulerBinding.instance.addPostFrameCallback((_) {
       _loadCachedData();
       _maybeFetchFromBackend();
@@ -79,18 +92,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
+    _connectivitySub?.cancel();
     _appointmentPoller?.cancel();
     _smartWidgetPoller?.cancel();
     super.dispose();
   }
 
-  // ── Appointment polling (30s) ──────────────────────────────────
+  // ── Appointment polling (30s, with backoff on consecutive failures) ──
   void _startAppointmentPolling() {
     _pollAppointments(); // immediate first poll
-    _appointmentPoller = Timer.periodic(
-      const Duration(seconds: 30),
-      (_) => _pollAppointments(),
-    );
+    _scheduleNextApptPoll();
+  }
+
+  void _scheduleNextApptPoll() {
+    final backoff = _apptPollFailures > 0
+        ? Duration(seconds: 30 * (1 << _apptPollFailures.clamp(0, 4)))
+        : const Duration(seconds: 30);
+    _appointmentPoller?.cancel();
+    _appointmentPoller = Timer(backoff, () {
+      _pollAppointments();
+      if (mounted) _scheduleNextApptPoll();
+    });
   }
 
   Future<void> _pollAppointments() async {
@@ -98,14 +120,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid == null || uid.isEmpty) return;
 
-      final uri = Uri.parse('${ApiConfig.baseUrl}/appointments/uid/$uid');
-      final res = await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders())
-          .timeout(const Duration(seconds: 8));
+      final response = await ApiClient.get(
+        '/appointments/uid/$uid',
+        timeout: const Duration(seconds: 8),
+      );
       if (!mounted) return;
 
-      if (res.statusCode == 200) {
-        final body = jsonDecode(res.body);
-        final List<dynamic> appointments = body['data'] ?? body ?? [];
+      if (response.isSuccess) {
+        final List<dynamic> appointments = response.data ?? [];
 
         // Find today's appointment
         final now = DateTime.now();
@@ -131,8 +153,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           });
         }
       }
-    } catch (_) {
-      // Silent fail — polling is best-effort
+      _apptPollFailures = 0; // reset on any successful response
+    } catch (e) {
+      _apptPollFailures++;
+      if (kDebugMode) debugPrint('Appointment poll failed (#$_apptPollFailures): $e');
     }
   }
 
@@ -180,27 +204,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // ── Smart widget polling (60s) ──────────────────────────────────
+  // ── Smart widget polling (60s, with backoff on consecutive failures) ──
   void _startSmartWidgetPolling() {
     _fetchSmartWidgetData(); // immediate first fetch
-    _smartWidgetPoller = Timer.periodic(
-      const Duration(seconds: 60),
-      (_) => _fetchSmartWidgetData(),
-    );
+    _scheduleNextSmartPoll();
+  }
+
+  void _scheduleNextSmartPoll() {
+    final backoff = _smartPollFailures > 0
+        ? Duration(seconds: 60 * (1 << _smartPollFailures.clamp(0, 4)))
+        : const Duration(seconds: 60);
+    _smartWidgetPoller?.cancel();
+    _smartWidgetPoller = Timer(backoff, () {
+      _fetchSmartWidgetData();
+      if (mounted) _scheduleNextSmartPoll();
+    });
   }
 
   Future<void> _fetchSmartWidgetData() async {
     try {
-      final headers = await ApiConfig.authenticatedAuthHeaders();
-
       // 1. Active pharmacy order
       try {
-        final pharmaRes = await http
-            .get(Uri.parse('${ApiConfig.baseUrl}/pharmacy-orders/orders/my'), headers: headers)
-            .timeout(const Duration(seconds: 8));
-        if (mounted && pharmaRes.statusCode == 200) {
-          final body = jsonDecode(pharmaRes.body);
-          final List<dynamic> orders = body['data'] ?? body ?? [];
+        final pharmaRes = await ApiClient.get(
+          '/pharmacy-orders/orders/my',
+          timeout: const Duration(seconds: 8),
+        );
+        if (mounted && pharmaRes.isSuccess) {
+          final List<dynamic> orders = pharmaRes.data ?? [];
           Map<String, dynamic>? active;
           for (final o in orders) {
             final status = o['status']?.toString().toUpperCase() ?? '';
@@ -211,16 +241,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }
           if (mounted) setState(() => _activePharmacyOrder = active);
         }
-      } catch (_) {}
+      } catch (e) {
+        if (kDebugMode) debugPrint('Smart poll (pharmacy) failed: $e');
+      }
 
       // 2. Active investigation booking
       try {
-        final invRes = await http
-            .get(Uri.parse('${ApiConfig.baseUrl}/investigations/bookings/my'), headers: headers)
-            .timeout(const Duration(seconds: 8));
-        if (mounted && invRes.statusCode == 200) {
-          final body = jsonDecode(invRes.body);
-          final List<dynamic> bookings = body['data'] ?? body ?? [];
+        final invRes = await ApiClient.get(
+          '/investigations/bookings/my',
+          timeout: const Duration(seconds: 8),
+        );
+        if (mounted && invRes.isSuccess) {
+          final List<dynamic> bookings = invRes.data ?? [];
           Map<String, dynamic>? active;
           for (final b in bookings) {
             final status = b['status']?.toString().toUpperCase() ?? '';
@@ -231,16 +263,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }
           if (mounted) setState(() => _activeInvestigationBooking = active);
         }
-      } catch (_) {}
+      } catch (e) {
+        if (kDebugMode) debugPrint('Smart poll (investigations) failed: $e');
+      }
 
       // 3. Recent prescription (not yet ordered via pharmacy)
       try {
-        final rxRes = await http
-            .get(Uri.parse('${ApiConfig.baseUrl}/prescriptions/patient/my'), headers: headers)
-            .timeout(const Duration(seconds: 8));
-        if (mounted && rxRes.statusCode == 200) {
-          final body = jsonDecode(rxRes.body);
-          final List<dynamic> prescriptions = body['data'] ?? body ?? [];
+        final rxRes = await ApiClient.get(
+          '/prescriptions/patient/my',
+          timeout: const Duration(seconds: 8),
+        );
+        if (mounted && rxRes.isSuccess) {
+          final List<dynamic> prescriptions = rxRes.data ?? [];
           Map<String, dynamic>? recent;
           for (final rx in prescriptions) {
             final pharmacyOpted = rx['pharmacy_opted'] ?? rx['pharmacyOpted'] ?? false;
@@ -251,9 +285,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }
           if (mounted) setState(() => _recentPrescription = recent);
         }
-      } catch (_) {}
-    } catch (_) {
-      // All fire-and-forget — widgets just don't show if anything fails
+      } catch (e) {
+        if (kDebugMode) debugPrint('Smart poll (prescriptions) failed: $e');
+      }
+      _smartPollFailures = 0; // reset on any partial success
+    } catch (e) {
+      _smartPollFailures++;
+      if (kDebugMode) debugPrint('Smart poll failed (#$_smartPollFailures): $e');
     }
   }
 
@@ -346,18 +384,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _fetchAndStoreDashboard() async {
     try {
-      final uri = Uri.parse('${ApiConfig.baseUrl}/dashboard?phone=${widget.phone}');
-      final headers = await ApiConfig.authenticatedAuthHeaders();
-      final res = await http.get(uri, headers: headers).timeout(const Duration(seconds: 10));
+      final result = await ApiClient.cachedGet(
+        '/dashboard',
+        queryParameters: {'phone': widget.phone},
+        timeout: const Duration(seconds: 10),
+      );
       if (!mounted) return;
 
-      if (res.statusCode == 200) {
-        final body = json.decode(res.body);
-        final data = body['data'] ?? body;
+      if (result.isSuccess) {
+        final data = result.data ?? {};
         final name = data['name'] ?? widget.name;
         final last = data['lastAppointment'];
         final next = data['nextAppointment'];
 
+        setState(() {
+          _staleLabel = result.staleLabel;
+          cachedName = name;
+          lastAppointment = last;
+          nextAppointment = next;
+        });
+
+        // Persist to secure storage
         await Future.wait([
           _secureStorage.write(key: 'userName', value: name),
           _secureStorage.write(key: 'lastAppointment', value: last),
@@ -365,13 +412,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _secureStorage.write(key: 'fetched_dashboard', value: 'true'),
         ]);
 
-        if (mounted) {
-          setState(() {
-            cachedName = name;
-            lastAppointment = last;
-            nextAppointment = next;
-          });
-        }
+        // Listen for fresh network data if cache was served first
+        result.onFresh?.then((fresh) {
+          if (!mounted) return;
+          if (fresh.isSuccess) {
+            final freshData = fresh.data ?? {};
+            final freshName = freshData['name'] ?? widget.name;
+            final freshLast = freshData['lastAppointment'];
+            final freshNext = freshData['nextAppointment'];
+            setState(() {
+              _staleLabel = null;
+              cachedName = freshName;
+              lastAppointment = freshLast;
+              nextAppointment = freshNext;
+            });
+          }
+        });
       }
     } catch (_) {}
   }
@@ -433,6 +489,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: SafeArea(
           child: Column(
             children: [
+              // Offline / stale-data banner
+              OfflineBanner(staleLabel: _staleLabel),
+
               // Today's appointment status card (real-time)
               if (_todayAppointment != null && !isGuest)
                 _TodayAppointmentCard(

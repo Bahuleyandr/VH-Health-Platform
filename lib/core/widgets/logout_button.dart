@@ -3,6 +3,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth/core/navigation/app_router.dart';
+import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/services/device_service.dart';
 import 'package:vhhealth/core/services/firebase_session_service.dart';
 
@@ -54,26 +55,25 @@ class LogoutButton extends StatelessWidget {
     try {
       // Unregister device and revoke session before clearing storage
       const storage = FlutterSecureStorage();
-      final phone = await storage.read(key: 'phone') ?? '';
+      final phone = await storage.read(key: 'user_phone') ?? '';
       try {
         await Future.wait([
           DeviceService.unregisterDevice(phone),
           FirebaseSessionService.revokeSession(),
         ]);
-      } catch (_) {}
-
-      // Clear storage
-      await storage.deleteAll();
-      
-      // ✅ FIXED: Use root navigator to navigate to login
-      if (context.mounted) {
-        AppRouter.clearUserData();
-context.go('/login');
+      } catch (e) {
+        debugPrint('Logout cleanup: $e');
       }
-      
-      // Sign out after navigation
-      await Future.delayed(const Duration(milliseconds: 300));
+
+      // Clear storage, cached API data, and sign out before navigating
+      await storage.deleteAll();
+      await ApiCacheManager.clearAll();
       await FirebaseAuth.instance.signOut();
+      AppRouter.clearUserData();
+
+      if (context.mounted) {
+        context.go('/login');
+      }
       
     } catch (e) {
       debugPrint('Logout error: $e');

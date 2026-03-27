@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -7,7 +8,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/utils/input_sanitizer.dart';
 
 class BookInvestigationScreen extends StatefulWidget {
   const BookInvestigationScreen({super.key});
@@ -24,6 +26,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
   List<dynamic> _catalog = [];
   bool _loadingCatalog = true;
   String _searchQuery = '';
+  Timer? _searchDebounce;
   final Set<int> _selectedTestIds = {};
   final _customTestController = TextEditingController();
   File? _slipPhoto;
@@ -60,6 +63,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _customTestController.dispose();
     _addressController.dispose();
     _landmarkController.dispose();
@@ -69,14 +73,11 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
 
   Future<void> _fetchCatalog() async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final res = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/investigations/catalog'),
-        headers: headers,
-      );
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final list = data['data'] is List ? data['data'] : [];
+      final response = await ApiClient.get('/investigations/catalog');
+      if (!mounted) return;
+      if (response.isSuccess) {
+        final data = response.data;
+        final list = data is List ? data : [];
         setState(() {
           _catalog = list;
           _loadingCatalog = false;
@@ -85,6 +86,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
         setState(() => _loadingCatalog = false);
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() => _loadingCatalog = false);
     }
   }
@@ -156,66 +158,64 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
   Future<void> _submitBooking() async {
     setState(() => _isSubmitting = true);
     try {
-      final headers = await ApiConfig.authenticatedAuthHeaders();
-      final req = http.MultipartRequest(
-        'POST',
-        Uri.parse('${ApiConfig.baseUrl}/investigations/bookings/create'),
-      )..headers.addAll(headers);
+      final fields = <String, String>{};
 
       // Add fields
       if (_selectedTestIds.isNotEmpty) {
-        req.fields['selected_tests'] =
-            jsonEncode(_selectedTestIds.toList());
+        fields['selected_tests'] = jsonEncode(_selectedTestIds.toList());
       }
       if (_customTestController.text.trim().isNotEmpty) {
-        req.fields['custom_test_names'] = _customTestController.text.trim();
+        fields['custom_test_names'] = InputSanitizer.sanitize(_customTestController.text.trim());
       }
-      req.fields['collection_type'] = _collectionType;
+      fields['collection_type'] = _collectionType;
       if (_collectionType == 'home') {
         if (_addressController.text.trim().isNotEmpty) {
-          req.fields['collection_address'] = _addressController.text.trim();
+          fields['collection_address'] = InputSanitizer.sanitize(_addressController.text.trim());
         }
         if (_landmarkController.text.trim().isNotEmpty) {
-          req.fields['collection_landmark'] =
-              _landmarkController.text.trim();
+          fields['collection_landmark'] = InputSanitizer.sanitize(_landmarkController.text.trim());
         }
       }
       if (_preferredDate != null) {
-        req.fields['preferred_date'] =
+        fields['preferred_date'] =
             DateFormat('yyyy-MM-dd').format(_preferredDate!);
       }
       if (_preferredTimeSlot != null) {
-        req.fields['preferred_time_slot'] = _preferredTimeSlot!;
+        fields['preferred_time_slot'] = _preferredTimeSlot!;
       }
       if (_notesController.text.trim().isNotEmpty) {
-        req.fields['notes'] = _notesController.text.trim();
+        fields['notes'] = InputSanitizer.sanitize(_notesController.text.trim());
       }
 
       // Attach slip photo
+      final files = <http.MultipartFile>[];
       if (_slipPhoto != null) {
-        req.files.add(await http.MultipartFile.fromPath(
+        files.add(await http.MultipartFile.fromPath(
           'slip_photo',
           _slipPhoto!.path,
           filename: _slipPhotoName ?? 'slip.jpg',
         ));
       }
 
-      final streamRes = await req.send();
-      final res = await http.Response.fromStream(streamRes);
-      final body = jsonDecode(res.body);
+      final response = await ApiClient.multipart(
+        '/investigations/bookings/create',
+        fields: fields,
+        files: files,
+      );
+      if (!mounted) return;
 
-      if (res.statusCode == 200 && body['success'] == true) {
+      if (response.isSuccess) {
         setState(() {
-          _bookingResult = body['data'];
+          _bookingResult = response.dataAsMap();
           _currentStep = 3; // success step
         });
       } else {
-        _showError(body['message'] ?? 'Booking failed');
+        _showError(response.message ?? 'Booking failed');
       }
     } catch (e) {
       _showError('Error: ${e.toString()}');
     } finally {
-      setState(() => _isSubmitting = false);
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 
@@ -357,7 +357,12 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
             ),
             isDense: true,
           ),
-          onChanged: (v) => setState(() => _searchQuery = v),
+          onChanged: (v) {
+            _searchDebounce?.cancel();
+            _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+              if (mounted) setState(() => _searchQuery = v);
+            });
+          },
         ),
         const SizedBox(height: 12),
 

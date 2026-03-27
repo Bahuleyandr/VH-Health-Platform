@@ -1,11 +1,10 @@
 // lib/features/profile/screens/profile_edit_screen.dart
 import 'package:go_router/go_router.dart';
 
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/utils/input_sanitizer.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -67,17 +66,13 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   // ───────────────────────────── Fetch Profile ──────────────────────────────
   Future<void> _fetchProfile() async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final res = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/users/${widget.phone}'),
-        headers: headers,
-      );
+      final response = await ApiClient.get('/users/${widget.phone}');
 
       if (!mounted) return;
 
-      if (res.statusCode == 200) {
-        final body = jsonDecode(res.body);
-        final user = body['data']?['user'] ?? body['data'] ?? body['user'] ?? body;
+      if (response.isSuccess) {
+        final data = response.dataAsMap();
+        final user = data['user'] as Map<String, dynamic>? ?? data;
 
         _nameController.text = user['name']?.toString() ?? widget.name;
         _emailController.text = user['email']?.toString() ?? '';
@@ -118,7 +113,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
               _birthdayController.text =
                   MaterialLocalizations.of(context).formatMediumDate(_selectedBirthday!);
             }
-          } catch (_) {}
+          } catch (e) {
+            debugPrint('Birthday parse failed: $e');
+          }
         }
       }
     } catch (e) {
@@ -140,16 +137,13 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     bool success = false;
 
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-
       // Build emergency_contact as string (backend accepts string or object)
       final ecText = _emergencyContactController.text.trim();
 
-      final res = await http.put(
-        Uri.parse('${ApiConfig.baseUrl}/users/${widget.phone}'),
-        headers: headers,
-        body: jsonEncode({
-          'name'               : _nameController.text.trim(),
+      final response = await ApiClient.put(
+        '/users/${widget.phone}',
+        body: {
+          'name'               : InputSanitizer.sanitizeName(_nameController.text.trim()),
           'email'              : _emailController.text.trim().isNotEmpty
               ? _emailController.text.trim()
               : null,
@@ -159,22 +153,22 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           'gender'             : _selectedGender,
           'blood_group'        : _selectedBloodGroup,
           'address'            : _addressController.text.trim().isNotEmpty
-              ? _addressController.text.trim()
+              ? InputSanitizer.sanitize(_addressController.text.trim())
               : null,
           'allergies'          : _allergiesController.text.trim().isNotEmpty
-              ? _allergiesController.text.trim()
+              ? InputSanitizer.sanitize(_allergiesController.text.trim())
               : null,
-          'emergency_contact'  : ecText.isNotEmpty ? ecText : null,
+          'emergency_contact'  : ecText.isNotEmpty ? InputSanitizer.sanitize(ecText) : null,
           'insurance_details'  : _insuranceController.text.trim().isNotEmpty
-              ? _insuranceController.text.trim()
+              ? InputSanitizer.sanitize(_insuranceController.text.trim())
               : null,
           'preferred_hospital' : _preferredHospitalController.text.trim().isNotEmpty
-              ? _preferredHospitalController.text.trim()
+              ? InputSanitizer.sanitize(_preferredHospitalController.text.trim())
               : null,
-        }),
+        },
       );
-      success = res.statusCode == 200 || res.statusCode == 204;
-      if (!success) debugPrint('API error: ${res.statusCode} – ${res.body}');
+      success = response.isSuccess;
+      if (!success) debugPrint('API error: ${response.statusCode} – ${response.message}');
     } catch (e) {
       debugPrint('Network error: $e');
     }
@@ -193,7 +187,10 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       ),
     );
 
-    if (success) context.pop();
+    if (success) {
+      context.pop();
+      return;
+    }
     setState(() => _isSubmitting = false);
   }
 

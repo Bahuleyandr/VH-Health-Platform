@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:provider/provider.dart';
+import 'package:vhhealth/core/providers/user_provider.dart';
 
 // Import all your screens
 import 'package:vhhealth/features/splash/screens/splash_screen.dart';
@@ -29,49 +31,70 @@ import 'package:vhhealth/core/widgets/main_scaffold_go_router.dart';
 class AppRouter {
   static final _rootNavigatorKey = GlobalKey<NavigatorState>();
   static final _shellNavigatorKey = GlobalKey<NavigatorState>();
-  
-  // Store user data
+
+  // Legacy static cache — kept for redirect (which has no Provider context).
+  // Route builders should prefer context.read<UserProvider>() instead.
   static String? _userPhone;
   static String? _userName;
-  
+
   static void setUserData(String phone, String name) {
     _userPhone = phone;
     _userName = name;
   }
-  
+
   static void clearUserData() {
     _userPhone = null;
     _userName = null;
   }
-  
+
   static String? get userPhone => _userPhone;
   static String? get userName => _userName;
-  
+
+  /// Read user phone from Provider (preferred) with static fallback.
+  static String _phone(BuildContext context) {
+    try {
+      return context.read<UserProvider>().phone;
+    } catch (e) {
+      debugPrint('AppRouter._phone provider fallback: $e');
+      return _userPhone ?? '';
+    }
+  }
+
+  /// Read user name from Provider (preferred) with static fallback.
+  static String _name(BuildContext context) {
+    try {
+      return context.read<UserProvider>().name;
+    } catch (e) {
+      debugPrint('AppRouter._name provider fallback: $e');
+      return _userName ?? 'Guest';
+    }
+  }
+
   static final router = GoRouter(
     navigatorKey: _rootNavigatorKey,
     initialLocation: '/',
     debugLogDiagnostics: true,
-    
+
     // Handle auth redirects
     redirect: (context, state) async {
       final currentUser = FirebaseAuth.instance.currentUser;
       final isLoggedIn = currentUser != null;
       final location = state.matchedLocation;
-      
+
       // Skip redirect on splash screen to let it handle navigation
       if (location == '/') {
         return null;
       }
-      
-      final isAuthRoute = location == '/login' || 
+
+      final isAuthRoute = location == '/login' ||
                          location == '/terms' ||
                          location == '/profile-setup';
-      
+
       // If not logged in and not on auth route, redirect to login
       if (!isLoggedIn && !isAuthRoute) {
         return '/login';
       }
-      
+
       // If logged in and on login, load user data and redirect to home
       if (isLoggedIn && location == '/login') {
         // Load user data from secure storage if not already loaded
@@ -81,21 +104,27 @@ class AppRouter {
           final name = await storage.read(key: 'user_name') ?? 'User';
           if (phone.isNotEmpty) {
             setUserData(phone, name);
+            // Sync to UserProvider if available
+            try {
+              context.read<UserProvider>().setUser(phone, name);
+            } catch (e) {
+              debugPrint('AppRouter sync UserProvider failed: $e');
+            }
           }
         }
         return '/home';
       }
-      
+
       return null;
     },
-    
+
     routes: [
       // Splash screen
       GoRoute(
         path: '/',
         builder: (context, state) => const SplashScreen(),
       ),
-      
+
       // Auth routes
       GoRoute(
         path: '/login',
@@ -122,20 +151,20 @@ class AppRouter {
         builder: (context, state) {
           final extra = state.extra as Map<String, dynamic>?;
           return ProfileEditScreen(
-            phone: extra?['phone'] ?? _userPhone ?? '',
-            name: extra?['name'] ?? _userName ?? 'User',
+            phone: extra?['phone'] ?? _phone(context),
+            name: extra?['name'] ?? _name(context),
           );
         },
       ),
-      
+
       // Main app with bottom navigation
       ShellRoute(
         navigatorKey: _shellNavigatorKey,
         builder: (context, state, child) {
           return MainScaffoldGoRouter(
             child: child,
-            phone: _userPhone ?? '',
-            name: _userName ?? 'Guest',
+            phone: _phone(context),
+            name: _name(context),
           );
         },
         routes: [
@@ -143,8 +172,8 @@ class AppRouter {
             path: '/home',
             pageBuilder: (context, state) => NoTransitionPage(
               child: DashboardScreen(
-                phone: _userPhone ?? '',
-                name: _userName ?? 'Guest',
+                phone: _phone(context),
+                name: _name(context),
               ),
             ),
           ),
@@ -154,7 +183,7 @@ class AppRouter {
               final extra = state.extra as Map<String, dynamic>?;
               return NoTransitionPage(
                 child: YourHealthScreen(
-                  phone: _userPhone ?? '',
+                  phone: _phone(context),
                   initialTab: extra?['tab'] as int? ?? 0,
                 ),
               );
@@ -163,41 +192,41 @@ class AppRouter {
           GoRoute(
             path: '/notifications',
             pageBuilder: (context, state) => NoTransitionPage(
-              child: NotificationsScreen(phone: _userPhone ?? ''),
+              child: NotificationsScreen(phone: _phone(context)),
             ),
           ),
           GoRoute(
             path: '/settings',
             pageBuilder: (context, state) => NoTransitionPage(
               child: SettingsScreen(
-                phone: _userPhone ?? '',
-                name: _userName ?? 'Guest',
+                phone: _phone(context),
+                name: _name(context),
               ),
             ),
           ),
         ],
       ),
-      
+
       // Feature routes (outside shell for full screen)
       GoRoute(
         path: '/appointments',
         builder: (context, state) {
           final extra = state.extra as Map<String, dynamic>?;
           return AppointmentsScreen(
-            phone: extra?['phone'] ?? _userPhone ?? '',
+            phone: extra?['phone'] ?? _phone(context),
           );
         },
       ),
       GoRoute(
         path: '/pharmacy',
         builder: (context, state) => PharmacyScreen(
-          phone: _userPhone ?? '',
+          phone: _phone(context),
         ),
       ),
       GoRoute(
         path: '/investigations',
         builder: (context, state) => InvestigationsScreen(
-          phone: _userPhone ?? '',
+          phone: _phone(context),
         ),
       ),
       GoRoute(
@@ -207,7 +236,7 @@ class AppRouter {
       GoRoute(
         path: '/ask-a-doubt',
         builder: (context, state) => AskADoubtScreen(
-          phone: _userPhone ?? '',
+          phone: _phone(context),
         ),
       ),
       GoRoute(
@@ -221,8 +250,8 @@ class AppRouter {
       GoRoute(
         path: '/departments',
         builder: (context, state) => DepartmentsScreen(
-          phone: _userPhone ?? '',
-          name: _userName ?? 'Guest',
+          phone: _phone(context),
+          name: _name(context),
         ),
       ),
       GoRoute(
@@ -232,14 +261,14 @@ class AppRouter {
       GoRoute(
         path: '/calendar',
         builder: (context, state) => CalendarScreen(
-          uid: _userPhone ?? '',
+          uid: _phone(context),
         ),
       ),
       GoRoute(
         path: '/records',
         redirect: (_, __) => '/health',
       ),
-      
+
       // Alternative route names for backward compatibility
       GoRoute(
         path: '/your-health',
@@ -250,7 +279,7 @@ class AppRouter {
         redirect: (_, __) => '/home',
       ),
     ],
-    
+
     // Error page
     errorBuilder: (context, state) => Scaffold(
       body: Center(

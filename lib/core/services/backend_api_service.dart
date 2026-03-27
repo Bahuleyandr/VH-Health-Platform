@@ -1,5 +1,6 @@
 // lib/core/services/backend_api_service.dart
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:vhhealth/core/config/api_config.dart';
 
@@ -11,7 +12,7 @@ class BackendApiService {
       Uri.parse('${ApiConfig.baseUrl}/auth/firebase/firebase-login'),
       headers: ApiConfig.jsonHeaders,
       body: jsonEncode({'idToken': token}),
-    );
+    ).timeout(const Duration(seconds: 15));
     return response;
   }
 
@@ -21,7 +22,7 @@ class BackendApiService {
       Uri.parse('${ApiConfig.baseUrl}/auth/firebase/complete-profile'),
       headers: ApiConfig.jsonHeaders,
       body: jsonEncode(profile),
-    );
+    ).timeout(const Duration(seconds: 15));
     return response.statusCode == 200 || response.statusCode == 201;
   }
 
@@ -29,7 +30,8 @@ class BackendApiService {
   static Map<String, dynamic>? parseJson(http.Response response) {
     try {
       return jsonDecode(response.body) as Map<String, dynamic>;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('BackendApiService.parseJson failed: $e');
       return null;
     }
   }

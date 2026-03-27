@@ -13,6 +13,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
@@ -119,7 +120,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
           _fileName = result.files.single.name;
         });
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Investigation file pick failed: $e');
       messenger.showSnackBar(SnackBar(
         content: Text(l10n.pharmacyFilePickerError),
         backgroundColor: theme.colorScheme.error,
@@ -146,45 +148,39 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     String? fileKey;
 
     try {
-      final uploadHeaders = await ApiConfig.authenticatedAuthHeaders();
-      final req = http.MultipartRequest(
-        'POST',
-        Uri.parse('${ApiConfig.baseUrl}/upload'),
-      )
-        ..headers.addAll(uploadHeaders)
-        ..files.add(await http.MultipartFile.fromPath('file', _file!.path,
-            filename: _fileName));
-
-      final res = await http.Response.fromStream(await req.send());
-      if (res.statusCode == 200) {
-        final decoded = jsonDecode(res.body);
-        fileKey = decoded['data']?['storageKey'] ?? decoded['storageKey'];
+      final uploadResponse = await ApiClient.multipart(
+        '/upload',
+        files: [
+          await http.MultipartFile.fromPath('file', _file!.path,
+              filename: _fileName),
+        ],
+      );
+      if (uploadResponse.isSuccess) {
+        final data = uploadResponse.dataAsMap();
+        fileKey = data['storageKey'] ?? uploadResponse.raw?['storageKey'];
         if (fileKey == null) throw Exception('Key missing');
       } else {
         throw Exception('Upload failed');
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Investigation file upload failed: $e');
       messenger.showSnackBar(SnackBar(
         content: Text(l10n.investigationsUploadFailed),
         backgroundColor: theme.colorScheme.error,
         behavior: SnackBarBehavior.floating,
       ));
-      setState(() => _isSubmitting = false);
+      if (mounted) setState(() => _isSubmitting = false);
       return;
     }
 
     try {
-      final apiRes = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/investigations'),
-        headers: await ApiConfig.authenticatedHeaders(),
-        body: jsonEncode({
-          'phone': _phoneController.text.trim(),
-          'test_name': _testNameController.text.trim(),
-          'file_key': fileKey,
-        }),
-      );
+      final apiRes = await ApiClient.post('/investigations', body: {
+        'phone': _phoneController.text.trim(),
+        'test_name': _testNameController.text.trim(),
+        'file_key': fileKey,
+      });
 
-      if (apiRes.statusCode == 200) {
+      if (apiRes.isSuccess) {
         messenger.showSnackBar(SnackBar(
           content: Text(l10n.investigationsConfirmationNote),
           backgroundColor: theme.colorScheme.primary,
@@ -200,16 +196,15 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
           _fileName = null;
         });
       } else {
-        final msg = (jsonDecode(apiRes.body)['message'] ??
-                l10n.investigationsFailed)
-            .toString();
+        final msg = (apiRes.message ?? l10n.investigationsFailed).toString();
         messenger.showSnackBar(SnackBar(
           content: Text(msg),
           backgroundColor: theme.colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ));
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Investigation submit failed: $e');
       messenger.showSnackBar(SnackBar(
         content: Text(l10n.networkError),
         backgroundColor: theme.colorScheme.error,
@@ -233,19 +228,16 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     final path = _patientId != null
         ? '/investigations/patient/$_patientId'
         : '/investigations/${widget.phone}';
-    final uri = Uri.parse('${ApiConfig.baseUrl}$path');
 
     try {
-      final resp =
-          await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders());
+      final response = await ApiClient.get(path);
       if (!mounted) return;
 
-      if (resp.statusCode == 200) {
-        final body = jsonDecode(resp.body);
-        final data = body['data'] ?? body;
+      if (response.isSuccess) {
+        final data = response.data;
         final List<dynamic> investigations = data is List
             ? data
-            : (data['investigations'] ?? []) as List<dynamic>;
+            : (data is Map ? (data['investigations'] ?? []) : []) as List<dynamic>;
         setState(() {
           _investigations = investigations;
           _isLoadingResults = false;
@@ -256,7 +248,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
           _resultsError = 'Failed to load investigations';
         });
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Fetch investigations failed: $e');
       if (!mounted) return;
       setState(() {
         _isLoadingResults = false;
@@ -270,20 +263,14 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
 
     setState(() => _loadingFiles.add(investigationId));
 
-    final uri = Uri.parse(
-      '${ApiConfig.baseUrl}/investigations/$investigationId/files',
-    );
-
     try {
-      final resp =
-          await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders());
+      final response = await ApiClient.get('/investigations/$investigationId/files');
       if (!mounted) return;
 
-      if (resp.statusCode == 200) {
-        final body = jsonDecode(resp.body);
-        final data = body['data'] ?? body;
+      if (response.isSuccess) {
+        final data = response.data;
         final List<dynamic> files =
-            data is List ? data : (data['files'] ?? []) as List<dynamic>;
+            data is List ? data : (data is Map ? (data['files'] ?? []) : []) as List<dynamic>;
         setState(() {
           _fileCache[investigationId] = files;
           _loadingFiles.remove(investigationId);
@@ -291,7 +278,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
       } else {
         setState(() => _loadingFiles.remove(investigationId));
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Fetch investigation files failed: $e');
       if (mounted) setState(() => _loadingFiles.remove(investigationId));
     }
   }
@@ -308,7 +296,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
 
     try {
       final resp =
-          await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders());
+          await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders()).timeout(const Duration(seconds: 15));
       if (!mounted) return;
 
       if (resp.statusCode == 200) {
@@ -338,7 +326,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
       } else {
         throw Exception('Download failed');
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Investigation file download failed: $e');
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
         content: Text(l10n.investigationsDownloadFailed),
@@ -374,13 +363,13 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     DateTime? orderedDate;
     final orderedStr = inv['ordered_date'] ?? inv['created_at'] ?? inv['date'];
     if (orderedStr != null) {
-      try { orderedDate = DateTime.parse(orderedStr.toString()).toLocal(); } catch (_) {}
+      try { orderedDate = DateTime.parse(orderedStr.toString()).toLocal(); } catch (e) { debugPrint('Ordered date parse failed: $e'); }
     }
 
     DateTime? completedDate;
     final completedStr = inv['completed_date'];
     if (completedStr != null) {
-      try { completedDate = DateTime.parse(completedStr.toString()).toLocal(); } catch (_) {}
+      try { completedDate = DateTime.parse(completedStr.toString()).toLocal(); } catch (e) { debugPrint('Completed date parse failed: $e'); }
     }
 
     showModalBottomSheet(
@@ -711,7 +700,9 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
           if (dateStr != null) {
             try {
               date = DateTime.parse(dateStr.toString()).toLocal();
-            } catch (_) {}
+            } catch (e) {
+              debugPrint('Investigation date parse failed: $e');
+            }
           }
 
           final isExpanded = _expandedIds.contains(id);

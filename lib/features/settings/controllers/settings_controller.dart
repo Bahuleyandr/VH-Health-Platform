@@ -174,14 +174,14 @@ class SettingsController {
           DeviceService.unregisterDevice(phone),
           FirebaseSessionService.revokeSession(),
         ]);
-      } catch (_) {
-        // Best-effort — don't block logout if these fail
+      } catch (e) {
+        debugPrint('Settings logout cleanup failed: $e');
       }
       await _secureStorage.deleteAll();
+      await FirebaseAuth.instance.signOut();
+      AppRouter.clearUserData();
       if (context.mounted) {
-        await FirebaseAuth.instance.signOut();
-AppRouter.clearUserData();
-context.go('/login');
+        context.go('/login');
       }
     }
   }

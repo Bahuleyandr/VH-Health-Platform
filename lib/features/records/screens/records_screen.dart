@@ -1,13 +1,11 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
-
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/utils/safe_url_launcher.dart';
+import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 
 // ─── Model ───────────────────────────────────────────────────────────────────
@@ -93,27 +91,22 @@ class _RecordsScreenState extends State<RecordsScreen>
   Future<void> _fetchRecords() async {
     setState(() { _loading = true; _error = null; });
     try {
-      final resp = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/appointments/patient/records/all'),
-        headers: await ApiConfig.authenticatedAuthHeaders(),
-      );
-      if (resp.statusCode == 200) {
-        final body = jsonDecode(resp.body);
-        final data = body['data'] ?? body;
+      final response = await ApiClient.get('/appointments/patient/records/all');
+      if (!mounted) return;
+      if (response.isSuccess) {
+        final data = response.dataAsMap();
         final hospitalRaw = (data['hospital_records'] as List?) ?? [];
         final uploadsRaw = (data['my_uploads'] as List?) ?? [];
-        if (mounted) {
-          setState(() {
-            _hospitalRecords = hospitalRaw
-                .map((j) => _RecordItem.fromJson(j as Map<String, dynamic>, 'appointment'))
-                .toList();
-            _myUploads = uploadsRaw
-                .map((j) => _RecordItem.fromJson(j as Map<String, dynamic>, 'patient_upload'))
-                .toList();
-          });
-        }
+        setState(() {
+          _hospitalRecords = hospitalRaw
+              .map((j) => _RecordItem.fromJson(j as Map<String, dynamic>, 'appointment'))
+              .toList();
+          _myUploads = uploadsRaw
+              .map((j) => _RecordItem.fromJson(j as Map<String, dynamic>, 'patient_upload'))
+              .toList();
+        });
       } else {
-        setState(() => _error = 'Failed to load records (${resp.statusCode})');
+        setState(() => _error = response.message ?? 'Failed to load records');
       }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -130,12 +123,9 @@ class _RecordsScreenState extends State<RecordsScreen>
       );
       return;
     }
-    final uri = Uri.tryParse(url);
-    if (uri == null) return;
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+    final launched = await SafeUrlLauncher.launch(url, mode: LaunchMode.externalApplication);
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not open document')),
       );
     }
@@ -159,11 +149,8 @@ class _RecordsScreenState extends State<RecordsScreen>
     );
     if (confirmed != true) return;
     try {
-      final resp = await http.delete(
-        Uri.parse('${ApiConfig.baseUrl}/appointments/patient/records/${record.id}'),
-        headers: await ApiConfig.authenticatedAuthHeaders(),
-      );
-      if (resp.statusCode == 200) {
+      final response = await ApiClient.delete('/appointments/patient/records/${record.id}');
+      if (response.isSuccess) {
         if (mounted) {
           setState(() => _myUploads.removeWhere((r) => r.id == record.id));
           ScaffoldMessenger.of(context).showSnackBar(
@@ -172,7 +159,7 @@ class _RecordsScreenState extends State<RecordsScreen>
         }
       } else {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to delete record'), backgroundColor: Colors.red),
+          SnackBar(content: Text(response.message ?? 'Failed to delete record'), backgroundColor: Colors.red),
         );
       }
     } catch (e) {
@@ -217,38 +204,37 @@ class _RecordsScreenState extends State<RecordsScreen>
           }
           setSheet(() => _uploading = true);
           try {
-            final headers = await ApiConfig.authenticatedAuthHeaders();
-            final req = http.MultipartRequest(
-              'POST',
-              Uri.parse('${ApiConfig.baseUrl}/appointments/patient/records/upload'),
-            )
-              ..headers.addAll(headers)
-              ..fields['title'] = titleCtrl.text.trim()
-              ..fields['document_type'] = _docType
-              ..files.add(await http.MultipartFile.fromPath(
-                'file', _pickedFilePath!,
-                filename: _pickedFileName,
-              ));
+            final fields = <String, String>{
+              'title': titleCtrl.text.trim(),
+              'document_type': _docType,
+            };
             if (hospitalCtrl.text.trim().isNotEmpty) {
-              req.fields['source_hospital'] = hospitalCtrl.text.trim();
+              fields['source_hospital'] = hospitalCtrl.text.trim();
             }
             if (_recordDate != null) {
-              req.fields['record_date'] =
+              fields['record_date'] =
                   '${_recordDate!.year}-${_recordDate!.month.toString().padLeft(2, '0')}-${_recordDate!.day.toString().padLeft(2, '0')}';
             }
-            final streamed = await req.send();
-            final resp = await http.Response.fromStream(streamed);
-            if (resp.statusCode == 200 || resp.statusCode == 201) {
+            final response = await ApiClient.multipart(
+              '/appointments/patient/records/upload',
+              fields: fields,
+              files: [
+                await http.MultipartFile.fromPath(
+                  'file', _pickedFilePath!,
+                  filename: _pickedFileName,
+                ),
+              ],
+            );
+            if (response.isSuccess) {
               if (ctx.mounted) Navigator.pop(ctx);
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Record uploaded ✓'), backgroundColor: Colors.green),
+                  const SnackBar(content: Text('Record uploaded'), backgroundColor: Colors.green),
                 );
                 _fetchRecords();
               }
             } else {
-              final body = jsonDecode(resp.body);
-              throw Exception(body['message'] ?? 'Upload failed');
+              throw Exception(response.message ?? 'Upload failed');
             }
           } catch (e) {
             if (ctx.mounted) ScaffoldMessenger.of(ctx).showSnackBar(
@@ -342,7 +328,10 @@ class _RecordsScreenState extends State<RecordsScreen>
           ),
         );
       }),
-    );
+    ).whenComplete(() {
+      titleCtrl.dispose();
+      hospitalCtrl.dispose();
+    });
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -354,11 +343,15 @@ class _RecordsScreenState extends State<RecordsScreen>
       icon: Icons.folder_outlined,
       color: const Color(0xFF007A64),
       heroTag: 'records',
-      child: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? _errorView()
-              : Column(
+      child: DataStateBuilder<_RecordItem>(
+        isLoading: _loading,
+        error: _error,
+        data: [..._hospitalRecords, ..._myUploads],
+        onRetry: _fetchRecords,
+        emptyIcon: Icons.folder_outlined,
+        emptyTitle: 'No records yet',
+        emptySubtitle: 'Your hospital records and uploads will appear here',
+        builder: (context, _) => Column(
                   children: [
                     TabBar(
                       controller: _tabController,
@@ -378,23 +371,11 @@ class _RecordsScreenState extends State<RecordsScreen>
                     ),
                   ],
                 ),
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showUploadSheet,
         icon: const Icon(Icons.upload_file),
         label: const Text('Upload'),
-      ),
-    );
-  }
-
-  Widget _errorView() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(_error!, style: const TextStyle(color: Colors.red), textAlign: TextAlign.center),
-          const SizedBox(height: 12),
-          ElevatedButton(onPressed: _fetchRecords, child: const Text('Retry')),
-        ],
       ),
     );
   }

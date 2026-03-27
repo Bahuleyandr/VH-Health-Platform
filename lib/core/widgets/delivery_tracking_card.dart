@@ -1,11 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:url_launcher/url_launcher.dart';
-
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 
 /// Reusable delivery tracking card for pharmacy orders and investigation bookings.
 /// Shows ETA, distance, delivery person info, and a progress indicator.
@@ -48,24 +45,23 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
 
   Future<void> _fetchTracking() async {
     try {
-      final uri = Uri.parse(
-          '${ApiConfig.baseUrl}/delivery/track/${widget.orderType}/${widget.orderId}');
-      final res = await http
-          .get(uri, headers: await ApiConfig.authenticatedAuthHeaders())
-          .timeout(const Duration(seconds: 8));
+      final response = await ApiClient.get(
+        '/delivery/track/${widget.orderType}/${widget.orderId}',
+        timeout: const Duration(seconds: 8),
+      );
 
       if (!mounted) return;
 
-      if (res.statusCode == 200) {
-        final body = jsonDecode(res.body);
+      if (response.isSuccess) {
         setState(() {
-          _trackingData = body['data'];
+          _trackingData = response.dataAsMap();
           _loading = false;
         });
       } else {
         setState(() => _loading = false);
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Delivery tracking fetch failed: $e');
       if (mounted) setState(() => _loading = false);
     }
   }
@@ -103,6 +99,8 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
     final isActive = data['delivery_tracking_active'] == true;
     final progress = _calculateProgress();
 
+    final theme = Theme.of(context);
+
     final label = widget.orderType == 'pharmacy'
         ? 'Delivery On The Way'
         : 'Collector On The Way';
@@ -115,12 +113,12 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Colors.teal.shade50, Colors.teal.shade100.withValues(alpha: 0.3)],
+          colors: [theme.colorScheme.primaryContainer.withAlpha(77), theme.colorScheme.primaryContainer.withAlpha(38)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.teal.shade200),
+        border: Border.all(color: theme.colorScheme.primary.withAlpha(77)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -128,14 +126,14 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
           // Header
           Row(
             children: [
-              Icon(icon, color: Colors.teal.shade700, size: 24),
+              Icon(icon, color: theme.colorScheme.primary, size: 24),
               const SizedBox(width: 8),
               Text(
                 '🚗 $label',
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: Colors.teal.shade800,
+                  color: theme.colorScheme.primary,
                 ),
               ),
               const Spacer(),
@@ -164,20 +162,20 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
           Row(
             children: [
               if (etaMins != null) ...[
-                Icon(Icons.schedule, size: 18, color: Colors.teal.shade600),
+                Icon(Icons.schedule, size: 18, color: theme.colorScheme.primary),
                 const SizedBox(width: 6),
                 Text(
                   'Estimated arrival: ~$etaMins min',
-                  style: TextStyle(fontSize: 14, color: Colors.teal.shade800),
+                  style: TextStyle(fontSize: 14, color: theme.colorScheme.primary),
                 ),
               ],
               if (distanceKm != null) ...[
                 const SizedBox(width: 16),
-                Icon(Icons.straighten, size: 18, color: Colors.teal.shade600),
+                Icon(Icons.straighten, size: 18, color: theme.colorScheme.primary),
                 const SizedBox(width: 6),
                 Text(
                   '$distanceKm km',
-                  style: TextStyle(fontSize: 14, color: Colors.teal.shade800),
+                  style: TextStyle(fontSize: 14, color: theme.colorScheme.primary),
                 ),
               ],
             ],
@@ -188,7 +186,7 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
             const SizedBox(height: 12),
             Row(
               children: [
-                Icon(Icons.person, size: 18, color: Colors.teal.shade600),
+                Icon(Icons.person, size: 18, color: theme.colorScheme.primary),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Column(
@@ -197,14 +195,14 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
                       if (deliveryPerson != null)
                         Text(deliveryPerson, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                       if (deliveryPhone != null)
-                        Text(deliveryPhone, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                        Text(deliveryPhone, style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13)),
                     ],
                   ),
                 ),
                 if (deliveryPhone != null)
                   IconButton(
-                    icon: Icon(Icons.call, color: Colors.teal.shade700),
-                    onPressed: () => launchUrl(Uri.parse('tel:$deliveryPhone')),
+                    icon: Icon(Icons.call, color: theme.colorScheme.primary),
+                    onPressed: () => SafeUrlLauncher.launchPhone(deliveryPhone),
                     tooltip: 'Call',
                   ),
               ],
@@ -221,8 +219,8 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
                 child: LinearProgressIndicator(
                   value: progress,
                   minHeight: 6,
-                  backgroundColor: Colors.teal.shade100,
-                  valueColor: AlwaysStoppedAnimation(Colors.teal.shade600),
+                  backgroundColor: theme.colorScheme.primaryContainer,
+                  valueColor: AlwaysStoppedAnimation(theme.colorScheme.primary),
                 ),
               ),
               const SizedBox(height: 6),
@@ -230,9 +228,9 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text('Hospital',
-                      style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                      style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
                   Text('Your Location',
-                      style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                      style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
                 ],
               ),
             ],

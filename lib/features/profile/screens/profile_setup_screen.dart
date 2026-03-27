@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:vhhealth/core/services/backend_api_service.dart';
+import 'package:vhhealth/core/utils/input_sanitizer.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -59,7 +60,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     try {
       final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
       if (picked != null && mounted) setState(() => _photo = File(picked.path));
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Photo pick failed: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -79,7 +81,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     setState(() => _isSubmitting = true);
 
     final data = {
-      'name': _nameController.text.trim(),
+      'name': InputSanitizer.sanitizeName(_nameController.text.trim()),
       'gender': _gender,
       'email': _emailController.text.trim().isNotEmpty ? _emailController.text.trim() : null,
       'birthday': _birthday?.toIso8601String().split('T').first,

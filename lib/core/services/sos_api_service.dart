@@ -1,82 +1,79 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:flutter/foundation.dart';
+import 'package:vhhealth/core/services/api_client.dart';
 
 /// Backend API calls for SOS features.
+///
+/// Methods throw on failure so callers can show appropriate error feedback.
+/// This is critical — SOS is a life-safety feature and must never fail silently.
 class SosApiService {
   SosApiService._();
 
   /// Trigger SOS alert on the backend.
-  static Future<Map<String, dynamic>?> triggerAlert({
+  /// Returns the response map on success, throws on failure.
+  static Future<Map<String, dynamic>> triggerAlert({
     required String phone,
     double? latitude,
     double? longitude,
     String emergencyType = 'medical',
     String? severity,
   }) async {
-    try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final body = <String, dynamic>{
+    final response = await ApiClient.post(
+      '/sos/',
+      body: {
         'phone': phone,
         if (latitude != null) 'latitude': latitude,
         if (longitude != null) 'longitude': longitude,
         'emergencyType': emergencyType,
         if (severity != null) 'severity': severity,
-      };
-      final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/sos/'),
-        headers: headers,
-        body: jsonEncode(body),
-      );
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        return jsonDecode(response.body) as Map<String, dynamic>;
-      }
-    } catch (_) {}
-    return null;
+      },
+    );
+    if (response.isSuccess) {
+      return response.raw as Map<String, dynamic>;
+    }
+    throw SosException(
+      response.message ?? 'Failed to send SOS alert (${response.statusCode})',
+    );
   }
 
   /// Get the user's emergency contact.
+  /// Returns null if not configured, throws on network/server errors.
   static Future<Map<String, dynamic>?> getEmergencyContact() async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/sos/emergency-contact'),
-        headers: headers,
-      );
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body) as Map<String, dynamic>;
+      final response = await ApiClient.get('/sos/emergency-contact');
+      if (response.isSuccess) {
+        return response.raw as Map<String, dynamic>;
       }
-    } catch (_) {}
-    return null;
+      if (response.statusCode == 404) return null;
+      throw SosException(
+        response.message ?? 'Failed to fetch emergency contact',
+      );
+    } catch (e) {
+      if (e is SosException) rethrow;
+      if (kDebugMode) debugPrint('SOS getEmergencyContact error: $e');
+      return null; // Network failures are non-critical for this call
+    }
   }
 
-  /// Cancel an active SOS alert.
-  static Future<bool> cancelAlert(String alertId) async {
-    try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/sos/cancel/$alertId'),
-        headers: headers,
+  /// Cancel an active SOS alert. Throws on failure.
+  static Future<void> cancelAlert(String alertId) async {
+    final response = await ApiClient.post('/sos/cancel/$alertId');
+    if (!response.isSuccess) {
+      throw SosException(
+        response.message ?? 'Failed to cancel SOS alert',
       );
-      return response.statusCode == 200;
-    } catch (_) {
-      return false;
     }
   }
 
   /// Fetch the user's SOS alert history.
   static Future<List<dynamic>> getMyAlerts() async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/sos/my-alerts'),
-        headers: headers,
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return (data['data']?['alerts'] ?? []) as List<dynamic>;
+      final response = await ApiClient.get('/sos/my-alerts');
+      if (response.isSuccess) {
+        return response.dataAsList('alerts');
       }
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('SOS getMyAlerts error: $e');
+    }
     return [];
   }
 
@@ -86,33 +83,40 @@ class SosApiService {
     double? longitude,
   }) async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
       final params = <String, String>{};
       if (latitude != null) params['latitude'] = latitude.toString();
       if (longitude != null) params['longitude'] = longitude.toString();
-      final uri = Uri.parse('${ApiConfig.baseUrl}/sos/nearby-services')
-          .replace(queryParameters: params.isNotEmpty ? params : null);
-      final response = await http.get(uri, headers: headers);
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return (data['data']?['services'] ?? []) as List<dynamic>;
+      final response = await ApiClient.get(
+        '/sos/nearby-services',
+        queryParameters: params.isNotEmpty ? params : null,
+      );
+      if (response.isSuccess) {
+        return response.dataAsList('services');
       }
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('SOS getNearbyServices error: $e');
+    }
     return [];
   }
 
   /// Get medical info for first responders.
   static Future<Map<String, dynamic>?> getMedicalInfo() async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/sos/medical-info'),
-        headers: headers,
-      );
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body) as Map<String, dynamic>;
+      final response = await ApiClient.get('/sos/medical-info');
+      if (response.isSuccess) {
+        return response.raw as Map<String, dynamic>;
       }
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('SOS getMedicalInfo error: $e');
+    }
     return null;
   }
+}
+
+/// Exception thrown when a critical SOS operation fails.
+class SosException implements Exception {
+  final String message;
+  const SosException(this.message);
+  @override
+  String toString() => message;
 }

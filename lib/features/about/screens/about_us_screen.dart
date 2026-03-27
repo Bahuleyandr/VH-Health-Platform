@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:markdown_widget/markdown_widget.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
+import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -34,10 +35,7 @@ class AboutUsScreen extends StatelessWidget {
   }
 
   Future<void> _launchUrl(String url) async {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
+    await SafeUrlLauncher.launch(url, mode: LaunchMode.externalApplication);
   }
 
   void _showPhoneOptions(BuildContext context, String title, List<(String, String)> numbers) {
@@ -62,7 +60,7 @@ class AboutUsScreen extends StatelessWidget {
                 trailing: const Icon(Icons.call, color: Color(0xFF007A64)),
                 onTap: () {
                   Navigator.pop(context);
-                  _launchUrl('tel:${entry.$2}');
+                  SafeUrlLauncher.launchPhone(entry.$2);
                 },
               )),
               const SizedBox(height: 8),
@@ -229,7 +227,7 @@ class AboutUsScreen extends StatelessWidget {
                           color: cs.primary,
                           decoration: TextDecoration.underline,
                         ),
-                        onTap: (url) => _launchUrl(url),
+                        onTap: (url) => SafeUrlLauncher.launch(url),
                       ),
                     ],
                   ),

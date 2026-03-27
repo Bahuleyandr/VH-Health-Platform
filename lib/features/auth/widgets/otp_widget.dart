@@ -53,6 +53,7 @@ class _OtpWidgetState extends State<OtpWidget> {
     await _otpService.sendOTP(
       phoneNumber: widget.phoneNumber,
       onCodeSent: (id) {
+        if (!mounted) return;
         setState(() {
           verificationId = id;
           otpSent = true;
@@ -61,13 +62,14 @@ class _OtpWidgetState extends State<OtpWidget> {
         _showMessage("OTP sent to ${widget.phoneNumber}");
       },
       onAutoRetrieved: (credential, smsCode) async {
+        if (!mounted) return;
         otpController.text = smsCode;
         _showMessage("OTP auto-filled ✅");
         await _handleFirebaseAuthSuccess(credential);
       },
       onError: (error) {
         _showMessage("Error sending OTP: $error");
-        setState(() => isResending = false);
+        if (mounted) setState(() => isResending = false);
       },
     );
   }

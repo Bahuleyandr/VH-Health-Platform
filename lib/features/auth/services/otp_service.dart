@@ -78,7 +78,7 @@ class OtpService {
 
       if (jwt != null && userPhone != null) {
         await secureStorage.write(key: 'jwt', value: jwt);
-        await secureStorage.write(key: 'phone', value: userPhone);
+        await secureStorage.write(key: 'user_phone', value: userPhone);
         await secureStorage.write(key: 'isNewUser', value: isNewUser.toString());
         
         // Store user ID for appointment booking and other features
@@ -89,7 +89,7 @@ class OtpService {
         
         if (kDebugMode) {
           developer.log('✅ Backend login completed successfully', name: 'Auth');
-          developer.log('📱 Phone: $userPhone, New User: $isNewUser', name: 'Auth');
+          developer.log('📱 New User: $isNewUser', name: 'Auth');
         }
       } else {
         if (kDebugMode) {
@@ -106,7 +106,7 @@ class OtpService {
       // Store basic Firebase info as fallback
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        await secureStorage.write(key: 'phone', value: phoneNumber);
+        await secureStorage.write(key: 'user_phone', value: phoneNumber);
         await secureStorage.write(key: 'firebase_uid', value: user.uid);
         if (kDebugMode) {
           developer.log('💾 Stored basic Firebase user info as fallback', name: 'Auth');

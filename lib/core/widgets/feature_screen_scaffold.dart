@@ -62,7 +62,7 @@ class _FeatureScreenScaffoldState extends State<FeatureScreenScaffold>
     final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: theme.scaffoldBackgroundColor,
       floatingActionButton: widget.floatingActionButton,
       body: Container(
         decoration: BoxDecoration(
@@ -70,7 +70,7 @@ class _FeatureScreenScaffoldState extends State<FeatureScreenScaffold>
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Colors.white,
+              theme.scaffoldBackgroundColor,
               widget.color.withAlpha(26),  // ~0.1 alpha
               widget.color.withAlpha(51),  // ~0.2 alpha
               widget.color.withAlpha(77),  // ~0.3 alpha
@@ -156,7 +156,7 @@ class _FeatureScreenScaffoldState extends State<FeatureScreenScaffold>
                                 child: Container(
                                   padding: const EdgeInsets.all(24),
                                   decoration: BoxDecoration(
-                                    color: Colors.white.withAlpha(179),  // ~0.7 alpha
+                                    color: theme.colorScheme.surface.withAlpha(179),  // ~0.7 alpha
                                     borderRadius: BorderRadius.circular(24),
                                     border: Border.all(
                                       color: widget.color.withAlpha(51),  // ~0.2 alpha

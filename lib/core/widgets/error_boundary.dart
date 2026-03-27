@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 class ErrorBoundary extends StatefulWidget {
@@ -19,33 +20,33 @@ class ErrorBoundary extends StatefulWidget {
 class _ErrorBoundaryState extends State<ErrorBoundary> {
   Object? _error;
   StackTrace? _stackTrace;
-  FlutterErrorDetails? _flutterErrorDetails;
+
+  FlutterExceptionHandler? _previousHandler;
 
   @override
   void initState() {
     super.initState();
-    // Store previous error handler
-    final oldHandler = FlutterError.onError;
-    
-    // Set new error handler
+    // Store previous error handler so we can restore it on dispose
+    _previousHandler = FlutterError.onError;
+
     FlutterError.onError = (FlutterErrorDetails details) {
-      // Only catch errors from this widget's subtree
-      if (mounted && _isInSubtree(details)) {
+      if (mounted) {
         setState(() {
           _error = details.exception;
           _stackTrace = details.stack;
-          _flutterErrorDetails = details;
         });
       } else {
-        // Pass to previous handler if not our error
-        oldHandler?.call(details);
+        // Forward to previous handler if we're not mounted
+        _previousHandler?.call(details);
       }
     };
   }
 
-  bool _isInSubtree(FlutterErrorDetails details) {
-    // Basic check - in production you'd want more sophisticated checking
-    return true;
+  @override
+  void dispose() {
+    // Restore the previous error handler to avoid leaking our closure
+    FlutterError.onError = _previousHandler;
+    super.dispose();
   }
 
   @override
@@ -68,7 +69,7 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
         );
       }
     }
-    
+
     return widget.child;
   }
 }

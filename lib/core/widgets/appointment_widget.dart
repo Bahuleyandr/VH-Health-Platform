@@ -197,16 +197,16 @@ class AppointmentCard extends StatelessWidget {
       // Try dd/MM/yyyy format first
       try {
         parsedDate = DateFormat('dd/MM/yyyy').parse(date);
-      } catch (_) {
-        // Try other formats
+      } catch (e) {
+        debugPrint('Date parse dd/MM/yyyy failed: $e');
         parsedDate = DateTime.tryParse(date);
       }
-      
+
       if (parsedDate != null) {
         return DateFormat('dd/MM/yyyy').format(parsedDate);
       }
-    } catch (_) {
-      // Return original if parsing fails
+    } catch (e) {
+      debugPrint('Date formatting failed: $e');
     }
     return date;
   }
@@ -217,21 +217,22 @@ class AppointmentCard extends StatelessWidget {
       
       try {
         parsedDate = DateFormat('dd/MM/yyyy').parse(date);
-      } catch (_) {
+      } catch (e) {
+        debugPrint('Days-until date parse failed: $e');
         parsedDate = DateTime.tryParse(date);
       }
-      
+
       if (parsedDate != null) {
         final now = DateTime.now();
         final difference = parsedDate.difference(now).inDays;
-        
+
         if (difference == 0) return 'Today';
         if (difference == 1) return 'Tomorrow';
         if (difference > 0) return 'In $difference days';
         return 'Overdue';
       }
-    } catch (_) {
-      // Silent fail
+    } catch (e) {
+      debugPrint('getDaysUntil failed: $e');
     }
     return '';
   }

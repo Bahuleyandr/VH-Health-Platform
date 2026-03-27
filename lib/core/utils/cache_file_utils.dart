@@ -33,7 +33,9 @@ class CacheFileUtils {
       if (response.statusCode == 200) {
         return file;
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Download and cache file failed: $e');
+    }
     return null;
   }
 
@@ -43,7 +45,8 @@ class CacheFileUtils {
       final file = await _getLocalFile(fileName);
       await file.writeAsBytes(bytes);
       return file;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Save bytes to cache failed: $e');
       return null;
     }
   }

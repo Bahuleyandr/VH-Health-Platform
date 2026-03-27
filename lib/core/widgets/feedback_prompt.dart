@@ -1,9 +1,7 @@
-import 'dart:async'; // Add this import for TimeoutException
-import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:go_router/go_router.dart';
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
 
 class FeedbackPrompt extends StatefulWidget {
   final String phone;
@@ -55,30 +53,25 @@ class _FeedbackPromptState extends State<FeedbackPrompt> {
     _lastSubmitTime = now;
 
     try {
-      final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/feedback'),
-        headers: await ApiConfig.authenticatedHeaders(),
-        body: jsonEncode({
-          'phone': widget.phone,
-          'appointment_id': widget.refId,
-          'category': widget.type,
-          'rating': _rating,
-          'comment': _commentController.text.trim(),
-        }),
-      ).timeout(_requestTimeout);
+      final response = await ApiClient.post('/feedback', body: {
+        'phone': widget.phone,
+        'appointment_id': widget.refId,
+        'category': widget.type,
+        'rating': _rating,
+        'comment': _commentController.text.trim(),
+      }, timeout: _requestTimeout);
 
       if (!mounted) return;
 
-      if (response.statusCode == 200) {
+      if (response.isSuccess) {
         _showSnackBar('Thank you for your feedback!', isSuccess: true);
         context.pop();
       } else {
-        _showSnackBar('Failed to submit feedback. Please try again.');
+        _showSnackBar(response.message ?? 'Failed to submit feedback. Please try again.');
       }
-    } on TimeoutException catch (_) {
+    } on TimeoutException catch (e) {
+      debugPrint('Feedback submission timed out: $e');
       _showSnackBar('Request timed out. Please try again.');
-    } on http.ClientException catch (_) {
-      _showSnackBar('Network error. Please check your connection.');
     } catch (e) {
       _showSnackBar('An error occurred. Please try again.');
       debugPrint('Feedback submission error: $e');

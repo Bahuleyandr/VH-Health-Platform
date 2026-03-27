@@ -1,13 +1,13 @@
+import 'dart:async';
+
 import 'package:go_router/go_router.dart';
 
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
-
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
+import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -27,9 +27,11 @@ class DepartmentsScreen extends StatefulWidget {
 class _DepartmentsScreenState extends State<DepartmentsScreen> {
   List<dynamic> departments = [];
   bool _isLoading = true;
+  String? _error;
   final Set<int> _expandedIndices = {};
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
+  Timer? _debounce;
 
   late ScaffoldMessengerState _messenger;
   late ThemeData _theme;
@@ -43,6 +45,7 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -82,32 +85,24 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
 
   Future<void> _fetchDepartmentsData() async {
     if (!mounted) return;
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
 
     try {
-      final res = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/departments/departments-with-doctors'),
-        headers: await ApiConfig.authenticatedHeaders(),
-      );
+      final response = await ApiClient.get('/departments/departments-with-doctors');
 
       if (!mounted) return;
 
-      if (res.statusCode == 200) {
-        final decoded = jsonDecode(res.body);
+      if (response.isSuccess) {
         // Backend wraps in { success, data: { departments, count } }
+        final data = response.data;
         List<dynamic>? list;
-        if (decoded is Map) {
-          final data = decoded['data'];
-          if (data is Map && data['departments'] is List) {
-            list = data['departments'] as List<dynamic>;
-          } else if (data is List) {
-            list = data;
-          } else if (decoded['departments'] is List) {
-            list = decoded['departments'] as List<dynamic>;
-          }
-        }
-        if (list == null && decoded is List) {
-          list = decoded;
+        if (data is Map && data['departments'] is List) {
+          list = data['departments'] as List<dynamic>;
+        } else if (data is List) {
+          list = data;
         }
 
         if (list != null) {
@@ -116,28 +111,25 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
             _isLoading = false;
           });
         } else {
-          _handleError(_loc.departmentsLoadFailed);
+          setState(() {
+            _error = _loc.departmentsLoadFailed;
+            _isLoading = false;
+          });
         }
       } else {
-        _handleError(_loc.departmentsLoadFailed);
+        setState(() {
+          _error = response.message ?? _loc.departmentsLoadFailed;
+          _isLoading = false;
+        });
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Departments fetch failed: $e');
       if (!mounted) return;
-      _handleError(_loc.networkError);
+      setState(() {
+        _error = _loc.networkError;
+        _isLoading = false;
+      });
     }
-  }
-
-  void _handleError(String msg) {
-    setState(() => _isLoading = false);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _messenger.showSnackBar(SnackBar(
-          content: Text(msg),
-          backgroundColor: _theme.colorScheme.error,
-          behavior: SnackBarBehavior.floating,
-        ));
-      }
-    });
   }
 
   void _bookDoctor(String dept, String doctor) {
@@ -148,10 +140,7 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
   }
 
   Future<void> _callNumber(String number) async {
-    final uri = Uri.parse('tel:${number.replaceAll(' ', '').replaceAll('-', '')}');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    }
+    await SafeUrlLauncher.launchPhone(number);
   }
 
   void _showDoctorDetail(Map<String, dynamic> doctor, String deptName) {
@@ -366,18 +355,28 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
       icon: Icons.local_hospital_outlined,
       color: color,
       heroTag: 'departments',
-      child: _isLoading
-          ? Center(
-              child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation(cs.primary)))
-          : Column(
+      child: DataStateBuilder<dynamic>(
+        isLoading: _isLoading,
+        error: _error,
+        data: departments,
+        onRetry: _fetchDepartmentsData,
+        emptyIcon: Icons.local_hospital_outlined,
+        emptyTitle: _loc.departmentsNoneFound,
+        emptySubtitle: '',
+        builder: (context, depts) {
+          return Column(
               children: [
                 // Search bar
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
                   child: TextField(
                     controller: _searchController,
-                    onChanged: (v) => setState(() => _searchQuery = v),
+                    onChanged: (v) {
+                      _debounce?.cancel();
+                      _debounce = Timer(const Duration(milliseconds: 300), () {
+                        if (mounted) setState(() => _searchQuery = v);
+                      });
+                    },
                     decoration: InputDecoration(
                       hintText: 'Search departments or doctors...',
                       prefixIcon: const Icon(Icons.search, size: 20),
@@ -521,7 +520,9 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
                   ),
                 ),
               ],
-            ),
+            );
+        },
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: _triggerSOS,
         tooltip: _loc.authSosTooltip,
