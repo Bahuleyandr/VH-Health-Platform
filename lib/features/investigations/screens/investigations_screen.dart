@@ -120,7 +120,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
           _fileName = result.files.single.name;
         });
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Investigation file pick failed: $e');
       messenger.showSnackBar(SnackBar(
         content: Text(l10n.pharmacyFilePickerError),
         backgroundColor: theme.colorScheme.error,
@@ -161,7 +162,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
       } else {
         throw Exception('Upload failed');
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Investigation file upload failed: $e');
       messenger.showSnackBar(SnackBar(
         content: Text(l10n.investigationsUploadFailed),
         backgroundColor: theme.colorScheme.error,
@@ -201,7 +203,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
           behavior: SnackBarBehavior.floating,
         ));
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Investigation submit failed: $e');
       messenger.showSnackBar(SnackBar(
         content: Text(l10n.networkError),
         backgroundColor: theme.colorScheme.error,
@@ -245,7 +248,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
           _resultsError = 'Failed to load investigations';
         });
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Fetch investigations failed: $e');
       if (!mounted) return;
       setState(() {
         _isLoadingResults = false;

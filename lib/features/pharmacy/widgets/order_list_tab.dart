@@ -228,7 +228,8 @@ class OrderListTabState extends State<OrderListTab> {
     try {
       final dt = DateTime.parse(dateStr.toString());
       return DateFormat('dd MMM yyyy, hh:mm a').format(dt);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Order list date format failed: $e');
       return dateStr.toString();
     }
   }

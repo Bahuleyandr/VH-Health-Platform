@@ -69,7 +69,8 @@ class _FeedbackPromptState extends State<FeedbackPrompt> {
       } else {
         _showSnackBar(response.message ?? 'Failed to submit feedback. Please try again.');
       }
-    } on TimeoutException catch (_) {
+    } on TimeoutException catch (e) {
+      debugPrint('Feedback submission timed out: $e');
       _showSnackBar('Request timed out. Please try again.');
     } catch (e) {
       _showSnackBar('An error occurred. Please try again.');

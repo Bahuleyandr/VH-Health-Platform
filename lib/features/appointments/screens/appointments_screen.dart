@@ -167,7 +167,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
         }
         return;
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Fetch departments failed: $e');
+    }
     if (mounted) setState(() => _loadingDepts = false);
   }
 
@@ -205,7 +207,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
         }
         return;
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Fetch appointments failed: $e');
+    }
     if (mounted) setState(() => _loadingAppointments = false);
   }
 
@@ -287,7 +291,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
       } else {
         _showError(resp.message ?? l10n.appointmentFailed);
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Appointment booking failed: $e');
       setState(() => _submitting = false);
       _showError(l10n.genericError);
     }
@@ -372,7 +377,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
       } else {
         _showError('Failed to cancel appointment');
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Cancel appointment failed: $e');
       _showError('Failed to cancel appointment');
     }
   }
@@ -489,8 +495,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
           if (mounted) setState(() => _availableSlots = slots);
         }
       }
-    } catch (_) {
-      // Silently fail — let user pick time manually if slots can't load
+    } catch (e) {
+      debugPrint('Fetch appointment slots failed: $e');
     } finally {
       if (mounted) setState(() => _loadingSlots = false);
     }

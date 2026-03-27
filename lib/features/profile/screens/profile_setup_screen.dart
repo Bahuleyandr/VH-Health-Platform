@@ -59,7 +59,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     try {
       final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
       if (picked != null && mounted) setState(() => _photo = File(picked.path));
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Photo pick failed: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

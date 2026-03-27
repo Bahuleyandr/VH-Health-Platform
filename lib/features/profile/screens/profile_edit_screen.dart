@@ -112,7 +112,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
               _birthdayController.text =
                   MaterialLocalizations.of(context).formatMediumDate(_selectedBirthday!);
             }
-          } catch (_) {}
+          } catch (e) {
+            debugPrint('Birthday parse failed: $e');
+          }
         }
       }
     } catch (e) {

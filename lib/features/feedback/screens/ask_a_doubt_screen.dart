@@ -71,7 +71,8 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
           behavior: SnackBarBehavior.floating,
         ));
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Ask a doubt submit failed: $e');
       if (!mounted) return;
       setState(() => _isSubmitting = false);
       messenger.showSnackBar(SnackBar(

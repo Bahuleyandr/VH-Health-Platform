@@ -1,5 +1,6 @@
 // lib/core/services/backend_api_service.dart
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:vhhealth/core/config/api_config.dart';
 
@@ -29,7 +30,8 @@ class BackendApiService {
   static Map<String, dynamic>? parseJson(http.Response response) {
     try {
       return jsonDecode(response.body) as Map<String, dynamic>;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('BackendApiService.parseJson failed: $e');
       return null;
     }
   }

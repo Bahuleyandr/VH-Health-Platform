@@ -117,7 +117,8 @@ class PharmacyOrderCard extends StatelessWidget {
   String _formatCardDate(dynamic d) {
     try {
       return DateFormat('dd MMM, hh:mm a').format(DateTime.parse(d.toString()));
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Order status date format failed: $e');
       return '';
     }
   }

@@ -57,7 +57,9 @@ class DeviceService {
       if (response.isSuccess) {
         return response.dataAsList('devices');
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('DeviceService.getMyDevices failed: $e');
+    }
     return [];
   }
 
@@ -73,7 +75,8 @@ class DeviceService {
         },
       );
       return response.isSuccess;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('DeviceService.heartbeat failed: $e');
       return false;
     }
   }
@@ -94,7 +97,8 @@ class DeviceService {
         },
       );
       return response.isSuccess;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('DeviceService.updateFcmToken failed: $e');
       return false;
     }
   }

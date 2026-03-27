@@ -61,7 +61,8 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
       } else {
         setState(() => _loading = false);
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Delivery tracking fetch failed: $e');
       if (mounted) setState(() => _loading = false);
     }
   }

@@ -2,6 +2,7 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 class RecordCacheManager {
@@ -28,7 +29,9 @@ class RecordCacheManager {
         final content = await manifestFile.readAsString();
         return jsonDecode(content);
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Load manifest failed: $e');
+    }
     return null;
   }
 

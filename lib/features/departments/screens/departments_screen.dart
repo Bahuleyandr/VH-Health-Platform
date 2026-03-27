@@ -123,7 +123,8 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
           _isLoading = false;
         });
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Departments fetch failed: $e');
       if (!mounted) return;
       setState(() {
         _error = _loc.networkError;

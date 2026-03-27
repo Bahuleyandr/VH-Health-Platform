@@ -1,4 +1,5 @@
 // lib/core/services/shared_prefs_service.dart
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class SharedPrefsService {
@@ -22,8 +23,8 @@ class SharedPrefsService {
     if (_cachedToken != null) return _cachedToken;
     try {
       _cachedToken = await _secure.read(key: _tokenKey);
-    } catch (_) {
-      // ignore – will return null
+    } catch (e) {
+      debugPrint('SharedPrefsService.getToken failed: $e');
     }
     return _cachedToken;
   }
@@ -33,6 +34,8 @@ class SharedPrefsService {
     _cachedToken = null;
     try {
       await _secure.delete(key: _tokenKey);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('SharedPrefsService.clearToken failed: $e');
+    }
   }
 }

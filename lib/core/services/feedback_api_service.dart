@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 
 /// Backend API calls for feedback features.
@@ -11,7 +12,9 @@ class FeedbackApiService {
       if (response.isSuccess) {
         return response.raw as Map<String, dynamic>;
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('FeedbackApiService.getMyFeedback failed: $e');
+    }
     return null;
   }
 
@@ -22,7 +25,9 @@ class FeedbackApiService {
       if (response.isSuccess) {
         return response.raw as Map<String, dynamic>;
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('FeedbackApiService.getMyStats failed: $e');
+    }
     return null;
   }
 
@@ -42,7 +47,8 @@ class FeedbackApiService {
         },
       );
       return response.isSuccess;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('FeedbackApiService.quickRating failed: $e');
       return false;
     }
   }

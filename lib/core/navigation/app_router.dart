@@ -54,7 +54,8 @@ class AppRouter {
   static String _phone(BuildContext context) {
     try {
       return context.read<UserProvider>().phone;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('AppRouter._phone provider fallback: $e');
       return _userPhone ?? '';
     }
   }
@@ -63,7 +64,8 @@ class AppRouter {
   static String _name(BuildContext context) {
     try {
       return context.read<UserProvider>().name;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('AppRouter._name provider fallback: $e');
       return _userName ?? 'Guest';
     }
   }
@@ -105,7 +107,9 @@ class AppRouter {
             // Sync to UserProvider if available
             try {
               context.read<UserProvider>().setUser(phone, name);
-            } catch (_) {}
+            } catch (e) {
+              debugPrint('AppRouter sync UserProvider failed: $e');
+            }
           }
         }
         return '/home';

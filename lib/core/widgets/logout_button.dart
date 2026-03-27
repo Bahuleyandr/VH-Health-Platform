@@ -60,7 +60,9 @@ class LogoutButton extends StatelessWidget {
           DeviceService.unregisterDevice(phone),
           FirebaseSessionService.revokeSession(),
         ]);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('Logout cleanup: $e');
+      }
 
       // Clear storage and sign out before navigating
       await storage.deleteAll();
