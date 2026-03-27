@@ -331,7 +331,10 @@ class _RecordsScreenState extends State<RecordsScreen>
           ),
         );
       }),
-    );
+    ).whenComplete(() {
+      titleCtrl.dispose();
+      hospitalCtrl.dispose();
+    });
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────

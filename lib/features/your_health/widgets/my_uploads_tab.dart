@@ -312,7 +312,10 @@ class MyUploadsTabState extends State<MyUploadsTab> {
           ),
         );
       }),
-    );
+    ).whenComplete(() {
+      titleCtrl.dispose();
+      hospitalCtrl.dispose();
+    });
   }
 
   @override

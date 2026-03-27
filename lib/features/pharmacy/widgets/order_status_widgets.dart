@@ -21,6 +21,7 @@ class PharmacyDeliveryOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -28,22 +29,22 @@ class PharmacyDeliveryOption extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected
               ? const Color(0xFF7E57C2).withValues(alpha: 0.1)
-              : Colors.grey.shade100,
+              : theme.colorScheme.surfaceContainerHighest.withAlpha(128),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: selected ? const Color(0xFF7E57C2) : Colors.grey.shade300,
+            color: selected ? const Color(0xFF7E57C2) : theme.colorScheme.outlineVariant,
             width: selected ? 2 : 1,
           ),
         ),
         child: Column(
           children: [
             Icon(icon,
-                color: selected ? const Color(0xFF7E57C2) : Colors.grey,
+                color: selected ? const Color(0xFF7E57C2) : theme.colorScheme.onSurfaceVariant,
                 size: 28),
             const SizedBox(height: 4),
             Text(label,
                 style: TextStyle(
-                    color: selected ? const Color(0xFF7E57C2) : Colors.grey,
+                    color: selected ? const Color(0xFF7E57C2) : theme.colorScheme.onSurfaceVariant,
                     fontWeight: selected ? FontWeight.bold : FontWeight.normal,
                     fontSize: 13)),
           ],
@@ -61,6 +62,7 @@ class PharmacyOrderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final status = order['status'] ?? 'PLACED';
     final orderNum = order['order_number'] ?? '#${order['id']}';
     final date = order['created_at'];
@@ -97,7 +99,7 @@ class PharmacyOrderCard extends StatelessWidget {
                   if (date != null)
                     Text(_formatCardDate(date),
                         style: TextStyle(
-                            color: Colors.grey.shade600, fontSize: 12)),
+                            color: theme.colorScheme.onSurfaceVariant, fontSize: 12)),
                   if (cost != null)
                     Text('\u20B9$cost',
                         style: const TextStyle(
@@ -156,6 +158,7 @@ class PharmacyMiniStatusTracker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     if (status.toUpperCase() == 'CANCELLED') {
       return Row(
         children: [
@@ -180,7 +183,7 @@ class PharmacyMiniStatusTracker extends StatelessWidget {
               height: 2,
               color: stepIdx < currentIdx
                   ? const Color(0xFF7E57C2)
-                  : Colors.grey.shade300,
+                  : theme.colorScheme.outlineVariant,
             ),
           );
         }
@@ -191,7 +194,7 @@ class PharmacyMiniStatusTracker extends StatelessWidget {
           height: 10,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: done ? const Color(0xFF7E57C2) : Colors.grey.shade300,
+            color: done ? const Color(0xFF7E57C2) : theme.colorScheme.outlineVariant,
           ),
         );
       }),
@@ -205,6 +208,7 @@ class PharmacyStatusTracker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     if (status.toUpperCase() == 'CANCELLED') {
       return Container(
         padding: const EdgeInsets.all(16),
@@ -254,11 +258,11 @@ class PharmacyStatusTracker extends StatelessWidget {
                     shape: BoxShape.circle,
                     color: done
                         ? const Color(0xFF7E57C2)
-                        : Colors.grey.shade200,
+                        : theme.colorScheme.surfaceContainerHighest,
                   ),
                   child: Icon(icon,
                       size: 16,
-                      color: done ? Colors.white : Colors.grey.shade400),
+                      color: done ? theme.colorScheme.onPrimary : theme.colorScheme.onSurfaceVariant),
                 ),
                 if (i < steps.length - 1)
                   Container(
@@ -266,7 +270,7 @@ class PharmacyStatusTracker extends StatelessWidget {
                     height: 24,
                     color: i < currentIdx
                         ? const Color(0xFF7E57C2)
-                        : Colors.grey.shade200,
+                        : theme.colorScheme.surfaceContainerHighest,
                   ),
               ],
             ),
@@ -276,7 +280,7 @@ class PharmacyStatusTracker extends StatelessWidget {
               child: Text(label,
                   style: TextStyle(
                     fontWeight: current ? FontWeight.bold : FontWeight.normal,
-                    color: done ? Colors.black87 : Colors.grey.shade400,
+                    color: done ? theme.colorScheme.onSurface : theme.colorScheme.onSurfaceVariant,
                     fontSize: 14,
                   )),
             ),
@@ -294,15 +298,16 @@ class PharmacyInfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
         children: [
-          Icon(icon, size: 16, color: Colors.grey.shade600),
+          Icon(icon, size: 16, color: theme.colorScheme.onSurfaceVariant),
           const SizedBox(width: 8),
           Expanded(
               child: Text(text,
-                  style: TextStyle(color: Colors.grey.shade700, fontSize: 13))),
+                  style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13))),
         ],
       ),
     );
