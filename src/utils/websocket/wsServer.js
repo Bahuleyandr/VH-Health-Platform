@@ -13,6 +13,8 @@ const socketMeta = new Map();
 let wss = null;
 
 const HEARTBEAT_INTERVAL = 30_000; // 30s
+const MAX_BUFFERED_AMOUNT = 1024 * 1024; // 1MB buffer limit per client
+const MAX_CONNECTIONS_PER_USER = 5;
 
 export function initWebSocket(server) {
   wss = new WebSocketServer({ server, path: '/ws' });
@@ -20,12 +22,11 @@ export function initWebSocket(server) {
   logger.info('🔌 WebSocket server initialized on /ws');
 
   wss.on('connection', (ws, req) => {
-    // Authenticate via query string ?token=xxx or Authorization header
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    const token = url.searchParams.get('token') || req.headers.authorization?.replace('Bearer ', '');
+    // Authenticate via Authorization header only (query string tokens are unsafe — they leak in logs/referrers)
+    const token = req.headers.authorization?.replace('Bearer ', '');
 
     if (!token) {
-      ws.close(4001, 'Authentication required');
+      ws.close(4001, 'Authorization header with Bearer token required');
       return;
     }
 
@@ -40,6 +41,13 @@ export function initWebSocket(server) {
     const userId = decoded.uid || decoded.id || decoded.sub;
     if (!userId) {
       ws.close(4001, 'Invalid token payload');
+      return;
+    }
+
+    // Enforce per-user connection limit
+    const existingConnections = clients.get(userId);
+    if (existingConnections && existingConnections.size >= MAX_CONNECTIONS_PER_USER) {
+      ws.close(4029, 'Too many concurrent connections');
       return;
     }
 
@@ -106,6 +114,11 @@ export function broadcast(channel, data) {
   const payload = JSON.stringify({ event: channel, data });
   for (const [ws, meta] of socketMeta) {
     if (meta.channels.has(channel) && ws.readyState === 1) {
+      // Skip slow clients to prevent memory buildup
+      if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
+        logger.warn(`Skipping broadcast to slow WebSocket client (buffered: ${ws.bufferedAmount})`);
+        continue;
+      }
       ws.send(payload);
     }
   }

@@ -1,5 +1,6 @@
 // src/services/auth/authService.js
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 import db from '../../config/database.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { SECURITY_CONFIG } from '../../config/securityConfig.js';
@@ -294,7 +295,7 @@ aud: 'vh-health-admin'               // optional
       if (rows.length === 0) throw new Error('Admin not found');
 
       const admin = rows[0];
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const otp = crypto.randomInt(100000, 999999).toString();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
       await db.query(
@@ -303,7 +304,7 @@ aud: 'vh-health-admin'               // optional
         [admin.uid, otp, expiresAt]
       );
 
-      logger.info(`Password reset OTP for ${admin.username || admin.email}: ${otp}`);
+      logger.info(`Password reset OTP requested for admin ${admin.username || admin.email}`);
 
       return {
         message: 'OTP sent to registered email/phone',

@@ -255,13 +255,14 @@ export class StaffAuthService {
       const decoded = verifyToken(refreshToken);
       if (!decoded) throw new Error('Invalid or expired refresh token');
 
+      const incomingHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
       const sessionResult = await db.query(`
         SELECT s.*, u.uid, u.name, u.email, u.role, st.employee_id, st.is_active
         FROM staff_auth_sessions s
         JOIN users u ON s.staff_id = u.id
         JOIN staff st ON u.id = st.user_id
         WHERE s.session_token = $1 AND s.expires_at > NOW()
-      `, [refreshToken]);
+      `, [incomingHash]);
 
       if (sessionResult.rows.length === 0) throw new Error('Invalid or expired session');
       const session = sessionResult.rows[0];
@@ -480,11 +481,12 @@ export class StaffAuthService {
   static async createSession(staffId, deviceId, sessionToken, req) {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 30);
+    const sessionHash = crypto.createHash('sha256').update(sessionToken).digest('hex');
     await db.query(`
       INSERT INTO staff_auth_sessions (
         staff_id, device_id, session_token, expires_at, ip_address, created_at
       ) VALUES ($1, $2, $3, $4, $5, NOW())
-    `, [staffId, deviceId, sessionToken, expiresAt, req.ip || '']);
+    `, [staffId, deviceId, sessionHash, expiresAt, req.ip || '']);
   }
 
   static async logAuthAttempt(phone, action, success, failureReason, authMethod, req) {

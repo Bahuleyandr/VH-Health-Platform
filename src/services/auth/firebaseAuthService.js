@@ -99,8 +99,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req) => {
       email: user.email,
       role: user.role,
       profileComplete: !!(user.name && user.gender),
-      emailVerified: user.email_verified,
-      isNewUser
+      emailVerified: user.email_verified
     }
   };
 };
