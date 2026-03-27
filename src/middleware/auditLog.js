@@ -11,6 +11,10 @@
  */
 
 import db from '../config/database.js';
+import logger from '../logging/logger.js';
+
+let pendingAuditLogs = 0;
+const MAX_PENDING_AUDIT_LOGS = 1000;
 
 // ─── Path → module mapping ───────────────────────────────────────────────────
 function deriveModule(path) {
@@ -178,6 +182,11 @@ export function auditLogMiddleware(req, res, next) {
   const startMs = Date.now();
 
   res.on('finish', () => {
+    if (pendingAuditLogs >= MAX_PENDING_AUDIT_LOGS) {
+      logger.warn('Audit log queue full, dropping entry');
+      return;
+    }
+    pendingAuditLogs++;
     setImmediate(async () => {
       try {
         const { method, originalUrl, query, body, ip, headers } = req;
@@ -217,6 +226,8 @@ export function auditLogMiddleware(req, res, next) {
         ]);
       } catch {
         // Never throw — audit logging must never break the app
+      } finally {
+        pendingAuditLogs--;
       }
     });
   });

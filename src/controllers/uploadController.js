@@ -44,7 +44,7 @@ export async function uploadSingleFile(req, res) {
 
   } catch (err) {
     logger.error('Hospital File Upload Error:', err.stack || err.toString());
-    error(res, err.message || 'Hospital file upload failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Hospital file upload failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 }
 
@@ -359,7 +359,7 @@ export async function getFileMetadata(req, res) {
 
   } catch (err) {
     logger.error('Get Hospital File Metadata Error:', err);
-    error(res, err.message || 'Failed to fetch hospital file metadata', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to fetch hospital file metadata', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 }
 
@@ -399,7 +399,7 @@ export async function generateDownloadUrl(req, res) {
                       err.message.includes('being scanned') ? HTTP_STATUS.TOO_EARLY :
                       err.message.includes('expired') ? HTTP_STATUS.GONE :
                       HTTP_STATUS.INTERNAL_SERVER_ERROR;
-    error(res, err.message || 'Failed to generate secure download URL', statusCode);
+    error(res, 'Failed to generate secure download URL', statusCode);
   }
 }
 
@@ -440,6 +440,6 @@ export async function deleteFile(req, res) {
                       err.message.includes('Permission denied') ? HTTP_STATUS.FORBIDDEN :
                       err.message.includes('admin approval') ? HTTP_STATUS.FORBIDDEN :
                       HTTP_STATUS.INTERNAL_SERVER_ERROR;
-    error(res, err.message || 'Failed to delete hospital file', statusCode);
+    error(res, 'Failed to delete hospital file', statusCode);
   }
 }

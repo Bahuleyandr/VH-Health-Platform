@@ -20,7 +20,7 @@ export const requestOtp = async (req, res) => {
     logger.error('OTP Request Error:', err);
     
     if (err.statusCode === HTTP_STATUS.TOO_MANY_REQUESTS) {
-      return error(res, err.message, HTTP_STATUS.TOO_MANY_REQUESTS);
+      return error(res, 'Too many OTP requests. Please try again later.', HTTP_STATUS.TOO_MANY_REQUESTS);
     }
     
     error(res, 'Failed to send OTP. Please try again.', HTTP_STATUS.INTERNAL_SERVER_ERROR);

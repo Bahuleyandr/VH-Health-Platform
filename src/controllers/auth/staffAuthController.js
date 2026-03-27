@@ -15,7 +15,7 @@ export const login = async (req, res) => {
     success(res, result, 'Staff login successful');
   } catch (err) {
     logger.error('Staff Login Error:', err);
-    error(res, err.message || 'Login failed', err.statusCode || HTTP_STATUS.UNAUTHORIZED);
+    error(res, 'Login failed', err.statusCode || HTTP_STATUS.UNAUTHORIZED);
   }
 };
 
@@ -28,7 +28,7 @@ export const pinLogin = async (req, res) => {
     success(res, result, 'Staff login with PIN successful');
   } catch (err) {
     logger.error('Staff PIN Login Error:', err);
-    error(res, err.message || 'Login failed', err.statusCode || HTTP_STATUS.UNAUTHORIZED);
+    error(res, 'Login failed', err.statusCode || HTTP_STATUS.UNAUTHORIZED);
   }
 };
 
@@ -41,7 +41,7 @@ export const registerDevice = async (req, res) => {
     success(res, result, 'Device registered successfully');
   } catch (err) {
     logger.error('Device Registration Error:', err);
-    error(res, err.message || 'Failed to register device', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to register device', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -53,7 +53,7 @@ export const quickLogin = async (req, res) => {
     success(res, result, 'Quick login successful');
   } catch (err) {
     logger.error('Quick Login Error:', err);
-    error(res, err.message || 'Quick login failed', err.statusCode || HTTP_STATUS.UNAUTHORIZED);
+    error(res, 'Quick login failed', err.statusCode || HTTP_STATUS.UNAUTHORIZED);
   }
 };
 
@@ -66,7 +66,7 @@ export const setupPin = async (req, res) => {
     success(res, result, 'PIN setup successful');
   } catch (err) {
     logger.error('PIN Setup Error:', err);
-    error(res, err.message || 'Failed to setup PIN', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to setup PIN', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -79,7 +79,7 @@ export const toggleBiometric = async (req, res) => {
     success(res, result, `Biometric ${enabled ? 'enabled' : 'disabled'}`);
   } catch (err) {
     logger.error('Toggle Biometric Error:', err);
-    error(res, err.message || 'Failed to toggle biometric', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to toggle biometric', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -91,7 +91,7 @@ export const refreshSession = async (req, res) => {
     success(res, result, 'Session refreshed successfully');
   } catch (err) {
     logger.error('Refresh Session Error:', err);
-    error(res, err.message || 'Failed to refresh session', err.statusCode || HTTP_STATUS.UNAUTHORIZED);
+    error(res, 'Failed to refresh session', err.statusCode || HTTP_STATUS.UNAUTHORIZED);
   }
 };
 
@@ -104,7 +104,7 @@ export const logout = async (req, res) => {
     success(res, result, 'Logged out successfully');
   } catch (err) {
     logger.error('Logout Error:', err);
-    error(res, err.message || 'Logout failed', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Logout failed', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -116,7 +116,7 @@ export const getProfile = async (req, res) => {
     success(res, profile, 'Staff profile retrieved');
   } catch (err) {
     logger.error('Get Profile Error:', err);
-    error(res, err.message || 'Failed to get profile', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to get profile', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -128,7 +128,7 @@ export const getDevices = async (req, res) => {
     success(res, { devices }, 'Devices retrieved successfully');
   } catch (err) {
     logger.error('List Devices Error:', err);
-    error(res, err.message || 'Failed to list devices', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to list devices', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -141,7 +141,7 @@ export const removeDevice = async (req, res) => {
     success(res, result, 'Device removed successfully');
   } catch (err) {
     logger.error('Remove Device Error:', err);
-    error(res, err.message || 'Failed to remove device', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to remove device', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -154,7 +154,7 @@ export const checkIn = async (req, res) => {
     success(res, result, 'Check-in successful');
   } catch (err) {
     logger.error('Check-in Error:', err);
-    error(res, err.message || 'Failed to check-in', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to check-in', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -167,7 +167,7 @@ export const checkOut = async (req, res) => {
     success(res, result, 'Check-out successful');
   } catch (err) {
     logger.error('Check-out Error:', err);
-    error(res, err.message || 'Failed to check-out', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to check-out', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -179,7 +179,7 @@ export const getAttendanceStatus = async (req, res) => {
     success(res, status, 'Attendance status retrieved');
   } catch (err) {
     logger.error('Get Attendance Status Error:', err);
-    error(res, err.message || 'Failed to get attendance status', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to get attendance status', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -191,7 +191,7 @@ export const checkDeviceStatus = async (req, res) => {
     success(res, status, 'Device status retrieved');
   } catch (err) {
     logger.error('Check Device Status Error:', err);
-    error(res, err.message || 'Failed to check device status', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to check device status', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -214,7 +214,7 @@ export const adminListAllDevices = async (req, res) => {
     success(res, result, 'All staff devices retrieved');
   } catch (err) {
     logger.error('Admin List Devices Error:', err);
-    error(res, err.message || 'Failed to list devices', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to list devices', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -226,7 +226,7 @@ export const getStaffLoginActivity = async (req, res) => {
     success(res, result, 'Login activity retrieved');
   } catch (err) {
     logger.error('Get Login Activity Error:', err);
-    error(res, err.message || 'Failed to get login activity', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to get login activity', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -238,7 +238,7 @@ export const adminForceLogout = async (req, res) => {
     success(res, result, 'Staff member logged out successfully');
   } catch (err) {
     logger.error('Admin Force Logout Error:', err);
-    error(res, err.message || 'Failed to force logout', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to force logout', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -250,7 +250,7 @@ export const adminResetPin = async (req, res) => {
     success(res, result, 'PIN reset successfully');
   } catch (err) {
     logger.error('Admin Reset PIN Error:', err);
-    error(res, err.message || 'Failed to reset PIN', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to reset PIN', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -262,7 +262,7 @@ export const adminRemoveAllDevices = async (req, res) => {
     success(res, result, 'All devices removed successfully');
   } catch (err) {
     logger.error('Admin Remove Devices Error:', err);
-    error(res, err.message || 'Failed to remove devices', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to remove devices', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -274,7 +274,7 @@ export const verifyDevice = async (req, res) => {
     success(res, result, 'Device verified successfully');
   } catch (err) {
     logger.error('Verify Device Error:', err);
-    error(res, err.message || 'Failed to verify device', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to verify device', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -286,7 +286,7 @@ export const getTodayAttendance = async (req, res) => {
     success(res, attendance, 'Today\'s attendance retrieved');
   } catch (err) {
     logger.error('Get Today Attendance Error:', err);
-    error(res, err.message || 'Failed to get attendance', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to get attendance', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -304,7 +304,7 @@ export const getAttendanceHistory = async (req, res) => {
     success(res, history, 'Attendance history retrieved');
   } catch (err) {
     logger.error('Get Attendance History Error:', err);
-    error(res, err.message || 'Failed to get attendance history', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to get attendance history', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 

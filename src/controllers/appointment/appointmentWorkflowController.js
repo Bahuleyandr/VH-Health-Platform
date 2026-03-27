@@ -15,7 +15,7 @@ export const confirmAppointment = async (req, res) => {
     const staffId = req.user?.id;
     const { confirmation_notes, appointment_date, appointment_time } = req.body;
 
-    const appt = await db.query('SELECT * FROM appointments WHERE id=$1', [id]);
+    const appt = await db.query('SELECT id, patient_id, doctor_id, appointment_date, appointment_time, status, department, phone FROM appointments WHERE id=$1', [id]);
     if (!appt.rows.length) return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
     const a = appt.rows[0];
     if (a.status === 'CANCELLED') return error(res, 'Cannot confirm a cancelled appointment', HTTP_STATUS.BAD_REQUEST);
@@ -44,7 +44,7 @@ export const confirmAppointment = async (req, res) => {
         sla_target_at = COALESCE(sla_target_at, created_at + INTERVAL '30 minutes'),
         updated_at = NOW()
       WHERE id = $6
-      RETURNING *
+      RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, reason, notes, token_number, confirmed_by, confirmed_at, department, created_at, updated_at
     `, [staffId, confirmation_notes || null, tokenNumber, newDate, newTime, id]);
 
     // Log status change
@@ -106,11 +106,11 @@ export const markNoShow = async (req, res) => {
   try {
     const { id } = req.params;
     const staffId = req.user?.id;
-    const appt = await db.query('SELECT * FROM appointments WHERE id=$1', [id]);
+    const appt = await db.query('SELECT id, status FROM appointments WHERE id=$1', [id]);
     if (!appt.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
 
     const result = await db.query(
-      `UPDATE appointments SET status='NO_SHOW', no_show_at=NOW(), updated_at=NOW() WHERE id=$1 RETURNING *`,
+      `UPDATE appointments SET status='NO_SHOW', no_show_at=NOW(), updated_at=NOW() WHERE id=$1 RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, token_number, updated_at`,
       [id]
     );
     await db.query(
@@ -132,11 +132,11 @@ export const completeAppointment = async (req, res) => {
     const { id } = req.params;
     const staffId = req.user?.id;
     const { notes } = req.body;
-    const appt = await db.query('SELECT * FROM appointments WHERE id=$1', [id]);
+    const appt = await db.query('SELECT id, patient_id, status FROM appointments WHERE id=$1', [id]);
     if (!appt.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
 
     const result = await db.query(
-      `UPDATE appointments SET status='COMPLETED', completed_at=NOW(), notes=COALESCE($2, notes), updated_at=NOW() WHERE id=$1 RETURNING *`,
+      `UPDATE appointments SET status='COMPLETED', completed_at=NOW(), notes=COALESCE($2, notes), updated_at=NOW() WHERE id=$1 RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, notes, token_number, completed_at, updated_at`,
       [id, notes || null]
     );
     await db.query(
@@ -176,11 +176,11 @@ export const cancelAppointment = async (req, res) => {
     const { id } = req.params;
     const staffId = req.user?.id;
     const { cancellation_reason } = req.body;
-    const appt = await db.query('SELECT * FROM appointments WHERE id=$1', [id]);
+    const appt = await db.query('SELECT id, patient_id, status FROM appointments WHERE id=$1', [id]);
     if (!appt.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
 
     const result = await db.query(
-      `UPDATE appointments SET status='CANCELLED', cancellation_reason=$2, updated_at=NOW() WHERE id=$1 RETURNING *`,
+      `UPDATE appointments SET status='CANCELLED', cancellation_reason=$2, updated_at=NOW() WHERE id=$1 RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, cancellation_reason, token_number, updated_at`,
       [id, cancellation_reason || null]
     );
     await db.query(
@@ -223,7 +223,8 @@ export const getTodayQueue = async (req, res) => {
     if (department) { params.push(department); where += ` AND a.department=$${params.length}`; }
 
     const result = await db.query(`
-      SELECT a.*,
+      SELECT a.id, a.patient_id, a.doctor_id, a.appointment_date, a.appointment_time,
+        a.status, a.reason, a.notes, a.token_number, a.department, a.confirmed_at, a.created_at, a.updated_at,
         p.name as patient_name, p.phone as patient_phone, p.blood_group,
         d.name as doctor_display_name, d.specialization,
         doc.department as doctor_department
@@ -255,7 +256,8 @@ export const getPendingAppointments = async (req, res) => {
     if (doctor_id) { params.push(doctor_id); where += ` AND a.doctor_id=$${params.length}`; }
 
     const result = await db.query(`
-      SELECT a.*,
+      SELECT a.id, a.patient_id, a.doctor_id, a.appointment_date, a.appointment_time,
+        a.status, a.reason, a.token_number, a.department, a.sla_target_at, a.created_at, a.updated_at,
         p.name as patient_name, p.phone as patient_phone,
         d.name as doctor_name,
         EXTRACT(EPOCH FROM (NOW() - a.created_at))/60 as minutes_since_booking,
@@ -287,7 +289,7 @@ export const getAvailableSlots = async (req, res) => {
 
     // Doctor can be referenced by users.id OR doctors.id
     const doctorQuery = await db.query(
-      `SELECT doc.*, u.name as doctor_name
+      `SELECT doc.id, doc.user_id, doc.department, doc.specialization, doc.available_days, doc.available_hours, u.name as doctor_name
        FROM doctors doc
        JOIN users u ON doc.user_id = u.id
        WHERE doc.id = $1 OR doc.user_id = $1`,
@@ -412,7 +414,7 @@ export const registerWalkIn = async (req, res) => {
         (patient_id, doctor_id, appointment_date, appointment_time, reason, notes,
          status, confirmed_by, confirmed_at, first_contact_at, token_number, department, created_by, phone)
       VALUES ($1, $2, NOW(), $3, $4, $5, 'CONFIRMED', $6, NOW(), NOW(), $7, $8, $9, $10)
-      RETURNING *
+      RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, reason, notes, status, confirmed_by, confirmed_at, token_number, department, phone, created_at
     `, [
       patientId,
       doctor_id || null,
@@ -448,7 +450,7 @@ export const getAppointmentHistory = async (req, res) => {
   try {
     const { id } = req.params;
     const result = await db.query(`
-      SELECT ash.*, u.name as changed_by_name
+      SELECT ash.id, ash.appointment_id, ash.from_status, ash.to_status, ash.changed_by, ash.changed_by_role, ash.reason, ash.created_at, u.name as changed_by_name
       FROM appointment_status_history ash
       LEFT JOIN users u ON ash.changed_by = u.id
       WHERE ash.appointment_id = $1

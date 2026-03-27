@@ -160,7 +160,10 @@ export class StaffAuthService {
         JOIN staff s ON u.id = s.user_id
         WHERE d.device_token = $1 
           AND d.is_active = true
-          AND (d.trust_expires_at IS NULL OR d.trust_expires_at > NOW())
+          AND (
+            (d.trust_expires_at IS NOT NULL AND d.trust_expires_at > NOW())
+            OR (d.trust_expires_at IS NULL AND d.created_at > NOW() - INTERVAL '90 days')
+          )
       `, [deviceToken]);
 
       if (deviceResult.rows.length === 0) {

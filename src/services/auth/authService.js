@@ -96,22 +96,19 @@ export class AuthService {
         throw new Error(verification.reason || 'Invalid OTP');
       }
 
-      let user = await this.getUserByPhone(normalizedPhone);
-      let isNewUser = false;
+      const upsertResult = await db.query(
+        `INSERT INTO users (phone, role, registered_at, last_login)
+         VALUES ($1, 'PATIENT', NOW(), NOW())
+         ON CONFLICT (phone) DO UPDATE SET last_login = NOW()
+         RETURNING uid, id, name, phone, role,
+           (xmax = 0) AS is_new_user`,
+        [normalizedPhone]
+      );
+      const user = upsertResult.rows[0];
+      const isNewUser = user.is_new_user;
 
-      if (!user) {
-        const insertResult = await db.query(
-          `INSERT INTO users (phone, role, registered_at, last_login) 
-           VALUES ($1, $2, NOW(), NOW()) RETURNING *`,
-          [normalizedPhone, 'PATIENT']
-        );
-        user = insertResult.rows[0];
-        isNewUser = true;
+      if (isNewUser) {
         logger.info(`New user registered: ${normalizedPhone}`);
-      } else {
-        await db.query('UPDATE users SET last_login = NOW() WHERE phone = $1', [
-          normalizedPhone,
-        ]);
       }
 
       const token = generateToken({
@@ -640,16 +637,22 @@ aud: 'vh-health-admin'               // optional
   static async legacyRegister(phone, req) {
     try {
       const normalizedPhone = normalizePhone(phone);
-      const existingUser = await this.getUserByPhone(normalizedPhone);
-      if (existingUser) throw new Error('User already exists');
 
-      const insertResult = await db.query(
-        `INSERT INTO users (phone, role, registered_at) 
-         VALUES ($1, $2, NOW()) RETURNING *`,
-        [normalizedPhone, 'PATIENT']
+      const upsertResult = await db.query(
+        `INSERT INTO users (phone, role, registered_at, last_login)
+         VALUES ($1, 'PATIENT', NOW(), NOW())
+         ON CONFLICT (phone) DO UPDATE SET last_login = NOW()
+         RETURNING uid, id, name, phone, role,
+           (xmax = 0) AS is_new_user`,
+        [normalizedPhone]
       );
 
-      const user = insertResult.rows[0];
+      const user = upsertResult.rows[0];
+
+      if (!user.is_new_user) {
+        throw new Error('User already exists');
+      }
+
       const token = generateToken({
         uid: user.uid,
         phone: user.phone,
@@ -814,22 +817,19 @@ aud: 'vh-health-admin'               // optional
         throw err;
       }
 
-      let user = await this.getUserByPhone(normalizedPhone);
-      let isNewUser = false;
+      const upsertResult = await db.query(
+        `INSERT INTO users (phone, role, registered_at, last_login)
+         VALUES ($1, 'PATIENT', NOW(), NOW())
+         ON CONFLICT (phone) DO UPDATE SET last_login = NOW()
+         RETURNING uid, id, name, phone, role,
+           (xmax = 0) AS is_new_user`,
+        [normalizedPhone]
+      );
+      const user = upsertResult.rows[0];
+      const isNewUser = user.is_new_user;
 
-      if (!user) {
-        const insertResult = await db.query(
-          `INSERT INTO users (phone, role, registered_at, last_login) 
-           VALUES ($1, $2, NOW(), NOW()) RETURNING *`,
-          [normalizedPhone, 'PATIENT']
-        );
-        user = insertResult.rows[0];
-        isNewUser = true;
+      if (isNewUser) {
         logger.info(`New user registered: ${normalizedPhone}`);
-      } else {
-        await db.query('UPDATE users SET last_login = NOW() WHERE phone = $1', [
-          normalizedPhone,
-        ]);
       }
 
       const token = generateToken({

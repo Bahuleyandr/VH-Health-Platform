@@ -478,11 +478,11 @@ wrapAutoRBAC(router, 'lookupRoutes', {
                 ELSE 'Long Inactive'
               END as activity_status
             FROM users u
-            WHERE u.registered_at > NOW() - INTERVAL '${parseInt(days)} days' 
-               OR u.last_login > NOW() - INTERVAL '${parseInt(days)} days'
+            WHERE u.registered_at > NOW() - make_interval(days => $2)
+               OR u.last_login > NOW() - make_interval(days => $2)
             ORDER BY COALESCE(u.last_login, u.registered_at) DESC
             LIMIT $1
-          `, [Math.min(parseInt(limit), 100)]);
+          `, [Math.min(parseInt(limit), 100), parseInt(days)]);
 
           await logAudit(req, 'user-activity-report-viewed', { days, recordCount: recentActivity.rows.length });
 

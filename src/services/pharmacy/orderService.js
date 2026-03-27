@@ -10,15 +10,15 @@ export const createOrder = async (orderData) => {
       phone, order_note, file_key, prescription_id, urgent, 
       status, requested_by, requested_by_role, created_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW()) 
-    RETURNING *`,
+    RETURNING id, phone, order_note, file_key, prescription_id, urgent, status, requested_by, requested_by_role, created_at`,
     [
-      phone, 
-      order_note, 
-      file_key || null, 
-      prescription_id || null, 
-      urgent || false, 
+      phone,
+      order_note,
+      file_key || null,
+      prescription_id || null,
+      urgent || false,
       ORDER_STATUS.PENDING,
-      requestedBy, 
+      requestedBy,
       requestedByRole
     ]
   );
@@ -35,7 +35,7 @@ export const createOrder = async (orderData) => {
 export const getOrdersByPhone = async (phone, filters) => {
   const { status, limit, offset } = filters;
 
-  let query = 'SELECT * FROM pharmacy_orders WHERE phone = $1';
+  let query = 'SELECT id, phone, order_note, file_key, prescription_id, urgent, status, notes, requested_by, requested_by_role, updated_by, updated_by_role, created_at, updated_at FROM pharmacy_orders WHERE phone = $1';
   const params = [phone];
 
   if (status) {
@@ -79,7 +79,7 @@ export const updateOrderStatus = async (orderId, status, notes, updatedBy, updat
     `UPDATE pharmacy_orders 
      SET status = $1, notes = $2, updated_by = $3, updated_by_role = $4, updated_at = NOW()
      WHERE id = $5 
-     RETURNING *`,
+     RETURNING id, phone, order_note, file_key, prescription_id, urgent, status, notes, requested_by, requested_by_role, updated_by, updated_by_role, created_at, updated_at`,
     [status, notes || null, updatedBy, updatedByRole, orderId]
   );
 
@@ -100,7 +100,7 @@ export const getAllOrders = async (filters) => {
   const { status, limit, offset, urgent_only } = filters;
 
   let query = `
-    SELECT po.*, 
+    SELECT po.id, po.phone, po.order_note, po.file_key, po.prescription_id, po.urgent, po.status, po.notes, po.requested_by, po.requested_by_role, po.updated_by, po.updated_by_role, po.created_at, po.updated_at,
            TO_CHAR(po.created_at, 'DD-MM-YYYY HH24:MI') as created_at_formatted,
            u.name as patient_name
     FROM pharmacy_orders po

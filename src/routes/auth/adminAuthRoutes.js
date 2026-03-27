@@ -8,6 +8,7 @@ import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import { wrapRoutesWithValidation, wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as adminAuthController from '../../controllers/auth/adminAuthController.js';
 import { authenticateToken } from '../../middleware/auth.js';
+import { otpRateLimiter } from '../../middleware/rateLimitMiddleware.js';
 
 // Use the dedicated admin validators
 import {
@@ -68,7 +69,7 @@ wrapRoutesWithValidation(
       ['/login', ...adminLoginValidator, handleValidation, adminAuthController.login],
 
       // Request password reset (send OTP)
-      ['/forgot-password', ...forgotPasswordValidator, handleValidation, adminAuthController.forgotPassword],
+      ['/forgot-password', otpRateLimiter, ...forgotPasswordValidator, handleValidation, adminAuthController.forgotPassword],
 
       // Reset password with OTP
       ['/reset-password', ...resetPasswordValidator, handleValidation, adminAuthController.resetPassword],
