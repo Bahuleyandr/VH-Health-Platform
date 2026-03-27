@@ -1,6 +1,4 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
 
 /// Backend API calls for SOS features.
 class SosApiService {
@@ -15,21 +13,18 @@ class SosApiService {
     String? severity,
   }) async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final body = <String, dynamic>{
-        'phone': phone,
-        if (latitude != null) 'latitude': latitude,
-        if (longitude != null) 'longitude': longitude,
-        'emergencyType': emergencyType,
-        if (severity != null) 'severity': severity,
-      };
-      final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/sos/'),
-        headers: headers,
-        body: jsonEncode(body),
-      ).timeout(const Duration(seconds: 15));
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        return jsonDecode(response.body) as Map<String, dynamic>;
+      final response = await ApiClient.post(
+        '/sos/',
+        body: {
+          'phone': phone,
+          if (latitude != null) 'latitude': latitude,
+          if (longitude != null) 'longitude': longitude,
+          'emergencyType': emergencyType,
+          if (severity != null) 'severity': severity,
+        },
+      );
+      if (response.isSuccess) {
+        return response.raw as Map<String, dynamic>;
       }
     } catch (_) {}
     return null;
@@ -38,13 +33,9 @@ class SosApiService {
   /// Get the user's emergency contact.
   static Future<Map<String, dynamic>?> getEmergencyContact() async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/sos/emergency-contact'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 15));
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body) as Map<String, dynamic>;
+      final response = await ApiClient.get('/sos/emergency-contact');
+      if (response.isSuccess) {
+        return response.raw as Map<String, dynamic>;
       }
     } catch (_) {}
     return null;
@@ -53,12 +44,8 @@ class SosApiService {
   /// Cancel an active SOS alert.
   static Future<bool> cancelAlert(String alertId) async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/sos/cancel/$alertId'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 15));
-      return response.statusCode == 200;
+      final response = await ApiClient.post('/sos/cancel/$alertId');
+      return response.isSuccess;
     } catch (_) {
       return false;
     }
@@ -67,14 +54,9 @@ class SosApiService {
   /// Fetch the user's SOS alert history.
   static Future<List<dynamic>> getMyAlerts() async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/sos/my-alerts'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 15));
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return (data['data']?['alerts'] ?? []) as List<dynamic>;
+      final response = await ApiClient.get('/sos/my-alerts');
+      if (response.isSuccess) {
+        return response.dataAsList('alerts');
       }
     } catch (_) {}
     return [];
@@ -86,16 +68,15 @@ class SosApiService {
     double? longitude,
   }) async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
       final params = <String, String>{};
       if (latitude != null) params['latitude'] = latitude.toString();
       if (longitude != null) params['longitude'] = longitude.toString();
-      final uri = Uri.parse('${ApiConfig.baseUrl}/sos/nearby-services')
-          .replace(queryParameters: params.isNotEmpty ? params : null);
-      final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 15));
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return (data['data']?['services'] ?? []) as List<dynamic>;
+      final response = await ApiClient.get(
+        '/sos/nearby-services',
+        queryParameters: params.isNotEmpty ? params : null,
+      );
+      if (response.isSuccess) {
+        return response.dataAsList('services');
       }
     } catch (_) {}
     return [];
@@ -104,13 +85,9 @@ class SosApiService {
   /// Get medical info for first responders.
   static Future<Map<String, dynamic>?> getMedicalInfo() async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/sos/medical-info'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 15));
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body) as Map<String, dynamic>;
+      final response = await ApiClient.get('/sos/medical-info');
+      if (response.isSuccess) {
+        return response.raw as Map<String, dynamic>;
       }
     } catch (_) {}
     return null;

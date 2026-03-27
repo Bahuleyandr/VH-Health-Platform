@@ -3,11 +3,10 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
-import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:url_launcher/url_launcher.dart';
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/calendar_utils.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
@@ -134,13 +133,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
 
   Future<void> _fetchDepartments() async {
     try {
-      final resp = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/departments/departments-with-doctors'),
-        headers: await ApiConfig.authenticatedAuthHeaders(),
-      ).timeout(const Duration(seconds: 15));
-      if (resp.statusCode == 200) {
-        final body = jsonDecode(resp.body);
-        final rawData = body['data'];
+      final resp = await ApiClient.get('/departments/departments-with-doctors');
+      if (resp.isSuccess) {
+        final rawData = resp.data;
         final List<dynamic> depts =
             rawData is Map ? (rawData['departments'] ?? []) : (rawData ?? []);
 
@@ -184,14 +179,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
     if (_patientId == null) return;
     setState(() => _loadingAppointments = true);
     try {
-      final resp = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/appointments/patient/$_patientId'),
-        headers: await ApiConfig.authenticatedAuthHeaders(),
-      ).timeout(const Duration(seconds: 15));
-      if (resp.statusCode == 200) {
-        final body = jsonDecode(resp.body);
-        final data = body['data'] ?? body;
-        final List<dynamic> raw = data['appointments'] ?? data ?? [];
+      final resp = await ApiClient.get('/appointments/patient/$_patientId');
+      if (resp.isSuccess) {
+        final data = resp.data ?? {};
+        final List<dynamic> raw = data is List ? data : (data['appointments'] ?? data ?? []);
         final list = raw.map((a) {
           return _AppointmentInfo(
             id: a['id'] ?? 0,
@@ -257,10 +248,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
     setState(() => _submitting = true);
 
     try {
-      final resp = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/appointments/book'),
-        headers: await ApiConfig.authenticatedHeaders(),
-        body: jsonEncode({
+      final resp = await ApiClient.post('/appointments/book', body: {
           'patient_id': int.parse(_patientId!),
           'doctor_id': _selectedDoctor!.id,
           'appointment_date': dateStr,
@@ -268,13 +256,12 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
           'reason': _reasonController.text.trim().isEmpty
               ? 'General consultation'
               : _reasonController.text.trim(),
-        }),
-      ).timeout(const Duration(seconds: 15));
+        });
 
       if (!mounted) return;
       setState(() => _submitting = false);
 
-      if (resp.statusCode == 200 || resp.statusCode == 201) {
+      if (resp.isSuccess) {
         _showSuccess(l10n.appointmentConfirmationNote);
         _reasonController.clear();
 
@@ -300,12 +287,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
         _tabController.animateTo(1);
         _fetchAppointments();
       } else {
-        String err = l10n.appointmentFailed;
-        try {
-          final data = jsonDecode(resp.body);
-          if (data['message'] != null) err = data['message'];
-        } catch (_) {}
-        _showError(err);
+        _showError(resp.message ?? l10n.appointmentFailed);
       }
     } catch (_) {
       setState(() => _submitting = false);

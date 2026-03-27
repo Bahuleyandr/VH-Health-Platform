@@ -1,9 +1,7 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:http/http.dart' as http;
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
 
 /// Device management API calls.
 class DeviceService {
@@ -34,20 +32,18 @@ class DeviceService {
     required String fcmToken,
   }) async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
       final deviceId = await _getDeviceId();
-      final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/devices/register'),
-        headers: headers,
-        body: jsonEncode({
+      final response = await ApiClient.post(
+        '/devices/register',
+        body: {
           'phone': phone,
           'fcmToken': fcmToken,
           'deviceId': deviceId,
           'deviceName': '$_platform-device',
           'platform': _platform,
-        }),
-      ).timeout(const Duration(seconds: 15));
-      return response.statusCode == 200 || response.statusCode == 201;
+        },
+      );
+      return response.isSuccess;
     } catch (e) {
       debugPrint('DeviceService.registerDevice error: $e');
       return false;
@@ -57,14 +53,9 @@ class DeviceService {
   /// List user's registered devices.
   static Future<List<dynamic>> getMyDevices() async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/devices/my-devices'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 15));
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return (data['data']?['devices'] ?? []) as List<dynamic>;
+      final response = await ApiClient.get('/devices/my-devices');
+      if (response.isSuccess) {
+        return response.dataAsList('devices');
       }
     } catch (_) {}
     return [];
@@ -73,17 +64,15 @@ class DeviceService {
   /// Send a heartbeat/keepalive for this device.
   static Future<bool> heartbeat(String phone) async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
       final deviceId = await _getDeviceId();
-      final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/devices/heartbeat'),
-        headers: headers,
-        body: jsonEncode({
+      final response = await ApiClient.post(
+        '/devices/heartbeat',
+        body: {
           'phone': phone,
           'deviceId': deviceId,
-        }),
-      ).timeout(const Duration(seconds: 15));
-      return response.statusCode == 200;
+        },
+      );
+      return response.isSuccess;
     } catch (_) {
       return false;
     }
@@ -95,18 +84,16 @@ class DeviceService {
     required String fcmToken,
   }) async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
       final deviceId = await _getDeviceId();
-      final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/devices/update-token'),
-        headers: headers,
-        body: jsonEncode({
+      final response = await ApiClient.post(
+        '/devices/update-token',
+        body: {
           'phone': phone,
           'deviceId': deviceId,
           'fcmToken': fcmToken,
-        }),
-      ).timeout(const Duration(seconds: 15));
-      return response.statusCode == 200;
+        },
+      );
+      return response.isSuccess;
     } catch (_) {
       return false;
     }
@@ -115,19 +102,8 @@ class DeviceService {
   /// Unregister this device (call on logout). Uses DELETE method.
   static Future<bool> unregisterDevice(String phone) async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final deviceId = await _getDeviceId();
-      final request = http.Request(
-        'DELETE',
-        Uri.parse('${ApiConfig.baseUrl}/devices/unregister'),
-      );
-      request.headers.addAll(headers);
-      request.body = jsonEncode({
-        'phone': phone,
-        'deviceId': deviceId,
-      });
-      final streamed = await request.send().timeout(const Duration(seconds: 15));
-      return streamed.statusCode == 200;
+      final response = await ApiClient.delete('/devices/unregister');
+      return response.isSuccess;
     } catch (e) {
       debugPrint('DeviceService.unregisterDevice error: $e');
       return false;

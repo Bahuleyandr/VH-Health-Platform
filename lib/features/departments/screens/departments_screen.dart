@@ -1,13 +1,12 @@
 import 'package:go_router/go_router.dart';
 
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
+import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -27,6 +26,7 @@ class DepartmentsScreen extends StatefulWidget {
 class _DepartmentsScreenState extends State<DepartmentsScreen> {
   List<dynamic> departments = [];
   bool _isLoading = true;
+  String? _error;
   final Set<int> _expandedIndices = {};
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();

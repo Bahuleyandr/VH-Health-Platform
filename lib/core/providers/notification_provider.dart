@@ -1,15 +1,11 @@
 // lib/core/providers/notification_provider.dart
 
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
 
 class NotificationProvider extends ChangeNotifier {
   int _unreadCount = 0;
   int get unreadCount => _unreadCount;
-
-  final String _baseUrl = ApiConfig.baseUrl;
 
   /// Fetch unread notifications for the given phone number
   Future<void> fetchUnreadCount(String phone) async {
@@ -20,30 +16,23 @@ class NotificationProvider extends ChangeNotifier {
       return;
     }
 
-    final uri = Uri.parse('$_baseUrl/notifications/$phone');
-
     try {
-      final response = await http.get(
-        uri,
-        headers: await ApiConfig.authenticatedAuthHeaders(),
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          debugPrint('⏱️ Request timeout');
-          return http.Response('Timeout', 408);
-        },
+      final response = await ApiClient.get(
+        '/notifications/$phone',
+        timeout: const Duration(seconds: 10),
       );
 
-      if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body.trim());
-        final List<dynamic> data = decoded is List 
-            ? decoded 
-            : (decoded['data'] is List ? decoded['data'] : decoded['data']?['notifications'] ?? []);
-        _unreadCount = data.where((n) => n['is_read'] == false).length;
-        notifyListeners();
-      } else if (response.statusCode == 408) {
-        debugPrint('⏱️ Request timed out');
-        _unreadCount = 0;
+      if (response.isSuccess) {
+        final data = response.data;
+        final List<dynamic> notifications;
+        if (data is List) {
+          notifications = data;
+        } else if (data is Map) {
+          notifications = (data['notifications'] as List?) ?? [];
+        } else {
+          notifications = [];
+        }
+        _unreadCount = notifications.where((n) => n['is_read'] == false).length;
         notifyListeners();
       } else {
         debugPrint('❌ Failed to fetch notifications: ${response.statusCode}');
@@ -59,18 +48,13 @@ class NotificationProvider extends ChangeNotifier {
   Future<void> markAllRead(String phone) async {
     if (phone == 'guest' || phone.isEmpty) return;
 
-    final uri = Uri.parse('$_baseUrl/notifications/$phone/mark-all-read');
-
     try {
-      final response = await http.patch(
-        uri,
-        headers: await ApiConfig.authenticatedAuthHeaders(),
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => http.Response('Timeout', 408),
+      final response = await ApiClient.patch(
+        '/notifications/$phone/mark-all-read',
+        timeout: const Duration(seconds: 10),
       );
 
-      if (response.statusCode == 200) {
+      if (response.isSuccess) {
         _unreadCount = 0;
         notifyListeners();
       } else {

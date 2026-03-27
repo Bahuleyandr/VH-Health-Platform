@@ -1,10 +1,8 @@
 import 'package:go_router/go_router.dart';
 
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -47,19 +45,18 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
     setState(() => _isSubmitting = true);
 
     try {
-      final res = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/feedback'),
-        headers: await ApiConfig.authenticatedHeaders(),
-        body: jsonEncode({
+      final response = await ApiClient.post(
+        '/feedback',
+        body: {
           'phone': _phoneController.text.trim(),
           'comment': _questionController.text.trim(),
-        }),
-      ).timeout(const Duration(seconds: 15));
+        },
+      );
 
       if (!mounted) return;
       setState(() => _isSubmitting = false);
 
-      if (res.statusCode == 200 || res.statusCode == 201) {
+      if (response.isSuccess) {
         messenger.showSnackBar(SnackBar(
           content: Text(loc.feedbackSuccess),
           backgroundColor: Theme.of(context).colorScheme.primary,
@@ -67,11 +64,7 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
         ));
         context.pop();
       } else {
-        var msg = loc.feedbackFailed;
-        try {
-          final body = jsonDecode(res.body);
-          if (body['message'] != null) msg = body['message'];
-        } catch (_) {}
+        final msg = response.message ?? loc.feedbackFailed;
         messenger.showSnackBar(SnackBar(
           content: Text(msg),
           backgroundColor: Theme.of(context).colorScheme.error,

@@ -1,6 +1,4 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
 
 /// Backend API calls for feedback features.
 class FeedbackApiService {
@@ -9,13 +7,9 @@ class FeedbackApiService {
   /// Fetch user's feedback history.
   static Future<Map<String, dynamic>?> getMyFeedback() async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/feedback/my-feedback'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 15));
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body) as Map<String, dynamic>;
+      final response = await ApiClient.get('/feedback/my-feedback');
+      if (response.isSuccess) {
+        return response.raw as Map<String, dynamic>;
       }
     } catch (_) {}
     return null;
@@ -24,13 +18,9 @@ class FeedbackApiService {
   /// Fetch user's feedback statistics.
   static Future<Map<String, dynamic>?> getMyStats() async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/feedback/my-stats'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 15));
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body) as Map<String, dynamic>;
+      final response = await ApiClient.get('/feedback/my-stats');
+      if (response.isSuccess) {
+        return response.raw as Map<String, dynamic>;
       }
     } catch (_) {}
     return null;
@@ -43,18 +33,15 @@ class FeedbackApiService {
     String? appointmentId,
   }) async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final body = <String, dynamic>{
-        'phone': phone,
-        'rating': rating,
-        if (appointmentId != null) 'appointment_id': appointmentId,
-      };
-      final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/feedback/quick-rating'),
-        headers: headers,
-        body: jsonEncode(body),
-      ).timeout(const Duration(seconds: 15));
-      return response.statusCode == 200 || response.statusCode == 201;
+      final response = await ApiClient.post(
+        '/feedback/quick-rating',
+        body: {
+          'phone': phone,
+          'rating': rating,
+          if (appointmentId != null) 'appointment_id': appointmentId,
+        },
+      );
+      return response.isSuccess;
     } catch (_) {
       return false;
     }
