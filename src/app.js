@@ -152,7 +152,7 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 app.use('/api/v1/internal', validateApiKey, internalRoutes);
 
 // Root health check
-app.get('/', async (req, res) => {
+app.get('/', async (req, res, next) => {
   try {
     const db = (await import('./config/database.js')).default;
     const dbHealth = await db.healthCheck();
@@ -172,15 +172,17 @@ app.get('/', async (req, res) => {
       uptime: Math.floor(process.uptime())
     });
   } catch (err) {
-    res.status(503).json({ status: 'unhealthy', message: 'Health check failed' });
+    next(err);
   }
 });
-app.head('/', async (req, res) => {
+app.head('/', async (req, res, next) => {
   try {
     const db = (await import('./config/database.js')).default;
     const health = await db.healthCheck();
     res.status(health.healthy ? 200 : 503).end();
-  } catch { res.status(503).end(); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // Public API routes
