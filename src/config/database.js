@@ -35,6 +35,21 @@ class DatabaseManager {
         await client.query('SELECT NOW()');
         client.release();
         
+        // Read replica support — falls back to primary if no replica configured
+        if (process.env.DATABASE_READ_URL) {
+          this.readPool = new Pool({
+            connectionString: process.env.DATABASE_READ_URL,
+            ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
+            max: parseInt(process.env.DB_READ_POOL_MAX || '10'),
+            idleTimeoutMillis: 30000,
+            connectionTimeoutMillis: 2000,
+            statement_timeout: 30000,
+          });
+          logger.info('Read replica pool configured');
+        } else {
+          this.readPool = this.pool; // Fallback to primary
+        }
+
         this.isConnected = true;
         logger.info('✅ Database connected successfully');
         return true;
@@ -71,6 +86,20 @@ class DatabaseManager {
     }
   }
 
+  /**
+   * Execute a read-only query against the read replica (or primary if no replica configured).
+   * Use for analytics, exports, dashboards — anything that doesn't need write consistency.
+   */
+  async readQuery(text, params) {
+    try {
+      const result = await this.readPool.query(text, params);
+      return result;
+    } catch (error) {
+      logger.error('Read query error:', error.message);
+      throw error;
+    }
+  }
+
   async getClient() {
     if (!this.isConnected) {
       const connected = await this.connect();
@@ -91,14 +120,14 @@ class DatabaseManager {
   async healthCheck() {
     try {
       const result = await this.query('SELECT 1 as ok');
-      return {
+      const health = {
         healthy: true,
-        pool: {
-          total: this.pool.totalCount,
-          idle: this.pool.idleCount,
-          waiting: this.pool.waitingCount
-        }
+        writePool: { total: this.pool.totalCount, idle: this.pool.idleCount, waiting: this.pool.waitingCount },
       };
+      if (this.readPool !== this.pool) {
+        health.readPool = { total: this.readPool.totalCount, idle: this.readPool.idleCount, waiting: this.readPool.waitingCount };
+      }
+      return health;
     } catch (err) {
       return { healthy: false, error: err.message };
     }
@@ -107,12 +136,26 @@ class DatabaseManager {
   async close() {
     if (this.pool) {
       await this.pool.end();
+      // Close read pool if it's a separate pool
+      if (this.readPool && this.readPool !== this.pool) {
+        await this.readPool.end();
+      }
       this.isConnected = false;
-      logger.info('✅ Database connection closed');
+      logger.info('Database pools closed');
     }
   }
 }
 
 // Export singleton instance
-const db = new DatabaseManager();
-export default db;
+let instance = new DatabaseManager();
+
+// For testing: allows replacing the DB instance with a mock
+export function setDatabaseInstance(mockDb) {
+  instance = mockDb;
+}
+
+export function getDatabaseInstance() {
+  return instance;
+}
+
+export default instance;

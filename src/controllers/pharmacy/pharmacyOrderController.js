@@ -13,7 +13,7 @@ async function attachSignedUrl(order) {
   if (order.prescription_photo_key) {
     try {
       order.prescription_photo_url = await getSignedFileUrl(order.prescription_photo_key, 3600);
-    } catch { /* ignore */ }
+    } catch (e) { logger.warn('Signed URL generation failed for prescription photo:', e.message); }
   }
   return order;
 }
@@ -199,7 +199,7 @@ export const confirmOrder = async (req, res) => {
           await sendSMS(
             patientPhone,
             `Dear ${order.rows[0].patient_name || 'Patient'}, your pharmacy order ${order.rows[0].order_number} is confirmed. Total: Rs.${total_cost || 'TBD'}. Cash on delivery.`
-          ).catch(() => {});
+          ).catch(e => logger.warn('Pharmacy confirm SMS failed:', e.message));
         }
       } catch (e) {
         logger.warn('Pharmacy confirm notification failed:', e.message);
@@ -283,7 +283,7 @@ export const dispatchOrder = async (req, res) => {
           await sendSMS(
             patientPhone,
             `Your medicines (${order.rows[0].order_number}) have been dispatched. Estimated delivery: ~${eta.estimated_mins} minutes. ${delivery_person_phone ? 'Delivery contact: ' + delivery_person_phone : ''}`
-          ).catch(() => {});
+          ).catch(e => logger.warn('Dispatch SMS failed:', e.message));
         }
       } catch (e) {
         logger.warn('Dispatch notification failed:', e.message);

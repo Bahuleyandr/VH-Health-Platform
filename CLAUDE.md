@@ -163,6 +163,11 @@ docker exec vhhealth-db psql -U vhhealth -d vhhealth
 - Never expose `err.message` to clients — log it server-side, return generic message
 - All environment secrets must be set — app crashes on missing `JWT_SECRET`
 - Request IDs propagated via `X-Request-Id` header for log correlation
+- Throw `AppError` (from `src/utils/AppError.js`) instead of generic `Error` in services — includes statusCode, code, details
+- Use role helpers from `src/utils/roleHelpers.js` (e.g. `isStaff()`, `isClinical()`) — never inline role arrays
+- Security constants live in `src/config/securityConfig.js` — not hardcoded in services
+- Use `db.readQuery()` for analytics/dashboards/exports (routes to read replica when configured)
+- Never return fake success data in catch blocks — if the DB fails, return `error()` not `success()` with zeros
 
 ## Security Checklist (for PRs)
 - [ ] No `SELECT *` — explicit columns only, never return `pwd`/`pin_hash`

@@ -23,6 +23,7 @@ import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js
 import { auditLogMiddleware } from './middleware/auditLog.js';
 import { patientRateLimiter, genericLimiter, adminRateLimiter } from './middleware/rateLimitMiddleware.js';
 import validateApiKey from './middleware/validateApiKey.js';
+import apiVersionMiddleware from './middleware/apiVersionMiddleware.js';
 
 // ====================================
 // ROUTE IMPORTS - Organized by category
@@ -95,6 +96,7 @@ try {
 
 app.use(helmet());
 app.use(requestIdMiddleware);
+app.use(apiVersionMiddleware);
 app.use(express.json());
 app.use(corsMiddleware);
 

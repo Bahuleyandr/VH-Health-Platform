@@ -111,7 +111,9 @@ export const confirmAppointment = async (req, res) => {
 
     success(res, result.rows[0], `Appointment confirmed. Token #${tokenNumber}`);
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(rollbackErr => {
+      logger.error('Transaction rollback failed:', rollbackErr);
+    });
     logger.error('Confirm Appointment Error:', err);
     error(res, 'Failed to confirm appointment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   } finally {
@@ -148,7 +150,9 @@ export const markNoShow = async (req, res) => {
     await client.query('COMMIT');
     success(res, result.rows[0], 'Marked as no-show');
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(rollbackErr => {
+      logger.error('Transaction rollback failed:', rollbackErr);
+    });
     logger.error('Mark No-Show Error:', err);
     error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   } finally {
@@ -204,7 +208,9 @@ export const completeAppointment = async (req, res) => {
 
     success(res, result.rows[0], 'Appointment completed');
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(rollbackErr => {
+      logger.error('Transaction rollback failed:', rollbackErr);
+    });
     logger.error('Complete Appointment Error:', err);
     error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   } finally {
@@ -259,7 +265,9 @@ export const cancelAppointment = async (req, res) => {
 
     success(res, result.rows[0], 'Appointment cancelled');
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(rollbackErr => {
+      logger.error('Transaction rollback failed:', rollbackErr);
+    });
     logger.error('Cancel Appointment Error:', err);
     error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   } finally {
@@ -502,7 +510,9 @@ export const registerWalkIn = async (req, res) => {
 
     success(res, { ...result.rows[0], token_number: tokenNumber }, `Walk-in registered. Token #${tokenNumber}`);
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(rollbackErr => {
+      logger.error('Transaction rollback failed:', rollbackErr);
+    });
     logger.error('Walk-in Registration Error:', err);
     error(res, 'Failed to register walk-in', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   } finally {

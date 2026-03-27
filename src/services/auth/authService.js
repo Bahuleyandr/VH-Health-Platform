@@ -2,6 +2,7 @@
 import bcrypt from 'bcrypt';
 import db from '../../config/database.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import logger from '../../logging/logger.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import { generateToken, verifyToken } from '../../utils/jwtUtils.js';
@@ -191,8 +192,8 @@ export class AuthService {
       }
 
       // Enforce account lockout after too many failed attempts
-      const MAX_FAILED_ATTEMPTS = 5;
-      const LOCKOUT_DURATION_MINUTES = 15;
+      const MAX_FAILED_ATTEMPTS = SECURITY_CONFIG.admin.maxFailedAttempts;
+      const LOCKOUT_DURATION_MINUTES = SECURITY_CONFIG.admin.lockoutDurationMinutes;
 
       if (admin.failed_login_attempts >= MAX_FAILED_ATTEMPTS) {
         const lastFailedAt = admin.last_failed_login || admin.updated_at;

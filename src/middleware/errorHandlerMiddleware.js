@@ -3,6 +3,7 @@
 import * as Sentry from '@sentry/node';
 import sourceMapSupport from 'source-map-support';
 import logger from '../logging/logger.js';
+import { AppError } from '../utils/AppError.js';
 
 /**
  * Centralized error handling middleware.
@@ -31,12 +32,27 @@ export const errorHandlerMiddleware = (err, req, res, next) => {
     },
   });
 
-  // 4. Report to Sentry, but only for server errors (5xx)
+  // 4. Handle AppError instances with structured response
+  if (err instanceof AppError) {
+    const response = {
+      success: false,
+      message: err.message,
+      code: err.code,
+    };
+    if (err.details) response.details = err.details;
+    // Only report non-operational errors to Sentry
+    if (!err.isOperational && statusCode >= 500) {
+      Sentry.captureException(err);
+    }
+    return res.status(err.statusCode).json(response);
+  }
+
+  // 5. Report to Sentry, but only for server errors (5xx)
   if (statusCode >= 500) {
     Sentry.captureException(err);
   }
 
-  // 5. Create the response body
+  // 6. Create the response body
   const errorResponse = {
     success: false,
     message: err.message || 'An internal server error occurred.',
@@ -44,7 +60,7 @@ export const errorHandlerMiddleware = (err, req, res, next) => {
     ...(process.env.NODE_ENV === 'development' && { stack }),
   };
 
-  // 6. Send the final response
+  // 7. Send the final response
   res.status(statusCode).json(errorResponse);
 };
 

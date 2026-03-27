@@ -224,8 +224,16 @@ export function auditLogMiddleware(req, res, next) {
           isSuccess,
           (headers['user-agent'] || '').substring(0, 200),
         ]);
-      } catch {
-        // Never throw — audit logging must never break the app
+      } catch (err) {
+        // Fallback: write to audit log file when DB is unavailable
+        logger.warn('Audit DB write failed, writing to file fallback:', {
+          action: deriveAction(method, cleanPath),
+          userId: userId,
+          path: req.originalUrl,
+          method: req.method,
+          timestamp: new Date().toISOString(),
+          error: err?.message
+        });
       } finally {
         pendingAuditLogs--;
       }

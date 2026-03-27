@@ -86,7 +86,7 @@ export const bulkCorrectAttendance = async (req, res) => {
               c.check_out_time || null,
               adminId
             ]
-          ).catch(() => {}); // Ignore if table doesn't exist
+          ).catch(e => logger.warn('Bulk attendance correction insert failed:', e.message));
 
           results.applied++;
         } catch (e) {

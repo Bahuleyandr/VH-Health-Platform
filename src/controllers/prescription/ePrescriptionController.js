@@ -350,10 +350,10 @@ export const getPrescription = async (req, res) => {
 
     // Sign URLs
     if (rx.pdf_key) {
-      try { rx.pdf_url = await getSignedFileUrl(rx.pdf_key); } catch (_) {}
+      try { rx.pdf_url = await getSignedFileUrl(rx.pdf_key); } catch (e) { logger.warn('Signed URL generation failed for PDF:', e.message); }
     }
     if (rx.handwritten_photo_key) {
-      try { rx.handwritten_photo_url = await getSignedFileUrl(rx.handwritten_photo_key); } catch (_) {}
+      try { rx.handwritten_photo_url = await getSignedFileUrl(rx.handwritten_photo_key); } catch (e) { logger.warn('Signed URL generation failed for handwritten photo:', e.message); }
     }
 
     success(res, rx, 'Prescription detail');
@@ -387,7 +387,7 @@ export const getPrescriptionByAppointment = async (req, res) => {
 
     const rx = result.rows[0];
     if (rx.pdf_key) {
-      try { rx.pdf_url = await getSignedFileUrl(rx.pdf_key); } catch (_) {}
+      try { rx.pdf_url = await getSignedFileUrl(rx.pdf_key); } catch (e) { logger.warn('Signed URL generation failed for PDF:', e.message); }
     }
 
     success(res, rx, 'Prescription for appointment');
@@ -421,7 +421,7 @@ export const getMyPrescriptions = async (req, res) => {
     // Sign PDF URLs
     for (const rx of result.rows) {
       if (rx.pdf_key) {
-        try { rx.pdf_url = await getSignedFileUrl(rx.pdf_key); } catch (_) {}
+        try { rx.pdf_url = await getSignedFileUrl(rx.pdf_key); } catch (e) { logger.warn('Signed URL generation failed for PDF:', e.message); }
       }
     }
 
@@ -572,7 +572,7 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       body: `Order ${pharmacyOrder.order_number} from prescription ${rx.prescription_number}`,
       channels: ['inapp'],
       type: 'pharmacy_order',
-    }).catch(() => {});
+    }).catch(e => logger.warn('Pharmacy staff notification failed:', e.message));
 
     success(res, pharmacyOrder, `Pharmacy order ${pharmacyOrder.order_number} created from prescription`);
   } catch (err) {
