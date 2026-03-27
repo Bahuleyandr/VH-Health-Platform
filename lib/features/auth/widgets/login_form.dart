@@ -89,8 +89,7 @@ context.go('/home');
       }
 
       if (kDebugMode) {
-        developer.log('🎉 User authenticated: ${user.uid}', name: 'Auth');
-        developer.log('📱 Phone: ${user.phoneNumber}', name: 'Auth');
+        developer.log('🎉 User authenticated successfully', name: 'Auth');
       }
 
       // Check stored user data to determine navigation
@@ -113,7 +112,7 @@ context.go('/home');
         }
         
         // Simple fallback: check if we have any stored user data
-        final storedPhone = await _secureStorage.read(key: 'phone');
+        final storedPhone = await _secureStorage.read(key: 'user_phone');
         if (storedPhone != null && storedPhone != user.phoneNumber) {
           // Different user, likely existing
           targetRoute = '/dashboard';

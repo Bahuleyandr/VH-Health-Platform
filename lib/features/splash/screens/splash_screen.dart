@@ -43,7 +43,7 @@ class _SplashScreenState extends State<SplashScreen>
   Future<void> _handleSplashTap() async {
     final firebaseUser = FirebaseAuth.instance.currentUser;
     final jwt = await _secureStorage.read(key: 'jwt');
-    final phone = await _secureStorage.read(key: 'phone');
+    final phone = await _secureStorage.read(key: 'user_phone');
     final biometricEnabled = await _secureStorage.read(key: 'biometric_enabled');
 
     // ── 1. Firebase + JWT available → check profile, then dashboard ──

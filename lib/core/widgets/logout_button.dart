@@ -54,7 +54,7 @@ class LogoutButton extends StatelessWidget {
     try {
       // Unregister device and revoke session before clearing storage
       const storage = FlutterSecureStorage();
-      final phone = await storage.read(key: 'phone') ?? '';
+      final phone = await storage.read(key: 'user_phone') ?? '';
       try {
         await Future.wait([
           DeviceService.unregisterDevice(phone),
