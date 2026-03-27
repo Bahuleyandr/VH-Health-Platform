@@ -5,9 +5,9 @@ Flutter mobile app for patients of VHHealth hospital (Venkataeswara Hospital, Ch
 
 ## Tech Stack
 - **Framework**: Flutter 3.8.1+, Dart (null-safe)
-- **State**: Provider (ThemeProvider, LanguageProvider, NotificationProvider)
+- **State**: Provider (ThemeProvider, LanguageProvider, NotificationProvider, UserProvider)
 - **Navigation**: GoRouter with ShellRoute for bottom nav + auth redirect guards
-- **HTTP**: `package:http` (NOT dio — dio is in pubspec but only used in cache utility)
+- **HTTP**: `ApiClient` (centralized wrapper over `package:http`) — handles auth headers, timeouts, response parsing
 - **Auth**: Firebase OTP → backend JWT
 - **Storage**: flutter_secure_storage (JWT, user data), SharedPreferences (settings)
 - **Localisation**: Flutter intl (5 languages: en, hi, ta, te, ml)
@@ -16,7 +16,7 @@ Flutter mobile app for patients of VHHealth hospital (Venkataeswara Hospital, Ch
 ## Repository Layout
 ```
 lib/
-  main.dart                    # Entry point, MultiProvider (Theme/Language/Notification), AppRouter
+  main.dart                    # Entry point, MultiProvider (Theme/Language/Notification/User), AppRouter
   firebase_options.dart        # Firebase config (auto-generated)
   core/
     config/
@@ -25,7 +25,8 @@ lib/
     navigation/
       app_router.dart          # GoRouter: auth redirects, ShellRoute (bottom nav), feature routes
     services/
-      backend_api_service.dart # Firebase login + profile save helpers
+      api_client.dart          # Centralized HTTP client (auth, timeouts, JSON parsing, multipart)
+      backend_api_service.dart # Firebase login + profile save helpers (unauthenticated)
       device_service.dart      # Device registration, heartbeat, FCM token updates
       feedback_api_service.dart # Feedback history, stats, quick-rating
       firebase_session_service.dart # FCM token update, session revoke
@@ -36,6 +37,7 @@ lib/
       theme_provider.dart      # Light/dark/system theme, custom ThemeData
       language_provider.dart   # Locale switching (en/hi/ta/te/ml)
       notification_provider.dart # Notification badge count, fetch/mark-read
+      user_provider.dart       # User phone/name state (replaces AppRouter statics)
     theme/
       app_theme.dart           # ThemeData construction
       theme_colors.dart        # Brand color palette
@@ -43,14 +45,15 @@ lib/
       appointment_widget.dart       # Appointment card display
       circular_feature_dial.dart    # Dashboard circular menu
       contact_banner.dart           # Contact info banners (phone numbers)
+      data_state_builder.dart       # Reusable loading/error/empty/data state widget
       delivery_tracking_card.dart   # Real-time delivery tracking with ETA
-      error_boundary.dart           # Error boundary wrapper
+      error_boundary.dart           # Error boundary wrapper (restores handler on dispose)
       feature_screen_scaffold.dart  # Standard scaffold for feature screens (requires icon, color, child)
       feedback_prompt.dart          # In-app feedback/rating prompt
       heartbeat_logo.dart           # Animated hospital logo
       language_dropdown.dart        # Language selector
       logo_background.dart          # Background with hospital branding
-      logout_button.dart            # Logout action
+      logout_button.dart            # Logout action (signs out before navigating)
       main_scaffold_go_router.dart  # Bottom nav shell (Home, Health, Notifications, Settings)
       phone_input_field.dart        # Phone number input with country code
       terms_agreement_notice.dart   # Terms notice widget
@@ -74,7 +77,7 @@ lib/
       permission_gate.dart     # Runtime permission gate on first launch
     calendar/                  # Calendar view (appointments + investigations + pharmacy orders)
     dashboard/                 # Home screen: circular dial, contextual widgets (active orders, prescriptions, follow-ups)
-    departments/               # Browse departments + doctors (search, detail sheets, specialization/fee/availability)
+    departments/               # Browse departments + doctors (search with debounce, detail sheets)
     feedback/                  # Ask a Doubt (submit questions) + Feedback History
     investigations/
       screens/
@@ -82,41 +85,75 @@ lib/
         book_investigation_screen.dart  # Book investigations (catalog, slip upload, home/walk-in)
         my_bookings_screen.dart         # View investigation bookings
     notifications/             # View + mark-read notifications with deep-linking
-    pharmacy/                  # Upload prescriptions, place orders, order tracking, delivery status
+    pharmacy/
+      screens/pharmacy_screen.dart      # Tab coordinator (Order + My Orders)
+      widgets/
+        order_form_tab.dart             # Prescription upload + order form
+        order_list_tab.dart             # Order list + order detail sheet
+        order_status_widgets.dart       # Status chips, trackers, delivery option cards
     profile/
       screens/
         profile_setup_screen.dart  # New user onboarding profile
         profile_edit_screen.dart   # Edit all profile fields
-    records/                   # Hospital documents + patient uploads (merged with Your Health)
+    records/                   # Hospital documents + patient uploads
     settings/                  # Theme, language, font size, biometrics
       controllers/settings_controller.dart
       widgets/settings_sections.dart
     splash/                    # Splash screen with auth state check
     trivia/                    # Health trivia
-    your_health/               # Health records, prescriptions, consultations, health summary, allergies, conditions
+    your_health/
+      screens/your_health_screen.dart   # Tab coordinator (6 tabs) + Health Records tab
+      widgets/
+        prescriptions_tab.dart          # Prescription list, detail sheet, order medicines
+        consultations_tab.dart          # Consultation list with doctor/diagnosis
+        health_summary_tab.dart         # Summary, allergies, conditions
+        hospital_documents_tab.dart     # Hospital records using shared RecordCard
+        my_uploads_tab.dart             # User uploads with CRUD + upload sheet
+        record_card.dart                # Shared record card widget
   gen/                         # flutter_gen asset/font accessors (auto-generated)
   generated/                   # Generated l10n files (auto-generated)
   l10n/                        # ARB localisation source files + extensions
 ```
 
 ## Key Architecture Decisions
+- **ApiClient** (`lib/core/services/api_client.dart`) is the centralized HTTP layer — all API calls go through it with automatic auth headers, 15s default timeout (30s for uploads), and JSON response parsing via `ApiResponse`
 - **ApiConfig** lives in `vhhealth_core` — re-exported by `lib/core/config/api_config.dart`. Base URL: `https://api.vhhealth.app/api/v1`
-- **authenticatedHeaders()** is async — reads JWT from secure storage, returns headers with Bearer token
-- **All screens** use `await ApiConfig.authenticatedHeaders()` for protected endpoints
+- **BackendApiService** is the only service that does NOT use ApiClient (it handles unauthenticated login requests)
+- **DataStateBuilder** (`lib/core/widgets/data_state_builder.dart`) eliminates loading/error/empty boilerplate across screens
+- **UserProvider** holds user phone/name in the Provider tree (legacy `AppRouter` static fields still exist for backward compat)
 - **Firebase OTP** is the only patient auth mechanism — no username/password
-- **Backend login** happens in background after Firebase auth, stores JWT for subsequent API calls
 - **ShellRoute** wraps the 4 bottom-nav tabs (Home, Health, Notifications, Settings); feature screens render full-screen outside the shell
-- **AppRouter** stores user phone/name as static fields, loaded from secure storage on login redirect
 - **Local plugins** (`local_plugins/`) contain forked `geolocator_android` and `flutter_plugin_android_lifecycle` with manual build.gradle lint fixes
+
+## Making API Calls
+Use `ApiClient` for all new API calls:
+```dart
+// GET
+final response = await ApiClient.get('/appointments/patient/$id');
+if (response.isSuccess) {
+  final list = response.dataAsList();       // List from data field
+  final map = response.dataAsMap();         // Map from data field
+  final msg = response.message;             // Backend message field
+}
+
+// POST with body
+final response = await ApiClient.post('/appointments/book', body: {...});
+
+// Multipart upload
+final response = await ApiClient.multipart('/upload',
+  fields: {'type': 'prescription'},
+  files: [await http.MultipartFile.fromPath('file', path)],
+);
+```
 
 ## Auth Flow
 1. Patient enters phone number → Firebase `verifyPhoneNumber` (OTP)
 2. Patient enters OTP → Firebase `signInWithCredential`
 3. App calls `POST /auth/firebase/firebase-login` with Firebase `idToken`
 4. Backend returns `{ data: { accessToken, user: { uid, phone, isNewUser, ... } } }`
-5. JWT stored in flutter_secure_storage
+5. JWT stored in flutter_secure_storage (key: `'jwt'`)
 6. If `isNewUser` → redirect to `/profile-setup` → `POST /auth/firebase/complete-profile`
-7. All subsequent API calls include `Authorization: Bearer <jwt>`
+7. All subsequent API calls include `Authorization: Bearer <jwt>` (handled by ApiClient)
 
 ## Routes
 | Path | Screen | Shell? |
@@ -243,15 +280,23 @@ dart run build_runner build --delete-conflicting-outputs
 - **Core Package** (Dart): `../vhhealth-core` — github.com/Bahuleyandr/vhhealth-core
 
 ## Conventions
+- **ApiClient** is the standard for all authenticated HTTP calls — use `ApiClient.get/post/put/patch/delete/multipart`
+- **BackendApiService** is the only exception — handles unauthenticated Firebase login calls directly
 - **ApiConfig** is re-exported from `vhhealth_core` — do NOT duplicate base URL or headers
-- All HTTP calls use `await ApiConfig.authenticatedHeaders()` (async, includes JWT Bearer token)
-- Backend response envelope: `{ success, data: {...} }` — always unwrap `body['data']`
-- Upload responses: read `decoded['data']?['storageKey']` with fallback
+- **ApiResponse** auto-parses JSON: use `.data`, `.dataAsList()`, `.dataAsMap()`, `.isSuccess`, `.message`
+- Backend response envelope: `{ success, data: {...} }` — ApiResponse unwraps `data` automatically
+- **DataStateBuilder** should be used for screens with loading/error/empty/data states
 - Use `developer.log()` guarded by `kDebugMode` — never `print()` in production
+- Never log tokens or full phone numbers — mask sensitive data in debug logs
 - Gender values: `MALE`, `FEMALE`, `OTHER` (uppercase, matching backend validator)
 - Dates: ISO 8601 `YYYY-MM-DD` format when sending to backend
 - Dead code files have `.dead` extension (not deleted, for reference)
 - `FeatureScreenScaffold` requires `icon`, `color`, and `child` parameters
 - Route navigation: use `context.go('/path')` for tab switches, `context.push('/path')` for feature screens
-- User phone/name passed via `AppRouter.userPhone` / `AppRouter.userName` static fields
+- User phone/name available via `UserProvider` (Provider) or `AppRouter.userPhone` / `AppRouter.userName` (legacy statics)
+- Always check `mounted` before `setState` after any `await`
+- Use theme colors (`theme.colorScheme.*`) instead of hardcoded `Colors.*` for dark mode support
+- Debounce search inputs (300ms) to avoid excessive rebuilds
+- Dispose TextEditingControllers in modals via `.whenComplete()`
 - Linting: `package:flutter_lints` (see `analysis_options.yaml`)
+- JWT stored in flutter_secure_storage with key `'jwt'`
