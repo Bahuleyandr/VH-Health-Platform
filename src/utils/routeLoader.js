@@ -5,6 +5,8 @@ import path from 'path';
 import { ROUTE_FILES, ROUTE_METADATA, getCurrentEnvironmentConfig } from '../config/routeConfig.js';
 import logger from '../logging/logger.js';
 
+const failedRoutes = [];
+
 /**
  * Creates a development stub router for production environments
  */
@@ -61,6 +63,7 @@ const modularPath = (envConfig.useModularPaths && filePath.endsWith('Routes.js')
     }
 
     logger.error(`❌ ${errorMessage}`);
+    failedRoutes.push({ name: routeName, error: err.message, timestamp: new Date().toISOString() });
     return createDevelopmentStub();
   }
 }
@@ -124,6 +127,7 @@ export async function loadRoutesByPriority() {
       }
 
       logger.warn(`⚠️ Non-critical route ${routeName} failed, using stub`);
+      failedRoutes.push({ name: routeName, error: err.message, timestamp: new Date().toISOString() });
       allRoutes[routeName] = createDevelopmentStub();
     }
   }
@@ -226,6 +230,13 @@ export async function reloadRoute(routeName) {
 /**
  * Returns categorized route loading stats
  */
+/**
+ * Returns the list of routes that failed to load (for health check reporting)
+ */
+export function getFailedRoutes() {
+  return failedRoutes;
+}
+
 export function getRouteLoadingStats(routes) {
   const stats = {
     timestamp: new Date().toISOString(),

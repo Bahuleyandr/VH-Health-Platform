@@ -93,8 +93,8 @@ export async function compressPDF(buffer, isHipaaProtected = false) {
     
     // Cleanup temp files
     await Promise.all([
-      fs.unlink(tempIn).catch(() => {}),
-      fs.unlink(tempOut).catch(() => {})
+      fs.unlink(tempIn).catch(e => logger.warn('Failed to clean up temp file:', e.message)),
+      fs.unlink(tempOut).catch(e => logger.warn('Failed to clean up temp file:', e.message))
     ]);
 
     // Only return compressed if it's actually smaller or same quality needed

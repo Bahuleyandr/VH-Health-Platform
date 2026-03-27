@@ -127,7 +127,9 @@ export const updateOrderStatus = async (orderId, status, notes, updatedBy, updat
       updatedByRole
     };
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(rollbackErr => {
+      logger.error('Transaction rollback failed:', rollbackErr);
+    });
     throw err;
   } finally {
     client.release();

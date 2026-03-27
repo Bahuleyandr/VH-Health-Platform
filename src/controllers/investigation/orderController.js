@@ -74,7 +74,7 @@ export const orderInvestigation = async (req, res) => {
     // Fire-and-forget urgent alert for URGENT/STAT investigations
     const priority = result.investigation?.priority?.toUpperCase();
     if (priority === 'URGENT' || priority === 'STAT') {
-      sendUrgentAlert(result.investigation, result.patient_name).catch(() => {});
+      sendUrgentAlert(result.investigation, result.patient_name).catch(e => logger.warn('Urgent investigation alert failed:', e.message));
     }
 
     success(res, {
