@@ -12,7 +12,9 @@ import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/services/connectivity_service.dart';
 import 'package:vhhealth/core/widgets/language_dropdown.dart';
+import 'package:vhhealth/core/widgets/offline_banner.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/core/widgets/circular_feature_dial.dart';
 import 'package:vhhealth/core/providers/theme_provider.dart';
@@ -46,6 +48,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? cachedName;
   Color _focusColor = Colors.blue;
   
+  // Offline support
+  String? _staleLabel;
+  StreamSubscription<bool>? _connectivitySub;
+
   // Real-time appointment polling
   Timer? _appointmentPoller;
   Map<String, dynamic>? _todayAppointment;
@@ -70,6 +76,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     nextAppointment = widget.nextAppointment;
     cachedName = widget.name;
 
+    _connectivitySub = ConnectivityService.onChange.listen((isOnline) {
+      if (isOnline && mounted) {
+        _fetchAndStoreDashboard();
+      }
+    });
+
     SchedulerBinding.instance.addPostFrameCallback((_) {
       _loadCachedData();
       _maybeFetchFromBackend();
@@ -80,6 +92,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
+    _connectivitySub?.cancel();
     _appointmentPoller?.cancel();
     _smartWidgetPoller?.cancel();
     super.dispose();
@@ -371,19 +384,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _fetchAndStoreDashboard() async {
     try {
-      final response = await ApiClient.get(
+      final result = await ApiClient.cachedGet(
         '/dashboard',
         queryParameters: {'phone': widget.phone},
         timeout: const Duration(seconds: 10),
       );
       if (!mounted) return;
 
-      if (response.isSuccess) {
-        final data = response.data ?? {};
+      if (result.isSuccess) {
+        final data = result.data ?? {};
         final name = data['name'] ?? widget.name;
         final last = data['lastAppointment'];
         final next = data['nextAppointment'];
 
+        setState(() {
+          _staleLabel = result.staleLabel;
+          cachedName = name;
+          lastAppointment = last;
+          nextAppointment = next;
+        });
+
+        // Persist to secure storage
         await Future.wait([
           _secureStorage.write(key: 'userName', value: name),
           _secureStorage.write(key: 'lastAppointment', value: last),
@@ -391,13 +412,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _secureStorage.write(key: 'fetched_dashboard', value: 'true'),
         ]);
 
-        if (mounted) {
-          setState(() {
-            cachedName = name;
-            lastAppointment = last;
-            nextAppointment = next;
-          });
-        }
+        // Listen for fresh network data if cache was served first
+        result.onFresh?.then((fresh) {
+          if (!mounted) return;
+          if (fresh.isSuccess) {
+            final freshData = fresh.data ?? {};
+            final freshName = freshData['name'] ?? widget.name;
+            final freshLast = freshData['lastAppointment'];
+            final freshNext = freshData['nextAppointment'];
+            setState(() {
+              _staleLabel = null;
+              cachedName = freshName;
+              lastAppointment = freshLast;
+              nextAppointment = freshNext;
+            });
+          }
+        });
       }
     } catch (_) {}
   }
@@ -459,6 +489,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: SafeArea(
           child: Column(
             children: [
+              // Offline / stale-data banner
+              OfflineBanner(staleLabel: _staleLabel),
+
               // Today's appointment status card (real-time)
               if (_todayAppointment != null && !isGuest)
                 _TodayAppointmentCard(
