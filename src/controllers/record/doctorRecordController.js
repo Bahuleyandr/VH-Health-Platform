@@ -24,10 +24,7 @@ async function getDoctorUserId(uid) {
 export async function createMedicalRecord(req, res) {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(HTTP_STATUS.BAD_REQUEST).json({
-      errors: errors.array(),
-      message: RESPONSE_MESSAGES.VALIDATION_FAILED
-    });
+    return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
   }
 
   try {
@@ -36,10 +33,7 @@ export async function createMedicalRecord(req, res) {
     const doctorId = req.user?.id || (doctorUid ? await getDoctorUserId(doctorUid) : null);
 
     if (!doctorId) {
-      return res.status(400).json({
-        message: 'Unable to identify doctor user ID',
-        error: 'Doctor must be properly authenticated'
-      });
+      return error(res, 'Unable to identify doctor user ID', 400);
     }
 
     const createdBy = doctorUid || 'system';
@@ -80,27 +74,17 @@ export async function createMedicalRecord(req, res) {
     logger.error(`[CreateMedicalRecord] ${err.message}`);
     
     if (err.message === 'Patient not found') {
-      return res.status(404).json({ 
-        message: RECORD_MESSAGES.PATIENT_NOT_FOUND,
-        patient_id: req.body.patient_id
-      });
+      return error(res, RECORD_MESSAGES.PATIENT_NOT_FOUND, 404);
     }
-    
-    res.status(500).json({
-      message: 'Failed to create medical record',
-      error: err.message,
-      suggestion: 'Ensure medical_records table exists with proper structure'
-    });
+
+    error(res, 'Failed to create medical record');
   }
 }
 
 export async function updateMedicalRecord(req, res) {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(HTTP_STATUS.BAD_REQUEST).json({
-      errors: errors.array(),
-      message: RESPONSE_MESSAGES.VALIDATION_FAILED
-    });
+    return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
   }
 
   try {
@@ -115,17 +99,12 @@ export async function updateMedicalRecord(req, res) {
     const existingRecord = await recordService.getMedicalRecordById(id);
     
     if (!existingRecord) {
-      return res.status(404).json({ 
-        message: RECORD_MESSAGES.NOT_FOUND,
-        id
-      });
+      return error(res, RECORD_MESSAGES.NOT_FOUND, 404);
     }
 
     // Check update permissions (compare integer IDs)
     if (!accessControl.canUpdateRecord(req.user?.role, existingRecord.doctor_id, userId)) {
-      return res.status(403).json({
-        error: 'Access denied: You can only update records you created'
-      });
+      return error(res, 'Access denied: You can only update records you created', 403);
     }
     
     const updatedRecord = await recordService.updateMedicalRecord(id, req.body, updatedBy);

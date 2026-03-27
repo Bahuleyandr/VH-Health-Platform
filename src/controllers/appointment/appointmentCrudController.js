@@ -25,11 +25,7 @@ export const createAppointment = async (req, res) => {
 
     if (!validation.valid) {
       if (validation.conflict) {
-        return res.status(HTTP_STATUS.CONFLICT).json({
-          success: false,
-          message: 'Time slot already booked',
-          conflicting_appointment_id: validation.conflict.id
-        });
+        return error(res, 'Time slot already booked', HTTP_STATUS.CONFLICT, { conflicting_appointment_id: validation.conflict.id });
       }
       return error(res, validation.errors.join(', '), HTTP_STATUS.BAD_REQUEST);
     }
@@ -77,11 +73,7 @@ export const updateAppointment = async (req, res) => {
 
     if (!validation.valid) {
       if (validation.conflict) {
-        return res.status(HTTP_STATUS.CONFLICT).json({
-          success: false,
-          message: 'Time slot already booked',
-          conflicting_appointment_id: validation.conflict.id
-        });
+        return error(res, 'Time slot already booked', HTTP_STATUS.CONFLICT, { conflicting_appointment_id: validation.conflict.id });
       }
       return error(res, validation.errors.join(', '), HTTP_STATUS.BAD_REQUEST);
     }

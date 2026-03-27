@@ -15,7 +15,7 @@ export async function getPatientDashboard(req, res) {
     const { phone } = req.query;
 
     if (!phone) {
-      return res.status(400).json({ success: false, error: 'phone query parameter is required' });
+      return error(res, 'phone query parameter is required', 400);
     }
 
     // --- 1. Get patient name ---

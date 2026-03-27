@@ -19,7 +19,7 @@ export async function submitFeedback(req, res) {
 
     // phone is required; rating and question are both optional (at least one is expected)
     if (!phone) {
-      return res.status(400).json({ error: 'Phone is required' });
+      return error(res, 'Phone is required', 400);
     }
 
     // INSERT includes `question` column — requires DB migration if column doesn't exist yet
@@ -42,19 +42,19 @@ export async function getFeedbackByUID(req, res) {
     const resolvedPhone = await resolvePhoneFromUID(uid);
 
     if (!resolvedPhone) {
-      return res.status(404).json({ success: false, message: 'UID not found in users table' });
+      return error(res, 'UID not found in users table', 404);
     }
 
     const result = await db.query('SELECT id, phone, rating, comment, created_at FROM feedback WHERE phone = $1', [resolvedPhone]);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'No feedback found for this phone' });
+      return error(res, 'No feedback found for this phone', 404);
     }
 
-    return res.status(200).json({ success: true, feedback: result.rows });
+    return success(res, { feedback: result.rows }, 'Feedback retrieved successfully');
   } catch (err) {
     logger.error('Get Feedback By UID Error:', err);
-    return res.status(500).json({ success: false, message: 'Internal server error' });
+    return error(res, 'Internal server error');
   }
 }
 
@@ -500,11 +500,7 @@ export async function getFeedbackReport(req, res) {
 export async function submitFeedbackEnhanced(req, res) {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(HTTP_STATUS.BAD_REQUEST).json({
-      success: false,
-      errors: errors.array(),
-      message: RESPONSE_MESSAGES.VALIDATION_FAILED
-    });
+    return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
   }
 
   const phone = normalizePhone(req.body.phone || req.body.phoneNumber);
