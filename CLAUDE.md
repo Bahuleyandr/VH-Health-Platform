@@ -31,19 +31,25 @@ prisma/schema.prisma  # DB documentation (58 models, NOT used for queries)
 ```
 
 ## Key Architecture Decisions
-- **Raw pg over Prisma**: All DB queries use `db.query()` from `DatabaseManager`. Prisma schema is documentation only.
+- **Raw pg over Prisma**: All DB queries use `db.query()` from `DatabaseManager`. Prisma schema is documentation only. Use `db.readQuery()` for analytics/exports (routes to read replica when `DATABASE_READ_URL` is set).
 - **Domain grouping**: Controllers, routes, services, validators are grouped by domain (auth/, appointment/, staff/, etc.)
 - **wrapAutoRBAC**: Routes use `wrapAutoRBAC(router, configKey, routeMap)` from `src/config/routeWrapper.js` for role-based access control.
-- **Response format**: All responses use `success(res, data, message)` or `error(res, message)` from `src/utils/responseHelper.js`. Envelope: `{ success: true, message: "...", data: {...} }`
+- **Response format**: All responses use `success(res, data, message, status, meta)` or `error(res, message, statusCode, details)` from `src/utils/responseHelper.js`. Envelope: `{ success: true, message: "...", data: {...}, requestId: "..." }`. Optional `meta` param for pagination.
 - **Unified req.user shape**: Both `authMiddleware` and `jwtMiddleware` normalize to `{ uid, id, role, phone, email }`. `uid` is the string UID, `id` is the DB integer PK. Use `String()` comparison for IDOR checks.
+- **AppError class**: Services throw `AppError` (from `src/utils/AppError.js`) with `statusCode`, `code`, and `details`. Factory methods: `AppError.badRequest()`, `.notFound()`, `.forbidden()`, `.unauthorized()`, `.invalidTransition(from, to, allowed)`. The global error handler recognizes these and returns structured responses.
+- **Role helpers**: Use `isStaff()`, `isClinical()`, `isAdmin()`, `isDoctor()` from `src/utils/roleHelpers.js` — never inline role arrays like `['ADMIN','DOCTOR','NURSE']`.
+- **Security config**: All security constants (lockout, OTP limits, JWT expiry, device trust) live in `src/config/securityConfig.js` — not hardcoded in services.
 - **Input sanitization**: All user-facing text fields go through `stripHtml()` from `src/utils/sanitize.js` via middleware in `src/middleware/sanitizeMiddleware.js`.
 - **File upload validation**: Multer + magic bytes verification (`validateFileContent`) + patient-specific restrictions (`validatePatientUpload`) in `src/middleware/uploadMiddleware.js`.
+- **Notification outbox**: Use `notificationOutbox.queue()` from `src/utils/notifications/notificationOutbox.js` to persist notification intent before sending. Failed notifications can be retried by background jobs.
+- **API versioning**: `apiVersionMiddleware` reads `Accept-Version` header, sets `req.apiVersion`. Currently informational — future response helpers can adapt per version.
 
 ## Auth Architecture
 - **Patient login**: Firebase OTP → `POST /api/v1/auth/firebase/firebase-login` (idToken) → JWT
 - **Staff login**: Employee ID + password → `POST /api/v1/auth/staff/login` → accessToken + refreshToken
 - **Admin login**: Username + password → `POST /api/v1/auth/admin/login` → JWT
-- **Middleware chain**: `requestIdMiddleware` → `validateApiKey` (timing-safe) → `authMiddleware` (JWT + normalized req.user) → route handlers
+- **Middleware chain**: `requestIdMiddleware` → `apiVersionMiddleware` → `validateApiKey` (timing-safe) → `authMiddleware` (JWT + normalized req.user) → route handlers
+- **Admin lockout**: 5 failed attempts → 15min lockout (configurable via `SECURITY_CONFIG`)
 - **JWT**: HS256 signed, 7d default expiry. App crashes on startup if `JWT_SECRET` missing. Token expiry differentiated: `TOKEN_EXPIRED` vs `TOKEN_INVALID` error codes.
 - **API key**: Compared using `crypto.timingSafeEqual()` to prevent timing attacks.
 
@@ -93,13 +99,40 @@ Prefer `/my` endpoints that derive phone from JWT:
 
 ### Graceful Shutdown
 - `SIGTERM` and `SIGINT` handlers in `bin/www.js`
+- `uncaughtException` and `unhandledRejection` handlers trigger graceful shutdown
 - Closes HTTP server, drains DB pool, force-exits after 10s timeout
+- Migrations block startup — app exits on migration failure
 
 ### Error Handling
 - Global error handler in `src/middleware/errorHandlerMiddleware.js` with Sentry integration
+- `AppError` instances return structured `{ success, message, code, details }` responses
 - **Never expose `err.message` to clients** — log server-side, return generic message
 - Stack traces only in development mode
 - Unimplemented endpoints return `501 Not Implemented` (not `200`)
+- No empty `.catch(() => {})` — always log with context
+- No fake success in catch blocks — return `error()`, not `success()` with zeros
+
+### Database Resilience
+- 30s `statement_timeout` on all queries (prevents connection pool exhaustion)
+- Pool error events logged (prevents silent connection loss)
+- `db.healthCheck()` returns pool stats (totalCount, idleCount, waitingCount)
+- `db.readQuery()` routes to read replica when `DATABASE_READ_URL` configured
+- `db.setDatabaseInstance()` export for test mocking
+
+### External Service Resilience
+- R2 storage: 30s request timeout + retry with exponential backoff (2 retries)
+- FCM notifications: retry on transient errors (2 retries with backoff)
+- Invalid FCM tokens automatically deactivated in database
+- Notification outbox (`src/utils/notifications/notificationOutbox.js`) persists intent before sending
+
+### Audit Log Resilience
+- Fire-and-forget with capped queue (max 1000 pending)
+- File fallback via Winston when DB unavailable — audit entries never lost
+
+### State Machine Validation
+- Pharmacy orders: `VALID_TRANSITIONS` map prevents invalid status jumps (e.g., DELIVERED → PENDING)
+- Appointment status changes wrapped in transactions with `FOR UPDATE` row locking
+- Token number generation is atomic (prevents race condition duplicates)
 
 ### Environment Validation
 - `src/utils/validateEnv.js` validates all critical env vars at startup via Joi
@@ -137,6 +170,10 @@ node --experimental-vm-modules node_modules/jest/bin/jest.js critical-paths --fo
 - Notification authorization (role-based access)
 - JWT validation (expired → `TOKEN_EXPIRED`, tampered → `TOKEN_INVALID`, missing → 401)
 - Rate limiting (OTP: 3/phone/10min, SOS: 3/user/hour)
+
+### Route Health Monitoring
+- `routeLoader.js` tracks failed routes via `getFailedRoutes()`
+- Health checks can report which routes failed to load
 
 ## Database Access
 ```bash
