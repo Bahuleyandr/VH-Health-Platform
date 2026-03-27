@@ -103,6 +103,8 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
     final isActive = data['delivery_tracking_active'] == true;
     final progress = _calculateProgress();
 
+    final theme = Theme.of(context);
+
     final label = widget.orderType == 'pharmacy'
         ? 'Delivery On The Way'
         : 'Collector On The Way';
@@ -115,12 +117,12 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Colors.teal.shade50, Colors.teal.shade100.withValues(alpha: 0.3)],
+          colors: [theme.colorScheme.primaryContainer.withAlpha(77), theme.colorScheme.primaryContainer.withAlpha(38)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.teal.shade200),
+        border: Border.all(color: theme.colorScheme.primary.withAlpha(77)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -128,14 +130,14 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
           // Header
           Row(
             children: [
-              Icon(icon, color: Colors.teal.shade700, size: 24),
+              Icon(icon, color: theme.colorScheme.primary, size: 24),
               const SizedBox(width: 8),
               Text(
                 '🚗 $label',
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: Colors.teal.shade800,
+                  color: theme.colorScheme.primary,
                 ),
               ),
               const Spacer(),
