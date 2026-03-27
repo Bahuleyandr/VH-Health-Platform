@@ -116,13 +116,15 @@ lib/
 ```
 
 ## Key Architecture Decisions
-- **ApiClient** (`lib/core/services/api_client.dart`) is the centralized HTTP layer — all API calls go through it with automatic auth headers, 15s default timeout (30s for uploads), and JSON response parsing via `ApiResponse`
+- **ApiClient** (`lib/core/services/api_client.dart`) is the centralized HTTP layer — all API calls go through it with automatic auth headers, 15s default timeout (30s for uploads), JSON response parsing via `ApiResponse`, and **401 session-expiry detection** (clears stale JWT and redirects to login via `onSessionExpired` callback)
 - **ApiConfig** lives in `vhhealth_core` — re-exported by `lib/core/config/api_config.dart`. Base URL: `https://api.vhhealth.app/api/v1`
 - **BackendApiService** is the only service that does NOT use ApiClient (it handles unauthenticated login requests)
 - **DataStateBuilder** (`lib/core/widgets/data_state_builder.dart`) eliminates loading/error/empty boilerplate across screens
-- **UserProvider** holds user phone/name in the Provider tree (legacy `AppRouter` static fields still exist for backward compat)
+- **UserProvider** holds user phone/name in the Provider tree — AppRouter reads from it via `context.read<UserProvider>()` with static fallback for backward compat
+- **SOS services** (`sos_api_service.dart`) throw `SosException` on critical failures (triggerAlert, cancelAlert) so callers can show user feedback — SOS must never fail silently
 - **Firebase OTP** is the only patient auth mechanism — no username/password
 - **ShellRoute** wraps the 4 bottom-nav tabs (Home, Health, Notifications, Settings); feature screens render full-screen outside the shell
+- **Dashboard polling** uses exponential backoff on consecutive failures (30s base → capped at 16x) to avoid hammering the backend
 - **Local plugins** (`local_plugins/`) contain forked `geolocator_android` and `flutter_plugin_android_lifecycle` with manual build.gradle lint fixes
 
 ## Making API Calls
@@ -283,9 +285,10 @@ dart run build_runner build --delete-conflicting-outputs
 - **ApiClient** is the standard for all authenticated HTTP calls — use `ApiClient.get/post/put/patch/delete/multipart`
 - **BackendApiService** is the only exception — handles unauthenticated Firebase login calls directly
 - **ApiConfig** is re-exported from `vhhealth_core` — do NOT duplicate base URL or headers
-- **ApiResponse** auto-parses JSON: use `.data`, `.dataAsList()`, `.dataAsMap()`, `.isSuccess`, `.message`
+- **ApiResponse** auto-parses JSON: use `.data`, `.dataAsList()`, `.dataAsMap()`, `.isSuccess`, `.message`, `.isUnauthorized`
 - Backend response envelope: `{ success, data: {...} }` — ApiResponse unwraps `data` automatically
 - **DataStateBuilder** should be used for screens with loading/error/empty/data states
+- **Error handling**: never use `catch (_) {}` — always log errors with `debugPrint` or `if (kDebugMode) debugPrint(...)`. SOS critical methods must throw, not return null.
 - Use `developer.log()` guarded by `kDebugMode` — never `print()` in production
 - Never log tokens or full phone numbers — mask sensitive data in debug logs
 - Gender values: `MALE`, `FEMALE`, `OTHER` (uppercase, matching backend validator)
@@ -293,10 +296,11 @@ dart run build_runner build --delete-conflicting-outputs
 - Dead code files have `.dead` extension (not deleted, for reference)
 - `FeatureScreenScaffold` requires `icon`, `color`, and `child` parameters
 - Route navigation: use `context.go('/path')` for tab switches, `context.push('/path')` for feature screens
-- User phone/name available via `UserProvider` (Provider) or `AppRouter.userPhone` / `AppRouter.userName` (legacy statics)
+- User phone/name: prefer `context.read<UserProvider>()` in widgets; `AppRouter._phone(context)` in route builders
 - Always check `mounted` before `setState` after any `await`
 - Use theme colors (`theme.colorScheme.*`) instead of hardcoded `Colors.*` for dark mode support
 - Debounce search inputs (300ms) to avoid excessive rebuilds
 - Dispose TextEditingControllers in modals via `.whenComplete()`
+- Polling: use exponential backoff on consecutive failures, not fixed intervals
 - Linting: `package:flutter_lints` (see `analysis_options.yaml`)
 - JWT stored in flutter_secure_storage with key `'jwt'`

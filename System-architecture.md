@@ -63,8 +63,9 @@ MultiProvider
 
 ```
 ApiClient (centralized HTTP)
-  ├── Handles: auth headers, timeouts, JSON parsing
-  ├── Returns: ApiResponse (isSuccess, data, message, dataAsList, dataAsMap)
+  ├── Handles: auth headers, timeouts, JSON parsing, 401 detection
+  ├── Returns: ApiResponse (isSuccess, data, message, isUnauthorized, dataAsList, dataAsMap)
+  ├── 401 handling: clears stale JWT, fires onSessionExpired → redirect to /login
   └── Used by: all services + screens
 
 BackendApiService (unauthenticated)
@@ -105,6 +106,7 @@ Screen calls ApiClient.get('/path')
   → Adds Authorization header + Content-Type
   → Sends HTTP request with 15s timeout
   → Parses JSON response
+  → If 401: clears JWT, fires onSessionExpired → redirect to /login
   → Returns ApiResponse { isSuccess, data, message, statusCode }
 Screen checks response.isSuccess, uses response.data
 ```
@@ -173,6 +175,14 @@ final response = await ApiClient.multipart('/upload',
 ```
 Upload timeout is 30s (vs 15s default for standard calls).
 
+## Resilience Patterns
+
+- **401 session expiry**: ApiClient detects 401 responses, clears stale JWT, redirects to login via `onSessionExpired` callback
+- **Polling backoff**: Dashboard pollers use exponential backoff on consecutive failures (base interval × 2^failures, capped at 16x)
+- **Startup resilience**: Splash screen wraps all storage reads and biometric auth in try-catch — failures fall through to login
+- **SOS error propagation**: Critical SOS methods (triggerAlert, cancelAlert) throw `SosException` instead of returning null — callers must show user feedback
+- **Error logging**: All catch blocks log errors with `debugPrint` in debug mode — no silent `catch (_) {}` swallowing
+
 ## Security Considerations
 
 - JWT tokens stored in `FlutterSecureStorage` (encrypted at rest)
@@ -181,6 +191,7 @@ Upload timeout is 30s (vs 15s default for standard calls).
 - Firebase OTP is the only auth mechanism (no passwords stored)
 - Logout revokes backend session + unregisters device before clearing storage
 - All HTTP calls have explicit timeouts (15s/30s) to prevent hanging
+- 401 responses automatically clear local tokens to prevent stale token reuse
 
 ## Offline Support
 
