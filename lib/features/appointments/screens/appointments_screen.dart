@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
@@ -299,14 +297,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
 
   Future<void> _viewPrescription(_AppointmentInfo appt) async {
     try {
-      final resp = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/appointments/${appt.id}/documents'),
-        headers: await ApiConfig.authenticatedAuthHeaders(),
-      ).timeout(const Duration(seconds: 15));
+      final resp = await ApiClient.get('/appointments/${appt.id}/documents');
       if (!mounted) return;
-      if (resp.statusCode == 200) {
-        final body = jsonDecode(resp.body);
-        final List<dynamic> docs = body['data'] ?? body ?? [];
+      if (resp.isSuccess) {
+        final List<dynamic> docs = resp.dataAsList();
         if (docs.isEmpty) {
           _showError('No documents available for this appointment');
           return;
@@ -371,11 +365,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
     if (confirmed != true) return;
 
     try {
-      final resp = await http.delete(
-        Uri.parse('${ApiConfig.baseUrl}/appointments/${appt.id}'),
-        headers: await ApiConfig.authenticatedAuthHeaders(),
-      ).timeout(const Duration(seconds: 15));
-      if (resp.statusCode == 200) {
+      final resp = await ApiClient.delete('/appointments/${appt.id}');
+      if (resp.isSuccess) {
         _showSuccess('Appointment cancelled');
         _fetchAppointments();
       } else {
@@ -479,19 +470,15 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
       _selectedTime = null;
     });
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      final resp = await http.get(
-        Uri.parse(
-            '${ApiConfig.baseUrl}/appointments/slots?doctor_id=${_selectedDoctor!.id}&date=$dateStr'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
+      final resp = await ApiClient.get(
+        '/appointments/slots',
+        queryParameters: {
+          'doctor_id': _selectedDoctor!.id.toString(),
+          'date': dateStr,
         },
-      ).timeout(const Duration(seconds: 15));
-      if (resp.statusCode == 200) {
-        final body = jsonDecode(resp.body);
-        final data = body['data'] ?? body;
+      );
+      if (resp.isSuccess) {
+        final data = resp.dataAsMap();
         if (data['available'] == false) {
           // Doctor not available this day
           if (mounted) setState(() => _availableSlots = []);

@@ -12,6 +12,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/offline/record_cache_manager.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
@@ -136,25 +137,29 @@ class _YourHealthScreenState extends State<YourHealthScreen>
     if (!mounted) return;
     setState(() => _isLoadingRecords = true);
 
-    final uri = Uri.parse(
-      '${ApiConfig.baseUrl}/records/health-records/${widget.phone}'
-      '${_selectedType == 'All' ? '' : '?type=${_selectedType.toLowerCase()}'}',
-    );
-
     final messenger = ScaffoldMessenger.of(context);
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
 
+    final queryParams = <String, String>{};
+    if (_selectedType != 'All') {
+      queryParams['type'] = _selectedType.toLowerCase();
+    }
+
     try {
-      final resp =
-          await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders()).timeout(const Duration(seconds: 15));
+      final response = await ApiClient.get(
+        '/records/health-records/${widget.phone}',
+        queryParameters: queryParams.isNotEmpty ? queryParams : null,
+      );
       if (!mounted) return;
 
-      if (resp.statusCode == 200) {
-        final body = jsonDecode(resp.body);
-        final List<dynamic> data = body is List
-            ? body
-            : (body['data']?['records'] ?? body['data'] ?? []) as List<dynamic>;
+      if (response.isSuccess) {
+        final rawData = response.data;
+        final List<dynamic> data = rawData is List
+            ? rawData
+            : (rawData is Map
+                ? (rawData['records'] ?? rawData ?? [])
+                : []) as List<dynamic>;
         await RecordCacheManager.saveManifest(widget.phone, data);
         if (!mounted) return;
         setState(() {
@@ -231,16 +236,12 @@ class _YourHealthScreenState extends State<YourHealthScreen>
       return;
     }
 
-    final url = Uri.parse('${ApiConfig.baseUrl}/upload/by-key/$fileKey');
-
     try {
-      final resp =
-          await http.get(url, headers: await ApiConfig.authenticatedAuthHeaders()).timeout(const Duration(seconds: 15));
+      final response = await ApiClient.get('/upload/by-key/$fileKey');
       if (!mounted) return;
 
-      if (resp.statusCode == 200) {
-        final body = jsonDecode(resp.body);
-        final data = body['data'] ?? body;
+      if (response.isSuccess) {
+        final data = response.dataAsMap();
         if (data['quarantined'] == true) {
           messenger.showSnackBar(SnackBar(
             content: Text(l10n.fileQuarantined),
@@ -286,16 +287,12 @@ class _YourHealthScreenState extends State<YourHealthScreen>
     });
 
     try {
-      final resp = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/appointments/patient/records/all'),
-        headers: await ApiConfig.authenticatedAuthHeaders(),
-      ).timeout(const Duration(seconds: 15));
+      final response = await ApiClient.get('/appointments/patient/records/all');
 
       if (!mounted) return;
 
-      if (resp.statusCode == 200) {
-        final body = jsonDecode(resp.body);
-        final data = body['data'] ?? body;
+      if (response.isSuccess) {
+        final data = response.dataAsMap();
         final hospitalRaw = (data['hospital_records'] as List?) ?? [];
         final uploadsRaw = (data['my_uploads'] as List?) ?? [];
 
@@ -311,7 +308,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
         });
       } else {
         setState(() {
-          _recordsError = 'Failed to load records (${resp.statusCode})';
+          _recordsError = response.message ?? 'Failed to load records';
           _isLoadingHospitalRecords = false;
           _isLoadingMyUploads = false;
         });
@@ -369,11 +366,8 @@ class _YourHealthScreenState extends State<YourHealthScreen>
     if (confirmed != true) return;
 
     try {
-      final resp = await http.delete(
-        Uri.parse('${ApiConfig.baseUrl}/appointments/patient/records/$id'),
-        headers: await ApiConfig.authenticatedAuthHeaders(),
-      ).timeout(const Duration(seconds: 15));
-      if (resp.statusCode == 200) {
+      final response = await ApiClient.delete('/appointments/patient/records/$id');
+      if (response.isSuccess) {
         if (mounted) {
           setState(() => _myUploads.removeWhere((r) => r['id'] == id));
           ScaffoldMessenger.of(context).showSnackBar(
@@ -383,7 +377,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to delete record'), backgroundColor: Colors.red),
+            SnackBar(content: Text(response.message ?? 'Failed to delete record'), backgroundColor: Colors.red),
           );
         }
       }
