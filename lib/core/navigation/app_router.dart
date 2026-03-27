@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:provider/provider.dart';
+import 'package:vhhealth/core/providers/user_provider.dart';
 
 // Import all your screens
 import 'package:vhhealth/features/splash/screens/splash_screen.dart';

@@ -10,6 +10,7 @@ import 'firebase_options.dart';
 import 'package:vhhealth/core/providers/theme_provider.dart';
 import 'package:vhhealth/core/providers/language_provider.dart';
 import 'package:vhhealth/core/providers/notification_provider.dart';
+import 'package:vhhealth/core/providers/user_provider.dart';
 
 // App Router
 import 'package:vhhealth/core/navigation/app_router.dart';
@@ -35,6 +36,7 @@ class VHRoot extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => LanguageProvider()),
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
+        ChangeNotifierProvider(create: (_) => UserProvider()),
       ],
       child: Consumer2<ThemeProvider, LanguageProvider>(
         builder: (context, themeProv, langProv, _) {
