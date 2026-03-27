@@ -54,7 +54,7 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
           'phone': _phoneController.text.trim(),
           'comment': _questionController.text.trim(),
         }),
-      );
+      ).timeout(const Duration(seconds: 15));
 
       if (!mounted) return;
       setState(() => _isSubmitting = false);

@@ -71,7 +71,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       final res = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/users/${widget.phone}'),
         headers: headers,
-      );
+      ).timeout(const Duration(seconds: 15));
 
       if (!mounted) return;
 
@@ -172,7 +172,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
               ? _preferredHospitalController.text.trim()
               : null,
         }),
-      );
+      ).timeout(const Duration(seconds: 15));
       success = res.statusCode == 200 || res.statusCode == 204;
       if (!success) debugPrint('API error: ${res.statusCode} – ${res.body}');
     } catch (e) {

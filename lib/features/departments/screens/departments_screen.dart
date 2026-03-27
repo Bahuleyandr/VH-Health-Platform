@@ -88,7 +88,7 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
       final res = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/departments/departments-with-doctors'),
         headers: await ApiConfig.authenticatedHeaders(),
-      );
+      ).timeout(const Duration(seconds: 15));
 
       if (!mounted) return;
 
