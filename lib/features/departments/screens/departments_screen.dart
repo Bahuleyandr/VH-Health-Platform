@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:go_router/go_router.dart';
 
 import 'package:flutter/material.dart';
@@ -30,6 +32,7 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
   final Set<int> _expandedIndices = {};
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
+  Timer? _debounce;
 
   late ScaffoldMessengerState _messenger;
   late ThemeData _theme;
@@ -43,6 +46,7 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -370,7 +374,12 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
                   child: TextField(
                     controller: _searchController,
-                    onChanged: (v) => setState(() => _searchQuery = v),
+                    onChanged: (v) {
+                      _debounce?.cancel();
+                      _debounce = Timer(const Duration(milliseconds: 300), () {
+                        if (mounted) setState(() => _searchQuery = v);
+                      });
+                    },
                     decoration: InputDecoration(
                       hintText: 'Search departments or doctors...',
                       prefixIcon: const Icon(Icons.search, size: 20),

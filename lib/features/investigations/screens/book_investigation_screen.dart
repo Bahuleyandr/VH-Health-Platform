@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -24,6 +25,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
   List<dynamic> _catalog = [];
   bool _loadingCatalog = true;
   String _searchQuery = '';
+  Timer? _searchDebounce;
   final Set<int> _selectedTestIds = {};
   final _customTestController = TextEditingController();
   File? _slipPhoto;
@@ -60,6 +62,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _customTestController.dispose();
     _addressController.dispose();
     _landmarkController.dispose();
@@ -353,7 +356,12 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
             ),
             isDense: true,
           ),
-          onChanged: (v) => setState(() => _searchQuery = v),
+          onChanged: (v) {
+            _searchDebounce?.cancel();
+            _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+              if (mounted) setState(() => _searchQuery = v);
+            });
+          },
         ),
         const SizedBox(height: 12),
 

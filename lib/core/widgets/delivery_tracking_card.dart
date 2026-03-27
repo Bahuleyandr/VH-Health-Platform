@@ -166,20 +166,20 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
           Row(
             children: [
               if (etaMins != null) ...[
-                Icon(Icons.schedule, size: 18, color: Colors.teal.shade600),
+                Icon(Icons.schedule, size: 18, color: theme.colorScheme.primary),
                 const SizedBox(width: 6),
                 Text(
                   'Estimated arrival: ~$etaMins min',
-                  style: TextStyle(fontSize: 14, color: Colors.teal.shade800),
+                  style: TextStyle(fontSize: 14, color: theme.colorScheme.primary),
                 ),
               ],
               if (distanceKm != null) ...[
                 const SizedBox(width: 16),
-                Icon(Icons.straighten, size: 18, color: Colors.teal.shade600),
+                Icon(Icons.straighten, size: 18, color: theme.colorScheme.primary),
                 const SizedBox(width: 6),
                 Text(
                   '$distanceKm km',
-                  style: TextStyle(fontSize: 14, color: Colors.teal.shade800),
+                  style: TextStyle(fontSize: 14, color: theme.colorScheme.primary),
                 ),
               ],
             ],
@@ -190,7 +190,7 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
             const SizedBox(height: 12),
             Row(
               children: [
-                Icon(Icons.person, size: 18, color: Colors.teal.shade600),
+                Icon(Icons.person, size: 18, color: theme.colorScheme.primary),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Column(
@@ -199,13 +199,13 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
                       if (deliveryPerson != null)
                         Text(deliveryPerson, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                       if (deliveryPhone != null)
-                        Text(deliveryPhone, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                        Text(deliveryPhone, style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13)),
                     ],
                   ),
                 ),
                 if (deliveryPhone != null)
                   IconButton(
-                    icon: Icon(Icons.call, color: Colors.teal.shade700),
+                    icon: Icon(Icons.call, color: theme.colorScheme.primary),
                     onPressed: () => launchUrl(Uri.parse('tel:$deliveryPhone')),
                     tooltip: 'Call',
                   ),
@@ -223,8 +223,8 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
                 child: LinearProgressIndicator(
                   value: progress,
                   minHeight: 6,
-                  backgroundColor: Colors.teal.shade100,
-                  valueColor: AlwaysStoppedAnimation(Colors.teal.shade600),
+                  backgroundColor: theme.colorScheme.primaryContainer,
+                  valueColor: AlwaysStoppedAnimation(theme.colorScheme.primary),
                 ),
               ),
               const SizedBox(height: 6),
@@ -232,9 +232,9 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text('Hospital',
-                      style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                      style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
                   Text('Your Location',
-                      style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                      style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
                 ],
               ),
             ],
