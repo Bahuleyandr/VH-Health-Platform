@@ -45,7 +45,7 @@ export const listInvestigations = async (req, res) => {
   } catch (err) {
     logger.error('List Investigations Error:', err);
     if (err.message === 'USER_NOT_FOUND') {
-      return res.status(404).json({ message: 'User not found' });
+      return error(res, 'User not found', 404);
     }
     error(res, 'Failed to retrieve investigations', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -65,11 +65,7 @@ export const getInvestigationById = async (req, res) => {
     );
 
     if (!investigation) {
-      return res.status(404).json({ 
-        message: 'Investigation not found or access denied',
-        id,
-        requestedBy: userId
-      });
+      return error(res, 'Investigation not found or access denied', 404);
     }
 
     await logAudit(req, 'investigation-view', { investigation_id: id });
@@ -83,7 +79,7 @@ export const getInvestigationById = async (req, res) => {
   } catch (err) {
     logger.error('Get Investigation Error:', err);
     if (err.message === 'USER_NOT_FOUND') {
-      return res.status(404).json({ message: 'User not found' });
+      return error(res, 'User not found', 404);
     }
     error(res, 'Failed to retrieve investigation', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -106,15 +102,12 @@ export const getPatientInvestigations = async (req, res) => {
     );
 
     if (!result) {
-      return res.status(403).json({ 
-        message: 'Access denied: Cannot view other patient records',
-        requestedBy: userId
-      });
+      return error(res, 'Access denied: Cannot view other patient records', 403);
     }
 
-    await logAudit(req, 'patient-investigations-view', { 
-      patient_id, 
-      count: result.investigations.length 
+    await logAudit(req, 'patient-investigations-view', {
+      patient_id,
+      count: result.investigations.length
     });
 
     success(res, {
@@ -136,10 +129,7 @@ export const getDoctorInvestigations = async (req, res) => {
     const userId = req.user?.uid;
     
     if (!investigationService.canViewDoctorInvestigations(userRole)) {
-      return res.status(403).json({ 
-        message: 'Access denied: Medical staff access required',
-        requestedBy: userId
-      });
+      return error(res, 'Access denied: Medical staff access required', 403);
     }
 
     const { doctor_id } = req.params;
@@ -174,10 +164,7 @@ export const getInvestigationsByType = async (req, res) => {
     const userId = req.user?.uid;
     
     if (!investigationService.canViewByType(userRole)) {
-      return res.status(403).json({ 
-        message: 'Access denied: Medical staff access required',
-        requestedBy: userId
-      });
+      return error(res, 'Access denied: Medical staff access required', 403);
     }
 
     const { type } = req.params;
@@ -212,10 +199,7 @@ export const getPendingInvestigations = async (req, res) => {
     const userId = req.user?.uid;
     
     if (!investigationService.canViewPending(userRole)) {
-      return res.status(403).json({ 
-        message: 'Access denied: Medical staff access required',
-        requestedBy: userId
-      });
+      return error(res, 'Access denied: Medical staff access required', 403);
     }
 
     const { type, priority } = req.query;
@@ -246,10 +230,7 @@ export const updateInvestigationStatus = async (req, res) => {
     const userId = req.user?.uid;
     
     if (!investigationService.canUpdateStatus(userRole)) {
-      return res.status(403).json({ 
-        message: 'Access denied: Lab technician or doctor privileges required',
-        requestedBy: userId
-      });
+      return error(res, 'Access denied: Lab technician or doctor privileges required', 403);
     }
 
     const { id } = req.params;
@@ -263,10 +244,7 @@ export const updateInvestigationStatus = async (req, res) => {
     );
 
     if (!investigation) {
-      return res.status(404).json({ 
-        message: 'Investigation not found',
-        requestedBy: userId
-      });
+      return error(res, 'Investigation not found', 404);
     }
 
     await logAudit(req, 'investigation-status-updated', { 
@@ -282,11 +260,7 @@ export const updateInvestigationStatus = async (req, res) => {
   } catch (err) {
     logger.error('Update Status Error:', err);
     if (err.message === 'INVALID_STATUS') {
-      return res.status(400).json({
-        message: 'Invalid status',
-        validStatuses: Object.values(INVESTIGATION_STATUS),
-        requestedBy: req.user?.uid
-      });
+      return error(res, 'Invalid status', 400, { validStatuses: Object.values(INVESTIGATION_STATUS) });
     }
     error(res, 'Failed to update investigation status', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -299,20 +273,14 @@ export const addInvestigationResults = async (req, res) => {
     const userId = req.user?.uid;
     
     if (!investigationService.canAddResults(userRole)) {
-      return res.status(403).json({ 
-        message: 'Access denied: Lab technician or doctor privileges required',
-        requestedBy: userId
-      });
+      return error(res, 'Access denied: Lab technician or doctor privileges required', 403);
     }
 
     const { id } = req.params;
     const { results, interpretation, technician_notes, reviewed_by } = req.body;
 
     if (!results) {
-      return res.status(400).json({
-        message: 'Results are required',
-        requestedBy: userId
-      });
+      return error(res, 'Results are required', 400);
     }
 
     const investigation = await investigationService.addResults(
@@ -322,10 +290,7 @@ export const addInvestigationResults = async (req, res) => {
     );
 
     if (!investigation) {
-      return res.status(404).json({ 
-        message: 'Investigation not found',
-        requestedBy: userId
-      });
+      return error(res, 'Investigation not found', 404);
     }
 
     await logAudit(req, 'investigation-results-added', { investigation_id: id });
@@ -352,10 +317,7 @@ export const getInvestigationsByPhone = async (req, res) => {
     if (userRole === 'PATIENT') {
       const userResult = await db.query('SELECT phone FROM users WHERE uid = $1', [req.user.uid]);
       if (userResult.rows.length === 0 || userResult.rows[0].phone !== phone) {
-        return res.status(403).json({ 
-          message: 'Access denied: Cannot view other patient records',
-          requestedBy
-        });
+        return error(res, 'Access denied: Cannot view other patient records', 403);
       }
     }
     
@@ -414,20 +376,13 @@ export const getInvestigationsByUID = async (req, res) => {
     
     // Access control
     if (userRole === 'PATIENT' && uid !== req.user.uid) {
-      return res.status(403).json({ 
-        message: 'Access denied: Cannot view other patient records',
-        requestedBy
-      });
+      return error(res, 'Access denied: Cannot view other patient records', 403);
     }
-    
+
     // Resolve UID to phone
     const userResult = await db.query('SELECT phone FROM users WHERE uid = $1', [uid]);
     if (userResult.rows.length === 0) {
-      return res.status(404).json({ 
-        message: 'User not found',
-        uid,
-        requestedBy
-      });
+      return error(res, 'User not found', 404);
     }
     
     const phone = userResult.rows[0].phone;

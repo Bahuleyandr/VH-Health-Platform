@@ -1,7 +1,9 @@
 // src/services/auth/authService.js
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 import db from '../../config/database.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import logger from '../../logging/logger.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import { generateToken, verifyToken } from '../../utils/jwtUtils.js';
@@ -96,22 +98,19 @@ export class AuthService {
         throw new Error(verification.reason || 'Invalid OTP');
       }
 
-      let user = await this.getUserByPhone(normalizedPhone);
-      let isNewUser = false;
+      const upsertResult = await db.query(
+        `INSERT INTO users (phone, role, registered_at, last_login)
+         VALUES ($1, 'PATIENT', NOW(), NOW())
+         ON CONFLICT (phone) DO UPDATE SET last_login = NOW()
+         RETURNING uid, id, name, phone, role,
+           (xmax = 0) AS is_new_user`,
+        [normalizedPhone]
+      );
+      const user = upsertResult.rows[0];
+      const isNewUser = user.is_new_user;
 
-      if (!user) {
-        const insertResult = await db.query(
-          `INSERT INTO users (phone, role, registered_at, last_login) 
-           VALUES ($1, $2, NOW(), NOW()) RETURNING *`,
-          [normalizedPhone, 'PATIENT']
-        );
-        user = insertResult.rows[0];
-        isNewUser = true;
+      if (isNewUser) {
         logger.info(`New user registered: ${normalizedPhone}`);
-      } else {
-        await db.query('UPDATE users SET last_login = NOW() WHERE phone = $1', [
-          normalizedPhone,
-        ]);
       }
 
       const token = generateToken({
@@ -169,12 +168,14 @@ export class AuthService {
     try {
       const { rows } = await db.query(
         `
-        SELECT 
+        SELECT
           id          AS uid,
           username,
           email,
           role,
           status,
+          failed_login_attempts,
+          last_failed_login,
           ${ADMIN_PASSWORD_COLUMN} AS pwd
         FROM ${ADMIN_TABLE}
         WHERE lower(username) = lower($1) OR lower(email) = lower($1)
@@ -189,6 +190,26 @@ export class AuthService {
 
       if (admin.status && String(admin.status).toLowerCase() !== 'active') {
         throw new Error('Account is deactivated');
+      }
+
+      // Enforce account lockout after too many failed attempts
+      const MAX_FAILED_ATTEMPTS = SECURITY_CONFIG.admin.maxFailedAttempts;
+      const LOCKOUT_DURATION_MINUTES = SECURITY_CONFIG.admin.lockoutDurationMinutes;
+
+      if (admin.failed_login_attempts >= MAX_FAILED_ATTEMPTS) {
+        const lastFailedAt = admin.last_failed_login || admin.updated_at;
+        if (lastFailedAt) {
+          const lockoutExpiry = new Date(new Date(lastFailedAt).getTime() + LOCKOUT_DURATION_MINUTES * 60 * 1000);
+          if (new Date() < lockoutExpiry) {
+            logger.warn(`Admin account locked: ${identity} (${admin.failed_login_attempts} failed attempts)`);
+            throw new Error('Account temporarily locked due to too many failed attempts. Try again later.');
+          }
+        }
+        // Lockout period has expired, reset the counter
+        await db.query(
+          `UPDATE ${ADMIN_TABLE} SET failed_login_attempts = 0 WHERE id = $1`,
+          [admin.uid]
+        );
       }
 
       const ok = await bcrypt.compare(password, admin.pwd);
@@ -274,7 +295,7 @@ aud: 'vh-health-admin'               // optional
       if (rows.length === 0) throw new Error('Admin not found');
 
       const admin = rows[0];
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const otp = crypto.randomInt(100000, 999999).toString();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
       await db.query(
@@ -283,7 +304,7 @@ aud: 'vh-health-admin'               // optional
         [admin.uid, otp, expiresAt]
       );
 
-      logger.info(`Password reset OTP for ${admin.username || admin.email}: ${otp}`);
+      logger.info(`Password reset OTP requested for admin ${admin.username || admin.email}`);
 
       return {
         message: 'OTP sent to registered email/phone',
@@ -640,16 +661,22 @@ aud: 'vh-health-admin'               // optional
   static async legacyRegister(phone, req) {
     try {
       const normalizedPhone = normalizePhone(phone);
-      const existingUser = await this.getUserByPhone(normalizedPhone);
-      if (existingUser) throw new Error('User already exists');
 
-      const insertResult = await db.query(
-        `INSERT INTO users (phone, role, registered_at) 
-         VALUES ($1, $2, NOW()) RETURNING *`,
-        [normalizedPhone, 'PATIENT']
+      const upsertResult = await db.query(
+        `INSERT INTO users (phone, role, registered_at, last_login)
+         VALUES ($1, 'PATIENT', NOW(), NOW())
+         ON CONFLICT (phone) DO UPDATE SET last_login = NOW()
+         RETURNING uid, id, name, phone, role,
+           (xmax = 0) AS is_new_user`,
+        [normalizedPhone]
       );
 
-      const user = insertResult.rows[0];
+      const user = upsertResult.rows[0];
+
+      if (!user.is_new_user) {
+        throw new Error('User already exists');
+      }
+
       const token = generateToken({
         uid: user.uid,
         phone: user.phone,
@@ -814,22 +841,19 @@ aud: 'vh-health-admin'               // optional
         throw err;
       }
 
-      let user = await this.getUserByPhone(normalizedPhone);
-      let isNewUser = false;
+      const upsertResult = await db.query(
+        `INSERT INTO users (phone, role, registered_at, last_login)
+         VALUES ($1, 'PATIENT', NOW(), NOW())
+         ON CONFLICT (phone) DO UPDATE SET last_login = NOW()
+         RETURNING uid, id, name, phone, role,
+           (xmax = 0) AS is_new_user`,
+        [normalizedPhone]
+      );
+      const user = upsertResult.rows[0];
+      const isNewUser = user.is_new_user;
 
-      if (!user) {
-        const insertResult = await db.query(
-          `INSERT INTO users (phone, role, registered_at, last_login) 
-           VALUES ($1, $2, NOW(), NOW()) RETURNING *`,
-          [normalizedPhone, 'PATIENT']
-        );
-        user = insertResult.rows[0];
-        isNewUser = true;
+      if (isNewUser) {
         logger.info(`New user registered: ${normalizedPhone}`);
-      } else {
-        await db.query('UPDATE users SET last_login = NOW() WHERE phone = $1', [
-          normalizedPhone,
-        ]);
       }
 
       const token = generateToken({

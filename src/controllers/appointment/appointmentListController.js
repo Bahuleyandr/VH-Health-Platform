@@ -149,10 +149,9 @@ export const getTodayAppointments = async (req, res) => {
 };
 
 export const testRoute = (req, res) => {
-  res.json({ 
-    message: 'Appointment routes working!',
+  success(res, {
     timestamp: new Date().toISOString(),
     version: '2.0.0',
     user: req.user?.name || 'Unknown'
-  });
+  }, 'Appointment routes working!');
 };

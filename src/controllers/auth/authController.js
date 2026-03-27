@@ -16,7 +16,7 @@ export const requestOtp = async (req, res) => {
     success(res, result, 'OTP sent successfully');
   } catch (err) {
     logger.error('Request OTP Error:', err);
-    error(res, err.message || 'Failed to send OTP', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to send OTP', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -29,7 +29,7 @@ export const verifyOtp = async (req, res) => {
     success(res, result, result.isNewUser ? 'User registered and logged in' : 'Login successful');
   } catch (err) {
     logger.error('Verify OTP Error:', err);
-    error(res, err.message || 'Authentication failed', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Authentication failed', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -46,7 +46,7 @@ export const refreshToken = async (req, res) => {
     success(res, result, 'Token refreshed successfully');
   } catch (err) {
     logger.error('Token Refresh Error:', err);
-    error(res, err.message || 'Failed to refresh token', err.statusCode || HTTP_STATUS.UNAUTHORIZED);
+    error(res, 'Failed to refresh token', err.statusCode || HTTP_STATUS.UNAUTHORIZED);
   }
 };
 
@@ -104,7 +104,7 @@ export const login = async (req, res) => {
     success(res, result, 'Login successful');
   } catch (err) {
     logger.error('Legacy Login Error:', err);
-    error(res, err.message || 'Login failed', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Login failed', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -117,7 +117,7 @@ export const register = async (req, res) => {
     success(res, result, 'Registration successful');
   } catch (err) {
     logger.error('Legacy Register Error:', err);
-    error(res, err.message || 'Registration failed', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Registration failed', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 // ✅ FIX: Removed extra closing brace from the end of the file

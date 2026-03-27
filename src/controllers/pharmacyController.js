@@ -2,6 +2,7 @@
 
 import db from '../config/database.js';
 import logger from '../logging/logger.js';
+import { normalizePhone } from '../utils/phoneUtils.js';
 import { resolvePhoneFromUID } from '../utils/resolveIdentity.js';
 import { success, error } from '../utils/responseHelper.js';
 
@@ -10,13 +11,20 @@ export async function placePharmacyOrder(req, res) {
   const { phone, order_note, file_key } = req.body;
 
   if (!phone || !order_note) {
-    return res.status(400).json({ error: 'Phone and order_note are required' });
+    return error(res, 'Phone and order_note are required', 400);
+  }
+
+  if (req.user?.role === 'PATIENT') {
+    const userPhone = normalizePhone(req.user?.phone);
+    if (userPhone && userPhone !== phone) {
+      return error(res, 'You can only place orders for yourself', 403);
+    }
   }
 
   try {
     const result = await db.query(
       `INSERT INTO pharmacy_orders (phone, order_note, file_key)
-       VALUES ($1, $2, $3) RETURNING *`,
+       VALUES ($1, $2, $3) RETURNING id, phone, order_note, file_key, status, created_at`,
       [phone, order_note, file_key || null]
     );
     success(res, result.rows[0], 'Pharmacy order placed');
@@ -31,12 +39,19 @@ export async function getPharmacyOrdersByPhone(req, res) {
   const { phone } = req.params;
 
   if (!phone) {
-    return res.status(400).json({ error: 'Phone parameter is required' });
+    return error(res, 'Phone parameter is required', 400);
+  }
+
+  if (req.user?.role === 'PATIENT') {
+    const userPhone = normalizePhone(req.user?.phone);
+    if (userPhone && userPhone !== phone) {
+      return error(res, 'You can only view your own orders', 403);
+    }
   }
 
   try {
     const result = await db.query(
-      `SELECT * FROM pharmacy_orders WHERE phone = $1 ORDER BY created_at DESC`,
+      `SELECT id, phone, order_note, file_key, prescription_id, urgent, status, notes, created_at, updated_at FROM pharmacy_orders WHERE phone = $1 ORDER BY created_at DESC`,
       [phone]
     );
     success(
@@ -56,28 +71,28 @@ export async function getPharmacyOrdersByUID(req, res) {
   const { uid } = req.params;
 
   if (!uid) {
-    return res.status(400).json({ error: 'UID is required' });
+    return error(res, 'UID is required', 400);
   }
 
   try {
     const phone = await resolvePhoneFromUID(uid);
 
     if (!phone) {
-      return res.status(404).json({ error: 'UID not found in users table' });
+      return error(res, 'UID not found in users table', 404);
     }
 
     const result = await db.query(
-      `SELECT * FROM pharmacy_orders WHERE phone = $1 ORDER BY created_at DESC`,
+      `SELECT id, phone, order_note, file_key, prescription_id, urgent, status, notes, created_at, updated_at FROM pharmacy_orders WHERE phone = $1 ORDER BY created_at DESC`,
       [phone]
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'No pharmacy orders found for this user' });
+      return error(res, 'No pharmacy orders found for this user', 404);
     }
 
-    return res.status(200).json({ success: true, pharmacyOrders: result.rows });
+    return success(res, { pharmacyOrders: result.rows }, 'Pharmacy orders retrieved successfully');
   } catch (err) {
-    logger.error('Get Pharmacy Orders By UID Error:', err); // ✅ correctly logs the error // ✅ fixed
-    return res.status(500).json({ error: 'Internal server error' });
+    logger.error('Get Pharmacy Orders By UID Error:', err);
+    return error(res, 'Internal server error');
   }
 }

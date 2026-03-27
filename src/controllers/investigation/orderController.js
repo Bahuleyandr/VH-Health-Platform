@@ -50,10 +50,7 @@ export const orderInvestigation = async (req, res) => {
     const requestedBy = req.user?.uid;
     
     if (!orderService.canOrderInvestigations(userRole)) {
-      return res.status(403).json({ 
-        message: 'Access denied: Doctor privileges required to order investigations',
-        requestedBy
-      });
+      return error(res, 'Access denied: Doctor privileges required to order investigations', 403);
     }
     
     const orderData = {
@@ -64,10 +61,7 @@ export const orderInvestigation = async (req, res) => {
     const result = await orderService.createInvestigationOrder(orderData);
 
     if (!result) {
-      return res.status(400).json({
-        message: result.error || 'Failed to create investigation order',
-        requestedBy
-      });
+      return error(res, 'Failed to create investigation order', 400);
     }
 
     await logAudit(req, 'investigation-ordered', { 
@@ -80,7 +74,7 @@ export const orderInvestigation = async (req, res) => {
     // Fire-and-forget urgent alert for URGENT/STAT investigations
     const priority = result.investigation?.priority?.toUpperCase();
     if (priority === 'URGENT' || priority === 'STAT') {
-      sendUrgentAlert(result.investigation, result.patient_name).catch(() => {});
+      sendUrgentAlert(result.investigation, result.patient_name).catch(e => logger.warn('Urgent investigation alert failed:', e.message));
     }
 
     success(res, {
@@ -92,21 +86,13 @@ export const orderInvestigation = async (req, res) => {
     logger.error('Order Investigation Error:', err);
     
     if (err.message === 'PATIENT_NOT_FOUND') {
-      return res.status(404).json({ message: 'Patient not found', requestedBy: req.user?.uid });
+      return error(res, 'Patient not found', 404);
     } else if (err.message === 'DOCTOR_NOT_FOUND') {
-      return res.status(404).json({ message: 'Doctor not found', requestedBy: req.user?.uid });
+      return error(res, 'Doctor not found', 404);
     } else if (err.message === 'INVALID_TYPE') {
-      return res.status(400).json({
-        message: 'Invalid investigation type',
-        validTypes: Object.values(INVESTIGATION_TYPES),
-        requestedBy: req.user?.uid
-      });
+      return error(res, 'Invalid investigation type', 400);
     } else if (err.message === 'INVALID_PRIORITY') {
-      return res.status(400).json({
-        message: 'Invalid priority level',
-        validPriorities: Object.values(PRIORITY_LEVELS),
-        requestedBy: req.user?.uid
-      });
+      return error(res, 'Invalid priority level', 400);
     }
     
     error(res, 'Failed to order investigation', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -121,10 +107,7 @@ export const legacyInvestigationRequest = async (req, res) => {
     const requestedBy = req.user?.uid;
 
     if (!phone || !test_name) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        error: 'Phone and test name are required.',
-        requestedBy
-      });
+      return error(res, 'Phone and test name are required.', HTTP_STATUS.BAD_REQUEST);
     }
 
     const result = await orderService.createLegacyInvestigation({

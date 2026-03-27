@@ -17,31 +17,168 @@ Node.js/Express REST API backend for the VHHealth hospital management system. Se
 ```
 src/
   app.js              # Express app setup, route mounting, middleware chain
-  bin/www.js          # HTTP server entrypoint (port 5000)
-  config/             # Database, rate limits, RBAC, validation schemas
+  bin/www.js          # HTTP server entrypoint (port 5000), graceful shutdown
+  config/             # Database, rate limits, RBAC, validation schemas, upload config
   controllers/        # Thin controllers grouped by domain
-  middleware/          # Auth, CORS, rate limiting, RBAC, audit
+  middleware/          # Auth, CORS, rate limiting, RBAC, audit, sanitization, file validation
   routes/             # Express routers grouped by domain
   services/           # Business logic layer
-  utils/              # Helpers (JWT, phone normalization, R2 storage)
+  utils/              # Helpers (JWT, phone, R2, sanitization)
   validators/         # express-validator chains
-  tests/              # Jest integration tests
+  tests/              # Jest integration tests (authorization, critical paths)
   logging/            # Winston logger config
 prisma/schema.prisma  # DB documentation (58 models, NOT used for queries)
 ```
 
 ## Key Architecture Decisions
-- **Raw pg over Prisma**: All DB queries use `db.query()` from `DatabaseManager`. Prisma schema is documentation only.
+- **Raw pg over Prisma**: All DB queries use `db.query()` from `DatabaseManager`. Prisma schema is documentation only. Use `db.readQuery()` for analytics/exports (routes to read replica when `DATABASE_READ_URL` is set).
 - **Domain grouping**: Controllers, routes, services, validators are grouped by domain (auth/, appointment/, staff/, etc.)
 - **wrapAutoRBAC**: Routes use `wrapAutoRBAC(router, configKey, routeMap)` from `src/config/routeWrapper.js` for role-based access control.
-- **Response format**: All responses use `success(res, data, message)` or `error(res, message)` from `src/utils/responseHelper.js`. Envelope: `{ success: true, message: "...", data: {...} }`
+- **Response format**: All responses use `success(res, data, message, status, meta)` or `error(res, message, statusCode, details)` from `src/utils/responseHelper.js`. Envelope: `{ success: true, message: "...", data: {...}, requestId: "..." }`. Optional `meta` param for pagination.
+- **Unified req.user shape**: Both `authMiddleware` and `jwtMiddleware` normalize to `{ uid, id, role, phone, email }`. `uid` is the string UID, `id` is the DB integer PK. Use `String()` comparison for IDOR checks.
+- **AppError class**: Services throw `AppError` (from `src/utils/AppError.js`) with `statusCode`, `code`, and `details`. Factory methods: `AppError.badRequest()`, `.notFound()`, `.forbidden()`, `.unauthorized()`, `.invalidTransition(from, to, allowed)`. The global error handler recognizes these and returns structured responses.
+- **Role helpers**: Use `isStaff()`, `isClinical()`, `isAdmin()`, `isDoctor()` from `src/utils/roleHelpers.js` — never inline role arrays like `['ADMIN','DOCTOR','NURSE']`.
+- **Security config**: All security constants (lockout, OTP limits, JWT expiry, device trust) live in `src/config/securityConfig.js` — not hardcoded in services.
+- **Input sanitization**: All user-facing text fields go through `stripHtml()` from `src/utils/sanitize.js` via middleware in `src/middleware/sanitizeMiddleware.js`.
+- **File upload validation**: Multer + magic bytes verification (`validateFileContent`) + patient-specific restrictions (`validatePatientUpload`) in `src/middleware/uploadMiddleware.js`.
+- **Notification outbox**: Use `notificationOutbox.queue()` from `src/utils/notifications/notificationOutbox.js` to persist notification intent before sending. Failed notifications can be retried by background jobs.
+- **API versioning**: `apiVersionMiddleware` reads `Accept-Version` header, sets `req.apiVersion`. Currently informational — future response helpers can adapt per version.
 
 ## Auth Architecture
 - **Patient login**: Firebase OTP → `POST /api/v1/auth/firebase/firebase-login` (idToken) → JWT
 - **Staff login**: Employee ID + password → `POST /api/v1/auth/staff/login` → accessToken + refreshToken
 - **Admin login**: Username + password → `POST /api/v1/auth/admin/login` → JWT
-- **Middleware chain**: `validateApiKey` (x-api-key header) → `authMiddleware` (JWT Bearer) → route handlers
-- **JWT generation**: `src/utils/jwtUtils.js` — `generateToken(payload, expiresIn?)`, accepts extra claims
+- **Middleware chain**: `requestIdMiddleware` → `apiVersionMiddleware` → `validateApiKey` (timing-safe) → `authMiddleware` (JWT + normalized req.user) → route handlers
+- **Admin lockout**: 5 failed attempts → 15min lockout (configurable via `SECURITY_CONFIG`)
+- **JWT**: HS256 signed, 7d default expiry. App crashes on startup if `JWT_SECRET` missing. Token expiry differentiated: `TOKEN_EXPIRED` vs `TOKEN_INVALID` error codes.
+- **API key**: Compared using `crypto.timingSafeEqual()` to prevent timing attacks.
+
+## Security Architecture
+
+### Rate Limiting
+| Profile | Window | Max | Applied To |
+|---------|--------|-----|------------|
+| patient | 15min | 100 | /users, /appointments, /records, /feedback |
+| staff | 15min | 500 | /staff/* |
+| admin | 15min | 100 | /admin/*, /system/*, /logs/* |
+| otp | 10min | 3 per phone | /auth/firebase-login, /auth/request-otp |
+| sos | 1hr | 3 per user | POST /sos/ |
+
+### IDOR Protection
+All patient-facing mutation endpoints verify resource ownership:
+- `PUT /appointments/:id` — `checkAppointmentPermission()` with `String()` comparison
+- `DELETE /appointments/:id` — same
+- `DELETE /appointments/patient/records/:id` — `WHERE patient_id=$2` scoped query
+- Pharmacy legacy endpoints — phone ownership check for PATIENT role
+
+### Input Sanitization
+Applied via middleware from `src/middleware/sanitizeMiddleware.js`:
+- Profile: name, address, allergies, emergency_contact
+- Feedback: comment, question
+- Pharmacy: order_note, delivery_address, delivery_landmark
+- Investigation: notes, custom_test_names, collection_address
+- Appointment: reason, notes
+- SOS: notes, description, address
+
+### File Upload Security
+1. **Multer filter**: MIME type allowlist from `uploadConfig.js`
+2. **Magic bytes**: `validateFileContent()` checks file header bytes match claimed MIME
+3. **Patient restrictions**: `validatePatientUpload()` — JPEG/PNG/PDF only, 10MB images / 25MB PDFs
+4. **Filename sanitization**: Dangerous character patterns rejected
+
+### Phone-in-URL Mitigation
+Prefer `/my` endpoints that derive phone from JWT:
+- `GET /notifications/my` instead of `GET /notifications/:phone`
+- `PATCH /notifications/my/mark-all-read`
+- `GET /records/health-records/my`
+
+### Request ID Correlation
+- `requestIdMiddleware` generates UUID per request (or reuses `X-Request-Id` header)
+- Available as `req.id` in all middleware/controllers
+- Echoed back in `X-Request-Id` response header for client-side correlation
+
+### Graceful Shutdown
+- `SIGTERM` and `SIGINT` handlers in `bin/www.js`
+- `uncaughtException` and `unhandledRejection` handlers trigger graceful shutdown
+- Closes HTTP server, drains DB pool, force-exits after 10s timeout
+- Migrations block startup — app exits on migration failure
+
+### Error Handling
+- Global error handler in `src/middleware/errorHandlerMiddleware.js` with Sentry integration
+- `AppError` instances return structured `{ success, message, code, details }` responses
+- **Never expose `err.message` to clients** — log server-side, return generic message
+- Stack traces only in development mode
+- Unimplemented endpoints return `501 Not Implemented` (not `200`)
+- No empty `.catch(() => {})` — always log with context
+- No fake success in catch blocks — return `error()`, not `success()` with zeros
+
+### Async Error Safety
+- `wrapAsync()` in `src/config/routeWrapper.js` wraps ALL async route handlers
+- Catches unhandled promise rejections and forwards to Express error handler
+- Prevents process crash from any async middleware or controller error
+- Applied automatically via `wrapAutoRBAC` and `wrapRoutesWithValidation`
+
+### Database Resilience
+- 30s `statement_timeout` on all queries (prevents connection pool exhaustion)
+- **Circuit breaker**: after 5 consecutive query failures, rejects immediately for 30s. Auto-resets (half-open) on recovery.
+- Pool error events logged (prevents silent connection loss)
+- `db.healthCheck()` returns pool stats (totalCount, idleCount, waitingCount)
+- `db.readQuery()` routes to read replica when `DATABASE_READ_URL` configured
+- `db.setDatabaseInstance()` export for test mocking
+- Slow query logging: queries >1000ms logged as warnings with duration and truncated SQL
+
+### External Service Resilience
+- R2 storage: 30s request timeout + retry with exponential backoff (2 retries)
+- R2 graceful degradation: app starts even if R2 env vars missing — file ops fail at call time, not import time
+- FCM notifications: retry on transient errors (2 retries with backoff)
+- Invalid FCM tokens automatically deactivated in database
+- Notification outbox (`src/utils/notifications/notificationOutbox.js`) persists intent before sending
+- Firebase mock fallback: if Firebase credentials missing, rejects auth calls with clear error instead of crashing
+
+### Audit Log Resilience
+- Fire-and-forget with capped queue (max 1000 pending)
+- File fallback via Winston when DB unavailable — audit entries never lost
+
+### State Machine Validation
+- Pharmacy orders: `VALID_TRANSITIONS` map prevents invalid status jumps (e.g., DELIVERED → PENDING)
+- Appointment status changes wrapped in transactions with `FOR UPDATE` row locking
+- Token number generation is atomic (prevents race condition duplicates)
+
+### HIPAA Compliance
+- `logPhiAccess()` from `src/utils/hipaaAudit.js` logs all Protected Health Information access
+- Records: who accessed, which patient, what record type, IP, request ID, timestamp
+- File fallback via Winston when DB unavailable — HIPAA audit entries never lost
+- Patient health endpoints (summary, vitals, allergies, conditions) all log PHI access
+
+### Clinical Safety
+- **Vital sign anomaly detection**: `src/utils/clinical/vitalSignMonitor.js`
+  - `checkVitalAnomalies(patientId, vitals)` compares against clinical reference ranges
+  - Generates CRITICAL alerts (e.g., O2 <85%, HR >180) and WARNING alerts (e.g., BP >160)
+  - Persists alerts to `clinical_alerts` table for staff review
+- **Prescription safety checker**: `src/utils/clinical/prescriptionSafetyCheck.js`
+  - `validatePrescriptionSafety(patientId, medications)` checks patient allergies + active meds
+  - Returns `{ safe, warnings, blockers }` — blockers prevent prescription save
+  - Catches allergy conflicts (severity-aware) and duplicate active prescriptions
+- **PII masking**: `src/utils/piiMask.js` — `maskPhone()`, `maskEmail()`, `maskName()` for safe logging
+
+### Self-Healing Infrastructure
+- **DB health monitor**: `src/utils/dbHealthMonitor.js` — polls pool stats every 30s, warns on pressure, alerts on near-exhaustion
+- **Canary health checks**: `src/utils/canaryHealthCheck.js` — every 5 minutes tests DB read/write, stuck notifications, unacknowledged critical alerts
+- **Schema drift detection**: `src/utils/schemaDriftDetector.js` — compares expected vs actual DB tables at startup, warns on mismatches
+- **Scheduler job locking**: `withJobLock()` prevents overlapping cron executions
+
+### Observability
+- Sentry: 10% trace sampling in production, release tracking via `GIT_COMMIT`
+- Compression middleware: gzip responses >1KB
+- Explicit JSON body size limit: 10MB
+- Root health check (`GET /`) verifies DB connectivity, returns 503 if unhealthy
+- HTTPS redirect enforced in production via `x-forwarded-proto` check
+- Strict Helmet config: HSTS 1yr with preload, CSP directives, no framing
+
+### Environment Validation
+- `src/utils/validateEnv.js` validates all critical env vars at startup via Joi
+- App crashes if `JWT_SECRET`, `DATABASE_URL`, or `API_KEY` missing
+- Warns (but continues) if `R2_*`, `FIREBASE_PROJECT_ID`, `SENTRY_DSN` are missing
 
 ## Route Structure
 Public (API key only): `/api/v1/auth/*`, `/api/v1/health`, `/api/v1/dashboard`
@@ -57,8 +194,27 @@ Public URL: `https://api.vhhealth.app` (via Cloudflare tunnel + nginx)
 
 ## Testing
 ```bash
+# All tests
+node --experimental-vm-modules node_modules/jest/bin/jest.js --forceExit
+
+# Authorization tests only (IDOR, JWT validation, rate limiting)
+node --experimental-vm-modules node_modules/jest/bin/jest.js authorization --forceExit
+
+# Critical path tests only
 node --experimental-vm-modules node_modules/jest/bin/jest.js critical-paths --forceExit
 ```
+
+### Authorization Test Coverage (`src/tests/authorization.test.js`)
+- Appointment IDOR (PUT/DELETE ownership checks)
+- Patient record IDOR (DELETE scoped by patient_id)
+- Pharmacy order authorization (RBAC gating)
+- Notification authorization (role-based access)
+- JWT validation (expired → `TOKEN_EXPIRED`, tampered → `TOKEN_INVALID`, missing → 401)
+- Rate limiting (OTP: 3/phone/10min, SOS: 3/user/hour)
+
+### Route Health Monitoring
+- `routeLoader.js` tracks failed routes via `getFailedRoutes()`
+- Health checks can report which routes failed to load
 
 ## Database Access
 ```bash
@@ -73,9 +229,39 @@ docker exec vhhealth-db psql -U vhhealth -d vhhealth
 
 ## Conventions
 - Use `logger.info/warn/error()` (Winston), never `console.log` in production code
-- Use `success(res, data, message)` / `error(res, message)` for responses
+- Use `success(res, data, message)` / `error(res, message, statusCode)` for ALL API responses — no raw `res.json()`
 - Use `normalizePhone()` from `src/utils/phoneUtils.js` for all phone inputs
-- Always use explicit column names in SELECT (no `SELECT *`)
+- Always use explicit column names in SELECT (no `SELECT *`) — never return `pwd`, `pin_hash` to clients
 - Add `@@index` to Prisma schema when adding new query patterns
-- Controllers are thin — business logic goes in services
+- Controllers are thin — business logic goes in services. No inline handlers in route files.
 - Validate inputs with express-validator in `src/validators/`
+- Sanitize user text inputs with `sanitizeBody()` / domain-specific middleware before DB writes
+- Use `String()` comparison for ID equality checks (DB int vs JWT string)
+- Use parameterized queries (`$1, $2`) — never template literals in SQL
+- Never expose `err.message` to clients — log it server-side, return generic message
+- All environment secrets must be set — app crashes on missing `JWT_SECRET`
+- Request IDs propagated via `X-Request-Id` header for log correlation
+- Throw `AppError` (from `src/utils/AppError.js`) instead of generic `Error` in services — includes statusCode, code, details
+- Use role helpers from `src/utils/roleHelpers.js` (e.g. `isStaff()`, `isClinical()`) — never inline role arrays
+- Security constants live in `src/config/securityConfig.js` — not hardcoded in services
+- Use `db.readQuery()` for analytics/dashboards/exports (routes to read replica when configured)
+- Never return fake success data in catch blocks — if the DB fails, return `error()` not `success()` with zeros
+- Use `checkVitalAnomalies()` after recording vitals — generates clinical alerts for abnormal values
+- Use `validatePrescriptionSafety()` before saving prescriptions — checks allergies and duplicates
+- Use `maskPhone()`/`maskName()` from `src/utils/piiMask.js` when logging user data — never log raw PII
+- All cron jobs must use `withJobLock()` wrapper and `await` all async calls
+- External services (R2, Firebase) must degrade gracefully — never crash at import time
+
+## Security Checklist (for PRs)
+- [ ] No `SELECT *` — explicit columns only, never return `pwd`/`pin_hash`
+- [ ] No `err.message` in API responses — use generic messages, log real errors server-side
+- [ ] IDOR check on any endpoint that mutates a specific resource — use `String()` comparison
+- [ ] Input sanitization on any user-provided text field — use `sanitizeBody()` middleware
+- [ ] File uploads validated with `validateFileContent` + `validatePatientUpload`
+- [ ] Rate limiting on any endpoint that triggers external actions (OTP, SOS, email)
+- [ ] Parameterized queries (`$1, $2`) — never template literals in SQL (including `INTERVAL`)
+- [ ] New env vars added to `validateEnv.js`
+- [ ] All API responses use `success()`/`error()` helpers — no raw `res.json()` or `res.status().json()`
+- [ ] No `console.log` — use Winston `logger.info/warn/error()`
+- [ ] API key compared with `crypto.timingSafeEqual()` — no `===`/`!==`
+- [ ] No hardcoded secrets or OTPs — crash on missing env vars, never fallback

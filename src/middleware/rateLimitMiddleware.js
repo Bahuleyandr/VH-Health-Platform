@@ -85,6 +85,52 @@ export const patientRateLimiter = getRateLimiter('patient');
 export const staffRateLimiter = getRateLimiter('staff');
 export const adminRateLimiter = getRateLimiter('admin'); // Less restrictive, not unlimited
 
+/**
+ * ✅ OTP rate limiter — keys by phone number extracted from request body.
+ * Max 3 OTP requests per phone number per 10 minutes with exponential cooldown.
+ */
+export const otpRateLimiter = rateLimit({
+  windowMs: RATE_LIMIT_PROFILES.otp.windowMs,
+  max: RATE_LIMIT_PROFILES.otp.max,
+  message: RATE_LIMIT_PROFILES.otp.message,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    // Key by phone number from request body (Firebase login sends idToken,
+    // but we also want to catch repeated requests from the same IP)
+    const phone = req.body?.phone || req.body?.phoneNumber || '';
+    if (phone) return `otp:phone:${String(phone)}`;
+    // Fallback to IP if no phone
+    return `otp:${ipKeyGenerator(req)}`;
+  },
+  keyGeneratorIpFallback: ipKeyGenerator,
+  handler: defaultHandler,
+  skip: () => false
+});
+
+/**
+ * ✅ SOS rate limiter — keys by authenticated user UID.
+ * Max 3 alerts per user per hour to prevent false alarm flooding.
+ */
+export const sosRateLimiter = rateLimit({
+  windowMs: RATE_LIMIT_PROFILES.sos.windowMs,
+  max: RATE_LIMIT_PROFILES.sos.max,
+  message: RATE_LIMIT_PROFILES.sos.message,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const uid = req.user?.uid || req.user?.id;
+    if (uid) return `sos:u:${String(uid)}`;
+    return `sos:${ipKeyGenerator(req)}`;
+  },
+  keyGeneratorIpFallback: ipKeyGenerator,
+  handler: defaultHandler,
+  skip: () => false
+});
+
+/** ✅ Data export rate limiter — strict: 5 requests per hour */
+export const dataExportRateLimiter = getRateLimiter('dataExport');
+
 /** ✅ No Limiter (pass-through) */
 export const noRateLimiter = (req, res, next) => next();
 

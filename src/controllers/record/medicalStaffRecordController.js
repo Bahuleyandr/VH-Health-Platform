@@ -38,10 +38,7 @@ export async function getMedicalRecords(req, res) {
 
   } catch (err) {
     logger.error(`[MedicalRecords] ${err.message}`);
-    error(res, 'Failed to retrieve medical records', {
-  details: err.message,
-  suggestion: 'Ensure medical_records table exists with proper structure'
-});
+    error(res, 'Failed to retrieve medical records');
   }
 }
 
@@ -54,20 +51,12 @@ export async function getMedicalRecordById(req, res) {
     const record = await recordService.getMedicalRecordById(id);
     
     if (!record) {
-      return res.status(404).json({ 
-        message: RECORD_MESSAGES.NOT_FOUND,
-        id,
-        requestedBy
-      });
+      return error(res, RECORD_MESSAGES.NOT_FOUND, 404);
     }
 
     // Privacy level check
     if (!accessControl.checkDataAccess(userRole, { uid: record.patient_uid }, record)) {
-      return res.status(403).json({
-        error: 'Access denied: Insufficient permissions for this record privacy level',
-        requiredLevel: record.privacy_level,
-        userRole
-      });
+      return error(res, 'Access denied: Insufficient permissions for this record privacy level', 403);
     }
 
     success(res, {
@@ -163,11 +152,7 @@ export async function getPatientSummary(req, res) {
     const summary = await recordService.getPatientSummary(patient_id, privacyFilter);
     
     if (!summary.patient) {
-      return res.status(404).json({ 
-        message: RECORD_MESSAGES.PATIENT_NOT_FOUND,
-        patient_id,
-        requestedBy
-      });
+      return error(res, RECORD_MESSAGES.PATIENT_NOT_FOUND, 404);
     }
     
     const totalRecords = summary.recordStats.reduce((sum, stat) => sum + parseInt(stat.count), 0);

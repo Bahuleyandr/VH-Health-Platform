@@ -22,6 +22,25 @@ const router = express.Router();
 // Public test route
 router.get('/test', notificationController.test);
 
+// P2 Security: Derive phone from JWT instead of URL path
+router.get('/my', (req, res, next) => {
+  const phone = req.user?.phone;
+  if (!phone) {
+    return res.status(400).json({ success: false, message: 'Phone not available in token. Use /:phone endpoint.' });
+  }
+  req.params.phone = phone;
+  next();
+}, notificationController.getByPhone);
+
+router.patch('/my/mark-all-read', (req, res, next) => {
+  const phone = req.user?.phone;
+  if (!phone) {
+    return res.status(400).json({ success: false, message: 'Phone not available in token.' });
+  }
+  req.params.phone = phone;
+  next();
+}, notificationController.markAllAsReadByPhone);
+
 // User notification routes (patients can only access their own)
 router.get('/:phone', phoneParamValidator, notificationController.getByPhone);
 router.get('/user/:user_id', [...userIdParamValidator, ...queryValidator], notificationController.getByUserId);

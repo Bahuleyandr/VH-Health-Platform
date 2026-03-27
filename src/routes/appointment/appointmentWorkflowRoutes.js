@@ -3,7 +3,7 @@ import express from 'express';
 import * as workflowController from '../../controllers/appointment/appointmentWorkflowController.js';
 import * as docController from '../../controllers/appointment/appointmentDocumentController.js';
 import * as adminController from '../../controllers/appointment/appointmentAdminController.js';
-import { upload } from '../../middleware/uploadMiddleware.js';
+import { upload, validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
 
 const router = express.Router();
 
@@ -18,11 +18,11 @@ router.post('/walk-in', workflowController.registerWalkIn);
 
 // Patient records
 router.get('/patient/records/all', docController.getPatientAllRecords);
-router.post('/patient/records/upload', upload.single('file'), docController.uploadPatientRecord);
+router.post('/patient/records/upload', upload.single('file'), validateFileContent, validatePatientUpload, docController.uploadPatientRecord);
 router.delete('/patient/records/:id', docController.deletePatientRecord);
 
 // Document upload (staff)
-router.post('/documents/upload', upload.single('file'), docController.uploadAppointmentDocument);
+router.post('/documents/upload', upload.single('file'), validateFileContent, docController.uploadAppointmentDocument);
 
 // Admin SLA dashboard and audit trail
 router.get('/admin/sla-dashboard', adminController.getAppointmentSLADashboard);

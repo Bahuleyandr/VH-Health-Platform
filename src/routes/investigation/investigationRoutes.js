@@ -1,6 +1,8 @@
 import express from 'express';
 import multer from 'multer';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
+import { sanitizeInvestigationFields } from '../../middleware/sanitizeMiddleware.js';
+import { validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
 import * as investigationController from '../../controllers/investigation/investigationController.js';
 import * as orderController from '../../controllers/investigation/orderController.js';
 import * as uploadController from '../../controllers/investigation/uploadController.js';
@@ -53,7 +55,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
   
   post: [
     // Booking routes (static before parameterized)
-    ['/bookings/create', upload.single('slip_photo'), bookingController.createBooking],
+    ['/bookings/create', upload.single('slip_photo'), validateFileContent, validatePatientUpload, sanitizeInvestigationFields, bookingController.createBooking],
     ['/bookings/:id/confirm', bookingController.confirmBooking],
     ['/bookings/:id/dispatch', bookingController.dispatchCollector],
     ['/bookings/:id/collected', bookingController.markCollected],

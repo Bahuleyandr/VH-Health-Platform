@@ -1,5 +1,17 @@
 // src/middleware/validateApiKey.js
+import crypto from 'crypto';
 import logger from '../logging/logger.js';
+
+/**
+ * Constant-time string comparison to prevent timing attacks.
+ */
+function constantTimeCompare(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 /**
  * Middleware to validate the API Key sent in request headers.
@@ -19,7 +31,7 @@ export default function validateApiKey(req, res, next) {
     return res.status(401).json({ error: 'Missing API Key in request headers' });
   }
 
-  if (clientApiKey !== serverApiKey) {
+  if (!constantTimeCompare(clientApiKey, serverApiKey)) {
     logger.warn('❌ Invalid API Key provided in request headers');
     return res.status(401).json({ error: 'Invalid API Key' });
   }

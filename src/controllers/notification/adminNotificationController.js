@@ -12,12 +12,11 @@ export const adminNotificationController = {
    * Test endpoint
    */
   test: (req, res) => {
-    res.json({ 
-      message: 'Admin notification routes working!',
+    success(res, {
       timestamp: new Date().toISOString(),
       version: '2.0.0',
       user: req.user?.role || 'anonymous'
-    });
+    }, 'Admin notification routes working!');
   },
 
   /**
@@ -26,10 +25,7 @@ export const adminNotificationController = {
   getOverview: async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        errors: errors.array(),
-        message: RESPONSE_MESSAGES.VALIDATION_FAILED
-      });
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
     try {
@@ -52,10 +48,7 @@ export const adminNotificationController = {
   getManagementList: async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        errors: errors.array(),
-        message: RESPONSE_MESSAGES.VALIDATION_FAILED
-      });
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
     try {
@@ -88,10 +81,7 @@ export const adminNotificationController = {
   getDeliveryStats: async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        errors: errors.array(),
-        message: RESPONSE_MESSAGES.VALIDATION_FAILED
-      });
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
     try {
@@ -114,10 +104,7 @@ export const adminNotificationController = {
   sendLegacy: async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        errors: errors.array(),
-        message: RESPONSE_MESSAGES.VALIDATION_FAILED
-      });
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
     try {
@@ -143,10 +130,7 @@ export const adminNotificationController = {
   sendAnnouncement: async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        errors: errors.array(),
-        message: RESPONSE_MESSAGES.VALIDATION_FAILED
-      });
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
     try {
@@ -160,20 +144,11 @@ export const adminNotificationController = {
         priority: result.announcement.priority
       });
 
-      res.status(HTTP_STATUS.CREATED).json({
-        message: 'System announcement sent successfully',
-        ...result
-      });
+      success(res, result, 'System announcement sent successfully', HTTP_STATUS.CREATED);
     } catch (err) {
       logger.error('Error in sendAnnouncement:', err.message);
       if (err.message.includes('No users match')) {
-        return res.status(HTTP_STATUS.BAD_REQUEST).json({
-          message: err.message,
-          criteria: {
-            roles: req.body.target_roles,
-            departments: req.body.target_departments
-          }
-        });
+        return error(res, err.message, HTTP_STATUS.BAD_REQUEST);
       }
       error(res, 'Failed to send system announcement', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
@@ -185,10 +160,7 @@ export const adminNotificationController = {
   sendTargeted: async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        errors: errors.array(),
-        message: RESPONSE_MESSAGES.VALIDATION_FAILED
-      });
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
     try {
@@ -202,16 +174,11 @@ export const adminNotificationController = {
         type: result.notification.type
       });
 
-      res.status(HTTP_STATUS.CREATED).json({
-        message: 'Targeted notifications sent successfully',
-        ...result
-      });
+      success(res, result, 'Targeted notifications sent successfully', HTTP_STATUS.CREATED);
     } catch (err) {
       logger.error('Error in sendTargeted:', err.message);
       if (err.message.includes('No target users') || err.message.includes('No valid target')) {
-        return res.status(HTTP_STATUS.NOT_FOUND).json({ 
-          message: err.message 
-        });
+        return error(res, err.message, HTTP_STATUS.NOT_FOUND);
       }
       error(res, 'Failed to send targeted notifications', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
@@ -223,10 +190,7 @@ export const adminNotificationController = {
   performBulkOperations: async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        errors: errors.array(),
-        message: RESPONSE_MESSAGES.VALIDATION_FAILED
-      });
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
     try {
@@ -244,9 +208,7 @@ export const adminNotificationController = {
     } catch (err) {
       logger.error('Error in performBulkOperations:', err.message);
       if (err.message.includes('required for')) {
-        return res.status(HTTP_STATUS.BAD_REQUEST).json({ 
-          message: err.message 
-        });
+        return error(res, err.message, HTTP_STATUS.BAD_REQUEST);
       }
       error(res, 'Failed to perform bulk operation', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
@@ -258,10 +220,7 @@ export const adminNotificationController = {
   createTemplate: async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        errors: errors.array(),
-        message: RESPONSE_MESSAGES.VALIDATION_FAILED
-      });
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
     try {
@@ -275,10 +234,7 @@ export const adminNotificationController = {
         template_id: template.id
       });
 
-      res.status(HTTP_STATUS.CREATED).json({
-        message: 'Notification template created successfully',
-        template
-      });
+      success(res, { template }, 'Notification template created successfully', HTTP_STATUS.CREATED);
     } catch (err) {
       logger.error('Error in createTemplate:', err.message);
       error(res, 'Failed to create template', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -291,10 +247,7 @@ export const adminNotificationController = {
   sendFromTemplate: async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        errors: errors.array(),
-        message: RESPONSE_MESSAGES.VALIDATION_FAILED
-      });
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
     try {
@@ -308,16 +261,11 @@ export const adminNotificationController = {
         recipients_count: result.delivery.recipients.length
       });
 
-      res.status(HTTP_STATUS.CREATED).json({
-        message: 'Notifications sent using template successfully',
-        ...result
-      });
+      success(res, result, 'Notifications sent using template successfully', HTTP_STATUS.CREATED);
     } catch (err) {
       logger.error('Error in sendFromTemplate:', err.message);
       if (err.message.includes('not found')) {
-        return res.status(HTTP_STATUS.NOT_FOUND).json({ 
-          message: err.message 
-        });
+        return error(res, err.message, HTTP_STATUS.NOT_FOUND);
       }
       error(res, 'Failed to send notifications from template', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
@@ -329,10 +277,7 @@ export const adminNotificationController = {
   cleanup: async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        errors: errors.array(),
-        message: RESPONSE_MESSAGES.VALIDATION_FAILED
-      });
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
     try {

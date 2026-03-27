@@ -32,7 +32,7 @@ export default {
   doctorRoutes: [DOCTOR, ADMIN],
   departmentRoutes: [GENERAL_STAFF, ADMIN],
   userRoutes: [PATIENT, GENERAL_STAFF, ADMIN],
-  notificationRoutes: [GENERAL_STAFF, ADMIN],
+  notificationRoutes: [PATIENT, GENERAL_STAFF, ADMIN, DOCTOR, NURSING_STAFF],
   pharmacyRoutes: [PHARMACY_STAFF, DOCTOR, ADMIN],
   // If you use a separate key for /pharmacy-orders in wrappers:
   pharmacyOrdersRoutes: [PHARMACY_STAFF, DOCTOR, ADMIN],

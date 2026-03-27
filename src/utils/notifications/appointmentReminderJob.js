@@ -47,6 +47,7 @@ export async function sendTimedReminders() {
     ]);
 
     // Send 24h reminders
+    const sentIds24h = [];
     for (const appt of res24h.rows) {
       try {
         await sendAppointmentReminderSMS(
@@ -60,16 +61,21 @@ export async function sendTimedReminders() {
             body: `Reminder: Your appointment is tomorrow at ${appt.appointment_time} with Dr. ${appt.doctor_name}. Token #${appt.token_number}`,
             data: { type: 'appointment_reminder_24h', appointment_id: String(appt.id) },
             userId: null,
-          }).catch(() => {});
+          }).catch(e => logger.warn(`[Reminders] 24h push notification failed for appointment ${appt.id}:`, e.message));
         }
-        await db.query('UPDATE appointments SET reminder_24h_sent=TRUE WHERE id=$1', [appt.id]);
-        logger.info(`[Reminders] 24h reminder sent for appointment ${appt.id}`);
+        sentIds24h.push(appt.id);
       } catch (e) {
         logger.warn(`[Reminders] 24h reminder failed for ${appt.id}: ${e.message}`);
       }
     }
+    // Batch update all successfully sent 24h reminders
+    if (sentIds24h.length > 0) {
+      await db.query('UPDATE appointments SET reminder_24h_sent = TRUE WHERE id = ANY($1)', [sentIds24h]);
+      logger.info(`[Reminders] Batch updated ${sentIds24h.length} appointments with 24h reminder sent`);
+    }
 
     // Send 1h reminders
+    const sentIds1h = [];
     for (const appt of res1h.rows) {
       try {
         await sendAppointmentReminderSMS(
@@ -83,13 +89,17 @@ export async function sendTimedReminders() {
             body: `Your appointment at ${appt.appointment_time} with Dr. ${appt.doctor_name} is in ~1 hour. Token #${appt.token_number}`,
             data: { type: 'appointment_reminder_1h', appointment_id: String(appt.id) },
             userId: null,
-          }).catch(() => {});
+          }).catch(e => logger.warn(`[Reminders] 1h push notification failed for appointment ${appt.id}:`, e.message));
         }
-        await db.query('UPDATE appointments SET reminder_1h_sent=TRUE WHERE id=$1', [appt.id]);
-        logger.info(`[Reminders] 1h reminder sent for appointment ${appt.id}`);
+        sentIds1h.push(appt.id);
       } catch (e) {
         logger.warn(`[Reminders] 1h reminder failed for ${appt.id}: ${e.message}`);
       }
+    }
+    // Batch update all successfully sent 1h reminders
+    if (sentIds1h.length > 0) {
+      await db.query('UPDATE appointments SET reminder_1h_sent = TRUE WHERE id = ANY($1)', [sentIds1h]);
+      logger.info(`[Reminders] Batch updated ${sentIds1h.length} appointments with 1h reminder sent`);
     }
 
     logger.info(`[Reminders] Done: ${res24h.rows.length} 24h + ${res1h.rows.length} 1h reminders sent`);
@@ -126,12 +136,12 @@ export async function processPendingScheduledNotifications() {
               appointment_id: String(data.appointment_id || '')
             },
             userId: String(notif.user_id),
-          }).catch(() => {});
+          }).catch(e => logger.warn(`[ScheduledNotif] Push notification failed for notif ${notif.id}:`, e.message));
         }
         await db.query(`UPDATE scheduled_notifications SET status='sent', sent_at=NOW() WHERE id=$1`, [notif.id]);
       } catch (e) {
         logger.warn(`[ScheduledNotif] Failed for notif ${notif.id}: ${e.message}`);
-        await db.query(`UPDATE scheduled_notifications SET status='failed' WHERE id=$1`, [notif.id]).catch(() => {});
+        await db.query(`UPDATE scheduled_notifications SET status='failed' WHERE id=$1`, [notif.id]).catch(e => logger.warn(`[ScheduledNotif] Failed to mark notification ${notif.id} as failed:`, e.message));
       }
     }
 

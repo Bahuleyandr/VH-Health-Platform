@@ -88,11 +88,6 @@ export const getInventorySummary = async (req, res) => {
     }, 'Pharmacy inventory summary retrieved successfully');
   } catch (err) {
     logger.error('Inventory Summary Error:', err);
-    res.status(500).json({
-      message: 'Failed to retrieve inventory summary - some tables may not exist',
-      error: err.message,
-      suggestion: 'Ensure medications table exists with proper schema',
-      requestedBy: req.user?.uid
-    });
+    error(res, 'Failed to retrieve inventory summary', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };

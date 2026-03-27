@@ -10,28 +10,43 @@ import { sendAppointmentConfirmationSMS } from '../../services/smsService.js';
  * Staff confirms an appointment — assigns token, sets confirmed_at, notifies patient
  */
 export const confirmAppointment = async (req, res) => {
+  const client = await db.getClient();
   try {
     const { id } = req.params;
     const staffId = req.user?.id;
     const { confirmation_notes, appointment_date, appointment_time } = req.body;
 
-    const appt = await db.query('SELECT * FROM appointments WHERE id=$1', [id]);
-    if (!appt.rows.length) return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
-    const a = appt.rows[0];
-    if (a.status === 'CANCELLED') return error(res, 'Cannot confirm a cancelled appointment', HTTP_STATUS.BAD_REQUEST);
+    await client.query('BEGIN');
 
-    // Generate daily token — count confirmed appointments for that date
+    // Lock the row being updated to prevent concurrent modifications
+    const appt = await client.query(
+      'SELECT id, patient_id, doctor_id, appointment_date, appointment_time, status, department, phone FROM appointments WHERE id=$1 FOR UPDATE',
+      [id]
+    );
+    if (!appt.rows.length) {
+      await client.query('ROLLBACK');
+      return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
+    }
+    const a = appt.rows[0];
+    if (a.status === 'CANCELLED') {
+      await client.query('ROLLBACK');
+      return error(res, 'Cannot confirm a cancelled appointment', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // Get next token number atomically using MAX instead of COUNT to avoid gaps
     const targetDate = appointment_date || a.appointment_date;
-    const tokenQuery = await db.query(
-      `SELECT COUNT(*)+1 as token FROM appointments WHERE DATE(appointment_date)=DATE($1) AND confirmed_at IS NOT NULL`,
+    const tokenResult = await client.query(
+      `SELECT COALESCE(MAX(token_number), 0) + 1 as next_token
+       FROM appointments
+       WHERE DATE(appointment_date) = DATE($1) AND confirmed_at IS NOT NULL`,
       [targetDate]
     );
-    const tokenNumber = parseInt(tokenQuery.rows[0].token);
+    const tokenNumber = parseInt(tokenResult.rows[0].next_token);
 
     const newDate = appointment_date || a.appointment_date;
     const newTime = appointment_time || a.appointment_time;
 
-    const result = await db.query(`
+    const result = await client.query(`
       UPDATE appointments SET
         status = 'CONFIRMED',
         confirmed_by = $1,
@@ -44,17 +59,19 @@ export const confirmAppointment = async (req, res) => {
         sla_target_at = COALESCE(sla_target_at, created_at + INTERVAL '30 minutes'),
         updated_at = NOW()
       WHERE id = $6
-      RETURNING *
+      RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, reason, notes, token_number, confirmed_by, confirmed_at, department, created_at, updated_at
     `, [staffId, confirmation_notes || null, tokenNumber, newDate, newTime, id]);
 
-    // Log status change
-    await db.query(
+    // Log status change within the same transaction
+    await client.query(
       `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role, reason)
        VALUES ($1,$2,'CONFIRMED',$3,'staff',$4)`,
       [id, a.status, staffId, confirmation_notes || null]
     );
 
-    // Notify patient via FCM + SMS (fire-and-forget)
+    await client.query('COMMIT');
+
+    // Notify patient via FCM + SMS (fire-and-forget, outside transaction)
     const patient = await db.query('SELECT device_token, name, phone FROM users WHERE id=$1', [a.patient_id]);
     const patientRow = patient.rows[0];
 
@@ -94,8 +111,13 @@ export const confirmAppointment = async (req, res) => {
 
     success(res, result.rows[0], `Appointment confirmed. Token #${tokenNumber}`);
   } catch (err) {
+    await client.query('ROLLBACK').catch(rollbackErr => {
+      logger.error('Transaction rollback failed:', rollbackErr);
+    });
     logger.error('Confirm Appointment Error:', err);
-    error(res, err.message || 'Failed to confirm appointment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to confirm appointment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  } finally {
+    client.release();
   }
 };
 
@@ -103,24 +125,38 @@ export const confirmAppointment = async (req, res) => {
  * Staff marks appointment as no-show
  */
 export const markNoShow = async (req, res) => {
+  const client = await db.getClient();
   try {
     const { id } = req.params;
     const staffId = req.user?.id;
-    const appt = await db.query('SELECT * FROM appointments WHERE id=$1', [id]);
-    if (!appt.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
 
-    const result = await db.query(
-      `UPDATE appointments SET status='NO_SHOW', no_show_at=NOW(), updated_at=NOW() WHERE id=$1 RETURNING *`,
+    await client.query('BEGIN');
+
+    const appt = await client.query('SELECT id, status FROM appointments WHERE id=$1 FOR UPDATE', [id]);
+    if (!appt.rows.length) {
+      await client.query('ROLLBACK');
+      return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
+    }
+
+    const result = await client.query(
+      `UPDATE appointments SET status='NO_SHOW', no_show_at=NOW(), updated_at=NOW() WHERE id=$1 RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, token_number, updated_at`,
       [id]
     );
-    await db.query(
+    await client.query(
       `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role) VALUES ($1,$2,'NO_SHOW',$3,'staff')`,
       [id, appt.rows[0].status, staffId]
     );
+
+    await client.query('COMMIT');
     success(res, result.rows[0], 'Marked as no-show');
   } catch (err) {
+    await client.query('ROLLBACK').catch(rollbackErr => {
+      logger.error('Transaction rollback failed:', rollbackErr);
+    });
     logger.error('Mark No-Show Error:', err);
     error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  } finally {
+    client.release();
   }
 };
 
@@ -128,23 +164,32 @@ export const markNoShow = async (req, res) => {
  * Staff marks appointment as completed (patient visited)
  */
 export const completeAppointment = async (req, res) => {
+  const client = await db.getClient();
   try {
     const { id } = req.params;
     const staffId = req.user?.id;
     const { notes } = req.body;
-    const appt = await db.query('SELECT * FROM appointments WHERE id=$1', [id]);
-    if (!appt.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
 
-    const result = await db.query(
-      `UPDATE appointments SET status='COMPLETED', completed_at=NOW(), notes=COALESCE($2, notes), updated_at=NOW() WHERE id=$1 RETURNING *`,
+    await client.query('BEGIN');
+
+    const appt = await client.query('SELECT id, patient_id, status FROM appointments WHERE id=$1 FOR UPDATE', [id]);
+    if (!appt.rows.length) {
+      await client.query('ROLLBACK');
+      return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
+    }
+
+    const result = await client.query(
+      `UPDATE appointments SET status='COMPLETED', completed_at=NOW(), notes=COALESCE($2, notes), updated_at=NOW() WHERE id=$1 RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, notes, token_number, completed_at, updated_at`,
       [id, notes || null]
     );
-    await db.query(
+    await client.query(
       `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role) VALUES ($1,$2,'COMPLETED',$3,'staff')`,
       [id, appt.rows[0].status, staffId]
     );
 
-    // Schedule feedback request 2 hours after visit
+    await client.query('COMMIT');
+
+    // Schedule feedback request 2 hours after visit (fire-and-forget, outside transaction)
     setImmediate(async () => {
       try {
         const a = appt.rows[0];
@@ -163,8 +208,13 @@ export const completeAppointment = async (req, res) => {
 
     success(res, result.rows[0], 'Appointment completed');
   } catch (err) {
+    await client.query('ROLLBACK').catch(rollbackErr => {
+      logger.error('Transaction rollback failed:', rollbackErr);
+    });
     logger.error('Complete Appointment Error:', err);
     error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  } finally {
+    client.release();
   }
 };
 
@@ -172,23 +222,32 @@ export const completeAppointment = async (req, res) => {
  * Staff/patient cancels appointment
  */
 export const cancelAppointment = async (req, res) => {
+  const client = await db.getClient();
   try {
     const { id } = req.params;
     const staffId = req.user?.id;
     const { cancellation_reason } = req.body;
-    const appt = await db.query('SELECT * FROM appointments WHERE id=$1', [id]);
-    if (!appt.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
 
-    const result = await db.query(
-      `UPDATE appointments SET status='CANCELLED', cancellation_reason=$2, updated_at=NOW() WHERE id=$1 RETURNING *`,
+    await client.query('BEGIN');
+
+    const appt = await client.query('SELECT id, patient_id, status FROM appointments WHERE id=$1 FOR UPDATE', [id]);
+    if (!appt.rows.length) {
+      await client.query('ROLLBACK');
+      return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
+    }
+
+    const result = await client.query(
+      `UPDATE appointments SET status='CANCELLED', cancellation_reason=$2, updated_at=NOW() WHERE id=$1 RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, cancellation_reason, token_number, updated_at`,
       [id, cancellation_reason || null]
     );
-    await db.query(
+    await client.query(
       `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role, reason) VALUES ($1,$2,'CANCELLED',$3,'staff',$4)`,
       [id, appt.rows[0].status, staffId, cancellation_reason || null]
     );
 
-    // Notify patient
+    await client.query('COMMIT');
+
+    // Notify patient (fire-and-forget, outside transaction)
     const patient = await db.query('SELECT device_token FROM users WHERE id=$1', [appt.rows[0].patient_id]);
     if (patient.rows[0]?.device_token) {
       setImmediate(async () => {
@@ -206,8 +265,13 @@ export const cancelAppointment = async (req, res) => {
 
     success(res, result.rows[0], 'Appointment cancelled');
   } catch (err) {
+    await client.query('ROLLBACK').catch(rollbackErr => {
+      logger.error('Transaction rollback failed:', rollbackErr);
+    });
     logger.error('Cancel Appointment Error:', err);
     error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  } finally {
+    client.release();
   }
 };
 
@@ -223,7 +287,8 @@ export const getTodayQueue = async (req, res) => {
     if (department) { params.push(department); where += ` AND a.department=$${params.length}`; }
 
     const result = await db.query(`
-      SELECT a.*,
+      SELECT a.id, a.patient_id, a.doctor_id, a.appointment_date, a.appointment_time,
+        a.status, a.reason, a.notes, a.token_number, a.department, a.confirmed_at, a.created_at, a.updated_at,
         p.name as patient_name, p.phone as patient_phone, p.blood_group,
         d.name as doctor_display_name, d.specialization,
         doc.department as doctor_department
@@ -255,7 +320,8 @@ export const getPendingAppointments = async (req, res) => {
     if (doctor_id) { params.push(doctor_id); where += ` AND a.doctor_id=$${params.length}`; }
 
     const result = await db.query(`
-      SELECT a.*,
+      SELECT a.id, a.patient_id, a.doctor_id, a.appointment_date, a.appointment_time,
+        a.status, a.reason, a.token_number, a.department, a.sla_target_at, a.created_at, a.updated_at,
         p.name as patient_name, p.phone as patient_phone,
         d.name as doctor_name,
         EXTRACT(EPOCH FROM (NOW() - a.created_at))/60 as minutes_since_booking,
@@ -287,7 +353,7 @@ export const getAvailableSlots = async (req, res) => {
 
     // Doctor can be referenced by users.id OR doctors.id
     const doctorQuery = await db.query(
-      `SELECT doc.*, u.name as doctor_name
+      `SELECT doc.id, doc.user_id, doc.department, doc.specialization, doc.available_days, doc.available_hours, u.name as doctor_name
        FROM doctors doc
        JOIN users u ON doc.user_id = u.id
        WHERE doc.id = $1 OR doc.user_id = $1`,
@@ -370,6 +436,7 @@ export const getAvailableSlots = async (req, res) => {
  * Register a walk-in patient — creates appointment directly in CONFIRMED state
  */
 export const registerWalkIn = async (req, res) => {
+  const client = await db.getClient();
   try {
     const staffId = req.user?.id;
     const {
@@ -380,20 +447,23 @@ export const registerWalkIn = async (req, res) => {
     } = req.body;
 
     if (!patient_phone && !patient_id) {
+      client.release();
       return error(res, 'patient_phone or patient_id is required', HTTP_STATUS.BAD_REQUEST);
     }
+
+    await client.query('BEGIN');
 
     // Resolve patient — look up by phone or patient_id, or create minimal record
     let patientId = patient_id ? parseInt(patient_id) : null;
     if (!patientId && patient_phone) {
-      const existing = await db.query(
+      const existing = await client.query(
         `SELECT id FROM users WHERE phone = $1 OR phone = $2`,
         [patient_phone, patient_phone.replace(/\D/g, '').slice(-10)]
       );
       if (existing.rows.length > 0) {
         patientId = existing.rows[0].id;
       } else {
-        const newUser = await db.query(
+        const newUser = await client.query(
           `INSERT INTO users (phone, name, role) VALUES ($1, $2, 'PATIENT') RETURNING id`,
           [patient_phone, patient_name || 'Walk-in Patient']
         );
@@ -401,18 +471,20 @@ export const registerWalkIn = async (req, res) => {
       }
     }
 
-    // Token number for today (count of today's confirmed appointments + 1)
-    const tokenQuery = await db.query(
-      `SELECT COUNT(*)+1 AS token FROM appointments WHERE DATE(appointment_date) = CURRENT_DATE AND confirmed_at IS NOT NULL`
+    // Get next token number atomically using MAX to avoid race conditions
+    const tokenResult = await client.query(
+      `SELECT COALESCE(MAX(token_number), 0) + 1 as next_token
+       FROM appointments
+       WHERE DATE(appointment_date) = CURRENT_DATE AND confirmed_at IS NOT NULL`
     );
-    const tokenNumber = parseInt(tokenQuery.rows[0].token);
+    const tokenNumber = parseInt(tokenResult.rows[0].next_token);
 
-    const result = await db.query(`
+    const result = await client.query(`
       INSERT INTO appointments
         (patient_id, doctor_id, appointment_date, appointment_time, reason, notes,
          status, confirmed_by, confirmed_at, first_contact_at, token_number, department, created_by, phone)
       VALUES ($1, $2, NOW(), $3, $4, $5, 'CONFIRMED', $6, NOW(), NOW(), $7, $8, $9, $10)
-      RETURNING *
+      RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, reason, notes, status, confirmed_by, confirmed_at, token_number, department, phone, created_at
     `, [
       patientId,
       doctor_id || null,
@@ -427,17 +499,24 @@ export const registerWalkIn = async (req, res) => {
     ]);
 
     const apptId = result.rows[0].id;
-    await db.query(
+    await client.query(
       `INSERT INTO appointment_status_history
          (appointment_id, from_status, to_status, changed_by, changed_by_role, reason)
        VALUES ($1, NULL, 'CONFIRMED', $2, 'staff', 'Walk-in registration')`,
       [apptId, staffId]
     );
 
+    await client.query('COMMIT');
+
     success(res, { ...result.rows[0], token_number: tokenNumber }, `Walk-in registered. Token #${tokenNumber}`);
   } catch (err) {
+    await client.query('ROLLBACK').catch(rollbackErr => {
+      logger.error('Transaction rollback failed:', rollbackErr);
+    });
     logger.error('Walk-in Registration Error:', err);
-    error(res, err.message || 'Failed to register walk-in', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to register walk-in', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  } finally {
+    client.release();
   }
 };
 
@@ -448,7 +527,7 @@ export const getAppointmentHistory = async (req, res) => {
   try {
     const { id } = req.params;
     const result = await db.query(`
-      SELECT ash.*, u.name as changed_by_name
+      SELECT ash.id, ash.appointment_id, ash.from_status, ash.to_status, ash.changed_by, ash.changed_by_role, ash.reason, ash.created_at, u.name as changed_by_name
       FROM appointment_status_history ash
       LEFT JOIN users u ON ash.changed_by = u.id
       WHERE ash.appointment_id = $1

@@ -4,6 +4,7 @@ import { AUTH_ACTIONS } from '../../config/authConfig.js';
 import db from '../../config/database.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
+import { OTPService } from '../otpService.js';
 import admin from '../../utils/firebaseAdmin.js';
 import { generateToken } from '../../utils/jwtUtils.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
@@ -25,7 +26,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req) => {
   
   // Check if user exists in our database
   const userResult = await db.query(
-    'SELECT * FROM users WHERE phone = $1 OR firebase_uid = $2',
+    'SELECT id, uid, name, phone, email, role, firebase_uid, gender, email_verified, is_active, last_login FROM users WHERE phone = $1 OR firebase_uid = $2',
     [phone, firebaseUid]
   );
   
@@ -39,7 +40,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req) => {
         phone, firebase_uid, role, registered_at, last_login,
         name, email, email_verified
       ) VALUES ($1, $2, $3, NOW(), NOW(), $4, $5, $6) 
-      RETURNING *`,
+      RETURNING id, uid, name, phone, email, role, firebase_uid, gender, email_verified, is_active, last_login`,
       [
         phone,
         firebaseUid,
@@ -98,8 +99,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req) => {
       email: user.email,
       role: user.role,
       profileComplete: !!(user.name && user.gender),
-      emailVerified: user.email_verified,
-      isNewUser
+      emailVerified: user.email_verified
     }
   };
 };
@@ -115,8 +115,8 @@ export const completeUserProfile = async (profileData) => {
       name = $1, gender = $2, email = $3, birthday = $4,
       anniversary = $5, address = $6, emergency_contact = $7,
       profile_completed_at = NOW()
-    WHERE phone = $8 
-    RETURNING *`,
+    WHERE phone = $8
+    RETURNING id, uid, name, phone, email, role, gender, is_active`,
     [
       name, gender, email, birthday,
       anniversary, address, emergency_contact,
@@ -161,16 +161,17 @@ export const linkFirebaseAccount = async (phone, idToken, otp) => {
   const firebaseUid = decodedToken.uid;
   const normalizedPhone = normalizePhone(phone);
   
-  // Verify OTP (simplified for now - in production would use actual OTP service)
-  if (otp !== '123456') {
-    const error = new Error('Invalid OTP');
+  // Verify OTP using the OTP service
+  const otpResult = await OTPService.verifyOTP(normalizedPhone, otp, 'account_linking');
+  if (!otpResult.valid) {
+    const error = new Error(otpResult.message || 'Invalid or expired OTP');
     error.statusCode = HTTP_STATUS.BAD_REQUEST;
     throw error;
   }
   
   // Check if user exists
   const userResult = await db.query(
-    'SELECT * FROM users WHERE phone = $1',
+    'SELECT id, uid, name, phone, email, role, firebase_uid, is_active FROM users WHERE phone = $1',
     [normalizedPhone]
   );
   
@@ -382,7 +383,7 @@ export const legacyRegisterUser = async (userData) => {
   const normalizedPhone = normalizePhone(phone);
   
   // Check if user already exists
-  const existingUser = await db.query('SELECT * FROM users WHERE phone = $1', [normalizedPhone]);
+  const existingUser = await db.query('SELECT id, uid, phone FROM users WHERE phone = $1', [normalizedPhone]);
   
   if (existingUser.rows.length > 0) {
     const error = new Error('User already exists');
@@ -395,8 +396,8 @@ export const legacyRegisterUser = async (userData) => {
     `INSERT INTO users (
       phone, name, gender, email, birthday, anniversary, address,
       role, registered_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW()) 
-    RETURNING *`,
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+    RETURNING id, uid, name, phone, email, role, is_active`,
     [
       normalizedPhone, name, gender, email, birthday, 
       anniversary, address, 'PATIENT'

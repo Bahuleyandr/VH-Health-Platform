@@ -107,7 +107,7 @@ export async function createHealthRecord(req, res) {
       return error(res, 'Medical staff access required to record health data', HTTP_STATUS.FORBIDDEN);
     }
 
-    const recorderId = req.body.recorded_by || req.user.id;
+    const recorderId = req.user.id; // Never trust client-supplied recorded_by
     
     const result = await healthRecordService.createHealthRecord(req.body, recorderId);
     
