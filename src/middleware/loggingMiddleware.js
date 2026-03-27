@@ -10,7 +10,7 @@ export default function loggingMiddleware(req, res, next) {
   const timestamp = new Date().toISOString();
 
   // Extract UID if present
-  const uid = req.user?.uid || req.body?.uid || req.query?.uid || 'anonymous';
+  const uid = req.user?.uid || 'anonymous';
 
   // Extract client IP
   const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;

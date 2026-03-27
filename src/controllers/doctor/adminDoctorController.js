@@ -241,12 +241,11 @@ export const adminDoctorController = {
       logger.error('Error updating doctor availability:', err);
       
       if (err.message === 'Doctor not found') {
-        return res.status(404).json({ message: err.message });
+        return res.status(404).json({ message: 'Doctor not found' });
       }
-      
+
       res.status(500).json({
-        message: 'Failed to update doctor availability',
-        error: err.message
+        message: 'Failed to update doctor availability'
       });
     }
   },
@@ -275,19 +274,18 @@ export const adminDoctorController = {
       logger.error('Error deleting doctor account:', err);
       
       if (err.message === 'Doctor not found') {
-        return res.status(404).json({ message: err.message });
+        return res.status(404).json({ message: 'Doctor not found' });
       }
-      
+
       if (err.message.includes('future appointments')) {
         return res.status(400).json({
-          message: err.message,
+          message: 'Cannot delete doctor with future appointments',
           suggestion: 'Provide transfer_patients_to doctor ID or cancel appointments first'
         });
       }
-      
+
       res.status(500).json({
-        message: 'Failed to delete doctor account',
-        error: err.message
+        message: 'Failed to delete doctor account'
       });
     }
   },

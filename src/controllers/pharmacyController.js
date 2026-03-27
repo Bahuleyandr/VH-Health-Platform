@@ -2,6 +2,7 @@
 
 import db from '../config/database.js';
 import logger from '../logging/logger.js';
+import { normalizePhone } from '../utils/phoneUtils.js';
 import { resolvePhoneFromUID } from '../utils/resolveIdentity.js';
 import { success, error } from '../utils/responseHelper.js';
 
@@ -13,10 +14,17 @@ export async function placePharmacyOrder(req, res) {
     return res.status(400).json({ error: 'Phone and order_note are required' });
   }
 
+  if (req.user?.role === 'PATIENT') {
+    const userPhone = normalizePhone(req.user?.phone);
+    if (userPhone && userPhone !== phone) {
+      return error(res, 'You can only place orders for yourself', 403);
+    }
+  }
+
   try {
     const result = await db.query(
       `INSERT INTO pharmacy_orders (phone, order_note, file_key)
-       VALUES ($1, $2, $3) RETURNING *`,
+       VALUES ($1, $2, $3) RETURNING id, phone, order_note, file_key, status, created_at`,
       [phone, order_note, file_key || null]
     );
     success(res, result.rows[0], 'Pharmacy order placed');
@@ -34,9 +42,16 @@ export async function getPharmacyOrdersByPhone(req, res) {
     return res.status(400).json({ error: 'Phone parameter is required' });
   }
 
+  if (req.user?.role === 'PATIENT') {
+    const userPhone = normalizePhone(req.user?.phone);
+    if (userPhone && userPhone !== phone) {
+      return error(res, 'You can only view your own orders', 403);
+    }
+  }
+
   try {
     const result = await db.query(
-      `SELECT * FROM pharmacy_orders WHERE phone = $1 ORDER BY created_at DESC`,
+      `SELECT id, phone, order_note, file_key, prescription_id, urgent, status, notes, created_at, updated_at FROM pharmacy_orders WHERE phone = $1 ORDER BY created_at DESC`,
       [phone]
     );
     success(
@@ -67,7 +82,7 @@ export async function getPharmacyOrdersByUID(req, res) {
     }
 
     const result = await db.query(
-      `SELECT * FROM pharmacy_orders WHERE phone = $1 ORDER BY created_at DESC`,
+      `SELECT id, phone, order_note, file_key, prescription_id, urgent, status, notes, created_at, updated_at FROM pharmacy_orders WHERE phone = $1 ORDER BY created_at DESC`,
       [phone]
     );
 

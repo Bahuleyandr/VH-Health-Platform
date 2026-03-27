@@ -21,14 +21,20 @@ const buildOriginMatchers = () => {
   const defaultExact = [
     'https://api.vhhealth.app',
     'https://vh-health-backend.onrender.com',
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://localhost:3002',
-    'http://127.0.0.1:3000',
-    'http://192.168.0.121:3000',
     // Add your production admin domain when ready:
     'https://admin.vhhealth.app',
   ];
+
+  // Only allow localhost origins in development
+  if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
+    defaultExact.push(
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://localhost:3002',
+      'http://127.0.0.1:3000',
+      'http://192.168.0.121:3000',
+    );
+  }
 
   // From environment (comma-separated)
   const exactFromEnv = [
@@ -68,24 +74,12 @@ const corsOptionsDelegate = (req, callback) => {
   // Always vary cache on Origin
   req.res?.setHeader?.('Vary', 'Origin');
 
-  // Allow server-to-server / tools (no Origin header)
+  // Server-to-server or non-browser request — allow but with restricted methods
   if (!origin) {
     return callback(null, {
-      origin: true,
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
-      allowedHeaders: [
-        'Content-Type',
-        'Authorization',
-        'X-Requested-With',
-        'Accept',
-        'Origin',
-        'X-API-Key',
-        'X-App-Type',
-      ],
-      exposedHeaders: ['X-Total-Count', 'X-Page-Count', 'X-Request-Id'],
-      maxAge: 86400,
-      optionsSuccessStatus: 204,
+      origin: false,
+      methods: ['GET', 'HEAD', 'OPTIONS'],
+      credentials: false,
     });
   }
 

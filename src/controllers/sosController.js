@@ -68,62 +68,61 @@ export const updateEmergencyContact = async (req, res) => {
   }
 };
 export const cancelAlert = async (req, res) => {
-  // TODO: Implement actual logic
-  return res.json({ success: true, message: 'cancelAlert handler not implemented yet' });
+  return res.status(501).json({ success: false, message: 'Not implemented' });
 };
 
 export const getMyAlerts = async (req, res) => {
-  return res.json({ success: true, message: 'getMyAlerts handler not implemented yet' });
+  return res.status(501).json({ success: false, message: 'Not implemented' });
 };
 
 export const getNearbyServices = async (req, res) => {
-  return res.json({ success: true, message: 'getNearbyServices handler not implemented yet' });
+  return res.status(501).json({ success: false, message: 'Not implemented' });
 };
 
 export const getMedicalInfo = async (req, res) => {
-  return res.json({ success: true, message: 'getMedicalInfo handler not implemented yet' });
+  return res.status(501).json({ success: false, message: 'Not implemented' });
 };
 
 export const getResponderDashboard = async (req, res) => {
-  return res.json({ success: true, message: 'getResponderDashboard handler not implemented yet' });
+  return res.status(501).json({ success: false, message: 'Not implemented' });
 };
 
 export const getResponderAnalytics = async (req, res) => {
-  return res.json({ success: true, message: 'getResponderAnalytics handler not implemented yet' });
+  return res.status(501).json({ success: false, message: 'Not implemented' });
 };
 
 export const respondToAlert = async (req, res) => {
-  return res.json({ success: true, message: 'respondToAlert handler not implemented yet' });
+  return res.status(501).json({ success: false, message: 'Not implemented' });
 };
 
 export const resolveAlert = async (req, res) => {
-  return res.json({ success: true, message: 'resolveAlert handler not implemented yet' });
+  return res.status(501).json({ success: false, message: 'Not implemented' });
 };
 
 export const getAdminAnalytics = async (req, res) => {
-  return res.json({ success: true, message: 'getAdminAnalytics handler not implemented yet' });
+  return res.status(501).json({ success: false, message: 'Not implemented' });
 };
 
 export const getAllAlerts = async (req, res) => {
-  return res.json({ success: true, message: 'getAllAlerts handler not implemented yet' });
+  return res.status(501).json({ success: false, message: 'Not implemented' });
 };
 
 export const getEmergencyServices = async (req, res) => {
-  return res.json({ success: true, message: 'getEmergencyServices handler not implemented yet' });
+  return res.status(501).json({ success: false, message: 'Not implemented' });
 };
 
 export const getPerformanceReport = async (req, res) => {
-  return res.json({ success: true, message: 'getPerformanceReport handler not implemented yet' });
+  return res.status(501).json({ success: false, message: 'Not implemented' });
 };
 
 export const updateSystemConfig = async (req, res) => {
-  return res.json({ success: true, message: 'updateSystemConfig handler not implemented yet' });
+  return res.status(501).json({ success: false, message: 'Not implemented' });
 };
 
 export const broadcastEmergencyAlert = async (req, res) => {
-  return res.json({ success: true, message: 'broadcastEmergencyAlert handler not implemented yet' });
+  return res.status(501).json({ success: false, message: 'Not implemented' });
 };
 
 export const escalateAlert = async (req, res) => {
-  return res.json({ success: true, message: 'escalateAlert handler not implemented yet' });
+  return res.status(501).json({ success: false, message: 'Not implemented' });
 };

@@ -634,7 +634,7 @@ export const getMyTaxSummary = async (req, res) => {
     success(res, { ...summary.rows[0], pdf_url: pdfUrl }, 'Annual tax summary fetched');
   } catch (err) {
     logger.error('Get Tax Summary Error:', err);
-    error(res, err.message || 'Failed to fetch tax summary', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to fetch tax summary', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -750,7 +750,7 @@ export const calculateRevisionArrears = async (req, res) => {
     success(res, result, result.message || `Arrears calculated: ₹${result.arrears_amount}`);
   } catch (err) {
     logger.error('Calculate Arrears Error:', err);
-    error(res, err.message, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to calculate arrears', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -1069,7 +1069,7 @@ export const createFnF = async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,
       [staff_uid,separation_type,last_working_day,daysWorked,lastMonthBasic,lastMonthAllowances,s.notice_period_days||30,shortfall,noticeRecovery,Math.round(yearsOfService*100)/100,gratuityEligible,gratuityAmount,parseFloat(bonus_payable)||0,parseFloat(other_deductions)||0,other_deductions_reason||null,grossPayable,totalDedns,netPayable,notes||null,req.user?.uid]);
     success(res, result.rows[0], `F&F calculated. Net payable: ₹${netPayable}`);
-  } catch (err) { logger.error('CreateFnF:', err); error(res, err.message, HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+  } catch (err) { logger.error('CreateFnF:', err); error(res, 'Failed to create settlement', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 export const getFnFList = async (req, res) => {
@@ -1168,7 +1168,7 @@ export const upsertDeclaration = async (req, res) => {
        RETURNING *`,
       [staffUid,financial_year,ppf,epf_voluntary,elss,lic_premium,nsc,home_loan_principal,tuition_fees,other_80c,health_insurance_self,health_insurance_parents,education_loan_interest,rent_paid_monthly,rent_receipt_provided,home_loan_interest,nps_contribution,notes||null]);
     success(res, result.rows[0], 'Declaration saved');
-  } catch (err) { logger.error('UpsertDeclaration:', err); error(res, err.message, HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+  } catch (err) { logger.error('UpsertDeclaration:', err); error(res, 'Failed to save declaration', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 export const getMyDeclarations = async (req, res) => {
@@ -1219,7 +1219,7 @@ export const calculateLeaveEncashment = async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),'approved') RETURNING *`,
       [staff_uid, encashment_type, leave_days, dailyRate, amount, financial_year||null, req.user?.uid]);
     success(res, result.rows[0], `${leave_days} days × ₹${dailyRate.toFixed(2)}/day = ₹${amount}`);
-  } catch (err) { logger.error('LeaveEncashment:', err); error(res, err.message, HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+  } catch (err) { logger.error('LeaveEncashment:', err); error(res, 'Failed to process leave encashment', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 export const getLeaveEncashments = async (req, res) => {
@@ -1380,7 +1380,7 @@ export const createBulkRevision = async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'draft',$10) RETURNING *`,
       [description,revision_type,target_type,target_value,increment_type,increment_value,bonus_amount,effective_from,staffCount,req.user?.uid]);
     success(res,job.rows[0],`Bulk revision draft created. Will affect ${staffCount} staff.`);
-  } catch (err) { logger.error('CreateBulkRev:', err); error(res,err.message,HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+  } catch (err) { logger.error('CreateBulkRev:', err); error(res,'Failed to create bulk revision',HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 export const approveBulkRevision = async (req, res) => {
@@ -1425,7 +1425,7 @@ export const approveBulkRevision = async (req, res) => {
       } catch(e){ await db.query(`UPDATE bulk_revision_jobs SET status='failed',error_log=$1 WHERE id=$2`,[e.message,id]); }
     });
     success(res,{id,status:'processing',staff_count:j.staff_count},'Bulk revision approved and processing');
-  } catch (err) { logger.error('ApproveBulkRev:', err); error(res,err.message,HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+  } catch (err) { logger.error('ApproveBulkRev:', err); error(res,'Failed to approve bulk revision',HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 export const getBulkRevisions = async (req, res) => {

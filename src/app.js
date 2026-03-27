@@ -18,6 +18,7 @@ import { errorHandlerMiddleware } from './middleware/errorHandlerMiddleware.js';
 import jwtAuth from './middleware/jwtMiddleware.js';
 import { requireRole } from './middleware/rbacMiddleware.js';
 import loggingMiddleware from './middleware/loggingMiddleware.js';
+import requestIdMiddleware from './middleware/requestIdMiddleware.js';
 import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
 import { auditLogMiddleware } from './middleware/auditLog.js';
 import { patientRateLimiter, genericLimiter, adminRateLimiter } from './middleware/rateLimitMiddleware.js';
@@ -93,6 +94,7 @@ try {
 // ====================================
 
 app.use(helmet());
+app.use(requestIdMiddleware);
 app.use(express.json());
 app.use(corsMiddleware);
 

@@ -39,7 +39,7 @@ export class LookupController {
         return error(res, err.message, HTTP_STATUS.TOO_MANY_REQUESTS);
       }
       
-      error(res, err.message || 'User lookup failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+      error(res, 'User lookup failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
   }
   
@@ -69,7 +69,7 @@ export class LookupController {
       
     } catch (err) {
       logger.error('Verify User Controller Error:', err);
-      error(res, err.message || 'User verification failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+      error(res, 'User verification failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
   }
   

@@ -24,7 +24,7 @@ export class AdminUserController {
       
     } catch (err) {
       logger.error('Get User Analytics Controller Error:', err);
-      error(res, err.message || 'Failed to retrieve analytics', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+      error(res, 'Failed to retrieve analytics', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
   }
   
@@ -46,7 +46,7 @@ export class AdminUserController {
       
     } catch (err) {
       logger.error('Get Activity Audit Controller Error:', err);
-      error(res, err.message || 'Failed to retrieve audit logs', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+      error(res, 'Failed to retrieve audit logs', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
   }
   
@@ -68,7 +68,7 @@ export class AdminUserController {
       
     } catch (err) {
       logger.error('Get Inactive Users Report Controller Error:', err);
-      error(res, err.message || 'Failed to generate report', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+      error(res, 'Failed to generate report', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
   }
   
@@ -93,7 +93,7 @@ export class AdminUserController {
       
     } catch (err) {
       logger.error('Reactivate User Controller Error:', err);
-      error(res, err.message || 'Failed to reactivate user', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+      error(res, 'Failed to reactivate user', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
   }
   
@@ -118,7 +118,7 @@ export class AdminUserController {
       
     } catch (err) {
       logger.error('Generate Report Controller Error:', err);
-      error(res, err.message || 'Failed to generate report', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+      error(res, 'Failed to generate report', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
   }
   
@@ -131,7 +131,7 @@ export class AdminUserController {
       
     } catch (err) {
       logger.error('Get System Info Controller Error:', err);
-      error(res, err.message || 'Failed to retrieve system information', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+      error(res, 'Failed to retrieve system information', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
   }
   
@@ -144,7 +144,7 @@ export class AdminUserController {
       
     } catch (err) {
       logger.error('Get Dashboard Controller Error:', err);
-      error(res, err.message || 'Failed to retrieve dashboard data', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+      error(res, 'Failed to retrieve dashboard data', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
   }
 }

@@ -21,7 +21,7 @@ router.get('/my-data', async (req, res) => {
   try {
     // Lookup user by uid or phone
     const userRes = await db.query(
-      `SELECT * FROM users WHERE uid = $1 OR phone = $1 LIMIT 1`,
+      `SELECT id, uid, name, phone, email, role, gender, birthday, address, allergies, emergency_contact, blood_group, registered_at, last_login, is_active FROM users WHERE uid = $1 OR phone = $1 LIMIT 1`,
       [userId]
     );
     const user = userRes.rows[0];
@@ -34,13 +34,13 @@ router.get('/my-data', async (req, res) => {
 
     // Collect all patient data
     const [appointments, healthRecords, records, investigations, pharmacyOrders, feedback, notifications] = await Promise.all([
-      db.query(`SELECT * FROM appointments WHERE uid = $1 OR phone = $2`, [uid, phone]),
-      db.query(`SELECT * FROM health_records WHERE phone = $1`, [phone]),
-      db.query(`SELECT * FROM records WHERE phone = $1`, [phone]),
-      db.query(`SELECT * FROM investigations WHERE phone = $1`, [phone]),
-      db.query(`SELECT * FROM pharmacy_orders WHERE phone = $1`, [phone]),
-      db.query(`SELECT * FROM feedback WHERE phone = $1`, [phone]),
-      db.query(`SELECT * FROM notifications WHERE phone = $1`, [phone]),
+      db.query(`SELECT id, patient_id, doctor_id, appointment_date, appointment_time, status, reason, notes, token_number, department, created_at, updated_at FROM appointments WHERE uid = $1 OR phone = $2`, [uid, phone]),
+      db.query(`SELECT id, phone, record_type, record_data, doctor_name, notes, created_at FROM health_records WHERE phone = $1`, [phone]),
+      db.query(`SELECT id, phone, record_type, file_key, file_name, notes, created_at FROM records WHERE phone = $1`, [phone]),
+      db.query(`SELECT id, phone, investigation_type, status, results, notes, created_at FROM investigations WHERE phone = $1`, [phone]),
+      db.query(`SELECT id, phone, order_note, file_key, status, urgent, notes, created_at, updated_at FROM pharmacy_orders WHERE phone = $1`, [phone]),
+      db.query(`SELECT id, phone, rating, comment, appointment_id, created_at FROM feedback WHERE phone = $1`, [phone]),
+      db.query(`SELECT id, phone, title, body, type, read, created_at FROM notifications WHERE phone = $1`, [phone]),
     ]);
 
     const exportData = {
