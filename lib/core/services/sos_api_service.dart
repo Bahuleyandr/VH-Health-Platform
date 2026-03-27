@@ -1,53 +1,66 @@
+import 'package:flutter/foundation.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 
 /// Backend API calls for SOS features.
+///
+/// Methods throw on failure so callers can show appropriate error feedback.
+/// This is critical — SOS is a life-safety feature and must never fail silently.
 class SosApiService {
   SosApiService._();
 
   /// Trigger SOS alert on the backend.
-  static Future<Map<String, dynamic>?> triggerAlert({
+  /// Returns the response map on success, throws on failure.
+  static Future<Map<String, dynamic>> triggerAlert({
     required String phone,
     double? latitude,
     double? longitude,
     String emergencyType = 'medical',
     String? severity,
   }) async {
-    try {
-      final response = await ApiClient.post(
-        '/sos/',
-        body: {
-          'phone': phone,
-          if (latitude != null) 'latitude': latitude,
-          if (longitude != null) 'longitude': longitude,
-          'emergencyType': emergencyType,
-          if (severity != null) 'severity': severity,
-        },
-      );
-      if (response.isSuccess) {
-        return response.raw as Map<String, dynamic>;
-      }
-    } catch (_) {}
-    return null;
+    final response = await ApiClient.post(
+      '/sos/',
+      body: {
+        'phone': phone,
+        if (latitude != null) 'latitude': latitude,
+        if (longitude != null) 'longitude': longitude,
+        'emergencyType': emergencyType,
+        if (severity != null) 'severity': severity,
+      },
+    );
+    if (response.isSuccess) {
+      return response.raw as Map<String, dynamic>;
+    }
+    throw SosException(
+      response.message ?? 'Failed to send SOS alert (${response.statusCode})',
+    );
   }
 
   /// Get the user's emergency contact.
+  /// Returns null if not configured, throws on network/server errors.
   static Future<Map<String, dynamic>?> getEmergencyContact() async {
     try {
       final response = await ApiClient.get('/sos/emergency-contact');
       if (response.isSuccess) {
         return response.raw as Map<String, dynamic>;
       }
-    } catch (_) {}
-    return null;
+      if (response.statusCode == 404) return null;
+      throw SosException(
+        response.message ?? 'Failed to fetch emergency contact',
+      );
+    } catch (e) {
+      if (e is SosException) rethrow;
+      if (kDebugMode) debugPrint('SOS getEmergencyContact error: $e');
+      return null; // Network failures are non-critical for this call
+    }
   }
 
-  /// Cancel an active SOS alert.
-  static Future<bool> cancelAlert(String alertId) async {
-    try {
-      final response = await ApiClient.post('/sos/cancel/$alertId');
-      return response.isSuccess;
-    } catch (_) {
-      return false;
+  /// Cancel an active SOS alert. Throws on failure.
+  static Future<void> cancelAlert(String alertId) async {
+    final response = await ApiClient.post('/sos/cancel/$alertId');
+    if (!response.isSuccess) {
+      throw SosException(
+        response.message ?? 'Failed to cancel SOS alert',
+      );
     }
   }
 
@@ -58,7 +71,9 @@ class SosApiService {
       if (response.isSuccess) {
         return response.dataAsList('alerts');
       }
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('SOS getMyAlerts error: $e');
+    }
     return [];
   }
 
@@ -78,7 +93,9 @@ class SosApiService {
       if (response.isSuccess) {
         return response.dataAsList('services');
       }
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('SOS getNearbyServices error: $e');
+    }
     return [];
   }
 
@@ -89,7 +106,17 @@ class SosApiService {
       if (response.isSuccess) {
         return response.raw as Map<String, dynamic>;
       }
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('SOS getMedicalInfo error: $e');
+    }
     return null;
   }
+}
+
+/// Exception thrown when a critical SOS operation fails.
+class SosException implements Exception {
+  final String message;
+  const SosException(this.message);
+  @override
+  String toString() => message;
 }

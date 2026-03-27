@@ -1,6 +1,7 @@
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth/core/navigation/app_router.dart';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
@@ -41,50 +42,60 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _handleSplashTap() async {
-    final firebaseUser = FirebaseAuth.instance.currentUser;
-    final jwt = await _secureStorage.read(key: 'jwt');
-    final phone = await _secureStorage.read(key: 'user_phone');
-    final biometricEnabled = await _secureStorage.read(key: 'biometric_enabled');
+    try {
+      final firebaseUser = FirebaseAuth.instance.currentUser;
+      final jwt = await _secureStorage.read(key: 'jwt');
+      final phone = await _secureStorage.read(key: 'user_phone');
+      final biometricEnabled = await _secureStorage.read(key: 'biometric_enabled');
 
-    // ── 1. Firebase + JWT available → check profile, then dashboard ──
-    if (firebaseUser != null && jwt != null && mounted) {
-      final name = await _secureStorage.read(key: 'user_name');
-      final isNewUser = await _secureStorage.read(key: 'isNewUser');
-      AppRouter.setUserData(phone ?? '', name ?? 'User');
+      // ── 1. Firebase + JWT available → check profile, then dashboard ──
+      if (firebaseUser != null && jwt != null && mounted) {
+        final name = await _secureStorage.read(key: 'user_name');
+        final isNewUser = await _secureStorage.read(key: 'isNewUser');
+        AppRouter.setUserData(phone ?? '', name ?? 'User');
 
-      // Profile completion gate: new users or users without a name
-      if (isNewUser == 'true' || (name == null && phone != null && phone.isNotEmpty)) {
-        context.go('/profile-setup', extra: phone ?? '');
-        return;
-      }
-      context.go('/home');
-      return;
-    }
-
-    // ── 2. Try biometric auth if enabled ──
-    if (biometricEnabled == 'true' && phone != null) {
-      final canAuth = await _localAuth.canCheckBiometrics;
-      final supported = await _localAuth.isDeviceSupported();
-
-      if (canAuth && supported) {
-        final didAuth = await _localAuth.authenticate(
-          localizedReason: 'Please authenticate to continue',
-          options: const AuthenticationOptions(biometricOnly: true),
-        );
-
-        if (didAuth && mounted) {
-          final name = await _secureStorage.read(key: 'user_name');
-          final isNewUser = await _secureStorage.read(key: 'isNewUser');
-          AppRouter.setUserData(phone, name ?? 'User');
-
-          if (isNewUser == 'true' || name == null) {
-            context.go('/profile-setup', extra: phone);
-            return;
-          }
-          context.go('/home');
+        // Profile completion gate: new users or users without a name
+        if (isNewUser == 'true' || (name == null && phone != null && phone.isNotEmpty)) {
+          context.go('/profile-setup', extra: phone ?? '');
           return;
         }
+        context.go('/home');
+        return;
       }
+
+      // ── 2. Try biometric auth if enabled ──
+      if (biometricEnabled == 'true' && phone != null) {
+        try {
+          final canAuth = await _localAuth.canCheckBiometrics;
+          final supported = await _localAuth.isDeviceSupported();
+
+          if (canAuth && supported) {
+            final didAuth = await _localAuth.authenticate(
+              localizedReason: 'Please authenticate to continue',
+              options: const AuthenticationOptions(biometricOnly: true),
+            );
+
+            if (didAuth && mounted) {
+              final name = await _secureStorage.read(key: 'user_name');
+              final isNewUser = await _secureStorage.read(key: 'isNewUser');
+              AppRouter.setUserData(phone, name ?? 'User');
+
+              if (isNewUser == 'true' || name == null) {
+                context.go('/profile-setup', extra: phone);
+                return;
+              }
+              context.go('/home');
+              return;
+            }
+          }
+        } catch (e) {
+          // Biometric failed (hardware error, user cancelled, etc.) — fall through to login
+          debugPrint('Biometric auth failed: $e');
+        }
+      }
+    } catch (e) {
+      // Storage read or Firebase check failed — fall through to login
+      debugPrint('Splash startup error: $e');
     }
 
     // ── 3. Default fallback → Login ──

@@ -15,6 +15,9 @@ import 'package:vhhealth/core/providers/user_provider.dart';
 // App Router
 import 'package:vhhealth/core/navigation/app_router.dart';
 
+// Core Services
+import 'package:vhhealth/core/services/api_client.dart';
+
 // App Utilities
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -23,6 +26,13 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // Wire 401 handler: when any API call returns Unauthorized, redirect to login.
+  ApiClient.onSessionExpired = (message) {
+    AppRouter.clearUserData();
+    AppRouter.router.go('/login');
+  };
+
   runApp(const VHRoot());
 }
 

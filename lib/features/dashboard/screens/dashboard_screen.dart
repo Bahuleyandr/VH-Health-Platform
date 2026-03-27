@@ -2,6 +2,7 @@ import 'package:go_router/go_router.dart';
 import 'package:vhhealth/core/navigation/app_router.dart';
 
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -49,9 +50,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Timer? _appointmentPoller;
   Map<String, dynamic>? _todayAppointment;
   String _appointmentStatus = '';
+  int _apptPollFailures = 0;
 
   // Smart widget data
   Timer? _smartWidgetPoller;
+  int _smartPollFailures = 0;
   Map<String, dynamic>? _activePharmacyOrder;
   Map<String, dynamic>? _activeInvestigationBooking;
   Map<String, dynamic>? _recentPrescription;
@@ -82,13 +85,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.dispose();
   }
 
-  // ── Appointment polling (30s) ──────────────────────────────────
+  // ── Appointment polling (30s, with backoff on consecutive failures) ──
   void _startAppointmentPolling() {
     _pollAppointments(); // immediate first poll
-    _appointmentPoller = Timer.periodic(
-      const Duration(seconds: 30),
-      (_) => _pollAppointments(),
-    );
+    _scheduleNextApptPoll();
+  }
+
+  void _scheduleNextApptPoll() {
+    final backoff = _apptPollFailures > 0
+        ? Duration(seconds: 30 * (1 << _apptPollFailures.clamp(0, 4)))
+        : const Duration(seconds: 30);
+    _appointmentPoller?.cancel();
+    _appointmentPoller = Timer(backoff, () {
+      _pollAppointments();
+      if (mounted) _scheduleNextApptPoll();
+    });
   }
 
   Future<void> _pollAppointments() async {
@@ -129,8 +140,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           });
         }
       }
-    } catch (_) {
-      // Silent fail — polling is best-effort
+      _apptPollFailures = 0; // reset on any successful response
+    } catch (e) {
+      _apptPollFailures++;
+      if (kDebugMode) debugPrint('Appointment poll failed (#$_apptPollFailures): $e');
     }
   }
 
@@ -178,13 +191,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // ── Smart widget polling (60s) ──────────────────────────────────
+  // ── Smart widget polling (60s, with backoff on consecutive failures) ──
   void _startSmartWidgetPolling() {
     _fetchSmartWidgetData(); // immediate first fetch
-    _smartWidgetPoller = Timer.periodic(
-      const Duration(seconds: 60),
-      (_) => _fetchSmartWidgetData(),
-    );
+    _scheduleNextSmartPoll();
+  }
+
+  void _scheduleNextSmartPoll() {
+    final backoff = _smartPollFailures > 0
+        ? Duration(seconds: 60 * (1 << _smartPollFailures.clamp(0, 4)))
+        : const Duration(seconds: 60);
+    _smartWidgetPoller?.cancel();
+    _smartWidgetPoller = Timer(backoff, () {
+      _fetchSmartWidgetData();
+      if (mounted) _scheduleNextSmartPoll();
+    });
   }
 
   Future<void> _fetchSmartWidgetData() async {
@@ -207,7 +228,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }
           if (mounted) setState(() => _activePharmacyOrder = active);
         }
-      } catch (_) {}
+      } catch (e) {
+        if (kDebugMode) debugPrint('Smart poll (pharmacy) failed: $e');
+      }
 
       // 2. Active investigation booking
       try {
@@ -227,7 +250,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }
           if (mounted) setState(() => _activeInvestigationBooking = active);
         }
-      } catch (_) {}
+      } catch (e) {
+        if (kDebugMode) debugPrint('Smart poll (investigations) failed: $e');
+      }
 
       // 3. Recent prescription (not yet ordered via pharmacy)
       try {
@@ -247,9 +272,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }
           if (mounted) setState(() => _recentPrescription = recent);
         }
-      } catch (_) {}
-    } catch (_) {
-      // All fire-and-forget — widgets just don't show if anything fails
+      } catch (e) {
+        if (kDebugMode) debugPrint('Smart poll (prescriptions) failed: $e');
+      }
+      _smartPollFailures = 0; // reset on any partial success
+    } catch (e) {
+      _smartPollFailures++;
+      if (kDebugMode) debugPrint('Smart poll failed (#$_smartPollFailures): $e');
     }
   }
 
