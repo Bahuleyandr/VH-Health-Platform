@@ -2,14 +2,14 @@
 // Run with:
 //   Linux/macOS: API_BASE_URL=... API_KEY=... ADMIN_EMAIL=... ADMIN_PASSWORD=... npx tsx src/scripts/check-backend.ts
 //   Windows (PowerShell):
-//     $env:API_BASE_URL="https://vh-health-backend.onrender.com"
+//     $env:API_BASE_URL="https://api.vhhealth.app"
 //     $env:API_KEY="<your-api-key>"
 //     $env:ADMIN_EMAIL="<your-admin-email>"
 //     $env:ADMIN_PASSWORD="<your-admin-password>"
 //     npx tsx src/scripts/check-backend.ts
 
 const API_BASE =
-  process.env.API_BASE_URL ?? "https://vh-health-backend.onrender.com";
+  process.env.API_BASE_URL ?? "https://api.vhhealth.app";
 
 // API_KEY, ADMIN_EMAIL, and ADMIN_PASSWORD must be supplied via environment variables.
 // Example (Linux/macOS):
