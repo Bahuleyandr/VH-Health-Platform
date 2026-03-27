@@ -66,7 +66,7 @@ class _HandoverScreenState extends State<HandoverScreen>
             .toList();
         if (mounted) setState(() => _recentNotes = notes);
       }
-    } catch (_) {
+    } catch (e) {
       // Non-critical — recent notes may just be empty
     } finally {
       if (mounted) setState(() => _loadingNotes = false);
@@ -336,7 +336,7 @@ class _HandoverScreenState extends State<HandoverScreen>
       if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
       if (diff.inHours < 24) return '${diff.inHours}h ago';
       return DateFormat('d MMM, HH:mm').format(dt);
-    } catch (_) {
+    } catch (e) {
       return ts;
     }
   }

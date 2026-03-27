@@ -57,8 +57,8 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
     try {
       final zones = await StaffApiService.getHousekeepingZones();
       if (mounted) setState(() => _zones = zones);
-    } catch (_) {
-      // non-fatal
+    } catch (e) {
+      debugPrint('raise_request_screen.dart: $e'); // non-fatal
     } finally {
       if (mounted) setState(() => _loading = false);
     }

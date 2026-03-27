@@ -84,12 +84,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
 
       await Future.wait(futures);
-    } catch (_) {
+    } catch (e) {
       // Non-blocking
       try {
         final roleStr = await AuthService.getRole();
         if (mounted) _role = StaffRole.fromString(roleStr);
-      } catch (_) {}
+      } catch (e) { debugPrint('dashboard_screen.dart: $e'); }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -443,7 +443,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (time is String && time.isNotEmpty) {
       try {
         timeStr = DateFormat('HH:mm').format(DateTime.parse(time));
-      } catch (_) {
+      } catch (e) {
         timeStr = time;
       }
     }
@@ -488,7 +488,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         } else {
           timeStr = DateFormat('d MMM').format(dt);
         }
-      } catch (_) {}
+      } catch (e) { debugPrint('dashboard_screen.dart: $e'); }
     }
 
     return Card(

@@ -1,7 +1,7 @@
-import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import '../config/api_config.dart';
+import 'api_client.dart';
 
 class StaffApiService {
   StaffApiService._();
@@ -10,45 +10,30 @@ class StaffApiService {
 
   static Future<Map<String, dynamic>> _get(String path,
       {Map<String, String>? query}) async {
-    final headers = await ApiConfig.authenticatedHeaders();
-    var uri = Uri.parse('${ApiConfig.baseUrl}$path');
-    if (query != null && query.isNotEmpty) {
-      uri = uri.replace(queryParameters: query);
+    final resp = await ApiClient.get(path, queryParameters: query);
+    return _handle(resp);
+  }
+
+  static Future<Map<String, dynamic>> _post(
+      String path, Map<String, dynamic> body) async {
+    final resp = await ApiClient.post(path, body: body);
+    return _handle(resp);
+  }
+
+  static Future<Map<String, dynamic>> _put(
+      String path, Map<String, dynamic> body) async {
+    final resp = await ApiClient.put(path, body: body);
+    return _handle(resp);
+  }
+
+  static Map<String, dynamic> _handle(ApiResponse resp) {
+    if (resp.isSuccess && resp.raw is Map) {
+      final raw = resp.raw as Map<String, dynamic>;
+      if (raw['success'] == true) {
+        return (raw['data'] as Map<String, dynamic>?) ?? raw;
+      }
     }
-    final resp = await http.get(uri, headers: headers);
-    return _handle(resp);
-  }
-
-  static Future<Map<String, dynamic>> _post(String path,
-      Map<String, dynamic> body) async {
-    final headers = await ApiConfig.authenticatedHeaders();
-    final resp = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}$path'),
-      headers: headers,
-      body: jsonEncode(body),
-    );
-    return _handle(resp);
-  }
-
-  static Future<Map<String, dynamic>> _put(String path,
-      Map<String, dynamic> body) async {
-    final headers = await ApiConfig.authenticatedHeaders();
-    final resp = await http.put(
-      Uri.parse('${ApiConfig.baseUrl}$path'),
-      headers: headers,
-      body: jsonEncode(body),
-    );
-    return _handle(resp);
-  }
-
-  static Map<String, dynamic> _handle(http.Response resp) {
-    final data = jsonDecode(resp.body);
-    if (resp.statusCode >= 200 &&
-        resp.statusCode < 300 &&
-        data['success'] == true) {
-      return (data['data'] as Map<String, dynamic>?) ?? data;
-    }
-    throw Exception(data['message'] ?? 'Request failed (${resp.statusCode})');
+    throw Exception(resp.message ?? 'Request failed (${resp.statusCode})');
   }
 
   // ─── Staff Profile ───────────────────────────────────────────────────────────
@@ -202,7 +187,8 @@ class StaffApiService {
     try {
       final result = await _get('/staff/hr/replacement/pending');
       return result['data'] as List? ?? result as List? ?? [];
-    } catch (_) {
+    } catch (e) {
+      debugPrint('StaffApiService.getReplacementRequests error: $e');
       return [];
     }
   }
@@ -229,7 +215,8 @@ class StaffApiService {
           result['staff'] as List? ??
           result['staffList'] as List? ??
           [];
-    } catch (_) {
+    } catch (e) {
+      debugPrint('StaffApiService.getStaffList error: $e');
       return [];
     }
   }
@@ -271,30 +258,23 @@ class StaffApiService {
   }) async {
     if (filePath != null) {
       // Multipart upload with file
-      final headers = await ApiConfig.authenticatedHeaders();
-      final req = http.MultipartRequest(
-        'POST',
-        Uri.parse('${ApiConfig.baseUrl}/staff/medical/investigations'),
-      )
-        ..headers.addAll(headers)
-        ..fields['phone'] = phone
-        ..fields['testType'] = testType;
-      if (result != null) req.fields['result'] = result;
-      if (notes != null) req.fields['notes'] = notes;
-      if (date != null) req.fields['date'] = date;
-      req.files.add(await http.MultipartFile.fromPath(
-        'file',
-        filePath,
-        filename: fileName,
-      ));
-
-      final streamed = await req.send();
-      final resp = await http.Response.fromStream(streamed);
-      final data = jsonDecode(resp.body);
-      if (resp.statusCode >= 200 && resp.statusCode < 300 && data['success'] == true) {
-        return (data['data'] as Map<String, dynamic>?) ?? data;
-      }
-      throw Exception(data['message'] ?? 'Upload failed (${resp.statusCode})');
+      final fields = <String, String>{
+        'phone': phone,
+        'testType': testType,
+        if (result != null) 'result': result,
+        if (notes != null) 'notes': notes,
+        if (date != null) 'date': date,
+      };
+      final files = [
+        await http.MultipartFile.fromPath('file', filePath,
+            filename: fileName)
+      ];
+      final resp = await ApiClient.multipart(
+        '/staff/medical/investigations',
+        fields: fields,
+        files: files,
+      );
+      return _handle(resp);
     }
 
     return _post('/staff/medical/investigations', {
@@ -490,11 +470,7 @@ class StaffApiService {
   /// DELETE /auth/staff/device/:deviceId — remove a registered device
   static Future<Map<String, dynamic>> removeRegisteredDevice(
       String deviceId) async {
-    final headers = await ApiConfig.authenticatedHeaders();
-    final resp = await http.delete(
-      Uri.parse('${ApiConfig.baseUrl}/auth/staff/device/$deviceId'),
-      headers: headers,
-    );
+    final resp = await ApiClient.delete('/auth/staff/device/$deviceId');
     return _handle(resp);
   }
 
@@ -585,18 +561,12 @@ class StaffApiService {
 
   /// GET /notifications/:phone — fetch notifications for staff
   static Future<List<dynamic>> getNotifications(String phone) async {
-    final headers = await ApiConfig.authenticatedHeaders();
-    final resp = await http.get(
-      Uri.parse('${ApiConfig.baseUrl}/notifications/$phone'),
-      headers: headers,
-    );
-    if (resp.statusCode == 200) {
-      final data = jsonDecode(resp.body);
-      // Response may be a list directly or wrapped in { data: [...] }
-      if (data is List) return data;
-      if (data is Map && data['data'] is List) return data['data'];
-      if (data is Map && data['success'] == true && data['data'] is List) {
-        return data['data'];
+    final resp = await ApiClient.get('/notifications/$phone');
+    if (resp.isSuccess) {
+      if (resp.data is List) return resp.data;
+      if (resp.raw is Map) {
+        final raw = resp.raw as Map<String, dynamic>;
+        if (raw['data'] is List) return raw['data'];
       }
       return [];
     }
@@ -605,11 +575,7 @@ class StaffApiService {
 
   /// PATCH /notifications/:phone/mark-all-read
   static Future<void> markAllNotificationsRead(String phone) async {
-    final headers = await ApiConfig.authenticatedHeaders();
-    await http.patch(
-      Uri.parse('${ApiConfig.baseUrl}/notifications/$phone/mark-all-read'),
-      headers: headers,
-    );
+    await ApiClient.patch('/notifications/$phone/mark-all-read');
   }
 
   // ─── Health Records / Vitals ──────────────────────────────────────────────
@@ -651,22 +617,20 @@ class StaffApiService {
       Map<String, dynamic> data, {File? photo}) async {
     if (photo != null) {
       // Multipart upload
-      final headers = await ApiConfig.authenticatedHeaders();
-      final request = http.MultipartRequest(
-        'POST',
-        Uri.parse('${ApiConfig.baseUrl}/prescriptions/create'),
-      );
-      request.headers.addAll(headers);
-      // Add fields
+      final fields = <String, String>{};
       data.forEach((key, value) {
         if (value != null) {
-          request.fields[key] = value is String ? value : jsonEncode(value);
+          fields[key] = value is String ? value : jsonEncode(value);
         }
       });
-      request.files.add(
-          await http.MultipartFile.fromPath('handwritten_photo', photo.path));
-      final streamedResp = await request.send();
-      final resp = await http.Response.fromStream(streamedResp);
+      final files = [
+        await http.MultipartFile.fromPath('handwritten_photo', photo.path)
+      ];
+      final resp = await ApiClient.multipart(
+        '/prescriptions/create',
+        fields: fields,
+        files: files,
+      );
       return _handle(resp);
     }
     return _post('/prescriptions/create', data);
@@ -747,7 +711,8 @@ class StaffApiService {
   }
 
   /// GET /records/health-records/:phone — health records by phone
-  static Future<Map<String, dynamic>> getHealthRecordsByPhone(String phone) async {
+  static Future<Map<String, dynamic>> getHealthRecordsByPhone(
+      String phone) async {
     return _get('/records/health-records/$phone');
   }
 
@@ -759,7 +724,8 @@ class StaffApiService {
   }
 
   /// GET /investigations/doctor/:doctor_id — investigations for a doctor
-  static Future<Map<String, dynamic>> getDoctorInvestigations(String doctorId) async {
+  static Future<Map<String, dynamic>> getDoctorInvestigations(
+      String doctorId) async {
     return _get('/investigations/doctor/$doctorId');
   }
 
@@ -776,7 +742,8 @@ class StaffApiService {
     String investigationId,
     String status,
   ) async {
-    return _put('/investigations/$investigationId/status', {'status': status});
+    return _put(
+        '/investigations/$investigationId/status', {'status': status});
   }
 
   /// GET /investigations/list — list investigations with filters
@@ -798,18 +765,17 @@ class StaffApiService {
     required String fcmToken,
     required String platform,
   }) async {
-    final headers = await ApiConfig.authenticatedHeaders();
-    await http.post(
-      Uri.parse('${ApiConfig.baseUrl}/devices/register'),
-      headers: headers,
-      body: jsonEncode({
+    try {
+      await ApiClient.post('/devices/register', body: {
         'phone': phone,
         'fcmToken': fcmToken,
         'deviceId': '${platform}_staff_${phone.hashCode}',
         'deviceName': 'VHHealth Staff App',
         'platform': platform,
-      }),
-    );
+      });
+    } catch (e) {
+      debugPrint('StaffApiService.registerDevice error: $e');
+    }
   }
 
   // ─── Shift Management ───────────────────────────────────────────────────────
@@ -852,13 +818,15 @@ class StaffApiService {
       'dispute_type': disputeType,
       'description': description,
       if (requestedCheckIn != null) 'requested_check_in': requestedCheckIn,
-      if (requestedCheckOut != null) 'requested_check_out': requestedCheckOut,
+      if (requestedCheckOut != null)
+        'requested_check_out': requestedCheckOut,
     });
   }
 
   /// GET /api/v1/staff/attendance/:staffId/disputes — get my disputes
   static Future<List<dynamic>> getMyDisputes(String staffId) async {
-    final result = await _get('/api/v1/staff/attendance/$staffId/disputes');
+    final result =
+        await _get('/api/v1/staff/attendance/$staffId/disputes');
     return result['data'] as List? ?? result as List? ?? [];
   }
 
@@ -911,7 +879,8 @@ class StaffApiService {
       'patient_involved': patientInvolved,
       if (patientName != null) 'patient_name': patientName,
       if (witnesses != null) 'witnesses': witnesses,
-      if (immediateActionTaken != null) 'immediate_action_taken': immediateActionTaken,
+      if (immediateActionTaken != null)
+        'immediate_action_taken': immediateActionTaken,
       'is_anonymous': isAnonymous,
     });
   }
@@ -965,7 +934,8 @@ class StaffApiService {
 
   /// GET /api/v1/staff/hr/housekeeping/zones
   static Future<List<dynamic>> getHousekeepingZones() async {
-    final result = await _get('/api/v1/staff/hr/housekeeping/zones');
+    final result =
+        await _get('/api/v1/staff/hr/housekeeping/zones');
     return result['data'] as List? ?? result as List? ?? [];
   }
 
@@ -994,7 +964,8 @@ class StaffApiService {
 
   /// GET /api/v1/staff/hr/housekeeping/logs/my
   static Future<List<dynamic>> getMyCleaningLogs() async {
-    final result = await _get('/api/v1/staff/hr/housekeeping/logs/my');
+    final result =
+        await _get('/api/v1/staff/hr/housekeeping/logs/my');
     return result['data'] as List? ?? result as List? ?? [];
   }
 
@@ -1035,7 +1006,8 @@ class StaffApiService {
     String? photoKey,
     String? photoUrl,
   }) async {
-    return await _post('/api/v1/staff/hr/housekeeping/requests/$requestId/complete', {
+    return await _post(
+        '/api/v1/staff/hr/housekeeping/requests/$requestId/complete', {
       if (completionNotes != null) 'completion_notes': completionNotes,
       if (photoKey != null) 'completion_photo_key': photoKey,
       if (photoUrl != null) 'completion_photo_url': photoUrl,
@@ -1082,7 +1054,8 @@ class StaffApiService {
   /// POST /api/v1/staff/hr/payroll/declarations/submit
   static Future<Map<String, dynamic>> submitInvestmentDeclaration(
       Map<String, dynamic> data) async {
-    return await _post('/api/v1/staff/hr/payroll/declarations/submit', data);
+    return await _post(
+        '/api/v1/staff/hr/payroll/declarations/submit', data);
   }
 
   /// GET /api/v1/staff/hr/payroll/declarations
@@ -1174,28 +1147,20 @@ class StaffApiService {
     String? notes,
     String? fileName,
   }) async {
-    final headers = await ApiConfig.authenticatedHeaders();
-    final req = http.MultipartRequest(
-      'POST',
-      Uri.parse('${ApiConfig.baseUrl}/appointments/documents/upload'),
-    )
-      ..headers.addAll(headers)
-      ..fields['appointment_id'] = appointmentId.toString()
-      ..fields['document_type'] = documentType
-      ..files.add(await http.MultipartFile.fromPath(
-        'file',
-        filePath,
-        filename: fileName,
-      ));
-    if (notes != null) req.fields['notes'] = notes;
-
-    final streamed = await req.send();
-    final resp = await http.Response.fromStream(streamed);
-    final data = jsonDecode(resp.body);
-    if (resp.statusCode >= 200 && resp.statusCode < 300 && data['success'] == true) {
-      return (data['data'] as Map<String, dynamic>?) ?? data;
-    }
-    throw Exception(data['message'] ?? 'Upload failed (${resp.statusCode})');
+    final fields = <String, String>{
+      'appointment_id': appointmentId.toString(),
+      'document_type': documentType,
+      if (notes != null) 'notes': notes,
+    };
+    final files = [
+      await http.MultipartFile.fromPath('file', filePath, filename: fileName)
+    ];
+    final resp = await ApiClient.multipart(
+      '/appointments/documents/upload',
+      fields: fields,
+      files: files,
+    );
+    return _handle(resp);
   }
 
   // ── Walk-in Registration ──────────────────────────────────────────────────
@@ -1210,9 +1175,11 @@ class StaffApiService {
   }) async {
     final body = <String, dynamic>{
       'patient_phone': patientPhone,
-      if (patientName != null && patientName.isNotEmpty) 'patient_name': patientName,
+      if (patientName != null && patientName.isNotEmpty)
+        'patient_name': patientName,
       if (doctorId != null) 'doctor_id': doctorId,
-      if (department != null && department.isNotEmpty) 'department': department,
+      if (department != null && department.isNotEmpty)
+        'department': department,
       'reason': reason ?? 'Walk-in consultation',
       'appointment_time': appointmentTime ?? 'Walk-in',
     };
@@ -1290,28 +1257,18 @@ class StaffApiService {
     String? notes,
     String? fileName,
   }) async {
-    final headers = await ApiConfig.authenticatedHeaders();
-    final req = http.MultipartRequest(
-      'POST',
-      Uri.parse('${ApiConfig.baseUrl}/investigations/bookings/$id/result'),
-    )..headers.addAll(headers);
-
-    req.files.add(await http.MultipartFile.fromPath(
-      'file',
-      filePath,
-      filename: fileName,
-    ));
-    if (notes != null) req.fields['result_notes'] = notes;
-
-    final streamed = await req.send();
-    final resp = await http.Response.fromStream(streamed);
-    final data = jsonDecode(resp.body);
-    if (resp.statusCode >= 200 &&
-        resp.statusCode < 300 &&
-        data['success'] == true) {
-      return (data['data'] as Map<String, dynamic>?) ?? data;
-    }
-    throw Exception(data['message'] ?? 'Upload failed (${resp.statusCode})');
+    final fields = <String, String>{
+      if (notes != null) 'result_notes': notes,
+    };
+    final files = [
+      await http.MultipartFile.fromPath('file', filePath, filename: fileName)
+    ];
+    final resp = await ApiClient.multipart(
+      '/investigations/bookings/$id/result',
+      fields: fields,
+      files: files,
+    );
+    return _handle(resp);
   }
 
   // ─── Delivery Tracking ──────────────────────────────────────────────────

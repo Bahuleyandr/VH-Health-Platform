@@ -1,10 +1,8 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
-import '../../../core/config/api_config.dart';
+import '../../../core/services/api_client.dart';
 import '../../../core/services/staff_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
@@ -637,16 +635,19 @@ class _PatientSearchFieldState extends State<_PatientSearchField> {
     }
     setState(() => _searching = true);
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final resp = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/users/lookup?search=$query'),
-        headers: headers,
+      final resp = await ApiClient.get(
+        '/users/lookup',
+        queryParameters: {'search': query},
       );
-      final data = jsonDecode(resp.body);
-      if (data['success'] == true) {
-        setState(() => _results = data['data'] ?? []);
+      if (resp.isSuccess && resp.raw is Map) {
+        final raw = resp.raw as Map<String, dynamic>;
+        if (raw['success'] == true) {
+          setState(() => _results = raw['data'] ?? []);
+        }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('PatientSearch error: $e');
+    }
     setState(() => _searching = false);
   }
 
@@ -712,16 +713,19 @@ class _DoctorSearchFieldState extends State<_DoctorSearchField> {
       return;
     }
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final resp = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/doctors?search=$query'),
-        headers: headers,
+      final resp = await ApiClient.get(
+        '/doctors',
+        queryParameters: {'search': query},
       );
-      final data = jsonDecode(resp.body);
-      if (data['success'] == true) {
-        setState(() => _results = data['data'] ?? []);
+      if (resp.isSuccess && resp.raw is Map) {
+        final raw = resp.raw as Map<String, dynamic>;
+        if (raw['success'] == true) {
+          setState(() => _results = raw['data'] ?? []);
+        }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('DoctorSearch error: $e');
+    }
   }
 
   @override
@@ -812,20 +816,22 @@ class _MedicationCardState extends State<_MedicationCard> {
       return;
     }
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final resp = await http.get(
-        Uri.parse(
-            '${ApiConfig.baseUrl}/pharmacy-orders/catalog?search=$query'),
-        headers: headers,
+      final resp = await ApiClient.get(
+        '/pharmacy-orders/catalog',
+        queryParameters: {'search': query},
       );
-      final data = jsonDecode(resp.body);
-      if (data['success'] == true) {
-        setState(() {
-          _suggestions = (data['data'] as List?) ?? [];
-          _showSuggestions = _suggestions.isNotEmpty;
-        });
+      if (resp.isSuccess && resp.raw is Map) {
+        final raw = resp.raw as Map<String, dynamic>;
+        if (raw['success'] == true) {
+          setState(() {
+            _suggestions = (raw['data'] as List?) ?? [];
+            _showSuggestions = _suggestions.isNotEmpty;
+          });
+        }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('MedicineSearch error: $e');
+    }
   }
 
   @override
@@ -1053,16 +1059,16 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
       _error = null;
     });
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final resp = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/prescriptions/all'),
-        headers: headers,
-      );
-      final data = jsonDecode(resp.body);
-      if (data['success'] == true) {
-        setState(() => _prescriptions = data['data'] ?? []);
+      final resp = await ApiClient.get('/prescriptions/all');
+      if (resp.isSuccess && resp.raw is Map) {
+        final raw = resp.raw as Map<String, dynamic>;
+        if (raw['success'] == true) {
+          setState(() => _prescriptions = raw['data'] ?? []);
+        } else {
+          setState(() => _error = raw['message']?.toString() ?? 'Failed to load');
+        }
       } else {
-        setState(() => _error = data['message'] ?? 'Failed to load');
+        setState(() => _error = resp.message ?? 'Failed to load');
       }
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));

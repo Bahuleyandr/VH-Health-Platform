@@ -49,8 +49,8 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
     try {
       final zones = await StaffApiService.getHousekeepingZones();
       if (mounted) setState(() => _zones = zones);
-    } catch (_) {
-      // non-fatal
+    } catch (e) {
+      debugPrint('log_cleaning_screen.dart: $e'); // non-fatal
     } finally {
       if (mounted) setState(() => _loading = false);
     }

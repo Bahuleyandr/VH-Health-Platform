@@ -34,7 +34,7 @@ class _OvertimeScreenState extends State<OvertimeScreen> with SingleTickerProvid
     try {
       final list = await StaffApiService.getMyOvertimeRequests();
       if (mounted) setState(() => _requests = list);
-    } catch (_) {} finally {
+    } catch (e) { debugPrint('overtime_screen.dart: $e'); } finally {
       if (mounted) setState(() => _loading = false);
     }
   }

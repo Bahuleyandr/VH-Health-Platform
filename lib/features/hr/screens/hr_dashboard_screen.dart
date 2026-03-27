@@ -46,7 +46,7 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
       try {
         final analytics = await StaffApiService.getAttendanceAnalytics();
         data['attendanceAnalytics'] = analytics;
-      } catch (_) {}
+      } catch (e) { debugPrint('hr_dashboard_screen.dart: $e'); }
 
       if (mounted) setState(() => _data = data);
     } catch (e) {

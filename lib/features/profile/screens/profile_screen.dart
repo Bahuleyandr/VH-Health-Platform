@@ -61,7 +61,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             }
           });
         }
-      } catch (_) {
+      } catch (e) {
         // Auth profile is supplementary — don't fail if unavailable
       }
 

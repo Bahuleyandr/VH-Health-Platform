@@ -251,7 +251,7 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
     try {
       final list = await StaffApiService.getMyPayslips(months: 3);
       if (mounted) setState(() => _payslips = list);
-    } catch (_) {} finally {
+    } catch (e) { debugPrint('payslip_query_screen.dart: $e'); } finally {
       if (mounted) setState(() => _loading = false);
     }
   }

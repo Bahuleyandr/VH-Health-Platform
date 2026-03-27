@@ -250,7 +250,7 @@ class _UploadTabState extends State<_UploadTab> {
                       _fileName = result.files.single.name;
                     });
                   }
-                } catch (_) {
+                } catch (e) {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
@@ -351,7 +351,7 @@ class _PendingTabState extends State<_PendingTab> {
       if (staffId != null) {
         try {
           data = await StaffApiService.getDoctorInvestigations(staffId);
-        } catch (_) {
+        } catch (e) {
           data = await StaffApiService.getPendingInvestigations();
         }
       } else {

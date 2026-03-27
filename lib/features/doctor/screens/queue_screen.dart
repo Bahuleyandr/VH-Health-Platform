@@ -180,7 +180,7 @@ class _QueueScreenState extends State<QueueScreen> {
       final diff = DateTime.now().difference(parsed);
       if (diff.isNegative) return 'In ${_formatDuration(-diff)}';
       return 'Waiting ${_formatDuration(diff)}';
-    } catch (_) {
+    } catch (e) {
       return '';
     }
   }
@@ -442,7 +442,7 @@ class _QueueCard extends StatelessWidget {
         final dt = DateTime.parse(time);
         displayTime = DateFormat('hh:mm a').format(dt);
       }
-    } catch (_) {
+    } catch (e) {
       displayTime = time;
     }
 

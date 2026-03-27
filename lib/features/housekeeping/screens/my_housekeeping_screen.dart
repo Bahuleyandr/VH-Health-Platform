@@ -39,7 +39,8 @@ class _MyHousekeepingScreenState extends State<MyHousekeepingScreen>
     try {
       final logs = await StaffApiService.getMyCleaningLogs();
       if (mounted) setState(() => _logs = logs);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('my_housekeeping_screen.dart: $e');
     } finally {
       if (mounted) setState(() => _loadingLogs = false);
     }
@@ -55,7 +56,8 @@ class _MyHousekeepingScreenState extends State<MyHousekeepingScreen>
           _assignedRequests = data['assigned'] as List? ?? [];
         });
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('my_housekeeping_screen.dart: $e');
     } finally {
       if (mounted) setState(() => _loadingRequests = false);
     }

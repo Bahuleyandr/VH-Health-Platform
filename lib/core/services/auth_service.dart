@@ -1,7 +1,7 @@
-import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
+import 'api_client.dart';
 
 class AuthService {
   static const _storage = FlutterSecureStorage();
@@ -11,38 +11,39 @@ class AuthService {
     required String employeeId,
     required String password,
   }) async {
-    final response = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}/auth/staff/login'),
-      headers: ApiConfig.jsonHeaders,
-      body: jsonEncode({'employeeId': employeeId, 'password': password}),
+    final response = await ApiClient.post(
+      '/auth/staff/login',
+      body: {'employeeId': employeeId, 'password': password},
     );
 
-    final data = jsonDecode(response.body);
-    if (response.statusCode == 200 && data['success'] == true) {
-      final token = data['data']?['token'] ?? data['data']?['jwt'];
-      if (token != null) {
-        await ApiConfig.saveJwt(token);
-        await ApiConfig.saveEmployeeId(employeeId);
+    if (response.isSuccess && response.raw is Map) {
+      final raw = response.raw as Map<String, dynamic>;
+      if (raw['success'] == true) {
+        final data = raw['data'] as Map<String, dynamic>? ?? {};
+        final token = data['token'] ?? data['jwt'];
+        if (token != null) {
+          await ApiConfig.saveJwt(token.toString());
+          await ApiConfig.saveEmployeeId(employeeId);
 
-        final staffId = data['data']?['staff']?['_id'] ??
-            data['data']?['staff']?['id'] ??
-            data['data']?['uid'];
-        if (staffId != null) await ApiConfig.saveStaffId(staffId.toString());
+          final staffId = data['staff']?['_id'] ??
+              data['staff']?['id'] ??
+              data['uid'];
+          if (staffId != null) {
+            await ApiConfig.saveStaffId(staffId.toString());
+          }
 
-        // Save staff role for role-based feature access
-        final role = data['data']?['staff']?['role'] ??
-            data['data']?['role'] ??
-            'GENERAL_STAFF';
-        await ApiConfig.saveRole(role.toString());
+          // Save staff role for role-based feature access
+          final role = data['staff']?['role'] ?? data['role'] ?? 'GENERAL_STAFF';
+          await ApiConfig.saveRole(role.toString());
 
-        // Save phone if available (needed for device/notification registration)
-        final phone = data['data']?['staff']?['phone'] ??
-            data['data']?['phone'];
-        if (phone != null) await ApiConfig.savePhone(phone.toString());
+          // Save phone if available (needed for device/notification registration)
+          final phone = data['staff']?['phone'] ?? data['phone'];
+          if (phone != null) await ApiConfig.savePhone(phone.toString());
+        }
+        return data.isNotEmpty ? data : raw;
       }
-      return data['data'] ?? data;
     }
-    throw Exception(data['message'] ?? 'Login failed');
+    throw Exception(response.message ?? 'Login failed');
   }
 
   /// Staff PIN login
@@ -50,50 +51,47 @@ class AuthService {
     required String employeeId,
     required String pin,
   }) async {
-    final response = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}/auth/staff/login-pin'),
-      headers: ApiConfig.jsonHeaders,
-      body: jsonEncode({'employeeId': employeeId, 'pin': pin}),
+    final response = await ApiClient.post(
+      '/auth/staff/login-pin',
+      body: {'employeeId': employeeId, 'pin': pin},
     );
 
-    final data = jsonDecode(response.body);
-    if (response.statusCode == 200 && data['success'] == true) {
-      final token = data['data']?['token'] ?? data['data']?['jwt'];
-      if (token != null) {
-        await ApiConfig.saveJwt(token);
-        await ApiConfig.saveEmployeeId(employeeId);
+    if (response.isSuccess && response.raw is Map) {
+      final raw = response.raw as Map<String, dynamic>;
+      if (raw['success'] == true) {
+        final data = raw['data'] as Map<String, dynamic>? ?? {};
+        final token = data['token'] ?? data['jwt'];
+        if (token != null) {
+          await ApiConfig.saveJwt(token.toString());
+          await ApiConfig.saveEmployeeId(employeeId);
 
-        final staffId = data['data']?['staff']?['_id'] ??
-            data['data']?['staff']?['id'] ??
-            data['data']?['uid'];
-        if (staffId != null) await ApiConfig.saveStaffId(staffId.toString());
+          final staffId = data['staff']?['_id'] ??
+              data['staff']?['id'] ??
+              data['uid'];
+          if (staffId != null) {
+            await ApiConfig.saveStaffId(staffId.toString());
+          }
 
-        // Save staff role for role-based feature access
-        final role = data['data']?['staff']?['role'] ??
-            data['data']?['role'] ??
-            'GENERAL_STAFF';
-        await ApiConfig.saveRole(role.toString());
+          // Save staff role for role-based feature access
+          final role = data['staff']?['role'] ?? data['role'] ?? 'GENERAL_STAFF';
+          await ApiConfig.saveRole(role.toString());
 
-        // Save phone if available (needed for device/notification registration)
-        final phone = data['data']?['staff']?['phone'] ??
-            data['data']?['phone'];
-        if (phone != null) await ApiConfig.savePhone(phone.toString());
+          // Save phone if available (needed for device/notification registration)
+          final phone = data['staff']?['phone'] ?? data['phone'];
+          if (phone != null) await ApiConfig.savePhone(phone.toString());
+        }
+        return data.isNotEmpty ? data : raw;
       }
-      return data['data'] ?? data;
     }
-    throw Exception(data['message'] ?? 'PIN login failed');
+    throw Exception(response.message ?? 'PIN login failed');
   }
 
   /// Logout — clears all local credentials
   static Future<void> logout() async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/auth/staff/logout'),
-        headers: headers,
-        body: jsonEncode({}),
-      );
-    } catch (_) {
+      await ApiClient.post('/auth/staff/logout', body: {});
+    } catch (e) {
+      debugPrint('AuthService.logout error: $e');
       // Best effort
     } finally {
       await ApiConfig.clearAll();
@@ -113,37 +111,39 @@ class AuthService {
     String? biometricToken,
     String? deviceToken,
   }) async {
-    final response = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}/auth/staff/quick-login'),
-      headers: ApiConfig.jsonHeaders,
-      body: jsonEncode({
+    final response = await ApiClient.post(
+      '/auth/staff/quick-login',
+      body: {
         'employeeId': employeeId,
         if (pin != null) 'pin': pin,
         if (biometricToken != null) 'biometricToken': biometricToken,
         if (deviceToken != null) 'deviceToken': deviceToken,
-      }),
+      },
     );
 
-    final data = jsonDecode(response.body);
-    if (response.statusCode == 200 && data['success'] == true) {
-      final token = data['data']?['token'] ?? data['data']?['jwt'];
-      if (token != null) {
-        await ApiConfig.saveJwt(token);
-        await ApiConfig.saveEmployeeId(employeeId);
+    if (response.isSuccess && response.raw is Map) {
+      final raw = response.raw as Map<String, dynamic>;
+      if (raw['success'] == true) {
+        final data = raw['data'] as Map<String, dynamic>? ?? {};
+        final token = data['token'] ?? data['jwt'];
+        if (token != null) {
+          await ApiConfig.saveJwt(token.toString());
+          await ApiConfig.saveEmployeeId(employeeId);
 
-        final staffId = data['data']?['staff']?['_id'] ??
-            data['data']?['staff']?['id'] ??
-            data['data']?['uid'];
-        if (staffId != null) await ApiConfig.saveStaffId(staffId.toString());
+          final staffId = data['staff']?['_id'] ??
+              data['staff']?['id'] ??
+              data['uid'];
+          if (staffId != null) {
+            await ApiConfig.saveStaffId(staffId.toString());
+          }
 
-        final role = data['data']?['staff']?['role'] ??
-            data['data']?['role'] ??
-            'GENERAL_STAFF';
-        await ApiConfig.saveRole(role.toString());
+          final role = data['staff']?['role'] ?? data['role'] ?? 'GENERAL_STAFF';
+          await ApiConfig.saveRole(role.toString());
+        }
+        return data.isNotEmpty ? data : raw;
       }
-      return data['data'] ?? data;
     }
-    throw Exception(data['message'] ?? 'Quick login failed');
+    throw Exception(response.message ?? 'Quick login failed');
   }
 
   /// Check if device is registered for quick login

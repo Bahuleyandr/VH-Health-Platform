@@ -92,7 +92,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
         speed: pos.speed * 3.6,
         heading: pos.heading,
       );
-    } catch (_) {}
+    } catch (e) { debugPrint('lab_bookings_screen.dart: $e'); }
   }
 
   Future<void> _fetchBookings() async {

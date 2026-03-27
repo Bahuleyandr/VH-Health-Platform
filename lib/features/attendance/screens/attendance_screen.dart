@@ -73,7 +73,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       try {
         final shift = await StaffApiService.getMyShift();
         _shift = shift;
-      } catch (_) {
+      } catch (e) {
         _shift = null;
       }
 
@@ -84,7 +84,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             hist['history'] as List? ??
             hist['attendance'] as List? ??
             [];
-      } catch (_) {
+      } catch (e) {
         if (_staffId != null) {
           final hist = await StaffApiService.getAttendance(_staffId!);
           _history = hist['records'] as List? ?? hist['attendance'] as List? ?? [];
@@ -113,7 +113,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         map[day['date'] as String] = Map<String, dynamic>.from(day as Map);
       }
       if (mounted) setState(() => _calendarData = map);
-    } catch (_) {} finally {
+    } catch (e) { debugPrint('attendance_screen.dart: $e'); } finally {
       if (mounted) setState(() => _calendarLoading = false);
     }
   }
@@ -652,7 +652,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       final h = diff.inHours;
       final m = diff.inMinutes % 60;
       return m == 0 ? '$h' : '$h:${m.toString().padLeft(2, '0')}';
-    } catch (_) {
+    } catch (e) {
       return '?';
     }
   }

@@ -46,7 +46,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           endDate: endStr,
           limit: 50,
         );
-      } catch (_) {
+      } catch (e) {
         final staffId = await ApiConfig.getStaffId();
         result = await StaffApiService.getAttendance(
           staffId ?? '',
@@ -116,7 +116,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         final inTime = DateTime.parse(checkIn.toString());
         final outTime = DateTime.parse(checkOut.toString());
         return outTime.difference(inTime).inMinutes / 60.0;
-      } catch (_) {}
+      } catch (e) { debugPrint('schedule_screen.dart: $e'); }
     }
     return null;
   }
@@ -125,7 +125,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     if (isoStr == null) return '--:--';
     try {
       return DateFormat('HH:mm').format(DateTime.parse(isoStr));
-    } catch (_) {
+    } catch (e) {
       return isoStr.length > 5 ? isoStr.substring(11, 16) : isoStr;
     }
   }

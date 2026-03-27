@@ -33,7 +33,7 @@ class _BreakTrackerState extends State<BreakTracker> {
           _onBreak = _breaks.any((b) => b['break_end'] == null);
         });
       }
-    } catch (_) {}
+    } catch (e) { debugPrint('break_tracker.dart: $e'); }
   }
 
   @override

@@ -90,7 +90,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
         speed: pos.speed * 3.6, // m/s to km/h
         heading: pos.heading,
       );
-    } catch (_) {
+    } catch (e) {
       // silent fail — don't block workflow
     }
   }
