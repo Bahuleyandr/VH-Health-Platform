@@ -186,6 +186,8 @@ export async function getFeedbackDashboard(req, res) {
     }
 
     // Overall statistics
+    // Safety: `interval` is whitelisted above via switch-case (only '7 days', '30 days', '90 days'),
+    // so interpolation is safe. PostgreSQL does not support parameterized INTERVAL literals directly.
     const overallStats = await db.query(`
       SELECT
         COUNT(*) as total_feedback,
@@ -199,6 +201,7 @@ export async function getFeedbackDashboard(req, res) {
     `);
 
     // Feedback by category
+    // Safety: `interval` is whitelisted above via switch-case
     const categoryStats = await db.query(`
       SELECT
         category,
@@ -211,6 +214,7 @@ export async function getFeedbackDashboard(req, res) {
     `);
 
     // Daily trend
+    // Safety: `interval` is whitelisted above via switch-case
     const dailyTrend = await db.query(`
       SELECT
         DATE(created_at) as date,
@@ -365,6 +369,7 @@ export async function getFeedbackAnalytics(req, res) {
     const { startDate, endDate, groupBy = 'day' } = req.query;
 
     // Doctor performance rankings
+    const doctorParams = [];
     let doctorQuery = `
       SELECT
         d.id, d.name,
@@ -379,7 +384,8 @@ export async function getFeedbackAnalytics(req, res) {
 
     // If user is a doctor, only show their own analytics
     if (req.user?.role === 'DOCTOR') {
-      doctorQuery += ` AND d.id = ${req.user.id}`;
+      doctorParams.push(req.user.id);
+      doctorQuery += ` AND d.id = $${doctorParams.length}`;
     }
 
     doctorQuery += `
@@ -388,7 +394,7 @@ export async function getFeedbackAnalytics(req, res) {
       ORDER BY average_rating DESC, feedback_count DESC
     `;
 
-    const doctorRankings = await db.query(doctorQuery);
+    const doctorRankings = await db.query(doctorQuery, doctorParams);
 
     // Department performance (admin/nurse only)
     let departmentPerformance = [];
@@ -409,19 +415,30 @@ export async function getFeedbackAnalytics(req, res) {
       departmentPerformance = deptResult.rows;
     }
 
-    // Satisfaction trends
+    // Satisfaction trends — whitelist groupBy to prevent SQL injection
+    const allowedGroupBy = ['hour', 'day', 'week', 'month'];
+    const safeGroupBy = allowedGroupBy.includes(groupBy) ? groupBy : 'day';
+
+    const trendParams = [];
+    let trendDoctorFilter = '';
+    if (req.user?.role === 'DOCTOR') {
+      trendParams.push(req.user.id);
+      trendDoctorFilter = `AND doctor_id = $${trendParams.length}`;
+    }
+
+    // Safety: `safeGroupBy` is whitelisted above, so interpolation is safe
     const satisfactionTrends = await db.query(`
       SELECT
-        DATE_TRUNC('${groupBy}', created_at) as period,
+        DATE_TRUNC('${safeGroupBy}', created_at) as period,
         ROUND(AVG(rating), 2) as avg_rating,
         COUNT(*) as feedback_count,
         ROUND(COUNT(*) FILTER (WHERE rating >= 4) * 100.0 / COUNT(*), 1) as satisfaction_percentage
       FROM feedback
       WHERE created_at > NOW() - INTERVAL '90 days'
-      ${req.user?.role === 'DOCTOR' ? `AND doctor_id = ${req.user.id}` : ''}
-      GROUP BY DATE_TRUNC('${groupBy}', created_at)
+      ${trendDoctorFilter}
+      GROUP BY DATE_TRUNC('${safeGroupBy}', created_at)
       ORDER BY period DESC
-    `);
+    `, trendParams);
 
     success(res, {
       doctorRankings: doctorRankings.rows,

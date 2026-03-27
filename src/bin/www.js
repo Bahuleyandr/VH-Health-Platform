@@ -51,7 +51,7 @@ function onError(error) {
 }
 
 // On server listening
-function onListening() {
+async function onListening() {
   const addr = server.address();
   const bind = typeof addr === 'string' ? 'pipe ' + addr : 'port ' + addr.port;
   logger.info(`VH Health Backend running on ${bind}`);
@@ -60,7 +60,13 @@ function onListening() {
   initWebSocket(server);
 
   // Run database migrations then scheduled tasks
-  runMigrations().catch(err => logger.error('Migration error:', err.message));
+  try {
+    await runMigrations();
+    logger.info('Migrations completed successfully');
+  } catch (err) {
+    logger.error('FATAL: Migration failed:', err);
+    process.exit(1);
+  }
   runAllScheduledTasksNow();
 }
 
@@ -85,6 +91,16 @@ function gracefulShutdown(signal) {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+process.on('uncaughtException', (err) => {
+  logger.error('Uncaught Exception — shutting down:', err);
+  gracefulShutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  gracefulShutdown('unhandledRejection');
+});
 
 server.on('error', onError);
 server.on('listening', onListening);

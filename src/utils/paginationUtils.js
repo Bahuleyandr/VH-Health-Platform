@@ -21,13 +21,23 @@ export function getPaginationParams(query) {
  * @param {number} page - Current page number.
  * @param {number} limit - Number of items per page.
  * @param {Array} data - The actual data array.
+ * @param {number} [total] - Optional total count of all matching records (for computing totalPages/hasNext).
  * @returns {Object} - Formatted paginated response.
  */
-export function formatPaginatedResponse(page, limit, data) {
-  return {
+export function formatPaginatedResponse(page, limit, data, total) {
+  const response = {
     page,
     limit,
     count: data.length,
     data
   };
+
+  if (total !== undefined && total !== null) {
+    response.total = total;
+    response.totalPages = Math.ceil(total / limit);
+    response.hasNext = page * limit < total;
+    response.hasPrev = page > 1;
+  }
+
+  return response;
 }

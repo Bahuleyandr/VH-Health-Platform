@@ -61,8 +61,9 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
   /**
    * Get notifications by phone number
    */
-  async getNotificationsByPhone(phone, user) {
+  async getNotificationsByPhone(phone, user, options = {}) {
     try {
+      const { limit = 50, offset = 0 } = options;
       const normalizedPhone = normalizePhone(phone);
       const userRole = user?.role?.toUpperCase();
 
@@ -74,14 +75,25 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
         }
       }
 
+      const safeLimit = Math.min(parseInt(limit) || 50, 100);
+      const safeOffset = parseInt(offset) || 0;
+
       const result = await db.query(
-        `SELECT * FROM notifications WHERE phone = $1 ORDER BY created_at DESC`,
+        `SELECT * FROM notifications WHERE phone = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+        [normalizedPhone, safeLimit, safeOffset]
+      );
+
+      const countResult = await db.query(
+        'SELECT COUNT(*) FROM notifications WHERE phone = $1',
         [normalizedPhone]
       );
 
       return {
         notifications: result.rows.map(n => formatNotificationResponse(n, userRole === 'ADMIN')),
-        count: result.rows.length
+        count: result.rows.length,
+        total: parseInt(countResult.rows[0].count),
+        limit: safeLimit,
+        offset: safeOffset
       };
     } catch (error) {
       logger.error('Error getting notifications by phone:', error.message);
@@ -499,50 +511,52 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
    */
   async getNotificationStats(days = 7) {
     try {
+      const safeDays = parseInt(days) || 7;
+
       const [totalStats, typeStats, priorityStats, recentActivity] = await Promise.all([
         // Total notification statistics
         db.query(`
-          SELECT 
+          SELECT
             COUNT(*) as total_notifications,
             COUNT(CASE WHEN is_read = false THEN 1 END) as unread_notifications,
             COUNT(CASE WHEN is_read = true THEN 1 END) as read_notifications,
-            COUNT(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '${days} days' THEN 1 END) as recent_notifications,
+            COUNT(CASE WHEN created_at >= CURRENT_DATE - make_interval(days => $1) THEN 1 END) as recent_notifications,
             ROUND(AVG(CASE WHEN is_read = true THEN EXTRACT(EPOCH FROM (read_at - created_at))/3600 END), 2) as avg_read_time_hours
           FROM notifications
-        `),
+        `, [safeDays]),
 
         // Type breakdown
         db.query(`
           SELECT type, COUNT(*) as count
-          FROM notifications 
-          WHERE created_at >= CURRENT_DATE - INTERVAL '${days} days'
+          FROM notifications
+          WHERE created_at >= CURRENT_DATE - make_interval(days => $1)
           GROUP BY type
           ORDER BY count DESC
-        `),
+        `, [safeDays]),
 
         // Priority breakdown
         db.query(`
           SELECT priority, COUNT(*) as count
-          FROM notifications 
-          WHERE created_at >= CURRENT_DATE - INTERVAL '${days} days'
+          FROM notifications
+          WHERE created_at >= CURRENT_DATE - make_interval(days => $1)
           GROUP BY priority
-          ORDER BY 
-            CASE priority 
-              WHEN 'HIGH' THEN 1 
-              WHEN 'MEDIUM' THEN 2 
-              WHEN 'LOW' THEN 3 
+          ORDER BY
+            CASE priority
+              WHEN 'HIGH' THEN 1
+              WHEN 'MEDIUM' THEN 2
+              WHEN 'LOW' THEN 3
             END
-        `),
+        `, [safeDays]),
 
         // Recent activity (daily counts)
         db.query(`
           SELECT DATE(created_at) as date, COUNT(*) as count,
                  COUNT(CASE WHEN is_read = true THEN 1 END) as read_count
-          FROM notifications 
-          WHERE created_at >= CURRENT_DATE - INTERVAL '${days} days'
+          FROM notifications
+          WHERE created_at >= CURRENT_DATE - make_interval(days => $1)
           GROUP BY DATE(created_at)
           ORDER BY date DESC
-        `)
+        `, [safeDays])
       ]);
 
       return {

@@ -29,7 +29,8 @@ export const notificationController = {
     try {
       const result = await notificationService.getNotificationsByPhone(
         req.params.phone,
-        req.user
+        req.user,
+        { limit: req.query.limit, offset: req.query.offset }
       );
 
       await logAudit(req, 'notifications-phone-view', { 
