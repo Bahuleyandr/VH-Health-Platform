@@ -112,18 +112,28 @@ Prefer `/my` endpoints that derive phone from JWT:
 - No empty `.catch(() => {})` — always log with context
 - No fake success in catch blocks — return `error()`, not `success()` with zeros
 
+### Async Error Safety
+- `wrapAsync()` in `src/config/routeWrapper.js` wraps ALL async route handlers
+- Catches unhandled promise rejections and forwards to Express error handler
+- Prevents process crash from any async middleware or controller error
+- Applied automatically via `wrapAutoRBAC` and `wrapRoutesWithValidation`
+
 ### Database Resilience
 - 30s `statement_timeout` on all queries (prevents connection pool exhaustion)
+- **Circuit breaker**: after 5 consecutive query failures, rejects immediately for 30s. Auto-resets (half-open) on recovery.
 - Pool error events logged (prevents silent connection loss)
 - `db.healthCheck()` returns pool stats (totalCount, idleCount, waitingCount)
 - `db.readQuery()` routes to read replica when `DATABASE_READ_URL` configured
 - `db.setDatabaseInstance()` export for test mocking
+- Slow query logging: queries >1000ms logged as warnings with duration and truncated SQL
 
 ### External Service Resilience
 - R2 storage: 30s request timeout + retry with exponential backoff (2 retries)
+- R2 graceful degradation: app starts even if R2 env vars missing — file ops fail at call time, not import time
 - FCM notifications: retry on transient errors (2 retries with backoff)
 - Invalid FCM tokens automatically deactivated in database
 - Notification outbox (`src/utils/notifications/notificationOutbox.js`) persists intent before sending
+- Firebase mock fallback: if Firebase credentials missing, rejects auth calls with clear error instead of crashing
 
 ### Audit Log Resilience
 - Fire-and-forget with capped queue (max 1000 pending)
@@ -133,6 +143,37 @@ Prefer `/my` endpoints that derive phone from JWT:
 - Pharmacy orders: `VALID_TRANSITIONS` map prevents invalid status jumps (e.g., DELIVERED → PENDING)
 - Appointment status changes wrapped in transactions with `FOR UPDATE` row locking
 - Token number generation is atomic (prevents race condition duplicates)
+
+### HIPAA Compliance
+- `logPhiAccess()` from `src/utils/hipaaAudit.js` logs all Protected Health Information access
+- Records: who accessed, which patient, what record type, IP, request ID, timestamp
+- File fallback via Winston when DB unavailable — HIPAA audit entries never lost
+- Patient health endpoints (summary, vitals, allergies, conditions) all log PHI access
+
+### Clinical Safety
+- **Vital sign anomaly detection**: `src/utils/clinical/vitalSignMonitor.js`
+  - `checkVitalAnomalies(patientId, vitals)` compares against clinical reference ranges
+  - Generates CRITICAL alerts (e.g., O2 <85%, HR >180) and WARNING alerts (e.g., BP >160)
+  - Persists alerts to `clinical_alerts` table for staff review
+- **Prescription safety checker**: `src/utils/clinical/prescriptionSafetyCheck.js`
+  - `validatePrescriptionSafety(patientId, medications)` checks patient allergies + active meds
+  - Returns `{ safe, warnings, blockers }` — blockers prevent prescription save
+  - Catches allergy conflicts (severity-aware) and duplicate active prescriptions
+- **PII masking**: `src/utils/piiMask.js` — `maskPhone()`, `maskEmail()`, `maskName()` for safe logging
+
+### Self-Healing Infrastructure
+- **DB health monitor**: `src/utils/dbHealthMonitor.js` — polls pool stats every 30s, warns on pressure, alerts on near-exhaustion
+- **Canary health checks**: `src/utils/canaryHealthCheck.js` — every 5 minutes tests DB read/write, stuck notifications, unacknowledged critical alerts
+- **Schema drift detection**: `src/utils/schemaDriftDetector.js` — compares expected vs actual DB tables at startup, warns on mismatches
+- **Scheduler job locking**: `withJobLock()` prevents overlapping cron executions
+
+### Observability
+- Sentry: 10% trace sampling in production, release tracking via `GIT_COMMIT`
+- Compression middleware: gzip responses >1KB
+- Explicit JSON body size limit: 10MB
+- Root health check (`GET /`) verifies DB connectivity, returns 503 if unhealthy
+- HTTPS redirect enforced in production via `x-forwarded-proto` check
+- Strict Helmet config: HSTS 1yr with preload, CSP directives, no framing
 
 ### Environment Validation
 - `src/utils/validateEnv.js` validates all critical env vars at startup via Joi
@@ -205,6 +246,11 @@ docker exec vhhealth-db psql -U vhhealth -d vhhealth
 - Security constants live in `src/config/securityConfig.js` — not hardcoded in services
 - Use `db.readQuery()` for analytics/dashboards/exports (routes to read replica when configured)
 - Never return fake success data in catch blocks — if the DB fails, return `error()` not `success()` with zeros
+- Use `checkVitalAnomalies()` after recording vitals — generates clinical alerts for abnormal values
+- Use `validatePrescriptionSafety()` before saving prescriptions — checks allergies and duplicates
+- Use `maskPhone()`/`maskName()` from `src/utils/piiMask.js` when logging user data — never log raw PII
+- All cron jobs must use `withJobLock()` wrapper and `await` all async calls
+- External services (R2, Firebase) must degrade gracefully — never crash at import time
 
 ## Security Checklist (for PRs)
 - [ ] No `SELECT *` — explicit columns only, never return `pwd`/`pin_hash`
