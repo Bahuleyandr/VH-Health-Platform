@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/utils/input_sanitizer.dart';
 import 'package:vhhealth/features/pharmacy/widgets/order_status_widgets.dart';
 
 class OrderFormTab extends StatefulWidget {
@@ -123,17 +124,17 @@ class _OrderFormTabState extends State<OrderFormTab> {
         'delivery_type': _deliveryType,
       };
       if (_noteController.text.trim().isNotEmpty) {
-        fields['order_note'] = _noteController.text.trim();
+        fields['order_note'] = InputSanitizer.sanitize(_noteController.text.trim());
       }
       if (_deliveryType == 'delivery') {
         if (_addressController.text.trim().isNotEmpty) {
-          fields['delivery_address'] = _addressController.text.trim();
+          fields['delivery_address'] = InputSanitizer.sanitize(_addressController.text.trim());
         }
         if (_landmarkController.text.trim().isNotEmpty) {
-          fields['delivery_landmark'] = _landmarkController.text.trim();
+          fields['delivery_landmark'] = InputSanitizer.sanitize(_landmarkController.text.trim());
         }
         if (_phoneController.text.trim().isNotEmpty) {
-          fields['delivery_phone'] = _phoneController.text.trim();
+          fields['delivery_phone'] = InputSanitizer.sanitizePhone(_phoneController.text.trim());
         }
       }
 

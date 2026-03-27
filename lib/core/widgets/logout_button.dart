@@ -3,6 +3,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth/core/navigation/app_router.dart';
+import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/services/device_service.dart';
 import 'package:vhhealth/core/services/firebase_session_service.dart';
 
@@ -64,8 +65,9 @@ class LogoutButton extends StatelessWidget {
         debugPrint('Logout cleanup: $e');
       }
 
-      // Clear storage and sign out before navigating
+      // Clear storage, cached API data, and sign out before navigating
       await storage.deleteAll();
+      await ApiCacheManager.clearAll();
       await FirebaseAuth.instance.signOut();
       AppRouter.clearUserData();
 

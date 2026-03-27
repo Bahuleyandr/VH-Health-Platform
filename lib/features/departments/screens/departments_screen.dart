@@ -4,9 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
-
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
@@ -141,10 +140,7 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
   }
 
   Future<void> _callNumber(String number) async {
-    final uri = Uri.parse('tel:${number.replaceAll(' ', '').replaceAll('-', '')}');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    }
+    await SafeUrlLauncher.launchPhone(number);
   }
 
   void _showDoctorDetail(Map<String, dynamic> doctor, String deptName) {

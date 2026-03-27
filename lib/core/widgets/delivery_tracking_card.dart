@@ -1,9 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
-
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 
 /// Reusable delivery tracking card for pharmacy orders and investigation bookings.
 /// Shows ETA, distance, delivery person info, and a progress indicator.
@@ -203,7 +202,7 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
                 if (deliveryPhone != null)
                   IconButton(
                     icon: Icon(Icons.call, color: theme.colorScheme.primary),
-                    onPressed: () => launchUrl(Uri.parse('tel:$deliveryPhone')),
+                    onPressed: () => SafeUrlLauncher.launchPhone(deliveryPhone),
                     tooltip: 'Call',
                   ),
               ],

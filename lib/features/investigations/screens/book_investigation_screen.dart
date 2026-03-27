@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/utils/input_sanitizer.dart';
 
 class BookInvestigationScreen extends StatefulWidget {
   const BookInvestigationScreen({super.key});
@@ -164,15 +165,15 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
         fields['selected_tests'] = jsonEncode(_selectedTestIds.toList());
       }
       if (_customTestController.text.trim().isNotEmpty) {
-        fields['custom_test_names'] = _customTestController.text.trim();
+        fields['custom_test_names'] = InputSanitizer.sanitize(_customTestController.text.trim());
       }
       fields['collection_type'] = _collectionType;
       if (_collectionType == 'home') {
         if (_addressController.text.trim().isNotEmpty) {
-          fields['collection_address'] = _addressController.text.trim();
+          fields['collection_address'] = InputSanitizer.sanitize(_addressController.text.trim());
         }
         if (_landmarkController.text.trim().isNotEmpty) {
-          fields['collection_landmark'] = _landmarkController.text.trim();
+          fields['collection_landmark'] = InputSanitizer.sanitize(_landmarkController.text.trim());
         }
       }
       if (_preferredDate != null) {
@@ -183,7 +184,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
         fields['preferred_time_slot'] = _preferredTimeSlot!;
       }
       if (_notesController.text.trim().isNotEmpty) {
-        fields['notes'] = _notesController.text.trim();
+        fields['notes'] = InputSanitizer.sanitize(_notesController.text.trim());
       }
 
       // Attach slip photo

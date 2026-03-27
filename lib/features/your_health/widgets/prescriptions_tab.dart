@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/offline_banner.dart';
@@ -322,7 +323,7 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
             // PDF Download
             if (rx['pdf_url'] != null)
               OutlinedButton.icon(
-                onPressed: () => launchUrl(Uri.parse(rx['pdf_url']),
+                onPressed: () => SafeUrlLauncher.launch(rx['pdf_url'],
                     mode: LaunchMode.externalApplication),
                 icon: const Icon(Icons.picture_as_pdf, size: 18),
                 label: const Text('Download PDF'),

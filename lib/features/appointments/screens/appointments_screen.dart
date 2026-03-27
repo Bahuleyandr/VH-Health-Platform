@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/core/utils/calendar_utils.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
@@ -331,8 +332,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
                     subtitle: Text(m['document_type']?.toString().replaceAll('_', ' ') ?? ''),
                     trailing: url != null ? const Icon(Icons.open_in_new) : null,
                     onTap: url == null ? null : () async {
-                      final uri = Uri.parse(url);
-                      if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
+                      await SafeUrlLauncher.launch(url, mode: LaunchMode.externalApplication);
                     },
                   );
                 }).toList(),

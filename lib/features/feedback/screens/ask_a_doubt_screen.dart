@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter/material.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/utils/input_sanitizer.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -48,8 +49,8 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
       final response = await ApiClient.post(
         '/feedback',
         body: {
-          'phone': _phoneController.text.trim(),
-          'comment': _questionController.text.trim(),
+          'phone': InputSanitizer.sanitizePhone(_phoneController.text.trim()),
+          'comment': InputSanitizer.sanitize(_questionController.text.trim()),
         },
       );
 

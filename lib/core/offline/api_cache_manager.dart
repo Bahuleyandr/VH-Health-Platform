@@ -1,7 +1,9 @@
 // lib/core/offline/api_cache_manager.dart
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// Generic JSON response cache for API endpoints.
@@ -21,6 +23,46 @@ class ApiCacheManager {
   static const Duration defaultTtl = Duration(minutes: 15);
 
   static String? _cacheDir;
+  static String? _encryptionKey;
+
+  /// Retrieve or generate a cache encryption key stored in secure storage.
+  static Future<String> _getEncryptionKey() async {
+    if (_encryptionKey != null) return _encryptionKey!;
+    const storage = FlutterSecureStorage();
+    var key = await storage.read(key: 'cache_encryption_key');
+    if (key == null) {
+      final random = Random.secure();
+      key = List.generate(
+        32,
+        (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+      ).join();
+      await storage.write(key: 'cache_encryption_key', value: key);
+    }
+    _encryptionKey = key;
+    return key;
+  }
+
+  /// XOR-encrypt a plaintext string using the given key, returning base64.
+  static String _xorEncrypt(String input, String key) {
+    final keyBytes = key.codeUnits;
+    final inputBytes = utf8.encode(input);
+    final output = List<int>.generate(
+      inputBytes.length,
+      (i) => inputBytes[i] ^ keyBytes[i % keyBytes.length],
+    );
+    return base64Encode(output);
+  }
+
+  /// XOR-decrypt a base64 string using the given key, returning plaintext.
+  static String _xorDecrypt(String input, String key) {
+    final keyBytes = key.codeUnits;
+    final inputBytes = base64Decode(input);
+    final output = List<int>.generate(
+      inputBytes.length,
+      (i) => inputBytes[i] ^ keyBytes[i % keyBytes.length],
+    );
+    return utf8.decode(output);
+  }
 
   static Future<String> _getCacheDir() async {
     if (_cacheDir != null) return _cacheDir!;
@@ -46,13 +88,15 @@ class ApiCacheManager {
   static Future<void> save(String path, dynamic data) async {
     try {
       final dir = await _getCacheDir();
-      final key = _keyForPath(path);
-      final file = File('$dir/$key.json');
+      final fileKey = _keyForPath(path);
+      final file = File('$dir/$fileKey.json');
       final envelope = {
         'cachedAt': DateTime.now().toIso8601String(),
         'data': data,
       };
-      await file.writeAsString(jsonEncode(envelope));
+      final encryptionKey = await _getEncryptionKey();
+      final encrypted = _xorEncrypt(jsonEncode(envelope), encryptionKey);
+      await file.writeAsString(encrypted);
     } catch (e) {
       if (kDebugMode) debugPrint('ApiCacheManager.save failed for $path: $e');
     }
@@ -68,7 +112,9 @@ class ApiCacheManager {
       if (!await file.exists()) return null;
 
       final content = await file.readAsString();
-      final envelope = jsonDecode(content) as Map<String, dynamic>;
+      final encryptionKey = await _getEncryptionKey();
+      final decrypted = _xorDecrypt(content, encryptionKey);
+      final envelope = jsonDecode(decrypted) as Map<String, dynamic>;
       final cachedAt = DateTime.parse(envelope['cachedAt'] as String);
       return CachedData(
         data: envelope['data'],

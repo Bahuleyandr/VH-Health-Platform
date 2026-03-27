@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 
 /// Reusable contact banner with phone numbers and tap-to-call
 class ContactBanner extends StatelessWidget {
@@ -64,10 +64,7 @@ class ContactBanner extends StatelessWidget {
                 Wrap(
                   spacing: 12,
                   children: numbers.map((n) => GestureDetector(
-                    onTap: () async {
-                      final uri = Uri.parse('tel:${n.phone}');
-                      if (await canLaunchUrl(uri)) await launchUrl(uri);
-                    },
+                    onTap: () => SafeUrlLauncher.launchPhone(n.phone),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [

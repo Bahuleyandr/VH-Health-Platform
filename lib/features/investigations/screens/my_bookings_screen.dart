@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
-
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/delivery_tracking_card.dart';
 
@@ -250,11 +250,10 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                 padding: const EdgeInsets.only(top: 12),
                 child: FilledButton.icon(
                   onPressed: () async {
-                    final url = Uri.parse(booking['result_file_url']);
-                    if (await canLaunchUrl(url)) {
-                      await launchUrl(url,
-                          mode: LaunchMode.externalApplication);
-                    }
+                    await SafeUrlLauncher.launch(
+                      booking['result_file_url'],
+                      mode: LaunchMode.externalApplication,
+                    );
                   },
                   icon: const Icon(Icons.download),
                   label: const Text('Download Result'),

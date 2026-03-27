@@ -1,6 +1,7 @@
 // Shared record card widget and helpers used by Hospital Documents and My Uploads tabs
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 
 IconData iconForDocType(String type) {
   switch (type) {
@@ -48,16 +49,11 @@ Future<void> openDocument(BuildContext context, Map<String, dynamic> record) asy
     );
     return;
   }
-  final uri = Uri.tryParse(url);
-  if (uri == null) return;
-  if (await canLaunchUrl(uri)) {
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
-  } else {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open document')),
-      );
-    }
+  final launched = await SafeUrlLauncher.launch(url, mode: LaunchMode.externalApplication);
+  if (!launched && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Could not open document')),
+    );
   }
 }
 
