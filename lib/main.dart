@@ -17,6 +17,7 @@ import 'package:vhhealth/core/navigation/app_router.dart';
 
 // Core Services
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/services/connectivity_service.dart';
 
 // App Utilities
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -32,6 +33,9 @@ Future<void> main() async {
     AppRouter.clearUserData();
     AppRouter.router.go('/login');
   };
+
+  // Start network connectivity monitoring.
+  ConnectivityService.startMonitoring();
 
   runApp(const VHRoot());
 }

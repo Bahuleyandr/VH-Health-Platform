@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/offline/api_cache_manager.dart';
+import 'package:vhhealth/core/services/connectivity_service.dart';
 
 /// Centralized HTTP client for all backend API calls.
 ///
@@ -36,6 +38,124 @@ class ApiClient {
         .get(uri, headers: headers)
         .timeout(timeout ?? _defaultTimeout);
     return _processResponse(response);
+  }
+
+  /// Cache-first GET: returns cached data immediately (if available),
+  /// then fetches from network in background and updates the cache.
+  ///
+  /// Returns a [CachedApiResponse] that includes the data, whether it came
+  /// from cache, and an optional [onFresh] callback stream for when the
+  /// network response arrives.
+  ///
+  /// Usage:
+  /// ```dart
+  /// final result = await ApiClient.cachedGet('/prescriptions/patient/my');
+  /// setState(() => _items = result.dataAsList());
+  /// // Optionally listen for fresh data:
+  /// result.onFresh?.then((fresh) {
+  ///   if (mounted) setState(() => _items = fresh.dataAsList());
+  /// });
+  /// ```
+  static Future<CachedApiResponse> cachedGet(
+    String path, {
+    Map<String, String>? queryParameters,
+    Duration? timeout,
+    Duration cacheTtl = ApiCacheManager.defaultTtl,
+  }) async {
+    final cacheKey = queryParameters != null && queryParameters.isNotEmpty
+        ? '${path}_${queryParameters.entries.map((e) => '${e.key}=${e.value}').join('_')}'
+        : path;
+
+    // 1. Try loading from cache
+    final cached = await ApiCacheManager.load(cacheKey);
+
+    // 2. If offline, return cache (or empty)
+    if (!ConnectivityService.isOnline) {
+      if (cached != null) {
+        return CachedApiResponse._(
+          response: ApiResponse._(
+            statusCode: 200,
+            isSuccess: true,
+            data: cached.data,
+            raw: {'data': cached.data},
+            message: null,
+          ),
+          fromCache: true,
+          staleLabel: cached.ageLabel,
+        );
+      }
+      return CachedApiResponse._(
+        response: ApiResponse._(
+          statusCode: 0,
+          isSuccess: false,
+          data: null,
+          raw: null,
+          message: 'No internet connection',
+        ),
+        fromCache: false,
+        staleLabel: null,
+      );
+    }
+
+    // 3. If cache is fresh enough, return it and refresh in background
+    if (cached != null && !cached.isStale(cacheTtl)) {
+      // Fire background refresh (don't await)
+      final freshFuture = get(path, queryParameters: queryParameters, timeout: timeout)
+          .then((response) {
+        if (response.isSuccess) {
+          ApiCacheManager.save(cacheKey, response.data);
+        }
+        return response;
+      }).catchError((_) => ApiResponse._(
+            statusCode: 0,
+            isSuccess: false,
+            data: cached.data,
+            raw: null,
+            message: 'Background refresh failed',
+          ));
+
+      return CachedApiResponse._(
+        response: ApiResponse._(
+          statusCode: 200,
+          isSuccess: true,
+          data: cached.data,
+          raw: {'data': cached.data},
+          message: null,
+        ),
+        fromCache: true,
+        staleLabel: null,
+        onFresh: freshFuture,
+      );
+    }
+
+    // 4. Cache is stale or missing — fetch from network
+    try {
+      final response = await get(path, queryParameters: queryParameters, timeout: timeout);
+      if (response.isSuccess) {
+        await ApiCacheManager.save(cacheKey, response.data);
+      }
+      return CachedApiResponse._(
+        response: response,
+        fromCache: false,
+        staleLabel: null,
+      );
+    } catch (e) {
+      // Network failed — fall back to stale cache if available
+      if (cached != null) {
+        return CachedApiResponse._(
+          response: ApiResponse._(
+            statusCode: 200,
+            isSuccess: true,
+            data: cached.data,
+            raw: {'data': cached.data},
+            message: null,
+          ),
+          fromCache: true,
+          staleLabel: cached.ageLabel,
+        );
+      }
+      rethrow;
+    }
   }
 
   /// Authenticated POST request with JSON body.
@@ -216,4 +336,35 @@ class ApiResponse {
     if (data is Map<String, dynamic>) return data;
     return {};
   }
+}
+
+/// Response from [ApiClient.cachedGet] that includes cache metadata.
+class CachedApiResponse {
+  /// The API response (from cache or network).
+  final ApiResponse response;
+
+  /// Whether this data was served from local cache.
+  final bool fromCache;
+
+  /// Human-readable age label if serving stale cached data (e.g., "5 min ago").
+  /// Null if data is fresh.
+  final String? staleLabel;
+
+  /// Future that resolves with fresh network data (when cache was served first).
+  /// Null if data came directly from the network.
+  final Future<ApiResponse>? onFresh;
+
+  const CachedApiResponse._({
+    required this.response,
+    required this.fromCache,
+    required this.staleLabel,
+    this.onFresh,
+  });
+
+  // Delegate common accessors to the inner response
+  bool get isSuccess => response.isSuccess;
+  dynamic get data => response.data;
+  String? get message => response.message;
+  List<dynamic> dataAsList([String? key]) => response.dataAsList(key);
+  Map<String, dynamic> dataAsMap() => response.dataAsMap();
 }
