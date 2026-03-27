@@ -278,7 +278,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
       } else {
         setState(() => _loadingFiles.remove(investigationId));
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Fetch investigation files failed: $e');
       if (mounted) setState(() => _loadingFiles.remove(investigationId));
     }
   }
@@ -325,7 +326,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
       } else {
         throw Exception('Download failed');
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Investigation file download failed: $e');
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
         content: Text(l10n.investigationsDownloadFailed),
@@ -361,13 +363,13 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     DateTime? orderedDate;
     final orderedStr = inv['ordered_date'] ?? inv['created_at'] ?? inv['date'];
     if (orderedStr != null) {
-      try { orderedDate = DateTime.parse(orderedStr.toString()).toLocal(); } catch (_) {}
+      try { orderedDate = DateTime.parse(orderedStr.toString()).toLocal(); } catch (e) { debugPrint('Ordered date parse failed: $e'); }
     }
 
     DateTime? completedDate;
     final completedStr = inv['completed_date'];
     if (completedStr != null) {
-      try { completedDate = DateTime.parse(completedStr.toString()).toLocal(); } catch (_) {}
+      try { completedDate = DateTime.parse(completedStr.toString()).toLocal(); } catch (e) { debugPrint('Completed date parse failed: $e'); }
     }
 
     showModalBottomSheet(
@@ -698,7 +700,9 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
           if (dateStr != null) {
             try {
               date = DateTime.parse(dateStr.toString()).toLocal();
-            } catch (_) {}
+            } catch (e) {
+              debugPrint('Investigation date parse failed: $e');
+            }
           }
 
           final isExpanded = _expandedIds.contains(id);

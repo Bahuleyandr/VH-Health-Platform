@@ -83,7 +83,8 @@ class _HealthSummaryTabState extends State<HealthSummaryTab> {
         _conditions = conditions;
         _isLoading = false;
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Health summary fetch failed: $e');
       if (!mounted) return;
       setState(() {
         _isLoading = false;
@@ -292,7 +293,8 @@ class _HealthSummaryTabState extends State<HealthSummaryTab> {
     try {
       final d = DateTime.parse(dateVal.toString()).toLocal();
       return DateFormat.yMMMd().format(d);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Health summary date format failed: $e');
       return dateVal.toString();
     }
   }

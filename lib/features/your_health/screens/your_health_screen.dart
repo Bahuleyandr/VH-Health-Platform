@@ -118,7 +118,8 @@ class _YourHealthScreenState extends State<YourHealthScreen>
       } else {
         _tryLoadFromCache(messenger, theme, l10n.recordsLoadFailed);
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Health records fetch failed: $e');
       _tryLoadFromCache(messenger, theme, l10n.networkError);
     }
   }
@@ -215,7 +216,8 @@ class _YourHealthScreenState extends State<YourHealthScreen>
       } else {
         throw Exception();
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('File open/download failed: $e');
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
         content: Text(l10n.fileCouldNotOpen),
@@ -387,7 +389,9 @@ class _YourHealthScreenState extends State<YourHealthScreen>
                           try {
                             uploaded = DateTime.parse(item['uploaded_at'])
                                 .toLocal();
-                          } catch (_) {}
+                          } catch (e) {
+                            debugPrint('Upload date parse failed: $e');
+                          }
                         }
 
                         return Card(

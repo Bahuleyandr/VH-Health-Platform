@@ -54,7 +54,8 @@ class _ConsultationsTabState extends State<ConsultationsTab> {
           _error = 'Failed to load consultations';
         });
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Consultations fetch failed: $e');
       if (!mounted) return;
       setState(() {
         _isLoading = false;
@@ -130,7 +131,9 @@ class _ConsultationsTabState extends State<ConsultationsTab> {
           if (dateStr != null) {
             try {
               date = DateTime.parse(dateStr.toString()).toLocal();
-            } catch (_) {}
+            } catch (e) {
+              debugPrint('Consultation date parse failed: $e');
+            }
           }
 
           return Card(
