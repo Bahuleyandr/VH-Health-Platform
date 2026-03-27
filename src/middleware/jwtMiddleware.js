@@ -44,8 +44,13 @@ export default function jwtMiddleware(req, res, next) {
   const decoded = verifyToken(token);
 
   if (!decoded) {
-    logger.warn('JWT denied: invalid or expired token');
-    return res.status(401).json({ success: false, error: 'Invalid or expired token' });
+    const isExpired = verifyToken.lastError === 'TokenExpiredError';
+    logger.warn(`JWT denied: ${isExpired ? 'expired token' : 'invalid token signature'}`);
+    return res.status(401).json({
+      success: false,
+      error: isExpired ? 'Token has expired' : 'Invalid or expired token',
+      code: isExpired ? 'TOKEN_EXPIRED' : 'TOKEN_INVALID'
+    });
   }
 
   const hasura = getHasuraClaims(decoded);

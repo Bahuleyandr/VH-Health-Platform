@@ -9,6 +9,16 @@ import {
 
 const router = express.Router();
 
+// P2 Security: Derive phone from JWT instead of URL path
+router.get('/health-records/my', (req, res, next) => {
+  const phone = req.user?.phone;
+  if (!phone) {
+    return res.status(400).json({ success: false, message: 'Phone not available in token. Use /health-records/:phone endpoint.' });
+  }
+  req.params.phone = phone;
+  next();
+}, patientController.getHealthRecordsByPhone);
+
 // Get records by UID
 router.get('/uid/:uid', uidValidator, patientController.getRecordsByUID);
 

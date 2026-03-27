@@ -59,6 +59,15 @@ export const updateAppointment = async (req, res) => {
       notes: req.body.notes
     };
 
+    // P1 IDOR: Verify the authenticated user owns/can access this appointment
+    const appointment = await appointmentService.getAppointmentById(id);
+    if (!appointment) {
+      return error(res, APPOINTMENT_CONFIG.MESSAGES.APPOINTMENT_NOT_FOUND, HTTP_STATUS.NOT_FOUND);
+    }
+    if (!checkAppointmentPermission(req.user, appointment, 'update')) {
+      return error(res, 'Insufficient permissions to update this appointment', HTTP_STATUS.FORBIDDEN);
+    }
+
     // Validate the update request
     const validation = await appointmentValidationService.validateUpdateRequest(
       id,

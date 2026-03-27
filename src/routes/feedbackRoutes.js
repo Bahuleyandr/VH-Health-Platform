@@ -9,6 +9,7 @@ import * as feedbackController from '../controllers/feedbackController.js';
 import logger from '../logging/logger.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import { success, error } from '../utils/responseHelper.js';
+import { sanitizeFeedbackFields } from '../middleware/sanitizeMiddleware.js';
 
 const router = express.Router();
 logger.info('✅ feedbackRoutes loaded with RBAC protection');
@@ -501,6 +502,7 @@ wrapAutoRBAC(
       [
         '/',
         feedbackValidator,
+        sanitizeFeedbackFields,
         async (req, res) => {
           const errors = validationResult(req);
           if (!errors.isEmpty()) {

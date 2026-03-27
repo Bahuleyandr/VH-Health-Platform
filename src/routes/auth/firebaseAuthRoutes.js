@@ -7,6 +7,7 @@ import { validationResult } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import { wrapRoutesWithValidation, wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as firebaseAuthController from '../../controllers/auth/firebaseAuthController.js';
+import { otpRateLimiter } from '../../middleware/rateLimitMiddleware.js';
 import {
   firebaseLoginValidator,
   userProfileValidator,
@@ -49,8 +50,10 @@ wrapRoutesWithValidation(
     post: [
       // Firebase ID Token Authentication - PRIMARY PATIENT LOGIN
       // Frontend: Firebase OTP → Firebase ID Token → This endpoint → JWT
+      // P0 Security: Per-phone OTP rate limiting (3 req / 10 min)
       [
         '/firebase-login',
+        otpRateLimiter,
         ...firebaseLoginValidator,
         handleValidation,
         firebaseAuthController.firebaseLogin

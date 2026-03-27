@@ -1,6 +1,7 @@
 // src/routes/user/userRoutes.js
 import express from 'express';
 import { UserController } from '../../controllers/user/userController.js';
+import { sanitizeProfileFields } from '../../middleware/sanitizeMiddleware.js';
 import {
   userValidation,
   searchValidation,
@@ -16,7 +17,7 @@ import {
 const router = express.Router();
 
 // Create/Update User Profile
-router.post('/profile', userValidation, UserController.createOrUpdateProfile);
+router.post('/profile', userValidation, sanitizeProfileFields, UserController.createOrUpdateProfile);
 
 // Bulk User Import (Admin/HR only)
 router.post('/bulk-import', bulkImportValidation, UserController.bulkImportUsers);
@@ -37,7 +38,7 @@ router.get('/department/:department', departmentValidation, UserController.getUs
 router.get('/search', userSearchValidation, UserController.searchUsers);
 
 // Update User Profile
-router.put('/:identifier', [...userIdValidation, ...userValidation], UserController.updateUser);
+router.put('/:identifier', [...userIdValidation, ...userValidation], sanitizeProfileFields, UserController.updateUser);
 
 // Change User Status
 router.put('/:identifier/status', statusChangeValidation, UserController.changeUserStatus);

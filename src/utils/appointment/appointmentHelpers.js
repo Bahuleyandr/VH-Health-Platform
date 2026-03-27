@@ -6,13 +6,13 @@ export const hasPermission = (userRole, action) => {
 };
 
 export const canAccessAppointment = (user, appointment) => {
-  if (user.role === 'ADMIN' || user.role === 'NURSE') {
+  if (user.role === 'ADMIN' || user.role === 'NURSE' || user.role === 'NURSING_STAFF') {
     return true;
   }
-  if (user.role === 'DOCTOR' && appointment.doctor_id === user.id) {
+  if (user.role === 'DOCTOR' && String(appointment.doctor_id) === String(user.id)) {
     return true;
   }
-  if (user.role === 'PATIENT' && appointment.patient_id === user.id) {
+  if (user.role === 'PATIENT' && String(appointment.patient_id) === String(user.id)) {
     return true;
   }
   return false;
@@ -36,24 +36,25 @@ export const normalizeStatus = (status) => {
 
 export const checkAppointmentPermission = (user, appointment, action) => {
   // Admin and Nurse have full access
-  if (['ADMIN', 'NURSE'].includes(user.role)) {
+  if (['ADMIN', 'NURSE', 'NURSING_STAFF'].includes(user.role)) {
     return true;
   }
-  
+
+  // P1 IDOR: Use String() comparison to avoid type coercion issues (DB int vs JWT string)
   // Doctor can access their own appointments
-  if (user.role === 'DOCTOR' && appointment.doctor_id === user.id) {
+  if (user.role === 'DOCTOR' && String(appointment.doctor_id) === String(user.id)) {
     return ['view', 'update', 'cancel'].includes(action);
   }
-  
-  // Patient can only view and cancel their own appointments
-  if (user.role === 'PATIENT' && appointment.patient_id === user.id) {
-    return ['view', 'cancel'].includes(action);
+
+  // Patient can view, update, and cancel their own appointments
+  if (user.role === 'PATIENT' && String(appointment.patient_id) === String(user.id)) {
+    return ['view', 'update', 'cancel'].includes(action);
   }
-  
+
   // Receptionist can view and create appointments
   if (user.role === 'RECEPTIONIST') {
     return ['view', 'create'].includes(action);
   }
-  
+
   return false;
 };

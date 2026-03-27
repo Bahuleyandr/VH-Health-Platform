@@ -2,6 +2,8 @@
 import express from 'express';
 import { wrapAutoRBAC } from '../config/routeWrapper.js';
 import * as sosController from '../controllers/sosController.js';
+import { sosRateLimiter } from '../middleware/rateLimitMiddleware.js';
+import { sanitizeSosFields } from '../middleware/sanitizeMiddleware.js';
 import * as sosValidators from '../validators/sosValidators.js';
 
 const router = express.Router();
@@ -9,7 +11,7 @@ const router = express.Router();
 // Patient SOS Routes
 wrapAutoRBAC(router, 'sosRoutes', {
   post: [
-    ['/', sosValidators.createAlert, sosController.createEmergencyAlert],
+    ['/', sosRateLimiter, sosValidators.createAlert, sanitizeSosFields, sosController.createEmergencyAlert],
     ['/emergency-contact', sosValidators.updateEmergencyContact, sosController.updateEmergencyContact],
     ['/cancel/:alertId', sosValidators.cancelAlert, sosController.cancelAlert]
   ],
