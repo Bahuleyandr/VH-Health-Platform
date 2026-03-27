@@ -7,6 +7,7 @@ import { validationResult } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
 import * as authController from '../../controllers/auth/authController.js';
+import { otpRateLimiter } from '../../middleware/rateLimitMiddleware.js';
 import { phoneValidator, phoneOtpValidator } from '../../validators/auth/authValidator.js';
 
 const router = express.Router();
@@ -33,8 +34,10 @@ wrapRoutesWithValidation(
     post: [
       // Request OTP for Login/Registration
       // Used for: Admin testing, non-patient users, legacy support
+      // P0 Security: Per-phone OTP rate limiting (3 req / 10 min)
       [
         '/request-otp',
+        otpRateLimiter,
         ...phoneValidator,
         handleValidation,
         authController.requestOtp

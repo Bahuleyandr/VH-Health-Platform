@@ -10,12 +10,13 @@ import * as adminController from '../controllers/adminUploadController.js';
 import * as uploadController from '../controllers/uploadController.js';
 
 // Import middleware
-import { 
-  singleUpload, 
-  batchUpload, 
-  extractRequestMetadata, 
+import {
+  singleUpload,
+  batchUpload,
+  extractRequestMetadata,
   checkHipaaPermissions,
-  validateFileSize 
+  validateFileSize,
+  validateFileContent
 } from '../middleware/uploadMiddleware.js';
 
 // Import validators
@@ -43,6 +44,7 @@ wrapAutoRBAC(router, 'uploadRoutes', {
     [
       '/',
       singleUpload,
+      validateFileContent,
       checkHipaaPermissions,
       validateFileSize,
       uploadValidation,
@@ -53,6 +55,7 @@ wrapAutoRBAC(router, 'uploadRoutes', {
     [
       '/batch',
       batchUpload,
+      validateFileContent,
       checkHipaaPermissions,
       validateFileSize,
       uploadValidation,

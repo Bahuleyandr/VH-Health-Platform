@@ -79,15 +79,19 @@ export function generateToken(payload, expiresIn) {
 }
 
 /**
- * Verifies a JWT token.
+ * Verifies a JWT token (signature + expiry).
  * @param {string} token - JWT token to verify.
  * @returns {Object|null} - Decoded payload if valid, otherwise null.
+ *   On failure, returns null. Check verifyToken.lastError for the reason.
  */
 export function verifyToken(token) {
+  verifyToken.lastError = null;
   try {
     return jwt.verify(token, JWT_SECRET);
   } catch (error) {
+    verifyToken.lastError = error.name; // 'TokenExpiredError' | 'JsonWebTokenError' | 'NotBeforeError'
     logger.error('❌ JWT Verification Failed:', error.message || error);
     return null;
   }
 }
+verifyToken.lastError = null;
