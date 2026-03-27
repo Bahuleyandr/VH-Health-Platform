@@ -128,6 +128,9 @@ export const sosRateLimiter = rateLimit({
   skip: () => false
 });
 
+/** ✅ Data export rate limiter — strict: 5 requests per hour */
+export const dataExportRateLimiter = getRateLimiter('dataExport');
+
 /** ✅ No Limiter (pass-through) */
 export const noRateLimiter = (req, res, next) => next();
 

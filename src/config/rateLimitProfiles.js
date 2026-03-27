@@ -29,6 +29,13 @@ export const RATE_LIMIT_PROFILES = {
     message: 'Too many OTP requests for this phone number. Please try again later.'
   },
 
+  // Data export rate limiting — max 5 exports per user per hour
+  dataExport: {
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 5,
+    message: 'Too many data export requests. Please try again later.'
+  },
+
   // P2: SOS rate limiting — max 3 alerts per user per hour
   sos: {
     windowMs: 60 * 60 * 1000, // 1 hour

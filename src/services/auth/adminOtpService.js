@@ -1,5 +1,6 @@
 // src/services/auth/adminOtpService.js - Admin OTP Service
 
+import crypto from 'crypto';
 import db from '../../config/database.js';
 import { OTP_CONFIG } from '../../config/otpConfig.js';
 import logger from '../../logging/logger.js';
@@ -337,8 +338,9 @@ export const revokeOtp = async (phone, purpose, reason, adminUid, req) => {
 // Cleanup OTP logs
 export const cleanupOtpLogs = async (olderThanDays, adminUid) => {
   const result = await db.query(
-    `DELETE FROM otp_logs 
-     WHERE created_at < NOW() - INTERVAL '${olderThanDays} days'`
+    `DELETE FROM otp_logs
+     WHERE created_at < NOW() - make_interval(days => $1)`,
+    [olderThanDays]
   );
   
   const deletedCount = result.rowCount;
@@ -400,7 +402,7 @@ export const forceSendOtp = async (phone, purpose, reason, bypassLimits, adminUi
   const normalizedPhone = normalizePhone(phone);
   
   // Generate OTP directly
-  const otp = OTP_CONFIG.devMode ? '123456' : Math.floor(100000 + Math.random() * 900000).toString();
+  const otp = OTP_CONFIG.devMode ? '123456' : crypto.randomInt(100000, 999999).toString();
   const expiresAt = new Date(Date.now() + (OTP_CONFIG.expirationMinutes * 60 * 1000));
   
   // Store OTP
@@ -453,7 +455,9 @@ export const bulkDeleteSessions = async ({ phone, purpose, olderThanHours, reaso
   }
   
   if (olderThanHours) {
-    whereClause += ` AND created_at < NOW() - INTERVAL '${olderThanHours} hours'`;
+    whereClause += ` AND created_at < NOW() - make_interval(hours => $${paramIndex})`;
+    params.push(olderThanHours);
+    paramIndex++;
   }
   
   const result = await db.query(`

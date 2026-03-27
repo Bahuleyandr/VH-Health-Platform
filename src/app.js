@@ -7,6 +7,7 @@ initializeSourceMaps();
 import dotenv from 'dotenv';
 import express from 'express';
 import helmet from 'helmet';
+import compression from 'compression';
 import swaggerUi from 'swagger-ui-express';
 
 // Logging and middleware imports
@@ -21,7 +22,7 @@ import loggingMiddleware from './middleware/loggingMiddleware.js';
 import requestIdMiddleware from './middleware/requestIdMiddleware.js';
 import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
 import { auditLogMiddleware } from './middleware/auditLog.js';
-import { patientRateLimiter, genericLimiter, adminRateLimiter } from './middleware/rateLimitMiddleware.js';
+import { patientRateLimiter, genericLimiter, adminRateLimiter, dataExportRateLimiter } from './middleware/rateLimitMiddleware.js';
 import validateApiKey from './middleware/validateApiKey.js';
 import apiVersionMiddleware from './middleware/apiVersionMiddleware.js';
 
@@ -94,10 +95,42 @@ try {
 // GLOBAL MIDDLEWARE
 // ====================================
 
-app.use(helmet());
+app.use(helmet({
+  hsts: {
+    maxAge: 31536000, // 1 year
+    includeSubDomains: true,
+    preload: true
+  },
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"], // For Swagger UI
+      imgSrc: ["'self'", 'data:', 'https:'],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameSrc: ["'none'"]
+    }
+  },
+  crossOriginEmbedderPolicy: false, // Allow Swagger UI to load
+}));
+
+// HTTPS enforcement in production
+if (process.env.NODE_ENV === 'production') {
+  app.use((req, res, next) => {
+    if (req.headers['x-forwarded-proto'] !== 'https') {
+      return res.redirect(301, `https://${req.headers.host}${req.url}`);
+    }
+    next();
+  });
+}
+
+app.use(compression({ threshold: 1024 })); // Only compress responses > 1KB
 app.use(requestIdMiddleware);
 app.use(apiVersionMiddleware);
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(corsMiddleware);
 
 // Logging
@@ -119,14 +152,36 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 app.use('/api/v1/internal', validateApiKey, internalRoutes);
 
 // Root health check
-app.get('/', (req, res) => {
-  res.json({
-    message: 'VH Health API is running.',
-    version: process.env.API_VERSION || '1.0.0',
-    environment: process.env.NODE_ENV || 'development'
-  });
+app.get('/', async (req, res) => {
+  try {
+    const db = (await import('./config/database.js')).default;
+    const dbHealth = await db.healthCheck();
+    if (!dbHealth.healthy) {
+      return res.status(503).json({
+        status: 'degraded',
+        message: 'Database unavailable',
+        version: process.env.API_VERSION || '1.0.0',
+        environment: process.env.NODE_ENV || 'development'
+      });
+    }
+    res.json({
+      status: 'healthy',
+      message: 'VH Health API is running.',
+      version: process.env.API_VERSION || '1.0.0',
+      environment: process.env.NODE_ENV || 'development',
+      uptime: Math.floor(process.uptime())
+    });
+  } catch (err) {
+    res.status(503).json({ status: 'unhealthy', message: 'Health check failed' });
+  }
 });
-app.head('/', (req, res) => res.status(200).end());
+app.head('/', async (req, res) => {
+  try {
+    const db = (await import('./config/database.js')).default;
+    const health = await db.healthCheck();
+    res.status(health.healthy ? 200 : 503).end();
+  } catch { res.status(503).end(); }
+});
 
 // Public API routes
 app.use('/api/v1/auth', patientRateLimiter, routes.auth); // Patient Auth
@@ -182,7 +237,7 @@ app.use('/api/v1/search', jwtAuth, searchRoutes);
 app.use('/api/v1/upload', routes.upload);
 
 // GDPR Data Export
-app.use('/api/v1/data-export', patientRateLimiter, dataExportRoutes);
+app.use('/api/v1/data-export', dataExportRateLimiter, dataExportRoutes);
 
 // ====================================
 // JWT PROTECTED ROUTES (JWT token required)

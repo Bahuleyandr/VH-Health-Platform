@@ -76,12 +76,25 @@ class DatabaseManager {
       }
     }
 
+    const start = Date.now();
     try {
-      // ✅ Fixed: Use this.pool.query() here (this is correct within the class)
       const result = await this.pool.query(text, params);
+      const duration = Date.now() - start;
+      if (duration > 1000) {
+        logger.warn('Slow query detected', {
+          duration_ms: duration,
+          query: text.substring(0, 200),
+          rowCount: result.rowCount
+        });
+      }
       return result;
     } catch (error) {
-      logger.error('❌ Database query failed:', error.message);
+      const duration = Date.now() - start;
+      logger.error('Database query error', {
+        duration_ms: duration,
+        error: error.message,
+        query: text.substring(0, 100)
+      });
       throw error;
     }
   }
@@ -91,11 +104,25 @@ class DatabaseManager {
    * Use for analytics, exports, dashboards — anything that doesn't need write consistency.
    */
   async readQuery(text, params) {
+    const start = Date.now();
     try {
       const result = await this.readPool.query(text, params);
+      const duration = Date.now() - start;
+      if (duration > 1000) {
+        logger.warn('Slow read query detected', {
+          duration_ms: duration,
+          query: text.substring(0, 200),
+          rowCount: result.rowCount
+        });
+      }
       return result;
     } catch (error) {
-      logger.error('Read query error:', error.message);
+      const duration = Date.now() - start;
+      logger.error('Read query error', {
+        duration_ms: duration,
+        error: error.message,
+        query: text.substring(0, 100)
+      });
       throw error;
     }
   }
