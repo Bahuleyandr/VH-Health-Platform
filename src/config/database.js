@@ -3,6 +3,12 @@ import pkg from 'pg';
 const { Pool } = pkg;
 import logger from '../logging/logger.js';
 
+let consecutiveFailures = 0;
+let circuitOpen = false;
+let circuitOpenedAt = null;
+const CIRCUIT_BREAKER_THRESHOLD = 5; // Open after 5 consecutive failures
+const CIRCUIT_BREAKER_RESET_MS = 30000; // Try again after 30 seconds
+
 class DatabaseManager {
   constructor() {
     this.pool = null;
@@ -69,6 +75,17 @@ class DatabaseManager {
   }
 
   async query(text, params) {
+    // Circuit breaker: if open, reject immediately
+    if (circuitOpen) {
+      const elapsed = Date.now() - circuitOpenedAt;
+      if (elapsed < CIRCUIT_BREAKER_RESET_MS) {
+        throw new Error('Database circuit breaker is open — service temporarily unavailable');
+      }
+      // Half-open: allow one request through to test
+      circuitOpen = false;
+      logger.info('Database circuit breaker half-open — testing connection');
+    }
+
     if (!this.isConnected) {
       const connected = await this.connect();
       if (!connected) {
@@ -80,6 +97,7 @@ class DatabaseManager {
     try {
       const result = await this.pool.query(text, params);
       const duration = Date.now() - start;
+      consecutiveFailures = 0; // Reset on success
       if (duration > 1000) {
         logger.warn('Slow query detected', {
           duration_ms: duration,
@@ -89,6 +107,12 @@ class DatabaseManager {
       }
       return result;
     } catch (error) {
+      consecutiveFailures++;
+      if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+        circuitOpen = true;
+        circuitOpenedAt = Date.now();
+        logger.error(`Database circuit breaker OPEN after ${consecutiveFailures} consecutive failures`);
+      }
       const duration = Date.now() - start;
       logger.error('Database query error', {
         duration_ms: duration,

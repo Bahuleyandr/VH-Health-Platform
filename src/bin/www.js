@@ -12,6 +12,7 @@ import logger from '../logging/logger.js';
 import { runAllScheduledTasksNow } from '../utils/scheduler.js';
 import { initWebSocket } from '../utils/websocket/wsServer.js';
 import { runMigrations } from '../utils/migrations/runMigrations.js';
+import { startDbHealthMonitor } from '../utils/dbHealthMonitor.js';
 
 
 
@@ -67,20 +68,26 @@ async function onListening() {
     logger.error('FATAL: Migration failed:', err);
     process.exit(1);
   }
+  // Start database pool health monitoring
+  const db = (await import('../config/database.js')).default;
+  startDbHealthMonitor(db);
+
   runAllScheduledTasksNow();
 }
 
 // Graceful shutdown
 function gracefulShutdown(signal) {
   logger.info(`${signal} received. Starting graceful shutdown...`);
-  server.close(() => {
+  server.close(async () => {
     logger.info('HTTP server closed.');
-    // Close DB pool if available
-    import('../config/database.js').then(db => {
-      if (db.default?.end) db.default.end();
+    try {
+      const db = (await import('../config/database.js')).default;
+      await db.close();
       logger.info('Database pool closed.');
-      process.exit(0);
-    }).catch(() => process.exit(0));
+    } catch (err) {
+      logger.error('Error closing database pool:', err.message);
+    }
+    process.exit(0);
   });
   // Force exit after 10s if graceful shutdown hangs
   setTimeout(() => {

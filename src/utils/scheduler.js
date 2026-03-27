@@ -41,11 +41,13 @@ import { scheduleCleanupJob as scheduleR2CleanupJob, executeCleanup } from './r2
 import { purgeHousekeepingPhotos } from './housekeepingPurgeJob.js';
 import loadSwaggerDocument from './swaggerLoader.js';
 import { verifyLatestBackup } from './backupVerification.js';
+import { runCanaryChecks } from './canaryHealthCheck.js';
+import { detectSchemaDrift } from './schemaDriftDetector.js';
 
 // 🗓️ Daily at 00:00 - Purge old logs
 cron.schedule('0 0 * * *', withJobLock('purge-logs', async () => {
   logger.info('Scheduled Task: Purging old logs...');
-  purgeLogs();
+  await purgeLogs();
 }));
 
 // 🗓️ Daily at 00:00 - Swagger validation
@@ -59,9 +61,10 @@ cron.schedule('0 0 * * *', withJobLock('swagger-validation', async () => {
 // 🗓️ Daily at 02:00 - Backup database + verification
 cron.schedule('0 2 * * *', withJobLock('backup-db', async () => {
   logger.info('Scheduled Task: Backing up database...');
-  backupDb('.env', 'local');
+  await backupDb('.env', 'local');
   // After a small delay, verify the latest backup
-  setTimeout(() => verifyLatestBackup(), 30000);
+  await new Promise(resolve => setTimeout(resolve, 30000));
+  await verifyLatestBackup();
 }));
 
 // 🗓️ Monthly on 1st at 02:00 - Archive migration
@@ -73,14 +76,14 @@ scheduleR2CleanupJob();
 // 🗓️ Weekly on Sunday at 03:00 - Purge archived logs
 cron.schedule('0 3 * * 0', withJobLock('purge-archives', async () => {
   logger.info('Scheduled Task: Purging .gz archived logs...');
-  purgeArchives();
+  await purgeArchives();
 }));
 
 // 🗓️ Weekly on Sunday at 04:00 - Cleanup old backups
 cron.schedule('0 4 * * 0', withJobLock('cleanup-backups', async () => {
   logger.info('Scheduled Task: Cleaning up old backups...');
-  cleanupBackups(path.resolve('backups', 'local'));
-  cleanupBackups(path.resolve('backups', 'render'));
+  await cleanupBackups(path.resolve('backups', 'local'));
+  await cleanupBackups(path.resolve('backups', 'render'));
 }));
 
 // 🕗 Daily at 08:00 - Send appointment reminders (existing daily push-only)
@@ -114,22 +117,32 @@ cron.schedule('30 3 * * *', withJobLock('purge-audit-logs', async () => {
 // 🗓️ Daily at 03:45 - Purge housekeeping photos past retention window
 cron.schedule('45 3 * * *', withJobLock('purge-housekeeping-photos', purgeHousekeepingPhotos));
 
+// Every 5 minutes - Canary health check (synthetic tests against critical paths)
+cron.schedule('*/5 * * * *', withJobLock('canary-health-check', async () => {
+  await runCanaryChecks();
+}));
+
+// Schema drift detection — once at startup
+setImmediate(async () => {
+  try { await detectSchemaDrift(); } catch (e) { logger.warn('Schema drift check failed:', e.message); }
+});
+
 // ✅ Manual Trigger for all tasks
 export async function runAllScheduledTasksNow() {
   logger.info('Running all scheduled tasks manually...');
   try {
-    purgeLogs();
-    purgeArchives();
+    await purgeLogs();
+    await purgeArchives();
 
     const swaggerDocument = loadSwaggerDocument();
     if (!swaggerDocument) {throw new Error('Swagger document not loaded');}
     logger.info('✅ Swagger documentation validated.');
 
-    backupDb('.env', 'local');
+    await backupDb('.env', 'local');
     await executeCleanup();
 
-    cleanupBackups(path.resolve('backups', 'local'));
-    cleanupBackups(path.resolve('backups', 'render'));
+    await cleanupBackups(path.resolve('backups', 'local'));
+    await cleanupBackups(path.resolve('backups', 'render'));
 
     await sendAppointmentReminders();
     await sendTimedReminders();
