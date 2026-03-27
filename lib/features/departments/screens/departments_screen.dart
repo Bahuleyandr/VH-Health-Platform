@@ -82,32 +82,24 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
 
   Future<void> _fetchDepartmentsData() async {
     if (!mounted) return;
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
 
     try {
-      final res = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/departments/departments-with-doctors'),
-        headers: await ApiConfig.authenticatedHeaders(),
-      ).timeout(const Duration(seconds: 15));
+      final response = await ApiClient.get('/departments/departments-with-doctors');
 
       if (!mounted) return;
 
-      if (res.statusCode == 200) {
-        final decoded = jsonDecode(res.body);
+      if (response.isSuccess) {
         // Backend wraps in { success, data: { departments, count } }
+        final data = response.data;
         List<dynamic>? list;
-        if (decoded is Map) {
-          final data = decoded['data'];
-          if (data is Map && data['departments'] is List) {
-            list = data['departments'] as List<dynamic>;
-          } else if (data is List) {
-            list = data;
-          } else if (decoded['departments'] is List) {
-            list = decoded['departments'] as List<dynamic>;
-          }
-        }
-        if (list == null && decoded is List) {
-          list = decoded;
+        if (data is Map && data['departments'] is List) {
+          list = data['departments'] as List<dynamic>;
+        } else if (data is List) {
+          list = data;
         }
 
         if (list != null) {
@@ -116,28 +108,24 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
             _isLoading = false;
           });
         } else {
-          _handleError(_loc.departmentsLoadFailed);
+          setState(() {
+            _error = _loc.departmentsLoadFailed;
+            _isLoading = false;
+          });
         }
       } else {
-        _handleError(_loc.departmentsLoadFailed);
+        setState(() {
+          _error = response.message ?? _loc.departmentsLoadFailed;
+          _isLoading = false;
+        });
       }
     } catch (_) {
       if (!mounted) return;
-      _handleError(_loc.networkError);
+      setState(() {
+        _error = _loc.networkError;
+        _isLoading = false;
+      });
     }
-  }
-
-  void _handleError(String msg) {
-    setState(() => _isLoading = false);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _messenger.showSnackBar(SnackBar(
-          content: Text(msg),
-          backgroundColor: _theme.colorScheme.error,
-          behavior: SnackBarBehavior.floating,
-        ));
-      }
-    });
   }
 
   void _bookDoctor(String dept, String doctor) {
@@ -366,11 +354,16 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
       icon: Icons.local_hospital_outlined,
       color: color,
       heroTag: 'departments',
-      child: _isLoading
-          ? Center(
-              child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation(cs.primary)))
-          : Column(
+      child: DataStateBuilder<dynamic>(
+        isLoading: _isLoading,
+        error: _error,
+        data: departments,
+        onRetry: _fetchDepartmentsData,
+        emptyIcon: Icons.local_hospital_outlined,
+        emptyTitle: _loc.departmentsNoneFound,
+        emptySubtitle: '',
+        builder: (context, depts) {
+          return Column(
               children: [
                 // Search bar
                 Padding(
@@ -521,7 +514,9 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
                   ),
                 ),
               ],
-            ),
+            );
+        },
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: _triggerSOS,
         tooltip: _loc.authSosTooltip,

@@ -1,13 +1,9 @@
-import 'dart:io';
-import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -23,6 +19,7 @@ class NotificationsScreen extends StatefulWidget {
 class _NotificationsScreenState extends State<NotificationsScreen> {
   List<dynamic> notifications = [];
   bool loading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -32,14 +29,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     });
   }
 
-  Future<String?> _getBearerToken() async {
-    final user = FirebaseAuth.instance.currentUser;
-    return user != null ? await user.getIdToken() : null;
-  }
-
-Future<void> _fetchNotifications() async {
-    setState(() => loading = true);
-    final loc = AppLocalizations.of(context)!;
+  Future<void> _fetchNotifications() async {
+    setState(() {
+      loading = true;
+      _error = null;
+    });
 
     // Check for guest users
     if (widget.phone == 'guest' || widget.phone.isEmpty) {
@@ -50,74 +44,37 @@ Future<void> _fetchNotifications() async {
       return;
     }
 
-    final token = await _getBearerToken();
-    if (token == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(loc.otpInvalidFirebaseToken),
-      ));
-      setState(() => loading = false);
-      return;
-    }
-
     try {
-      final uri = Uri.parse(
-        '${ApiConfig.baseUrl}/notifications/${widget.phone}',
-      );
-
-      final res = await http.get(
-        uri,
-        headers: await ApiConfig.authenticatedAuthHeaders(),
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          throw TimeoutException('Request timeout');
-        },
-      );
+      final response = await ApiClient.get('/notifications/${widget.phone}');
 
       if (!mounted) return;
 
-      if (res.statusCode == 200) {
-        final body = jsonDecode(res.body.trim());
-        final List<dynamic> data = body is List
-            ? body
-            : (body['data']?['notifications'] ?? body['data'] ?? []) as List<dynamic>;
+      if (response.isSuccess) {
+        final data = response.data;
+        final List<dynamic> list;
+        if (data is List) {
+          list = data;
+        } else if (data is Map && data['notifications'] is List) {
+          list = data['notifications'] as List<dynamic>;
+        } else {
+          list = response.dataAsList();
+        }
         setState(() {
-          notifications = data;
+          notifications = list;
           loading = false;
         });
       } else {
-        debugPrint('Failed to fetch notifications. Status: ${res.statusCode}, Body: ${res.body}');
-        setState(() => loading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(loc.failedToFetchNotifications)),
-        );
+        setState(() {
+          _error = response.message ?? 'Failed to fetch notifications';
+          loading = false;
+        });
       }
-    } on SocketException {
-      if (!mounted) return;
-      setState(() => loading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No internet connection'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } on TimeoutException {
-      if (!mounted) return;
-      setState(() => loading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Request timed out. Please try again.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
     } catch (e) {
-      debugPrint('Error fetching notifications: $e');
       if (!mounted) return;
-      setState(() => loading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(loc.errorFetchingNotifications)),
-      );
+      setState(() {
+        _error = e.toString();
+        loading = false;
+      });
     }
   }
 
@@ -165,15 +122,8 @@ Future<void> _fetchNotifications() async {
   }
 
   Future<void> _markAsRead(int id) async {
-    final token = await _getBearerToken();
-    if (token == null) return;
-
-    final uri = Uri.parse(
-      '${ApiConfig.baseUrl}/notifications/$id/read',
-    );
-
     try {
-      await http.patch(uri, headers: await ApiConfig.authenticatedAuthHeaders()).timeout(const Duration(seconds: 15));
+      await ApiClient.patch('/notifications/$id/read');
     } catch (e) {
       debugPrint('Error marking notification as read: $e');
     }
@@ -189,45 +139,17 @@ Future<void> _fetchNotifications() async {
       icon: Icons.notifications_outlined,
       color: color,
       heroTag: 'notifications',
-      child: loading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
+      child: DataStateBuilder<dynamic>(
+        isLoading: loading,
+        error: _error,
+        data: notifications,
+        onRetry: _fetchNotifications,
+        emptyIcon: Icons.notifications_off_outlined,
+        emptyTitle: loc.noNotifications,
+        emptySubtitle: '',
+        builder: (context, items) => RefreshIndicator(
               onRefresh: _fetchNotifications,
-              child: notifications.isEmpty
-                  ? LayoutBuilder(
-                      builder: (_, constraints) => SingleChildScrollView(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        child: Container(
-                          // Fixed: Use a safe minimum height
-                          constraints: BoxConstraints(
-                            minHeight: constraints.maxHeight.isFinite 
-                              ? constraints.maxHeight 
-                              : 400, // Fallback height when infinite
-                          ),
-                          child: Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.notifications_off_outlined,
-                                  size: 64,
-                                  color: Colors.grey[400],
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  loc.noNotifications,
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    )
-                  : ListView.separated(
+              child: ListView.separated(
                       padding: const EdgeInsets.all(16),
                       itemCount: notifications.length,
                       separatorBuilder: (_, __) => const Divider(),
@@ -285,7 +207,8 @@ Future<void> _fetchNotifications() async {
                         );
                       },
                     ),
-            ),
+        ),
+      ),
     );
   }
 }

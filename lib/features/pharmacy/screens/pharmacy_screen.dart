@@ -8,7 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/delivery_tracking_card.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 
@@ -118,45 +118,45 @@ class _PharmacyScreenState extends State<PharmacyScreen>
     setState(() => _isSubmitting = true);
 
     try {
-      final headers = await ApiConfig.authenticatedAuthHeaders();
-      final uri = Uri.parse('${ApiConfig.baseUrl}/pharmacy-orders/orders/place');
-      final req = http.MultipartRequest('POST', uri);
-      req.headers.addAll(headers);
-
-      // Add prescription photo
+      // Build multipart files list
+      final List<http.MultipartFile> files = [];
       if (_prescriptionPhoto != null) {
-        req.files.add(await http.MultipartFile.fromPath(
+        files.add(await http.MultipartFile.fromPath(
           'prescription',
           _prescriptionPhoto!.path,
           filename: _prescriptionName ?? 'prescription.jpg',
         ));
       }
 
-      // Add form fields
+      // Build form fields
+      final Map<String, String> fields = {
+        'delivery_type': _deliveryType,
+      };
       if (_noteController.text.trim().isNotEmpty) {
-        req.fields['order_note'] = _noteController.text.trim();
+        fields['order_note'] = _noteController.text.trim();
       }
-      req.fields['delivery_type'] = _deliveryType;
       if (_deliveryType == 'delivery') {
         if (_addressController.text.trim().isNotEmpty) {
-          req.fields['delivery_address'] = _addressController.text.trim();
+          fields['delivery_address'] = _addressController.text.trim();
         }
         if (_landmarkController.text.trim().isNotEmpty) {
-          req.fields['delivery_landmark'] = _landmarkController.text.trim();
+          fields['delivery_landmark'] = _landmarkController.text.trim();
         }
         if (_phoneController.text.trim().isNotEmpty) {
-          req.fields['delivery_phone'] = _phoneController.text.trim();
+          fields['delivery_phone'] = _phoneController.text.trim();
         }
       }
 
-      final streamed = await req.send().timeout(const Duration(seconds: 30));
-      final body = await streamed.stream.bytesToString();
+      final response = await ApiClient.multipart(
+        '/pharmacy-orders/orders/place',
+        fields: fields,
+        files: files,
+      );
 
       if (!mounted) return;
 
-      if (streamed.statusCode >= 200 && streamed.statusCode < 300) {
-        final data = jsonDecode(body);
-        final orderNumber = data['data']?['order_number'] ?? '';
+      if (response.isSuccess) {
+        final orderNumber = response.data?['order_number'] ?? '';
 
         _showSnack('Order placed! $orderNumber');
 
@@ -177,8 +177,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
         _tabController.animateTo(1);
         _fetchOrders();
       } else {
-        final data = jsonDecode(body);
-        _showSnack(data['message'] ?? 'Failed to place order', isError: true);
+        _showSnack(response.message ?? 'Failed to place order', isError: true);
       }
     } catch (e) {
       if (mounted) {
@@ -232,17 +231,16 @@ class _PharmacyScreenState extends State<PharmacyScreen>
 
   Future<void> _fetchOrders() async {
     try {
-      final uri = Uri.parse('${ApiConfig.baseUrl}/pharmacy-orders/orders/my');
-      final res = await http
-          .get(uri, headers: await ApiConfig.authenticatedAuthHeaders())
-          .timeout(const Duration(seconds: 10));
+      final response = await ApiClient.get(
+        '/pharmacy-orders/orders/my',
+        timeout: const Duration(seconds: 10),
+      );
 
       if (!mounted) return;
 
-      if (res.statusCode == 200) {
-        final body = jsonDecode(res.body);
+      if (response.isSuccess) {
         setState(() {
-          _orders = body['data'] ?? [];
+          _orders = response.data ?? [];
           _isLoadingOrders = false;
         });
       } else {

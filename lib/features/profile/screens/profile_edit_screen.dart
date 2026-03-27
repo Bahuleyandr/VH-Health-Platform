@@ -1,11 +1,9 @@
 // lib/features/profile/screens/profile_edit_screen.dart
 import 'package:go_router/go_router.dart';
 
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -67,17 +65,13 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   // ───────────────────────────── Fetch Profile ──────────────────────────────
   Future<void> _fetchProfile() async {
     try {
-      final headers = await ApiConfig.authenticatedHeaders();
-      final res = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/users/${widget.phone}'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 15));
+      final response = await ApiClient.get('/users/${widget.phone}');
 
       if (!mounted) return;
 
-      if (res.statusCode == 200) {
-        final body = jsonDecode(res.body);
-        final user = body['data']?['user'] ?? body['data'] ?? body['user'] ?? body;
+      if (response.isSuccess) {
+        final data = response.dataAsMap();
+        final user = data['user'] as Map<String, dynamic>? ?? data;
 
         _nameController.text = user['name']?.toString() ?? widget.name;
         _emailController.text = user['email']?.toString() ?? '';

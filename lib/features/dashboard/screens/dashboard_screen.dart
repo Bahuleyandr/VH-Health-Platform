@@ -2,17 +2,15 @@ import 'package:go_router/go_router.dart';
 import 'package:vhhealth/core/navigation/app_router.dart';
 
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons/lucide_icons.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/language_dropdown.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/core/widgets/circular_feature_dial.dart';
@@ -98,14 +96,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid == null || uid.isEmpty) return;
 
-      final uri = Uri.parse('${ApiConfig.baseUrl}/appointments/uid/$uid');
-      final res = await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders())
-          .timeout(const Duration(seconds: 8));
+      final response = await ApiClient.get(
+        '/appointments/uid/$uid',
+        timeout: const Duration(seconds: 8),
+      );
       if (!mounted) return;
 
-      if (res.statusCode == 200) {
-        final body = jsonDecode(res.body);
-        final List<dynamic> appointments = body['data'] ?? body ?? [];
+      if (response.isSuccess) {
+        final List<dynamic> appointments = response.data ?? [];
 
         // Find today's appointment
         final now = DateTime.now();
@@ -191,16 +189,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _fetchSmartWidgetData() async {
     try {
-      final headers = await ApiConfig.authenticatedAuthHeaders();
-
       // 1. Active pharmacy order
       try {
-        final pharmaRes = await http
-            .get(Uri.parse('${ApiConfig.baseUrl}/pharmacy-orders/orders/my'), headers: headers)
-            .timeout(const Duration(seconds: 8));
-        if (mounted && pharmaRes.statusCode == 200) {
-          final body = jsonDecode(pharmaRes.body);
-          final List<dynamic> orders = body['data'] ?? body ?? [];
+        final pharmaRes = await ApiClient.get(
+          '/pharmacy-orders/orders/my',
+          timeout: const Duration(seconds: 8),
+        );
+        if (mounted && pharmaRes.isSuccess) {
+          final List<dynamic> orders = pharmaRes.data ?? [];
           Map<String, dynamic>? active;
           for (final o in orders) {
             final status = o['status']?.toString().toUpperCase() ?? '';
@@ -215,12 +211,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       // 2. Active investigation booking
       try {
-        final invRes = await http
-            .get(Uri.parse('${ApiConfig.baseUrl}/investigations/bookings/my'), headers: headers)
-            .timeout(const Duration(seconds: 8));
-        if (mounted && invRes.statusCode == 200) {
-          final body = jsonDecode(invRes.body);
-          final List<dynamic> bookings = body['data'] ?? body ?? [];
+        final invRes = await ApiClient.get(
+          '/investigations/bookings/my',
+          timeout: const Duration(seconds: 8),
+        );
+        if (mounted && invRes.isSuccess) {
+          final List<dynamic> bookings = invRes.data ?? [];
           Map<String, dynamic>? active;
           for (final b in bookings) {
             final status = b['status']?.toString().toUpperCase() ?? '';
@@ -235,12 +231,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       // 3. Recent prescription (not yet ordered via pharmacy)
       try {
-        final rxRes = await http
-            .get(Uri.parse('${ApiConfig.baseUrl}/prescriptions/patient/my'), headers: headers)
-            .timeout(const Duration(seconds: 8));
-        if (mounted && rxRes.statusCode == 200) {
-          final body = jsonDecode(rxRes.body);
-          final List<dynamic> prescriptions = body['data'] ?? body ?? [];
+        final rxRes = await ApiClient.get(
+          '/prescriptions/patient/my',
+          timeout: const Duration(seconds: 8),
+        );
+        if (mounted && rxRes.isSuccess) {
+          final List<dynamic> prescriptions = rxRes.data ?? [];
           Map<String, dynamic>? recent;
           for (final rx in prescriptions) {
             final pharmacyOpted = rx['pharmacy_opted'] ?? rx['pharmacyOpted'] ?? false;
