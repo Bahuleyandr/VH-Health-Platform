@@ -1,7 +1,7 @@
 // lib/config.ts - Configuration file
 export const config = {
   apiUrl:
-    process.env.NEXT_PUBLIC_API_URL || "https://vh-health-backend.onrender.com",
+    process.env.NEXT_PUBLIC_API_URL || "https://api.vhhealth.app",
   appName: process.env.NEXT_PUBLIC_APP_NAME || "Healthcare Admin",
 
   // API endpoints

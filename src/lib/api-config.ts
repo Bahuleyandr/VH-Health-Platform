@@ -2,7 +2,7 @@
 // Complete API endpoint mapping for VH Health Admin Portal
 
 export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://vh-health-backend.onrender.com";
+  process.env.NEXT_PUBLIC_API_URL || "https://api.vhhealth.app";
 
 // WebSocket URL configuration
 export const WS_BASE_URL = 
