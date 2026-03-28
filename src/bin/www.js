@@ -87,6 +87,13 @@ function gracefulShutdown(signal) {
     } catch (err) {
       logger.error('Error closing database pool:', err.message);
     }
+    try {
+      const { default: prisma } = await import('../lib/prisma.js');
+      await prisma.$disconnect();
+      logger.info('Prisma client disconnected.');
+    } catch (err) {
+      // Prisma may not be initialized yet — safe to ignore
+    }
     process.exit(0);
   });
   // Force exit after 10s if graceful shutdown hangs

@@ -40,8 +40,13 @@ jobs:
 
       - run: npm ci
 
+      - name: Security audit
+        run: npm audit --audit-level=high
+
       - run: npm run lint
+
+      - name: Generate Prisma client
+        run: npx prisma generate
 
       - name: Run tests
         run: node --experimental-vm-modules node_modules/jest/bin/jest.js --forceExit --detectOpenHandles
-        continue-on-error: true  # Tests need CI env fixes (ClamAV, R2 creds, etc.)
