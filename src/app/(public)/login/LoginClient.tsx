@@ -21,8 +21,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { AuthProvider, useAuth } from '@/contexts/AuthContext';
-import { QueryProvider } from '@/providers/query-provider';
+import { useAuth } from '@/contexts/AuthContext';
 import Image from 'next/image';
 import styles from './Login.module.css';
 
@@ -401,12 +400,8 @@ function LoginInner() {
   );
 }
 
+// QueryClientProvider + AuthProvider are already mounted in the root layout
+// via <Providers>, so no need to wrap again here.
 export default function LoginClient() {
-  return (
-    <QueryProvider>
-      <AuthProvider>
-        <LoginInner />
-      </AuthProvider>
-    </QueryProvider>
-  );
+  return <LoginInner />;
 }
