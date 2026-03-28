@@ -25,6 +25,7 @@ import { auditLogMiddleware } from './middleware/auditLog.js';
 import { patientRateLimiter, genericLimiter, adminRateLimiter, dataExportRateLimiter } from './middleware/rateLimitMiddleware.js';
 import validateApiKey from './middleware/validateApiKey.js';
 import apiVersionMiddleware from './middleware/apiVersionMiddleware.js';
+import { selfHealingMiddleware } from './middleware/selfHealingMiddleware.js';
 
 // ====================================
 // ROUTE IMPORTS - Organized by category
@@ -59,6 +60,9 @@ import logRoutes from './routes/logs/index.js';
 
 // Patient dashboard (API key only, no JWT)
 import dashboardRoutes from './routes/dashboard/index.js';
+
+// Config routes (API key only, no JWT)
+import configRoutes from './routes/configRoutes.js';
 
 // GDPR Data Export
 import dataExportRoutes from './routes/dataExportRoutes.js';
@@ -143,6 +147,7 @@ app.use(attachUserContext);
 
 // Universal audit log — fire-and-forget, captures all routes, handles null user gracefully
 app.use(auditLogMiddleware);
+app.use(selfHealingMiddleware);
 
 // ====================================
 // PUBLIC ROUTES (No authentication required)
@@ -207,6 +212,9 @@ app.use(validateApiKey);
 
 // Patient dashboard — Flutter app uses API key only for this
 app.use('/api/v1/dashboard', patientRateLimiter, dashboardRoutes);
+
+// Campus config — staff app uses API key only for this
+app.use('/api/v1/config', configRoutes);
 
 app.use(authMiddleware);
 app.use(normalizeIdentityFields); // runs AFTER authMiddleware
