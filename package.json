@@ -108,8 +108,12 @@
   ],
   "jest": {
     "testEnvironment": "node",
+    "transform": {},
     "setupFiles": [
       "<rootDir>/src/scripts/testing/jest.setup.js"
+    ],
+    "testMatch": [
+      "<rootDir>/src/tests/**/*.test.js"
     ],
     "moduleNameMapper": {
       "^@utils/(.*)$": "<rootDir>/src/utils/$1",
