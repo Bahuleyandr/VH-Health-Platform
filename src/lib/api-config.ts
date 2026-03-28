@@ -430,7 +430,7 @@ export const API_ENDPOINTS = {
 
   // Infrastructure / Admin Tools
   infrastructure: {
-    apiDocs: "/api/v1/api-docs", // GET
+    apiDocs: "/api-docs", // GET
     swagger: "/api-docs", // GET
     debug: "/api/v1/debug/routes", // GET (protected)
     rbac: "/api/v1/rbac/routes", // GET/POST (protected)
