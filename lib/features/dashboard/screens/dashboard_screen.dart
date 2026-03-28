@@ -44,6 +44,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       // Load all in parallel
       final futures = <Future>[];
 
+      // Fetch campus geofence config (no-op after first success)
+      futures.add(StaffApiService.fetchCampusConfig());
+
       futures.add(StaffApiService.getAttendanceStatus().then(
         (s) => _attendanceStatus = s,
         onError: (_) {},

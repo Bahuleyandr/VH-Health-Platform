@@ -1,3 +1,6 @@
+import 'package:flutter/foundation.dart';
+import '../services/api_client.dart';
+
 /// Configuration for campus geofence boundaries.
 ///
 /// Default values point to Venkataeswara Hospitals, Nandanam, Chennai.
@@ -33,5 +36,35 @@ class CampusConfig {
     _latitude = defaultLatitude;
     _longitude = defaultLongitude;
     _radiusMeters = defaultRadiusMeters;
+  }
+
+  /// Whether a backend fetch has already succeeded this session.
+  static bool _fetched = false;
+
+  /// Fetch campus location from the backend and update in-place.
+  ///
+  /// Calls `GET /config/campus-locations`. On success, updates the campus
+  /// coordinates via [updateFromBackend]. On any failure (network error,
+  /// missing endpoint, bad payload) the hardcoded defaults are kept silently.
+  ///
+  /// This is safe to call multiple times — after the first successful fetch
+  /// it becomes a no-op for the rest of the session.
+  static Future<void> fetchFromBackend() async {
+    if (_fetched) return;
+    try {
+      final resp = await ApiClient.get('/config/campus-locations');
+      if (resp.isSuccess && resp.raw is Map) {
+        final raw = resp.raw as Map<String, dynamic>;
+        // Backend envelope: { success: true, data: { campusLat, campusLng, campusRadius } }
+        final data = (raw['data'] as Map<String, dynamic>?) ?? raw;
+        updateFromBackend(data);
+        _fetched = true;
+        debugPrint('[CampusConfig] Updated from backend: '
+            'lat=$_latitude, lng=$_longitude, radius=$_radiusMeters');
+      }
+    } catch (e) {
+      // Silently fall back to defaults — attendance will use hardcoded location.
+      debugPrint('[CampusConfig] Backend fetch failed, using defaults: $e');
+    }
   }
 }

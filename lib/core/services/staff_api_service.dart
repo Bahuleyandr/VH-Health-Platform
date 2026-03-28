@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../config/campus_config.dart';
 import 'api_client.dart';
 
 class StaffApiService {
@@ -35,6 +36,15 @@ class StaffApiService {
       }
     }
     throw Exception(resp.message ?? 'Request failed (${resp.statusCode})');
+  }
+
+  // ─── Campus Config ──────────────────────────────────────────────────────────
+
+  /// Fetch campus geofence location from the backend and update [CampusConfig].
+  /// Silently falls back to hardcoded defaults on any failure.
+  static Future<void> fetchCampusConfig() async {
+    // Delegates to CampusConfig which owns the fetch + caching logic.
+    await CampusConfig.fetchFromBackend();
   }
 
   // ─── Staff Profile ───────────────────────────────────────────────────────────
