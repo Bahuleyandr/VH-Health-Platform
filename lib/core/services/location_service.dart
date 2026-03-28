@@ -1,10 +1,7 @@
 import 'package:geolocator/geolocator.dart';
+import '../config/campus_config.dart';
 
 class LocationService {
-  static const double _campusLat = 13.02936;  // Venkataeswara Hospitals, Nandanam, Chennai
-  static const double _campusLng = 80.24409;
-  static const double _campusRadius = 200.0; // meters
-
   static Future<Map<String, dynamic>> getLocationData() async {
     final result = <String, dynamic>{};
 
@@ -33,8 +30,8 @@ class LocationService {
       );
 
       final distance = Geolocator.distanceBetween(
-        _campusLat,
-        _campusLng,
+        CampusConfig.latitude,
+        CampusConfig.longitude,
         position.latitude,
         position.longitude,
       );
@@ -43,7 +40,7 @@ class LocationService {
       result['longitude'] = position.longitude;
       result['accuracy'] = position.accuracy;
       result['distanceFromCampus'] = distance.round();
-      result['withinCampus'] = distance <= _campusRadius;
+      result['withinCampus'] = distance <= CampusConfig.radiusMeters;
     } catch (e) {
       return {'error': 'Failed to get location: ${e.toString()}'};
     }
