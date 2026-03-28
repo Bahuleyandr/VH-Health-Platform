@@ -1,0 +1,44 @@
+version: "3.8"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env.local
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - vhhealth-network
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: vhhealth
+      POSTGRES_PASSWORD: vhhealth
+      POSTGRES_DB: vhhealth
+    ports:
+      - "5432:5432"
+    volumes:
+      - vhhealth-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vhhealth -d vhhealth"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - vhhealth-network
+
+networks:
+  vhhealth-network:
+    driver: bridge
+
+volumes:
+  vhhealth-db-data:

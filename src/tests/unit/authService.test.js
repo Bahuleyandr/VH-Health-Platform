@@ -42,13 +42,13 @@ jest.unstable_mockModule('bcrypt', () => ({
 
 // Mock otpService
 const mockOtpVerify = jest.fn();
-jest.unstable_mockModule('./otpService.js', () => ({
+jest.unstable_mockModule('../../services/auth/otpService.js', () => ({
   requestOtp: jest.fn(),
   verifyOtp: mockOtpVerify,
 }));
 
 // Mock firebaseAuthService (not tested here, just needs to exist)
-jest.unstable_mockModule('./firebaseAuthService.js', () => ({
+jest.unstable_mockModule('../../services/auth/firebaseAuthService.js', () => ({
   authenticateWithFirebase: jest.fn(),
   completeUserProfile: jest.fn(),
   linkFirebaseAccount: jest.fn(),
