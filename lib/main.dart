@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 
 // Firebase Options
 import 'firebase_options.dart';
@@ -28,6 +31,9 @@ Future<void> main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
+  // Pass all uncaught Flutter framework errors to Crashlytics.
+  FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+
   // Wire 401 handler: when any API call returns Unauthorized, redirect to login.
   ApiClient.onSessionExpired = (message) {
     AppRouter.clearUserData();
@@ -37,7 +43,12 @@ Future<void> main() async {
   // Start network connectivity monitoring.
   ConnectivityService.startMonitoring();
 
-  runApp(const VHRoot());
+  // Catch async errors not handled by Flutter framework.
+  runZonedGuarded(() {
+    runApp(const VHRoot());
+  }, (error, stack) {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+  });
 }
 
 class VHRoot extends StatelessWidget {
