@@ -13,6 +13,7 @@ import { runAllScheduledTasksNow } from '../utils/scheduler.js';
 import { initWebSocket } from '../utils/websocket/wsServer.js';
 import { runMigrations } from '../utils/migrations/runMigrations.js';
 import { startDbHealthMonitor } from '../utils/dbHealthMonitor.js';
+import { initRedis, disconnectRedis } from '../lib/redis.js';
 
 
 
@@ -72,6 +73,13 @@ async function onListening() {
   const db = (await import('../config/database.js')).default;
   startDbHealthMonitor(db);
 
+  // Initialize Redis cache
+  try {
+    await initRedis();
+  } catch (err) {
+    logger.warn('Redis initialization failed — running without cache:', err.message);
+  }
+
   runAllScheduledTasksNow();
 }
 
@@ -86,6 +94,12 @@ function gracefulShutdown(signal) {
       logger.info('Database pool closed.');
     } catch (err) {
       logger.error('Error closing database pool:', err.message);
+    }
+    try {
+      await disconnectRedis();
+      logger.info('Redis disconnected.');
+    } catch (err) {
+      logger.error('Error disconnecting Redis:', err.message);
     }
     try {
       const { default: prisma } = await import('../lib/prisma.js');
