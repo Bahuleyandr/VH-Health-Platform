@@ -17,7 +17,8 @@
     "clean": "node scripts/clean.js",
     "clean:install": "npm run clean && npm install",
     "clean:windows": "rmdir /s /q node_modules .next && del package-lock.json",
-    "clean:unix": "rm -rf node_modules package-lock.json .next"
+    "clean:unix": "rm -rf node_modules package-lock.json .next",
+    "generate:types": "npx openapi-typescript ../vh-health-backend/src/docs/swagger-complete.yaml -o src/lib/api-types.generated.ts"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",
