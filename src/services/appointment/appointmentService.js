@@ -48,23 +48,51 @@ export class AppointmentService {
     }
   }
 
-  // Create new appointment
+  // Create new appointment with row-level locking to prevent double-booking.
+  // Uses a transaction with SELECT ... FOR UPDATE to hold an exclusive lock on
+  // conflicting rows for the same doctor/date/time until the INSERT completes.
   async createAppointment(appointmentData) {
     const { patient_id, doctor_id, appointment_date, appointment_time, reason, notes = null } = appointmentData;
-    
+    const client = await db.getClient();
+
     try {
-      const result = await db.query(`
+      await client.query('BEGIN');
+
+      // Lock any existing appointment rows for this doctor/date/time to prevent
+      // a concurrent booking from inserting between our conflict check and INSERT.
+      const conflictResult = await client.query(`
+        SELECT id FROM appointments
+        WHERE doctor_id = $1
+          AND DATE(appointment_date) = DATE($2)
+          AND appointment_time = $3
+          AND status NOT IN ('CANCELLED', 'NO_SHOW')
+        FOR UPDATE
+      `, [doctor_id, appointment_date, appointment_time]);
+
+      if (conflictResult.rows.length > 0) {
+        await client.query('ROLLBACK');
+        const err = new Error('Slot no longer available');
+        err.isConflict = true;
+        err.conflictingId = conflictResult.rows[0].id;
+        throw err;
+      }
+
+      const result = await client.query(`
         INSERT INTO appointments (
-          patient_id, doctor_id, appointment_date, appointment_time, 
+          patient_id, doctor_id, appointment_date, appointment_time,
           reason, notes, status, created_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
         RETURNING *
       `, [patient_id, doctor_id, appointment_date, appointment_time, reason, notes, APPOINTMENT_CONFIG.STATUSES.SCHEDULED]);
-      
+
+      await client.query('COMMIT');
       return result.rows[0];
     } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
       logger.error('Error creating appointment:', error);
       throw error;
+    } finally {
+      client.release();
     }
   }
 

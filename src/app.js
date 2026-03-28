@@ -67,6 +67,13 @@ import configRoutes from './routes/configRoutes.js';
 // GDPR Data Export
 import dataExportRoutes from './routes/dataExportRoutes.js';
 
+// HIPAA Consent Management
+import consentRoutes from './routes/consentRoutes.js';
+
+// Compliance (Breach Notification + Audit Search)
+import breachRoutes from './routes/compliance/breachRoutes.js';
+import auditSearchRoutes from './routes/compliance/auditSearchRoutes.js';
+
 // Swagger loader
 import swaggerLoader from './utils/swaggerLoader.js';
 
@@ -249,6 +256,9 @@ app.use('/api/v1/upload', routes.upload);
 // GDPR Data Export
 app.use('/api/v1/data-export', dataExportRateLimiter, dataExportRoutes);
 
+// HIPAA Consent Management (requires JWT)
+app.use('/api/v1/consent', jwtAuth, consentRoutes);
+
 // ====================================
 // JWT PROTECTED ROUTES (JWT token required)
 // ====================================
@@ -269,6 +279,10 @@ app.use('/api/v1/system', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRat
 
 // Audit + system logs (portal: /api/v1/logs/audit, /api/v1/logs/system)
 app.use('/api/v1/logs', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, logRoutes);
+
+// Compliance: Breach Notification + Audit Search (admin only)
+app.use('/api/v1/compliance', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, breachRoutes);
+app.use('/api/v1/compliance', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, auditSearchRoutes);
 
 // (Optional but recommended) serve report exports if you use local file URLs
 app.use('/exports', express.static('exports'));

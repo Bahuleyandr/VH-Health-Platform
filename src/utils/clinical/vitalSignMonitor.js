@@ -1,5 +1,6 @@
 import db from '../../config/database.js';
 import logger from '../../logging/logger.js';
+import { dispatch } from '../notifications/notificationDispatcher.js';
 
 /**
  * Clinical reference ranges for vital signs.
@@ -55,22 +56,35 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
     }
   }
 
-  // Persist alerts to database (fire-and-forget)
+  // PATIENT SAFETY: Alerts are persisted synchronously — a CRITICAL vital sign alert
+  // must never be silently lost due to fire-and-forget (setImmediate). If persistence
+  // fails, the error propagates to the caller so it can be handled appropriately.
   if (alerts.length > 0) {
-    setImmediate(async () => {
-      try {
-        for (const alert of alerts) {
-          await db.query(
-            `INSERT INTO clinical_alerts (patient_id, alert_type, vital_name, vital_value, severity, message, created_by, created_at)
-             VALUES ($1, 'VITAL_ANOMALY', $2, $3, $4, $5, $6, NOW())`,
-            [alert.patient_id, alert.vital_name, alert.value, alert.severity, alert.message, alert.recorded_by]
-          );
+    for (const alert of alerts) {
+      await db.query(
+        `INSERT INTO clinical_alerts (patient_id, alert_type, vital_name, vital_value, severity, message, created_by, created_at)
+         VALUES ($1, 'VITAL_ANOMALY', $2, $3, $4, $5, $6, NOW())`,
+        [alert.patient_id, alert.vital_name, alert.value, alert.severity, alert.message, alert.recorded_by]
+      );
+
+      // Dispatch notification to the responsible clinician for CRITICAL alerts
+      if (alert.severity === 'CRITICAL') {
+        try {
+          await dispatch({
+            userId: String(alert.recorded_by),
+            title: `CRITICAL Vital Alert — Patient #${alert.patient_id}`,
+            body: alert.message,
+            channels: ['push', 'inapp'],
+            data: { patient_id: String(alert.patient_id), vital_name: alert.vital_name, severity: 'CRITICAL' },
+            type: 'clinical_alert',
+          });
+        } catch (notifyErr) {
+          // Notification failure must not block alert persistence — log and continue
+          logger.error(`Failed to dispatch CRITICAL alert notification for patient ${alert.patient_id}:`, notifyErr.message);
         }
-        logger.warn(`Clinical alerts generated for patient ${patientId}:`, alerts.map(a => `${a.vital_name}=${a.value} (${a.severity})`).join(', '));
-      } catch (err) {
-        logger.error('Failed to persist clinical alerts:', err.message);
       }
-    });
+    }
+    logger.warn(`Clinical alerts generated for patient ${patientId}:`, alerts.map(a => `${a.vital_name}=${a.value} (${a.severity})`).join(', '));
   }
 
   return alerts;
