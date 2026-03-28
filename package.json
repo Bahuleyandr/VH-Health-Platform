@@ -37,7 +37,10 @@
     "db:migrate:status": "prisma migrate status",
     "db:migrate:reset": "prisma migrate reset",
     "db:studio": "prisma studio",
-    "db:generate": "prisma generate"
+    "db:generate": "prisma generate",
+    "load-test:health": "k6 run load-tests/k6/health.js",
+    "load-test:auth": "k6 run load-tests/k6/auth.js",
+    "load-test:api": "k6 run load-tests/k6/api.js"
   },
   "repository": {
     "type": "git",
