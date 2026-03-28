@@ -14,6 +14,8 @@ import { initWebSocket } from '../utils/websocket/wsServer.js';
 import { runMigrations } from '../utils/migrations/runMigrations.js';
 import { startDbHealthMonitor } from '../utils/dbHealthMonitor.js';
 import { initRedis, disconnectRedis } from '../lib/redis.js';
+import { checkSchemaHealth } from '../utils/schemaHealthCheck.js';
+import { checkDependencyHealth } from '../utils/dependencyChecker.js';
 
 
 
@@ -61,6 +63,9 @@ async function onListening() {
   // Initialize WebSocket server
   initWebSocket(server);
 
+  // Run dependency health check
+  await checkDependencyHealth();
+
   // Run database migrations then scheduled tasks
   try {
     await runMigrations();
@@ -69,6 +74,10 @@ async function onListening() {
     logger.error('FATAL: Migration failed:', err);
     process.exit(1);
   }
+
+  // Verify schema health after migrations
+  await checkSchemaHealth();
+
   // Start database pool health monitoring
   const db = (await import('../config/database.js')).default;
   startDbHealthMonitor(db);
