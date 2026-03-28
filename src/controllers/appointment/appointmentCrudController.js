@@ -30,7 +30,7 @@ export const createAppointment = async (req, res) => {
       return error(res, validation.errors.join(', '), HTTP_STATUS.BAD_REQUEST);
     }
 
-    // Create the appointment
+    // Create the appointment (uses transaction with row-level locking to prevent double-booking)
     const appointment = await appointmentService.createAppointment(appointmentData);
 
     success(res, {
@@ -40,6 +40,9 @@ export const createAppointment = async (req, res) => {
       booked_by: req.user?.name
     }, APPOINTMENT_CONFIG.MESSAGES.APPOINTMENT_BOOKED, HTTP_STATUS.CREATED);
   } catch (err) {
+    if (err.isConflict) {
+      return error(res, 'Time slot already booked', HTTP_STATUS.CONFLICT, { conflicting_appointment_id: err.conflictingId });
+    }
     logger.error('Error creating appointment:', err);
     error(res, 'Failed to book appointment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }

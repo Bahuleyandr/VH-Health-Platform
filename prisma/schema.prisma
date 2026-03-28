@@ -1095,3 +1095,49 @@ model devices {
   @@index([is_active])
   @@map("devices")
 }
+
+// ===================================================================
+// 🛡️ HIPAA CONSENT MANAGEMENT
+// ===================================================================
+
+model patient_consents {
+  id            Int       @id @default(autoincrement())
+  patient_uid   String    @db.Uuid
+  consent_type  String    @db.VarChar(100)  // e.g., 'data_access', 'treatment', 'research', 'marketing'
+  granted       Boolean   @default(false)
+  granted_at    DateTime? @db.Timestamp(6)
+  revoked_at    DateTime? @db.Timestamp(6)
+  granted_by    String?   @db.VarChar(100)  // 'patient', 'guardian', 'admin'
+  ip_address    String?   @db.VarChar(45)
+  notes         String?   @db.Text
+  created_at    DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([consent_type])
+  @@map("patient_consents")
+}
+
+// ===================================================================
+// 🚨 DATA BREACH NOTIFICATION
+// ===================================================================
+
+model data_breaches {
+  id                    Int       @id @default(autoincrement())
+  breach_id             String    @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  severity              String    @db.VarChar(20)  // 'low', 'medium', 'high', 'critical'
+  description           String    @db.Text
+  affected_records      Int       @default(0)
+  affected_patient_uids String[]  @default([])
+  discovered_at         DateTime  @db.Timestamp(6)
+  reported_by           String?   @db.Uuid
+  status                String    @default("open") @db.VarChar(50)  // 'open', 'investigating', 'contained', 'resolved', 'notified'
+  containment_actions   String?   @db.Text
+  resolution_notes      String?   @db.Text
+  notification_sent_at  DateTime? @db.Timestamp(6)
+  resolved_at           DateTime? @db.Timestamp(6)
+  created_at            DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([status])
+  @@index([severity])
+  @@map("data_breaches")
+}
