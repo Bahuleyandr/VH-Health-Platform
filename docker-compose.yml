@@ -12,6 +12,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - vhhealth-network
@@ -36,9 +38,27 @@ services:
     networks:
       - vhhealth-network
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - vhhealth-redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - vhhealth-network
+
 networks:
   vhhealth-network:
     driver: bridge
 
 volumes:
   vhhealth-db-data:
+  vhhealth-redis-data:
