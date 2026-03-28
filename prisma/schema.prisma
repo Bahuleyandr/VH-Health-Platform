@@ -155,25 +155,28 @@ model bulk_operation_logs {
 // ===================================================================
 
 model admins {
-  uid                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  username             String    @unique @db.VarChar(255)
-  password_hash        String    @db.VarChar(255)
-  email                String?   @db.VarChar(255)
-  name                 String?   @db.VarChar(255)
-  role                 String?   @default("ADMIN") @db.VarChar(50)
-  permissions          String[]
-  is_active            Boolean   @default(true)
-  created_at           DateTime  @default(now()) @db.Timestamp(6)
-  last_login           DateTime? @db.Timestamp(6)
-  created_by           String?   @db.Uuid
-  deactivated_by       String?   @db.Uuid
-  deactivation_reason  String?   @db.Text
-  deactivated_at       DateTime? @db.Timestamp(6)
-  reactivated_by       String?   @db.Uuid
-  reactivated_at       DateTime? @db.Timestamp(6)
+  id                    Int       @id @default(autoincrement())
+  username              String    @unique @db.VarChar(255)
+  password_hash         String    @db.VarChar(255)
+  email                 String?   @db.VarChar(255)
+  name                  String?   @db.VarChar(255)
+  role                  String?   @default("ADMIN") @db.VarChar(50)
+  status                String    @default("active") @db.VarChar(50)
+  permissions           String[]
+  failed_login_attempts Int       @default(0)
+  last_failed_login     DateTime? @db.Timestamp(6)
+  last_login            DateTime? @db.Timestamp(6)
+  password_changed_at   DateTime? @db.Timestamp(6)
+  created_at            DateTime  @default(now()) @db.Timestamp(6)
+  created_by            String?   @db.Uuid
+  deactivated_at        DateTime? @db.Timestamp(6)
+  deactivated_by        String?   @db.Uuid
+  deactivation_reason   String?   @db.Text
+  updated_at            DateTime? @db.Timestamp(6)
 
   @@index([username])
-  @@map("admins")
+  @@index([email])
+  @@map("admin_users")
 }
 
 model otp_sessions {
@@ -649,11 +652,17 @@ model batch_upload_logs {
 
 model staff {
   id                Int       @id @default(autoincrement())
-  user_id           String?   @db.Uuid
-  employee_id       String?   @db.VarChar(50)
+  uid               String    @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id           Int?
+  employee_id       String?   @unique @db.VarChar(50)
+  name              String?   @db.VarChar(255)
+  phone             String?   @db.VarChar(15)
+  role              String?   @db.VarChar(50)
+  pin_hash          String?   @db.VarChar(255)
   position          String?   @db.VarChar(100)
   department        String?   @db.VarChar(100)
   shift             String?   @db.VarChar(50)
+  shift_type        String?   @db.VarChar(50)
   salary            Float?
   hire_date         DateTime? @db.Date
   join_date         DateTime? @db.Date
@@ -665,12 +674,17 @@ model staff {
   is_active         Boolean   @default(true)
   on_leave          Boolean   @default(false)
   archived          Boolean   @default(false)
+  last_login        DateTime? @db.Timestamp(6)
+  pin_changed_at    DateTime? @db.Timestamp(6)
+  pin_reset_by      String?   @db.Uuid
   updated_by        String?   @db.Uuid
   created_by        String?   @db.Uuid
   created_at        DateTime  @default(now()) @db.Timestamp(6)
   updated_at        DateTime  @updatedAt @db.Timestamp(6)
 
+  @@index([uid])
   @@index([user_id])
+  @@index([employee_id])
   @@index([department])
   @@index([is_active])
   @@map("staff")

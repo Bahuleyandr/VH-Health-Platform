@@ -2,7 +2,7 @@
 import request from 'supertest';
 import app from '../app';
 
-const apiKey = process.env.API_KEY || 'vhhealth123';
+const apiKey = process.env.API_KEY || '';
 
 describe('Health Check API', () => {
   it('should return status ok', async () => {

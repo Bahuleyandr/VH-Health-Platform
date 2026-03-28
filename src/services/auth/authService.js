@@ -1,7 +1,7 @@
 // src/services/auth/authService.js
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import logger from '../../logging/logger.js';
@@ -13,48 +13,36 @@ import * as otpService from './otpService.js';
 // ✅ Use your real Firebase service
 import * as firebaseAuthService from './firebaseAuthService.js';
 
-// Match your schema
-const ADMIN_TABLE = process.env.ADMIN_TABLE ?? 'admin_users';
-const ADMIN_PASSWORD_COLUMN = process.env.ADMIN_PASSWORD_COLUMN ?? 'password_hash';
-
 export class AuthService {
   /* ======================= Firebase (pass-through) ======================= */
-  // Login with Firebase ID token
   static async authenticateWithFirebase(idToken, deviceInfo, req) {
     return firebaseAuthService.authenticateWithFirebase(idToken, deviceInfo, req);
   }
 
-  // Complete user profile after Firebase login
   static async completeUserProfile(profileData) {
     return firebaseAuthService.completeUserProfile(profileData);
   }
 
-  // Link Firebase account to an existing phone (expects idToken + otp)
   static async linkFirebaseAccount(phone, idToken, otp) {
     return firebaseAuthService.linkFirebaseAccount(phone, idToken, otp);
   }
 
-  // Back-compat alias if something calls the older name
   static async linkFirebaseToPhone(phone, idToken, otp) {
     return firebaseAuthService.linkFirebaseAccount(phone, idToken, otp);
   }
 
-  // Update device FCM token
   static async updateFcmToken(phone, fcmToken, deviceId) {
     return firebaseAuthService.updateFcmToken(phone, fcmToken, deviceId);
   }
 
-  // Revoke Firebase session
   static async revokeFirebaseSession(firebaseUid) {
     return firebaseAuthService.revokeFirebaseSession(firebaseUid);
   }
 
-  // Verify Firebase token status
   static async verifyFirebaseTokenStatus(idToken) {
     return firebaseAuthService.verifyTokenStatus(idToken);
   }
 
-  // Firebase health
   static async getFirebaseHealthStatus() {
     return firebaseAuthService.getHealthStatus();
   }
@@ -64,11 +52,10 @@ export class AuthService {
     try {
       const normalizedPhone = normalizePhone(phone);
 
-      const userResult = await db.query(
-        'SELECT uid, name, role FROM users WHERE phone = $1',
-        [normalizedPhone]
-      );
-      const userExists = userResult.rows.length > 0;
+      const existingUser = await prisma.users.findUnique({
+        where: { phone: normalizedPhone },
+        select: { uid: true, name: true, role: true },
+      });
 
       const otpResult = await otpService.requestOtp(
         normalizedPhone,
@@ -77,7 +64,7 @@ export class AuthService {
         req
       );
 
-      return { phone: normalizedPhone, userExists, otpSent: true, ...otpResult };
+      return { phone: normalizedPhone, userExists: !!existingUser, otpSent: true, ...otpResult };
     } catch (error) {
       logger.error('Request OTP error:', error);
       throw error;
@@ -98,16 +85,24 @@ export class AuthService {
         throw new Error(verification.reason || 'Invalid OTP');
       }
 
-      const upsertResult = await db.query(
-        `INSERT INTO users (phone, role, registered_at, last_login)
-         VALUES ($1, 'PATIENT', NOW(), NOW())
-         ON CONFLICT (phone) DO UPDATE SET last_login = NOW()
-         RETURNING uid, id, name, phone, role,
-           (xmax = 0) AS is_new_user`,
-        [normalizedPhone]
-      );
-      const user = upsertResult.rows[0];
-      const isNewUser = user.is_new_user;
+      // Check if user already exists to determine isNewUser
+      const existingUser = await prisma.users.findUnique({
+        where: { phone: normalizedPhone },
+        select: { uid: true },
+      });
+      const isNewUser = !existingUser;
+
+      // Upsert: create if new, update last_login if existing
+      const user = await prisma.users.upsert({
+        where: { phone: normalizedPhone },
+        create: {
+          phone: normalizedPhone,
+          role: 'PATIENT',
+          registered_at: new Date(),
+        },
+        update: {},
+        select: { uid: true, id: true, name: true, phone: true, role: true },
+      });
 
       if (isNewUser) {
         logger.info(`New user registered: ${normalizedPhone}`);
@@ -163,30 +158,29 @@ export class AuthService {
   }
 
   /* =================== Admin Auth (matches admin_users) ================== */
-  // identity = username OR email
   static async adminLogin(identity, password) {
     try {
-      const { rows } = await db.query(
-        `
-        SELECT
-          id          AS uid,
-          username,
-          email,
-          role,
-          status,
-          failed_login_attempts,
-          last_failed_login,
-          ${ADMIN_PASSWORD_COLUMN} AS pwd
-        FROM ${ADMIN_TABLE}
-        WHERE lower(username) = lower($1) OR lower(email) = lower($1)
-        LIMIT 1
-        `,
-        [identity]
-      );
+      const admin = await prisma.admins.findFirst({
+        where: {
+          OR: [
+            { username: { equals: identity, mode: 'insensitive' } },
+            { email: { equals: identity, mode: 'insensitive' } },
+          ],
+        },
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          role: true,
+          status: true,
+          failed_login_attempts: true,
+          last_failed_login: true,
+          password_hash: true,
+          updated_at: true,
+        },
+      });
 
-      if (rows.length === 0) throw new Error('Invalid credentials');
-
-      const admin = rows[0];
+      if (!admin) throw new Error('Invalid credentials');
 
       if (admin.status && String(admin.status).toLowerCase() !== 'active') {
         throw new Error('Account is deactivated');
@@ -206,43 +200,42 @@ export class AuthService {
           }
         }
         // Lockout period has expired, reset the counter
-        await db.query(
-          `UPDATE ${ADMIN_TABLE} SET failed_login_attempts = 0 WHERE id = $1`,
-          [admin.uid]
-        );
+        await prisma.admins.update({
+          where: { id: admin.id },
+          data: { failed_login_attempts: 0 },
+        });
       }
 
-      const ok = await bcrypt.compare(password, admin.pwd);
+      const ok = await bcrypt.compare(password, admin.password_hash);
       if (!ok) {
-        await db.query(
-          `UPDATE ${ADMIN_TABLE}
-             SET failed_login_attempts = COALESCE(failed_login_attempts,0) + 1,
-                 last_failed_login = NOW()
-           WHERE id = $1`,
-          [admin.uid]
-        );
+        await prisma.admins.update({
+          where: { id: admin.id },
+          data: {
+            failed_login_attempts: { increment: 1 },
+            last_failed_login: new Date(),
+          },
+        });
         throw new Error('Invalid credentials');
       }
 
-const token = generateToken({
-uid: String(admin.uid),
-role: String(admin.role).toUpperCase(),
-email: admin.email ?? undefined,
-sub: String(admin.uid),              // optional standard claim
-iss: 'vh-health-backend',            // optional
-aud: 'vh-health-admin'               // optional
-});
-      await db.query(
-        `UPDATE ${ADMIN_TABLE} 
-            SET last_login = NOW(), failed_login_attempts = 0
-          WHERE id = $1`,
-        [admin.uid]
-      );
+      const token = generateToken({
+        uid: String(admin.id),
+        role: String(admin.role).toUpperCase(),
+        email: admin.email ?? undefined,
+        sub: String(admin.id),
+        iss: 'vh-health-backend',
+        aud: 'vh-health-admin',
+      });
+
+      await prisma.admins.update({
+        where: { id: admin.id },
+        data: { last_login: new Date(), failed_login_attempts: 0 },
+      });
 
       return {
         token,
         admin: {
-          uid: admin.uid,
+          uid: admin.id,
           username: admin.username,
           email: admin.email,
           role: admin.role,
@@ -256,23 +249,21 @@ aud: 'vh-health-admin'               // optional
 
   static async changeAdminPassword(adminId, currentPassword, newPassword) {
     try {
-      const { rows } = await db.query(
-        `SELECT ${ADMIN_PASSWORD_COLUMN} AS pwd FROM ${ADMIN_TABLE} WHERE id = $1`,
-        [adminId]
-      );
-      if (rows.length === 0) throw new Error('Admin not found');
+      const admin = await prisma.admins.findUnique({
+        where: { id: parseInt(adminId, 10) },
+        select: { password_hash: true },
+      });
+      if (!admin) throw new Error('Admin not found');
 
-      const ok = await bcrypt.compare(currentPassword, rows[0].pwd);
+      const ok = await bcrypt.compare(currentPassword, admin.password_hash);
       if (!ok) throw new Error('Current password is incorrect');
 
       const newHash = await bcrypt.hash(newPassword, 10);
 
-      await db.query(
-        `UPDATE ${ADMIN_TABLE} 
-            SET ${ADMIN_PASSWORD_COLUMN} = $1, password_changed_at = NOW()
-          WHERE id = $2`,
-        [newHash, adminId]
-      );
+      await prisma.admins.update({
+        where: { id: parseInt(adminId, 10) },
+        data: { password_hash: newHash, password_changed_at: new Date() },
+      });
 
       return { message: 'Password changed successfully' };
     } catch (error) {
@@ -283,26 +274,27 @@ aud: 'vh-health-admin'               // optional
 
   static async adminForgotPassword(identity) {
     try {
-      const { rows } = await db.query(
-        `
-        SELECT id AS uid, username, email, phone 
-        FROM ${ADMIN_TABLE}
-        WHERE lower(username) = lower($1) OR lower(email) = lower($1)
-        LIMIT 1
-        `,
-        [identity]
-      );
-      if (rows.length === 0) throw new Error('Admin not found');
+      const admin = await prisma.admins.findFirst({
+        where: {
+          OR: [
+            { username: { equals: identity, mode: 'insensitive' } },
+            { email: { equals: identity, mode: 'insensitive' } },
+          ],
+        },
+        select: { id: true, username: true, email: true },
+      });
+      if (!admin) throw new Error('Admin not found');
 
-      const admin = rows[0];
       const otp = crypto.randomInt(100000, 999999).toString();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-      await db.query(
-        `INSERT INTO password_reset_otps (user_id, otp, expires_at, created_at)
-         VALUES ($1, $2, $3, NOW())`,
-        [admin.uid, otp, expiresAt]
-      );
+      await prisma.password_reset_otps.create({
+        data: {
+          user_id: String(admin.id),
+          otp,
+          expires_at: expiresAt,
+        },
+      });
 
       logger.info(`Password reset OTP requested for admin ${admin.username || admin.email}`);
 
@@ -317,71 +309,68 @@ aud: 'vh-health-admin'               // optional
   }
 
   static async adminResetPassword(identity, otp, newPassword) {
-    const client = await db.getClient();
     try {
-      await client.query('BEGIN');
+      // Use Prisma transaction for atomicity
+      return await prisma.$transaction(async (tx) => {
+        const admin = await tx.admins.findFirst({
+          where: {
+            OR: [
+              { username: { equals: identity, mode: 'insensitive' } },
+              { email: { equals: identity, mode: 'insensitive' } },
+            ],
+          },
+          select: { id: true },
+        });
+        if (!admin) throw new Error('Admin not found');
 
-      const aRes = await client.query(
-        `
-        SELECT id AS uid
-        FROM ${ADMIN_TABLE}
-        WHERE lower(username) = lower($1) OR lower(email) = lower($1)
-        LIMIT 1
-        `,
-        [identity]
-      );
-      if (aRes.rows.length === 0) throw new Error('Admin not found');
+        const otpRecord = await tx.password_reset_otps.findFirst({
+          where: {
+            user_id: String(admin.id),
+            otp,
+            expires_at: { gt: new Date() },
+            used: false,
+          },
+          orderBy: { created_at: 'desc' },
+          select: { id: true },
+        });
+        if (!otpRecord) throw new Error('Invalid or expired OTP');
 
-      const adminId = aRes.rows[0].uid;
+        const newHash = await bcrypt.hash(newPassword, 10);
 
-      const oRes = await client.query(
-        `SELECT id 
-           FROM password_reset_otps
-          WHERE user_id = $1
-            AND otp = $2
-            AND expires_at > NOW()
-            AND used = false
-          ORDER BY created_at DESC
-          LIMIT 1`,
-        [adminId, otp]
-      );
-      if (oRes.rows.length === 0) throw new Error('Invalid or expired OTP');
+        await tx.admins.update({
+          where: { id: admin.id },
+          data: { password_hash: newHash, password_changed_at: new Date() },
+        });
 
-      const newHash = await bcrypt.hash(newPassword, 10);
+        await tx.password_reset_otps.update({
+          where: { id: otpRecord.id },
+          data: { used: true },
+        });
 
-      await client.query(
-        `UPDATE ${ADMIN_TABLE}
-            SET ${ADMIN_PASSWORD_COLUMN} = $1, password_changed_at = NOW()
-          WHERE id = $2`,
-        [newHash, adminId]
-      );
-
-      await client.query(
-        'UPDATE password_reset_otps SET used = true WHERE id = $1',
-        [oRes.rows[0].id]
-      );
-
-      await client.query('COMMIT');
-      return { message: 'Password reset successfully' };
+        return { message: 'Password reset successfully' };
+      });
     } catch (error) {
-      await client.query('ROLLBACK');
       logger.error('Admin reset password error:', error);
       throw error;
-    } finally {
-      client.release();
     }
   }
 
   /* ========================= Staff Auth (PIN) ========================= */
   static async staffLogin(employeeId, pin) {
     try {
-      const staffResult = await db.query(
-        'SELECT uid, employee_id, pin_hash, name, role, is_active FROM staff WHERE employee_id = $1',
-        [employeeId]
-      );
-      if (staffResult.rows.length === 0) throw new Error('Staff member not found');
-
-      const staff = staffResult.rows[0];
+      const staff = await prisma.staff.findUnique({
+        where: { employee_id: employeeId },
+        select: {
+          uid: true,
+          employee_id: true,
+          pin_hash: true,
+          name: true,
+          role: true,
+          is_active: true,
+          phone: true,
+        },
+      });
+      if (!staff) throw new Error('Staff member not found');
       if (!staff.is_active) throw new Error('Account is deactivated');
 
       const ok = await bcrypt.compare(pin, staff.pin_hash);
@@ -391,10 +380,13 @@ aud: 'vh-health-admin'               // optional
         uid: String(staff.uid),
         phone: staff.phone,
         role: String(staff.role).toUpperCase(),
-        sub: String(staff.uid)
+        sub: String(staff.uid),
       });
 
-      await db.query('UPDATE staff SET last_login = NOW() WHERE uid = $1', [staff.uid]);
+      await prisma.staff.update({
+        where: { employee_id: employeeId },
+        data: { last_login: new Date() },
+      });
 
       return {
         token,
@@ -413,20 +405,20 @@ aud: 'vh-health-admin'               // optional
 
   static async changeStaffPin(staffId, currentPin, newPin) {
     try {
-      const staffResult = await db.query(
-        'SELECT pin_hash FROM staff WHERE uid = $1',
-        [staffId]
-      );
-      if (staffResult.rows.length === 0) throw new Error('Staff member not found');
+      const staff = await prisma.staff.findFirst({
+        where: { uid: staffId },
+        select: { id: true, pin_hash: true },
+      });
+      if (!staff) throw new Error('Staff member not found');
 
-      const ok = await bcrypt.compare(currentPin, staffResult.rows[0].pin_hash);
+      const ok = await bcrypt.compare(currentPin, staff.pin_hash);
       if (!ok) throw new Error('Current PIN is incorrect');
 
       const newPinHash = await bcrypt.hash(newPin, 10);
-      await db.query(
-        'UPDATE staff SET pin_hash = $1, pin_changed_at = NOW() WHERE uid = $2',
-        [newPinHash, staffId]
-      );
+      await prisma.staff.update({
+        where: { id: staff.id },
+        data: { pin_hash: newPinHash, pin_changed_at: new Date() },
+      });
       return { message: 'PIN changed successfully' };
     } catch (error) {
       logger.error('Change staff PIN error:', error);
@@ -436,17 +428,21 @@ aud: 'vh-health-admin'               // optional
 
   static async resetStaffPin(employeeId, newPin, adminId) {
     try {
-      const staffResult = await db.query(
-        'SELECT uid FROM staff WHERE employee_id = $1',
-        [employeeId]
-      );
-      if (staffResult.rows.length === 0) throw new Error('Staff member not found');
+      const staff = await prisma.staff.findUnique({
+        where: { employee_id: employeeId },
+        select: { id: true },
+      });
+      if (!staff) throw new Error('Staff member not found');
 
       const newPinHash = await bcrypt.hash(newPin, 10);
-      await db.query(
-        'UPDATE staff SET pin_hash = $1, pin_changed_at = NOW(), pin_reset_by = $2 WHERE employee_id = $3',
-        [newPinHash, adminId, employeeId]
-      );
+      await prisma.staff.update({
+        where: { id: staff.id },
+        data: {
+          pin_hash: newPinHash,
+          pin_changed_at: new Date(),
+          pin_reset_by: adminId,
+        },
+      });
       return { message: 'Staff PIN reset successfully' };
     } catch (error) {
       logger.error('Reset staff PIN error:', error);
@@ -456,36 +452,34 @@ aud: 'vh-health-admin'               // optional
 
   /* ======================= Admin CRUD / Profile ======================= */
   static async createAdmin(adminData) {
-    const client = await db.getClient();
     try {
-      await client.query('BEGIN');
-
       const { username, password, email, name, createdBy } = adminData;
 
-      const existing = await client.query(
-        `SELECT id FROM ${ADMIN_TABLE} WHERE lower(username) = lower($1)`,
-        [username]
-      );
-      if (existing.rows.length > 0) throw new Error('Username already exists');
+      const existing = await prisma.admins.findFirst({
+        where: { username: { equals: username, mode: 'insensitive' } },
+        select: { id: true },
+      });
+      if (existing) throw new Error('Username already exists');
 
       const passwordHash = await bcrypt.hash(password, 10);
 
-      const insert = await client.query(
-        `INSERT INTO ${ADMIN_TABLE} 
-         (username, ${ADMIN_PASSWORD_COLUMN}, email, name, role, created_by, status, created_at)
-         VALUES ($1, $2, $3, $4, 'ADMIN', $5, 'active', NOW())
-         RETURNING id AS uid, username, email, name`,
-        [username, passwordHash, email, name, createdBy ?? null]
-      );
+      const newAdmin = await prisma.admins.create({
+        data: {
+          username,
+          password_hash: passwordHash,
+          email,
+          name,
+          role: 'ADMIN',
+          status: 'active',
+          created_by: createdBy ?? null,
+        },
+        select: { id: true, username: true, email: true, name: true },
+      });
 
-      await client.query('COMMIT');
-      return { admin: insert.rows[0] };
+      return { admin: { uid: newAdmin.id, ...newAdmin } };
     } catch (error) {
-      await client.query('ROLLBACK');
       logger.error('Create admin error:', error);
       throw error;
-    } finally {
-      client.release();
     }
   }
 
@@ -493,25 +487,31 @@ aud: 'vh-health-admin'               // optional
     try {
       const offset = (page - 1) * limit;
 
-      const [adminsResult, countResult] = await Promise.all([
-        db.query(
-          `SELECT 
-              id AS uid, username, email, name, status, created_at, last_login
-           FROM ${ADMIN_TABLE}
-           ORDER BY created_at DESC
-           LIMIT $1 OFFSET $2`,
-          [limit, offset]
-        ),
-        db.query(`SELECT COUNT(*) FROM ${ADMIN_TABLE}`)
+      const [admins, total] = await Promise.all([
+        prisma.admins.findMany({
+          select: {
+            id: true,
+            username: true,
+            email: true,
+            name: true,
+            status: true,
+            created_at: true,
+            last_login: true,
+          },
+          orderBy: { created_at: 'desc' },
+          skip: offset,
+          take: limit,
+        }),
+        prisma.admins.count(),
       ]);
 
       return {
-        admins: adminsResult.rows,
+        admins: admins.map((a) => ({ uid: a.id, ...a })),
         pagination: {
           page,
           limit,
-          total: parseInt(countResult.rows[0].count, 10),
-          totalPages: Math.ceil(countResult.rows[0].count / limit),
+          total,
+          totalPages: Math.ceil(total / limit),
         },
       };
     } catch (error) {
@@ -522,42 +522,50 @@ aud: 'vh-health-admin'               // optional
 
   static async deactivateAdmin(adminId, reason, deactivatedBy) {
     try {
-      const result = await db.query(
-        `UPDATE ${ADMIN_TABLE} 
-            SET status = 'inactive',
-                deactivated_at = NOW(),
-                deactivated_by = $2,
-                deactivation_reason = $3
-          WHERE id = $1 AND status = 'active'
-          RETURNING id AS uid, username`,
-        [adminId, deactivatedBy ?? null, reason ?? null]
-      );
-      if (result.rows.length === 0) {
+      const admin = await prisma.admins.updateMany({
+        where: { id: parseInt(adminId, 10), status: 'active' },
+        data: {
+          status: 'inactive',
+          deactivated_at: new Date(),
+          deactivated_by: deactivatedBy ?? null,
+          deactivation_reason: reason ?? null,
+        },
+      });
+      if (admin.count === 0) {
         throw new Error('Admin not found or already deactivated');
       }
-      return { message: 'Admin account deactivated', admin: result.rows[0] };
+
+      const updated = await prisma.admins.findUnique({
+        where: { id: parseInt(adminId, 10) },
+        select: { id: true, username: true },
+      });
+      return { message: 'Admin account deactivated', admin: { uid: updated.id, username: updated.username } };
     } catch (error) {
       logger.error('Deactivate admin error:', error);
       throw error;
     }
   }
 
-  static async reactivateAdmin(adminId /*, reactivatedBy */) {
+  static async reactivateAdmin(adminId) {
     try {
-      const result = await db.query(
-        `UPDATE ${ADMIN_TABLE}
-            SET status = 'active',
-                deactivated_at = NULL,
-                deactivated_by = NULL,
-                deactivation_reason = NULL
-          WHERE id = $1 AND status = 'inactive'
-          RETURNING id AS uid, username`,
-        [adminId]
-      );
-      if (result.rows.length === 0) {
+      const admin = await prisma.admins.updateMany({
+        where: { id: parseInt(adminId, 10), status: 'inactive' },
+        data: {
+          status: 'active',
+          deactivated_at: null,
+          deactivated_by: null,
+          deactivation_reason: null,
+        },
+      });
+      if (admin.count === 0) {
         throw new Error('Admin not found or already active');
       }
-      return { message: 'Admin account reactivated', admin: result.rows[0] };
+
+      const updated = await prisma.admins.findUnique({
+        where: { id: parseInt(adminId, 10) },
+        select: { id: true, username: true },
+      });
+      return { message: 'Admin account reactivated', admin: { uid: updated.id, username: updated.username } };
     } catch (error) {
       logger.error('Reactivate admin error:', error);
       throw error;
@@ -566,21 +574,30 @@ aud: 'vh-health-admin'               // optional
 
   static async getAdminProfile(adminId) {
     try {
-      const result = await db.query(
-        `SELECT 
-           id AS uid, username, email, name, role, status, 
-           created_at, last_login, permissions
-         FROM ${ADMIN_TABLE}
-         WHERE id = $1`,
-        [adminId]
-      );
-      if (result.rows.length === 0) throw new Error('Admin not found');
+      const admin = await prisma.admins.findUnique({
+        where: { id: parseInt(adminId, 10) },
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          name: true,
+          role: true,
+          status: true,
+          created_at: true,
+          last_login: true,
+          permissions: true,
+        },
+      });
+      if (!admin) throw new Error('Admin not found');
 
-      const admin = result.rows[0];
-      admin.created_at = admin.created_at ? formatDateDDMMYYYY(admin.created_at) : null;
-      admin.last_login = admin.last_login ? formatDateDDMMYYYY(admin.last_login) : null;
-
-      return { admin };
+      return {
+        admin: {
+          uid: admin.id,
+          ...admin,
+          created_at: admin.created_at ? formatDateDDMMYYYY(admin.created_at) : null,
+          last_login: admin.last_login ? formatDateDDMMYYYY(admin.last_login) : null,
+        },
+      };
     } catch (error) {
       logger.error('Get admin profile error:', error);
       throw error;
@@ -593,13 +610,12 @@ aud: 'vh-health-admin'               // optional
       const decoded = verifyToken(token);
       if (!decoded) throw new Error('Invalid or expired token');
 
-      const userResult = await db.query(
-        'SELECT uid, phone, name, role FROM users WHERE uid = $1',
-        [decoded.uid]
-      );
-      if (userResult.rows.length === 0) throw new Error('User not found');
+      const user = await prisma.users.findUnique({
+        where: { uid: decoded.uid },
+        select: { uid: true, phone: true, name: true, role: true },
+      });
+      if (!user) throw new Error('User not found');
 
-      const user = userResult.rows[0];
       const newToken = generateToken({
         uid: user.uid,
         phone: user.phone,
@@ -625,11 +641,14 @@ aud: 'vh-health-admin'               // optional
     try {
       const decoded = verifyToken(token);
       if (decoded) {
-        await db.query(
-          `INSERT INTO auth_logs (user_id, phone, action, success, created_at)
-           VALUES ($1, $2, 'logout', true, NOW())`,
-          [decoded.uid, decoded.phone]
-        );
+        await prisma.auth_logs.create({
+          data: {
+            user_id: decoded.uid,
+            phone: decoded.phone,
+            action: 'logout',
+            success: true,
+          },
+        });
         return { phone: decoded.phone };
       }
       return {};
@@ -643,11 +662,11 @@ aud: 'vh-health-admin'               // optional
   static async getUserByPhone(phone) {
     try {
       const normalizedPhone = normalizePhone(phone);
-      const result = await db.query(
-        'SELECT uid, phone, name, role FROM users WHERE phone = $1',
-        [normalizedPhone]
-      );
-      return result.rows[0] || null;
+      const user = await prisma.users.findUnique({
+        where: { phone: normalizedPhone },
+        select: { uid: true, phone: true, name: true, role: true },
+      });
+      return user || null;
     } catch (error) {
       logger.error('Get user by phone error:', error);
       throw error;
@@ -662,20 +681,23 @@ aud: 'vh-health-admin'               // optional
     try {
       const normalizedPhone = normalizePhone(phone);
 
-      const upsertResult = await db.query(
-        `INSERT INTO users (phone, role, registered_at, last_login)
-         VALUES ($1, 'PATIENT', NOW(), NOW())
-         ON CONFLICT (phone) DO UPDATE SET last_login = NOW()
-         RETURNING uid, id, name, phone, role,
-           (xmax = 0) AS is_new_user`,
-        [normalizedPhone]
-      );
+      const existingUser = await prisma.users.findUnique({
+        where: { phone: normalizedPhone },
+        select: { uid: true },
+      });
 
-      const user = upsertResult.rows[0];
-
-      if (!user.is_new_user) {
+      if (existingUser) {
         throw new Error('User already exists');
       }
+
+      const user = await prisma.users.create({
+        data: {
+          phone: normalizedPhone,
+          role: 'PATIENT',
+          registered_at: new Date(),
+        },
+        select: { uid: true, id: true, phone: true, role: true },
+      });
 
       const token = generateToken({
         uid: user.uid,
@@ -701,22 +723,20 @@ aud: 'vh-health-admin'               // optional
   static async getAdminAuthHealth() {
     try {
       const [totalAdmins, activeAdmins, recentLogins] = await Promise.all([
-        db.query(`SELECT COUNT(*) FROM ${ADMIN_TABLE}`),
-        db.query(`SELECT COUNT(*) FROM ${ADMIN_TABLE} WHERE lower(status) = 'active'`),
-        db.query(
-          `SELECT COUNT(*) FROM auth_logs 
-            WHERE action = 'admin_login' AND success = true 
-              AND created_at > NOW() - INTERVAL '24 hours'`
-        ),
+        prisma.admins.count(),
+        prisma.admins.count({ where: { status: 'active' } }),
+        prisma.auth_logs.count({
+          where: {
+            action: 'admin_login',
+            success: true,
+            created_at: { gt: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+          },
+        }),
       ]);
 
       return {
         status: 'healthy',
-        statistics: {
-          totalAdmins: parseInt(totalAdmins.rows[0].count, 10),
-          activeAdmins: parseInt(activeAdmins.rows[0].count, 10),
-          recentLogins24h: parseInt(recentLogins.rows[0].count, 10),
-        },
+        statistics: { totalAdmins, activeAdmins, recentLogins24h: recentLogins },
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
@@ -734,28 +754,32 @@ aud: 'vh-health-admin'               // optional
       const offset = (page - 1) * limit;
 
       const [logs, total] = await Promise.all([
-        db.query(
-          `SELECT action, success, ip_address, user_agent, created_at
-             FROM auth_logs 
-            WHERE user_id = $1
-            ORDER BY created_at DESC
-            LIMIT $2 OFFSET $3`,
-          [adminId, limit, offset]
-        ),
-        db.query('SELECT COUNT(*) FROM auth_logs WHERE user_id = $1', [adminId])
+        prisma.auth_logs.findMany({
+          where: { user_id: adminId },
+          select: {
+            action: true,
+            success: true,
+            ip_address: true,
+            user_agent: true,
+            created_at: true,
+          },
+          orderBy: { created_at: 'desc' },
+          skip: offset,
+          take: limit,
+        }),
+        prisma.auth_logs.count({ where: { user_id: adminId } }),
       ]);
 
-      logs.rows.forEach((log) => {
-        log.created_at = formatDateDDMMYYYY(log.created_at);
-      });
-
       return {
-        logs: logs.rows,
+        logs: logs.map((log) => ({
+          ...log,
+          created_at: formatDateDDMMYYYY(log.created_at),
+        })),
         pagination: {
           page,
           limit,
-          total: parseInt(total.rows[0].count, 10),
-          totalPages: Math.ceil(total.rows[0].count / limit),
+          total,
+          totalPages: Math.ceil(total / limit),
         },
       };
     } catch (error) {
@@ -766,35 +790,38 @@ aud: 'vh-health-admin'               // optional
 
   static async getHealthStatus() {
     try {
-      const [userStats, otpStats, sessionStats] = await Promise.all([
-        db.query(`
-          SELECT 
-            COUNT(*) as total_users,
-            COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '24 hours') as active_24h,
-            COUNT(*) FILTER (WHERE registered_at > NOW() - INTERVAL '7 days') as new_users_7d
-          FROM users
-        `),
-        db.query(`
-          SELECT 
-            COUNT(*) as total_otps,
-            COUNT(*) FILTER (WHERE verified = true) as verified_otps,
-            COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '1 hour') as recent_otps
-          FROM otp_sessions WHERE created_at > NOW() - INTERVAL '24 hours'
-        `),
-        db.query(`
-          SELECT COUNT(*) as active_sessions
-            FROM user_sessions 
-           WHERE expires_at > NOW()
-        `),
+      const now = new Date();
+      const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+
+      const [totalUsers, active24h, newUsers7d, otpStats, activeSessions] = await Promise.all([
+        prisma.users.count(),
+        prisma.users.count({ where: { updated_at: { gt: oneDayAgo } } }),
+        prisma.users.count({ where: { registered_at: { gt: oneWeekAgo } } }),
+        Promise.all([
+          prisma.otp_sessions.count({ where: { created_at: { gt: oneDayAgo } } }),
+          prisma.otp_sessions.count({ where: { verified: true, created_at: { gt: oneDayAgo } } }),
+          prisma.otp_sessions.count({ where: { created_at: { gt: oneHourAgo } } }),
+        ]),
+        prisma.user_sessions.count({ where: { expires_at: { gt: now } } }),
       ]);
 
       return {
         status: 'healthy',
-        timestamp: new Date().toISOString(),
+        timestamp: now.toISOString(),
         statistics: {
-          users: userStats.rows[0],
-          otps: otpStats.rows[0],
-          sessions: sessionStats.rows[0],
+          users: {
+            total_users: totalUsers,
+            active_24h: active24h,
+            new_users_7d: newUsers7d,
+          },
+          otps: {
+            total_otps: otpStats[0],
+            verified_otps: otpStats[1],
+            recent_otps: otpStats[2],
+          },
+          sessions: { active_sessions: activeSessions },
         },
       };
     } catch (error) {
@@ -809,15 +836,28 @@ aud: 'vh-health-admin'               // optional
 
   static async getPublicStats() {
     try {
-      const stats = await db.query(`
-        SELECT 
-          COUNT(DISTINCT phone) as registered_users,
-          COUNT(*) FILTER (WHERE action = 'login' AND created_at > NOW() - INTERVAL '24 hours') as logins_24h,
-          COUNT(*) FILTER (WHERE action = 'register' AND created_at > NOW() - INTERVAL '7 days') as new_users_7d
-        FROM auth_logs
-      `);
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-      return { ...stats.rows[0], lastUpdated: new Date() };
+      const [registeredUsers, logins24h, newUsers7d] = await Promise.all([
+        prisma.auth_logs.groupBy({
+          by: ['phone'],
+          _count: true,
+        }).then((r) => r.length),
+        prisma.auth_logs.count({
+          where: { action: 'login', created_at: { gt: oneDayAgo } },
+        }),
+        prisma.auth_logs.count({
+          where: { action: 'register', created_at: { gt: oneWeekAgo } },
+        }),
+      ]);
+
+      return {
+        registered_users: registeredUsers,
+        logins_24h: logins24h,
+        new_users_7d: newUsers7d,
+        lastUpdated: new Date(),
+      };
     } catch (error) {
       logger.error('Get public stats error:', error);
       throw error;
@@ -841,16 +881,22 @@ aud: 'vh-health-admin'               // optional
         throw err;
       }
 
-      const upsertResult = await db.query(
-        `INSERT INTO users (phone, role, registered_at, last_login)
-         VALUES ($1, 'PATIENT', NOW(), NOW())
-         ON CONFLICT (phone) DO UPDATE SET last_login = NOW()
-         RETURNING uid, id, name, phone, role,
-           (xmax = 0) AS is_new_user`,
-        [normalizedPhone]
-      );
-      const user = upsertResult.rows[0];
-      const isNewUser = user.is_new_user;
+      const existingUser = await prisma.users.findUnique({
+        where: { phone: normalizedPhone },
+        select: { uid: true },
+      });
+      const isNewUser = !existingUser;
+
+      const user = await prisma.users.upsert({
+        where: { phone: normalizedPhone },
+        create: {
+          phone: normalizedPhone,
+          role: 'PATIENT',
+          registered_at: new Date(),
+        },
+        update: {},
+        select: { uid: true, id: true, name: true, phone: true, role: true },
+      });
 
       if (isNewUser) {
         logger.info(`New user registered: ${normalizedPhone}`);

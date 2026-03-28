@@ -4,7 +4,7 @@
 // OTPs are stored in database only, no SMS sending
 
 import crypto from 'crypto';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { OTP_CONFIG, OTP_ERRORS } from '../../config/otpConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
@@ -21,7 +21,7 @@ export const generateOTP = () => {
 // Request OTP (stores in database only)
 export const requestOtp = async (phone, purpose, userId, req) => {
   const normalizedPhone = normalizePhone(phone);
-  
+
   // Check daily limit
   const dailyLimitOk = await checkDailyLimit(normalizedPhone);
   if (!dailyLimitOk) {
@@ -30,7 +30,7 @@ export const requestOtp = async (phone, purpose, userId, req) => {
     error.statusCode = HTTP_STATUS.TOO_MANY_REQUESTS;
     throw error;
   }
-  
+
   // Check resend cooldown
   const cooldownOk = await checkResendCooldown(normalizedPhone, purpose);
   if (!cooldownOk) {
@@ -39,21 +39,19 @@ export const requestOtp = async (phone, purpose, userId, req) => {
     error.statusCode = HTTP_STATUS.TOO_MANY_REQUESTS;
     throw error;
   }
-  
+
   // Generate and store OTP
   const { otp, expiresAt, sessionId } = await storeOTP(normalizedPhone, purpose, userId);
-  
-  // Note: We don't send SMS here. For patients, Firebase handles SMS.
-  // This OTP is stored in database for admin/testing purposes only.
+
   if (!OTP_CONFIG.devMode) {
     logger.info(`📱 OTP generated for ${normalizedPhone} (stored in DB, no SMS sent)`);
   }
-  
+
   // Log successful request
   await logActivity(normalizedPhone, purpose, 'request', true, null, req);
-  
+
   logger.info(`📱 OTP ${otp} generated for ${normalizedPhone} (${purpose}) - Session: ${sessionId}`);
-  
+
   return {
     phone: normalizedPhone,
     purpose,
@@ -68,57 +66,56 @@ export const requestOtp = async (phone, purpose, userId, req) => {
 // Verify OTP
 export const verifyOtp = async (phone, inputOtp, purpose, req) => {
   const normalizedPhone = normalizePhone(phone);
-  
+
   // Get active OTP session
-  const result = await db.query(
-    `SELECT id, otp, expires_at, attempts, user_id 
-     FROM otp_sessions 
-     WHERE phone = $1 AND purpose = $2 AND verified = false 
-     ORDER BY created_at DESC 
-     LIMIT 1`,
-    [normalizedPhone, purpose]
-  );
-  
-  if (result.rows.length === 0) {
+  const session = await prisma.otp_sessions.findFirst({
+    where: {
+      phone: normalizedPhone,
+      purpose,
+      verified: false,
+    },
+    orderBy: { created_at: 'desc' },
+    select: { id: true, otp: true, expires_at: true, attempts: true, user_id: true },
+  });
+
+  if (!session) {
     await logActivity(normalizedPhone, purpose, 'verify', false, 'not_found', req);
     return { valid: false, reason: OTP_ERRORS.NOT_FOUND };
   }
-  
-  const session = result.rows[0];
-  
+
   // Check expiration
   if (new Date() > new Date(session.expires_at)) {
     await logActivity(normalizedPhone, purpose, 'verify', false, 'expired', req);
     return { valid: false, reason: OTP_ERRORS.EXPIRED };
   }
-  
+
   // Check attempts
   if (session.attempts >= OTP_CONFIG.maxAttempts) {
     await logActivity(normalizedPhone, purpose, 'verify', false, 'max_attempts', req);
     return { valid: false, reason: OTP_ERRORS.MAX_ATTEMPTS, attemptsLeft: 0 };
   }
-  
+
   // Increment attempts
-  await db.query(
-    'UPDATE otp_sessions SET attempts = attempts + 1 WHERE id = $1',
-    [session.id]
-  );
-  
+  await prisma.otp_sessions.update({
+    where: { id: session.id },
+    data: { attempts: { increment: 1 } },
+  });
+
   // Verify OTP
   if (session.otp !== inputOtp) {
     const attemptsLeft = OTP_CONFIG.maxAttempts - session.attempts - 1;
     await logActivity(normalizedPhone, purpose, 'verify', false, 'invalid_otp', req);
     return { valid: false, reason: OTP_ERRORS.INVALID, attemptsLeft };
   }
-  
+
   // Mark as verified
-  await db.query(
-    'UPDATE otp_sessions SET verified = true, verified_at = NOW() WHERE id = $1',
-    [session.id]
-  );
-  
+  await prisma.otp_sessions.update({
+    where: { id: session.id },
+    data: { verified: true },
+  });
+
   await logActivity(normalizedPhone, purpose, 'verify', true, null, req);
-  
+
   return {
     valid: true,
     sessionId: session.id,
@@ -131,62 +128,73 @@ export const verifyOtp = async (phone, inputOtp, purpose, req) => {
 
 // Check daily limit
 export const checkDailyLimit = async (phone) => {
-  const result = await db.query(
-    `SELECT COUNT(*) FROM otp_logs 
-     WHERE phone = $1 AND action = 'request' 
-     AND created_at > NOW() - INTERVAL '24 hours'`,
-    [phone]
-  );
-  
-  return parseInt(result.rows[0].count) < OTP_CONFIG.dailyLimit;
+  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const count = await prisma.otp_logs.count({
+    where: {
+      phone,
+      action: 'request',
+      created_at: { gt: oneDayAgo },
+    },
+  });
+  return count < OTP_CONFIG.dailyLimit;
 };
 
 // Check resend cooldown
 export const checkResendCooldown = async (phone, purpose) => {
-  const result = await db.query(
-    `SELECT MAX(created_at) as last_request FROM otp_sessions 
-     WHERE phone = $1 AND purpose = $2 
-     AND created_at > NOW() - INTERVAL '${OTP_CONFIG.resendCooldownMinutes} minutes'`,
-    [phone, purpose]
+  const cooldownThreshold = new Date(
+    Date.now() - OTP_CONFIG.resendCooldownMinutes * 60 * 1000
   );
-  
-  return !result.rows[0].last_request;
+  const recentSession = await prisma.otp_sessions.findFirst({
+    where: {
+      phone,
+      purpose,
+      created_at: { gt: cooldownThreshold },
+    },
+    orderBy: { created_at: 'desc' },
+    select: { created_at: true },
+  });
+  return !recentSession;
 };
 
 // Store OTP
 export const storeOTP = async (phone, purpose, userId) => {
   const otp = generateOTP();
   const expiresAt = new Date(Date.now() + (OTP_CONFIG.expirationMinutes * 60 * 1000));
-  
-  const result = await db.query(
-    `INSERT INTO otp_sessions (
-      phone, otp, purpose, expires_at, attempts, user_id, created_at, verified
-    ) VALUES ($1, $2, $3, $4, 0, $5, NOW(), false) 
-    RETURNING id`,
-    [phone, otp, purpose, expiresAt, userId]
-  );
-  
+
+  const record = await prisma.otp_sessions.create({
+    data: {
+      phone,
+      otp,
+      purpose,
+      expires_at: expiresAt,
+      attempts: 0,
+      user_id: userId ?? null,
+      verified: false,
+    },
+    select: { id: true },
+  });
+
   return {
     otp,
     expiresAt,
-    sessionId: result.rows[0].id
+    sessionId: record.id
   };
 };
 
 // Log OTP activity
 export const logActivity = async (phone, purpose, action, success, failureReason = null, req) => {
   try {
-    await db.query(
-      `INSERT INTO otp_logs (
-        phone, purpose, action, success, failure_reason, 
-        ip_address, user_agent, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
-      [
-        phone, purpose, action, success, failureReason,
-        req.headers['x-forwarded-for'] || req.connection?.remoteAddress,
-        req.headers['user-agent']
-      ]
-    );
+    await prisma.otp_logs.create({
+      data: {
+        phone,
+        purpose,
+        action,
+        success,
+        failure_reason: failureReason,
+        ip_address: req?.headers?.['x-forwarded-for'] || req?.connection?.remoteAddress || null,
+        user_agent: req?.headers?.['user-agent'] || null,
+      },
+    });
   } catch (dbError) {
     logger.warn('Failed to log OTP activity:', dbError.message);
   }
@@ -195,27 +203,25 @@ export const logActivity = async (phone, purpose, action, success, failureReason
 // Get health status
 export const getHealthStatus = async () => {
   try {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+
     const [activeOtps, recentRequests, recentVerifications] = await Promise.all([
-      db.query(
-        `SELECT COUNT(*) FROM otp_sessions 
-         WHERE verified = false AND expires_at > NOW()`
-      ),
-      db.query(
-        `SELECT COUNT(*) FROM otp_logs 
-         WHERE action = 'request' AND created_at > NOW() - INTERVAL '1 hour'`
-      ),
-      db.query(
-        `SELECT COUNT(*) FROM otp_logs 
-         WHERE action = 'verify' AND success = true 
-         AND created_at > NOW() - INTERVAL '1 hour'`
-      )
+      prisma.otp_sessions.count({
+        where: { verified: false, expires_at: { gt: new Date() } },
+      }),
+      prisma.otp_logs.count({
+        where: { action: 'request', created_at: { gt: oneHourAgo } },
+      }),
+      prisma.otp_logs.count({
+        where: { action: 'verify', success: true, created_at: { gt: oneHourAgo } },
+      }),
     ]);
-    
+
     return {
       status: 'healthy',
-      activeOtps: parseInt(activeOtps.rows[0].count),
-      recentRequests: parseInt(recentRequests.rows[0].count),
-      recentVerifications: parseInt(recentVerifications.rows[0].count),
+      activeOtps,
+      recentRequests,
+      recentVerifications,
       config: {
         expirationMinutes: OTP_CONFIG.expirationMinutes,
         maxAttempts: OTP_CONFIG.maxAttempts,
@@ -231,10 +237,4 @@ export const getHealthStatus = async () => {
       timestamp: new Date().toISOString()
     };
   }
-};
-
-// Send OTP via SMS (placeholder - implement with actual SMS provider)
-const sendOTPViaSMS = async (phone, otp) => {
-  // TODO: Implement actual SMS sending when SMS provider is configured
-  logger.info(`[OTP] Generated for ${phone}: ${otp} (SMS not configured)`);
 };

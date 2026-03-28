@@ -25,7 +25,7 @@ import request from 'supertest';
 import app from '../app.js';
 import { RATE_LIMIT_PROFILES } from '../config/rateLimitProfiles.js';
 
-const VALID_API_KEY = process.env.API_KEY || 'vhhealth123';
+const VALID_API_KEY = process.env.API_KEY || '';
 const WRONG_API_KEY = 'totally-wrong-key-xyz';
 
 // The global validateApiKey runs at line ~122 in app.js (before authMiddleware).

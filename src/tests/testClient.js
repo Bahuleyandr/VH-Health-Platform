@@ -5,10 +5,9 @@ import app from '../app.js';
 // ✅ Ensure .env.local is loaded first
 dotenv.config({ path: '.env.local' });
 
-export const API_KEY = process.env.API_KEY || 'vhhealth123';
+export const API_KEY = process.env.API_KEY || '';
 export const AUTH_TOKEN =
-  process.env.TEST_BEARER_TOKEN ||
-  'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOiJ0ZXN0LWFkbWluLXVpZCIsInBob25lIjoiOTg3NjU0MzIxMCIsInJvbGUiOiJBRE1JTiIsImlhdCI6MTc0NzY3MDA0MiwiZXhwIjoxNzQ3NzU2NDQyfQ.IyyBTcTrTc9z_Em-UUNlpwigxSZviJg7X-lZAlqPqk4';
+  process.env.TEST_BEARER_TOKEN || '';
 
 /**
  * Returns a SuperTest client ready to make requests
