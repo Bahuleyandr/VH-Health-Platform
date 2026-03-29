@@ -50,6 +50,10 @@ import searchRoutes from './routes/searchRoutes.js';
 import staffRoutes from './routes/staff/index.js';
 import userRoutes from './routes/user/index.js';
 import { bedRouter, wardRouter } from './routes/bed/bedRoutes.js';
+import bedManagementRoutes from './routes/bed/bedManagementRoutes.js';
+
+// FHIR interoperability
+import fhirRoutes from './routes/fhir/fhirRoutes.js';
 
 // Admin (centralized under /api/v1/admin)
 import adminDashboardRoutes from './routes/admin/index.js';
@@ -73,6 +77,18 @@ import consentRoutes from './routes/consentRoutes.js';
 // Compliance (Breach Notification + Audit Search)
 import breachRoutes from './routes/compliance/breachRoutes.js';
 import auditSearchRoutes from './routes/compliance/auditSearchRoutes.js';
+
+// Billing & Invoicing
+import billingRoutes from './routes/billing/billingRoutes.js';
+
+// Inter-staff messaging
+import messagingRoutes from './routes/messaging/messagingRoutes.js';
+
+// Patient reminders (medication)
+import reminderRoutes from './routes/reminders/index.js';
+
+// Clinical workflows (MAR, NEWS2, Handover)
+import clinicalRoutes from './routes/clinical/clinicalRoutes.js';
 
 // Swagger loader
 import swaggerLoader from './utils/swaggerLoader.js';
@@ -244,6 +260,9 @@ app.use('/api/v1/departments', departmentRoutes);
 app.use('/api/v1/doctors', doctorRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
 
+// Patient reminders (medication) — JWT via authMiddleware above
+app.use('/api/v1/reminders', patientRateLimiter, reminderRoutes);
+
 // Healthcare services - Legacy (to be modularized)
 app.use('/api/v1/devices', deviceRoutes);
 
@@ -267,7 +286,14 @@ app.use('/api/v1/staff', jwtAuth, staffRoutes);
 
 // Bed/Ward management (admin only)
 app.use('/api/v1/beds', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSE'), bedRouter);
+app.use('/api/v1/beds', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSE'), bedManagementRoutes);
 app.use('/api/v1/wards', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSE'), wardRouter);
+
+// FHIR R4 interoperability (JWT required)
+app.use('/api/v1/fhir', jwtAuth, fhirRoutes);
+
+// Clinical workflows: MAR, NEWS2, Nurse Handover (staff roles)
+app.use('/api/v1/clinical', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), clinicalRoutes);
 
 // Centralized admin namespace
 // AdminDashboardRoutes internally mounts: /appointments, /departments, /doctors,
@@ -279,6 +305,12 @@ app.use('/api/v1/system', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRat
 
 // Audit + system logs (portal: /api/v1/logs/audit, /api/v1/logs/system)
 app.use('/api/v1/logs', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, logRoutes);
+
+// Billing & Invoicing (JWT required — route-level role checks for mutations)
+app.use('/api/v1/billing', jwtAuth, billingRoutes);
+
+// Inter-staff messaging (JWT + any staff role)
+app.use('/api/v1/messaging', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'HR_STAFF', 'GENERAL_STAFF', 'DELIVERY_STAFF', 'RECEPTIONIST'), messagingRoutes);
 
 // Compliance: Breach Notification + Audit Search (admin only)
 app.use('/api/v1/compliance', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, breachRoutes);
