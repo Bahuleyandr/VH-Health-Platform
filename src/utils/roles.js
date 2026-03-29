@@ -11,18 +11,68 @@ export const DOCTOR        = 'DOCTOR';
 export const GENERAL_STAFF = 'GENERAL_STAFF';
 export const HR_STAFF      = 'HR_STAFF';
 export const MEDICAL_RECORDS = 'MEDICAL_RECORDS';
+export const RECEPTIONIST    = 'RECEPTIONIST';
+export const DELIVERY_STAFF  = 'DELIVERY_STAFF';
+
+// Clinical specialty
+export const RADIOLOGIST     = 'RADIOLOGIST';
+export const ANESTHETIST     = 'ANESTHETIST';
+
+// Allied health
+export const DIETITIAN       = 'DIETITIAN';
+export const PHYSIOTHERAPIST = 'PHYSIOTHERAPIST';
+export const SOCIAL_WORKER   = 'SOCIAL_WORKER';
+
+// Security & emergency
+export const SECURITY            = 'SECURITY';
+export const EMERGENCY_RESPONDER = 'EMERGENCY_RESPONDER';
+
+// Finance
+export const BILLING_STAFF        = 'BILLING_STAFF';
+export const INSURANCE_COORDINATOR = 'INSURANCE_COORDINATOR';
+
+// Quality & safety
+export const QUALITY_OFFICER          = 'QUALITY_OFFICER';
+export const INFECTION_CONTROL_OFFICER = 'INFECTION_CONTROL_OFFICER';
+
+// Specialized services
+export const OT_STAFF              = 'OT_STAFF';
+export const BLOOD_BANK_TECHNICIAN = 'BLOOD_BANK_TECHNICIAN';
+
+// Leadership
+export const DEPARTMENT_HEAD = 'DEPARTMENT_HEAD';
+export const CMO             = 'CMO';
+export const CNO             = 'CNO';
 
 // Useful aggregate (keep in a predictable order for UIs)
 export const ALL_ROLES = [
   SUPER_ADMIN,
   ADMIN,
+  CMO,
+  CNO,
+  DEPARTMENT_HEAD,
   DOCTOR,
   NURSING_STAFF,
+  RADIOLOGIST,
+  ANESTHETIST,
   PHARMACY_STAFF,
   LAB_STAFF,
   HR_STAFF,
   MEDICAL_RECORDS,
   GENERAL_STAFF,
+  RECEPTIONIST,
+  DELIVERY_STAFF,
+  DIETITIAN,
+  PHYSIOTHERAPIST,
+  SOCIAL_WORKER,
+  SECURITY,
+  EMERGENCY_RESPONDER,
+  BILLING_STAFF,
+  INSURANCE_COORDINATOR,
+  QUALITY_OFFICER,
+  INFECTION_CONTROL_OFFICER,
+  OT_STAFF,
+  BLOOD_BANK_TECHNICIAN,
   PATIENT
 ];
 

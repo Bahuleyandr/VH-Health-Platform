@@ -82,6 +82,18 @@ import auditSearchRoutes from './routes/compliance/auditSearchRoutes.js';
 // Billing & Invoicing
 import billingRoutes from './routes/billing/billingRoutes.js';
 
+// Quality & Infection Control
+import qualityRoutes from './routes/quality/qualityRoutes.js';
+
+// Referral Management
+import referralRoutes from './routes/referral/referralRoutes.js';
+
+// Department modules: Radiology, Dietary, Operating Theatre, Blood Bank
+import radiologyRoutes from './routes/radiology/radiologyRoutes.js';
+import dietaryRoutes from './routes/dietary/dietaryRoutes.js';
+import theatreRoutes from './routes/theatre/theatreRoutes.js';
+import bloodBankRoutes from './routes/bloodbank/bloodBankRoutes.js';
+
 // Inter-staff messaging
 import messagingRoutes from './routes/messaging/messagingRoutes.js';
 
@@ -273,11 +285,11 @@ app.use('/api/v1/users', patientRateLimiter, userRoutes);
 
 // Healthcare services - Modularized
 app.use('/api/v1/appointments', patientRateLimiter, appointmentRoutes);
-app.use('/api/v1/records', patientRateLimiter, recordRoutes);
-app.use('/api/v1/investigations', patientRateLimiter, investigationRoutes);
-app.use('/api/v1/pharmacy-orders', patientRateLimiter, pharmacyRoutes);
-app.use('/api/v1/prescriptions', patientRateLimiter, prescriptionRoutes);
-app.use('/api/v1/delivery', patientRateLimiter, deliveryRoutes);
+app.use('/api/v1/records', patientRateLimiter, jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS', 'PATIENT'), recordRoutes);
+app.use('/api/v1/investigations', patientRateLimiter, jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF', 'MEDICAL_RECORDS'), investigationRoutes);
+app.use('/api/v1/pharmacy-orders', patientRateLimiter, jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF'), pharmacyRoutes);
+app.use('/api/v1/prescriptions', patientRateLimiter, jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'PATIENT'), prescriptionRoutes);
+app.use('/api/v1/delivery', patientRateLimiter, jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'PHARMACY_STAFF', 'DELIVERY_STAFF'), deliveryRoutes);
 app.use('/api/v1/departments', departmentRoutes);
 app.use('/api/v1/doctors', doctorRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
@@ -307,9 +319,9 @@ app.use('/api/v1/consent', jwtAuth, consentRoutes);
 app.use('/api/v1/staff', jwtAuth, staffRoutes);
 
 // Bed/Ward management (admin only)
-app.use('/api/v1/beds', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSE'), bedRouter);
-app.use('/api/v1/beds', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSE'), bedManagementRoutes);
-app.use('/api/v1/wards', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSE'), wardRouter);
+app.use('/api/v1/beds', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), bedRouter);
+app.use('/api/v1/beds', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), bedManagementRoutes);
+app.use('/api/v1/wards', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), wardRouter);
 
 // FHIR R4 interoperability (JWT required)
 app.use('/api/v1/fhir', jwtAuth, fhirRoutes);
@@ -346,8 +358,26 @@ app.use('/api/v1/system', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRat
 // Audit + system logs (portal: /api/v1/logs/audit, /api/v1/logs/system)
 app.use('/api/v1/logs', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, logRoutes);
 
+// Radiology (JWT + clinical/admin roles)
+app.use('/api/v1/radiology', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'RADIOLOGY_STAFF'), radiologyRoutes);
+
+// Dietary / Nutrition (JWT + clinical/dietary roles)
+app.use('/api/v1/dietary', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'DIETARY_STAFF'), dietaryRoutes);
+
+// Operating Theatre (JWT + surgical/admin roles)
+app.use('/api/v1/theatre', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF'), theatreRoutes);
+
+// Blood Bank (JWT + clinical/blood bank roles)
+app.use('/api/v1/blood-bank', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BLOOD_BANK_STAFF'), bloodBankRoutes);
+
 // Billing & Invoicing (JWT required — route-level role checks for mutations)
 app.use('/api/v1/billing', jwtAuth, billingRoutes);
+
+// Quality & Infection Control (JWT required — route-level role checks)
+app.use('/api/v1/quality', jwtAuth, qualityRoutes);
+
+// Referral Management (JWT required — route-level role checks)
+app.use('/api/v1/referrals', jwtAuth, referralRoutes);
 
 // Inter-staff messaging (JWT + any staff role)
 app.use('/api/v1/messaging', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'HR_STAFF', 'GENERAL_STAFF', 'DELIVERY_STAFF', 'RECEPTIONIST'), messagingRoutes);
