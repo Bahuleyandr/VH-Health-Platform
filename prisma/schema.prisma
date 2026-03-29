@@ -1700,3 +1700,313 @@ model intake_output {
   @@index([recorded_at])
   @@map("intake_output")
 }
+
+// ===================================================================
+// RADIOLOGY
+// ===================================================================
+
+model radiology_orders {
+  id                  Int       @id @default(autoincrement())
+  patient_uid         String    @db.Uuid
+  encounter_id        String?   @db.Uuid
+  modality            String    @db.VarChar(30) // xray, ct, mri, ultrasound, mammography, fluoroscopy
+  body_part           String    @db.VarChar(100)
+  clinical_indication String    @db.Text
+  priority            String    @default("routine") @db.VarChar(20)
+  status              String    @default("ordered") @db.VarChar(30) // ordered, scheduled, in_progress, completed, cancelled
+  report              String?   @db.Text
+  findings            String?   @db.Text
+  impression          String?   @db.Text
+  images              String[]  @default([])
+  ordered_by          String    @db.Uuid
+  reported_by         String?   @db.Uuid
+  reported_at         DateTime? @db.Timestamp(6)
+  notes               String?   @db.Text
+  created_at          DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([status])
+  @@map("radiology_orders")
+}
+
+// ===================================================================
+// DIETARY / NUTRITION
+// ===================================================================
+
+model diet_orders {
+  id              Int       @id @default(autoincrement())
+  patient_uid     String    @db.Uuid
+  encounter_id    String?   @db.Uuid
+  diet_type       String    @db.VarChar(50) // regular, diabetic, cardiac, renal, soft, liquid, npo, enteral
+  restrictions    String[]  @default([])
+  allergies       String[]  @default([])
+  meal_preferences String?  @db.Text
+  calories_target Int?
+  special_instructions String? @db.Text
+  status          String    @default("active") @db.VarChar(20)
+  ordered_by      String    @db.Uuid
+  reviewed_by     String?   @db.Uuid
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([status])
+  @@map("diet_orders")
+}
+
+// ===================================================================
+// OPERATING THEATRE
+// ===================================================================
+
+model ot_schedules {
+  id                  Int       @id @default(autoincrement())
+  patient_uid         String    @db.Uuid
+  encounter_id        String?   @db.Uuid
+  surgeon             String    @db.Uuid
+  anesthetist         String?   @db.Uuid
+  procedure_name      String    @db.VarChar(255)
+  procedure_code      String?   @db.VarChar(20)
+  ot_room             String?   @db.VarChar(20)
+  scheduled_date      DateTime  @db.Date
+  scheduled_time      String?   @db.VarChar(10)
+  estimated_duration  Int?      // minutes
+  actual_duration     Int?
+  status              String    @default("scheduled") @db.VarChar(30) // scheduled, pre_op, in_progress, post_op, completed, cancelled
+  pre_op_checklist    Json?
+  equipment_needed    String[]  @default([])
+  blood_arranged      Boolean   @default(false)
+  consent_obtained    Boolean   @default(false)
+  post_op_notes       String?   @db.Text
+  complications       String?   @db.Text
+  created_at          DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([scheduled_date])
+  @@index([surgeon])
+  @@index([status])
+  @@map("ot_schedules")
+}
+
+// ===================================================================
+// BLOOD BANK
+// ===================================================================
+
+model blood_requests {
+  id                  Int       @id @default(autoincrement())
+  patient_uid         String    @db.Uuid
+  encounter_id        String?   @db.Uuid
+  blood_group         String    @db.VarChar(10) // A+, A-, B+, B-, AB+, AB-, O+, O-
+  component           String    @db.VarChar(30) // whole_blood, prbc, ffp, platelets, cryoprecipitate
+  units               Int
+  urgency             String    @default("routine") @db.VarChar(20) // routine, urgent, emergency
+  clinical_indication String    @db.Text
+  cross_match_status  String    @default("pending") @db.VarChar(20) // pending, compatible, incompatible
+  cross_matched_by    String?   @db.Uuid
+  cross_matched_at    DateTime? @db.Timestamp(6)
+  issued              Boolean   @default(false)
+  issued_by           String?   @db.Uuid
+  issued_at           DateTime? @db.Timestamp(6)
+  transfused          Boolean   @default(false)
+  transfusion_reaction String? @db.Text
+  status              String    @default("requested") @db.VarChar(20) // requested, cross_matched, issued, transfused, cancelled
+  ordered_by          String    @db.Uuid
+  created_at          DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([blood_group])
+  @@index([status])
+  @@map("blood_requests")
+}
+
+// ===================================================================
+// 🛡️ QUALITY & INFECTION CONTROL
+// ===================================================================
+
+model quality_incidents {
+  id                  Int       @id @default(autoincrement())
+  incident_number     String    @unique @db.VarChar(50)
+  reported_by         String    @db.Uuid
+  patient_uid         String?   @db.Uuid
+  incident_type       String    @db.VarChar(50) // fall, medication_error, infection, equipment_failure, near_miss, complaint, other
+  severity            String    @db.VarChar(20) // minor, moderate, major, sentinel
+  description         String    @db.Text
+  location            String?   @db.VarChar(100)
+  date_occurred       DateTime  @db.Timestamp(6)
+  root_cause          String?   @db.Text
+  corrective_action   String?   @db.Text
+  preventive_action   String?   @db.Text
+  status              String    @default("reported") @db.VarChar(30) // reported, investigating, action_taken, resolved, closed
+  investigated_by     String?   @db.Uuid
+  resolved_at         DateTime? @db.Timestamp(6)
+  created_at          DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([status])
+  @@index([incident_type])
+  @@index([severity])
+  @@map("quality_incidents")
+}
+
+model infection_cases {
+  id                  Int       @id @default(autoincrement())
+  patient_uid         String    @db.Uuid
+  encounter_id        String?   @db.Uuid
+  organism            String    @db.VarChar(255)
+  infection_site      String    @db.VarChar(100) // surgical_site, bloodstream, urinary, respiratory, wound, other
+  detection_date      DateTime  @db.Date
+  culture_date        DateTime? @db.Date
+  antibiotic_sensitivity Json?
+  isolation_required  Boolean   @default(false)
+  isolation_type      String?   @db.VarChar(50) // contact, droplet, airborne, protective
+  status              String    @default("active") @db.VarChar(20) // active, treated, resolved, deceased
+  treatment_notes     String?   @db.Text
+  reported_by         String    @db.Uuid
+  created_at          DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([organism])
+  @@index([status])
+  @@map("infection_cases")
+}
+
+// ===================================================================
+// 🔄 REFERRAL MANAGEMENT
+// ===================================================================
+
+model referrals {
+  id                  Int       @id @default(autoincrement())
+  referral_number     String    @unique @db.VarChar(50)
+  patient_uid         String    @db.Uuid
+  encounter_id        String?   @db.Uuid
+  referring_doctor    String    @db.Uuid
+  referred_to_doctor  String?   @db.Uuid
+  referred_to_department String @db.VarChar(100)
+  referral_type       String    @default("internal") @db.VarChar(20) // internal, external
+  reason              String    @db.Text
+  urgency             String    @default("routine") @db.VarChar(20) // routine, urgent, emergency
+  clinical_summary    String?   @db.Text
+  status              String    @default("pending") @db.VarChar(30) // pending, accepted, in_progress, completed, declined
+  accepted_by         String?   @db.Uuid
+  accepted_at         DateTime? @db.Timestamp(6)
+  completed_at        DateTime? @db.Timestamp(6)
+  response_notes      String?   @db.Text
+  created_at          DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([referring_doctor])
+  @@index([referred_to_doctor])
+  @@index([status])
+  @@map("referrals")
+}
+
+// ===================================================================
+// 🩻 RADIOLOGY
+// ===================================================================
+
+model radiology_orders {
+  id                  Int       @id @default(autoincrement())
+  patient_uid         String    @db.Uuid
+  encounter_id        String?   @db.Uuid
+  modality            String    @db.VarChar(30) // xray, ct, mri, ultrasound, mammography, fluoroscopy
+  body_part           String    @db.VarChar(100)
+  clinical_indication String    @db.Text
+  priority            String    @default("routine") @db.VarChar(20)
+  status              String    @default("ordered") @db.VarChar(30) // ordered, scheduled, in_progress, completed, cancelled
+  report              String?   @db.Text
+  findings            String?   @db.Text
+  impression          String?   @db.Text
+  images              String[]  @default([])
+  ordered_by          String    @db.Uuid
+  reported_by         String?   @db.Uuid
+  reported_at         DateTime? @db.Timestamp(6)
+  notes               String?   @db.Text
+  created_at          DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([status])
+  @@map("radiology_orders")
+}
+
+// ===================================================================
+// 🍽️ DIETARY / NUTRITION
+// ===================================================================
+
+model diet_orders {
+  id              Int       @id @default(autoincrement())
+  patient_uid     String    @db.Uuid
+  encounter_id    String?   @db.Uuid
+  diet_type       String    @db.VarChar(50) // regular, diabetic, cardiac, renal, soft, liquid, npo, enteral
+  restrictions    String[]  @default([])
+  allergies       String[]  @default([])
+  meal_preferences String?  @db.Text
+  calories_target Int?
+  special_instructions String? @db.Text
+  status          String    @default("active") @db.VarChar(20)
+  ordered_by      String    @db.Uuid
+  reviewed_by     String?   @db.Uuid
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([status])
+  @@map("diet_orders")
+}
+
+// ===================================================================
+// 🏥 OPERATING THEATRE
+// ===================================================================
+
+model ot_schedules {
+  id                  Int       @id @default(autoincrement())
+  patient_uid         String    @db.Uuid
+  encounter_id        String?   @db.Uuid
+  surgeon             String    @db.Uuid
+  anesthetist         String?   @db.Uuid
+  procedure_name      String    @db.VarChar(255)
+  procedure_code      String?   @db.VarChar(20)
+  ot_room             String?   @db.VarChar(20)
+  scheduled_date      DateTime  @db.Date
+  scheduled_time      String?   @db.VarChar(10)
+  estimated_duration  Int?      // minutes
+  actual_duration     Int?
+  status              String    @default("scheduled") @db.VarChar(30) // scheduled, pre_op, in_progress, post_op, completed, cancelled
+  pre_op_checklist    Json?
+  equipment_needed    String[]  @default([])
+  blood_arranged      Boolean   @default(false)
+  consent_obtained    Boolean   @default(false)
+  post_op_notes       String?   @db.Text
+  complications       String?   @db.Text
+  created_at          DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([scheduled_date])
+  @@index([surgeon])
+  @@index([status])
+  @@map("ot_schedules")
+}
+
+// ===================================================================
+// 🩸 BLOOD BANK
+// ===================================================================
+
+model blood_requests {
+  id                  Int       @id @default(autoincrement())
+  patient_uid         String    @db.Uuid
+  encounter_id        String?   @db.Uuid
+  blood_group         String    @db.VarChar(10) // A+, A-, B+, B-, AB+, AB-, O+, O-
+  component           String    @db.VarChar(30) // whole_blood, prbc, ffp, platelets, cryoprecipitate
+  units               Int
+  urgency             String    @default("routine") @db.VarChar(20) // routine, urgent, emergency
+  clinical_indication String    @db.Text
+  cross_match_status  String    @default("pending") @db.VarChar(20) // pending, compatible, incompatible
+  cross_matched_by    String?   @db.Uuid
+  cross_matched_at    DateTime? @db.Timestamp(6)
+  issued              Boolean   @default(false)
+  issued_by           String?   @db.Uuid
+  issued_at           DateTime? @db.Timestamp(6)
+  transfused          Boolean   @default(false)
+  transfusion_reaction String? @db.Text
+  status              String    @default("requested") @db.VarChar(20) // requested, cross_matched, issued, transfused, cancelled
+  ordered_by          String    @db.Uuid
+  created_at          DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([blood_group])
+  @@index([status])
+  @@map("blood_requests")
+}
