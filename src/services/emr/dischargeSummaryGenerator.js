@@ -399,13 +399,14 @@ async function signDischargeSummary(admissionId, doctorUid) {
   );
   if (!admRows.length) throw AppError.notFound('Admission not found');
 
-  // Verify the signer is a doctor
+  // Verify the signer is a doctor — Medical Records staff can edit but NOT sign
+  const { canSignDischargeSummary } = await import('../../utils/roleHelpers.js');
   const { rows: userRows } = await db.query(
     `SELECT role FROM users WHERE uid = $1`,
     [doctorUid]
   );
   const role = userRows[0]?.role?.toUpperCase() || '';
-  if (!['DOCTOR', 'SENIOR_DOCTOR', 'RESIDENT_DOCTOR', 'ADMIN', 'SUPER_ADMIN'].includes(role)) {
+  if (!canSignDischargeSummary(role) && role !== 'SUPER_ADMIN') {
     throw AppError.forbidden('Only doctors can sign discharge summaries');
   }
 

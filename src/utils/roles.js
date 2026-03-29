@@ -10,6 +10,7 @@ export const LAB_STAFF     = 'LAB_STAFF';
 export const DOCTOR        = 'DOCTOR';
 export const GENERAL_STAFF = 'GENERAL_STAFF';
 export const HR_STAFF      = 'HR_STAFF';
+export const MEDICAL_RECORDS = 'MEDICAL_RECORDS';
 
 // Useful aggregate (keep in a predictable order for UIs)
 export const ALL_ROLES = [
@@ -20,6 +21,7 @@ export const ALL_ROLES = [
   PHARMACY_STAFF,
   LAB_STAFF,
   HR_STAFF,
+  MEDICAL_RECORDS,
   GENERAL_STAFF,
   PATIENT
 ];
