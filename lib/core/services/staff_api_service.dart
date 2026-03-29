@@ -1317,4 +1317,144 @@ class StaffApiService {
       'order_id': orderId,
     });
   }
+
+  // ─── EMR: Admissions ──────────────────────────────────────────────────────
+
+  /// POST /emr/admit — admit a patient
+  static Future<Map<String, dynamic>> admitPatient(
+      Map<String, dynamic> data) async {
+    return _post('/emr/admit', data);
+  }
+
+  /// POST /emr/:id/discharge — discharge a patient
+  static Future<Map<String, dynamic>> dischargePatient(
+      int id, Map<String, dynamic> data) async {
+    return _post('/emr/$id/discharge', data);
+  }
+
+  /// GET /emr/admissions — list active admissions
+  static Future<Map<String, dynamic>> getActiveAdmissions({
+    int page = 1,
+    int limit = 20,
+  }) async {
+    return _get('/emr/admissions', query: {
+      'page': '$page',
+      'limit': '$limit',
+    });
+  }
+
+  /// GET /emr/admission/:id — admission detail
+  static Future<Map<String, dynamic>> getAdmissionDetail(int id) async {
+    return _get('/emr/admission/$id');
+  }
+
+  // ─── EMR: Clinical Notes ──────────────────────────────────────────────────
+
+  /// POST /emr/notes — create a clinical note
+  static Future<Map<String, dynamic>> createClinicalNote(
+      Map<String, dynamic> data) async {
+    return _post('/emr/notes', data);
+  }
+
+  /// GET /emr/notes/patient/:uid — fetch notes for a patient
+  static Future<Map<String, dynamic>> getPatientNotes(String uid,
+      {String? noteType}) async {
+    return _get('/emr/notes/patient/$uid', query: {
+      if (noteType != null) 'note_type': noteType,
+    });
+  }
+
+  /// GET /emr/timeline/:uid — full clinical timeline for a patient
+  static Future<Map<String, dynamic>> getPatientTimeline(String uid) async {
+    return _get('/emr/timeline/$uid');
+  }
+
+  /// POST /emr/notes/:id/sign — sign a clinical note
+  static Future<Map<String, dynamic>> signNote(int id) async {
+    return _post('/emr/notes/$id/sign', {});
+  }
+
+  // ─── EMR: Orders ──────────────────────────────────────────────────────────
+
+  /// POST /emr/orders — create an order (medication, investigation, nursing)
+  static Future<Map<String, dynamic>> createEmrOrder(
+      Map<String, dynamic> data) async {
+    return _post('/emr/orders', data);
+  }
+
+  /// GET /emr/orders/patient/:uid — list orders for a patient
+  static Future<Map<String, dynamic>> getPatientOrders(String uid) async {
+    return _get('/emr/orders/patient/$uid');
+  }
+
+  /// PUT /emr/orders/:id/verify — verify an order
+  static Future<Map<String, dynamic>> verifyOrder(int id) async {
+    final resp = await ApiClient.put('/emr/orders/$id/verify', body: {});
+    return _handle(resp);
+  }
+
+  /// PUT /emr/orders/:id/complete — complete an order
+  static Future<Map<String, dynamic>> completeOrder(int id) async {
+    final resp = await ApiClient.put('/emr/orders/$id/complete', body: {});
+    return _handle(resp);
+  }
+
+  // ─── EMR: Vitals ──────────────────────────────────────────────────────────
+
+  /// POST /emr/vitals — record EMR vitals
+  static Future<Map<String, dynamic>> recordEmrVitals(
+      Map<String, dynamic> data) async {
+    return _post('/emr/vitals', data);
+  }
+
+  /// GET /emr/vitals/:uid/trend — vital trend data for a patient
+  static Future<Map<String, dynamic>> getVitalsTrend(
+      String uid, String vital) async {
+    return _get('/emr/vitals/$uid/trend', query: {'vital': vital});
+  }
+
+  /// POST /emr/io — record intake/output entry
+  static Future<Map<String, dynamic>> recordIO(
+      Map<String, dynamic> data) async {
+    return _post('/emr/io', data);
+  }
+
+  /// GET /emr/io/:uid/balance — I/O balance for a patient
+  static Future<Map<String, dynamic>> getIOBalance(String uid,
+      {String? date}) async {
+    return _get('/emr/io/$uid/balance', query: {
+      if (date != null) 'date': date,
+    });
+  }
+
+  // ─── EMR: Diagnosis ───────────────────────────────────────────────────────
+
+  /// POST /emr/diagnosis — add a diagnosis
+  static Future<Map<String, dynamic>> addDiagnosis(
+      Map<String, dynamic> data) async {
+    return _post('/emr/diagnosis', data);
+  }
+
+  /// GET /emr/diagnosis/patient/:uid — active problem list
+  static Future<Map<String, dynamic>> getActiveProblemList(String uid) async {
+    return _get('/emr/diagnosis/patient/$uid');
+  }
+
+  /// GET /emr/icd10/search — search ICD-10 codes
+  static Future<Map<String, dynamic>> searchICD10(String query) async {
+    return _get('/emr/icd10/search', query: {'q': query});
+  }
+
+  // ─── EMR: CDS (Clinical Decision Support) ─────────────────────────────────
+
+  /// POST /emr/cds/check-order — run CDS checks on an order
+  static Future<Map<String, dynamic>> checkOrder(
+      Map<String, dynamic> orderData) async {
+    return _post('/emr/cds/check-order', orderData);
+  }
+
+  /// GET /emr/cds/alerts/:uid — active CDS alerts for a patient
+  static Future<Map<String, dynamic>> getActiveAlerts(String uid) async {
+    return _get('/emr/cds/alerts/$uid');
+  }
 }

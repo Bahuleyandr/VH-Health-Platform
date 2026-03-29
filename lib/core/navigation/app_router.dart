@@ -50,6 +50,13 @@ import '../../features/nursing/screens/handover_screen.dart';
 // About
 import '../../features/about/screens/about_screen.dart';
 
+// EMR
+import '../../features/emr/screens/admission_screen.dart';
+import '../../features/emr/screens/clinical_notes_screen.dart';
+import '../../features/emr/screens/patient_timeline_screen.dart';
+import '../../features/emr/screens/orders_screen.dart';
+import '../../features/emr/screens/vitals_chart_screen.dart';
+
 // Shell
 import '../widgets/main_scaffold.dart';
 
