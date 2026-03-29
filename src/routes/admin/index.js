@@ -14,6 +14,7 @@ import adminRecordRoutes from '../record/adminRoutes.js';
 import adminInvestigationRoutes from '../investigation/adminRoutes.js';
 import adminPharmacyRoutes from '../pharmacy/adminRoutes.js';
 import analyticsRoutes from '../analyticsRoutes.js';
+import featureFlagRoutes from './featureFlagRoutes.js';
 
 // Services (barrel import)
 import {
@@ -609,5 +610,6 @@ router.use('/records', adminRecordRoutes);
 router.use('/investigations', adminInvestigationRoutes);
 router.use('/pharmacy', adminPharmacyRoutes);
 router.use('/analytics', analyticsRoutes);
+router.use('/feature-flags', featureFlagRoutes);
 
 export default router;

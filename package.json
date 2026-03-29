@@ -15,6 +15,8 @@
     "test": "dotenv -e .env.local -- node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "start:local": "dotenv -e .env.local -- node src/bin/www.js",
     "start:render": "node src/bin/www.js",
+    "start:cluster": "node src/cluster.js",
+    "start:pm2": "pm2 start ecosystem.config.cjs",
     "r2:migrate-archive": "node src/scripts/r2/r2-migrate-archive.js",
     "r2:cleanup-old": "node src/scripts/r2/r2-cleanup-old.js",
     "r2:list-files": "node src/scripts/r2/r2-list-files.js",

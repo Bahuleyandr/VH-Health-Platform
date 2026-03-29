@@ -27,7 +27,7 @@ for i in {1..30}; do
 
     # Switch traffic (update nginx upstream)
     echo "upstream backend { server 127.0.0.1:$NEW_PORT; }" > /etc/nginx/conf.d/backend-upstream.conf
-    nginx -s reload
+    docker compose exec nginx nginx -s reload
     echo "Traffic switched to $NEW_COLOR"
 
     # Drain connections from old instance
