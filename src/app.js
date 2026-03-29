@@ -91,6 +91,16 @@ import reminderRoutes from './routes/reminders/index.js';
 // Clinical workflows (MAR, NEWS2, Handover)
 import clinicalRoutes from './routes/clinical/clinicalRoutes.js';
 
+// EMR — Clinical Documentation (SOAP, Progress, Procedure, Discharge, Timeline)
+import clinicalNotesRoutes from './routes/emr/clinicalNotesRoutes.js';
+
+// EMR — ADT (Admission/Discharge/Transfer)
+import admissionRoutes from './routes/emr/admissionRoutes.js';
+
+// EMR — CPOE (Order Entry) and Vitals Charting
+import orderRoutes from './routes/emr/orderRoutes.js';
+import vitalsRoutes from './routes/emr/vitalsRoutes.js';
+
 // Prometheus metrics
 import metricsRoutes from './routes/metrics/metricsRoutes.js';
 
@@ -300,6 +310,18 @@ app.use('/api/v1/fhir', jwtAuth, fhirRoutes);
 
 // Clinical workflows: MAR, NEWS2, Nurse Handover (staff roles)
 app.use('/api/v1/clinical', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), clinicalRoutes);
+
+// EMR — Clinical Documentation (notes, timeline)
+app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), clinicalNotesRoutes);
+
+// EMR — ADT (Admission/Discharge/Transfer)
+app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), admissionRoutes);
+
+// EMR — CPOE (Order Entry)
+app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), orderRoutes);
+
+// EMR — Vitals Charting & I/O
+app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), vitalsRoutes);
 
 // Centralized admin namespace
 // AdminDashboardRoutes internally mounts: /appointments, /departments, /doctors,
