@@ -4,6 +4,7 @@
 import express from 'express';
 import logger from '../../logging/logger.js';
 import admissionService from '../../services/emr/admissionService.js';
+import dischargeSummaryGenerator from '../../services/emr/dischargeSummaryGenerator.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 
@@ -182,6 +183,79 @@ router.put(
     const updatedBy = req.user?.uid;
     const admission = await admissionService.updateAttendingDoctor(admissionId, doctor_uid, updatedBy);
     success(res, { admission }, 'Attending doctor updated');
+  })
+);
+
+// ---------------------------------------------------------------------------
+// POST /:id/discharge-summary/generate — Auto-generate discharge summary
+// Aggregates all clinical data (notes, vitals, investigations, medications,
+// diagnoses) and generates a structured draft. Optionally uses a local AI
+// model for narrative summarization if AI_SUMMARIZE_URL is configured.
+// The generated summary is ALWAYS a draft — must be signed by a doctor.
+// ---------------------------------------------------------------------------
+router.post(
+  '/:id/discharge-summary/generate',
+  wrapAsync(async (req, res) => {
+    const admissionId = parseInt(req.params.id, 10);
+    if (isNaN(admissionId)) {
+      return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const summary = await dischargeSummaryGenerator.generateDischargeSummary(
+      admissionId,
+      req.user?.uid,
+      req
+    );
+
+    success(res, { discharge_summary: summary, is_draft: true },
+      'Discharge summary generated (draft — requires doctor review and signature)');
+  })
+);
+
+// ---------------------------------------------------------------------------
+// PUT /:id/discharge-summary — Save/edit discharge summary draft
+// The summary can be edited freely until it is signed.
+// ---------------------------------------------------------------------------
+router.put(
+  '/:id/discharge-summary',
+  wrapAsync(async (req, res) => {
+    const admissionId = parseInt(req.params.id, 10);
+    if (isNaN(admissionId)) {
+      return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const { discharge_summary } = req.body;
+    if (!discharge_summary) {
+      return error(res, 'discharge_summary is required', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const result = await dischargeSummaryGenerator.saveDischargeSummary(
+      admissionId,
+      discharge_summary,
+      req.user?.uid
+    );
+
+    success(res, result, `Discharge summary ${result.action} (still a draft — requires doctor signature)`);
+  })
+);
+
+// ---------------------------------------------------------------------------
+// POST /:id/discharge-summary/sign — Doctor signs the discharge summary
+// Once signed, the summary becomes immutable. Only addenda are allowed after.
+// Only doctors can sign. This is the final step before discharge.
+// ---------------------------------------------------------------------------
+router.post(
+  '/:id/discharge-summary/sign',
+  wrapAsync(async (req, res) => {
+    const admissionId = parseInt(req.params.id, 10);
+    if (isNaN(admissionId)) {
+      return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const doctorUid = req.user?.uid;
+    const result = await dischargeSummaryGenerator.signDischargeSummary(admissionId, doctorUid);
+
+    success(res, result, 'Discharge summary signed — now official and immutable');
   })
 );
 
