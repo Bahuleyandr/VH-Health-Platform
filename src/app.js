@@ -101,6 +101,12 @@ import admissionRoutes from './routes/emr/admissionRoutes.js';
 import orderRoutes from './routes/emr/orderRoutes.js';
 import vitalsRoutes from './routes/emr/vitalsRoutes.js';
 
+// EMR — Clinical Decision Support (CDS) Engine
+import cdsRoutes from './routes/emr/cdsRoutes.js';
+
+// EMR — Diagnosis & Problem List
+import diagnosisRoutes from './routes/emr/diagnosisRoutes.js';
+
 // Prometheus metrics
 import metricsRoutes from './routes/metrics/metricsRoutes.js';
 
@@ -322,6 +328,12 @@ app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'N
 
 // EMR — Vitals Charting & I/O
 app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), vitalsRoutes);
+
+// EMR — Clinical Decision Support (CDS) Engine
+app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), cdsRoutes);
+
+// EMR — Diagnosis & Problem List
+app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), diagnosisRoutes);
 
 // Centralized admin namespace
 // AdminDashboardRoutes internally mounts: /appointments, /departments, /doctors,
