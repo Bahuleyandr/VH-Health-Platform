@@ -29,8 +29,13 @@ jobs:
 
       - run: flutter pub get
 
-      - run: flutter analyze
+      - name: Security audit
+        run: flutter pub audit
         continue-on-error: true
 
+      - run: flutter analyze
+
       - run: flutter test
-        if: ${{ hashFiles('test/**') != '' }}
+
+      - name: Verify build
+        run: flutter build apk --debug

@@ -37,7 +37,7 @@ dependencies:
   
   # Networking / storage / utilities
   http: ^1.4.0
-  dio: ^5.8.0+1
+  encrypt: ^5.0.3
   shared_preferences: ^2.3.2      # Updated from 2.2.2
   path_provider: ^2.1.1
   open_filex: ^4.7.0
@@ -55,6 +55,7 @@ dependencies:
   firebase_core: ^4.0.0
   firebase_auth: ^6.0.0
   firebase_app_check: ^0.4.0
+  firebase_crashlytics: ^4.3.2
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Dev Dependencies

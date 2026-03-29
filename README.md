@@ -404,7 +404,7 @@ Set environment variables / API keys:
 
 
 
-The API key (vhhealth123) and base URLs are currently hard‑coded. For production builds, extract them into a secure file (e.g. .env using the flutter\_dotenv package) and reference them in your code.
+The API key and base URLs should NOT be hard-coded. For production builds, use a secure file (e.g. .env using the flutter\_dotenv package) or --dart-define flags and reference them in your code.
 
 
 
@@ -448,7 +448,7 @@ Copy code
 
 const String apiBaseUrl = String.fromEnvironment('API\_BASE\_URL', defaultValue: 'https://vh-health-backend.onrender.com/api/v1');
 
-const String apiKey     = String.fromEnvironment('API\_KEY', defaultValue: 'vhhealth123');
+const String apiKey     = String.fromEnvironment('API\_KEY');
 
 and then supply --dart-define=API\_BASE\_URL=... --dart-define=API\_KEY=... when building.
 

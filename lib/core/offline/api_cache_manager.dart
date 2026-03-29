@@ -2,6 +2,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
+import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
@@ -15,6 +17,8 @@ import 'package:path_provider/path_provider.dart';
 ///
 /// Cache keys are derived from the API path, so `/appointments/patient/123`
 /// becomes `appointments_patient_123.json`.
+///
+/// Data at rest is encrypted with AES-256-GCM.
 class ApiCacheManager {
   ApiCacheManager._();
 
@@ -23,45 +27,48 @@ class ApiCacheManager {
   static const Duration defaultTtl = Duration(minutes: 15);
 
   static String? _cacheDir;
-  static String? _encryptionKey;
+  static encrypt.Key? _aesKey;
 
-  /// Retrieve or generate a cache encryption key stored in secure storage.
-  static Future<String> _getEncryptionKey() async {
-    if (_encryptionKey != null) return _encryptionKey!;
+  /// Retrieve or generate a 256-bit AES key stored in secure storage.
+  static Future<encrypt.Key> _getEncryptionKey() async {
+    if (_aesKey != null) return _aesKey!;
     const storage = FlutterSecureStorage();
-    var key = await storage.read(key: 'cache_encryption_key');
-    if (key == null) {
+    var keyBase64 = await storage.read(key: 'cache_aes_key');
+    if (keyBase64 == null) {
       final random = Random.secure();
-      key = List.generate(
-        32,
-        (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
-      ).join();
-      await storage.write(key: 'cache_encryption_key', value: key);
+      final keyBytes = Uint8List(32);
+      for (var i = 0; i < 32; i++) {
+        keyBytes[i] = random.nextInt(256);
+      }
+      keyBase64 = base64Encode(keyBytes);
+      await storage.write(key: 'cache_aes_key', value: keyBase64);
     }
-    _encryptionKey = key;
-    return key;
+    _aesKey = encrypt.Key.fromBase64(keyBase64);
+    return _aesKey!;
   }
 
-  /// XOR-encrypt a plaintext string using the given key, returning base64.
-  static String _xorEncrypt(String input, String key) {
-    final keyBytes = key.codeUnits;
-    final inputBytes = utf8.encode(input);
-    final output = List<int>.generate(
-      inputBytes.length,
-      (i) => inputBytes[i] ^ keyBytes[i % keyBytes.length],
+  /// Encrypt plaintext using AES-256-GCM with a random 12-byte IV.
+  /// Returns `iv_base64:ciphertext_base64`.
+  static Future<String> _encrypt(String plaintext) async {
+    final key = await _getEncryptionKey();
+    final iv = encrypt.IV.fromSecureRandom(12);
+    final encrypter = encrypt.Encrypter(
+      encrypt.AES(key, mode: encrypt.AESMode.gcm),
     );
-    return base64Encode(output);
+    final encrypted = encrypter.encrypt(plaintext, iv: iv);
+    return '${iv.base64}:${encrypted.base64}';
   }
 
-  /// XOR-decrypt a base64 string using the given key, returning plaintext.
-  static String _xorDecrypt(String input, String key) {
-    final keyBytes = key.codeUnits;
-    final inputBytes = base64Decode(input);
-    final output = List<int>.generate(
-      inputBytes.length,
-      (i) => inputBytes[i] ^ keyBytes[i % keyBytes.length],
+  /// Decrypt a string produced by [_encrypt].
+  static Future<String> _decrypt(String ciphertext) async {
+    final key = await _getEncryptionKey();
+    final parts = ciphertext.split(':');
+    if (parts.length != 2) throw const FormatException('Invalid encrypted data');
+    final iv = encrypt.IV.fromBase64(parts[0]);
+    final encrypter = encrypt.Encrypter(
+      encrypt.AES(key, mode: encrypt.AESMode.gcm),
     );
-    return utf8.decode(output);
+    return encrypter.decrypt(encrypt.Encrypted.fromBase64(parts[1]), iv: iv);
   }
 
   static Future<String> _getCacheDir() async {
@@ -94,8 +101,7 @@ class ApiCacheManager {
         'cachedAt': DateTime.now().toIso8601String(),
         'data': data,
       };
-      final encryptionKey = await _getEncryptionKey();
-      final encrypted = _xorEncrypt(jsonEncode(envelope), encryptionKey);
+      final encrypted = await _encrypt(jsonEncode(envelope));
       await file.writeAsString(encrypted);
     } catch (e) {
       if (kDebugMode) debugPrint('ApiCacheManager.save failed for $path: $e');
@@ -112,8 +118,14 @@ class ApiCacheManager {
       if (!await file.exists()) return null;
 
       final content = await file.readAsString();
-      final encryptionKey = await _getEncryptionKey();
-      final decrypted = _xorDecrypt(content, encryptionKey);
+      String decrypted;
+      try {
+        decrypted = await _decrypt(content);
+      } catch (_) {
+        // Cache was written with old encryption — discard it
+        await file.delete();
+        return null;
+      }
       final envelope = jsonDecode(decrypted) as Map<String, dynamic>;
       final cachedAt = DateTime.parse(envelope['cachedAt'] as String);
       return CachedData(
