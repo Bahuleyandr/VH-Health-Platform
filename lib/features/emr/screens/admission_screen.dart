@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/services/staff_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
@@ -583,7 +584,11 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                             label: const Text('Vitals'),
                             onPressed: () {
                               Navigator.pop(context);
-                              // Navigate to vitals chart
+                              final uid = _detail?['patient_uid'] as String?;
+                              final name = _detail?['patient_name'] as String?;
+                              if (uid != null) {
+                                context.go('/emr/vitals/$uid${name != null ? '?name=$name' : ''}');
+                              }
                             },
                           ),
                           ActionChip(
@@ -591,6 +596,11 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                             label: const Text('Notes'),
                             onPressed: () {
                               Navigator.pop(context);
+                              final uid = _detail?['patient_uid'] as String?;
+                              final name = _detail?['patient_name'] as String?;
+                              if (uid != null) {
+                                context.go('/emr/notes/$uid${name != null ? '?name=$name' : ''}');
+                              }
                             },
                           ),
                           ActionChip(
@@ -598,6 +608,11 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                             label: const Text('Orders'),
                             onPressed: () {
                               Navigator.pop(context);
+                              final uid = _detail?['patient_uid'] as String?;
+                              final name = _detail?['patient_name'] as String?;
+                              if (uid != null) {
+                                context.go('/emr/orders/$uid${name != null ? '?name=$name' : ''}');
+                              }
                             },
                           ),
                           ActionChip(
@@ -605,6 +620,11 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                             label: const Text('Timeline'),
                             onPressed: () {
                               Navigator.pop(context);
+                              final uid = _detail?['patient_uid'] as String?;
+                              final name = _detail?['patient_name'] as String?;
+                              if (uid != null) {
+                                context.go('/emr/timeline/$uid${name != null ? '?name=$name' : ''}');
+                              }
                             },
                           ),
                         ],

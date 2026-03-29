@@ -259,6 +259,58 @@ final GoRouter appRouter = GoRouter(
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: AboutScreen()),
         ),
+
+        // EMR
+        GoRoute(
+          path: '/emr/admissions',
+          name: 'emr-admissions',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: AdmissionScreen()),
+        ),
+        GoRoute(
+          path: '/emr/notes/:uid',
+          name: 'emr-notes',
+          pageBuilder: (context, state) {
+            final uid = state.pathParameters['uid']!;
+            final name = state.uri.queryParameters['name'];
+            return NoTransitionPage(
+              child: ClinicalNotesScreen(patientUid: uid, patientName: name),
+            );
+          },
+        ),
+        GoRoute(
+          path: '/emr/timeline/:uid',
+          name: 'emr-timeline',
+          pageBuilder: (context, state) {
+            final uid = state.pathParameters['uid']!;
+            final name = state.uri.queryParameters['name'];
+            return NoTransitionPage(
+              child: PatientTimelineScreen(patientUid: uid, patientName: name),
+            );
+          },
+        ),
+        GoRoute(
+          path: '/emr/orders/:uid',
+          name: 'emr-orders',
+          pageBuilder: (context, state) {
+            final uid = state.pathParameters['uid']!;
+            final name = state.uri.queryParameters['name'];
+            return NoTransitionPage(
+              child: OrdersScreen(patientUid: uid, patientName: name),
+            );
+          },
+        ),
+        GoRoute(
+          path: '/emr/vitals/:uid',
+          name: 'emr-vitals',
+          pageBuilder: (context, state) {
+            final uid = state.pathParameters['uid']!;
+            final name = state.uri.queryParameters['name'];
+            return NoTransitionPage(
+              child: VitalsChartScreen(patientUid: uid, patientName: name),
+            );
+          },
+        ),
       ],
     ),
   ],
