@@ -1342,3 +1342,361 @@ model feature_flags {
 
   @@map("feature_flags")
 }
+
+// ===================================================================
+// CLINICAL NOTES (EMR)
+// ===================================================================
+
+model clinical_notes {
+  id              Int       @id @default(autoincrement())
+  encounter_id    String?   @db.Uuid  // links to admission encounter
+  patient_uid     String    @db.Uuid
+  author_uid      String    @db.Uuid
+  author_role     String    @db.VarChar(50)
+  note_type       String    @db.VarChar(30) // soap, progress, procedure, discharge, nursing_assessment, consultation_note
+  content         Json      // Structure varies by note_type
+  version         Int       @default(1)
+  parent_note_id  Int?      // For versioning — points to original note
+  is_addendum     Boolean   @default(false)
+  is_signed       Boolean   @default(false)
+  signed_at       DateTime? @db.Timestamp(6)
+  signed_by       String?   @db.Uuid
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
+  updated_at      DateTime? @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([encounter_id])
+  @@index([note_type])
+  @@index([author_uid])
+  @@index([created_at])
+  @@map("clinical_notes")
+}
+
+// ===================================================================
+// ADMISSION / DISCHARGE / TRANSFER (ADT)
+// ===================================================================
+
+model admissions {
+  id                  Int       @id @default(autoincrement())
+  encounter_id        String    @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  patient_uid         String    @db.Uuid
+  admitting_doctor    String    @db.Uuid
+  attending_doctor    String?   @db.Uuid
+  department          String?   @db.VarChar(100)
+  ward                String?   @db.VarChar(100)
+  bed_id              Int?
+  chief_complaint     String    @db.Text
+  admitting_diagnosis String?   @db.Text
+  admission_type      String    @default("elective") @db.VarChar(30) // elective, emergency, transfer_in
+  status              String    @default("admitted") @db.VarChar(30) // admitted, transferred, discharged, lama, expired
+  priority            String    @default("routine") @db.VarChar(20) // routine, urgent, emergent
+  insurance_info      Json?
+  emergency_contact   Json?     // {name, phone, relationship}
+  allergies           String[]  @default([])
+  code_status         String    @default("full_code") @db.VarChar(30) // full_code, dnr, dni, comfort_care
+  admitted_at         DateTime  @default(now()) @db.Timestamp(6)
+  discharged_at       DateTime? @db.Timestamp(6)
+  discharge_type      String?   @db.VarChar(30) // home, transfer, lama, expired, aor
+  discharge_summary   Json?     // {summary, medications, followUp, instructions}
+  expected_los_days   Int?
+  actual_los_days     Int?
+  created_by          String    @db.Uuid
+  created_at          DateTime  @default(now()) @db.Timestamp(6)
+  updated_at          DateTime? @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([status])
+  @@index([encounter_id])
+  @@index([admitting_doctor])
+  @@index([admitted_at])
+  @@map("admissions")
+}
+
+// ===================================================================
+// 📋 CPOE (Computerized Provider Order Entry)
+// ===================================================================
+
+model clinical_orders {
+  id              Int       @id @default(autoincrement())
+  order_number    String    @unique @db.VarChar(50)
+  encounter_id    String?   @db.Uuid
+  patient_uid     String    @db.Uuid
+  order_type      String    @db.VarChar(30) // medication, investigation, nursing, diet, activity, consultation
+  priority        String    @default("routine") @db.VarChar(20) // stat, urgent, routine, prn
+  details         Json      // Order-specific details (see docs)
+  status          String    @default("ordered") @db.VarChar(30) // ordered, verified, in_progress, completed, cancelled, discontinued
+  ordered_by      String    @db.Uuid
+  verified_by     String?   @db.Uuid
+  verified_at     DateTime? @db.Timestamp(6)
+  completed_by    String?   @db.Uuid
+  completed_at    DateTime? @db.Timestamp(6)
+  cancelled_by    String?   @db.Uuid
+  cancel_reason   String?   @db.Text
+  start_date      DateTime? @db.Timestamp(6)
+  end_date        DateTime? @db.Timestamp(6)
+  notes           String?   @db.Text
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([encounter_id])
+  @@index([order_type])
+  @@index([status])
+  @@index([ordered_by])
+  @@map("clinical_orders")
+}
+
+model order_sets {
+  id              Int       @id @default(autoincrement())
+  name            String    @unique @db.VarChar(255)
+  description     String?   @db.Text
+  category        String    @db.VarChar(100) // post_op, admission, icu, general
+  orders          Json      // Array of order templates
+  created_by      String    @db.Uuid
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([category])
+  @@map("order_sets")
+}
+
+// ===================================================================
+// 📊 VITALS CHARTING
+// ===================================================================
+
+model vitals_chart {
+  id              Int       @id @default(autoincrement())
+  patient_uid     String    @db.Uuid
+  encounter_id    String?   @db.Uuid
+  heart_rate      Int?
+  systolic_bp     Int?
+  diastolic_bp    Int?
+  temperature     Decimal?  @db.Decimal(4,1)
+  spo2            Int?
+  respiratory_rate Int?
+  blood_glucose   Decimal?  @db.Decimal(6,1)
+  pain_score      Int?      // 0-10 scale
+  weight_kg       Decimal?  @db.Decimal(5,1)
+  height_cm       Decimal?  @db.Decimal(5,1)
+  gcs_score       Int?      // Glasgow Coma Scale 3-15
+  supplemental_o2 Boolean?  @default(false)
+  o2_flow_rate    Decimal?  @db.Decimal(4,1) // L/min
+  consciousness   String?   @db.VarChar(10) // A, C, V, P, U (ACVPU)
+  notes           String?   @db.Text
+  recorded_by     String    @db.Uuid
+  recorded_at     DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([encounter_id])
+  @@index([recorded_at])
+  @@map("vitals_chart")
+}
+
+model intake_output {
+  id              Int       @id @default(autoincrement())
+  patient_uid     String    @db.Uuid
+  encounter_id    String?   @db.Uuid
+  io_type         String    @db.VarChar(20) // intake, output
+  category        String    @db.VarChar(50) // oral, iv, blood, urine, drain, vomit, stool, other
+  amount_ml       Int
+  description     String?   @db.VarChar(255)
+  recorded_by     String    @db.Uuid
+  recorded_at     DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([encounter_id])
+  @@index([recorded_at])
+  @@map("intake_output")
+}
+
+// ===================================================================
+// 🧠 CLINICAL DECISION SUPPORT (CDS)
+// ===================================================================
+
+model drug_interactions {
+  id              Int       @id @default(autoincrement())
+  drug_a          String    @db.VarChar(255)
+  drug_b          String    @db.VarChar(255)
+  severity        String    @db.VarChar(20) // mild, moderate, severe, contraindicated
+  description     String    @db.Text
+  clinical_effect String?   @db.Text
+  management      String?   @db.Text
+  source          String?   @db.VarChar(100) // e.g., "DrugBank", "FDA", "manual"
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([drug_a])
+  @@index([drug_b])
+  @@map("drug_interactions")
+}
+
+model clinical_protocols {
+  id              Int       @id @default(autoincrement())
+  name            String    @unique @db.VarChar(255)
+  category        String    @db.VarChar(100) // dvt_prophylaxis, pain_management, sepsis, post_op, falls_prevention
+  trigger_conditions Json   // conditions that trigger this protocol
+  recommendations Json     // recommended actions
+  priority        String    @default("medium") @db.VarChar(20)
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([category])
+  @@map("clinical_protocols")
+}
+
+model cds_alerts {
+  id              Int       @id @default(autoincrement())
+  patient_uid     String    @db.Uuid
+  encounter_id    String?   @db.Uuid
+  alert_type      String    @db.VarChar(50) // drug_interaction, allergy, critical_lab, protocol_reminder, duplicate_order
+  severity        String    @db.VarChar(20) // info, warning, critical
+  title           String    @db.VarChar(255)
+  description     String    @db.Text
+  source_data     Json?     // the data that triggered the alert
+  acknowledged    Boolean   @default(false)
+  acknowledged_by String?   @db.Uuid
+  acknowledged_at DateTime? @db.Timestamp(6)
+  override_reason String?   @db.Text
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([encounter_id])
+  @@index([alert_type])
+  @@index([acknowledged])
+  @@map("cds_alerts")
+}
+
+// ===================================================================
+// 🏥 DIAGNOSIS & PROBLEM LIST
+// ===================================================================
+
+model diagnoses {
+  id              Int       @id @default(autoincrement())
+  patient_uid     String    @db.Uuid
+  encounter_id    String?   @db.Uuid
+  icd10_code      String?   @db.VarChar(10)
+  icd10_description String? @db.VarChar(500)
+  description     String    @db.Text
+  diagnosis_type  String    @default("secondary") @db.VarChar(20) // primary, secondary, admitting, discharge
+  status          String    @default("active") @db.VarChar(20) // active, resolved, chronic, recurrent
+  onset_date      DateTime? @db.Date
+  resolved_date   DateTime? @db.Date
+  severity        String?   @db.VarChar(20) // mild, moderate, severe
+  diagnosed_by    String    @db.Uuid
+  notes           String?   @db.Text
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
+  updated_at      DateTime? @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([encounter_id])
+  @@index([icd10_code])
+  @@index([status])
+  @@map("diagnoses")
+}
+
+model icd10_codes {
+  id              Int       @id @default(autoincrement())
+  code            String    @unique @db.VarChar(10)
+  description     String    @db.VarChar(500)
+  category        String    @db.VarChar(255)
+  chapter         String?   @db.VarChar(10)
+  is_billable     Boolean   @default(true)
+
+  @@index([code])
+  @@index([description])
+  @@map("icd10_codes")
+}
+
+// ===================================================================
+// CPOE — Computerized Provider Order Entry
+// ===================================================================
+
+model clinical_orders {
+  id              Int       @id @default(autoincrement())
+  order_number    String    @unique @db.VarChar(50)
+  encounter_id    String?   @db.Uuid
+  patient_uid     String    @db.Uuid
+  order_type      String    @db.VarChar(30) // medication, investigation, nursing, diet, activity, consultation
+  priority        String    @default("routine") @db.VarChar(20) // stat, urgent, routine, prn
+  details         Json      // Order-specific details (see below)
+  status          String    @default("ordered") @db.VarChar(30) // ordered, verified, in_progress, completed, cancelled, discontinued
+  ordered_by      String    @db.Uuid
+  verified_by     String?   @db.Uuid
+  verified_at     DateTime? @db.Timestamp(6)
+  completed_by    String?   @db.Uuid
+  completed_at    DateTime? @db.Timestamp(6)
+  cancelled_by    String?   @db.Uuid
+  cancel_reason   String?   @db.Text
+  start_date      DateTime? @db.Timestamp(6)
+  end_date        DateTime? @db.Timestamp(6)
+  notes           String?   @db.Text
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([encounter_id])
+  @@index([order_type])
+  @@index([status])
+  @@index([ordered_by])
+  @@map("clinical_orders")
+}
+
+model order_sets {
+  id              Int       @id @default(autoincrement())
+  name            String    @unique @db.VarChar(255)
+  description     String?   @db.Text
+  category        String    @db.VarChar(100) // post_op, admission, icu, general
+  orders          Json      // Array of order templates
+  created_by      String    @db.Uuid
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([category])
+  @@map("order_sets")
+}
+
+// ===================================================================
+// Vitals Charting
+// ===================================================================
+
+model vitals_chart {
+  id              Int       @id @default(autoincrement())
+  patient_uid     String    @db.Uuid
+  encounter_id    String?   @db.Uuid
+  heart_rate      Int?
+  systolic_bp     Int?
+  diastolic_bp    Int?
+  temperature     Decimal?  @db.Decimal(4,1)
+  spo2            Int?
+  respiratory_rate Int?
+  blood_glucose   Decimal?  @db.Decimal(6,1)
+  pain_score      Int?      // 0-10 scale
+  weight_kg       Decimal?  @db.Decimal(5,1)
+  height_cm       Decimal?  @db.Decimal(5,1)
+  gcs_score       Int?      // Glasgow Coma Scale 3-15
+  supplemental_o2 Boolean?  @default(false)
+  o2_flow_rate    Decimal?  @db.Decimal(4,1) // L/min
+  consciousness   String?   @db.VarChar(10) // A, C, V, P, U (ACVPU)
+  notes           String?   @db.Text
+  recorded_by     String    @db.Uuid
+  recorded_at     DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([encounter_id])
+  @@index([recorded_at])
+  @@map("vitals_chart")
+}
+
+model intake_output {
+  id              Int       @id @default(autoincrement())
+  patient_uid     String    @db.Uuid
+  encounter_id    String?   @db.Uuid
+  io_type         String    @db.VarChar(20) // intake, output
+  category        String    @db.VarChar(50) // oral, iv, blood, urine, drain, vomit, stool, other
+  amount_ml       Int
+  description     String?   @db.VarChar(255)
+  recorded_by     String    @db.Uuid
+  recorded_at     DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([encounter_id])
+  @@index([recorded_at])
+  @@map("intake_output")
+}
