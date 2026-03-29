@@ -318,22 +318,22 @@ app.use('/api/v1/fhir', jwtAuth, fhirRoutes);
 app.use('/api/v1/clinical', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), clinicalRoutes);
 
 // EMR — Clinical Documentation (notes, timeline)
-app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), clinicalNotesRoutes);
+app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), clinicalNotesRoutes);
 
 // EMR — ADT (Admission/Discharge/Transfer)
-app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), admissionRoutes);
+app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), admissionRoutes);
 
 // EMR — CPOE (Order Entry)
-app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), orderRoutes);
+app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), orderRoutes);
 
 // EMR — Vitals Charting & I/O
-app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), vitalsRoutes);
+app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), vitalsRoutes);
 
 // EMR — Clinical Decision Support (CDS) Engine
-app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), cdsRoutes);
+app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), cdsRoutes);
 
 // EMR — Diagnosis & Problem List
-app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), diagnosisRoutes);
+app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), diagnosisRoutes);
 
 // Centralized admin namespace
 // AdminDashboardRoutes internally mounts: /appointments, /departments, /doctors,

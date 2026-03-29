@@ -7,6 +7,7 @@ import admissionService from '../../services/emr/admissionService.js';
 import dischargeSummaryGenerator from '../../services/emr/dischargeSummaryGenerator.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import { canViewDischargeSummary, canEditDischargeSummary, canSignDischargeSummary } from '../../utils/roleHelpers.js';
 
 const router = express.Router();
 
@@ -188,14 +189,16 @@ router.put(
 
 // ---------------------------------------------------------------------------
 // POST /:id/discharge-summary/generate — Auto-generate discharge summary
-// Aggregates all clinical data (notes, vitals, investigations, medications,
-// diagnoses) and generates a structured draft. Optionally uses a local AI
-// model for narrative summarization if AI_SUMMARIZE_URL is configured.
-// The generated summary is ALWAYS a draft — must be signed by a doctor.
+// Roles: DOCTOR, MEDICAL_RECORDS, ADMIN (not PHARMACY, HR, GENERAL)
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/discharge-summary/generate',
   wrapAsync(async (req, res) => {
+    const role = req.user?.role?.toUpperCase();
+    if (!canEditDischargeSummary(role) && role !== 'SUPER_ADMIN') {
+      return error(res, 'You do not have permission to generate discharge summaries', HTTP_STATUS.FORBIDDEN);
+    }
+
     const admissionId = parseInt(req.params.id, 10);
     if (isNaN(admissionId)) {
       return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
@@ -214,11 +217,16 @@ router.post(
 
 // ---------------------------------------------------------------------------
 // PUT /:id/discharge-summary — Save/edit discharge summary draft
-// The summary can be edited freely until it is signed.
+// Roles: DOCTOR, MEDICAL_RECORDS, ADMIN (not PHARMACY, HR, NURSING, GENERAL)
 // ---------------------------------------------------------------------------
 router.put(
   '/:id/discharge-summary',
   wrapAsync(async (req, res) => {
+    const role = req.user?.role?.toUpperCase();
+    if (!canEditDischargeSummary(role) && role !== 'SUPER_ADMIN') {
+      return error(res, 'You do not have permission to edit discharge summaries', HTTP_STATUS.FORBIDDEN);
+    }
+
     const admissionId = parseInt(req.params.id, 10);
     if (isNaN(admissionId)) {
       return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
@@ -241,12 +249,17 @@ router.put(
 
 // ---------------------------------------------------------------------------
 // POST /:id/discharge-summary/sign — Doctor signs the discharge summary
-// Once signed, the summary becomes immutable. Only addenda are allowed after.
-// Only doctors can sign. This is the final step before discharge.
+// Roles: DOCTOR only (SUPER_ADMIN can override)
+// Medical Records can generate/edit but NOT sign — only doctors sign.
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/discharge-summary/sign',
   wrapAsync(async (req, res) => {
+    const role = req.user?.role?.toUpperCase();
+    if (!canSignDischargeSummary(role) && role !== 'SUPER_ADMIN') {
+      return error(res, 'Only doctors can sign discharge summaries', HTTP_STATUS.FORBIDDEN);
+    }
+
     const admissionId = parseInt(req.params.id, 10);
     if (isNaN(admissionId)) {
       return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
