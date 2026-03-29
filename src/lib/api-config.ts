@@ -442,6 +442,19 @@ export const API_ENDPOINTS = {
     },
   },
 
+  // EMR (Electronic Medical Records)
+  emr: {
+    admissions: "/api/v1/emr/admissions",                          // GET - list active admissions
+    admissionDetail: (id: number) => `/api/v1/emr/admission/${id}`, // GET - single admission
+    admissionStats: "/api/v1/emr/admissions/stats",                // GET - ?date_from=&date_to=
+    timeline: (uid: string) => `/api/v1/emr/timeline/${uid}`,      // GET - patient timeline
+    notes: (uid: string) => `/api/v1/emr/notes/patient/${uid}`,    // GET - clinical notes
+    orders: (uid: string) => `/api/v1/emr/orders/patient/${uid}`,  // GET - clinical orders
+    diagnosis: (uid: string) => `/api/v1/emr/diagnosis/patient/${uid}`, // GET - active problem list
+    cdsAlerts: (uid: string) => `/api/v1/emr/cds/alerts/${uid}`,   // GET - clinical decision support alerts
+    icd10Search: "/api/v1/emr/icd10/search",                      // GET - ?q=search_term
+  },
+
   // Infrastructure / Admin Tools
   infrastructure: {
     apiDocs: "/api-docs", // GET
@@ -497,6 +510,7 @@ export const PROTECTED_ROUTES: string[] = [
   "/api/v1/devices",
   "/api/v1/feedback",
   "/api/v1/billing/*",
+  "/api/v1/emr/*",
 ];
 
 // Standard JSON headers

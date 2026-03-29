@@ -160,6 +160,19 @@ export {
   getRevenueStats, submitInsuranceClaim, getInsuranceClaims, updateInsuranceClaimStatus,
 };
 
+// EMR (Electronic Medical Records)
+import {
+  getActiveAdmissions, getAdmissionDetail, getAdmissionStats,
+  getPatientTimeline, getPatientNotes, getPatientOrders,
+  getActiveProblemList, getActiveAlerts, searchICD10,
+} from "./emr";
+export type { Admission, ClinicalNote, ClinicalOrder, AdmissionStats } from "./emr";
+export {
+  getActiveAdmissions, getAdmissionDetail, getAdmissionStats,
+  getPatientTimeline, getPatientNotes, getPatientOrders,
+  getActiveProblemList, getActiveAlerts, searchICD10,
+};
+
 // Convenience namespace export (back-compat for `import { api } from "@/lib/api"`)
 export const api = {
   // Auth
@@ -262,6 +275,17 @@ export const api = {
   deactivateAdmin,
   reactivateAdmin,
   updateAdminPermissions,
+
+  // EMR
+  getActiveAdmissions,
+  getAdmissionDetail,
+  getAdmissionStats,
+  getPatientTimeline,
+  getPatientNotes,
+  getPatientOrders,
+  getActiveProblemList,
+  getActiveAlerts,
+  searchICD10,
 
   // Billing & Invoicing
   createInvoice,
