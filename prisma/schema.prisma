@@ -28,12 +28,15 @@ model users {
   profile_picture String?   @db.Text
   role            String?   @default("PATIENT") @db.VarChar(50)
   is_active       Boolean   @default(true)
+  abha_number     String?   @unique @db.VarChar(20)   // ABDM — 14-digit ABHA number
+  abha_address    String?   @unique @db.VarChar(255)  // ABDM — user@abdm handle
   registered_at   DateTime  @default(now()) @db.Timestamp(6)
   updated_at      DateTime  @updatedAt @db.Timestamp(6)
 
   @@index([phone])
   @@index([uid])
   @@index([role])
+  @@index([abha_number])
   @@map("users")
 }
 
@@ -2009,4 +2012,49 @@ model blood_requests {
   @@index([blood_group])
   @@index([status])
   @@map("blood_requests")
+}
+
+// ===================================================================
+// 🏥 ABDM (Ayushman Bharat Digital Mission) — Consent & Data Exchange
+// ===================================================================
+
+model abdm_consents {
+  id                  Int       @id @default(autoincrement())
+  consent_id          String    @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  patient_uid         String    @db.Uuid
+  hip_id              String?   @db.VarChar(100)
+  hiu_id              String?   @db.VarChar(100)
+  purpose             String    @db.VarChar(50) // CAREMGT, BREAK_THE_GLASS, PUBHLTH, HPAYMT, DSRCH
+  hi_types            String[]  @default([]) // OPConsultation, Prescription, DischargeSummary, DiagnosticReport, ImmunizationRecord
+  date_range_from     DateTime? @db.Date
+  date_range_to       DateTime? @db.Date
+  expiry_date         DateTime  @db.Timestamp(6)
+  status              String    @default("REQUESTED") @db.VarChar(20) // REQUESTED, GRANTED, DENIED, REVOKED, EXPIRED
+  consent_artifact    Json?
+  requester_name      String?   @db.VarChar(255)
+  granted_at          DateTime? @db.Timestamp(6)
+  revoked_at          DateTime? @db.Timestamp(6)
+  created_at          DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([status])
+  @@map("abdm_consents")
+}
+
+model abdm_data_requests {
+  id                  Int       @id @default(autoincrement())
+  transaction_id      String    @unique @db.VarChar(100)
+  consent_id          String    @db.Uuid
+  patient_uid         String    @db.Uuid
+  hi_types            String[]  @default([])
+  date_range_from     DateTime? @db.Date
+  date_range_to       DateTime? @db.Date
+  key_material        Json?     // Public key for encryption
+  status              String    @default("REQUESTED") @db.VarChar(20) // REQUESTED, PROCESSING, DELIVERED, FAILED
+  delivered_at        DateTime? @db.Timestamp(6)
+  created_at          DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([consent_id])
+  @@index([patient_uid])
+  @@map("abdm_data_requests")
 }
