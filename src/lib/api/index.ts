@@ -144,6 +144,22 @@ export { updateSystemSetting, getSystemSettings };
 import { getAuditLogs, toggleUserStatus } from "./infrastructure";
 export { getAuditLogs, toggleUserStatus };
 
+// Billing & Invoicing
+import {
+  createInvoice, getPatientInvoices, getInvoiceDetail, recordPayment,
+  getRevenueStats, submitInsuranceClaim, getInsuranceClaims, updateInsuranceClaimStatus,
+} from "./billing";
+export type {
+  Invoice, InvoiceDetail, InvoiceLineItem, CreateInvoicePayload,
+  PaymentTransaction, RecordPaymentPayload, PaymentResult,
+  InsuranceClaim, SubmitClaimPayload, UpdateClaimPayload,
+  RevenueStats, RevenueSummary, Pagination,
+} from "./billing";
+export {
+  createInvoice, getPatientInvoices, getInvoiceDetail, recordPayment,
+  getRevenueStats, submitInsuranceClaim, getInsuranceClaims, updateInsuranceClaimStatus,
+};
+
 // Convenience namespace export (back-compat for `import { api } from "@/lib/api"`)
 export const api = {
   // Auth
@@ -246,4 +262,14 @@ export const api = {
   deactivateAdmin,
   reactivateAdmin,
   updateAdminPermissions,
+
+  // Billing & Invoicing
+  createInvoice,
+  getPatientInvoices,
+  getInvoiceDetail,
+  recordPayment,
+  getRevenueStats,
+  submitInsuranceClaim,
+  getInsuranceClaims,
+  updateInsuranceClaimStatus,
 };

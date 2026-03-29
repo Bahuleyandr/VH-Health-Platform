@@ -428,6 +428,20 @@ export const API_ENDPOINTS = {
     statistics: "/api/v1/feedback/statistics", // GET
   },
 
+  // Billing & Invoicing
+  billing: {
+    createInvoice: "/api/v1/billing/invoice", // POST
+    invoiceDetail: (id: number) => `/api/v1/billing/invoice/${id}`, // GET
+    patientInvoices: (patientUid: string) => `/api/v1/billing/invoices/patient/${patientUid}`, // GET
+    recordPayment: (id: number) => `/api/v1/billing/invoice/${id}/payment`, // POST
+    revenue: "/api/v1/billing/revenue", // GET
+    insurance: {
+      submitClaim: "/api/v1/billing/insurance/claim", // POST
+      listClaims: "/api/v1/billing/insurance/claims", // GET
+      updateClaim: (id: number) => `/api/v1/billing/insurance/claim/${id}`, // PUT
+    },
+  },
+
   // Infrastructure / Admin Tools
   infrastructure: {
     apiDocs: "/api-docs", // GET
@@ -482,6 +496,7 @@ export const PROTECTED_ROUTES: string[] = [
   "/api/v1/analytics/*",
   "/api/v1/devices",
   "/api/v1/feedback",
+  "/api/v1/billing/*",
 ];
 
 // Standard JSON headers
