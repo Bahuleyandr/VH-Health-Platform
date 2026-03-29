@@ -165,12 +165,14 @@ import {
   getActiveAdmissions, getAdmissionDetail, getAdmissionStats,
   getPatientTimeline, getPatientNotes, getPatientOrders,
   getActiveProblemList, getActiveAlerts, searchICD10,
+  generateDischargeSummary, saveDischargeSummary, signDischargeSummary,
 } from "./emr";
-export type { Admission, ClinicalNote, ClinicalOrder, AdmissionStats } from "./emr";
+export type { Admission, ClinicalNote, ClinicalOrder, AdmissionStats, DischargeSummary } from "./emr";
 export {
   getActiveAdmissions, getAdmissionDetail, getAdmissionStats,
   getPatientTimeline, getPatientNotes, getPatientOrders,
   getActiveProblemList, getActiveAlerts, searchICD10,
+  generateDischargeSummary, saveDischargeSummary, signDischargeSummary,
 };
 
 // Convenience namespace export (back-compat for `import { api } from "@/lib/api"`)
@@ -286,6 +288,9 @@ export const api = {
   getActiveProblemList,
   getActiveAlerts,
   searchICD10,
+  generateDischargeSummary,
+  saveDischargeSummary,
+  signDischargeSummary,
 
   // Billing & Invoicing
   createInvoice,

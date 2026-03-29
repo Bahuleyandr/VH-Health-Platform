@@ -69,3 +69,32 @@ export async function getPatientOrders(uid: string) { return getJSON(`/emr/order
 export async function getActiveProblemList(uid: string) { return getJSON(`/emr/diagnosis/patient/${uid}`); }
 export async function getActiveAlerts(uid: string) { return getJSON(`/emr/cds/alerts/${uid}`); }
 export async function searchICD10(query: string) { return getJSON(`/emr/icd10/search?q=${encodeURIComponent(query)}`); }
+
+// Discharge Summary
+export interface DischargeSummary {
+  hospital_course: string;
+  discharge_diagnosis: string;
+  discharge_condition: string;
+  medications_on_discharge: Array<{ name: string; dose: string; route: string; frequency: string; duration: string }>;
+  follow_up_instructions: string;
+  activity_restrictions: string;
+  diet_instructions: string;
+  warning_signs: string;
+  procedures_performed: string[];
+  investigations_summary: Array<{ test: string; status: string; result: string }>;
+  generated_at: string;
+  is_draft: boolean;
+  is_signed: boolean;
+  signed_by: string | null;
+  signed_at: string | null;
+}
+
+export async function generateDischargeSummary(admissionId: number) {
+  return postJSON(`/emr/${admissionId}/discharge-summary/generate`, {});
+}
+export async function saveDischargeSummary(admissionId: number, summary: Partial<DischargeSummary>) {
+  return putJSON(`/emr/${admissionId}/discharge-summary`, { discharge_summary: summary });
+}
+export async function signDischargeSummary(admissionId: number) {
+  return postJSON(`/emr/${admissionId}/discharge-summary/sign`, {});
+}
