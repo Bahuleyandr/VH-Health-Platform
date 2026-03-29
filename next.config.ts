@@ -19,6 +19,7 @@ const withPWA = withPWAInit({
 });
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
   reactStrictMode: true,
 
   // Sets crossorigin="anonymous" on Next scripts
