@@ -29,6 +29,10 @@ jobs:
 
       - run: flutter pub get
 
+      - name: Security audit
+        run: flutter pub audit
+        continue-on-error: true
+
       - run: flutter analyze
 
       - run: flutter test
