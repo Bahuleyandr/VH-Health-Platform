@@ -11,6 +11,13 @@ import {
   toFhirAppointment,
   toFhirObservation,
   toFhirMedicationRequest,
+  toFhirCondition,
+  toFhirProcedure,
+  toFhirDiagnosticReport,
+  toFhirAllergyIntolerance,
+  toFhirEncounter,
+  toFhirDocumentReference,
+  toFhirServiceRequest,
 } from '../../services/fhir/fhirAdapter.js';
 
 const router = express.Router();
@@ -46,6 +53,15 @@ function wrapAsync(fn) {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: parse _count and _offset query parameters
+// ---------------------------------------------------------------------------
+function parsePagination(query) {
+  const _count = Math.min(Math.max(parseInt(query._count, 10) || 200, 1), 1000);
+  const _offset = Math.max(parseInt(query._offset, 10) || 0, 0);
+  return { _count, _offset };
+}
+
+// ---------------------------------------------------------------------------
 // GET /metadata — FHIR CapabilityStatement
 // ---------------------------------------------------------------------------
 router.get(
@@ -75,6 +91,8 @@ router.get(
               searchParam: [
                 { name: 'name', type: 'string' },
                 { name: 'phone', type: 'token' },
+                { name: '_count', type: 'number' },
+                { name: '_offset', type: 'number' },
               ],
             },
             {
@@ -92,6 +110,8 @@ router.get(
                 { name: 'patient', type: 'reference' },
                 { name: 'code', type: 'token' },
                 { name: 'date', type: 'date' },
+                { name: '_count', type: 'number' },
+                { name: '_offset', type: 'number' },
               ],
             },
             {
@@ -102,6 +122,86 @@ router.get(
               searchParam: [
                 { name: 'patient', type: 'reference' },
                 { name: 'status', type: 'token' },
+                { name: '_count', type: 'number' },
+                { name: '_offset', type: 'number' },
+              ],
+            },
+            {
+              type: 'Condition',
+              interaction: [
+                { code: 'search-type' },
+              ],
+              searchParam: [
+                { name: 'patient', type: 'reference' },
+                { name: '_count', type: 'number' },
+                { name: '_offset', type: 'number' },
+              ],
+            },
+            {
+              type: 'Procedure',
+              interaction: [
+                { code: 'search-type' },
+              ],
+              searchParam: [
+                { name: 'patient', type: 'reference' },
+                { name: '_count', type: 'number' },
+                { name: '_offset', type: 'number' },
+              ],
+            },
+            {
+              type: 'DiagnosticReport',
+              interaction: [
+                { code: 'search-type' },
+              ],
+              searchParam: [
+                { name: 'patient', type: 'reference' },
+                { name: '_count', type: 'number' },
+                { name: '_offset', type: 'number' },
+              ],
+            },
+            {
+              type: 'AllergyIntolerance',
+              interaction: [
+                { code: 'search-type' },
+              ],
+              searchParam: [
+                { name: 'patient', type: 'reference' },
+                { name: '_count', type: 'number' },
+                { name: '_offset', type: 'number' },
+              ],
+            },
+            {
+              type: 'Encounter',
+              interaction: [
+                { code: 'search-type' },
+              ],
+              searchParam: [
+                { name: 'patient', type: 'reference' },
+                { name: '_count', type: 'number' },
+                { name: '_offset', type: 'number' },
+              ],
+            },
+            {
+              type: 'DocumentReference',
+              interaction: [
+                { code: 'search-type' },
+              ],
+              searchParam: [
+                { name: 'patient', type: 'reference' },
+                { name: 'type', type: 'token' },
+                { name: '_count', type: 'number' },
+                { name: '_offset', type: 'number' },
+              ],
+            },
+            {
+              type: 'ServiceRequest',
+              interaction: [
+                { code: 'search-type' },
+              ],
+              searchParam: [
+                { name: 'patient', type: 'reference' },
+                { name: '_count', type: 'number' },
+                { name: '_offset', type: 'number' },
               ],
             },
           ],
@@ -142,6 +242,7 @@ router.get(
   '/Patient',
   wrapAsync(async (req, res) => {
     const { name, phone } = req.query;
+    const { _count, _offset } = parsePagination(req.query);
     const conditions = [];
     const params = [];
     let idx = 1;
@@ -162,8 +263,8 @@ router.get(
 
     const { rows } = await db.query(
       `SELECT uid, phone, name, gender, email, birthday, address, profile_picture, is_active
-       FROM users ${where} ORDER BY name LIMIT 100`,
-      params
+       FROM users ${where} ORDER BY name LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, _count, _offset]
     );
 
     const resources = rows.map(toFhirPatient);
@@ -201,6 +302,7 @@ router.get(
   '/Observation',
   wrapAsync(async (req, res) => {
     const { patient, code, date } = req.query;
+    const { _count, _offset } = parsePagination(req.query);
     const conditions = [];
     const params = [];
     let idx = 1;
@@ -227,8 +329,8 @@ router.get(
 
     const { rows } = await db.query(
       `SELECT id, patient_uid, type, value, unit, recorded_date, recorded_by
-       FROM vital_signs ${where} ORDER BY recorded_date DESC LIMIT 200`,
-      params
+       FROM vital_signs ${where} ORDER BY recorded_date DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, _count, _offset]
     );
 
     const resources = rows.map(toFhirObservation);
@@ -243,6 +345,7 @@ router.get(
   '/MedicationRequest',
   wrapAsync(async (req, res) => {
     const { patient, status } = req.query;
+    const { _count, _offset } = parsePagination(req.query);
     const conditions = [];
     const params = [];
     let idx = 1;
@@ -275,12 +378,242 @@ router.get(
     const { rows } = await db.query(
       `SELECT id, uid, phone, status, medication, order_note, prescribed_by,
               priority, urgent, ordered_at, created_at
-       FROM pharmacy_orders ${where} ORDER BY created_at DESC LIMIT 200`,
-      params
+       FROM pharmacy_orders ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, _count, _offset]
     );
 
     const resources = rows.map(toFhirMedicationRequest);
     res.json(buildBundle('MedicationRequest', resources));
+  })
+);
+
+// ---------------------------------------------------------------------------
+// GET /Condition — Search conditions (diagnoses) by patient
+// ---------------------------------------------------------------------------
+router.get(
+  '/Condition',
+  wrapAsync(async (req, res) => {
+    const { patient } = req.query;
+    const { _count, _offset } = parsePagination(req.query);
+    const conditions = [];
+    const params = [];
+    let idx = 1;
+
+    if (patient) {
+      conditions.push(`patient_uid = $${idx}`);
+      params.push(patient);
+      idx++;
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const { rows } = await db.query(
+      `SELECT id, patient_uid, status, icd10_code, icd10_description, description,
+              onset_date, resolved_date, diagnosed_by, notes, created_at
+       FROM diagnoses ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, _count, _offset]
+    );
+
+    const resources = rows.map(toFhirCondition);
+    res.json(buildBundle('Condition', resources));
+  })
+);
+
+// ---------------------------------------------------------------------------
+// GET /Procedure — Search procedures by patient
+// ---------------------------------------------------------------------------
+router.get(
+  '/Procedure',
+  wrapAsync(async (req, res) => {
+    const { patient } = req.query;
+    const { _count, _offset } = parsePagination(req.query);
+    const conditions = [];
+    const params = [];
+    let idx = 1;
+
+    if (patient) {
+      conditions.push(`patient_uid = $${idx}`);
+      params.push(patient);
+      idx++;
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const { rows } = await db.query(
+      `SELECT id, patient_uid, note_type, title, content, status, procedure_name,
+              performed_at, performed_by, author_id, outcome, complications, notes, created_at
+       FROM clinical_notes ${where} AND note_type = 'PROCEDURE' ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, _count, _offset]
+    );
+
+    const resources = rows.map(toFhirProcedure);
+    res.json(buildBundle('Procedure', resources));
+  })
+);
+
+// ---------------------------------------------------------------------------
+// GET /DiagnosticReport — Search diagnostic reports (investigations) by patient
+// ---------------------------------------------------------------------------
+router.get(
+  '/DiagnosticReport',
+  wrapAsync(async (req, res) => {
+    const { patient } = req.query;
+    const { _count, _offset } = parsePagination(req.query);
+    const conditions = [];
+    const params = [];
+    let idx = 1;
+
+    if (patient) {
+      conditions.push(`(patient_uid = $${idx} OR uid = $${idx})`);
+      params.push(patient);
+      idx++;
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const { rows } = await db.query(
+      `SELECT id, patient_uid, uid, status, test_name, investigation_type, results,
+              conclusion, interpretation, ordered_at, completed_at, created_at
+       FROM investigations ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, _count, _offset]
+    );
+
+    const resources = rows.map(toFhirDiagnosticReport);
+    res.json(buildBundle('DiagnosticReport', resources));
+  })
+);
+
+// ---------------------------------------------------------------------------
+// GET /AllergyIntolerance — Search patient allergies
+// ---------------------------------------------------------------------------
+router.get(
+  '/AllergyIntolerance',
+  wrapAsync(async (req, res) => {
+    const { patient } = req.query;
+    const { _count, _offset } = parsePagination(req.query);
+    const conditions = [];
+    const params = [];
+    let idx = 1;
+
+    if (patient) {
+      conditions.push(`patient_uid = $${idx}`);
+      params.push(patient);
+      idx++;
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const { rows } = await db.query(
+      `SELECT id, patient_uid, allergen, description, name, severity, reaction, recorded_at
+       FROM allergies ${where} ORDER BY recorded_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, _count, _offset]
+    );
+
+    const resources = rows.map(toFhirAllergyIntolerance);
+    res.json(buildBundle('AllergyIntolerance', resources));
+  })
+);
+
+// ---------------------------------------------------------------------------
+// GET /Encounter — Search patient encounters (admissions)
+// ---------------------------------------------------------------------------
+router.get(
+  '/Encounter',
+  wrapAsync(async (req, res) => {
+    const { patient } = req.query;
+    const { _count, _offset } = parsePagination(req.query);
+    const conditions = [];
+    const params = [];
+    let idx = 1;
+
+    if (patient) {
+      conditions.push(`patient_uid = $${idx}`);
+      params.push(patient);
+      idx++;
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const { rows } = await db.query(
+      `SELECT id, patient_uid, status, priority, admission_type, reason, reason_for_admission,
+              admitting_doctor, attending_doctor, admitted_at, discharged_at,
+              discharge_disposition, discharge_type, ward, bed_number
+       FROM admissions ${where} ORDER BY admitted_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, _count, _offset]
+    );
+
+    const resources = rows.map(toFhirEncounter);
+    res.json(buildBundle('Encounter', resources));
+  })
+);
+
+// ---------------------------------------------------------------------------
+// GET /DocumentReference — Search clinical documents by patient and type
+// ---------------------------------------------------------------------------
+router.get(
+  '/DocumentReference',
+  wrapAsync(async (req, res) => {
+    const { patient, type } = req.query;
+    const { _count, _offset } = parsePagination(req.query);
+    const conditions = [];
+    const params = [];
+    let idx = 1;
+
+    if (patient) {
+      conditions.push(`patient_uid = $${idx}`);
+      params.push(patient);
+      idx++;
+    }
+
+    if (type) {
+      conditions.push(`note_type ILIKE $${idx}`);
+      params.push(`%${type}%`);
+      idx++;
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const { rows } = await db.query(
+      `SELECT id, patient_uid, note_type, type, title, content, author_id, created_by, created_at
+       FROM clinical_notes ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, _count, _offset]
+    );
+
+    const resources = rows.map(toFhirDocumentReference);
+    res.json(buildBundle('DocumentReference', resources));
+  })
+);
+
+// ---------------------------------------------------------------------------
+// GET /ServiceRequest — Search referrals by patient
+// ---------------------------------------------------------------------------
+router.get(
+  '/ServiceRequest',
+  wrapAsync(async (req, res) => {
+    const { patient } = req.query;
+    const { _count, _offset } = parsePagination(req.query);
+    const conditions = [];
+    const params = [];
+    let idx = 1;
+
+    if (patient) {
+      conditions.push(`patient_uid = $${idx}`);
+      params.push(patient);
+      idx++;
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const { rows } = await db.query(
+      `SELECT id, patient_uid, status, priority, referring_doctor, requester_id,
+              referred_to_doctor, performer_id, referred_to_department,
+              reason, clinical_notes, notes, created_at
+       FROM referrals ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, _count, _offset]
+    );
+
+    const resources = rows.map(toFhirServiceRequest);
+    res.json(buildBundle('ServiceRequest', resources));
   })
 );
 

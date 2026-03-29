@@ -56,6 +56,12 @@ import bedManagementRoutes from './routes/bed/bedManagementRoutes.js';
 // FHIR interoperability
 import fhirRoutes from './routes/fhir/fhirRoutes.js';
 
+// Clinical Document Export & Import
+import documentRoutes from './routes/documents/documentRoutes.js';
+
+// HL7v2 messaging
+import hl7Routes from './routes/hl7/hl7Routes.js';
+
 // Admin (centralized under /api/v1/admin)
 import adminDashboardRoutes from './routes/admin/index.js';
 
@@ -78,6 +84,9 @@ import consentRoutes from './routes/consentRoutes.js';
 // Compliance (Breach Notification + Audit Search)
 import breachRoutes from './routes/compliance/breachRoutes.js';
 import auditSearchRoutes from './routes/compliance/auditSearchRoutes.js';
+
+// ABDM (Ayushman Bharat Digital Mission) Integration
+import { callbackRouter as abdmCallbackRoutes, patientRouter as abdmPatientRoutes } from './routes/abdm/abdmRoutes.js';
 
 // Billing & Invoicing
 import billingRoutes from './routes/billing/billingRoutes.js';
@@ -255,6 +264,9 @@ app.use('/api/v1/health', healthRoutes);
 // Infrastructure (mixed auth handled inside)
 app.use('/api/v1', infrastructureRoutes);
 
+// ABDM gateway callbacks (public — no JWT/API key, validated via ABDM request signature)
+app.use('/api/v1/abdm', abdmCallbackRoutes);
+
 // ====================================
 // API KEY & AUTH MIDDLEWARE
 // Apply to all routes below this point
@@ -272,6 +284,10 @@ app.use('/api/v1/dashboard', patientRateLimiter, dashboardRoutes);
 
 // Campus config — staff app uses API key only for this
 app.use('/api/v1/config', configRoutes);
+
+// HL7v2 messaging — mounted before authMiddleware so /receive works with API key only.
+// JWT is enforced on /generate within the route file itself.
+app.use('/api/v1/hl7', hl7Routes);
 
 app.use(authMiddleware);
 app.use(normalizeIdentityFields); // runs AFTER authMiddleware
@@ -312,6 +328,9 @@ app.use('/api/v1/data-export', dataExportRateLimiter, dataExportRoutes);
 // HIPAA Consent Management (requires JWT)
 app.use('/api/v1/consent', jwtAuth, consentRoutes);
 
+// ABDM patient-facing routes (JWT required — ABHA registration, consent management)
+app.use('/api/v1/abdm', jwtAuth, abdmPatientRoutes);
+
 // ====================================
 // JWT PROTECTED ROUTES (JWT token required)
 // ====================================
@@ -325,6 +344,10 @@ app.use('/api/v1/wards', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 
 
 // FHIR R4 interoperability (JWT required)
 app.use('/api/v1/fhir', jwtAuth, fhirRoutes);
+
+// Clinical Document Export & Import (JWT + clinical roles)
+app.use('/api/v1/documents', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), documentRoutes);
+
 
 // Clinical workflows: MAR, NEWS2, Nurse Handover (staff roles)
 app.use('/api/v1/clinical', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), clinicalRoutes);

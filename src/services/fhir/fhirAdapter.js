@@ -375,6 +375,401 @@ export function toFhirMedicationRequest(prescription) {
 }
 
 // =============================================================================
+// CONDITION STATUS MAPPING
+// =============================================================================
+
+function mapConditionStatus(status) {
+  if (!status) return 'active';
+  const s = status.toLowerCase().trim();
+  if (s === 'resolved') return 'resolved';
+  if (s === 'recurrent') return 'recurrence';
+  // active, chronic, and anything else → active
+  return 'active';
+}
+
+/**
+ * Convert VH Health diagnosis to FHIR R4 Condition resource.
+ * @param {Object} diagnosis - Internal diagnosis record
+ * @returns {Object} FHIR Condition resource
+ */
+export function toFhirCondition(diagnosis) {
+  if (!diagnosis) return null;
+
+  return {
+    resourceType: 'Condition',
+    id: String(diagnosis.id),
+    clinicalStatus: {
+      coding: [
+        {
+          system: 'http://terminology.hl7.org/CodeSystem/condition-clinical',
+          code: mapConditionStatus(diagnosis.status),
+        },
+      ],
+    },
+    code: {
+      coding: diagnosis.icd10_code
+        ? [
+            {
+              system: 'http://hl7.org/fhir/sid/icd-10-cm',
+              code: diagnosis.icd10_code,
+              display: diagnosis.icd10_description || diagnosis.description,
+            },
+          ]
+        : [],
+      text: diagnosis.description,
+    },
+    subject: { reference: `Patient/${diagnosis.patient_uid}` },
+    onsetDateTime: diagnosis.onset_date || undefined,
+    abatementDateTime: diagnosis.resolved_date || undefined,
+    recordedDate: diagnosis.created_at,
+    recorder: { reference: `Practitioner/${diagnosis.diagnosed_by}` },
+    note: diagnosis.notes ? [{ text: diagnosis.notes }] : [],
+  };
+}
+
+/**
+ * Convert VH Health procedure note to FHIR R4 Procedure resource.
+ * @param {Object} procedureNote - Internal procedure note record
+ * @returns {Object} FHIR Procedure resource
+ */
+export function toFhirProcedure(procedureNote) {
+  if (!procedureNote) return null;
+
+  const statusMap = {
+    COMPLETED: 'completed',
+    IN_PROGRESS: 'in-progress',
+    SCHEDULED: 'preparation',
+    CANCELLED: 'not-done',
+  };
+
+  const resource = {
+    resourceType: 'Procedure',
+    id: String(procedureNote.id),
+    status: statusMap[procedureNote.status] || 'completed',
+    code: {
+      text: procedureNote.procedure_name || procedureNote.title || procedureNote.content,
+    },
+    subject: { reference: `Patient/${procedureNote.patient_uid}` },
+  };
+
+  if (procedureNote.performed_at || procedureNote.created_at) {
+    resource.performedDateTime = toFhirInstant(procedureNote.performed_at || procedureNote.created_at);
+  }
+
+  if (procedureNote.performed_by || procedureNote.author_id) {
+    resource.performer = [
+      {
+        actor: {
+          reference: `Practitioner/${procedureNote.performed_by || procedureNote.author_id}`,
+        },
+      },
+    ];
+  }
+
+  if (procedureNote.outcome) {
+    resource.outcome = { text: procedureNote.outcome };
+  }
+
+  if (procedureNote.complications) {
+    resource.complication = [{ text: procedureNote.complications }];
+  }
+
+  if (procedureNote.notes || procedureNote.content) {
+    resource.note = [{ text: procedureNote.notes || procedureNote.content }];
+  }
+
+  return resource;
+}
+
+/**
+ * Convert VH Health investigation to FHIR R4 DiagnosticReport resource.
+ * @param {Object} investigation - Internal investigation record
+ * @returns {Object} FHIR DiagnosticReport resource
+ */
+export function toFhirDiagnosticReport(investigation) {
+  if (!investigation) return null;
+
+  const statusMap = {
+    PENDING: 'registered',
+    COLLECTED: 'preliminary',
+    IN_PROGRESS: 'preliminary',
+    COMPLETED: 'final',
+    CANCELLED: 'cancelled',
+  };
+
+  const resource = {
+    resourceType: 'DiagnosticReport',
+    id: String(investigation.id),
+    status: statusMap[investigation.status] || 'unknown',
+    code: {
+      text: investigation.test_name || investigation.investigation_type,
+    },
+    subject: { reference: `Patient/${investigation.patient_uid || investigation.uid}` },
+  };
+
+  if (investigation.ordered_at || investigation.created_at) {
+    resource.effectiveDateTime = toFhirInstant(investigation.ordered_at || investigation.created_at);
+  }
+
+  if (investigation.completed_at) {
+    resource.issued = toFhirInstant(investigation.completed_at);
+  }
+
+  if (investigation.results) {
+    resource.result = Array.isArray(investigation.results)
+      ? investigation.results.map((r, i) => ({
+          reference: `Observation/${investigation.id}-${i}`,
+          display: typeof r === 'string' ? r : r.name || r.test,
+        }))
+      : [{ display: String(investigation.results) }];
+  }
+
+  if (investigation.conclusion || investigation.interpretation) {
+    resource.conclusion = investigation.conclusion || investigation.interpretation;
+  }
+
+  return resource;
+}
+
+/**
+ * Convert VH Health allergy to FHIR R4 AllergyIntolerance resource.
+ * @param {Object} allergy - Internal allergy record (may be string or object)
+ * @returns {Object} FHIR AllergyIntolerance resource
+ */
+export function toFhirAllergyIntolerance(allergy) {
+  if (!allergy) return null;
+
+  // Handle both string-based and object-based allergy records
+  const isString = typeof allergy === 'string';
+  const allergyText = isString ? allergy : (allergy.allergen || allergy.description || allergy.name);
+  const patientRef = isString ? undefined : allergy.patient_uid;
+  const allergyId = isString ? undefined : String(allergy.id);
+
+  const resource = {
+    resourceType: 'AllergyIntolerance',
+    id: allergyId || undefined,
+    clinicalStatus: {
+      coding: [
+        {
+          system: 'http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical',
+          code: 'active',
+        },
+      ],
+    },
+    type: 'allergy',
+    code: {
+      text: allergyText,
+    },
+  };
+
+  if (patientRef) {
+    resource.patient = { reference: `Patient/${patientRef}` };
+  }
+
+  if (!isString && allergy.severity) {
+    const severityMap = { mild: 'low', moderate: 'low', severe: 'high', critical: 'high' };
+    resource.criticality = severityMap[allergy.severity.toLowerCase()] || 'unable-to-assess';
+  }
+
+  if (!isString && allergy.recorded_at) {
+    resource.recordedDate = toFhirInstant(allergy.recorded_at);
+  }
+
+  if (!isString && allergy.reaction) {
+    resource.reaction = [{ description: allergy.reaction }];
+  }
+
+  return resource;
+}
+
+/**
+ * Convert VH Health admission to FHIR R4 Encounter resource.
+ * @param {Object} admission - Internal admission record
+ * @returns {Object} FHIR Encounter resource
+ */
+export function toFhirEncounter(admission) {
+  if (!admission) return null;
+
+  const statusMap = {
+    ADMITTED: 'in-progress',
+    DISCHARGED: 'finished',
+    TRANSFERRED: 'in-progress',
+    PENDING: 'planned',
+    CANCELLED: 'cancelled',
+  };
+
+  const resource = {
+    resourceType: 'Encounter',
+    id: String(admission.id),
+    status: statusMap[admission.status] || 'in-progress',
+    class: {
+      system: 'http://terminology.hl7.org/CodeSystem/v3-ActCode',
+      code: admission.priority === 'emergent' || admission.admission_type === 'EMERGENCY' ? 'EMER' : 'IMP',
+      display: admission.priority === 'emergent' || admission.admission_type === 'EMERGENCY' ? 'emergency' : 'inpatient encounter',
+    },
+    subject: { reference: `Patient/${admission.patient_uid}` },
+  };
+
+  if (admission.admission_type || admission.reason) {
+    resource.type = [
+      {
+        text: admission.admission_type || admission.reason,
+      },
+    ];
+  }
+
+  if (admission.admitting_doctor || admission.attending_doctor) {
+    resource.participant = [
+      {
+        individual: {
+          reference: `Practitioner/${admission.admitting_doctor || admission.attending_doctor}`,
+        },
+      },
+    ];
+  }
+
+  resource.period = {};
+  if (admission.admitted_at) {
+    resource.period.start = toFhirInstant(admission.admitted_at);
+  }
+  if (admission.discharged_at) {
+    resource.period.end = toFhirInstant(admission.discharged_at);
+  }
+
+  if (admission.reason || admission.reason_for_admission) {
+    resource.reasonCode = [
+      {
+        text: admission.reason || admission.reason_for_admission,
+      },
+    ];
+  }
+
+  if (admission.discharge_disposition || admission.discharge_type) {
+    resource.hospitalization = {
+      dischargeDisposition: {
+        text: admission.discharge_disposition || admission.discharge_type,
+      },
+    };
+  }
+
+  return resource;
+}
+
+/**
+ * Convert VH Health clinical note to FHIR R4 DocumentReference resource.
+ * @param {Object} note - Internal clinical note record
+ * @returns {Object} FHIR DocumentReference resource
+ */
+export function toFhirDocumentReference(note) {
+  if (!note) return null;
+
+  const resource = {
+    resourceType: 'DocumentReference',
+    id: String(note.id),
+    status: 'current',
+    type: {
+      text: note.note_type || note.type || 'Clinical Note',
+    },
+    subject: { reference: `Patient/${note.patient_uid}` },
+  };
+
+  if (note.created_at) {
+    resource.date = toFhirInstant(note.created_at);
+  }
+
+  if (note.author_id || note.created_by) {
+    resource.author = [
+      {
+        reference: `Practitioner/${note.author_id || note.created_by}`,
+      },
+    ];
+  }
+
+  resource.content = [
+    {
+      attachment: {
+        contentType: 'text/plain',
+        data: note.content
+          ? Buffer.from(note.content).toString('base64')
+          : undefined,
+        title: note.title || note.note_type || 'Clinical Note',
+      },
+    },
+  ];
+
+  return resource;
+}
+
+/**
+ * Convert VH Health referral to FHIR R4 ServiceRequest resource.
+ * @param {Object} referral - Internal referral record
+ * @returns {Object} FHIR ServiceRequest resource
+ */
+export function toFhirServiceRequest(referral) {
+  if (!referral) return null;
+
+  const statusMap = {
+    PENDING: 'active',
+    ACCEPTED: 'active',
+    IN_PROGRESS: 'active',
+    COMPLETED: 'completed',
+    CANCELLED: 'revoked',
+    REJECTED: 'revoked',
+  };
+
+  const priorityMap = {
+    ROUTINE: 'routine',
+    URGENT: 'urgent',
+    EMERGENT: 'asap',
+    STAT: 'stat',
+  };
+
+  const resource = {
+    resourceType: 'ServiceRequest',
+    id: String(referral.id),
+    status: statusMap[referral.status] || 'active',
+    intent: 'order',
+    priority: priorityMap[(referral.priority || '').toUpperCase()] || 'routine',
+    subject: { reference: `Patient/${referral.patient_uid}` },
+  };
+
+  if (referral.referring_doctor || referral.requester_id) {
+    resource.requester = {
+      reference: `Practitioner/${referral.referring_doctor || referral.requester_id}`,
+    };
+  }
+
+  if (referral.referred_to_doctor || referral.performer_id || referral.referred_to_department) {
+    resource.performer = [
+      {
+        reference: referral.referred_to_doctor || referral.performer_id
+          ? `Practitioner/${referral.referred_to_doctor || referral.performer_id}`
+          : undefined,
+        display: referral.referred_to_department || undefined,
+      },
+    ];
+  }
+
+  if (referral.reason || referral.clinical_notes) {
+    resource.reasonCode = [
+      {
+        text: referral.reason || referral.clinical_notes,
+      },
+    ];
+  }
+
+  if (referral.created_at) {
+    resource.authoredOn = toFhirInstant(referral.created_at);
+  }
+
+  if (referral.notes) {
+    resource.note = [{ text: referral.notes }];
+  }
+
+  return resource;
+}
+
+// =============================================================================
 // FROM FHIR CONVERTERS
 // =============================================================================
 
@@ -452,5 +847,12 @@ export default {
   toFhirAppointment,
   toFhirObservation,
   toFhirMedicationRequest,
+  toFhirCondition,
+  toFhirProcedure,
+  toFhirDiagnosticReport,
+  toFhirAllergyIntolerance,
+  toFhirEncounter,
+  toFhirDocumentReference,
+  toFhirServiceRequest,
   fromFhirPatient,
 };
