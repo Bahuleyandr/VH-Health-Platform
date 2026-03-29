@@ -26,6 +26,7 @@ import { patientRateLimiter, genericLimiter, adminRateLimiter, dataExportRateLim
 import validateApiKey from './middleware/validateApiKey.js';
 import apiVersionMiddleware from './middleware/apiVersionMiddleware.js';
 import { selfHealingMiddleware } from './middleware/selfHealingMiddleware.js';
+import { prometheusMiddleware } from './middleware/prometheusMiddleware.js';
 
 // ====================================
 // ROUTE IMPORTS - Organized by category
@@ -89,6 +90,9 @@ import reminderRoutes from './routes/reminders/index.js';
 
 // Clinical workflows (MAR, NEWS2, Handover)
 import clinicalRoutes from './routes/clinical/clinicalRoutes.js';
+
+// Prometheus metrics
+import metricsRoutes from './routes/metrics/metricsRoutes.js';
 
 // Swagger loader
 import swaggerLoader from './utils/swaggerLoader.js';
@@ -171,12 +175,14 @@ app.use(attachUserContext);
 // Universal audit log — fire-and-forget, captures all routes, handles null user gracefully
 app.use(auditLogMiddleware);
 app.use(selfHealingMiddleware);
+app.use(prometheusMiddleware);
 
 // ====================================
 // PUBLIC ROUTES (No authentication required)
 // ====================================
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+app.use('/metrics', metricsRoutes);
 app.use('/api/v1/internal', validateApiKey, internalRoutes);
 
 // Root health check

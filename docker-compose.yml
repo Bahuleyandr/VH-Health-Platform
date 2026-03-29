@@ -55,6 +55,40 @@ services:
     networks:
       - vhhealth-network
 
+  backup:
+    image: alpine:3.21
+    volumes:
+      - ./deploy/backup-cron.sh:/etc/periodic/daily/vhhealth-backup:ro
+      - ./deploy/backup-verify.sh:/etc/periodic/monthly/vhhealth-verify:ro
+      - ./src/scripts:/app/src/scripts:ro
+      - vhhealth-backups:/backups
+    env_file:
+      - .env.local
+    entrypoint: ["crond", "-f", "-l", "2"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - vhhealth-network
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./deploy/nginx/snippets:/etc/nginx/snippets:ro
+      - ./ssl-certs:/etc/nginx/ssl:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - vhhealth-network
+
 networks:
   vhhealth-network:
     driver: bridge
@@ -62,3 +96,4 @@ networks:
 volumes:
   vhhealth-db-data:
   vhhealth-redis-data:
+  vhhealth-backups:
