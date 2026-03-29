@@ -56,6 +56,7 @@ import '../../features/emr/screens/clinical_notes_screen.dart';
 import '../../features/emr/screens/patient_timeline_screen.dart';
 import '../../features/emr/screens/orders_screen.dart';
 import '../../features/emr/screens/vitals_chart_screen.dart';
+import '../../features/emr/screens/discharge_summary_screen.dart';
 
 // Shell
 import '../widgets/main_scaffold.dart';
@@ -308,6 +309,17 @@ final GoRouter appRouter = GoRouter(
             final name = state.uri.queryParameters['name'];
             return NoTransitionPage(
               child: VitalsChartScreen(patientUid: uid, patientName: name),
+            );
+          },
+        ),
+        GoRoute(
+          path: '/emr/discharge/:id',
+          name: 'emr-discharge',
+          pageBuilder: (context, state) {
+            final id = int.parse(state.pathParameters['id']!);
+            final name = state.uri.queryParameters['name'] ?? 'Patient';
+            return NoTransitionPage(
+              child: DischargeSummaryScreen(admissionId: id, patientName: name),
             );
           },
         ),

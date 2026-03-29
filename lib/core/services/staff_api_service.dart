@@ -1332,6 +1332,22 @@ class StaffApiService {
     return _post('/emr/$id/discharge', data);
   }
 
+  /// POST /emr/:id/discharge-summary/generate — auto-generate discharge summary
+  static Future<Map<String, dynamic>> generateDischargeSummary(int id) async {
+    return _post('/emr/$id/discharge-summary/generate', {});
+  }
+
+  /// PUT /emr/:id/discharge-summary — save/edit discharge summary draft
+  static Future<Map<String, dynamic>> saveDischargeSummary(
+      int id, Map<String, dynamic> summary) async {
+    return _put('/emr/$id/discharge-summary', {'discharge_summary': summary});
+  }
+
+  /// POST /emr/:id/discharge-summary/sign — doctor signs discharge summary
+  static Future<Map<String, dynamic>> signDischargeSummary(int id) async {
+    return _post('/emr/$id/discharge-summary/sign', {});
+  }
+
   /// GET /emr/admissions — list active admissions
   static Future<Map<String, dynamic>> getActiveAdmissions({
     int page = 1,
