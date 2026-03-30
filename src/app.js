@@ -109,6 +109,7 @@ import messagingRoutes from './routes/messaging/messagingRoutes.js';
 // Patient reminders (medication)
 import reminderRoutes from './routes/reminders/index.js';
 import stepsRoutes from './routes/steps/stepsRoutes.js';
+import stepRewardsRoutes from './routes/steps/stepRewardsRoutes.js';
 
 // Clinical workflows (MAR, NEWS2, Handover)
 import clinicalRoutes from './routes/clinical/clinicalRoutes.js';
@@ -314,6 +315,7 @@ app.use('/api/v1/notifications', notificationRoutes);
 // Patient reminders (medication) — JWT via authMiddleware above
 app.use('/api/v1/reminders', patientRateLimiter, reminderRoutes);
 app.use('/api/v1/steps', patientRateLimiter, jwtAuth, stepsRoutes);
+app.use('/api/v1/rewards', patientRateLimiter, jwtAuth, stepRewardsRoutes);
 
 // Healthcare services - Legacy (to be modularized)
 app.use('/api/v1/devices', deviceRoutes);

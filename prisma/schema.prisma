@@ -1893,3 +1893,47 @@ model step_sessions {
   @@index([started_at])
   @@map("step_sessions")
 }
+
+model step_badges {
+  id          Int      @id @default(autoincrement())
+  patient_uid String   @db.Uuid
+  badge_type  String   @db.VarChar(50)
+  earned_at   DateTime @default(now()) @db.Timestamp(6)
+
+  @@unique([patient_uid, badge_type])
+  @@index([patient_uid])
+  @@map("step_badges")
+}
+
+model step_vouchers {
+  id           Int       @id @default(autoincrement())
+  patient_uid  String    @db.Uuid
+  voucher_code String    @unique @db.VarChar(20)
+  reward_type  String    @db.VarChar(50)
+  description  String    @db.Text
+  discount_pct Int       @default(0)
+  free_consult Boolean   @default(false)
+  issued_at    DateTime  @default(now()) @db.Timestamp(6)
+  expires_at   DateTime  @db.Timestamp(6)
+  redeemed_at  DateTime? @db.Timestamp(6)
+  month_year   String    @db.VarChar(7)
+
+  @@index([patient_uid])
+  @@index([voucher_code])
+  @@index([expires_at])
+  @@map("step_vouchers")
+}
+
+model step_monthly_winners {
+  id          Int      @id @default(autoincrement())
+  patient_uid String   @db.Uuid
+  rank        Int
+  month_year  String   @db.VarChar(7)
+  total_steps BigInt
+  voucher_id  Int?
+  created_at  DateTime @default(now()) @db.Timestamp(6)
+
+  @@unique([patient_uid, month_year])
+  @@index([month_year])
+  @@map("step_monthly_winners")
+}
