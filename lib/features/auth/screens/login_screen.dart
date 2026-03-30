@@ -176,10 +176,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             prefixIcon: Icon(Icons.badge_outlined),
                           ),
                           textCapitalization: TextCapitalization.characters,
-                          validator: (v) =>
-                              (v == null || v.trim().isEmpty)
-                                  ? 'Employee ID is required'
-                                  : null,
+                          validator: LoginService.validateEmployeeId,
                         ),
                         const SizedBox(height: 16),
 
@@ -247,10 +244,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     () => _obscurePassword = !_obscurePassword),
                               ),
                             ),
-                            validator: (v) =>
-                                (v == null || v.isEmpty)
-                                    ? 'Password is required'
-                                    : null,
+                            validator: LoginService.validatePassword,
                           )
                         else
                           TextFormField(

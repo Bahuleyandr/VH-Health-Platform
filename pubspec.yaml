@@ -21,6 +21,7 @@ dependencies:
   local_auth: ^2.3.0
   firebase_core: ^3.12.1
   firebase_messaging: ^15.2.5
+  firebase_crashlytics: ^4.3.2
   geolocator: ^14.0.0
   table_calendar: ^3.1.2
   permission_handler: ^11.3.1
