@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -102,7 +101,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
     });
     try {
       final result = await StaffApiService.getInvestigationBookingQueue();
-      final data = result is Map ? (result['data'] ?? result) : result;
+      final data = (result['data'] ?? result);
       setState(() {
         _bookings = data is List ? data : [];
         _loading = false;

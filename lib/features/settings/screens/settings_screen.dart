@@ -194,7 +194,7 @@ class SettingsScreen extends StatelessWidget {
                 subtitle: 'Attendance reminders, appointment alerts',
                 trailing: Switch(
                   value: true,
-                  activeColor: AppTheme.primaryBlue,
+                  activeThumbColor: AppTheme.primaryBlue,
                   onChanged: (_) {},
                 ),
               ),
@@ -205,7 +205,7 @@ class SettingsScreen extends StatelessWidget {
                 subtitle: 'Get notified before shift starts',
                 trailing: Switch(
                   value: true,
-                  activeColor: AppTheme.primaryBlue,
+                  activeThumbColor: AppTheme.primaryBlue,
                   onChanged: (_) {},
                 ),
               ),
@@ -430,7 +430,7 @@ class _BiometricToggleTileState extends State<_BiometricToggleTile> {
               child: CircularProgressIndicator(strokeWidth: 2))
           : Switch(
               value: _enabled,
-              activeColor: AppTheme.primaryBlue,
+              activeThumbColor: AppTheme.primaryBlue,
               onChanged: _toggle,
             ),
     );

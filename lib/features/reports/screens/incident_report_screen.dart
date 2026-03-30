@@ -166,7 +166,7 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
               const Text('Incident Type *', style: TextStyle(fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
-                value: _incidentType,
+                initialValue: _incidentType,
                 decoration: const InputDecoration(border: OutlineInputBorder()),
                 items: _incidentTypes.entries
                     .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
@@ -283,7 +283,7 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                 Switch(
                   value: _patientInvolved,
                   onChanged: (v) => setState(() => _patientInvolved = v),
-                  activeColor: const Color(0xFF007A64),
+                  activeThumbColor: const Color(0xFF007A64),
                 ),
               ]),
               if (_patientInvolved) ...[

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/services/staff_api_service.dart';
-import '../../../core/theme/app_theme.dart';
 
 class InvestmentDeclarationScreen extends StatefulWidget {
   const InvestmentDeclarationScreen({super.key});
@@ -17,7 +16,6 @@ class _InvestmentDeclarationScreenState
   bool _loading = false;
   bool _submitting = false;
   List<dynamic> _declarations = [];
-  String? _error;
 
   // FY
   late String _selectedFY;
@@ -104,7 +102,7 @@ class _InvestmentDeclarationScreenState
   }
 
   Future<void> _loadDeclarations() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() { _loading = true; });
     try {
       final list = await StaffApiService.getMyDeclarations();
       if (mounted) {
@@ -117,7 +115,12 @@ class _InvestmentDeclarationScreenState
         if (existing != null) _prefill(existing);
       }
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: Colors.red.shade600,
+        ));
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -354,7 +357,7 @@ class _InvestmentDeclarationScreenState
                 value: _rentReceipt,
                 onChanged: (v) => setState(() => _rentReceipt = v),
                 title: const Text('Rent Receipts Provided', style: TextStyle(fontSize: 14)),
-                activeColor: const Color(0xFF007A64),
+                activeThumbColor: const Color(0xFF007A64),
                 contentPadding: EdgeInsets.zero,
               ),
             ]),
