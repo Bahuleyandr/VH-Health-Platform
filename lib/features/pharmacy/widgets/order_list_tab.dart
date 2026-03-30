@@ -131,7 +131,7 @@ class OrderListTabState extends State<OrderListTab> {
                     height: 200,
                     width: double.infinity,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
+                    errorBuilder: (_, _, _) => Container(
                       height: 100,
                       color: Colors.grey.shade200,
                       child: const Center(

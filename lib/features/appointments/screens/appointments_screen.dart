@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:url_launcher/url_launcher.dart';
@@ -335,7 +334,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
                       await SafeUrlLauncher.launch(url, mode: LaunchMode.externalApplication);
                     },
                   );
-                }).toList(),
+                }),
               ],
             ),
           ),
@@ -582,6 +581,12 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
       icon: Icons.calendar_month_outlined,
       color: FeatureScreenScaffold.featureColors['appointments']!,
       heroTag: 'appointments',
+      floatingActionButton: FloatingActionButton(
+        onPressed: _triggerSOS,
+        tooltip: l10n.authSosTooltip,
+        backgroundColor: Colors.red,
+        child: const Icon(Icons.favorite),
+      ),
       child: Column(
         children: [
           TabBar(
@@ -602,12 +607,6 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
             ),
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _triggerSOS,
-        tooltip: l10n.authSosTooltip,
-        backgroundColor: Colors.red,
-        child: const Icon(Icons.favorite),
       ),
     );
   }
@@ -645,7 +644,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
             )
           else
             DropdownButtonFormField<_DeptInfo>(
-              value: _selectedDept,
+              initialValue: _selectedDept,
               decoration:
                   InputDecoration(labelText: l10n.chooseDepartmentOrDoctor),
               items: _departments.map((dept) {
@@ -673,7 +672,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
           // Doctor dropdown
           if (_selectedDept != null && _selectedDept!.doctors.isNotEmpty)
             DropdownButtonFormField<_DoctorInfo>(
-              value: _selectedDoctor,
+              initialValue: _selectedDoctor,
               decoration:
                   InputDecoration(labelText: l10n.selectDoctorPlaceholder),
               items: _selectedDept!.doctors

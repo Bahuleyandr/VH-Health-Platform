@@ -1,7 +1,6 @@
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth/core/navigation/app_router.dart';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
@@ -56,9 +55,11 @@ class _SplashScreenState extends State<SplashScreen>
 
         // Profile completion gate: new users or users without a name
         if (isNewUser == 'true' || (name == null && phone != null && phone.isNotEmpty)) {
+          if (!mounted) return;
           context.go('/profile-setup', extra: phone ?? '');
           return;
         }
+        if (!mounted) return;
         context.go('/home');
         return;
       }
@@ -81,9 +82,11 @@ class _SplashScreenState extends State<SplashScreen>
               AppRouter.setUserData(phone, name ?? 'User');
 
               if (isNewUser == 'true' || name == null) {
+                if (!mounted) return;
                 context.go('/profile-setup', extra: phone);
                 return;
               }
+              if (!mounted) return;
               context.go('/home');
               return;
             }

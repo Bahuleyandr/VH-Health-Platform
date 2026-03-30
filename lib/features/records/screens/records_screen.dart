@@ -158,25 +158,29 @@ class _RecordsScreenState extends State<RecordsScreen>
           );
         }
       } else {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(response.message ?? 'Failed to delete record'), backgroundColor: Colors.red),
         );
+        }
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
       );
+      }
     }
   }
 
   void _showUploadSheet() {
     final titleCtrl = TextEditingController();
     final hospitalCtrl = TextEditingController();
-    String _docType = 'other';
-    DateTime? _recordDate;
-    String? _pickedFilePath;
-    String? _pickedFileName;
-    bool _uploading = false;
+    String docType = 'other';
+    DateTime? recordDate;
+    String? pickedFilePath;
+    String? pickedFileName;
+    bool uploading = false;
 
     final docTypes = [
       ('prescription', 'Prescription'),
@@ -196,32 +200,32 @@ class _RecordsScreenState extends State<RecordsScreen>
       ),
       builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
         Future<void> upload() async {
-          if (_pickedFilePath == null || titleCtrl.text.trim().isEmpty) {
+          if (pickedFilePath == null || titleCtrl.text.trim().isEmpty) {
             ScaffoldMessenger.of(ctx).showSnackBar(
               const SnackBar(content: Text('Please pick a file and enter a title')),
             );
             return;
           }
-          setSheet(() => _uploading = true);
+          setSheet(() => uploading = true);
           try {
             final fields = <String, String>{
               'title': titleCtrl.text.trim(),
-              'document_type': _docType,
+              'document_type': docType,
             };
             if (hospitalCtrl.text.trim().isNotEmpty) {
               fields['source_hospital'] = hospitalCtrl.text.trim();
             }
-            if (_recordDate != null) {
+            if (recordDate != null) {
               fields['record_date'] =
-                  '${_recordDate!.year}-${_recordDate!.month.toString().padLeft(2, '0')}-${_recordDate!.day.toString().padLeft(2, '0')}';
+                  '${recordDate!.year}-${recordDate!.month.toString().padLeft(2, '0')}-${recordDate!.day.toString().padLeft(2, '0')}';
             }
             final response = await ApiClient.multipart(
               '/appointments/patient/records/upload',
               fields: fields,
               files: [
                 await http.MultipartFile.fromPath(
-                  'file', _pickedFilePath!,
-                  filename: _pickedFileName,
+                  'file', pickedFilePath!,
+                  filename: pickedFileName,
                 ),
               ],
             );
@@ -237,11 +241,13 @@ class _RecordsScreenState extends State<RecordsScreen>
               throw Exception(response.message ?? 'Upload failed');
             }
           } catch (e) {
-            if (ctx.mounted) ScaffoldMessenger.of(ctx).showSnackBar(
+            if (ctx.mounted) {
+              ScaffoldMessenger.of(ctx).showSnackBar(
               SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red),
             );
+            }
           } finally {
-            if (ctx.mounted) setSheet(() => _uploading = false);
+            if (ctx.mounted) setSheet(() => uploading = false);
           }
         }
 
@@ -264,13 +270,13 @@ class _RecordsScreenState extends State<RecordsScreen>
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: _docType,
+                  initialValue: docType,
                   decoration: const InputDecoration(labelText: 'Document Type', border: OutlineInputBorder()),
                   items: docTypes.map((t) => DropdownMenuItem(
                     value: t.$1,
                     child: Text(t.$2),
                   )).toList(),
-                  onChanged: (v) => setSheet(() => _docType = v ?? _docType),
+                  onChanged: (v) => setSheet(() => docType = v ?? docType),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -283,9 +289,9 @@ class _RecordsScreenState extends State<RecordsScreen>
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
                   icon: const Icon(Icons.calendar_today, size: 16),
-                  label: Text(_recordDate == null
+                  label: Text(recordDate == null
                       ? 'Document Date (optional)'
-                      : '${_recordDate!.day}/${_recordDate!.month}/${_recordDate!.year}'),
+                      : '${recordDate!.day}/${recordDate!.month}/${recordDate!.year}'),
                   onPressed: () async {
                     final d = await showDatePicker(
                       context: ctx,
@@ -293,13 +299,13 @@ class _RecordsScreenState extends State<RecordsScreen>
                       firstDate: DateTime(2000),
                       lastDate: DateTime.now(),
                     );
-                    if (d != null) setSheet(() => _recordDate = d);
+                    if (d != null) setSheet(() => recordDate = d);
                   },
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
                   icon: const Icon(Icons.attach_file),
-                  label: Text(_pickedFileName ?? 'Pick File *'),
+                  label: Text(pickedFileName ?? 'Pick File *'),
                   onPressed: () async {
                     final result = await FilePicker.platform.pickFiles(
                       type: FileType.custom,
@@ -307,8 +313,8 @@ class _RecordsScreenState extends State<RecordsScreen>
                     );
                     if (result != null && result.files.single.path != null) {
                       setSheet(() {
-                        _pickedFilePath = result.files.single.path;
-                        _pickedFileName = result.files.single.name;
+                        pickedFilePath = result.files.single.path;
+                        pickedFileName = result.files.single.name;
                       });
                     }
                   },
@@ -317,8 +323,8 @@ class _RecordsScreenState extends State<RecordsScreen>
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: _uploading ? null : upload,
-                    child: _uploading
+                    onPressed: uploading ? null : upload,
+                    child: uploading
                         ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
                         : const Text('Upload'),
                   ),
@@ -343,6 +349,11 @@ class _RecordsScreenState extends State<RecordsScreen>
       icon: Icons.folder_outlined,
       color: const Color(0xFF007A64),
       heroTag: 'records',
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _showUploadSheet,
+        icon: const Icon(Icons.upload_file),
+        label: const Text('Upload'),
+      ),
       child: DataStateBuilder<_RecordItem>(
         isLoading: _loading,
         error: _error,
@@ -371,11 +382,6 @@ class _RecordsScreenState extends State<RecordsScreen>
                     ),
                   ],
                 ),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showUploadSheet,
-        icon: const Icon(Icons.upload_file),
-        label: const Text('Upload'),
       ),
     );
   }

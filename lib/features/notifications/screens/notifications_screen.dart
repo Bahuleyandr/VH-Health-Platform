@@ -178,7 +178,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               child: ListView.separated(
                       padding: const EdgeInsets.all(16),
                       itemCount: notifications.length,
-                      separatorBuilder: (_, __) => const Divider(),
+                      separatorBuilder: (_, _) => const Divider(),
                       itemBuilder: (_, index) {
                         final notif = notifications[index];
                         final created = DateTime.tryParse(notif['created_at'] ?? '') ?? DateTime.now();

@@ -387,11 +387,6 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
       builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
-        double totalEstimate = 0;
-        for (final m in meds) {
-          totalEstimate += (m['quantity'] ?? 1) * 50.0;
-        }
-
         return Padding(
           padding: EdgeInsets.only(
             left: 20,

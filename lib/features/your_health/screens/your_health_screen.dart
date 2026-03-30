@@ -130,6 +130,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
     String errorMsg,
   ) async {
     final cached = await RecordCacheManager.loadManifest(widget.phone);
+    if (!mounted) return;
     final l10n = AppLocalizations.of(context)!;
 
     if (!mounted) return;
@@ -333,7 +334,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: DropdownButtonFormField<String>(
-            value: _selectedType,
+            initialValue: _selectedType,
             decoration:
                 InputDecoration(labelText: l10n.yourHealthFilterByType),
             onChanged: _onTypeChanged,

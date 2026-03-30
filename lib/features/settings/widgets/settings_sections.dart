@@ -6,7 +6,6 @@ import 'package:permission_handler/permission_handler.dart';
 
 import 'package:vhhealth/core/widgets/language_dropdown.dart';
 import 'package:vhhealth/core/widgets/logout_button.dart';
-import 'package:vhhealth/features/profile/screens/profile_edit_screen.dart';
 import 'package:vhhealth/features/settings/controllers/settings_controller.dart';
 
 List<Widget> buildSettingsSections(SettingsController c) {
@@ -84,7 +83,7 @@ List<Widget> buildSettingsSections(SettingsController c) {
               c.tp.isDarkMode ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
               color: cs.primary,
             ),
-            activeColor: cs.primary,
+            activeThumbColor: cs.primary,
           ),
           
           const Divider(height: 1),
@@ -107,7 +106,7 @@ List<Widget> buildSettingsSections(SettingsController c) {
               Icons.palette_outlined,
               color: cs.primary,
             ),
-            activeColor: cs.primary,
+            activeThumbColor: cs.primary,
           ),
           
           // Current Color Preview
@@ -209,7 +208,7 @@ List<Widget> buildSettingsSections(SettingsController c) {
           Icons.fingerprint_outlined,
           color: c.biometricSupported ? cs.primary : cs.onSurface.withAlpha(76),
         ),
-        activeColor: cs.primary,
+        activeThumbColor: cs.primary,
       ),
     ),
     const SizedBox(height: 16),

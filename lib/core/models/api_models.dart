@@ -3,6 +3,7 @@
 ///
 /// Generated on: 2026-03-28
 /// Do NOT edit manually — re-generate from the Prisma schema when models change.
+library;
 
 // ===================================================================
 // USER

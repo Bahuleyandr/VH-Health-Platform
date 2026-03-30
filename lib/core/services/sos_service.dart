@@ -3,6 +3,7 @@
 /// Provides [triggerSOS] and [SosButton] from vhhealth_core.
 /// Legacy [SOSService.triggerSOS] is kept as a thin wrapper for
 /// backward compatibility with existing call sites.
+library;
 import 'package:flutter/material.dart';
 import 'package:vhhealth_core/widgets/sos_button.dart' as core;
 

@@ -2,7 +2,6 @@
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:vhhealth/features/auth/screens/terms_disclaimer_screen.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:go_router/go_router.dart';
 

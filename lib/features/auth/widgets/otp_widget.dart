@@ -2,7 +2,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:vhhealth/core/services/backend_api_service.dart';
 import 'package:vhhealth/features/auth/widgets/otp_ui_components.dart';
 import 'package:vhhealth/features/auth/services/otp_service.dart';
 import 'dart:developer' as developer;

@@ -163,9 +163,9 @@ class AppRouter {
         navigatorKey: _shellNavigatorKey,
         builder: (context, state, child) {
           return MainScaffoldGoRouter(
-            child: child,
             phone: _phone(context),
             name: _name(context),
+            child: child,
           );
         },
         routes: [
@@ -271,17 +271,17 @@ class AppRouter {
       ),
       GoRoute(
         path: '/records',
-        redirect: (_, __) => '/health',
+        redirect: (_, _) => '/health',
       ),
 
       // Alternative route names for backward compatibility
       GoRoute(
         path: '/your-health',
-        redirect: (_, __) => '/health',
+        redirect: (_, _) => '/health',
       ),
       GoRoute(
         path: '/dashboard',
-        redirect: (_, __) => '/home',
+        redirect: (_, _) => '/home',
       ),
     ],
 

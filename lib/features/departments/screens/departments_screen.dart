@@ -355,6 +355,12 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
       icon: Icons.local_hospital_outlined,
       color: color,
       heroTag: 'departments',
+      floatingActionButton: FloatingActionButton(
+        onPressed: _triggerSOS,
+        tooltip: _loc.authSosTooltip,
+        backgroundColor: Colors.red,
+        child: const Icon(Icons.favorite_border_outlined),
+      ),
       child: DataStateBuilder<dynamic>(
         isLoading: _isLoading,
         error: _error,
@@ -509,8 +515,8 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
                                           deptName: deptName,
                                           theme: _theme,
                                           loc: _loc,
-                                          isAvailableToday: _isDoctorAvailableToday(d as Map<String, dynamic>),
-                                          onTap: () => _showDoctorDetail(d as Map<String, dynamic>, deptName),
+                                          isAvailableToday: _isDoctorAvailableToday(d),
+                                          onTap: () => _showDoctorDetail(d, deptName),
                                           onBook: () => _bookDoctor(deptName, (d['name'] ?? '').toString()),
                                         )).toList(),
                                 ),
@@ -522,12 +528,6 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
               ],
             );
         },
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _triggerSOS,
-        tooltip: _loc.authSosTooltip,
-        backgroundColor: Colors.red,
-        child: const Icon(Icons.favorite_border_outlined),
       ),
     );
   }

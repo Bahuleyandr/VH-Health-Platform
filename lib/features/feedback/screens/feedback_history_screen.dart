@@ -75,7 +75,7 @@ class _FeedbackHistoryScreenState extends State<FeedbackHistoryScreen> {
                 onRefresh: _load,
                 child: ListView.separated(
                   itemCount: feedback.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (context, index) {
                     final item = feedback[index] as Map<String, dynamic>;
                     final rating = item['rating'] as int? ?? 0;

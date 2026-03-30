@@ -3,7 +3,6 @@ import 'package:go_router/go_router.dart';
 
 import 'package:flutter/material.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
-import 'package:vhhealth/features/auth/screens/login_screen.dart';
 
 class PermissionGate extends StatefulWidget {
   const PermissionGate({super.key});

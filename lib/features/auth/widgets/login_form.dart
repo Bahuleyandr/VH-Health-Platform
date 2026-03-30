@@ -27,7 +27,7 @@ class _LoginFormState extends State<LoginForm> {
   final _phoneController = TextEditingController();
   final _secureStorage = const FlutterSecureStorage();
 
-  bool _isLoading = false;
+  final bool _isLoading = false;
   bool _showOtpWidget = false;
   String? _submittedPhone;
 

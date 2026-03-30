@@ -306,7 +306,7 @@ class AppointmentTimeline extends StatelessWidget {
             ),
             
             // Timeline connector
-            Container(
+            SizedBox(
               height: 60,
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
