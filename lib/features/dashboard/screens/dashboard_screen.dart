@@ -353,6 +353,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         color: const Color(0xFFFFCCBC),
         onTap: (ctx) => _openFeature(ctx, '/about-us'),
       ),
+      FeatureIconData(
+        icon: LucideIcons.footprints,
+        label: 'Steps',
+        color: const Color(0xFFFFE0B2),
+        onTap: (ctx) => _openFeature(ctx, '/steps'),
+      ),
     ];
   }
 

@@ -29,6 +29,7 @@
         android:required="false" />
     
     <!-- 📁 File and Media Access (Modern Android 13+ approach) -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />

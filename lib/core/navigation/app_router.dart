@@ -26,6 +26,7 @@ import 'package:vhhealth/features/trivia/screens/trivia_screen.dart';
 import 'package:vhhealth/features/departments/screens/departments_screen.dart';
 import 'package:vhhealth/features/about/screens/about_us_screen.dart';
 import 'package:vhhealth/features/calendar/screens/calendar_screen.dart';
+import 'package:vhhealth/features/steps/screens/step_challenge_screen.dart';
 import 'package:vhhealth/core/widgets/main_scaffold_go_router.dart';
 
 class AppRouter {
@@ -263,6 +264,10 @@ class AppRouter {
         builder: (context, state) => CalendarScreen(
           uid: _phone(context),
         ),
+      ),
+      GoRoute(
+        path: '/steps',
+        builder: (context, state) => const StepChallengeScreen(),
       ),
       GoRoute(
         path: '/records',
