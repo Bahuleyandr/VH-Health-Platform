@@ -13,11 +13,6 @@ export const WS_BASE_URL =
 const DEFAULT_ORIGIN =
   (typeof window !== "undefined" && window.location.origin) ||
   "http://localhost:3000";
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
-
-if (!API_KEY && typeof window !== "undefined" && process.env.NODE_ENV === "development") {
-  console.warn("[api-config] NEXT_PUBLIC_API_KEY is not set. API requests may fail.");
-}
 
 // WebSocket endpoints
 export const WS_ENDPOINTS = {
@@ -513,11 +508,12 @@ export const PROTECTED_ROUTES: string[] = [
   "/api/v1/emr/*",
 ];
 
-// Standard JSON headers
+// Standard JSON headers for client-side requests.
+// NOTE: x-api-key is intentionally omitted here — client-side fetch calls route
+// through /api/proxy which injects the API key server-side from process.env.API_KEY.
 export const getHeaders = (token?: string): HeadersInit => {
   const headers: HeadersInit = {
     "Content-Type": "application/json",
-    "x-api-key": API_KEY,
     Origin: DEFAULT_ORIGIN,
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
