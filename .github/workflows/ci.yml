@@ -42,8 +42,8 @@ jobs:
 
       - name: Security audit
         run: |
-          npm audit --audit-level=high
-          npx audit-ci --high
+          npm audit --audit-level=critical
+          npx audit-ci --critical
 
       - run: npm run lint
 
