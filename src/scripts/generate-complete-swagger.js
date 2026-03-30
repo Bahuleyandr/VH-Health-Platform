@@ -73,7 +73,7 @@ ${Object.entries(routeData.metadata).map(([name, meta]) =>
         type: 'apiKey',
         in: 'header',
         name: 'x-api-key',
-        description: 'API key for authentication (use: vhhealth123 for development)'
+        description: 'API key for authentication (set via API_KEY environment variable)'
       },
       BearerAuth: {
         type: 'http',

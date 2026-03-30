@@ -2,7 +2,7 @@
 import request from 'supertest';
 import app from '../app';
 
-const apiKey = process.env.API_KEY || 'vhhealth123';
+const apiKey = process.env.API_KEY || '';
 
 describe('404 Handler', () => {
   it('should return 404 for unknown routes', async () => {

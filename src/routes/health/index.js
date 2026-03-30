@@ -4,6 +4,7 @@ import logger from '../../logging/logger.js';
 import { wrapRoutes, wrapAutoRBAC } from '../../config/routeWrapper.js';
 import protectedRoutes from './protectedRoutes.js';
 import publicRoutes from './publicRoutes.js';
+import uptimeRoutes from './uptimeRoutes.js';
 
 const router = express.Router();
 logger.info('✅ healthRoutes loaded with RBAC protection');
@@ -25,6 +26,9 @@ wrapRoutes(
 
 // Use public routes
 router.use('/', publicRoutes);
+
+// Uptime monitoring endpoints (public, no auth)
+router.use('/', uptimeRoutes);
 
 // Protected routes with RBAC
 wrapAutoRBAC(protectedRoutes, 'healthRecordsRoutes');
