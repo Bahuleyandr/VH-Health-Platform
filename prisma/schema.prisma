@@ -28,15 +28,12 @@ model users {
   profile_picture String?   @db.Text
   role            String?   @default("PATIENT") @db.VarChar(50)
   is_active       Boolean   @default(true)
-  abha_number     String?   @unique @db.VarChar(20)   // ABDM — 14-digit ABHA number
-  abha_address    String?   @unique @db.VarChar(255)  // ABDM — user@abdm handle
   registered_at   DateTime  @default(now()) @db.Timestamp(6)
   updated_at      DateTime  @updatedAt @db.Timestamp(6)
 
   @@index([phone])
   @@index([uid])
   @@index([role])
-  @@index([abha_number])
   @@map("users")
 }
 
@@ -71,67 +68,67 @@ model user_sessions {
 }
 
 model user_status_history {
-  id              Int      @id @default(autoincrement())
-  user_id         String   @db.Uuid
-  previous_status String?  @db.VarChar(50)
-  new_status      String   @db.VarChar(50)
-  changed_by      String?  @db.Uuid
-  change_reason   String?  @db.Text
-  changed_at      DateTime @default(now()) @db.Timestamp(6)
-  ip_address      String?  @db.VarChar(45)
+  id              Int       @id @default(autoincrement())
+  user_id         String    @db.Uuid
+  previous_status String?   @db.VarChar(50)
+  new_status      String    @db.VarChar(50)
+  changed_by      String?   @db.Uuid
+  change_reason   String?   @db.Text
+  changed_at      DateTime  @default(now()) @db.Timestamp(6)
+  ip_address      String?   @db.VarChar(45)
 
   @@index([user_id])
   @@map("user_status_history")
 }
 
 model user_deactivation_log {
-  id                  Int      @id @default(autoincrement())
-  user_id             String   @db.Uuid
-  deactivated_by      String?  @db.Uuid
-  deactivation_reason String?  @db.Text
-  data_transferred_to String?  @db.Uuid
-  deactivated_at      DateTime @default(now()) @db.Timestamp(6)
-  ip_address          String?  @db.VarChar(45)
-  user_data           Json?    @db.JsonB
+  id                  Int       @id @default(autoincrement())
+  user_id             String    @db.Uuid
+  deactivated_by      String?   @db.Uuid
+  deactivation_reason String?   @db.Text
+  data_transferred_to String?   @db.Uuid
+  deactivated_at      DateTime  @default(now()) @db.Timestamp(6)
+  ip_address          String?   @db.VarChar(45)
+  user_data           Json?     @db.JsonB
 
   @@index([user_id])
   @@map("user_deactivation_log")
 }
 
 model user_reactivation_log {
-  id                  Int      @id @default(autoincrement())
-  user_id             String   @db.Uuid
-  reactivated_by      String?  @db.Uuid
-  reactivation_reason String?  @db.Text
-  reactivated_at      DateTime @default(now()) @db.Timestamp(6)
-  ip_address          String?  @db.VarChar(45)
+  id                  Int       @id @default(autoincrement())
+  user_id             String    @db.Uuid
+  reactivated_by      String?   @db.Uuid
+  reactivation_reason String?   @db.Text
+  reactivated_at      DateTime  @default(now()) @db.Timestamp(6)
+  ip_address          String?   @db.VarChar(45)
 
   @@index([user_id])
   @@map("user_reactivation_log")
 }
 
 model user_role_audit {
-  id             Int      @id @default(autoincrement())
-  phone          String   @db.VarChar(15)
-  old_role       String?  @db.VarChar(50)
-  new_role       String?  @db.VarChar(50)
-  changed_by_uid String?  @db.Uuid
-  reason         String?  @db.Text
-  action_type    String?  @db.VarChar(50)
-  changed_at     DateTime @default(now()) @db.Timestamp(6)
+  id             Int       @id @default(autoincrement())
+  phone          String    @db.VarChar(15)
+  old_role       String?   @db.VarChar(50)
+  new_role       String?   @db.VarChar(50)
+  changed_by_uid String?   @db.Uuid
+  reason         String?   @db.Text
+  action_type    String?   @db.VarChar(50)
+  changed_at     DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([phone])
   @@map("user_role_audit")
 }
 
 model user_action_logs {
-  id             Int      @id @default(autoincrement())
-  user_id        String?  @db.Uuid
-  action         String   @db.VarChar(100)
-  target_user_id String?  @db.Uuid
-  details        Json?    @db.JsonB
-  ip_address     String?  @db.VarChar(45)
-  created_at     DateTime @default(now()) @db.Timestamp(6)
+  id             Int       @id @default(autoincrement())
+  user_id        String?   @db.Uuid
+  action         String    @db.VarChar(100)
+  target_user_id String?   @db.Uuid
+  details        Json?     @db.JsonB
+  ip_address     String?   @db.VarChar(45)
+  created_at     DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([user_id])
   @@index([created_at])
@@ -139,15 +136,15 @@ model user_action_logs {
 }
 
 model bulk_operation_logs {
-  id                Int      @id @default(autoincrement())
-  operation_type    String   @db.VarChar(100)
-  performed_by      String?  @db.Uuid
+  id                Int       @id @default(autoincrement())
+  operation_type    String    @db.VarChar(100)
+  performed_by      String?   @db.Uuid
   total_items       Int?
   affected_count    Int?
   success_count     Int?
   error_count       Int?
-  operation_details Json?    @db.JsonB
-  performed_at      DateTime @default(now()) @db.Timestamp(6)
+  operation_details Json?     @db.JsonB
+  performed_at      DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([operation_type])
   @@map("bulk_operation_logs")
@@ -158,40 +155,37 @@ model bulk_operation_logs {
 // ===================================================================
 
 model admins {
-  id                    Int       @id @default(autoincrement())
-  username              String    @unique @db.VarChar(255)
-  password_hash         String    @db.VarChar(255)
-  email                 String?   @db.VarChar(255)
-  name                  String?   @db.VarChar(255)
-  role                  String?   @default("ADMIN") @db.VarChar(50)
-  status                String    @default("active") @db.VarChar(50)
-  permissions           String[]
-  failed_login_attempts Int       @default(0)
-  last_failed_login     DateTime? @db.Timestamp(6)
-  last_login            DateTime? @db.Timestamp(6)
-  password_changed_at   DateTime? @db.Timestamp(6)
-  created_at            DateTime  @default(now()) @db.Timestamp(6)
-  created_by            String?   @db.Uuid
-  deactivated_at        DateTime? @db.Timestamp(6)
-  deactivated_by        String?   @db.Uuid
-  deactivation_reason   String?   @db.Text
-  updated_at            DateTime? @db.Timestamp(6)
+  uid                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  username             String    @unique @db.VarChar(255)
+  password_hash        String    @db.VarChar(255)
+  email                String?   @db.VarChar(255)
+  name                 String?   @db.VarChar(255)
+  role                 String?   @default("ADMIN") @db.VarChar(50)
+  permissions          String[]
+  is_active            Boolean   @default(true)
+  created_at           DateTime  @default(now()) @db.Timestamp(6)
+  last_login           DateTime? @db.Timestamp(6)
+  created_by           String?   @db.Uuid
+  deactivated_by       String?   @db.Uuid
+  deactivation_reason  String?   @db.Text
+  deactivated_at       DateTime? @db.Timestamp(6)
+  reactivated_by       String?   @db.Uuid
+  reactivated_at       DateTime? @db.Timestamp(6)
 
   @@index([username])
-  @@index([email])
-  @@map("admin_users")
+  @@map("admins")
 }
 
 model otp_sessions {
-  id         Int      @id @default(autoincrement())
-  phone      String   @db.VarChar(15)
-  otp        String   @db.VarChar(10)
-  purpose    String   @db.VarChar(50)
+  id         Int       @id @default(autoincrement())
+  phone      String    @db.VarChar(15)
+  otp        String    @db.VarChar(10)
+  purpose    String    @db.VarChar(50)
   user_id    Int?
-  expires_at DateTime @db.Timestamp(6)
-  attempts   Int      @default(0)
-  verified   Boolean  @default(false)
-  created_at DateTime @default(now()) @db.Timestamp(6)
+  expires_at DateTime  @db.Timestamp(6)
+  attempts   Int       @default(0)
+  verified   Boolean   @default(false)
+  created_at DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([phone])
   @@index([expires_at])
@@ -199,16 +193,16 @@ model otp_sessions {
 }
 
 model otp_logs {
-  id             Int      @id @default(autoincrement())
-  phone          String   @db.VarChar(15)
-  purpose        String   @db.VarChar(50)
-  action         String   @db.VarChar(50)
+  id             Int       @id @default(autoincrement())
+  phone          String    @db.VarChar(15)
+  purpose        String    @db.VarChar(50)
+  action         String    @db.VarChar(50)
   success        Boolean
-  failure_reason String?  @db.Text
-  ip_address     String?  @db.VarChar(45)
-  user_agent     String?  @db.Text
-  created_by     String?  @db.Uuid
-  created_at     DateTime @default(now()) @db.Timestamp(6)
+  failure_reason String?   @db.Text
+  ip_address     String?   @db.VarChar(45)
+  user_agent     String?   @db.Text
+  created_by     String?   @db.Uuid
+  created_at     DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([phone])
   @@index([created_at])
@@ -216,12 +210,12 @@ model otp_logs {
 }
 
 model password_reset_otps {
-  id         Int      @id @default(autoincrement())
-  user_id    String   @db.Uuid
-  otp        String   @db.VarChar(10)
-  expires_at DateTime @db.Timestamp(6)
-  used       Boolean  @default(false)
-  created_at DateTime @default(now()) @db.Timestamp(6)
+  id         Int       @id @default(autoincrement())
+  user_id    String    @db.Uuid
+  otp        String    @db.VarChar(10)
+  expires_at DateTime  @db.Timestamp(6)
+  used       Boolean   @default(false)
+  created_at DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([user_id])
   @@index([expires_at])
@@ -229,16 +223,16 @@ model password_reset_otps {
 }
 
 model auth_logs {
-  id             Int      @id @default(autoincrement())
-  phone          String?  @db.VarChar(15)
-  user_id        String?  @db.Uuid
-  action         String   @db.VarChar(100)
+  id             Int       @id @default(autoincrement())
+  phone          String?   @db.VarChar(15)
+  user_id        String?   @db.Uuid
+  action         String    @db.VarChar(100)
   success        Boolean
-  failure_reason String?  @db.Text
-  auth_method    String?  @db.VarChar(50)
-  ip_address     String?  @db.VarChar(45)
-  user_agent     String?  @db.Text
-  created_at     DateTime @default(now()) @db.Timestamp(6)
+  failure_reason String?   @db.Text
+  auth_method    String?   @db.VarChar(50)
+  ip_address     String?   @db.VarChar(45)
+  user_agent     String?   @db.Text
+  created_at     DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([phone])
   @@index([user_id])
@@ -251,24 +245,24 @@ model auth_logs {
 // ===================================================================
 
 model departments {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique @db.VarChar(100)
-  description String?  @db.Text
-  is_active   Boolean  @default(true)
-  created_at  DateTime @default(now()) @db.Timestamp(6)
-  updated_at  DateTime @updatedAt @db.Timestamp(6)
+  id          Int       @id @default(autoincrement())
+  name        String    @unique @db.VarChar(100)
+  description String?   @db.Text
+  is_active   Boolean   @default(true)
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
+  updated_at  DateTime  @updatedAt @db.Timestamp(6)
 
   @@map("departments")
 }
 
 model department_audit_log {
-  id            Int      @id @default(autoincrement())
+  id            Int       @id @default(autoincrement())
   department_id Int?
-  user_id       String?  @db.Uuid
-  action        String   @db.VarChar(100)
-  old_data      Json?    @db.JsonB
-  new_data      Json?    @db.JsonB
-  created_at    DateTime @default(now()) @db.Timestamp(6)
+  user_id       String?   @db.Uuid
+  action        String    @db.VarChar(100)
+  old_data      Json?     @db.JsonB
+  new_data      Json?     @db.JsonB
+  created_at    DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([department_id])
   @@index([created_at])
@@ -276,18 +270,18 @@ model department_audit_log {
 }
 
 model doctors {
-  id            Int      @id @default(autoincrement())
+  id            Int       @id @default(autoincrement())
   user_id       Int?
-  name          String   @db.VarChar(100)
+  name          String    @db.VarChar(100)
   department_id Int?
-  department    String   @db.VarChar(100)
-  specialty     String?  @db.VarChar(100)
-  intro         String?  @db.Text
-  image_url     String?  @db.Text
-  is_available  Boolean  @default(true)
-  is_active     Boolean  @default(true)
-  created_at    DateTime @default(now()) @db.Timestamp(6)
-  updated_at    DateTime @updatedAt @db.Timestamp(6)
+  department    String    @db.VarChar(100)
+  specialty     String?   @db.VarChar(100)
+  intro         String?   @db.Text
+  image_url     String?   @db.Text
+  is_available  Boolean   @default(true)
+  is_active     Boolean   @default(true)
+  created_at    DateTime  @default(now()) @db.Timestamp(6)
+  updated_at    DateTime  @updatedAt @db.Timestamp(6)
 
   @@index([department_id])
   @@index([is_available])
@@ -295,11 +289,11 @@ model doctors {
 }
 
 model patient_feedback {
-  id          Int      @id @default(autoincrement())
+  id          Int       @id @default(autoincrement())
   doctor_id   Int?
   rating      Float?
-  review_text String?  @db.Text
-  created_at  DateTime @default(now()) @db.Timestamp(6)
+  review_text String?   @db.Text
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([doctor_id])
   @@map("patient_feedback")
@@ -310,19 +304,19 @@ model patient_feedback {
 // ===================================================================
 
 model appointments {
-  id               Int      @id @default(autoincrement())
-  uid              String?  @db.Uuid
-  phone            String   @db.VarChar(15)
+  id               Int       @id @default(autoincrement())
+  uid              String?   @db.Uuid
+  phone            String    @db.VarChar(15)
   doctor_id        Int?
-  doctor_name      String   @db.VarChar(100)
-  patient_name     String?  @db.VarChar(255)
-  appointment_date DateTime @db.Date
-  appointment_time String   @db.VarChar(10)
-  status           String   @default("SCHEDULED") @db.VarChar(50)
-  reason           String?  @db.Text
-  notes            String?  @db.Text
-  created_at       DateTime @default(now()) @db.Timestamp(6)
-  updated_at       DateTime @updatedAt @db.Timestamp(6)
+  doctor_name      String    @db.VarChar(100)
+  patient_name     String?   @db.VarChar(255)
+  appointment_date DateTime  @db.Date
+  appointment_time String    @db.VarChar(10)
+  status           String    @default("SCHEDULED") @db.VarChar(50)
+  reason           String?   @db.Text
+  notes            String?   @db.Text
+  created_at       DateTime  @default(now()) @db.Timestamp(6)
+  updated_at       DateTime  @updatedAt @db.Timestamp(6)
 
   @@index([phone])
   @@index([uid])
@@ -337,18 +331,18 @@ model appointments {
 // ===================================================================
 
 model health_records {
-  id            Int      @id @default(autoincrement())
-  uid           String?  @db.Uuid
-  phone         String   @db.VarChar(15)
-  record_type   String?  @default("GENERAL") @db.VarChar(50)
-  file_name     String   @db.VarChar(255)
-  file_type     String   @db.VarChar(50)
-  file_key      String?  @db.Text
+  id            Int       @id @default(autoincrement())
+  uid           String?   @db.Uuid
+  phone         String    @db.VarChar(15)
+  record_type   String?   @default("GENERAL") @db.VarChar(50)
+  file_name     String    @db.VarChar(255)
+  file_type     String    @db.VarChar(50)
+  file_key      String?   @db.Text
   file_size     BigInt?
-  privacy_level String   @default("RESTRICTED") @db.VarChar(20)
-  created_by    String?  @db.Uuid
-  created_at    DateTime @default(now()) @db.Timestamp(6)
-  updated_at    DateTime @updatedAt @db.Timestamp(6)
+  privacy_level String    @default("RESTRICTED") @db.VarChar(20)
+  created_by    String?   @db.Uuid
+  created_at    DateTime  @default(now()) @db.Timestamp(6)
+  updated_at    DateTime  @updatedAt @db.Timestamp(6)
 
   @@index([phone])
   @@index([uid])
@@ -358,20 +352,20 @@ model health_records {
 }
 
 model medical_records {
-  id            Int      @id @default(autoincrement())
-  patient_id    String?  @db.Uuid
+  id            Int       @id @default(autoincrement())
+  patient_id    String?   @db.Uuid
   doctor_id     Int?
-  record_type   String?  @db.VarChar(50)
-  title         String?  @db.VarChar(255)
-  description   String?  @db.Text
-  diagnosis     String?  @db.Text
-  treatment     String?  @db.Text
-  medications   Json?    @db.JsonB
-  lab_results   Json?    @db.JsonB
-  attachments   Json?    @db.JsonB
-  privacy_level String?  @default("RESTRICTED") @db.VarChar(20)
-  created_by    String?  @db.Uuid
-  created_at    DateTime @default(now()) @db.Timestamp(6)
+  record_type   String?   @db.VarChar(50)
+  title         String?   @db.VarChar(255)
+  description   String?   @db.Text
+  diagnosis     String?   @db.Text
+  treatment     String?   @db.Text
+  medications   Json?     @db.JsonB
+  lab_results   Json?     @db.JsonB
+  attachments   Json?     @db.JsonB
+  privacy_level String?   @default("RESTRICTED") @db.VarChar(20)
+  created_by    String?   @db.Uuid
+  created_at    DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([patient_id])
   @@index([doctor_id])
@@ -402,41 +396,41 @@ model investigations {
 }
 
 model investigation_files {
-  id               Int      @id @default(autoincrement())
+  id               Int       @id @default(autoincrement())
   investigation_id Int?
-  file_name        String   @db.VarChar(255)
-  file_path        String?  @db.Text
-  file_type        String?  @db.VarChar(50)
+  file_name        String    @db.VarChar(255)
+  file_path        String?   @db.Text
+  file_type        String?   @db.VarChar(50)
   file_size        BigInt?
-  uploaded_by      String?  @db.Uuid
-  created_at       DateTime @default(now()) @db.Timestamp(6)
+  uploaded_by      String?   @db.Uuid
+  created_at       DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([investigation_id])
   @@map("investigation_files")
 }
 
 model investigation_templates {
-  id            Int      @id @default(autoincrement())
-  name          String   @db.VarChar(255)
-  type          String?  @db.VarChar(100)
-  description   String?  @db.Text
+  id            Int       @id @default(autoincrement())
+  name          String    @db.VarChar(255)
+  type          String?   @db.VarChar(100)
+  description   String?   @db.Text
   department_id Int?
-  created_by    String?  @db.Uuid
-  is_active     Boolean  @default(true)
-  created_at    DateTime @default(now()) @db.Timestamp(6)
-  updated_at    DateTime @updatedAt @db.Timestamp(6)
+  created_by    String?   @db.Uuid
+  is_active     Boolean   @default(true)
+  created_at    DateTime  @default(now()) @db.Timestamp(6)
+  updated_at    DateTime  @updatedAt @db.Timestamp(6)
 
   @@index([department_id])
   @@map("investigation_templates")
 }
 
 model investigation_template_tests {
-  id           Int     @id @default(autoincrement())
+  id           Int       @id @default(autoincrement())
   template_id  Int?
-  test_name    String  @db.VarChar(255)
-  test_code    String? @db.VarChar(50)
-  normal_range String? @db.VarChar(100)
-  unit         String? @db.VarChar(50)
+  test_name    String    @db.VarChar(255)
+  test_code    String?   @db.VarChar(50)
+  normal_range String?   @db.VarChar(100)
+  unit         String?   @db.VarChar(50)
   cost         Float?
 
   @@index([template_id])
@@ -444,19 +438,19 @@ model investigation_template_tests {
 }
 
 model consultations {
-  id                 Int      @id @default(autoincrement())
-  uid                String?  @db.Uuid
-  phone              String   @db.VarChar(15)
+  id                 Int       @id @default(autoincrement())
+  uid                String?   @db.Uuid
+  phone              String    @db.VarChar(15)
   doctor_id          Int?
-  consultation_notes String?  @db.Text
-  diagnosis          String?  @db.Text
-  treatment_plan     String?  @db.Text
-  file_name          String?  @db.VarChar(255)
-  file_type          String?  @db.VarChar(50)
-  file_key           String?  @db.Text
-  consulted_at       DateTime @default(now()) @db.Timestamp(6)
-  created_at         DateTime @default(now()) @db.Timestamp(6)
-  updated_at         DateTime @updatedAt @db.Timestamp(6)
+  consultation_notes String?   @db.Text
+  diagnosis          String?   @db.Text
+  treatment_plan     String?   @db.Text
+  file_name          String?   @db.VarChar(255)
+  file_type          String?   @db.VarChar(50)
+  file_key           String?   @db.Text
+  consulted_at       DateTime  @default(now()) @db.Timestamp(6)
+  created_at         DateTime  @default(now()) @db.Timestamp(6)
+  updated_at         DateTime  @updatedAt @db.Timestamp(6)
 
   @@index([phone])
   @@index([uid])
@@ -518,19 +512,19 @@ model medications {
 // ===================================================================
 
 model feedback {
-  id             Int      @id @default(autoincrement())
-  uid            String?  @db.Uuid
-  phone          String   @db.VarChar(15)
-  rating         Int      @db.SmallInt
-  comment        String?  @db.Text
-  category       String?  @default("GENERAL") @db.VarChar(50)
+  id             Int       @id @default(autoincrement())
+  uid            String?   @db.Uuid
+  phone          String    @db.VarChar(15)
+  rating         Int       @db.SmallInt
+  comment        String?   @db.Text
+  category       String?   @default("GENERAL") @db.VarChar(50)
   department_id  Int?
   doctor_id      Int?
   appointment_id Int?
-  is_anonymous   Boolean  @default(false)
-  status         String   @default("PENDING") @db.VarChar(50)
-  created_at     DateTime @default(now()) @db.Timestamp(6)
-  updated_at     DateTime @updatedAt @db.Timestamp(6)
+  is_anonymous   Boolean   @default(false)
+  status         String    @default("PENDING") @db.VarChar(50)
+  created_at     DateTime  @default(now()) @db.Timestamp(6)
+  updated_at     DateTime  @updatedAt @db.Timestamp(6)
 
   @@index([phone])
   @@index([uid])
@@ -545,24 +539,24 @@ model feedback {
 // ===================================================================
 
 model sos_alerts {
-  id            Int       @id @default(autoincrement())
-  uid           String?   @db.Uuid
-  phone         String    @db.VarChar(15)
-  latitude      Float?    @db.DoublePrecision
-  longitude     Float?    @db.DoublePrecision
-  location_name String?   @db.VarChar(255)
-  alert_type    String?   @default("GENERAL") @db.VarChar(50)
-  severity      String    @default("MEDIUM") @db.VarChar(20)
-  message       String?   @db.Text
-  status        String    @default("ACTIVE") @db.VarChar(50)
-  responded_by  String?   @db.Uuid
-  ip_address    String?   @db.VarChar(45)
-  device_info   String?   @db.Text
-  raised_at     DateTime  @default(now()) @db.Timestamp(6)
-  responded_at  DateTime? @db.Timestamp(6)
-  resolved_at   DateTime? @db.Timestamp(6)
-  created_at    DateTime  @default(now()) @db.Timestamp(6)
-  updated_at    DateTime  @updatedAt @db.Timestamp(6)
+  id             Int       @id @default(autoincrement())
+  uid            String?   @db.Uuid
+  phone          String    @db.VarChar(15)
+  latitude       Float?    @db.DoublePrecision
+  longitude      Float?    @db.DoublePrecision
+  location_name  String?   @db.VarChar(255)
+  alert_type     String?   @default("GENERAL") @db.VarChar(50)
+  severity       String    @default("MEDIUM") @db.VarChar(20)
+  message        String?   @db.Text
+  status         String    @default("ACTIVE") @db.VarChar(50)
+  responded_by   String?   @db.Uuid
+  ip_address     String?   @db.VarChar(45)
+  device_info    String?   @db.Text
+  raised_at      DateTime  @default(now()) @db.Timestamp(6)
+  responded_at   DateTime? @db.Timestamp(6)
+  resolved_at    DateTime? @db.Timestamp(6)
+  created_at     DateTime  @default(now()) @db.Timestamp(6)
+  updated_at     DateTime  @updatedAt @db.Timestamp(6)
 
   @@index([phone])
   @@index([uid])
@@ -578,19 +572,19 @@ model sos_alerts {
 // ===================================================================
 
 model file_metadata {
-  id            Int      @id @default(autoincrement())
-  file_name     String   @db.VarChar(255)
-  file_type     String   @db.VarChar(100)
-  storage_key   String   @unique @db.Text
-  storage_url   String   @db.Text
+  id            Int       @id @default(autoincrement())
+  file_name     String    @db.VarChar(255)
+  file_type     String    @db.VarChar(100)
+  storage_key   String    @unique @db.Text
+  storage_url   String    @db.Text
   file_size     BigInt
-  uploaded_by   String?  @db.Uuid
-  scan_status   String?  @default("PENDING") @db.VarChar(50)
-  scan_result   String?  @db.Text
-  privacy_level String   @default("RESTRICTED") @db.VarChar(20)
-  is_active     Boolean  @default(true)
-  uploaded_at   DateTime @default(now()) @db.Timestamp(6)
-  updated_at    DateTime @updatedAt @db.Timestamp(6)
+  uploaded_by   String?   @db.Uuid
+  scan_status   String?   @default("PENDING") @db.VarChar(50)
+  scan_result   String?   @db.Text
+  privacy_level String    @default("RESTRICTED") @db.VarChar(20)
+  is_active     Boolean   @default(true)
+  uploaded_at   DateTime  @default(now()) @db.Timestamp(6)
+  updated_at    DateTime  @updatedAt @db.Timestamp(6)
 
   @@index([uploaded_by])
   @@index([scan_status])
@@ -600,14 +594,14 @@ model file_metadata {
 }
 
 model file_access_logs {
-  id          Int      @id @default(autoincrement())
+  id          Int       @id @default(autoincrement())
   file_id     Int?
-  user_id     String?  @db.Uuid
-  access_type String   @db.VarChar(50)
-  ip_address  String?  @db.VarChar(45)
-  user_agent  String?  @db.Text
-  accessed_at DateTime @default(now()) @db.Timestamp(6)
-  notes       String?  @db.Text
+  user_id     String?   @db.Uuid
+  access_type String    @db.VarChar(50)
+  ip_address  String?   @db.VarChar(45)
+  user_agent  String?   @db.Text
+  accessed_at DateTime  @default(now()) @db.Timestamp(6)
+  notes       String?   @db.Text
 
   @@index([file_id])
   @@index([user_id])
@@ -615,35 +609,35 @@ model file_access_logs {
 }
 
 model file_deletion_log {
-  id                 Int      @id @default(autoincrement())
-  file_id            Int?
-  file_name          String?  @db.VarChar(255)
-  storage_key        String?  @db.Text
-  category           String?  @db.VarChar(100)
-  file_size          BigInt?
+  id                Int       @id @default(autoincrement())
+  file_id           Int?
+  file_name         String?   @db.VarChar(255)
+  storage_key       String?   @db.Text
+  category          String?   @db.VarChar(100)
+  file_size         BigInt?
   is_hipaa_protected Boolean?
-  uploaded_by        String?  @db.Uuid
-  deleted_by         String?  @db.Uuid
-  deletion_reason    String?  @db.Text
-  deletion_type      String?  @db.VarChar(50)
-  deleted_at         DateTime @default(now()) @db.Timestamp(6)
-  ip_address         String?  @db.VarChar(45)
+  uploaded_by       String?   @db.Uuid
+  deleted_by        String?   @db.Uuid
+  deletion_reason   String?   @db.Text
+  deletion_type     String?   @db.VarChar(50)
+  deleted_at        DateTime  @default(now()) @db.Timestamp(6)
+  ip_address        String?   @db.VarChar(45)
 
   @@index([deleted_by])
   @@map("file_deletion_log")
 }
 
 model batch_upload_logs {
-  id                       Int      @id @default(autoincrement())
-  batch_id                 String   @db.VarChar(100)
-  uploaded_by              String?  @db.Uuid
-  total_files              Int?
-  successful_files         Int?
-  failed_files             Int?
+  id                      Int       @id @default(autoincrement())
+  batch_id                String    @db.VarChar(100)
+  uploaded_by             String?   @db.Uuid
+  total_files             Int?
+  successful_files        Int?
+  failed_files            Int?
   total_processing_time_ms Int?
-  category                 String?  @db.VarChar(100)
-  is_hipaa_protected       Boolean?
-  completed_at             DateTime @default(now()) @db.Timestamp(6)
+  category                String?   @db.VarChar(100)
+  is_hipaa_protected      Boolean?
+  completed_at            DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([uploaded_by])
   @@map("batch_upload_logs")
@@ -655,17 +649,11 @@ model batch_upload_logs {
 
 model staff {
   id                Int       @id @default(autoincrement())
-  uid               String    @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id           Int?
-  employee_id       String?   @unique @db.VarChar(50)
-  name              String?   @db.VarChar(255)
-  phone             String?   @db.VarChar(15)
-  role              String?   @db.VarChar(50)
-  pin_hash          String?   @db.VarChar(255)
+  user_id           String?   @db.Uuid
+  employee_id       String?   @db.VarChar(50)
   position          String?   @db.VarChar(100)
   department        String?   @db.VarChar(100)
   shift             String?   @db.VarChar(50)
-  shift_type        String?   @db.VarChar(50)
   salary            Float?
   hire_date         DateTime? @db.Date
   join_date         DateTime? @db.Date
@@ -677,17 +665,12 @@ model staff {
   is_active         Boolean   @default(true)
   on_leave          Boolean   @default(false)
   archived          Boolean   @default(false)
-  last_login        DateTime? @db.Timestamp(6)
-  pin_changed_at    DateTime? @db.Timestamp(6)
-  pin_reset_by      String?   @db.Uuid
   updated_by        String?   @db.Uuid
   created_by        String?   @db.Uuid
   created_at        DateTime  @default(now()) @db.Timestamp(6)
   updated_at        DateTime  @updatedAt @db.Timestamp(6)
 
-  @@index([uid])
   @@index([user_id])
-  @@index([employee_id])
   @@index([department])
   @@index([is_active])
   @@map("staff")
@@ -713,16 +696,16 @@ model staff_attendance {
 }
 
 model staff_devices {
-  id                  Int       @id @default(autoincrement())
-  staff_id            Int?
-  device_id           String    @db.VarChar(255)
-  device_name         String?   @db.VarChar(255)
-  device_token        String?   @db.Text
-  is_active           Boolean   @default(true)
-  registered_at       DateTime  @default(now()) @db.Timestamp(6)
-  registered_location String?   @db.VarChar(255)
-  trust_expires_at    DateTime? @db.Timestamp(6)
-  last_used           DateTime? @db.Timestamp(6)
+  id                   Int       @id @default(autoincrement())
+  staff_id             Int?
+  device_id            String    @db.VarChar(255)
+  device_name          String?   @db.VarChar(255)
+  device_token         String?   @db.Text
+  is_active            Boolean   @default(true)
+  registered_at        DateTime  @default(now()) @db.Timestamp(6)
+  registered_location  String?   @db.VarChar(255)
+  trust_expires_at     DateTime? @db.Timestamp(6)
+  last_used            DateTime? @db.Timestamp(6)
 
   @@index([staff_id])
   @@index([device_id])
@@ -745,30 +728,30 @@ model staff_auth_sessions {
 }
 
 model staff_performance_reviews {
-  id                       Int       @id @default(autoincrement())
-  staff_id                 Int?
-  reviewer_id              String?   @db.Uuid
-  rating                   Float?
-  review_period            String?   @db.VarChar(50)
-  reviewer_comments        String?   @db.Text
-  goals_achieved           String?   @db.Text
-  areas_for_improvement    String?   @db.Text
-  future_goals             String?   @db.Text
-  training_recommendations String?   @db.Text
-  review_date              DateTime? @db.Date
-  created_at               DateTime  @default(now()) @db.Timestamp(6)
+  id                      Int       @id @default(autoincrement())
+  staff_id                Int?
+  reviewer_id             String?   @db.Uuid
+  rating                  Float?
+  review_period           String?   @db.VarChar(50)
+  reviewer_comments       String?   @db.Text
+  goals_achieved          String?   @db.Text
+  areas_for_improvement   String?   @db.Text
+  future_goals            String?   @db.Text
+  training_recommendations String?  @db.Text
+  review_date             DateTime? @db.Date
+  created_at              DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([staff_id])
   @@map("staff_performance_reviews")
 }
 
 model staff_onboarding_tasks {
-  id           Int       @id @default(autoincrement())
-  staff_id     Int?
-  task_name    String?   @db.VarChar(255)
-  status       String?   @db.VarChar(50)
+  id          Int       @id @default(autoincrement())
+  staff_id    Int?
+  task_name   String?   @db.VarChar(255)
+  status      String?   @db.VarChar(50)
   completed_at DateTime? @db.Timestamp(6)
-  created_at   DateTime  @default(now()) @db.Timestamp(6)
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([staff_id])
   @@map("staff_onboarding_tasks")
@@ -779,12 +762,12 @@ model staff_onboarding_tasks {
 // ===================================================================
 
 model leave_types {
-  id                 Int      @id @default(autoincrement())
-  leave_type         String   @unique @db.VarChar(50)
+  id                Int       @id @default(autoincrement())
+  leave_type        String    @unique @db.VarChar(50)
   annual_entitlement Int?
-  description        String?  @db.Text
-  is_active          Boolean  @default(true)
-  created_at         DateTime @default(now()) @db.Timestamp(6)
+  description       String?   @db.Text
+  is_active         Boolean   @default(true)
+  created_at        DateTime  @default(now()) @db.Timestamp(6)
 
   @@map("leave_types")
 }
@@ -812,13 +795,13 @@ model leave_applications {
 }
 
 model leave_balance_overrides {
-  id            Int      @id @default(autoincrement())
-  staff_id      Int?
-  leave_type    String   @db.VarChar(50)
-  new_balance   Float?
-  reason        String?  @db.Text
+  id           Int       @id @default(autoincrement())
+  staff_id     Int?
+  leave_type   String    @db.VarChar(50)
+  new_balance  Float?
+  reason       String?   @db.Text
   overridden_by String?  @db.Uuid
-  created_at    DateTime @default(now()) @db.Timestamp(6)
+  created_at   DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([staff_id])
   @@map("leave_balance_overrides")
@@ -829,20 +812,20 @@ model leave_balance_overrides {
 // ===================================================================
 
 model notifications {
-  id            Int       @id @default(autoincrement())
-  uid           String?   @db.Uuid
-  phone         String    @db.VarChar(15)
-  title         String    @db.VarChar(255)
-  body          String    @db.Text
-  type          String    @default("GENERAL") @db.VarChar(50)
-  priority      String    @default("NORMAL") @db.VarChar(20)
-  data          Json?     @db.JsonB
-  is_read       Boolean   @default(false)
-  scheduled_for DateTime? @db.Timestamp(6)
-  sent_at       DateTime? @db.Timestamp(6)
-  read_at       DateTime? @db.Timestamp(6)
-  created_at    DateTime  @default(now()) @db.Timestamp(6)
-  updated_at    DateTime  @updatedAt @db.Timestamp(6)
+  id             Int       @id @default(autoincrement())
+  uid            String?   @db.Uuid
+  phone          String    @db.VarChar(15)
+  title          String    @db.VarChar(255)
+  body           String    @db.Text
+  type           String    @default("GENERAL") @db.VarChar(50)
+  priority       String    @default("NORMAL") @db.VarChar(20)
+  data           Json?     @db.JsonB
+  is_read        Boolean   @default(false)
+  scheduled_for  DateTime? @db.Timestamp(6)
+  sent_at        DateTime? @db.Timestamp(6)
+  read_at        DateTime? @db.Timestamp(6)
+  created_at     DateTime  @default(now()) @db.Timestamp(6)
+  updated_at     DateTime  @updatedAt @db.Timestamp(6)
 
   @@index([uid])
   @@index([phone])
@@ -853,29 +836,29 @@ model notifications {
 }
 
 model notification_templates {
-  id               Int      @id @default(autoincrement())
-  name             String   @db.VarChar(255)
-  title_template   String   @db.Text
-  message_template String   @db.Text
-  type             String   @db.VarChar(50)
-  priority         String   @db.VarChar(20)
-  variables        Json?    @db.JsonB
-  description      String?  @db.Text
-  is_active        Boolean  @default(true)
-  created_at       DateTime @default(now()) @db.Timestamp(6)
-  updated_at       DateTime @updatedAt @db.Timestamp(6)
+  id               Int       @id @default(autoincrement())
+  name             String    @db.VarChar(255)
+  title_template   String    @db.Text
+  message_template String    @db.Text
+  type             String    @db.VarChar(50)
+  priority         String    @db.VarChar(20)
+  variables        Json?     @db.JsonB
+  description      String?   @db.Text
+  is_active        Boolean   @default(true)
+  created_at       DateTime  @default(now()) @db.Timestamp(6)
+  updated_at       DateTime  @updatedAt @db.Timestamp(6)
 
   @@index([type])
   @@map("notification_templates")
 }
 
 model notification_delivery_log {
-  id              Int      @id @default(autoincrement())
+  id             Int       @id @default(autoincrement())
   notification_id Int?
-  status          String   @db.VarChar(50)
-  error_type      String?  @db.VarChar(100)
-  error_message   String?  @db.Text
-  created_at      DateTime @default(now()) @db.Timestamp(6)
+  status         String    @db.VarChar(50)
+  error_type     String?   @db.VarChar(100)
+  error_message  String?   @db.Text
+  created_at     DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([status])
   @@index([error_type])
@@ -888,43 +871,43 @@ model notification_delivery_log {
 // ===================================================================
 
 model hospitals {
-  id                 Int      @id @default(autoincrement())
-  name               String   @db.VarChar(255)
-  address            String?  @db.Text
-  latitude           Float?   @db.DoublePrecision
-  longitude          Float?   @db.DoublePrecision
-  phone              String?  @db.VarChar(15)
-  emergency_services Boolean  @default(false)
-  status             String   @default("active") @db.VarChar(50)
-  created_at         DateTime @default(now()) @db.Timestamp(6)
+  id                 Int       @id @default(autoincrement())
+  name               String    @db.VarChar(255)
+  address            String?   @db.Text
+  latitude           Float?    @db.DoublePrecision
+  longitude          Float?    @db.DoublePrecision
+  phone              String?   @db.VarChar(15)
+  emergency_services Boolean   @default(false)
+  status             String    @default("active") @db.VarChar(50)
+  created_at         DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([status])
   @@map("hospitals")
 }
 
 model pharmacies {
-  id         Int      @id @default(autoincrement())
-  name       String   @db.VarChar(255)
-  address    String?  @db.Text
-  latitude   Float?   @db.DoublePrecision
-  longitude  Float?   @db.DoublePrecision
-  phone      String?  @db.VarChar(15)
-  status     String   @default("active") @db.VarChar(50)
-  created_at DateTime @default(now()) @db.Timestamp(6)
+  id         Int       @id @default(autoincrement())
+  name       String    @db.VarChar(255)
+  address    String?   @db.Text
+  latitude   Float?    @db.DoublePrecision
+  longitude  Float?    @db.DoublePrecision
+  phone      String?   @db.VarChar(15)
+  status     String    @default("active") @db.VarChar(50)
+  created_at DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([status])
   @@map("pharmacies")
 }
 
 model blood_banks {
-  id         Int      @id @default(autoincrement())
-  name       String   @db.VarChar(255)
-  address    String?  @db.Text
-  latitude   Float?   @db.DoublePrecision
-  longitude  Float?   @db.DoublePrecision
-  phone      String?  @db.VarChar(15)
-  status     String   @default("active") @db.VarChar(50)
-  created_at DateTime @default(now()) @db.Timestamp(6)
+  id         Int       @id @default(autoincrement())
+  name       String    @db.VarChar(255)
+  address    String?   @db.Text
+  latitude   Float?    @db.DoublePrecision
+  longitude  Float?    @db.DoublePrecision
+  phone      String?   @db.VarChar(15)
+  status     String    @default("active") @db.VarChar(50)
+  created_at DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([status])
   @@map("blood_banks")
@@ -935,16 +918,16 @@ model blood_banks {
 // ===================================================================
 
 model audit_logs {
-  id          Int      @id @default(autoincrement())
-  uid         String?  @db.Uuid
-  role        String?  @db.VarChar(50)
-  action      String   @db.VarChar(100)
-  resource    String?  @db.VarChar(100)
-  resource_id String?  @db.VarChar(100)
-  metadata    Json?    @db.JsonB
-  ip_address  String?  @db.VarChar(45)
-  user_agent  String?  @db.Text
-  created_at  DateTime @default(now()) @db.Timestamp(6)
+  id          Int       @id @default(autoincrement())
+  uid         String?   @db.Uuid
+  role        String?   @db.VarChar(50)
+  action      String    @db.VarChar(100)
+  resource    String?   @db.VarChar(100)
+  resource_id String?   @db.VarChar(100)
+  metadata    Json?     @db.JsonB
+  ip_address  String?   @db.VarChar(45)
+  user_agent  String?   @db.Text
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([uid])
   @@index([action])
@@ -954,29 +937,29 @@ model audit_logs {
 }
 
 model anomalies {
-  id               Int       @id @default(autoincrement())
-  staff_id         Int?
-  staff_name       String?   @db.VarChar(255)
-  department       String?   @db.VarChar(100)
-  late_days        Int?      @default(0)
-  early_leave_days Int?      @default(0)
-  absent_days      Int?      @default(0)
-  period_start     DateTime? @db.Date
-  period_end       DateTime? @db.Date
-  created_at       DateTime  @default(now()) @db.Timestamp(6)
+  id              Int       @id @default(autoincrement())
+  staff_id        Int?
+  staff_name      String?   @db.VarChar(255)
+  department      String?   @db.VarChar(100)
+  late_days       Int?      @default(0)
+  early_leave_days Int?     @default(0)
+  absent_days     Int?      @default(0)
+  period_start    DateTime? @db.Date
+  period_end      DateTime? @db.Date
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([staff_id])
   @@map("anomalies")
 }
 
 model system_alerts {
-  id              Int      @id @default(autoincrement())
-  alert_type      String   @db.VarChar(100)
-  severity        String?  @db.VarChar(20)
-  message         String?  @db.Text
+  id              Int       @id @default(autoincrement())
+  alert_type      String    @db.VarChar(100)
+  severity        String?   @db.VarChar(20)
+  message         String?   @db.Text
   related_file_id Int?
-  resolved        Boolean  @default(false)
-  created_at      DateTime @default(now()) @db.Timestamp(6)
+  resolved        Boolean   @default(false)
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([alert_type])
   @@index([severity])
@@ -984,14 +967,14 @@ model system_alerts {
 }
 
 model api_access_logs {
-  id          Int      @id @default(autoincrement())
-  endpoint    String   @db.Text
-  method      String?  @db.VarChar(10)
-  user_id     String?  @db.Uuid
-  ip_address  String?  @db.VarChar(45)
+  id          Int       @id @default(autoincrement())
+  endpoint    String    @db.Text
+  method      String?   @db.VarChar(10)
+  user_id     String?   @db.Uuid
+  ip_address  String?   @db.VarChar(45)
   status_code Int?
   response_ms Int?
-  created_at  DateTime @default(now()) @db.Timestamp(6)
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([endpoint])
   @@index([created_at])
@@ -1003,14 +986,14 @@ model api_access_logs {
 // ===================================================================
 
 model admin_activity_logs {
-  id               Int      @id @default(autoincrement())
-  admin_uid        String?  @db.Uuid
-  action           String   @db.VarChar(100)
-  description      String?  @db.Text
-  details          Json?    @db.JsonB
+  id              Int       @id @default(autoincrement())
+  admin_uid       String?   @db.Uuid
+  action          String    @db.VarChar(100)
+  description     String?   @db.Text
+  details         Json?     @db.JsonB
   affected_user_id String?  @db.Uuid
-  ip_address       String?  @db.VarChar(45)
-  created_at       DateTime @default(now()) @db.Timestamp(6)
+  ip_address      String?   @db.VarChar(45)
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([admin_uid])
   @@index([created_at])
@@ -1018,15 +1001,15 @@ model admin_activity_logs {
 }
 
 model medical_activity_logs {
-  id               Int      @id @default(autoincrement())
-  staff_uid        String?  @db.Uuid
-  action           String   @db.VarChar(100)
-  patient_phone    String?  @db.VarChar(15)
-  description      String?  @db.Text
+  id               Int       @id @default(autoincrement())
+  staff_uid        String?   @db.Uuid
+  action           String    @db.VarChar(100)
+  patient_phone    String?   @db.VarChar(15)
+  description      String?   @db.Text
   consultation_id  Int?
   investigation_id Int?
-  urgent_flag      Boolean? @default(false)
-  created_at       DateTime @default(now()) @db.Timestamp(6)
+  urgent_flag      Boolean?  @default(false)
+  created_at       DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([staff_uid])
   @@index([created_at])
@@ -1034,40 +1017,40 @@ model medical_activity_logs {
 }
 
 model pharmacy_activity_logs {
-  id            Int      @id @default(autoincrement())
-  staff_uid     String?  @db.Uuid
-  action        String   @db.VarChar(100)
-  patient_phone String?  @db.VarChar(15)
+  id            Int       @id @default(autoincrement())
+  staff_uid     String?   @db.Uuid
+  action        String    @db.VarChar(100)
+  patient_phone String?   @db.VarChar(15)
   order_id      Int?
-  old_status    String?  @db.VarChar(50)
-  new_status    String?  @db.VarChar(50)
-  notes         String?  @db.Text
-  created_at    DateTime @default(now()) @db.Timestamp(6)
+  old_status    String?   @db.VarChar(50)
+  new_status    String?   @db.VarChar(50)
+  notes         String?   @db.Text
+  created_at    DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([staff_uid])
   @@map("pharmacy_activity_logs")
 }
 
 model hr_activity_logs {
-  id           Int      @id @default(autoincrement())
+  id          Int       @id @default(autoincrement())
   hr_staff_uid String?  @db.Uuid
-  action       String   @db.VarChar(100)
-  staff_id     Int?
-  description  String?  @db.Text
-  created_at   DateTime @default(now()) @db.Timestamp(6)
+  action      String    @db.VarChar(100)
+  staff_id    Int?
+  description String?   @db.Text
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([hr_staff_uid])
   @@map("hr_activity_logs")
 }
 
 model attendance_logs {
-  id           Int      @id @default(autoincrement())
+  id           Int       @id @default(autoincrement())
   staff_id     Int?
-  action       String   @db.VarChar(50)
-  marked_by    String?  @db.Uuid
-  location     String?  @db.VarChar(255)
+  action       String    @db.VarChar(50)
+  marked_by    String?   @db.Uuid
+  location     String?   @db.VarChar(255)
   hours_worked Float?
-  created_at   DateTime @default(now()) @db.Timestamp(6)
+  created_at   DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([staff_id])
   @@map("attendance_logs")
@@ -1100,840 +1083,53 @@ model devices {
 }
 
 // ===================================================================
-// 🛡️ HIPAA CONSENT MANAGEMENT
+// 🏃 STEP CHALLENGE
 // ===================================================================
 
-model patient_consents {
-  id           Int       @id @default(autoincrement())
-  patient_uid  String    @db.Uuid
-  consent_type String    @db.VarChar(100) // e.g., 'data_access', 'treatment', 'research', 'marketing'
-  granted      Boolean   @default(false)
-  granted_at   DateTime? @db.Timestamp(6)
-  revoked_at   DateTime? @db.Timestamp(6)
-  granted_by   String?   @db.VarChar(100) // 'patient', 'guardian', 'admin'
-  ip_address   String?   @db.VarChar(45)
-  notes        String?   @db.Text
-  created_at   DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([patient_uid])
-  @@index([consent_type])
-  @@map("patient_consents")
-}
-
-// ===================================================================
-// 🚨 DATA BREACH NOTIFICATION
-// ===================================================================
-
-model data_breaches {
-  id                    Int       @id @default(autoincrement())
-  breach_id             String    @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  severity              String    @db.VarChar(20) // 'low', 'medium', 'high', 'critical'
-  description           String    @db.Text
-  affected_records      Int       @default(0)
-  affected_patient_uids String[]  @default([])
-  discovered_at         DateTime  @db.Timestamp(6)
-  reported_by           String?   @db.Uuid
-  status                String    @default("open") @db.VarChar(50) // 'open', 'investigating', 'contained', 'resolved', 'notified'
-  containment_actions   String?   @db.Text
-  resolution_notes      String?   @db.Text
-  notification_sent_at  DateTime? @db.Timestamp(6)
-  resolved_at           DateTime? @db.Timestamp(6)
-  created_at            DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([status])
-  @@index([severity])
-  @@map("data_breaches")
-}
-
-// ===================================================================
-// BILLING & INVOICING
-// ===================================================================
-
-model invoices {
-  id                 Int       @id @default(autoincrement())
-  invoice_number     String    @unique @db.VarChar(50)
-  patient_uid        String    @db.Uuid
-  appointment_id     Int?
-  type               String    @db.VarChar(50) // consultation, investigation, pharmacy, procedure, room_charge
-  items              Json // [{description, quantity, unit_price, tax_rate, amount}]
-  subtotal           Decimal   @db.Decimal(10, 2)
-  tax_amount         Decimal   @default(0) @db.Decimal(10, 2)
-  discount_amount    Decimal   @default(0) @db.Decimal(10, 2)
-  total_amount       Decimal   @db.Decimal(10, 2)
-  paid_amount        Decimal   @default(0) @db.Decimal(10, 2)
-  payment_status     String    @default("pending") @db.VarChar(30) // pending, partial, paid, refunded, written_off
-  payment_method     String?   @db.VarChar(50) // cash, card, upi, insurance, cheque
-  insurance_claim_id Int?
-  notes              String?   @db.Text
-  issued_by          String?   @db.Uuid
-  issued_at          DateTime  @default(now()) @db.Timestamp(6)
-  paid_at            DateTime? @db.Timestamp(6)
-  due_date           DateTime? @db.Timestamp(6)
-  created_at         DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([patient_uid])
-  @@index([payment_status])
-  @@index([invoice_number])
-  @@map("invoices")
-}
-
-model insurance_claims {
-  id                 Int       @id @default(autoincrement())
-  claim_number       String    @unique @db.VarChar(50)
-  patient_uid        String    @db.Uuid
-  invoice_id         Int?
-  insurance_provider String    @db.VarChar(255)
-  policy_number      String    @db.VarChar(100)
-  claim_amount       Decimal   @db.Decimal(10, 2)
-  approved_amount    Decimal?  @db.Decimal(10, 2)
-  status             String    @default("submitted") @db.VarChar(30) // submitted, under_review, approved, partially_approved, rejected, paid
-  submitted_at       DateTime  @default(now()) @db.Timestamp(6)
-  reviewed_at        DateTime? @db.Timestamp(6)
-  rejection_reason   String?   @db.Text
-  documents          String[]  @default([])
-  created_at         DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([patient_uid])
-  @@index([status])
-  @@map("insurance_claims")
-}
-
-model payment_transactions {
-  id              Int      @id @default(autoincrement())
-  invoice_id      Int
-  amount          Decimal  @db.Decimal(10, 2)
-  payment_method  String   @db.VarChar(50)
-  transaction_ref String?  @db.VarChar(255)
-  status          String   @default("completed") @db.VarChar(30)
-  processed_by    String?  @db.Uuid
-  created_at      DateTime @default(now()) @db.Timestamp(6)
-
-  @@index([invoice_id])
-  @@map("payment_transactions")
-}
-
-// ===================================================================
-// CLINICAL WORKFLOWS
-// ===================================================================
-
-model medication_administrations {
+model step_profiles {
   id              Int       @id @default(autoincrement())
-  patient_uid     String    @db.Uuid
-  prescription_id Int?
-  medication_name String    @db.VarChar(255)
-  dose            String    @db.VarChar(100)
-  route           String    @db.VarChar(50) // oral, iv, im, sc, topical, inhaled
-  scheduled_time  DateTime  @db.Timestamp(6)
-  administered_at DateTime? @db.Timestamp(6)
-  administered_by String?   @db.Uuid
-  status          String    @default("scheduled") @db.VarChar(30) // scheduled, administered, missed, held, refused
-  hold_reason     String?   @db.Text
-  refusal_reason  String?   @db.Text
-  notes           String?   @db.Text
-  witness_uid     String?   @db.Uuid // for controlled substances
+  user_uid        String    @unique @db.Uuid
+  display_name    String    @db.VarChar(100)
+  display_color   String    @default("#2196F3") @db.VarChar(7)
+  daily_goal      Int       @default(8000)
+  opted_in        Boolean   @default(true)
   created_at      DateTime  @default(now()) @db.Timestamp(6)
+  updated_at      DateTime  @updatedAt @db.Timestamp(6)
 
-  @@index([patient_uid])
-  @@index([scheduled_time])
-  @@index([status])
-  @@map("medication_administrations")
-}
-
-model news2_scores {
-  id                Int      @id @default(autoincrement())
-  patient_uid       String   @db.Uuid
-  respiration_rate  Int
-  spo2              Int
-  spo2_scale        Int      @default(1) // 1 or 2
-  supplemental_o2   Boolean  @default(false)
-  temperature       Decimal  @db.Decimal(4, 1)
-  systolic_bp       Int
-  heart_rate        Int
-  consciousness     String   @db.VarChar(10) // A, C, V, P, U (ACVPU scale)
-  total_score       Int
-  clinical_risk     String   @db.VarChar(20) // low, low_to_medium, medium, high
-  escalation_action String?  @db.Text
-  recorded_by       String   @db.Uuid
-  recorded_at       DateTime @default(now()) @db.Timestamp(6)
-
-  @@index([patient_uid])
-  @@index([total_score])
-  @@index([recorded_at])
-  @@map("news2_scores")
-}
-
-model nurse_handovers {
-  id                   Int       @id @default(autoincrement())
-  patient_uid          String    @db.Uuid
-  ward                 String?   @db.VarChar(100)
-  bed_number           String?   @db.VarChar(20)
-  outgoing_nurse       String    @db.Uuid
-  incoming_nurse       String?   @db.Uuid
-  shift                String    @db.VarChar(20) // morning, afternoon, night
-  patient_summary      String    @db.Text
-  active_issues        String[]  @default([])
-  pending_tasks        String[]  @default([])
-  medications_due      String[]  @default([])
-  special_instructions String?   @db.Text
-  acknowledged         Boolean   @default(false)
-  acknowledged_at      DateTime? @db.Timestamp(6)
-  created_at           DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([patient_uid])
-  @@index([outgoing_nurse])
-  @@index([incoming_nurse])
-  @@map("nurse_handovers")
-}
-
-// ===================================================================
-// 💬 INTER-STAFF MESSAGING
-// ===================================================================
-
-model staff_messages {
-  id            Int       @id @default(autoincrement())
-  sender_uid    String    @db.Uuid
-  recipient_uid String    @db.Uuid
-  patient_uid   String?   @db.Uuid // optional: message about a patient
-  subject       String?   @db.VarChar(255)
-  body          String    @db.Text
-  priority      String    @default("normal") @db.VarChar(20) // normal, urgent, critical
-  is_read       Boolean   @default(false)
-  read_at       DateTime? @db.Timestamp(6)
-  created_at    DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([recipient_uid, is_read])
-  @@index([sender_uid])
-  @@index([patient_uid])
-  @@map("staff_messages")
-}
-
-// ===================================================================
-// 💊 MEDICATION REMINDERS
-// ===================================================================
-
-model medication_reminders {
-  id              Int       @id @default(autoincrement())
-  patient_uid     String    @db.Uuid
-  medication_name String    @db.VarChar(255)
-  dosage          String    @db.VarChar(100)
-  frequency       String    @db.VarChar(50) // once_daily, twice_daily, thrice_daily, as_needed
-  reminder_times  String[] // ["08:00", "14:00", "20:00"]
-  start_date      DateTime  @db.Date
-  end_date        DateTime? @db.Date
-  is_active       Boolean   @default(true)
-  notes           String?   @db.Text
-  created_at      DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([patient_uid])
-  @@index([is_active])
-  @@map("medication_reminders")
-}
-
-// ===================================================================
-// FEATURE FLAGS
-// ===================================================================
-
-model feature_flags {
-  id                  Int       @id @default(autoincrement())
-  name                String    @unique @db.VarChar(100)
-  description         String?   @db.Text
-  enabled             Boolean   @default(false)
-  rollout_percentage  Int       @default(100)
-  allowed_roles       String[]  @default([])
-  created_at          DateTime  @default(now()) @db.Timestamp(6)
-  updated_at          DateTime? @db.Timestamp(6)
-
-  @@map("feature_flags")
-}
-
-// ===================================================================
-// CLINICAL NOTES (EMR)
-// ===================================================================
-
-model clinical_notes {
-  id              Int       @id @default(autoincrement())
-  encounter_id    String?   @db.Uuid  // links to admission encounter
-  patient_uid     String    @db.Uuid
-  author_uid      String    @db.Uuid
-  author_role     String    @db.VarChar(50)
-  note_type       String    @db.VarChar(30) // soap, progress, procedure, discharge, nursing_assessment, consultation_note
-  content         Json      // Structure varies by note_type
-  version         Int       @default(1)
-  parent_note_id  Int?      // For versioning — points to original note
-  is_addendum     Boolean   @default(false)
-  is_signed       Boolean   @default(false)
-  signed_at       DateTime? @db.Timestamp(6)
-  signed_by       String?   @db.Uuid
-  created_at      DateTime  @default(now()) @db.Timestamp(6)
-  updated_at      DateTime? @db.Timestamp(6)
-
-  @@index([patient_uid])
-  @@index([encounter_id])
-  @@index([note_type])
-  @@index([author_uid])
-  @@index([created_at])
-  @@map("clinical_notes")
-}
-
-// ===================================================================
-// ADMISSION / DISCHARGE / TRANSFER (ADT)
-// ===================================================================
-
-model admissions {
-  id                  Int       @id @default(autoincrement())
-  encounter_id        String    @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  patient_uid         String    @db.Uuid
-  admitting_doctor    String    @db.Uuid
-  attending_doctor    String?   @db.Uuid
-  department          String?   @db.VarChar(100)
-  ward                String?   @db.VarChar(100)
-  bed_id              Int?
-  chief_complaint     String    @db.Text
-  admitting_diagnosis String?   @db.Text
-  admission_type      String    @default("elective") @db.VarChar(30) // elective, emergency, transfer_in
-  status              String    @default("admitted") @db.VarChar(30) // admitted, transferred, discharged, lama, expired
-  priority            String    @default("routine") @db.VarChar(20) // routine, urgent, emergent
-  insurance_info      Json?
-  emergency_contact   Json?     // {name, phone, relationship}
-  allergies           String[]  @default([])
-  code_status         String    @default("full_code") @db.VarChar(30) // full_code, dnr, dni, comfort_care
-  admitted_at         DateTime  @default(now()) @db.Timestamp(6)
-  discharged_at       DateTime? @db.Timestamp(6)
-  discharge_type      String?   @db.VarChar(30) // home, transfer, lama, expired, aor
-  discharge_summary   Json?     // {summary, medications, followUp, instructions}
-  expected_los_days   Int?
-  actual_los_days     Int?
-  created_by          String    @db.Uuid
-  created_at          DateTime  @default(now()) @db.Timestamp(6)
-  updated_at          DateTime? @db.Timestamp(6)
-
-  @@index([patient_uid])
-  @@index([status])
-  @@index([encounter_id])
-  @@index([admitting_doctor])
-  @@index([admitted_at])
-  @@map("admissions")
-}
-
-// ===================================================================
-// 🧠 CLINICAL DECISION SUPPORT (CDS)
-// ===================================================================
-
-model drug_interactions {
-  id              Int       @id @default(autoincrement())
-  drug_a          String    @db.VarChar(255)
-  drug_b          String    @db.VarChar(255)
-  severity        String    @db.VarChar(20) // mild, moderate, severe, contraindicated
-  description     String    @db.Text
-  clinical_effect String?   @db.Text
-  management      String?   @db.Text
-  source          String?   @db.VarChar(100) // e.g., "DrugBank", "FDA", "manual"
-  created_at      DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([drug_a])
-  @@index([drug_b])
-  @@map("drug_interactions")
-}
-
-model clinical_protocols {
-  id              Int       @id @default(autoincrement())
-  name            String    @unique @db.VarChar(255)
-  category        String    @db.VarChar(100) // dvt_prophylaxis, pain_management, sepsis, post_op, falls_prevention
-  trigger_conditions Json   // conditions that trigger this protocol
-  recommendations Json     // recommended actions
-  priority        String    @default("medium") @db.VarChar(20)
-  is_active       Boolean   @default(true)
-  created_at      DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([category])
-  @@map("clinical_protocols")
-}
-
-model cds_alerts {
-  id              Int       @id @default(autoincrement())
-  patient_uid     String    @db.Uuid
-  encounter_id    String?   @db.Uuid
-  alert_type      String    @db.VarChar(50) // drug_interaction, allergy, critical_lab, protocol_reminder, duplicate_order
-  severity        String    @db.VarChar(20) // info, warning, critical
-  title           String    @db.VarChar(255)
-  description     String    @db.Text
-  source_data     Json?     // the data that triggered the alert
-  acknowledged    Boolean   @default(false)
-  acknowledged_by String?   @db.Uuid
-  acknowledged_at DateTime? @db.Timestamp(6)
-  override_reason String?   @db.Text
-  created_at      DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([patient_uid])
-  @@index([encounter_id])
-  @@index([alert_type])
-  @@index([acknowledged])
-  @@map("cds_alerts")
-}
-
-// ===================================================================
-// 🏥 DIAGNOSIS & PROBLEM LIST
-// ===================================================================
-
-model diagnoses {
-  id              Int       @id @default(autoincrement())
-  patient_uid     String    @db.Uuid
-  encounter_id    String?   @db.Uuid
-  icd10_code      String?   @db.VarChar(10)
-  icd10_description String? @db.VarChar(500)
-  description     String    @db.Text
-  diagnosis_type  String    @default("secondary") @db.VarChar(20) // primary, secondary, admitting, discharge
-  status          String    @default("active") @db.VarChar(20) // active, resolved, chronic, recurrent
-  onset_date      DateTime? @db.Date
-  resolved_date   DateTime? @db.Date
-  severity        String?   @db.VarChar(20) // mild, moderate, severe
-  diagnosed_by    String    @db.Uuid
-  notes           String?   @db.Text
-  created_at      DateTime  @default(now()) @db.Timestamp(6)
-  updated_at      DateTime? @db.Timestamp(6)
-
-  @@index([patient_uid])
-  @@index([encounter_id])
-  @@index([icd10_code])
-  @@index([status])
-  @@map("diagnoses")
-}
-
-model icd10_codes {
-  id              Int       @id @default(autoincrement())
-  code            String    @unique @db.VarChar(10)
-  description     String    @db.VarChar(500)
-  category        String    @db.VarChar(255)
-  chapter         String?   @db.VarChar(10)
-  is_billable     Boolean   @default(true)
-
-  @@index([code])
-  @@index([description])
-  @@map("icd10_codes")
-}
-
-// ===================================================================
-// CPOE — Computerized Provider Order Entry
-// ===================================================================
-
-model clinical_orders {
-  id              Int       @id @default(autoincrement())
-  order_number    String    @unique @db.VarChar(50)
-  encounter_id    String?   @db.Uuid
-  patient_uid     String    @db.Uuid
-  order_type      String    @db.VarChar(30) // medication, investigation, nursing, diet, activity, consultation
-  priority        String    @default("routine") @db.VarChar(20) // stat, urgent, routine, prn
-  details         Json      // Order-specific details (see below)
-  status          String    @default("ordered") @db.VarChar(30) // ordered, verified, in_progress, completed, cancelled, discontinued
-  ordered_by      String    @db.Uuid
-  verified_by     String?   @db.Uuid
-  verified_at     DateTime? @db.Timestamp(6)
-  completed_by    String?   @db.Uuid
-  completed_at    DateTime? @db.Timestamp(6)
-  cancelled_by    String?   @db.Uuid
-  cancel_reason   String?   @db.Text
-  start_date      DateTime? @db.Timestamp(6)
-  end_date        DateTime? @db.Timestamp(6)
-  notes           String?   @db.Text
-  created_at      DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([patient_uid])
-  @@index([encounter_id])
-  @@index([order_type])
-  @@index([status])
-  @@index([ordered_by])
-  @@map("clinical_orders")
-}
-
-model order_sets {
-  id              Int       @id @default(autoincrement())
-  name            String    @unique @db.VarChar(255)
-  description     String?   @db.Text
-  category        String    @db.VarChar(100) // post_op, admission, icu, general
-  orders          Json      // Array of order templates
-  created_by      String    @db.Uuid
-  is_active       Boolean   @default(true)
-  created_at      DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([category])
-  @@map("order_sets")
-}
-
-// ===================================================================
-// Vitals Charting
-// ===================================================================
-
-model vitals_chart {
-  id              Int       @id @default(autoincrement())
-  patient_uid     String    @db.Uuid
-  encounter_id    String?   @db.Uuid
-  heart_rate      Int?
-  systolic_bp     Int?
-  diastolic_bp    Int?
-  temperature     Decimal?  @db.Decimal(4,1)
-  spo2            Int?
-  respiratory_rate Int?
-  blood_glucose   Decimal?  @db.Decimal(6,1)
-  pain_score      Int?      // 0-10 scale
-  weight_kg       Decimal?  @db.Decimal(5,1)
-  height_cm       Decimal?  @db.Decimal(5,1)
-  gcs_score       Int?      // Glasgow Coma Scale 3-15
-  supplemental_o2 Boolean?  @default(false)
-  o2_flow_rate    Decimal?  @db.Decimal(4,1) // L/min
-  consciousness   String?   @db.VarChar(10) // A, C, V, P, U (ACVPU)
-  notes           String?   @db.Text
-  recorded_by     String    @db.Uuid
-  recorded_at     DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([patient_uid])
-  @@index([encounter_id])
-  @@index([recorded_at])
-  @@map("vitals_chart")
-}
-
-model intake_output {
-  id              Int       @id @default(autoincrement())
-  patient_uid     String    @db.Uuid
-  encounter_id    String?   @db.Uuid
-  io_type         String    @db.VarChar(20) // intake, output
-  category        String    @db.VarChar(50) // oral, iv, blood, urine, drain, vomit, stool, other
-  amount_ml       Int
-  description     String?   @db.VarChar(255)
-  recorded_by     String    @db.Uuid
-  recorded_at     DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([patient_uid])
-  @@index([encounter_id])
-  @@index([recorded_at])
-  @@map("intake_output")
-}
-
-// ===================================================================
-// 🛡️ QUALITY & INFECTION CONTROL
-// ===================================================================
-
-model quality_incidents {
-  id                  Int       @id @default(autoincrement())
-  incident_number     String    @unique @db.VarChar(50)
-  reported_by         String    @db.Uuid
-  patient_uid         String?   @db.Uuid
-  incident_type       String    @db.VarChar(50) // fall, medication_error, infection, equipment_failure, near_miss, complaint, other
-  severity            String    @db.VarChar(20) // minor, moderate, major, sentinel
-  description         String    @db.Text
-  location            String?   @db.VarChar(100)
-  date_occurred       DateTime  @db.Timestamp(6)
-  root_cause          String?   @db.Text
-  corrective_action   String?   @db.Text
-  preventive_action   String?   @db.Text
-  status              String    @default("reported") @db.VarChar(30) // reported, investigating, action_taken, resolved, closed
-  investigated_by     String?   @db.Uuid
-  resolved_at         DateTime? @db.Timestamp(6)
-  created_at          DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([status])
-  @@index([incident_type])
-  @@index([severity])
-  @@map("quality_incidents")
-}
-
-model infection_cases {
-  id                  Int       @id @default(autoincrement())
-  patient_uid         String    @db.Uuid
-  encounter_id        String?   @db.Uuid
-  organism            String    @db.VarChar(255)
-  infection_site      String    @db.VarChar(100) // surgical_site, bloodstream, urinary, respiratory, wound, other
-  detection_date      DateTime  @db.Date
-  culture_date        DateTime? @db.Date
-  antibiotic_sensitivity Json?
-  isolation_required  Boolean   @default(false)
-  isolation_type      String?   @db.VarChar(50) // contact, droplet, airborne, protective
-  status              String    @default("active") @db.VarChar(20) // active, treated, resolved, deceased
-  treatment_notes     String?   @db.Text
-  reported_by         String    @db.Uuid
-  created_at          DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([patient_uid])
-  @@index([organism])
-  @@index([status])
-  @@map("infection_cases")
-}
-
-// ===================================================================
-// 🔄 REFERRAL MANAGEMENT
-// ===================================================================
-
-model referrals {
-  id                  Int       @id @default(autoincrement())
-  referral_number     String    @unique @db.VarChar(50)
-  patient_uid         String    @db.Uuid
-  encounter_id        String?   @db.Uuid
-  referring_doctor    String    @db.Uuid
-  referred_to_doctor  String?   @db.Uuid
-  referred_to_department String @db.VarChar(100)
-  referral_type       String    @default("internal") @db.VarChar(20) // internal, external
-  reason              String    @db.Text
-  urgency             String    @default("routine") @db.VarChar(20) // routine, urgent, emergency
-  clinical_summary    String?   @db.Text
-  status              String    @default("pending") @db.VarChar(30) // pending, accepted, in_progress, completed, declined
-  accepted_by         String?   @db.Uuid
-  accepted_at         DateTime? @db.Timestamp(6)
-  completed_at        DateTime? @db.Timestamp(6)
-  response_notes      String?   @db.Text
-  created_at          DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([patient_uid])
-  @@index([referring_doctor])
-  @@index([referred_to_doctor])
-  @@index([status])
-  @@map("referrals")
-}
-
-// ===================================================================
-// 🩻 RADIOLOGY
-// ===================================================================
-
-model radiology_orders {
-  id                  Int       @id @default(autoincrement())
-  patient_uid         String    @db.Uuid
-  encounter_id        String?   @db.Uuid
-  modality            String    @db.VarChar(30) // xray, ct, mri, ultrasound, mammography, fluoroscopy
-  body_part           String    @db.VarChar(100)
-  clinical_indication String    @db.Text
-  priority            String    @default("routine") @db.VarChar(20)
-  status              String    @default("ordered") @db.VarChar(30) // ordered, scheduled, in_progress, completed, cancelled
-  report              String?   @db.Text
-  findings            String?   @db.Text
-  impression          String?   @db.Text
-  images              String[]  @default([])
-  ordered_by          String    @db.Uuid
-  reported_by         String?   @db.Uuid
-  reported_at         DateTime? @db.Timestamp(6)
-  notes               String?   @db.Text
-  created_at          DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([patient_uid])
-  @@index([status])
-  @@map("radiology_orders")
-}
-
-// ===================================================================
-// 🍽️ DIETARY / NUTRITION
-// ===================================================================
-
-model diet_orders {
-  id              Int       @id @default(autoincrement())
-  patient_uid     String    @db.Uuid
-  encounter_id    String?   @db.Uuid
-  diet_type       String    @db.VarChar(50) // regular, diabetic, cardiac, renal, soft, liquid, npo, enteral
-  restrictions    String[]  @default([])
-  allergies       String[]  @default([])
-  meal_preferences String?  @db.Text
-  calories_target Int?
-  special_instructions String? @db.Text
-  status          String    @default("active") @db.VarChar(20)
-  ordered_by      String    @db.Uuid
-  reviewed_by     String?   @db.Uuid
-  created_at      DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([patient_uid])
-  @@index([status])
-  @@map("diet_orders")
-}
-
-// ===================================================================
-// 🏥 OPERATING THEATRE
-// ===================================================================
-
-model ot_schedules {
-  id                  Int       @id @default(autoincrement())
-  patient_uid         String    @db.Uuid
-  encounter_id        String?   @db.Uuid
-  surgeon             String    @db.Uuid
-  anesthetist         String?   @db.Uuid
-  procedure_name      String    @db.VarChar(255)
-  procedure_code      String?   @db.VarChar(20)
-  ot_room             String?   @db.VarChar(20)
-  scheduled_date      DateTime  @db.Date
-  scheduled_time      String?   @db.VarChar(10)
-  estimated_duration  Int?      // minutes
-  actual_duration     Int?
-  status              String    @default("scheduled") @db.VarChar(30) // scheduled, pre_op, in_progress, post_op, completed, cancelled
-  pre_op_checklist    Json?
-  equipment_needed    String[]  @default([])
-  blood_arranged      Boolean   @default(false)
-  consent_obtained    Boolean   @default(false)
-  post_op_notes       String?   @db.Text
-  complications       String?   @db.Text
-  created_at          DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([scheduled_date])
-  @@index([surgeon])
-  @@index([status])
-  @@map("ot_schedules")
-}
-
-// ===================================================================
-// 🩸 BLOOD BANK
-// ===================================================================
-
-model blood_requests {
-  id                  Int       @id @default(autoincrement())
-  patient_uid         String    @db.Uuid
-  encounter_id        String?   @db.Uuid
-  blood_group         String    @db.VarChar(10) // A+, A-, B+, B-, AB+, AB-, O+, O-
-  component           String    @db.VarChar(30) // whole_blood, prbc, ffp, platelets, cryoprecipitate
-  units               Int
-  urgency             String    @default("routine") @db.VarChar(20) // routine, urgent, emergency
-  clinical_indication String    @db.Text
-  cross_match_status  String    @default("pending") @db.VarChar(20) // pending, compatible, incompatible
-  cross_matched_by    String?   @db.Uuid
-  cross_matched_at    DateTime? @db.Timestamp(6)
-  issued              Boolean   @default(false)
-  issued_by           String?   @db.Uuid
-  issued_at           DateTime? @db.Timestamp(6)
-  transfused          Boolean   @default(false)
-  transfusion_reaction String? @db.Text
-  status              String    @default("requested") @db.VarChar(20) // requested, cross_matched, issued, transfused, cancelled
-  ordered_by          String    @db.Uuid
-  created_at          DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([patient_uid])
-  @@index([blood_group])
-  @@index([status])
-  @@map("blood_requests")
-}
-
-// ===================================================================
-// 🏥 ABDM (Ayushman Bharat Digital Mission) — Consent & Data Exchange
-// ===================================================================
-
-model abdm_consents {
-  id                  Int       @id @default(autoincrement())
-  consent_id          String    @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  patient_uid         String    @db.Uuid
-  hip_id              String?   @db.VarChar(100)
-  hiu_id              String?   @db.VarChar(100)
-  purpose             String    @db.VarChar(50) // CAREMGT, BREAK_THE_GLASS, PUBHLTH, HPAYMT, DSRCH
-  hi_types            String[]  @default([]) // OPConsultation, Prescription, DischargeSummary, DiagnosticReport, ImmunizationRecord
-  date_range_from     DateTime? @db.Date
-  date_range_to       DateTime? @db.Date
-  expiry_date         DateTime  @db.Timestamp(6)
-  status              String    @default("REQUESTED") @db.VarChar(20) // REQUESTED, GRANTED, DENIED, REVOKED, EXPIRED
-  consent_artifact    Json?
-  requester_name      String?   @db.VarChar(255)
-  granted_at          DateTime? @db.Timestamp(6)
-  revoked_at          DateTime? @db.Timestamp(6)
-  created_at          DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([patient_uid])
-  @@index([status])
-  @@map("abdm_consents")
-}
-
-model abdm_data_requests {
-  id                  Int       @id @default(autoincrement())
-  transaction_id      String    @unique @db.VarChar(100)
-  consent_id          String    @db.Uuid
-  patient_uid         String    @db.Uuid
-  hi_types            String[]  @default([])
-  date_range_from     DateTime? @db.Date
-  date_range_to       DateTime? @db.Date
-  key_material        Json?     // Public key for encryption
-  status              String    @default("REQUESTED") @db.VarChar(20) // REQUESTED, PROCESSING, DELIVERED, FAILED
-  delivered_at        DateTime? @db.Timestamp(6)
-  created_at          DateTime  @default(now()) @db.Timestamp(6)
-
-  @@index([consent_id])
-  @@index([patient_uid])
-  @@map("abdm_data_requests")
-}
-
-model step_logs {
-  id           Int      @id @default(autoincrement())
-  patient_uid  String   @db.Uuid
-  log_date     DateTime @db.Date
-  steps        Int      @default(0)
-  distance_km  Decimal  @db.Decimal(8, 3) @default(0)
-  active_min   Int      @default(0)
-  created_at   DateTime @default(now()) @db.Timestamp(6)
-  updated_at   DateTime @updatedAt @db.Timestamp(6)
-
-  @@unique([patient_uid, log_date])
-  @@index([patient_uid])
-  @@index([log_date])
-  @@map("step_logs")
-}
-
-model step_profile {
-  id                   Int      @id @default(autoincrement())
-  patient_uid          String   @unique @db.Uuid
-  leaderboard_name     String   @db.VarChar(30)
-  avatar_color         String?  @db.VarChar(7)
-  opt_out_leaderboard  Boolean  @default(false)
-  total_steps          BigInt   @default(0)
-  total_distance_km    Decimal  @db.Decimal(10, 3) @default(0)
-  created_at           DateTime @default(now()) @db.Timestamp(6)
-  updated_at           DateTime @updatedAt @db.Timestamp(6)
-
-  @@map("step_profile")
+  @@index([user_uid])
+  @@map("step_profiles")
 }
 
 model step_sessions {
-  id           Int       @id @default(autoincrement())
-  patient_uid  String    @db.Uuid
-  started_at   DateTime  @db.Timestamp(6)
-  ended_at     DateTime? @db.Timestamp(6)
-  steps        Int       @default(0)
-  distance_km  Decimal   @db.Decimal(8, 3) @default(0)
-  duration_sec Int       @default(0)
-  route_points Json?
-  created_at   DateTime  @default(now()) @db.Timestamp(6)
+  id               Int       @id @default(autoincrement())
+  user_uid         String    @db.Uuid
+  started_at       DateTime  @db.Timestamp(6)
+  ended_at         DateTime? @db.Timestamp(6)
+  steps            Int       @default(0)
+  distance_meters  Float     @default(0)
+  duration_seconds Int       @default(0)
+  is_active        Boolean   @default(true)
+  created_at       DateTime  @default(now()) @db.Timestamp(6)
 
-  @@index([patient_uid])
+  @@index([user_uid])
   @@index([started_at])
+  @@index([user_uid, started_at])
   @@map("step_sessions")
 }
 
-model step_badges {
-  id          Int      @id @default(autoincrement())
-  patient_uid String   @db.Uuid
-  badge_type  String   @db.VarChar(50)
-  earned_at   DateTime @default(now()) @db.Timestamp(6)
-
-  @@unique([patient_uid, badge_type])
-  @@index([patient_uid])
-  @@map("step_badges")
-}
-
-model step_vouchers {
+model step_rewards {
   id           Int       @id @default(autoincrement())
-  patient_uid  String    @db.Uuid
-  voucher_code String    @unique @db.VarChar(20)
+  user_uid     String    @db.Uuid
   reward_type  String    @db.VarChar(50)
-  description  String    @db.Text
+  reward_month String?   @db.VarChar(7)
   discount_pct Int       @default(0)
-  free_consult Boolean   @default(false)
-  issued_at    DateTime  @default(now()) @db.Timestamp(6)
-  expires_at   DateTime  @db.Timestamp(6)
-  redeemed_at  DateTime? @db.Timestamp(6)
-  month_year   String    @db.VarChar(7)
+  description  String    @db.Text
+  is_applied   Boolean   @default(false)
+  expires_at   DateTime? @db.Timestamp(6)
+  created_at   DateTime  @default(now()) @db.Timestamp(6)
 
-  @@index([patient_uid])
-  @@index([voucher_code])
-  @@index([expires_at])
-  @@map("step_vouchers")
-}
-
-model step_monthly_winners {
-  id          Int      @id @default(autoincrement())
-  patient_uid String   @db.Uuid
-  rank        Int
-  month_year  String   @db.VarChar(7)
-  total_steps BigInt
-  voucher_id  Int?
-  created_at  DateTime @default(now()) @db.Timestamp(6)
-
-  @@unique([patient_uid, month_year])
-  @@index([month_year])
-  @@map("step_monthly_winners")
+  @@index([user_uid])
+  @@index([user_uid, is_applied])
+  @@index([reward_month])
+  @@map("step_rewards")
 }

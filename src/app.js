@@ -64,6 +64,7 @@ import hl7Routes from './routes/hl7/hl7Routes.js';
 
 // Admin (centralized under /api/v1/admin)
 import adminDashboardRoutes from './routes/admin/index.js';
+import stepsRoutes from './routes/steps/stepsRoutes.js';
 
 // System settings and logs (admin portal: /api/v1/system/* and /api/v1/logs/*)
 import systemRoutes from './routes/system/index.js';
@@ -321,6 +322,7 @@ app.use('/api/v1/rewards', patientRateLimiter, jwtAuth, stepRewardsRoutes);
 app.use('/api/v1/devices', deviceRoutes);
 
 // Support services
+app.use('/api/v1/steps', patientRateLimiter, stepsRoutes);
 app.use('/api/v1/feedback', patientRateLimiter, routes.feedback);
 app.use('/api/v1/sos', patientRateLimiter, routes.sos);
 app.use('/api/v1/search', jwtAuth, searchRoutes);

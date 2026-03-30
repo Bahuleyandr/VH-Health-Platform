@@ -26,7 +26,7 @@ export async function escalateStuckOrders() {
 
   // 2. Pharmacy orders stuck past SLA confirm target
   const stuckPharmacy = await db.query(`
-    SELECT po.id, po.order_number, po.patient_name, po.patient_phone,
+    SELECT po.id, po.order_number, po.patient_name, po.phone AS patient_phone,
       ROUND(EXTRACT(EPOCH FROM (NOW() - po.created_at)) / 60) as mins_waiting
     FROM pharmacy_orders po
     WHERE po.status = 'PLACED' AND NOW() > po.sla_confirm_target
