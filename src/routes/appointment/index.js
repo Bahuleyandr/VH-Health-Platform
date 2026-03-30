@@ -6,6 +6,7 @@ import appointmentAdminRoutes from './appointmentAdminRoutes.js';
 import appointmentCrudRoutes from './appointmentCrudRoutes.js';
 import appointmentLegacyRoutes from './appointmentLegacyRoutes.js';
 import appointmentListRoutes from './appointmentListRoutes.js';
+import appointmentWaitTimeRoutes from './appointmentWaitTimeRoutes.js';
 import appointmentWorkflowRoutes from './appointmentWorkflowRoutes.js';
 
 const router = express.Router();
@@ -32,7 +33,9 @@ wrapAutoRBAC(
 );
 
 // Mount sub-routes
-// Workflow routes first (static paths: /queue/today, /pending, /patient/records/*, /admin/*)
+// Wait time routes (static paths: /doctor/:doctorId/wait-time, /:id/wait-time)
+router.use('/', appointmentWaitTimeRoutes);
+// Workflow routes (static paths: /queue/today, /pending, /patient/records/*, /admin/*)
 router.use('/', appointmentWorkflowRoutes);
 router.use('/', appointmentListRoutes);
 router.use('/', appointmentCrudRoutes);

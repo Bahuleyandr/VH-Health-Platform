@@ -15,6 +15,8 @@
     "test": "dotenv -e .env.local -- node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "start:local": "dotenv -e .env.local -- node src/bin/www.js",
     "start:render": "node src/bin/www.js",
+    "start:cluster": "node src/cluster.js",
+    "start:pm2": "pm2 start ecosystem.config.cjs",
     "r2:migrate-archive": "node src/scripts/r2/r2-migrate-archive.js",
     "r2:cleanup-old": "node src/scripts/r2/r2-cleanup-old.js",
     "r2:list-files": "node src/scripts/r2/r2-list-files.js",
@@ -31,7 +33,16 @@
     "generate-admin-token": "node src/scripts/development/generateAdminToken.js",
     "convert-to-relative": "node src/scripts/development/convert-aliases-to-relative.js",
     "convert-to-aliases": "node src/scripts/development/convert-relative-to-aliases.js",
-    "dev:setup": "npm run generate-admin-token && echo 'Development environment ready'"
+    "dev:setup": "npm run generate-admin-token && echo 'Development environment ready'",
+    "db:migrate": "prisma migrate deploy",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:migrate:status": "prisma migrate status",
+    "db:migrate:reset": "prisma migrate reset",
+    "db:studio": "prisma studio",
+    "db:generate": "prisma generate",
+    "load-test:health": "k6 run load-tests/k6/health.js",
+    "load-test:auth": "k6 run load-tests/k6/auth.js",
+    "load-test:api": "k6 run load-tests/k6/api.js"
   },
   "repository": {
     "type": "git",
@@ -59,6 +70,7 @@
     "express-validator": "^7.2.1",
     "firebase-admin": "^13.4.0",
     "helmet": "^8.1.0",
+    "ioredis": "^5.6.1",
     "joi": "^17.13.3",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
@@ -108,8 +120,12 @@
   ],
   "jest": {
     "testEnvironment": "node",
+    "transform": {},
     "setupFiles": [
       "<rootDir>/src/scripts/testing/jest.setup.js"
+    ],
+    "testMatch": [
+      "<rootDir>/src/tests/**/*.test.js"
     ],
     "moduleNameMapper": {
       "^@utils/(.*)$": "<rootDir>/src/utils/$1",

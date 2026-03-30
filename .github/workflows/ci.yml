@@ -40,8 +40,52 @@ jobs:
 
       - run: npm ci
 
+      - name: Security audit
+        run: |
+          npm audit --audit-level=high
+          npx audit-ci --high
+
       - run: npm run lint
+
+      - name: Generate Prisma client
+        run: npx prisma generate
 
       - name: Run tests
         run: node --experimental-vm-modules node_modules/jest/bin/jest.js --forceExit --detectOpenHandles
-        continue-on-error: true  # Tests need CI env fixes (ClamAV, R2 creds, etc.)
+
+  deploy-staging:
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Deploy database migrations to staging
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: npx prisma migrate deploy
+
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3

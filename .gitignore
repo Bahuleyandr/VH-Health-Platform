@@ -132,3 +132,10 @@ $RECYCLE.BIN/
 # Firebase
 .firebase/
 .firebaserc
+# Generated API route files
+all-*.json
+all-*.csv
+all-*.txt
+complete-api-*.json
+complete-api-*.csv
+endpoints.csv

@@ -25,6 +25,8 @@ import { auditLogMiddleware } from './middleware/auditLog.js';
 import { patientRateLimiter, genericLimiter, adminRateLimiter, dataExportRateLimiter } from './middleware/rateLimitMiddleware.js';
 import validateApiKey from './middleware/validateApiKey.js';
 import apiVersionMiddleware from './middleware/apiVersionMiddleware.js';
+import { selfHealingMiddleware } from './middleware/selfHealingMiddleware.js';
+import { prometheusMiddleware } from './middleware/prometheusMiddleware.js';
 
 // ====================================
 // ROUTE IMPORTS - Organized by category
@@ -49,6 +51,16 @@ import searchRoutes from './routes/searchRoutes.js';
 import staffRoutes from './routes/staff/index.js';
 import userRoutes from './routes/user/index.js';
 import { bedRouter, wardRouter } from './routes/bed/bedRoutes.js';
+import bedManagementRoutes from './routes/bed/bedManagementRoutes.js';
+
+// FHIR interoperability
+import fhirRoutes from './routes/fhir/fhirRoutes.js';
+
+// Clinical Document Export & Import
+import documentRoutes from './routes/documents/documentRoutes.js';
+
+// HL7v2 messaging
+import hl7Routes from './routes/hl7/hl7Routes.js';
 
 // Admin (centralized under /api/v1/admin)
 import adminDashboardRoutes from './routes/admin/index.js';
@@ -60,8 +72,64 @@ import logRoutes from './routes/logs/index.js';
 // Patient dashboard (API key only, no JWT)
 import dashboardRoutes from './routes/dashboard/index.js';
 
+// Config routes (API key only, no JWT)
+import configRoutes from './routes/configRoutes.js';
+
 // GDPR Data Export
 import dataExportRoutes from './routes/dataExportRoutes.js';
+
+// HIPAA Consent Management
+import consentRoutes from './routes/consentRoutes.js';
+
+// Compliance (Breach Notification + Audit Search)
+import breachRoutes from './routes/compliance/breachRoutes.js';
+import auditSearchRoutes from './routes/compliance/auditSearchRoutes.js';
+
+// ABDM (Ayushman Bharat Digital Mission) Integration
+import { callbackRouter as abdmCallbackRoutes, patientRouter as abdmPatientRoutes } from './routes/abdm/abdmRoutes.js';
+
+// Billing & Invoicing
+import billingRoutes from './routes/billing/billingRoutes.js';
+
+// Quality & Infection Control
+import qualityRoutes from './routes/quality/qualityRoutes.js';
+
+// Referral Management
+import referralRoutes from './routes/referral/referralRoutes.js';
+
+// Department modules: Radiology, Dietary, Operating Theatre, Blood Bank
+import radiologyRoutes from './routes/radiology/radiologyRoutes.js';
+import dietaryRoutes from './routes/dietary/dietaryRoutes.js';
+import theatreRoutes from './routes/theatre/theatreRoutes.js';
+import bloodBankRoutes from './routes/bloodbank/bloodBankRoutes.js';
+
+// Inter-staff messaging
+import messagingRoutes from './routes/messaging/messagingRoutes.js';
+
+// Patient reminders (medication)
+import reminderRoutes from './routes/reminders/index.js';
+
+// Clinical workflows (MAR, NEWS2, Handover)
+import clinicalRoutes from './routes/clinical/clinicalRoutes.js';
+
+// EMR — Clinical Documentation (SOAP, Progress, Procedure, Discharge, Timeline)
+import clinicalNotesRoutes from './routes/emr/clinicalNotesRoutes.js';
+
+// EMR — ADT (Admission/Discharge/Transfer)
+import admissionRoutes from './routes/emr/admissionRoutes.js';
+
+// EMR — CPOE (Order Entry) and Vitals Charting
+import orderRoutes from './routes/emr/orderRoutes.js';
+import vitalsRoutes from './routes/emr/vitalsRoutes.js';
+
+// EMR — Clinical Decision Support (CDS) Engine
+import cdsRoutes from './routes/emr/cdsRoutes.js';
+
+// EMR — Diagnosis & Problem List
+import diagnosisRoutes from './routes/emr/diagnosisRoutes.js';
+
+// Prometheus metrics
+import metricsRoutes from './routes/metrics/metricsRoutes.js';
 
 // Swagger loader
 import swaggerLoader from './utils/swaggerLoader.js';
@@ -143,12 +211,15 @@ app.use(attachUserContext);
 
 // Universal audit log — fire-and-forget, captures all routes, handles null user gracefully
 app.use(auditLogMiddleware);
+app.use(selfHealingMiddleware);
+app.use(prometheusMiddleware);
 
 // ====================================
 // PUBLIC ROUTES (No authentication required)
 // ====================================
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+app.use('/metrics', metricsRoutes);
 app.use('/api/v1/internal', validateApiKey, internalRoutes);
 
 // Root health check
@@ -193,6 +264,9 @@ app.use('/api/v1/health', healthRoutes);
 // Infrastructure (mixed auth handled inside)
 app.use('/api/v1', infrastructureRoutes);
 
+// ABDM gateway callbacks (public — no JWT/API key, validated via ABDM request signature)
+app.use('/api/v1/abdm', abdmCallbackRoutes);
+
 // ====================================
 // API KEY & AUTH MIDDLEWARE
 // Apply to all routes below this point
@@ -208,6 +282,13 @@ app.use(validateApiKey);
 // Patient dashboard — Flutter app uses API key only for this
 app.use('/api/v1/dashboard', patientRateLimiter, dashboardRoutes);
 
+// Campus config — staff app uses API key only for this
+app.use('/api/v1/config', configRoutes);
+
+// HL7v2 messaging — mounted before authMiddleware so /receive works with API key only.
+// JWT is enforced on /generate within the route file itself.
+app.use('/api/v1/hl7', hl7Routes);
+
 app.use(authMiddleware);
 app.use(normalizeIdentityFields); // runs AFTER authMiddleware
 
@@ -220,14 +301,17 @@ app.use('/api/v1/users', patientRateLimiter, userRoutes);
 
 // Healthcare services - Modularized
 app.use('/api/v1/appointments', patientRateLimiter, appointmentRoutes);
-app.use('/api/v1/records', patientRateLimiter, recordRoutes);
-app.use('/api/v1/investigations', patientRateLimiter, investigationRoutes);
-app.use('/api/v1/pharmacy-orders', patientRateLimiter, pharmacyRoutes);
-app.use('/api/v1/prescriptions', patientRateLimiter, prescriptionRoutes);
-app.use('/api/v1/delivery', patientRateLimiter, deliveryRoutes);
+app.use('/api/v1/records', patientRateLimiter, jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS', 'PATIENT'), recordRoutes);
+app.use('/api/v1/investigations', patientRateLimiter, jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF', 'MEDICAL_RECORDS'), investigationRoutes);
+app.use('/api/v1/pharmacy-orders', patientRateLimiter, jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF'), pharmacyRoutes);
+app.use('/api/v1/prescriptions', patientRateLimiter, jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'PATIENT'), prescriptionRoutes);
+app.use('/api/v1/delivery', patientRateLimiter, jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'PHARMACY_STAFF', 'DELIVERY_STAFF'), deliveryRoutes);
 app.use('/api/v1/departments', departmentRoutes);
 app.use('/api/v1/doctors', doctorRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
+
+// Patient reminders (medication) — JWT via authMiddleware above
+app.use('/api/v1/reminders', patientRateLimiter, reminderRoutes);
 
 // Healthcare services - Legacy (to be modularized)
 app.use('/api/v1/devices', deviceRoutes);
@@ -241,6 +325,12 @@ app.use('/api/v1/upload', routes.upload);
 // GDPR Data Export
 app.use('/api/v1/data-export', dataExportRateLimiter, dataExportRoutes);
 
+// HIPAA Consent Management (requires JWT)
+app.use('/api/v1/consent', jwtAuth, consentRoutes);
+
+// ABDM patient-facing routes (JWT required — ABHA registration, consent management)
+app.use('/api/v1/abdm', jwtAuth, abdmPatientRoutes);
+
 // ====================================
 // JWT PROTECTED ROUTES (JWT token required)
 // ====================================
@@ -248,8 +338,37 @@ app.use('/api/v1/data-export', dataExportRateLimiter, dataExportRoutes);
 app.use('/api/v1/staff', jwtAuth, staffRoutes);
 
 // Bed/Ward management (admin only)
-app.use('/api/v1/beds', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSE'), bedRouter);
-app.use('/api/v1/wards', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSE'), wardRouter);
+app.use('/api/v1/beds', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), bedRouter);
+app.use('/api/v1/beds', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), bedManagementRoutes);
+app.use('/api/v1/wards', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), wardRouter);
+
+// FHIR R4 interoperability (JWT required)
+app.use('/api/v1/fhir', jwtAuth, fhirRoutes);
+
+// Clinical Document Export & Import (JWT + clinical roles)
+app.use('/api/v1/documents', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), documentRoutes);
+
+
+// Clinical workflows: MAR, NEWS2, Nurse Handover (staff roles)
+app.use('/api/v1/clinical', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), clinicalRoutes);
+
+// EMR — Clinical Documentation (notes, timeline)
+app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), clinicalNotesRoutes);
+
+// EMR — ADT (Admission/Discharge/Transfer)
+app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), admissionRoutes);
+
+// EMR — CPOE (Order Entry)
+app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), orderRoutes);
+
+// EMR — Vitals Charting & I/O
+app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), vitalsRoutes);
+
+// EMR — Clinical Decision Support (CDS) Engine
+app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), cdsRoutes);
+
+// EMR — Diagnosis & Problem List
+app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), diagnosisRoutes);
 
 // Centralized admin namespace
 // AdminDashboardRoutes internally mounts: /appointments, /departments, /doctors,
@@ -261,6 +380,34 @@ app.use('/api/v1/system', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRat
 
 // Audit + system logs (portal: /api/v1/logs/audit, /api/v1/logs/system)
 app.use('/api/v1/logs', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, logRoutes);
+
+// Radiology (JWT + clinical/admin roles)
+app.use('/api/v1/radiology', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'RADIOLOGY_STAFF'), radiologyRoutes);
+
+// Dietary / Nutrition (JWT + clinical/dietary roles)
+app.use('/api/v1/dietary', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'DIETARY_STAFF'), dietaryRoutes);
+
+// Operating Theatre (JWT + surgical/admin roles)
+app.use('/api/v1/theatre', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF'), theatreRoutes);
+
+// Blood Bank (JWT + clinical/blood bank roles)
+app.use('/api/v1/blood-bank', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BLOOD_BANK_STAFF'), bloodBankRoutes);
+
+// Billing & Invoicing (JWT required — route-level role checks for mutations)
+app.use('/api/v1/billing', jwtAuth, billingRoutes);
+
+// Quality & Infection Control (JWT required — route-level role checks)
+app.use('/api/v1/quality', jwtAuth, qualityRoutes);
+
+// Referral Management (JWT required — route-level role checks)
+app.use('/api/v1/referrals', jwtAuth, referralRoutes);
+
+// Inter-staff messaging (JWT + any staff role)
+app.use('/api/v1/messaging', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'HR_STAFF', 'GENERAL_STAFF', 'DELIVERY_STAFF', 'RECEPTIONIST'), messagingRoutes);
+
+// Compliance: Breach Notification + Audit Search (admin only)
+app.use('/api/v1/compliance', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, breachRoutes);
+app.use('/api/v1/compliance', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, auditSearchRoutes);
 
 // (Optional but recommended) serve report exports if you use local file URLs
 app.use('/exports', express.static('exports'));

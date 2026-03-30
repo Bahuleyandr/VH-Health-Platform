@@ -13,6 +13,9 @@ import { runAllScheduledTasksNow } from '../utils/scheduler.js';
 import { initWebSocket } from '../utils/websocket/wsServer.js';
 import { runMigrations } from '../utils/migrations/runMigrations.js';
 import { startDbHealthMonitor } from '../utils/dbHealthMonitor.js';
+import { initRedis, disconnectRedis } from '../lib/redis.js';
+import { checkSchemaHealth } from '../utils/schemaHealthCheck.js';
+import { checkDependencyHealth } from '../utils/dependencyChecker.js';
 
 
 
@@ -60,6 +63,9 @@ async function onListening() {
   // Initialize WebSocket server
   initWebSocket(server);
 
+  // Run dependency health check
+  await checkDependencyHealth();
+
   // Run database migrations then scheduled tasks
   try {
     await runMigrations();
@@ -68,9 +74,20 @@ async function onListening() {
     logger.error('FATAL: Migration failed:', err);
     process.exit(1);
   }
+
+  // Verify schema health after migrations
+  await checkSchemaHealth();
+
   // Start database pool health monitoring
   const db = (await import('../config/database.js')).default;
   startDbHealthMonitor(db);
+
+  // Initialize Redis cache
+  try {
+    await initRedis();
+  } catch (err) {
+    logger.warn('Redis initialization failed — running without cache:', err.message);
+  }
 
   runAllScheduledTasksNow();
 }
@@ -86,6 +103,19 @@ function gracefulShutdown(signal) {
       logger.info('Database pool closed.');
     } catch (err) {
       logger.error('Error closing database pool:', err.message);
+    }
+    try {
+      await disconnectRedis();
+      logger.info('Redis disconnected.');
+    } catch (err) {
+      logger.error('Error disconnecting Redis:', err.message);
+    }
+    try {
+      const { default: prisma } = await import('../lib/prisma.js');
+      await prisma.$disconnect();
+      logger.info('Prisma client disconnected.');
+    } catch (err) {
+      // Prisma may not be initialized yet — safe to ignore
     }
     process.exit(0);
   });
