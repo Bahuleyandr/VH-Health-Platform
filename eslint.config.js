@@ -18,8 +18,11 @@ export default [
   // 1. Global ignores
   {
   ignores: [
-    "node_modules/", 
-    "dist/"
+    "node_modules/",
+    "dist/",
+    "load-tests/",
+    "ecosystem.config.cjs",
+    "local_plugins/"
   ],
 },
 
