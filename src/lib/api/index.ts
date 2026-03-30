@@ -144,6 +144,37 @@ export { updateSystemSetting, getSystemSettings };
 import { getAuditLogs, toggleUserStatus } from "./infrastructure";
 export { getAuditLogs, toggleUserStatus };
 
+// Billing & Invoicing
+import {
+  createInvoice, getPatientInvoices, getInvoiceDetail, recordPayment,
+  getRevenueStats, submitInsuranceClaim, getInsuranceClaims, updateInsuranceClaimStatus,
+} from "./billing";
+export type {
+  Invoice, InvoiceDetail, InvoiceLineItem, CreateInvoicePayload,
+  PaymentTransaction, RecordPaymentPayload, PaymentResult,
+  InsuranceClaim, SubmitClaimPayload, UpdateClaimPayload,
+  RevenueStats, RevenueSummary, Pagination,
+} from "./billing";
+export {
+  createInvoice, getPatientInvoices, getInvoiceDetail, recordPayment,
+  getRevenueStats, submitInsuranceClaim, getInsuranceClaims, updateInsuranceClaimStatus,
+};
+
+// EMR (Electronic Medical Records)
+import {
+  getActiveAdmissions, getAdmissionDetail, getAdmissionStats,
+  getPatientTimeline, getPatientNotes, getPatientOrders,
+  getActiveProblemList, getActiveAlerts, searchICD10,
+  generateDischargeSummary, saveDischargeSummary, signDischargeSummary,
+} from "./emr";
+export type { Admission, ClinicalNote, ClinicalOrder, AdmissionStats, DischargeSummary } from "./emr";
+export {
+  getActiveAdmissions, getAdmissionDetail, getAdmissionStats,
+  getPatientTimeline, getPatientNotes, getPatientOrders,
+  getActiveProblemList, getActiveAlerts, searchICD10,
+  generateDischargeSummary, saveDischargeSummary, signDischargeSummary,
+};
+
 // Convenience namespace export (back-compat for `import { api } from "@/lib/api"`)
 export const api = {
   // Auth
@@ -246,4 +277,28 @@ export const api = {
   deactivateAdmin,
   reactivateAdmin,
   updateAdminPermissions,
+
+  // EMR
+  getActiveAdmissions,
+  getAdmissionDetail,
+  getAdmissionStats,
+  getPatientTimeline,
+  getPatientNotes,
+  getPatientOrders,
+  getActiveProblemList,
+  getActiveAlerts,
+  searchICD10,
+  generateDischargeSummary,
+  saveDischargeSummary,
+  signDischargeSummary,
+
+  // Billing & Invoicing
+  createInvoice,
+  getPatientInvoices,
+  getInvoiceDetail,
+  recordPayment,
+  getRevenueStats,
+  submitInsuranceClaim,
+  getInsuranceClaims,
+  updateInsuranceClaimStatus,
 };
