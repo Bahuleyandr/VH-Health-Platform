@@ -5,7 +5,7 @@ import { Router } from 'express';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
-import prisma from '../../db/prisma.js';
+import prisma from '../../lib/prisma.js';
 
 const router = Router();
 
@@ -197,7 +197,6 @@ router.get('/leaderboard', async (req, res) => {
       res,
       {
         leaderboard: rows.map(r => ({
-          userUid: r.user_uid,
           displayName: r.display_name,
           displayColor: r.display_color,
           totalSteps: Number(r.total_steps),
@@ -252,14 +251,37 @@ router.get('/profile', async (req, res) => {
 });
 
 // ─── PUT /profile ─────────────────────────────────────────────────────────
-// Upsert step profile.
+// Upsert step profile — with input validation.
 router.put('/profile', async (req, res) => {
   try {
     const uid = req.user?.uid;
     const phone = req.user?.phone ?? '';
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
 
-    const { displayName, displayColor, dailyGoal, optedIn } = req.body;
+    let { displayName, displayColor, dailyGoal, optedIn } = req.body;
+
+    // Validate displayName
+    if (displayName !== undefined) {
+      displayName = String(displayName).trim();
+      if (!displayName) return error(res, 'displayName is required', HTTP_STATUS.BAD_REQUEST);
+      if (displayName.length > 50) return error(res, 'displayName must be at most 50 characters', HTTP_STATUS.BAD_REQUEST);
+      if (displayName.includes('<') || displayName.includes('>')) return error(res, 'displayName contains invalid characters', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // Validate displayColor
+    if (displayColor !== undefined) {
+      if (!/^#[0-9A-Fa-f]{6}$/.test(displayColor)) {
+        return error(res, 'displayColor must be a valid hex color (e.g. #2196F3)', HTTP_STATUS.BAD_REQUEST);
+      }
+    }
+
+    // Validate dailyGoal
+    if (dailyGoal !== undefined) {
+      const goal = parseInt(dailyGoal, 10);
+      if (isNaN(goal) || !Number.isInteger(goal)) return error(res, 'dailyGoal must be an integer', HTTP_STATUS.BAD_REQUEST);
+      if (goal < 1000 || goal > 100000) return error(res, 'dailyGoal must be between 1000 and 100000', HTTP_STATUS.BAD_REQUEST);
+      dailyGoal = goal;
+    }
 
     const last4 = phone.length >= 4 ? phone.slice(-4) : phone || 'User';
     const profile = await prisma.step_profiles.upsert({
@@ -268,13 +290,13 @@ router.put('/profile', async (req, res) => {
         user_uid: uid,
         display_name: displayName || `User${last4}`,
         display_color: displayColor || '#2196F3',
-        daily_goal: parseInt(dailyGoal, 10) || 8000,
+        daily_goal: dailyGoal !== undefined ? dailyGoal : 8000,
         opted_in: optedIn !== undefined ? Boolean(optedIn) : true,
       },
       update: {
         ...(displayName !== undefined && { display_name: displayName }),
         ...(displayColor !== undefined && { display_color: displayColor }),
-        ...(dailyGoal !== undefined && { daily_goal: parseInt(dailyGoal, 10) }),
+        ...(dailyGoal !== undefined && { daily_goal: dailyGoal }),
         ...(optedIn !== undefined && { opted_in: Boolean(optedIn) }),
       },
     });
