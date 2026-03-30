@@ -8,8 +8,8 @@ export type ApiRequestInit = RequestInit & {
   absolute?: boolean;
 };
 
-const PUBLIC_API_KEY =
-  process.env.NEXT_PUBLIC_API_KEY || process.env.NEXT_PUBLIC_X_API_KEY || "";
+// API key is injected server-side in the /api/proxy route via process.env.API_KEY.
+// Client-side code must NOT use NEXT_PUBLIC_API_KEY (would inline the key in the browser bundle).
 
 function isAbsoluteUrl(url: string): boolean {
   return /^https?:\/\//i.test(url);
@@ -75,10 +75,8 @@ export async function apiFetch(
     composed.set("Origin", window.location.origin);
   }
 
-  // Add API key if configured and not already present
-  if (PUBLIC_API_KEY && !composed.has("x-api-key")) {
-    composed.set("x-api-key", PUBLIC_API_KEY);
-  }
+  // NOTE: x-api-key is NOT set here. All API calls go through /api/proxy which
+  // injects the key server-side. Setting it client-side would expose it in the bundle.
 
   // Add Authorization if token provided and not already present
   if (token && !composed.has("Authorization")) {

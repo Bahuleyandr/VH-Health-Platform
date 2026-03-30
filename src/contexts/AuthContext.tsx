@@ -45,16 +45,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setError(null);
 
       if (!isAuthenticated()) {
-        // Clear stale cookie if localStorage has no token
-        document.cookie = 'adminToken=; path=/; max-age=0';
         setUser(null);
         return;
-      }
-
-      // Sync cookie with localStorage token (for middleware SSR access)
-      const existingToken = typeof window !== "undefined" ? localStorage.getItem("adminToken") : null;
-      if (existingToken) {
-        document.cookie = `adminToken=${existingToken}; path=/; max-age=${8 * 60 * 60}; SameSite=Strict; Secure`;
       }
 
       // Use cached user first for instant UI
@@ -92,10 +84,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void checkAuth();
   }, [checkAuth]);
 
-  const setTokenCookie = (token: string) => {
-    document.cookie = `adminToken=${token}; path=/; max-age=${8 * 60 * 60}; SameSite=Strict; Secure`;
-  };
-
   const login = useCallback(
     async (username: string, password: string) => {
       try {
@@ -106,7 +94,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // api-client persists token/admin to localStorage; we update state & route
         if (result?.admin) {
           setUser(result.admin);
-          setTokenCookie(result.token);
           router.push("/dashboard");
         } else {
           throw new Error("Login successful but no admin data received");
@@ -132,7 +119,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (result.user) {
           setUser(result.user);
         }
-        setTokenCookie(result.token);
         router.push("/dashboard");
       } catch (e) {
         const msg = (e as Error).message || "Staff login failed";
@@ -154,8 +140,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.warn("Logout error:", e);
       clearAuthData();
     } finally {
-      // Clear cookie for middleware
-      document.cookie = 'adminToken=; path=/; max-age=0';
+      // The httpOnly auth_token cookie is cleared server-side by the backend logout endpoint.
+      // No client-side document.cookie manipulation needed or safe here.
       setUser(null);
       setLoading(false);
       router.push("/login");

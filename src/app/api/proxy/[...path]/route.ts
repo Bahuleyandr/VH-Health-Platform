@@ -61,6 +61,12 @@ async function handleProxy(req: NextRequest) {
   // Inject the validated token as Authorization header
   headers["Authorization"] = `Bearer ${token}`;
 
+  // Inject API key server-side — never exposed to the client bundle
+  const serverApiKey = process.env.API_KEY ?? "";
+  if (serverApiKey) {
+    headers["x-api-key"] = serverApiKey;
+  }
+
   const init: RequestInit = { method, headers };
 
   // Bodies only for non-GET/HEAD

@@ -3,8 +3,21 @@ import { NextRequest, NextResponse } from "next/server";
 
 /**
  * Lightweight JWT payload check for Edge runtime.
- * Does NOT verify the signature — only checks structure and expiry.
- * Returns { valid, role } where role is extracted from payload.
+ * Does NOT verify the HMAC signature — only checks structure and expiry.
+ *
+ * ⚠️  SECURITY NOTICE: This is a UX redirect gate, NOT a security boundary.
+ *
+ * The Edge runtime does not have access to the signing secret, so signature
+ * verification is unavoidable to omit here. A forged or tampered token with a
+ * future `exp` value would pass this check and reach the Next.js page layer.
+ *
+ * ALL data-level security is enforced at the backend API:
+ *   - The /api/proxy route validates the real auth_token cookie before forwarding.
+ *   - The backend itself verifies the JWT signature and RBAC on every request.
+ *
+ * This middleware only provides fast client-side redirects (e.g., bounce
+ * unauthenticated users to /login) to improve UX. Do not rely on it for
+ * access control decisions that affect data.
  */
 function parseTokenEdge(token: string): { valid: boolean; role: string | null } {
   try {
@@ -61,10 +74,9 @@ const ROLE_RANK: Record<string, number> = {
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Accept either cookie name: "adminToken" (set by AuthContext) or "auth_token" (legacy)
-  const token =
-    request.cookies.get("adminToken")?.value ??
-    request.cookies.get("auth_token")?.value;
+  // Auth is carried exclusively via the httpOnly "auth_token" cookie set by the backend.
+  // The non-httpOnly "adminToken" cookie has been removed (XSS risk).
+  const token = request.cookies.get("auth_token")?.value;
 
   // ── Dashboard route protection ──────────────────────────────────────────────
   if (pathname.startsWith("/dashboard")) {
