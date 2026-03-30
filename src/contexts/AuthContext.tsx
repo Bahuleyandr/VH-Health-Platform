@@ -54,7 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Sync cookie with localStorage token (for middleware SSR access)
       const existingToken = typeof window !== "undefined" ? localStorage.getItem("adminToken") : null;
       if (existingToken) {
-        document.cookie = `adminToken=${existingToken}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`;
+        document.cookie = `adminToken=${existingToken}; path=/; max-age=${8 * 60 * 60}; SameSite=Strict; Secure`;
       }
 
       // Use cached user first for instant UI
@@ -93,7 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [checkAuth]);
 
   const setTokenCookie = (token: string) => {
-    document.cookie = `adminToken=${token}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`;
+    document.cookie = `adminToken=${token}; path=/; max-age=${8 * 60 * 60}; SameSite=Strict; Secure`;
   };
 
   const login = useCallback(

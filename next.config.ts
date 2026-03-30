@@ -19,6 +19,7 @@ const withPWA = withPWAInit({
 });
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
   reactStrictMode: true,
 
   // Sets crossorigin="anonymous" on Next scripts
@@ -39,7 +40,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/api/proxy/:path*',
-        destination: 'https://vh-health-backend.onrender.com/api/v1/:path*',
+        destination: `${process.env.NEXT_PUBLIC_API_URL || 'https://vh-health-backend.onrender.com'}/api/v1/:path*`,
       },
     ];
   },

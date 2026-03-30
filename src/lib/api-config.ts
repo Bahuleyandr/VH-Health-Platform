@@ -428,9 +428,36 @@ export const API_ENDPOINTS = {
     statistics: "/api/v1/feedback/statistics", // GET
   },
 
+  // Billing & Invoicing
+  billing: {
+    createInvoice: "/api/v1/billing/invoice", // POST
+    invoiceDetail: (id: number) => `/api/v1/billing/invoice/${id}`, // GET
+    patientInvoices: (patientUid: string) => `/api/v1/billing/invoices/patient/${patientUid}`, // GET
+    recordPayment: (id: number) => `/api/v1/billing/invoice/${id}/payment`, // POST
+    revenue: "/api/v1/billing/revenue", // GET
+    insurance: {
+      submitClaim: "/api/v1/billing/insurance/claim", // POST
+      listClaims: "/api/v1/billing/insurance/claims", // GET
+      updateClaim: (id: number) => `/api/v1/billing/insurance/claim/${id}`, // PUT
+    },
+  },
+
+  // EMR (Electronic Medical Records)
+  emr: {
+    admissions: "/api/v1/emr/admissions",                          // GET - list active admissions
+    admissionDetail: (id: number) => `/api/v1/emr/admission/${id}`, // GET - single admission
+    admissionStats: "/api/v1/emr/admissions/stats",                // GET - ?date_from=&date_to=
+    timeline: (uid: string) => `/api/v1/emr/timeline/${uid}`,      // GET - patient timeline
+    notes: (uid: string) => `/api/v1/emr/notes/patient/${uid}`,    // GET - clinical notes
+    orders: (uid: string) => `/api/v1/emr/orders/patient/${uid}`,  // GET - clinical orders
+    diagnosis: (uid: string) => `/api/v1/emr/diagnosis/patient/${uid}`, // GET - active problem list
+    cdsAlerts: (uid: string) => `/api/v1/emr/cds/alerts/${uid}`,   // GET - clinical decision support alerts
+    icd10Search: "/api/v1/emr/icd10/search",                      // GET - ?q=search_term
+  },
+
   // Infrastructure / Admin Tools
   infrastructure: {
-    apiDocs: "/api/v1/api-docs", // GET
+    apiDocs: "/api-docs", // GET
     swagger: "/api-docs", // GET
     debug: "/api/v1/debug/routes", // GET (protected)
     rbac: "/api/v1/rbac/routes", // GET/POST (protected)
@@ -482,6 +509,8 @@ export const PROTECTED_ROUTES: string[] = [
   "/api/v1/analytics/*",
   "/api/v1/devices",
   "/api/v1/feedback",
+  "/api/v1/billing/*",
+  "/api/v1/emr/*",
 ];
 
 // Standard JSON headers

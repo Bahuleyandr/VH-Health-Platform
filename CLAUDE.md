@@ -79,7 +79,7 @@ Public URL: `https://admin.vhhealth.app`
 ## Environment
 `.env.local`:
 - `NEXT_PUBLIC_API_URL` — backend URL (default: `https://api.vhhealth.app`)
-- `NEXT_PUBLIC_API_KEY` — API key (default: `vhhealth123`)
+- `NEXT_PUBLIC_API_KEY` — API key (set in `.env.local`, no default)
 
 ## Related Repos
 - **Backend** (Node.js): `../vhhealth-backend` — github.com/Bahuleyandr/vh-health-backend
