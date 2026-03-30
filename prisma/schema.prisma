@@ -1,4 +1,4 @@
-// Schema mirrors actual PostgreSQL tables. Raw pg is used for all queries. This schema is for documentation and potential future Prisma migration.
+// Schema mirrors actual PostgreSQL tables. Steps routes use Prisma client directly; other routes use raw pg. This schema is used for both Prisma queries and migrations.
 // Unified Hospital-Grade Database Schema for VH Health Backend
 // Compatible with both local and production environments
 
@@ -272,7 +272,7 @@ model department_audit_log {
 model doctors {
   id            Int       @id @default(autoincrement())
   user_id       Int?
-  name          String    @db.VarChar(100)
+  name          String    @default("") @db.VarChar(100)
   department_id Int?
   department    String    @db.VarChar(100)
   specialty     String?   @db.VarChar(100)
@@ -308,7 +308,7 @@ model appointments {
   uid              String?   @db.Uuid
   phone            String    @db.VarChar(15)
   doctor_id        Int?
-  doctor_name      String    @db.VarChar(100)
+  doctor_name      String    @default("") @db.VarChar(100)
   patient_name     String?   @db.VarChar(255)
   appointment_date DateTime  @db.Date
   appointment_time String    @db.VarChar(10)
