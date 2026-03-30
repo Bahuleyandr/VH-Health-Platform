@@ -188,14 +188,14 @@ export function auditLogMiddleware(req, res, next) {
     }
     pendingAuditLogs++;
     setImmediate(async () => {
+      const { method, originalUrl, query, body, ip, headers } = req;
+      const cleanPath = originalUrl ? originalUrl.split('?')[0] : (req.path || '');
+      const user = req.user;
+      const userId = user?.uid || user?.id || null;
       try {
-        const { method, originalUrl, query, body, ip, headers } = req;
-        const cleanPath = originalUrl ? originalUrl.split('?')[0] : (req.path || '');
-
         if (shouldSkip(method, cleanPath)) return;
 
-        const user = req.user;
-        const userId   = user?.uid || user?.id || null;
+        // userId already declared above for catch block access
         const userName = user?.name || user?.displayName || user?.email || null;
         const userRole = user?.role || user?.claims?.role || null;
 
