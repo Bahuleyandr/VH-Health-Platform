@@ -93,6 +93,151 @@ router.get('/history', async (req, res) => {
   }
 });
 
+// GET /steps/history/tiered — tiered history: day/week/month resolution
+router.get('/history/tiered', async (req, res) => {
+  try {
+    const uid = req.user?.uid;
+    if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now);
+    thirtyDaysAgo.setDate(now.getDate() - 30);
+    const ninetyDaysAgo = new Date(now);
+    ninetyDaysAgo.setDate(now.getDate() - 90);
+
+    // Last 30 days: day-by-day
+    const dailyResult = await db.query(`
+      SELECT
+        log_date::text AS period,
+        steps,
+        ROUND(distance_km::numeric, 3) AS distance_km,
+        'day' AS resolution
+      FROM step_logs
+      WHERE patient_uid = $1 AND log_date >= $2
+      ORDER BY log_date DESC
+    `, [uid, thirtyDaysAgo.toISOString().split('T')[0]]);
+
+    // 31-90 days: week-by-week average (ISO week)
+    const weeklyResult = await db.query(`
+      SELECT
+        TO_CHAR(DATE_TRUNC('week', log_date), 'YYYY-MM-DD') AS period,
+        ROUND(AVG(steps)) AS steps,
+        ROUND(AVG(distance_km::numeric), 3) AS distance_km,
+        'week' AS resolution
+      FROM step_logs
+      WHERE patient_uid = $1
+        AND log_date >= $2
+        AND log_date < $3
+      GROUP BY DATE_TRUNC('week', log_date)
+      ORDER BY DATE_TRUNC('week', log_date) DESC
+    `, [uid, ninetyDaysAgo.toISOString().split('T')[0], thirtyDaysAgo.toISOString().split('T')[0]]);
+
+    // 91+ days: month-by-month average
+    const monthlyResult = await db.query(`
+      SELECT
+        TO_CHAR(DATE_TRUNC('month', log_date), 'YYYY-MM-DD') AS period,
+        ROUND(AVG(steps)) AS steps,
+        ROUND(AVG(distance_km::numeric), 3) AS distance_km,
+        'month' AS resolution
+      FROM step_logs
+      WHERE patient_uid = $1
+        AND log_date < $2
+      GROUP BY DATE_TRUNC('month', log_date)
+      ORDER BY DATE_TRUNC('month', log_date) DESC
+    `, [uid, ninetyDaysAgo.toISOString().split('T')[0]]);
+
+    success(res, {
+      daily: dailyResult.rows,
+      weekly: weeklyResult.rows,
+      monthly: monthlyResult.rows,
+    }, 'Tiered step history');
+  } catch (err) {
+    logger.error('Error getting tiered step history:', err);
+    error(res, 'Failed to get step history', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+});
+
+// POST /steps/sessions/start — start a new session
+router.post('/sessions/start', async (req, res) => {
+  try {
+    const uid = req.user?.uid;
+    if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+    const result = await db.query(`
+      INSERT INTO step_sessions (patient_uid, started_at)
+      VALUES ($1, NOW())
+      RETURNING *
+    `, [uid]);
+    success(res, result.rows[0], 'Session started', HTTP_STATUS.CREATED);
+  } catch (err) {
+    logger.error('Error starting session:', err);
+    error(res, 'Failed to start session', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+});
+
+// PUT /steps/sessions/:id/end — end a session with final data
+router.put('/sessions/:id/end', async (req, res) => {
+  try {
+    const uid = req.user?.uid;
+    if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+    const sessionId = parseInt(req.params.id, 10);
+    if (isNaN(sessionId)) return error(res, 'Invalid session ID', HTTP_STATUS.BAD_REQUEST);
+
+    const { steps = 0, distance_km = 0, route_points = [] } = req.body;
+
+    const result = await db.query(`
+      UPDATE step_sessions
+      SET
+        ended_at = NOW(),
+        steps = $1,
+        distance_km = $2,
+        duration_sec = EXTRACT(EPOCH FROM (NOW() - started_at))::int,
+        route_points = $3
+      WHERE id = $4 AND patient_uid = $5 AND ended_at IS NULL
+      RETURNING *
+    `, [steps, distance_km, JSON.stringify(route_points), sessionId, uid]);
+
+    if (result.rows.length === 0) {
+      return error(res, 'Session not found or already ended', HTTP_STATUS.NOT_FOUND);
+    }
+
+    // Also sync these steps to today's step_log
+    const today = new Date().toISOString().split('T')[0];
+    await db.query(`
+      INSERT INTO step_logs (patient_uid, log_date, steps, distance_km)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (patient_uid, log_date)
+      DO UPDATE SET
+        steps = GREATEST(step_logs.steps, EXCLUDED.steps),
+        distance_km = GREATEST(step_logs.distance_km, EXCLUDED.distance_km),
+        updated_at = NOW()
+    `, [uid, today, steps, distance_km]);
+
+    success(res, result.rows[0], 'Session ended');
+  } catch (err) {
+    logger.error('Error ending session:', err);
+    error(res, 'Failed to end session', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+});
+
+// GET /steps/sessions — list recent sessions for current patient
+router.get('/sessions', async (req, res) => {
+  try {
+    const uid = req.user?.uid;
+    if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+    const result = await db.query(`
+      SELECT id, started_at, ended_at, steps, distance_km, duration_sec
+      FROM step_sessions
+      WHERE patient_uid = $1
+      ORDER BY started_at DESC
+      LIMIT 20
+    `, [uid]);
+    success(res, result.rows, 'Sessions');
+  } catch (err) {
+    logger.error('Error getting sessions:', err);
+    error(res, 'Failed to get sessions', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+});
+
 // GET /steps/leaderboard — weekly top 20
 router.get('/leaderboard', async (req, res) => {
   try {

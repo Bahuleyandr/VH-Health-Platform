@@ -1877,3 +1877,19 @@ model step_profile {
 
   @@map("step_profile")
 }
+
+model step_sessions {
+  id           Int       @id @default(autoincrement())
+  patient_uid  String    @db.Uuid
+  started_at   DateTime  @db.Timestamp(6)
+  ended_at     DateTime? @db.Timestamp(6)
+  steps        Int       @default(0)
+  distance_km  Decimal   @db.Decimal(8, 3) @default(0)
+  duration_sec Int       @default(0)
+  route_points Json?
+  created_at   DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([started_at])
+  @@map("step_sessions")
+}
