@@ -52,7 +52,13 @@ jobs:
 
       - name: Run tests
         run: node --experimental-vm-modules node_modules/jest/bin/jest.js --forceExit --detectOpenHandles
-        continue-on-error: true  # pre-existing test failures in bed/authorization tests — tracked as known issues
+
+      - name: Notify Discord on failure
+        if: failure()
+        run: |
+          curl -s -H "Content-Type: application/json" \
+            -d "{\"content\": \"🔴 **Backend CI failed** on \`${{ github.ref_name }}\`\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "${{ secrets.DISCORD_WEBHOOK_URL }}" || true
 
   deploy-staging:
     needs: lint-and-test
