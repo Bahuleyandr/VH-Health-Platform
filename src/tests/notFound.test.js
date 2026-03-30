@@ -1,18 +1,15 @@
 // src/tests/notFound.test.js
 import request from 'supertest';
-import app from '../app';
-
-const apiKey = process.env.API_KEY || '';
+import app from '../app.js';
+import { API_KEY, generateTestToken } from './testClient.js';
 
 describe('404 Handler', () => {
   it('should return 404 for unknown routes', async () => {
+    const token = generateTestToken('ADMIN');
     const res = await request(app)
-      .get('/api/v1/unknown-route')
-      .set('x-api-key', apiKey)
-      .set(
-        'Authorization',
-        'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOiJ0ZXN0LXVzZXItdWlkIiwicGhvbmUiOiI5ODc2NTQzMjEwIiwicm9sZSI6IlBBVElFTlQiLCJpYXQiOjE3NDc2NjU2NDAsImV4cCI6MTc0ODI3MDQ0MH0.SRGMS_oB4vuo0lvPc5xyYPktVf2bscA6MSXIqBlcris'
-      );
+      .get('/api/v1/unknown-route-xyz-12345')
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${token}`);
 
     expect(res.statusCode).toBe(404);
   });
