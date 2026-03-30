@@ -14,6 +14,7 @@ jobs:
         with:
           repository: bahuleyandr/vhhealth-core
           path: ../vhhealth-core
+          token: ${{ secrets.GH_PAT }}
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
