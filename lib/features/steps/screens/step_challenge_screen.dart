@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:pedometer/pedometer.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -35,6 +36,41 @@ class _DaySteps {
   final int steps;
 
   _DaySteps(this.date, this.steps);
+}
+
+class _TieredHistory {
+  final List<_DaySteps> daily;
+  final List<_DaySteps> weekly;
+  final List<_DaySteps> monthly;
+
+  _TieredHistory({required this.daily, required this.weekly, required this.monthly});
+}
+
+class _StepSession {
+  final int id;
+  final DateTime startedAt;
+  final DateTime? endedAt;
+  final int steps;
+  final double distanceKm;
+  final int durationSec;
+
+  _StepSession({
+    required this.id,
+    required this.startedAt,
+    this.endedAt,
+    required this.steps,
+    required this.distanceKm,
+    required this.durationSec,
+  });
+
+  factory _StepSession.fromJson(Map<String, dynamic> j) => _StepSession(
+    id: j['id'] as int,
+    startedAt: DateTime.parse(j['started_at'] as String),
+    endedAt: j['ended_at'] != null ? DateTime.parse(j['ended_at'] as String) : null,
+    steps: j['steps'] as int? ?? 0,
+    distanceKm: double.tryParse(j['distance_km'].toString()) ?? 0,
+    durationSec: j['duration_sec'] as int? ?? 0,
+  );
 }
 
 class _LeaderboardEntry {
@@ -93,6 +129,20 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
   int _pedometerCurrentSteps = 0;
   bool _pedometerInitialized = false;
 
+  // Tiered history
+  _TieredHistory? _tieredHistory;
+
+  // Active session
+  bool _sessionActive = false;
+  int? _sessionId;
+  DateTime? _sessionStartTime;
+  int _sessionSteps = 0;
+  double _sessionDistanceKm = 0.0;
+  Timer? _sessionTimer;
+  StreamSubscription<Position>? _gpsSub;
+  List<Map<String, dynamic>> _routePoints = [];
+  int _sessionPedometerStart = 0;
+
   // Sync timer
   Timer? _syncTimer;
   DateTime? _lastSync;
@@ -128,6 +178,8 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
   void dispose() {
     _stepSub?.cancel();
     _syncTimer?.cancel();
+    _gpsSub?.cancel();
+    _sessionTimer?.cancel();
     _nameController.dispose();
     _tabController.dispose();
     super.dispose();
@@ -143,6 +195,7 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
       _loadHistory(),
       _loadLeaderboard(),
       _loadMyRank(),
+      _loadTieredHistory(),
     ]);
     setState(() => _loading = false);
     _initPedometer();
@@ -220,6 +273,133 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
         });
       }
     } catch (_) {}
+  }
+
+  // ── Tiered history ────────────────────────────────────────────────────────
+
+  Future<void> _loadTieredHistory() async {
+    try {
+      final resp = await ApiClient.get('/steps/history/tiered');
+      if (resp.isSuccess && resp.data != null) {
+        final d = resp.data as Map<String, dynamic>;
+        _DaySteps parseEntry(Map<String, dynamic> e) => _DaySteps(
+          DateTime.tryParse(e['period'].toString()) ?? DateTime.now(),
+          int.tryParse(e['steps'].toString()) ?? 0,
+        );
+        setState(() {
+          _tieredHistory = _TieredHistory(
+            daily: (d['daily'] as List).map((e) => parseEntry(e as Map<String, dynamic>)).toList(),
+            weekly: (d['weekly'] as List).map((e) => parseEntry(e as Map<String, dynamic>)).toList(),
+            monthly: (d['monthly'] as List).map((e) => parseEntry(e as Map<String, dynamic>)).toList(),
+          );
+        });
+      }
+    } catch (_) {}
+  }
+
+  // ── GPS Session ───────────────────────────────────────────────────────────
+
+  Future<void> _startSession() async {
+    LocationPermission perm = await Geolocator.requestPermission();
+    if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Location permission required for GPS tracking')),
+      );
+      return;
+    }
+
+    try {
+      final resp = await ApiClient.post('/steps/sessions/start', body: {});
+      if (!resp.isSuccess) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to start session')),
+        );
+        return;
+      }
+      final data = resp.data as Map<String, dynamic>;
+      _sessionId = data['id'] as int;
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not start session')),
+      );
+      return;
+    }
+
+    setState(() {
+      _sessionActive = true;
+      _sessionStartTime = DateTime.now();
+      _sessionSteps = 0;
+      _sessionDistanceKm = 0.0;
+      _routePoints = [];
+      _sessionPedometerStart = _pedometerCurrentSteps;
+    });
+
+    _gpsSub = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10,
+      ),
+    ).listen((Position position) {
+      _routePoints.add({
+        'lat': position.latitude,
+        'lng': position.longitude,
+        'timestamp': position.timestamp?.toIso8601String() ?? DateTime.now().toIso8601String(),
+      });
+      if (_routePoints.length >= 2) {
+        final prev = _routePoints[_routePoints.length - 2];
+        final curr = _routePoints[_routePoints.length - 1];
+        final dist = Geolocator.distanceBetween(
+          prev['lat'] as double,
+          prev['lng'] as double,
+          curr['lat'] as double,
+          curr['lng'] as double,
+        );
+        setState(() => _sessionDistanceKm += dist / 1000.0);
+      }
+    });
+
+    _sessionTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      final newSteps = _pedometerCurrentSteps - _sessionPedometerStart;
+      if (newSteps >= 0) setState(() => _sessionSteps = newSteps);
+    });
+  }
+
+  Future<void> _stopSession() async {
+    _gpsSub?.cancel();
+    _gpsSub = null;
+    _sessionTimer?.cancel();
+    _sessionTimer = null;
+
+    final sid = _sessionId;
+    final steps = _sessionSteps;
+    final dist = _sessionDistanceKm;
+    final points = List<Map<String, dynamic>>.from(_routePoints);
+
+    setState(() {
+      _sessionActive = false;
+      _sessionId = null;
+      _sessionStartTime = null;
+    });
+
+    if (sid != null) {
+      try {
+        await ApiClient.put('/steps/sessions/$sid/end', body: {
+          'steps': steps,
+          'distance_km': double.parse(dist.toStringAsFixed(3)),
+          'route_points': points,
+        });
+        await _loadToday();
+      } catch (_) {}
+    }
+  }
+
+  String _formatDuration(int seconds) {
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    final s = seconds % 60;
+    if (h > 0) return '${h}h ${m}m';
+    if (m > 0) return '${m}m ${s}s';
+    return '${s}s';
   }
 
   // ── Pedometer ─────────────────────────────────────────────────────────────
@@ -616,87 +796,179 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
             ),
             const SizedBox(height: 24),
 
-            // Weekly bar chart
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Last 7 days',
-                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-              ),
-            ),
-            const SizedBox(height: 12),
-            _buildWeeklyChart(context),
+            // Active session card or Start button
+            _sessionActive
+              ? _buildActiveSessionCard(context)
+              : Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(LucideIcons.play),
+                      label: const Text('Start Walk / Run'),
+                      onPressed: _startSession,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green.shade600,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ),
+
+            // History chart with tabs for day/week/month
+            if (_tieredHistory != null) _buildTieredChart(context),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildWeeklyChart(BuildContext context) {
+  Widget _buildActiveSessionCard(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    // Build a 7-day map
-    final now = DateTime.now();
-    final days = List.generate(7, (i) => DateTime(now.year, now.month, now.day - (6 - i)));
-    final stepsMap = {
-      for (var d in _history) _dateKey(d.date): d.steps,
-    };
-
-    final maxSteps = days
-        .map((d) => stepsMap[_dateKey(d)] ?? 0)
-        .fold<int>(1, (prev, v) => v > prev ? v : prev);
-
-    const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final elapsed = _sessionStartTime != null
+      ? DateTime.now().difference(_sessionStartTime!).inSeconds
+      : 0;
 
     return Container(
-      height: 140,
+      margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: cs.surfaceContainerHighest.withOpacity(0.5),
+        color: Colors.green.shade50,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.green.shade300, width: 1.5),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: days.map((day) {
-          final steps = stepsMap[_dateKey(day)] ?? 0;
-          final heightFraction = steps / maxSteps;
-          final isToday = _dateKey(day) == _dateKey(now);
-          final weekdayLabel = dayLabels[day.weekday - 1];
-
-          return Column(
-            mainAxisAlignment: MainAxisAlignment.end,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              if (steps > 0)
-                Text(
-                  steps >= 1000 ? '${(steps / 1000).toStringAsFixed(1)}k' : '$steps',
-                  style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant),
-                ),
-              const SizedBox(height: 2),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 400),
-                width: 28,
-                height: math.max(4.0, heightFraction * 80),
-                decoration: BoxDecoration(
-                  color: isToday ? cs.primary : cs.primary.withOpacity(0.45),
-                  borderRadius: BorderRadius.circular(6),
-                ),
+              Container(
+                width: 10, height: 10,
+                decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle),
               ),
-              const SizedBox(height: 4),
-              Text(
-                weekdayLabel,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
-                  color: isToday ? cs.primary : cs.onSurfaceVariant,
-                ),
-              ),
+              const SizedBox(width: 8),
+              Text('Session Active', style: TextStyle(
+                color: Colors.green.shade800,
+                fontWeight: FontWeight.bold,
+              )),
             ],
-          );
-        }).toList(),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _SessionStat(label: 'Steps', value: '$_sessionSteps'),
+              _SessionStat(label: 'Distance', value: '${_sessionDistanceKm.toStringAsFixed(2)} km'),
+              _SessionStat(label: 'Duration', value: _formatDuration(elapsed)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton.icon(
+              icon: const Icon(LucideIcons.square),
+              label: const Text('Stop & Save'),
+              onPressed: _stopSession,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red.shade600,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ),
+        ],
       ),
     );
+  }
+
+  Widget _buildTieredChart(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final th = _tieredHistory!;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (th.daily.isNotEmpty) ...[
+          Text('Last 30 days (daily)', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600, color: cs.onSurfaceVariant)),
+          const SizedBox(height: 8),
+          _buildBarChart(context, th.daily.take(30).toList(), labelFormat: 'MM/dd'),
+          const SizedBox(height: 20),
+        ],
+        if (th.weekly.isNotEmpty) ...[
+          Text('31–90 days (weekly avg)', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600, color: cs.onSurfaceVariant)),
+          const SizedBox(height: 8),
+          _buildBarChart(context, th.weekly, labelFormat: 'Wk'),
+          const SizedBox(height: 20),
+        ],
+        if (th.monthly.isNotEmpty) ...[
+          Text('3+ months (monthly avg)', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600, color: cs.onSurfaceVariant)),
+          const SizedBox(height: 8),
+          _buildBarChart(context, th.monthly, labelFormat: 'MMM'),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildBarChart(BuildContext context, List<_DaySteps> data, {String labelFormat = 'MM/dd'}) {
+    final cs = Theme.of(context).colorScheme;
+    if (data.isEmpty) return const SizedBox.shrink();
+
+    final maxSteps = data.map((d) => d.steps).fold(1, (a, b) => b > a ? b : a);
+
+    return Container(
+      height: 120,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: data.map((d) {
+            final h = (d.steps / maxSteps * 70).clamp(4.0, 70.0);
+            String label;
+            if (labelFormat == 'MM/dd') {
+              label = '${d.date.month}/${d.date.day}';
+            } else if (labelFormat == 'Wk') {
+              label = 'W${_weekOfYear(d.date)}';
+            } else {
+              const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+              label = months[d.date.month - 1];
+            }
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Container(
+                    width: 20,
+                    height: h,
+                    decoration: BoxDecoration(
+                      color: cs.primary.withOpacity(0.7),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(label, style: TextStyle(fontSize: 8, color: cs.onSurfaceVariant)),
+                ],
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  int _weekOfYear(DateTime date) {
+    final dayOfYear = DateTime(date.year, date.month, date.day)
+      .difference(DateTime(date.year, 1, 1)).inDays + 1;
+    return ((dayOfYear - date.weekday + 10) / 7).floor();
   }
 
   // ── Leaderboard tab ───────────────────────────────────────────────────────
@@ -971,6 +1243,23 @@ class _StatCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _SessionStat extends StatelessWidget {
+  final String label;
+  final String value;
+  const _SessionStat({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      children: [
+        Text(value, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: Colors.green.shade800)),
+        Text(label, style: theme.textTheme.bodySmall?.copyWith(color: Colors.green.shade600)),
+      ],
     );
   }
 }
