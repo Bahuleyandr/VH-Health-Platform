@@ -1,13 +1,19 @@
 // lib/features/steps/screens/step_challenge_screen.dart
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:pedometer/pedometer.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
+import 'package:vhhealth/features/steps/widgets/step_share_card.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Data models
@@ -143,6 +149,13 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
   List<Map<String, dynamic>> _routePoints = [];
   int _sessionPedometerStart = 0;
 
+  // Rewards & badges
+  List<Map<String, dynamic>> _badges = [];
+  int? _monthlyRank;
+  String? _monthlyRewardTier;
+  bool _sharingInProgress = false;
+  final GlobalKey _shareCardKey = GlobalKey();
+
   // Sync timer
   Timer? _syncTimer;
   DateTime? _lastSync;
@@ -196,6 +209,8 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
       _loadLeaderboard(),
       _loadMyRank(),
       _loadTieredHistory(),
+      _loadBadges(),
+      _loadMonthlyRank(),
     ]);
     setState(() => _loading = false);
     _initPedometer();
@@ -273,6 +288,103 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
         });
       }
     } catch (_) {}
+  }
+
+  // ── Rewards & badges ──────────────────────────────────────────────────────
+
+  Future<void> _loadBadges() async {
+    try {
+      final resp = await ApiClient.get('/rewards/badges');
+      if (resp.isSuccess && resp.data != null) {
+        final list = resp.data as List<dynamic>;
+        setState(() {
+          _badges = list.map((e) => {
+            'badge_type': e['badge_type'] as String,
+            'emoji': e['emoji'] as String? ?? '⭐',
+            'label': e['label'] as String? ?? e['badge_type'],
+          }).toList();
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadMonthlyRank() async {
+    try {
+      final resp = await ApiClient.get('/rewards/my-monthly-rank');
+      if (resp.isSuccess && resp.data != null) {
+        final d = resp.data as Map<String, dynamic>;
+        setState(() {
+          _monthlyRank = d['rank'] != null ? int.tryParse(d['rank'].toString()) : null;
+          _monthlyRewardTier = d['reward_tier'] as String?;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _checkBadges() async {
+    try {
+      final resp = await ApiClient.post('/rewards/badges/check', body: {});
+      if (resp.isSuccess && resp.data != null) {
+        final data = resp.data as Map<String, dynamic>;
+        final newBadges = data['new_badges'] as List<dynamic>? ?? [];
+        if (newBadges.isNotEmpty && mounted) {
+          // Show toast for new badges
+          for (final badge in newBadges) {
+            final b = badge as Map<String, dynamic>;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('🏅 New badge: ${b['emoji']} ${b['label']}!'),
+                backgroundColor: Colors.amber.shade700,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+          await _loadBadges();
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _shareStats() async {
+    if (_sharingInProgress) return;
+    setState(() => _sharingInProgress = true);
+
+    try {
+      // Render the share card to an image
+      final boundary = _shareCardKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) {
+        // Fallback: share as text
+        final text = '🚶 I walked ${_todaySteps.toStringAsFixed(0)} steps '
+            '(${(_todaySteps * 0.0008).toStringAsFixed(2)} km) today on the '
+            'VH Health Step Challenge! ${_myRank != null ? "I\'m ranked #$_myRank this week." : ""} '
+            'Join me at Venkataeswara Hospitals 🏥';
+        await Share.share(text, subject: 'My VH Health Steps Today');
+        return;
+      }
+
+      final image = await boundary.toImage(pixelRatio: 3.0);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData == null) return;
+
+      final bytes = byteData.buffer.asUint8List();
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/step_share_${DateTime.now().millisecondsSinceEpoch}.png');
+      await file.writeAsBytes(bytes);
+
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: '🚶 Check out my steps today on the VH Health Step Challenge!',
+        subject: 'My VH Health Steps',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not share — please try again')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sharingInProgress = false);
+    }
   }
 
   // ── Tiered history ────────────────────────────────────────────────────────
@@ -451,6 +563,7 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
         'distance_km': double.parse(distanceKm.toStringAsFixed(3)),
         'active_min': 0,
       });
+      _checkBadges(); // fire and forget
     } catch (_) {
       // Silent fail — best effort
     }
@@ -776,6 +889,22 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
             ),
             const SizedBox(height: 16),
 
+            // Share button
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                icon: _sharingInProgress
+                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.share, size: 16),
+                label: const Text('Share'),
+                onPressed: _sharingInProgress ? null : _shareStats,
+                style: TextButton.styleFrom(
+                  foregroundColor: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+
             // Stats row
             Row(
               children: [
@@ -819,6 +948,78 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
 
             // History chart with tabs for day/week/month
             if (_tieredHistory != null) _buildTieredChart(context),
+
+            // Badges section
+            if (_badges.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'My Badges',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _badges.map((b) => Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(b['emoji'] as String? ?? '⭐', style: const TextStyle(fontSize: 16)),
+                      const SizedBox(width: 6),
+                      Text(
+                        b['label'] as String? ?? '',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                )).toList(),
+              ),
+            ],
+
+            // Offscreen share card for rendering
+            SizedBox(
+              width: 0,
+              height: 0,
+              child: OverflowBox(
+                maxWidth: 340,
+                maxHeight: 600,
+                alignment: Alignment.topLeft,
+                child: RepaintBoundary(
+                  key: _shareCardKey,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: StepShareCard(
+                      displayName: _profile?.leaderboardName ?? 'Walker',
+                      todaySteps: _todaySteps,
+                      distanceKm: _todaySteps * 0.0008,
+                      weeklyRank: _myRank,
+                      monthlyRank: _monthlyRank,
+                      monthlyRewardTier: _monthlyRewardTier,
+                      avatarColor: _profile?.avatarColor ?? '#4CAF50',
+                      badges: _badges.take(5).map((b) => {
+                        'emoji': b['emoji'] as String,
+                        'label': b['label'] as String,
+                      }).toList(),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -1036,6 +1237,46 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
               ],
             ),
           ),
+
+          // Monthly rank card
+          if (_monthlyRank != null || _monthlyRewardTier != null) ...[
+            Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.amber.shade300),
+              ),
+              child: Row(
+                children: [
+                  const Text('📅', style: TextStyle(fontSize: 24)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _monthlyRank != null ? 'Monthly rank: #$_monthlyRank' : 'Monthly ranking',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        if (_monthlyRewardTier != null)
+                          Text(
+                            '🎁 $_monthlyRewardTier',
+                            style: TextStyle(fontSize: 12, color: Colors.amber.shade800),
+                          )
+                        else
+                          Text(
+                            'Top 3 monthly earn rewards!',
+                            style: TextStyle(fontSize: 12, color: Colors.amber.shade700),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
 
           // Opt-out notice
           if (_profile?.optOut == true)
