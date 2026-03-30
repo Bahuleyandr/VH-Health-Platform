@@ -1,109 +1,144 @@
 // lib/features/steps/screens/step_challenge_screen.dart
+// Step Challenge — GPS walk tracking, leaderboard, tiered history, rewards
+
 import 'dart:async';
-import 'dart:io';
-import 'dart:math' as math;
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:lucide_icons/lucide_icons.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:pedometer/pedometer.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
-import 'package:vhhealth/features/steps/widgets/step_share_card.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Data models
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Data models ─────────────────────────────────────────────────────────────
 
 class _StepProfile {
-  final String leaderboardName;
-  final String? avatarColor;
-  final bool optOut;
+  final String displayName;
+  final String displayColor;
+  final int dailyGoal;
+  final bool optedIn;
 
-  _StepProfile({
-    required this.leaderboardName,
-    this.avatarColor,
-    required this.optOut,
+  const _StepProfile({
+    required this.displayName,
+    required this.displayColor,
+    required this.dailyGoal,
+    required this.optedIn,
   });
 
   factory _StepProfile.fromJson(Map<String, dynamic> j) => _StepProfile(
-        leaderboardName: j['leaderboard_name'] ?? 'Walker',
-        avatarColor: j['avatar_color'],
-        optOut: j['opt_out_leaderboard'] ?? false,
+        displayName: j['display_name']?.toString() ?? '',
+        displayColor: j['display_color']?.toString() ?? '#2196F3',
+        dailyGoal: (j['daily_goal'] as num?)?.toInt() ?? 8000,
+        optedIn: j['opted_in'] as bool? ?? true,
       );
 }
 
-class _DaySteps {
-  final DateTime date;
+class _DailyRow {
+  final String date;
   final int steps;
+  final double distanceMeters;
+  const _DailyRow({required this.date, required this.steps, required this.distanceMeters});
 
-  _DaySteps(this.date, this.steps);
+  factory _DailyRow.fromJson(Map<String, dynamic> j) => _DailyRow(
+        date: j['date']?.toString() ?? '',
+        steps: (j['steps'] as num?)?.toInt() ?? 0,
+        distanceMeters: (j['distanceMeters'] as num?)?.toDouble() ?? 0,
+      );
 }
 
-class _TieredHistory {
-  final List<_DaySteps> daily;
-  final List<_DaySteps> weekly;
-  final List<_DaySteps> monthly;
+class _WeeklyRow {
+  final String weekStart;
+  final int avgSteps;
+  final double avgDistanceMeters;
+  const _WeeklyRow({required this.weekStart, required this.avgSteps, required this.avgDistanceMeters});
 
-  _TieredHistory({required this.daily, required this.weekly, required this.monthly});
+  factory _WeeklyRow.fromJson(Map<String, dynamic> j) => _WeeklyRow(
+        weekStart: j['weekStart']?.toString() ?? '',
+        avgSteps: (j['avgSteps'] as num?)?.toInt() ?? 0,
+        avgDistanceMeters: (j['avgDistanceMeters'] as num?)?.toDouble() ?? 0,
+      );
 }
 
-class _StepSession {
-  final int id;
-  final DateTime startedAt;
-  final DateTime? endedAt;
-  final int steps;
-  final double distanceKm;
-  final int durationSec;
+class _MonthlyRow {
+  final String month;
+  final int avgSteps;
+  final double avgDistanceMeters;
+  const _MonthlyRow({required this.month, required this.avgSteps, required this.avgDistanceMeters});
 
-  _StepSession({
-    required this.id,
-    required this.startedAt,
-    this.endedAt,
-    required this.steps,
-    required this.distanceKm,
-    required this.durationSec,
-  });
-
-  factory _StepSession.fromJson(Map<String, dynamic> j) => _StepSession(
-    id: j['id'] as int,
-    startedAt: DateTime.parse(j['started_at'] as String),
-    endedAt: j['ended_at'] != null ? DateTime.parse(j['ended_at'] as String) : null,
-    steps: j['steps'] as int? ?? 0,
-    distanceKm: double.tryParse(j['distance_km'].toString()) ?? 0,
-    durationSec: j['duration_sec'] as int? ?? 0,
-  );
+  factory _MonthlyRow.fromJson(Map<String, dynamic> j) => _MonthlyRow(
+        month: j['month']?.toString() ?? '',
+        avgSteps: (j['avgSteps'] as num?)?.toInt() ?? 0,
+        avgDistanceMeters: (j['avgDistanceMeters'] as num?)?.toDouble() ?? 0,
+      );
 }
 
-class _LeaderboardEntry {
-  final String name;
-  final String? avatarColor;
-  final int weeklySteps;
+class _LeaderEntry {
+  final String displayName;
+  final String displayColor;
+  final int totalSteps;
+  final double totalDistanceMeters;
   final int rank;
+  final bool isMe;
 
-  _LeaderboardEntry({
-    required this.name,
-    this.avatarColor,
-    required this.weeklySteps,
+  const _LeaderEntry({
+    required this.displayName,
+    required this.displayColor,
+    required this.totalSteps,
+    required this.totalDistanceMeters,
     required this.rank,
+    required this.isMe,
   });
 
-  factory _LeaderboardEntry.fromJson(Map<String, dynamic> j) =>
-      _LeaderboardEntry(
-        name: j['leaderboard_name'] ?? '?',
-        avatarColor: j['avatar_color'],
-        weeklySteps: int.tryParse(j['weekly_steps'].toString()) ?? 0,
-        rank: int.tryParse(j['rank'].toString()) ?? 0,
+  factory _LeaderEntry.fromJson(Map<String, dynamic> j) => _LeaderEntry(
+        displayName: j['displayName']?.toString() ?? 'Anonymous',
+        displayColor: j['displayColor']?.toString() ?? '#2196F3',
+        totalSteps: (j['totalSteps'] as num?)?.toInt() ?? 0,
+        totalDistanceMeters: (j['totalDistanceMeters'] as num?)?.toDouble() ?? 0,
+        rank: (j['rank'] as num?)?.toInt() ?? 0,
+        isMe: j['isMe'] as bool? ?? false,
       );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Screen widget
-// ─────────────────────────────────────────────────────────────────────────────
+class _Reward {
+  final String rewardType;
+  final String description;
+  final bool isApplied;
+
+  const _Reward({required this.rewardType, required this.description, required this.isApplied});
+
+  factory _Reward.fromJson(Map<String, dynamic> j) => _Reward(
+        rewardType: j['reward_type']?.toString() ?? '',
+        description: j['description']?.toString() ?? '',
+        isApplied: j['is_applied'] as bool? ?? false,
+      );
+
+  String get displayText {
+    switch (rewardType) {
+      case 'TOP1_MONTH':
+        return '🥇 #1 this month! Free consultation + 10% off pharmacy & investigations';
+      case 'TOP2_3_MONTH':
+        return '🥈 Top 3! 10% off pharmacy & investigations';
+      case 'TOP10PCT_MONTH':
+        return '🏅 Top 10%! 5% off pharmacy';
+      case 'CONSISTENCY_MONTH':
+        return '📅 20+ active days! 5% off pharmacy';
+      case 'STREAK_7':
+        return '🔥 7-day streak!';
+      case 'STREAK_30':
+        return '🔥 30-day streak!';
+      case 'STREAK_90':
+        return '🔥 90-day streak!';
+      case 'DIST_100KM':
+        return '🏅 100km milestone!';
+      case 'DIST_500KM':
+        return '🏅 500km milestone!';
+      case 'DIST_1000KM':
+        return '🏅 1000km milestone!';
+      default:
+        return description.isNotEmpty ? description : rewardType;
+    }
+  }
+}
+
+// ─── Screen ──────────────────────────────────────────────────────────────────
 
 class StepChallengeScreen extends StatefulWidget {
   const StepChallengeScreen({super.key});
@@ -114,910 +149,462 @@ class StepChallengeScreen extends StatefulWidget {
 
 class _StepChallengeScreenState extends State<StepChallengeScreen>
     with SingleTickerProviderStateMixin {
-  static const int _goal = 10000;
-  static const Color _featureColor = Color(0xFFFFE0B2);
 
-  // ── State ────────────────────────────────────────────────────────────────
-  bool _loading = true;
-  bool _pedometerDenied = false;
-  bool _profileExists = false;
+  // ── Tab controller ──
+  late final TabController _historyTabController;
 
+  // ── Profile ──
   _StepProfile? _profile;
-  int _todaySteps = 0;
-  List<_DaySteps> _history = [];
-  List<_LeaderboardEntry> _leaderboard = [];
-  int? _myRank;
-  int _myWeeklySteps = 0;
-
-  // Pedometer
-  StreamSubscription<StepCount>? _stepSub;
-  int _pedometerBaselineSteps = 0; // steps at midnight (approx)
-  int _pedometerCurrentSteps = 0;
-  bool _pedometerInitialized = false;
-
-  // Tiered history
-  _TieredHistory? _tieredHistory;
-
-  // Active session
-  bool _sessionActive = false;
-  int? _sessionId;
-  DateTime? _sessionStartTime;
-  int _sessionSteps = 0;
-  double _sessionDistanceKm = 0.0;
-  Timer? _sessionTimer;
-  StreamSubscription<Position>? _gpsSub;
-  List<Map<String, dynamic>> _routePoints = [];
-  int _sessionPedometerStart = 0;
-
-  // Rewards & badges
-  List<Map<String, dynamic>> _badges = [];
-  int? _monthlyRank;
-  String? _monthlyRewardTier;
-  bool _sharingInProgress = false;
-  final GlobalKey _shareCardKey = GlobalKey();
-
-  // Sync timer
-  Timer? _syncTimer;
-  DateTime? _lastSync;
-
-  // Setup form
-  final _nameController = TextEditingController();
-  String _selectedColor = '#4CAF50';
-  bool _showOnLeaderboard = true;
+  bool _loadingProfile = true;
   bool _savingProfile = false;
-
-  // Tab
-  late final TabController _tabController;
-
-  static const List<String> _presetColors = [
-    '#4CAF50', // green
-    '#2196F3', // blue
-    '#FF5722', // deep orange
-    '#9C27B0', // purple
-    '#FF9800', // orange
-    '#00BCD4', // cyan
+  final _nameController = TextEditingController();
+  String _editColor = '#2196F3';
+  final List<String> _colorOptions = [
+    '#2196F3', '#4CAF50', '#FF5722', '#9C27B0',
+    '#00BCD4', '#FF9800', '#E91E63', '#795548',
   ];
 
-  // ── Lifecycle ─────────────────────────────────────────────────────────────
+  // ── History ──
+  List<_DailyRow> _daily = [];
+  List<_WeeklyRow> _weekly = [];
+  List<_MonthlyRow> _monthly = [];
+  bool _loadingHistory = true;
+
+  // ── Leaderboard ──
+  List<_LeaderEntry> _leaderboard = [];
+  Map<String, dynamic>? _myRank;
+  bool _loadingLeaderboard = true;
+
+  // ── Rewards ──
+  List<_Reward> _rewards = [];
+  bool _loadingRewards = true;
+
+  // ── Walk session (GPS) ──
+  bool _isWalking = false;
+  int? _activeSessionId;
+  double _totalDistanceMeters = 0;
+  int _estimatedSteps = 0;
+  int _elapsedSeconds = 0;
+  Position? _lastPosition;
+  StreamSubscription<Position>? _positionStream;
+  Timer? _elapsedTimer;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _loadAll();
+    _historyTabController = TabController(length: 3, vsync: this);
+    _fetchAll();
   }
 
   @override
   void dispose() {
-    _stepSub?.cancel();
-    _syncTimer?.cancel();
-    _gpsSub?.cancel();
-    _sessionTimer?.cancel();
+    _historyTabController.dispose();
     _nameController.dispose();
-    _tabController.dispose();
+    _positionStream?.cancel();
+    _elapsedTimer?.cancel();
     super.dispose();
   }
 
-  // ── Data loading ──────────────────────────────────────────────────────────
+  // ─── Data fetching ───────────────────────────────────────────────────────
 
-  Future<void> _loadAll() async {
-    setState(() => _loading = true);
+  Future<void> _fetchAll() async {
     await Future.wait([
-      _loadProfile(),
-      _loadToday(),
-      _loadHistory(),
-      _loadLeaderboard(),
-      _loadMyRank(),
-      _loadTieredHistory(),
-      _loadBadges(),
-      _loadMonthlyRank(),
+      _fetchProfile(),
+      _fetchHistory(),
+      _fetchLeaderboard(),
+      _fetchRewards(),
     ]);
-    setState(() => _loading = false);
-    _initPedometer();
-    _startSyncTimer();
   }
 
-  Future<void> _loadProfile() async {
+  Future<void> _fetchProfile() async {
+    setState(() => _loadingProfile = true);
     try {
       final resp = await ApiClient.get('/steps/profile');
-      if (resp.isSuccess && resp.data != null) {
-        setState(() {
-          _profile = _StepProfile.fromJson(resp.data as Map<String, dynamic>);
-          _profileExists = true;
-        });
-      } else {
-        setState(() => _profileExists = false);
-      }
-    } catch (_) {
-      setState(() => _profileExists = false);
-    }
-  }
-
-  Future<void> _loadToday() async {
-    try {
-      final resp = await ApiClient.get('/steps/today');
-      if (resp.isSuccess && resp.data != null) {
-        final d = resp.data as Map<String, dynamic>;
-        setState(() {
-          _todaySteps = int.tryParse(d['steps'].toString()) ?? 0;
-        });
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _loadHistory() async {
-    try {
-      final resp = await ApiClient.get('/steps/history', queryParameters: {'days': '7'});
-      if (resp.isSuccess && resp.data != null) {
-        final list = resp.data as List<dynamic>;
-        setState(() {
-          _history = list.map((e) {
-            final m = e as Map<String, dynamic>;
-            return _DaySteps(
-              DateTime.tryParse(m['log_date'].toString()) ?? DateTime.now(),
-              int.tryParse(m['steps'].toString()) ?? 0,
-            );
-          }).toList();
-        });
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _loadLeaderboard() async {
-    try {
-      final resp = await ApiClient.get('/steps/leaderboard');
-      if (resp.isSuccess && resp.data != null) {
-        final list = resp.data as List<dynamic>;
-        setState(() {
-          _leaderboard = list
-              .map((e) => _LeaderboardEntry.fromJson(e as Map<String, dynamic>))
-              .toList();
-        });
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _loadMyRank() async {
-    try {
-      final resp = await ApiClient.get('/steps/my-rank');
-      if (resp.isSuccess && resp.data != null) {
-        final d = resp.data as Map<String, dynamic>;
-        setState(() {
-          _myRank = d['rank'] != null ? int.tryParse(d['rank'].toString()) : null;
-          _myWeeklySteps = int.tryParse(d['weekly_steps']?.toString() ?? '0') ?? 0;
-        });
-      }
-    } catch (_) {}
-  }
-
-  // ── Rewards & badges ──────────────────────────────────────────────────────
-
-  Future<void> _loadBadges() async {
-    try {
-      final resp = await ApiClient.get('/rewards/badges');
-      if (resp.isSuccess && resp.data != null) {
-        final list = resp.data as List<dynamic>;
-        setState(() {
-          _badges = list.map((e) => {
-            'badge_type': e['badge_type'] as String,
-            'emoji': e['emoji'] as String? ?? '⭐',
-            'label': e['label'] as String? ?? e['badge_type'],
-          }).toList();
-        });
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _loadMonthlyRank() async {
-    try {
-      final resp = await ApiClient.get('/rewards/my-monthly-rank');
-      if (resp.isSuccess && resp.data != null) {
-        final d = resp.data as Map<String, dynamic>;
-        setState(() {
-          _monthlyRank = d['rank'] != null ? int.tryParse(d['rank'].toString()) : null;
-          _monthlyRewardTier = d['reward_tier'] as String?;
-        });
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _checkBadges() async {
-    try {
-      final resp = await ApiClient.post('/rewards/badges/check', body: {});
-      if (resp.isSuccess && resp.data != null) {
-        final data = resp.data as Map<String, dynamic>;
-        final newBadges = data['new_badges'] as List<dynamic>? ?? [];
-        if (newBadges.isNotEmpty && mounted) {
-          // Show toast for new badges
-          for (final badge in newBadges) {
-            final b = badge as Map<String, dynamic>;
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('🏅 New badge: ${b['emoji']} ${b['label']}!'),
-                backgroundColor: Colors.amber.shade700,
-                duration: const Duration(seconds: 3),
-              ),
-            );
-          }
-          await _loadBadges();
+      if (resp.isSuccess && resp.data is Map) {
+        final profileData = resp.data['profile'] ?? resp.data;
+        if (profileData is Map<String, dynamic>) {
+          final p = _StepProfile.fromJson(profileData);
+          setState(() {
+            _profile = p;
+            _nameController.text = p.displayName;
+            _editColor = p.displayColor;
+          });
         }
       }
-    } catch (_) {}
-  }
-
-  Future<void> _shareStats() async {
-    if (_sharingInProgress) return;
-    setState(() => _sharingInProgress = true);
-
-    try {
-      // Render the share card to an image
-      final boundary = _shareCardKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-      if (boundary == null) {
-        // Fallback: share as text
-        final text = '🚶 I walked ${_todaySteps.toStringAsFixed(0)} steps '
-            '(${(_todaySteps * 0.0008).toStringAsFixed(2)} km) today on the '
-            'VH Health Step Challenge! ${_myRank != null ? "I\'m ranked #$_myRank this week." : ""} '
-            'Join me at Venkataeswara Hospitals 🏥';
-        await Share.share(text, subject: 'My VH Health Steps Today');
-        return;
-      }
-
-      final image = await boundary.toImage(pixelRatio: 3.0);
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (byteData == null) return;
-
-      final bytes = byteData.buffer.asUint8List();
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/step_share_${DateTime.now().millisecondsSinceEpoch}.png');
-      await file.writeAsBytes(bytes);
-
-      await Share.shareXFiles(
-        [XFile(file.path)],
-        text: '🚶 Check out my steps today on the VH Health Step Challenge!',
-        subject: 'My VH Health Steps',
-      );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not share — please try again')),
-        );
-      }
+      debugPrint('fetchProfile error: $e');
     } finally {
-      if (mounted) setState(() => _sharingInProgress = false);
+      if (mounted) setState(() => _loadingProfile = false);
     }
   }
 
-  // ── Tiered history ────────────────────────────────────────────────────────
-
-  Future<void> _loadTieredHistory() async {
+  Future<void> _fetchHistory() async {
+    setState(() => _loadingHistory = true);
     try {
-      final resp = await ApiClient.get('/steps/history/tiered');
-      if (resp.isSuccess && resp.data != null) {
+      final resp = await ApiClient.get('/steps/history');
+      if (resp.isSuccess && resp.data is Map) {
         final d = resp.data as Map<String, dynamic>;
-        _DaySteps parseEntry(Map<String, dynamic> e) => _DaySteps(
-          DateTime.tryParse(e['period'].toString()) ?? DateTime.now(),
-          int.tryParse(e['steps'].toString()) ?? 0,
-        );
         setState(() {
-          _tieredHistory = _TieredHistory(
-            daily: (d['daily'] as List).map((e) => parseEntry(e as Map<String, dynamic>)).toList(),
-            weekly: (d['weekly'] as List).map((e) => parseEntry(e as Map<String, dynamic>)).toList(),
-            monthly: (d['monthly'] as List).map((e) => parseEntry(e as Map<String, dynamic>)).toList(),
-          );
+          _daily = (d['daily'] as List? ?? []).cast<Map<String, dynamic>>().map(_DailyRow.fromJson).toList();
+          _weekly = (d['weekly'] as List? ?? []).cast<Map<String, dynamic>>().map(_WeeklyRow.fromJson).toList();
+          _monthly = (d['monthly'] as List? ?? []).cast<Map<String, dynamic>>().map(_MonthlyRow.fromJson).toList();
         });
       }
-    } catch (_) {}
-  }
-
-  // ── GPS Session ───────────────────────────────────────────────────────────
-
-  Future<void> _startSession() async {
-    LocationPermission perm = await Geolocator.requestPermission();
-    if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Location permission required for GPS tracking')),
-      );
-      return;
-    }
-
-    try {
-      final resp = await ApiClient.post('/steps/sessions/start', body: {});
-      if (!resp.isSuccess) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to start session')),
-        );
-        return;
-      }
-      final data = resp.data as Map<String, dynamic>;
-      _sessionId = data['id'] as int;
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not start session')),
-      );
-      return;
-    }
-
-    setState(() {
-      _sessionActive = true;
-      _sessionStartTime = DateTime.now();
-      _sessionSteps = 0;
-      _sessionDistanceKm = 0.0;
-      _routePoints = [];
-      _sessionPedometerStart = _pedometerCurrentSteps;
-    });
-
-    _gpsSub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
-      ),
-    ).listen((Position position) {
-      _routePoints.add({
-        'lat': position.latitude,
-        'lng': position.longitude,
-        'timestamp': position.timestamp?.toIso8601String() ?? DateTime.now().toIso8601String(),
-      });
-      if (_routePoints.length >= 2) {
-        final prev = _routePoints[_routePoints.length - 2];
-        final curr = _routePoints[_routePoints.length - 1];
-        final dist = Geolocator.distanceBetween(
-          prev['lat'] as double,
-          prev['lng'] as double,
-          curr['lat'] as double,
-          curr['lng'] as double,
-        );
-        setState(() => _sessionDistanceKm += dist / 1000.0);
-      }
-    });
-
-    _sessionTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      final newSteps = _pedometerCurrentSteps - _sessionPedometerStart;
-      if (newSteps >= 0) setState(() => _sessionSteps = newSteps);
-    });
-  }
-
-  Future<void> _stopSession() async {
-    _gpsSub?.cancel();
-    _gpsSub = null;
-    _sessionTimer?.cancel();
-    _sessionTimer = null;
-
-    final sid = _sessionId;
-    final steps = _sessionSteps;
-    final dist = _sessionDistanceKm;
-    final points = List<Map<String, dynamic>>.from(_routePoints);
-
-    setState(() {
-      _sessionActive = false;
-      _sessionId = null;
-      _sessionStartTime = null;
-    });
-
-    if (sid != null) {
-      try {
-        await ApiClient.put('/steps/sessions/$sid/end', body: {
-          'steps': steps,
-          'distance_km': double.parse(dist.toStringAsFixed(3)),
-          'route_points': points,
-        });
-        await _loadToday();
-      } catch (_) {}
+      debugPrint('fetchHistory error: $e');
+    } finally {
+      if (mounted) setState(() => _loadingHistory = false);
     }
   }
 
-  String _formatDuration(int seconds) {
-    final h = seconds ~/ 3600;
-    final m = (seconds % 3600) ~/ 60;
-    final s = seconds % 60;
-    if (h > 0) return '${h}h ${m}m';
-    if (m > 0) return '${m}m ${s}s';
-    return '${s}s';
-  }
-
-  // ── Pedometer ─────────────────────────────────────────────────────────────
-
-  Future<void> _initPedometer() async {
-    final status = await Permission.activityRecognition.request();
-    if (!status.isGranted) {
-      setState(() => _pedometerDenied = true);
-      return;
-    }
-    _stepSub = Pedometer.stepCountStream.listen(
-      _onStepCount,
-      onError: (e) => setState(() => _pedometerDenied = true),
-      cancelOnError: false,
-    );
-  }
-
-  void _onStepCount(StepCount event) {
-    if (!_pedometerInitialized) {
-      // Treat current pedometer value as baseline; accumulate from here
-      _pedometerBaselineSteps = event.steps - _todaySteps;
-      _pedometerInitialized = true;
-    }
-    _pedometerCurrentSteps = event.steps;
-    final newTodaySteps = math.max(0, event.steps - _pedometerBaselineSteps);
-    if (newTodaySteps != _todaySteps) {
-      setState(() => _todaySteps = newTodaySteps);
-      _maybeSyncSteps();
-    }
-  }
-
-  // ── Sync timer ────────────────────────────────────────────────────────────
-
-  void _startSyncTimer() {
-    _syncTimer?.cancel();
-    _syncTimer = Timer.periodic(const Duration(seconds: 60), (_) {
-      _maybeSyncSteps();
-    });
-  }
-
-  Future<void> _maybeSyncSteps() async {
-    final now = DateTime.now();
-    if (_lastSync != null && now.difference(_lastSync!).inSeconds < 58) return;
-    _lastSync = now;
+  Future<void> _fetchLeaderboard() async {
+    setState(() => _loadingLeaderboard = true);
     try {
-      final distanceKm = (_todaySteps * 0.0008);
-      await ApiClient.post('/steps/sync', body: {
-        'steps': _todaySteps,
-        'distance_km': double.parse(distanceKm.toStringAsFixed(3)),
-        'active_min': 0,
-      });
-      _checkBadges(); // fire and forget
-    } catch (_) {
-      // Silent fail — best effort
+      final resp = await ApiClient.get('/steps/leaderboard');
+      if (resp.isSuccess && resp.data is Map) {
+        final d = resp.data as Map<String, dynamic>;
+        setState(() {
+          _leaderboard = (d['leaderboard'] as List? ?? []).cast<Map<String, dynamic>>().map(_LeaderEntry.fromJson).toList();
+          _myRank = d['myRank'] as Map<String, dynamic>?;
+        });
+      }
+    } catch (e) {
+      debugPrint('fetchLeaderboard error: $e');
+    } finally {
+      if (mounted) setState(() => _loadingLeaderboard = false);
     }
   }
 
-  // ── Profile save ──────────────────────────────────────────────────────────
+  Future<void> _fetchRewards() async {
+    setState(() => _loadingRewards = true);
+    try {
+      final resp = await ApiClient.get('/steps/rewards');
+      if (resp.isSuccess && resp.data is Map) {
+        final list = resp.data['rewards'] as List? ?? [];
+        setState(() {
+          _rewards = list.cast<Map<String, dynamic>>().map(_Reward.fromJson).toList();
+        });
+      }
+    } catch (e) {
+      debugPrint('fetchRewards error: $e');
+    } finally {
+      if (mounted) setState(() => _loadingRewards = false);
+    }
+  }
+
+  // ─── Profile save ────────────────────────────────────────────────────────
 
   Future<void> _saveProfile() async {
     final name = _nameController.text.trim();
-    if (name.length < 2 || name.length > 30) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Display name must be 2–30 characters')),
-      );
+    if (name.isEmpty) {
+      _showError('Display name cannot be empty');
       return;
     }
     setState(() => _savingProfile = true);
     try {
       final resp = await ApiClient.put('/steps/profile', body: {
-        'leaderboard_name': name,
-        'avatar_color': _selectedColor,
-        'opt_out_leaderboard': !_showOnLeaderboard,
+        'displayName': name,
+        'displayColor': _editColor,
+        'dailyGoal': _profile?.dailyGoal ?? 8000,
+        'optedIn': _profile?.optedIn ?? true,
       });
-      if (resp.isSuccess && resp.data != null) {
-        setState(() {
-          _profile = _StepProfile.fromJson(resp.data as Map<String, dynamic>);
-          _profileExists = true;
-        });
-        await Future.wait([_loadLeaderboard(), _loadMyRank()]);
+      if (resp.isSuccess) {
+        await _fetchProfile();
+        _showSuccess('Profile saved');
       } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to save profile')),
-          );
-        }
+        _showError(resp.message ?? 'Failed to save profile');
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Error saving profile')),
-        );
-      }
+      _showError('Failed to save profile');
     } finally {
-      setState(() => _savingProfile = false);
+      if (mounted) setState(() => _savingProfile = false);
     }
   }
 
-  // ── Build ──────────────────────────────────────────────────────────────────
+  // ─── GPS walk ────────────────────────────────────────────────────────────
+
+  Future<void> _startWalk() async {
+    // Request location permission
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      _showError('Location permission required to track walk');
+      return;
+    }
+
+    // Start session on backend
+    try {
+      final resp = await ApiClient.post('/steps/session/start');
+      if (!resp.isSuccess) {
+        _showError(resp.message ?? 'Failed to start session');
+        return;
+      }
+      final sessionId = (resp.data['sessionId'] as num?)?.toInt();
+      if (sessionId == null) {
+        _showError('Invalid session response');
+        return;
+      }
+
+      setState(() {
+        _isWalking = true;
+        _activeSessionId = sessionId;
+        _totalDistanceMeters = 0;
+        _estimatedSteps = 0;
+        _elapsedSeconds = 0;
+        _lastPosition = null;
+      });
+
+      // Start GPS stream
+      _positionStream = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 5,
+        ),
+      ).listen((Position pos) {
+        if (!mounted) return;
+        if (_lastPosition != null) {
+          final dist = Geolocator.distanceBetween(
+            _lastPosition!.latitude,
+            _lastPosition!.longitude,
+            pos.latitude,
+            pos.longitude,
+          );
+          setState(() {
+            _totalDistanceMeters += dist;
+            _estimatedSteps = (_totalDistanceMeters / 0.762).round();
+          });
+        }
+        _lastPosition = pos;
+      }, onError: (e) {
+        debugPrint('GPS stream error: $e');
+      });
+
+      // Elapsed timer
+      _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() => _elapsedSeconds++);
+      });
+    } catch (e) {
+      _showError('Failed to start walk');
+    }
+  }
+
+  Future<void> _stopWalk() async {
+    _positionStream?.cancel();
+    _positionStream = null;
+    _elapsedTimer?.cancel();
+    _elapsedTimer = null;
+
+    final sessionId = _activeSessionId;
+    final steps = _estimatedSteps;
+    final distance = _totalDistanceMeters;
+    final duration = _elapsedSeconds;
+
+    setState(() {
+      _isWalking = false;
+      _activeSessionId = null;
+      _totalDistanceMeters = 0;
+      _estimatedSteps = 0;
+      _elapsedSeconds = 0;
+      _lastPosition = null;
+    });
+
+    if (sessionId == null) return;
+
+    try {
+      final resp = await ApiClient.post('/steps/session/stop', body: {
+        'sessionId': sessionId,
+        'steps': steps,
+        'distanceMeters': distance,
+        'durationSeconds': duration,
+      });
+
+      if (resp.isSuccess) {
+        final distKm = (distance / 1000).toStringAsFixed(2);
+        _showSuccess('Walk done! $steps steps • ${distKm}km');
+        await Future.wait([_fetchHistory(), _fetchLeaderboard()]);
+      } else {
+        _showError(resp.message ?? 'Failed to save walk data');
+      }
+    } catch (e) {
+      _showError('Failed to save walk data');
+    }
+  }
+
+  // ─── Helpers ─────────────────────────────────────────────────────────────
+
+  void _showError(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: Theme.of(context).colorScheme.error,
+      behavior: SnackBarBehavior.floating,
+    ));
+  }
+
+  void _showSuccess(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: Colors.green[700],
+      behavior: SnackBarBehavior.floating,
+    ));
+  }
+
+  Color _hexColor(String hex) {
+    try {
+      return Color(int.parse(hex.replaceFirst('#', '0xFF')));
+    } catch (_) {
+      return const Color(0xFF2196F3);
+    }
+  }
+
+  String _formatElapsed(int seconds) {
+    final m = (seconds ~/ 60).toString().padLeft(2, '0');
+    final s = (seconds % 60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
+  String _distKm(double m) => '${(m / 1000).toStringAsFixed(2)} km';
+
+  // ─── Today's stats helper ─────────────────────────────────────────────────
+  _DailyRow? get _todayRow {
+    final today = DateTime.now();
+    final todayStr =
+        '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+    try {
+      return _daily.firstWhere((r) => r.date == todayStr);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ─── Build ───────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     return FeatureScreenScaffold(
-      title: 'Step Challenge',
+      title: 'Step Challenge 🏃',
       icon: LucideIcons.footprints,
-      color: _featureColor,
+      color: const Color(0xFFA5D6A7),
       heroTag: 'steps',
-      child: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : !_profileExists
-              ? _buildSetupSection(context)
-              : _buildMainScreen(context),
-    );
-  }
-
-  // ── Setup section ─────────────────────────────────────────────────────────
-
-  Widget _buildSetupSection(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Hero intro
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [_featureColor, _featureColor.withOpacity(0.5)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Column(
-              children: [
-                const Icon(LucideIcons.footprints, size: 48, color: Colors.brown),
-                const SizedBox(height: 12),
-                Text(
-                  'Join the Step Challenge!',
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Track your daily steps and compete on the hospital leaderboard. Choose a display name — your real name stays private.',
-                  style: theme.textTheme.bodyMedium,
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 32),
-
-          Text('Your display name', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _nameController,
-            maxLength: 30,
-            decoration: InputDecoration(
-              hintText: 'e.g. SpeedyRunner42',
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              prefixIcon: const Icon(LucideIcons.user),
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          Text('Avatar color', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 12),
-          Row(
-            children: _presetColors.map((hex) {
-              final color = _hexToColor(hex);
-              final selected = hex == _selectedColor;
-              return GestureDetector(
-                onTap: () => setState(() => _selectedColor = hex),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  margin: const EdgeInsets.only(right: 12),
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: color,
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: selected ? cs.primary : Colors.transparent,
-                      width: 3,
-                    ),
-                    boxShadow: selected
-                        ? [BoxShadow(color: color.withOpacity(0.5), blurRadius: 8, spreadRadius: 2)]
-                        : [],
-                  ),
-                  child: selected ? const Icon(Icons.check, color: Colors.white, size: 18) : null,
-                ),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 24),
-
-          SwitchListTile(
-            title: const Text('Show me on leaderboard'),
-            subtitle: const Text('Your display name will appear in the weekly top 20'),
-            value: _showOnLeaderboard,
-            onChanged: (v) => setState(() => _showOnLeaderboard = v),
-            contentPadding: EdgeInsets.zero,
-          ),
-          const SizedBox(height: 32),
-
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton(
-              onPressed: _savingProfile ? null : _saveProfile,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: cs.primary,
-                foregroundColor: cs.onPrimary,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: _savingProfile
-                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Text('Start Challenge', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-            ),
-          ),
-        ],
+      child: RefreshIndicator(
+        onRefresh: _fetchAll,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            _buildProfileSection(),
+            const SizedBox(height: 16),
+            _buildTodayCard(),
+            const SizedBox(height: 16),
+            _buildWalkControl(),
+            const SizedBox(height: 16),
+            _buildHistorySection(),
+            const SizedBox(height: 16),
+            _buildLeaderboardSection(),
+            const SizedBox(height: 16),
+            _buildRewardsSection(),
+            const SizedBox(height: 32),
+          ],
+        ),
       ),
     );
   }
 
-  // ── Main screen ───────────────────────────────────────────────────────────
+  // ─── Profile section ──────────────────────────────────────────────────────
 
-  Widget _buildMainScreen(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+  Widget _buildProfileSection() {
+    if (_loadingProfile) {
+      return const Center(child: Padding(
+        padding: EdgeInsets.all(8),
+        child: CircularProgressIndicator(strokeWidth: 2),
+      ));
+    }
 
-    return Column(
-      children: [
-        // Tabs
-        Container(
-          color: cs.surface,
-          child: TabBar(
-            controller: _tabController,
-            tabs: const [
-              Tab(text: 'My Steps', icon: Icon(LucideIcons.footprints, size: 18)),
-              Tab(text: 'Leaderboard', icon: Icon(LucideIcons.trophy, size: 18)),
-            ],
-            labelColor: cs.primary,
-            unselectedLabelColor: cs.onSurfaceVariant,
-            indicatorColor: cs.primary,
+    final needsSetup = _profile == null ||
+        _profile!.displayName.isEmpty ||
+        _profile!.displayName.startsWith('User');
+
+    if (!needsSetup) {
+      return Card(
+        child: ListTile(
+          leading: CircleAvatar(
+            backgroundColor: _hexColor(_profile!.displayColor),
+            child: Text(
+              _profile!.displayName.isNotEmpty ? _profile!.displayName[0].toUpperCase() : '?',
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ),
+          title: Text(_profile!.displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
+          subtitle: Text('Daily goal: ${_profile!.dailyGoal.toString()} steps'),
+          trailing: TextButton(
+            onPressed: () => setState(() {
+              _nameController.text = _profile?.displayName ?? '';
+              _editColor = _profile?.displayColor ?? '#2196F3';
+            }),
+            child: const Text('Edit'),
           ),
         ),
-        Expanded(
-          child: TabBarView(
-            controller: _tabController,
-            children: [
-              _buildStepsTab(context),
-              _buildLeaderboardTab(context),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
+      );
+    }
 
-  // ── Steps tab ─────────────────────────────────────────────────────────────
-
-  Widget _buildStepsTab(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final progress = (_todaySteps / _goal).clamp(0.0, 1.0);
-    final distanceKm = _todaySteps * 0.0008;
-
-    return RefreshIndicator(
-      onRefresh: _loadAll,
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(20),
+    // Setup form
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Permission warning
-            if (_pedometerDenied)
-              Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.amber.shade100,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.amber.shade300),
-                ),
-                child: Row(
-                  children: [
-                    Icon(LucideIcons.alertTriangle, color: Colors.amber.shade700, size: 20),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Motion permission denied. Steps are not being tracked automatically. You can still view the leaderboard.',
-                        style: TextStyle(color: Colors.amber.shade900, fontSize: 13),
+            const Text('Set up your profile', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(
+                labelText: 'Display name',
+                hintText: 'How others see you on the leaderboard',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text('Pick a color:', style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: _colorOptions.map((hex) {
+                final selected = _editColor == hex;
+                return GestureDetector(
+                  onTap: () => setState(() => _editColor = hex),
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: _hexColor(hex),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: selected ? Colors.black : Colors.transparent,
+                        width: 2,
                       ),
                     ),
-                  ],
-                ),
-              ),
-
-            // Step ring + counter
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [_featureColor.withOpacity(0.6), _featureColor.withOpacity(0.2)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: Column(
-                children: [
-                  // Progress ring
-                  SizedBox(
-                    width: 160,
-                    height: 160,
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        CustomPaint(
-                          size: const Size(160, 160),
-                          painter: _RingPainter(
-                            progress: progress,
-                            trackColor: Colors.white.withOpacity(0.4),
-                            progressColor: cs.primary,
-                          ),
-                        ),
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              _todaySteps.toString(),
-                              style: theme.textTheme.headlineLarge?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 36,
-                              ),
-                            ),
-                            Text(
-                              'steps',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: cs.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+                    child: selected
+                        ? const Icon(Icons.check, color: Colors.white, size: 18)
+                        : null,
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Goal: $_goal steps',
-                    style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                  ),
-                  const SizedBox(height: 4),
-                  // Progress bar text
-                  Text(
-                    _todaySteps >= _goal
-                        ? '🎉 Goal reached!'
-                        : '${_goal - _todaySteps} steps to go',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: _todaySteps >= _goal ? Colors.green.shade700 : cs.onSurface,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
+                );
+              }).toList(),
             ),
             const SizedBox(height: 16),
-
-            // Share button
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                icon: _sharingInProgress
-                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.share, size: 16),
-                label: const Text('Share'),
-                onPressed: _sharingInProgress ? null : _shareStats,
-                style: TextButton.styleFrom(
-                  foregroundColor: Theme.of(context).colorScheme.primary,
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-
-            // Stats row
-            Row(
-              children: [
-                _StatCard(
-                  icon: LucideIcons.map,
-                  label: 'Distance',
-                  value: '${distanceKm.toStringAsFixed(2)} km',
-                  color: cs.primaryContainer,
-                ),
-                const SizedBox(width: 12),
-                _StatCard(
-                  icon: LucideIcons.trophy,
-                  label: 'This week rank',
-                  value: _myRank != null ? '#$_myRank' : '—',
-                  color: cs.secondaryContainer,
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-
-            // Active session card or Start button
-            _sessionActive
-              ? _buildActiveSessionCard(context)
-              : Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton.icon(
-                      icon: const Icon(LucideIcons.play),
-                      label: const Text('Start Walk / Run'),
-                      onPressed: _startSession,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green.shade600,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                  ),
-                ),
-
-            // History chart with tabs for day/week/month
-            if (_tieredHistory != null) _buildTieredChart(context),
-
-            // Badges section
-            if (_badges.isNotEmpty) ...[
-              const SizedBox(height: 20),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'My Badges',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _badges.map((b) => Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.5),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(b['emoji'] as String? ?? '⭐', style: const TextStyle(fontSize: 16)),
-                      const SizedBox(width: 6),
-                      Text(
-                        b['label'] as String? ?? '',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                )).toList(),
-              ),
-            ],
-
-            // Offscreen share card for rendering
             SizedBox(
-              width: 0,
-              height: 0,
-              child: OverflowBox(
-                maxWidth: 340,
-                maxHeight: 600,
-                alignment: Alignment.topLeft,
-                child: RepaintBoundary(
-                  key: _shareCardKey,
-                  child: Material(
-                    color: Colors.transparent,
-                    child: StepShareCard(
-                      displayName: _profile?.leaderboardName ?? 'Walker',
-                      todaySteps: _todaySteps,
-                      distanceKm: _todaySteps * 0.0008,
-                      weeklyRank: _myRank,
-                      monthlyRank: _monthlyRank,
-                      monthlyRewardTier: _monthlyRewardTier,
-                      avatarColor: _profile?.avatarColor ?? '#4CAF50',
-                      badges: _badges.take(5).map((b) => {
-                        'emoji': b['emoji'] as String,
-                        'label': b['label'] as String,
-                      }).toList(),
-                    ),
-                  ),
-                ),
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _savingProfile ? null : _saveProfile,
+                child: _savingProfile
+                    ? const SizedBox(
+                        width: 20, height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Save Profile'),
               ),
             ),
           ],
@@ -1026,530 +613,403 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
     );
   }
 
-  Widget _buildActiveSessionCard(BuildContext context) {
-    final theme = Theme.of(context);
-    final elapsed = _sessionStartTime != null
-      ? DateTime.now().difference(_sessionStartTime!).inSeconds
-      : 0;
+  // ─── Today's stats card ───────────────────────────────────────────────────
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.green.shade50,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.green.shade300, width: 1.5),
+  Widget _buildTodayCard() {
+    final today = _todayRow;
+    final steps = today?.steps ?? 0;
+    final dist = today?.distanceMeters ?? 0.0;
+    final goal = _profile?.dailyGoal ?? 8000;
+    final pct = (steps / goal).clamp(0.0, 1.0);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text("Today's Activity", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                Column(
+                  children: [
+                    Text('$steps', style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF4CAF50))),
+                    const Text('steps', style: TextStyle(color: Colors.grey)),
+                  ],
+                ),
+                Column(
+                  children: [
+                    Text(_distKm(dist), style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF2196F3))),
+                    const Text('distance', style: TextStyle(color: Colors.grey)),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            LinearProgressIndicator(
+              value: pct,
+              backgroundColor: Colors.grey[200],
+              color: pct >= 1.0 ? Colors.green : const Color(0xFF4CAF50),
+              minHeight: 8,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              pct >= 1.0 ? '🎉 Daily goal reached!' : '${(pct * 100).toStringAsFixed(0)}% of $goal-step goal',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 10, height: 10,
-                decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle),
-              ),
-              const SizedBox(width: 8),
-              Text('Session Active', style: TextStyle(
-                color: Colors.green.shade800,
-                fontWeight: FontWeight.bold,
-              )),
-            ],
+    );
+  }
+
+  // ─── Walk control ─────────────────────────────────────────────────────────
+
+  Widget _buildWalkControl() {
+    if (!_isWalking) {
+      return SizedBox(
+        width: double.infinity,
+        height: 64,
+        child: ElevatedButton.icon(
+          icon: const Icon(Icons.directions_walk, size: 28),
+          label: const Text('START WALK', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.green[600],
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _SessionStat(label: 'Steps', value: '$_sessionSteps'),
-              _SessionStat(label: 'Distance', value: '${_sessionDistanceKm.toStringAsFixed(2)} km'),
-              _SessionStat(label: 'Duration', value: _formatDuration(elapsed)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            height: 44,
-            child: ElevatedButton.icon(
-              icon: const Icon(LucideIcons.square),
-              label: const Text('Stop & Save'),
-              onPressed: _stopSession,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red.shade600,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          onPressed: _startWalk,
+        ),
+      );
+    }
+
+    // Active walk
+    return Card(
+      color: Colors.green[50],
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            const Text('Walk in progress…', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green)),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _statChip(Icons.directions_walk, '$_estimatedSteps', 'steps'),
+                _statChip(Icons.straighten, _distKm(_totalDistanceMeters), 'distance'),
+                _statChip(Icons.timer, _formatElapsed(_elapsedSeconds), 'elapsed'),
+              ],
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.stop_circle_outlined, size: 24),
+                label: const Text('STOP WALK', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red[600],
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: _stopWalk,
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _statChip(IconData icon, String value, String label) {
+    return Column(
+      children: [
+        Icon(icon, color: Colors.green[700], size: 22),
+        const SizedBox(height: 4),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+      ],
+    );
+  }
+
+  // ─── History section ──────────────────────────────────────────────────────
+
+  Widget _buildHistorySection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('History', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        const SizedBox(height: 8),
+        TabBar(
+          controller: _historyTabController,
+          labelColor: const Color(0xFF4CAF50),
+          unselectedLabelColor: Colors.grey,
+          indicatorColor: const Color(0xFF4CAF50),
+          tabs: const [
+            Tab(text: 'Daily'),
+            Tab(text: 'Weekly'),
+            Tab(text: 'Monthly'),
+          ],
+        ),
+        SizedBox(
+          height: 280,
+          child: _loadingHistory
+              ? const Center(child: CircularProgressIndicator())
+              : TabBarView(
+                  controller: _historyTabController,
+                  children: [
+                    _buildDailyList(),
+                    _buildWeeklyList(),
+                    _buildMonthlyList(),
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDailyList() {
+    if (_daily.isEmpty) {
+      return const Center(child: Text('No daily data yet', style: TextStyle(color: Colors.grey)));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: _daily.length,
+      itemBuilder: (ctx, i) {
+        final row = _daily[i];
+        return _historyTile(
+          title: row.date,
+          steps: row.steps,
+          distanceMeters: row.distanceMeters,
+          subtitle: null,
+        );
+      },
+    );
+  }
+
+  Widget _buildWeeklyList() {
+    if (_weekly.isEmpty) {
+      return const Center(child: Text('No weekly data yet', style: TextStyle(color: Colors.grey)));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: _weekly.length,
+      itemBuilder: (ctx, i) {
+        final row = _weekly[i];
+        return _historyTile(
+          title: 'Week of ${row.weekStart}',
+          steps: row.avgSteps,
+          distanceMeters: row.avgDistanceMeters,
+          subtitle: 'avg/day',
+        );
+      },
+    );
+  }
+
+  Widget _buildMonthlyList() {
+    if (_monthly.isEmpty) {
+      return const Center(child: Text('No monthly data yet', style: TextStyle(color: Colors.grey)));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: _monthly.length,
+      itemBuilder: (ctx, i) {
+        final row = _monthly[i];
+        return _historyTile(
+          title: row.month,
+          steps: row.avgSteps,
+          distanceMeters: row.avgDistanceMeters,
+          subtitle: 'avg/day',
+        );
+      },
+    );
+  }
+
+  Widget _historyTile({
+    required String title,
+    required int steps,
+    required double distanceMeters,
+    required String? subtitle,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey[200]!),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                if (subtitle != null)
+                  Text(subtitle, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text('$steps steps', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF4CAF50))),
+              Text(_distKm(distanceMeters), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _buildTieredChart(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final th = _tieredHistory!;
+  // ─── Leaderboard section ──────────────────────────────────────────────────
+
+  Widget _buildLeaderboardSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Text('Leaderboard', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const Spacer(),
+            const Text('This month', style: TextStyle(fontSize: 12, color: Colors.grey)),
+          ],
+        ),
+        const SizedBox(height: 4),
+        if (_myRank != null)
+          Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE8F5E9),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFF4CAF50)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.person, color: Color(0xFF4CAF50), size: 18),
+                const SizedBox(width: 8),
+                Text(
+                  'Your rank: #${_myRank!['rank']} — ${_myRank!['totalSteps']} steps',
+                  style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF2E7D32)),
+                ),
+              ],
+            ),
+          ),
+        _loadingLeaderboard
+            ? const Center(child: Padding(
+                padding: EdgeInsets.all(16),
+                child: CircularProgressIndicator(),
+              ))
+            : _leaderboard.isEmpty
+                ? const Center(child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text('No leaderboard data yet', style: TextStyle(color: Colors.grey)),
+                  ))
+                : ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _leaderboard.length,
+                    itemBuilder: (ctx, i) => _leaderboardTile(_leaderboard[i]),
+                  ),
+      ],
+    );
+  }
+
+  Widget _leaderboardTile(_LeaderEntry entry) {
+    final rankLabel = entry.rank == 1
+        ? '🥇'
+        : entry.rank == 2
+            ? '🥈'
+            : entry.rank == 3
+                ? '🥉'
+                : '#${entry.rank}';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: entry.isMe ? const Color(0xFFE8F5E9) : Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: entry.isMe ? const Color(0xFF4CAF50) : Colors.grey[200]!,
+          width: entry.isMe ? 2 : 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 32,
+            child: Text(rankLabel, style: const TextStyle(fontSize: 16), textAlign: TextAlign.center),
+          ),
+          const SizedBox(width: 8),
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: _hexColor(entry.displayColor),
+            child: Text(
+              entry.displayName.isNotEmpty ? entry.displayName[0].toUpperCase() : '?',
+              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              entry.isMe ? '${entry.displayName} (You)' : entry.displayName,
+              style: TextStyle(
+                fontWeight: entry.isMe ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text('${entry.totalSteps}', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF4CAF50))),
+              Text(_distKm(entry.totalDistanceMeters), style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Rewards section ──────────────────────────────────────────────────────
+
+  Widget _buildRewardsSection() {
+    if (_loadingRewards) {
+      return const Center(child: Padding(
+        padding: EdgeInsets.all(8),
+        child: CircularProgressIndicator(strokeWidth: 2),
+      ));
+    }
+    if (_rewards.isEmpty) return const SizedBox.shrink();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (th.daily.isNotEmpty) ...[
-          Text('Last 30 days (daily)', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600, color: cs.onSurfaceVariant)),
-          const SizedBox(height: 8),
-          _buildBarChart(context, th.daily.take(30).toList(), labelFormat: 'MM/dd'),
-          const SizedBox(height: 20),
-        ],
-        if (th.weekly.isNotEmpty) ...[
-          Text('31–90 days (weekly avg)', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600, color: cs.onSurfaceVariant)),
-          const SizedBox(height: 8),
-          _buildBarChart(context, th.weekly, labelFormat: 'Wk'),
-          const SizedBox(height: 20),
-        ],
-        if (th.monthly.isNotEmpty) ...[
-          Text('3+ months (monthly avg)', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600, color: cs.onSurfaceVariant)),
-          const SizedBox(height: 8),
-          _buildBarChart(context, th.monthly, labelFormat: 'MMM'),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildBarChart(BuildContext context, List<_DaySteps> data, {String labelFormat = 'MM/dd'}) {
-    final cs = Theme.of(context).colorScheme;
-    if (data.isEmpty) return const SizedBox.shrink();
-
-    final maxSteps = data.map((d) => d.steps).fold(1, (a, b) => b > a ? b : a);
-
-    return Container(
-      height: 120,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-      decoration: BoxDecoration(
-        color: cs.surfaceContainerHighest.withOpacity(0.4),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: data.map((d) {
-            final h = (d.steps / maxSteps * 70).clamp(4.0, 70.0);
-            String label;
-            if (labelFormat == 'MM/dd') {
-              label = '${d.date.month}/${d.date.day}';
-            } else if (labelFormat == 'Wk') {
-              label = 'W${_weekOfYear(d.date)}';
-            } else {
-              const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-              label = months[d.date.month - 1];
-            }
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Container(
-                    width: 20,
-                    height: h,
-                    decoration: BoxDecoration(
-                      color: cs.primary.withOpacity(0.7),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(label, style: TextStyle(fontSize: 8, color: cs.onSurfaceVariant)),
-                ],
+        const Text('Your Rewards 🏆', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        const SizedBox(height: 8),
+        ...(_rewards.map((r) => Card(
+          color: r.isApplied ? Colors.grey[100] : const Color(0xFFFFF9C4),
+          child: ListTile(
+            leading: const Icon(Icons.emoji_events, color: Colors.amber),
+            title: Text(
+              r.displayText,
+              style: TextStyle(
+                fontSize: 14,
+                color: r.isApplied ? Colors.grey : Colors.black87,
+                decoration: r.isApplied ? TextDecoration.lineThrough : null,
               ),
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
-
-  int _weekOfYear(DateTime date) {
-    final dayOfYear = DateTime(date.year, date.month, date.day)
-      .difference(DateTime(date.year, 1, 1)).inDays + 1;
-    return ((dayOfYear - date.weekday + 10) / 7).floor();
-  }
-
-  // ── Leaderboard tab ───────────────────────────────────────────────────────
-
-  Widget _buildLeaderboardTab(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final myName = _profile?.leaderboardName ?? '';
-
-    return RefreshIndicator(
-      onRefresh: () async {
-        await Future.wait([_loadLeaderboard(), _loadMyRank()]);
-      },
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(20),
-        children: [
-          // My rank card
-          Container(
-            margin: const EdgeInsets.only(bottom: 20),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [cs.primaryContainer, cs.primaryContainer.withOpacity(0.5)],
-              ),
-              borderRadius: BorderRadius.circular(16),
             ),
-            child: Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: cs.primary,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Text(
-                      _myRank != null ? '#$_myRank' : '—',
-                      style: TextStyle(
-                        color: cs.onPrimary,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        myName.isNotEmpty ? myName : 'You',
-                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                      ),
-                      Text(
-                        '$_myWeeklySteps steps this week',
-                        style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                      ),
-                    ],
-                  ),
-                ),
-                const Icon(LucideIcons.trophy, color: Colors.amber, size: 28),
-              ],
-            ),
+            trailing: r.isApplied
+                ? const Icon(Icons.check_circle, color: Colors.grey, size: 20)
+                : const Icon(Icons.star, color: Colors.amber, size: 20),
           ),
-
-          // Monthly rank card
-          if (_monthlyRank != null || _monthlyRewardTier != null) ...[
-            Container(
-              margin: const EdgeInsets.only(bottom: 16),
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.amber.shade50,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.amber.shade300),
-              ),
-              child: Row(
-                children: [
-                  const Text('📅', style: TextStyle(fontSize: 24)),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _monthlyRank != null ? 'Monthly rank: #$_monthlyRank' : 'Monthly ranking',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        if (_monthlyRewardTier != null)
-                          Text(
-                            '🎁 $_monthlyRewardTier',
-                            style: TextStyle(fontSize: 12, color: Colors.amber.shade800),
-                          )
-                        else
-                          Text(
-                            'Top 3 monthly earn rewards!',
-                            style: TextStyle(fontSize: 12, color: Colors.amber.shade700),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-
-          // Opt-out notice
-          if (_profile?.optOut == true)
-            Container(
-              margin: const EdgeInsets.only(bottom: 16),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: cs.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                'You are hidden from the leaderboard. Update your profile settings to appear.',
-                style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                textAlign: TextAlign.center,
-              ),
-            ),
-
-          // Top 20 list
-          if (_leaderboard.isEmpty)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 32),
-                child: Text(
-                  'No data yet this week.\nBe the first to log steps!',
-                  style: theme.textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            )
-          else
-            ...  _leaderboard.asMap().entries.map((entry) {
-              final i = entry.key;
-              final item = entry.value;
-              final isMe = item.name == myName && myName.isNotEmpty;
-              final avatarColor = item.avatarColor != null
-                  ? _hexToColor(item.avatarColor!)
-                  : cs.primary;
-
-              return Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: isMe
-                      ? cs.primaryContainer.withOpacity(0.6)
-                      : cs.surfaceContainerHighest.withOpacity(0.4),
-                  borderRadius: BorderRadius.circular(12),
-                  border: isMe ? Border.all(color: cs.primary, width: 1.5) : null,
-                ),
-                child: Row(
-                  children: [
-                    // Rank badge
-                    SizedBox(
-                      width: 36,
-                      child: _buildRankBadge(context, item.rank),
-                    ),
-                    const SizedBox(width: 12),
-                    // Avatar circle
-                    CircleAvatar(
-                      radius: 18,
-                      backgroundColor: avatarColor.withOpacity(0.25),
-                      child: Text(
-                        item.name.isNotEmpty ? item.name[0].toUpperCase() : '?',
-                        style: TextStyle(
-                          color: avatarColor,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Text(
-                                item.name,
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  color: isMe ? cs.primary : null,
-                                ),
-                              ),
-                              if (isMe) ...[
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: cs.primary,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    'You',
-                                    style: TextStyle(color: cs.onPrimary, fontSize: 10, fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                          Text(
-                            '${_formatSteps(item.weeklySteps)} steps',
-                            style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Mini bar
-                    if (_leaderboard.isNotEmpty)
-                      SizedBox(
-                        width: 60,
-                        height: 8,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: LinearProgressIndicator(
-                            value: item.weeklySteps / _leaderboard.first.weeklySteps.clamp(1, double.infinity),
-                            backgroundColor: cs.surfaceContainerHighest,
-                            valueColor: AlwaysStoppedAnimation(
-                              isMe ? cs.primary : cs.primary.withOpacity(0.5),
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              );
-            }),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRankBadge(BuildContext context, int rank) {
-    final cs = Theme.of(context).colorScheme;
-    if (rank == 1) return const Text('🥇', style: TextStyle(fontSize: 22));
-    if (rank == 2) return const Text('🥈', style: TextStyle(fontSize: 22));
-    if (rank == 3) return const Text('🥉', style: TextStyle(fontSize: 22));
-    return Text(
-      '#$rank',
-      style: TextStyle(
-        fontWeight: FontWeight.bold,
-        fontSize: 13,
-        color: cs.onSurfaceVariant,
-      ),
-    );
-  }
-
-  // ── Helpers ───────────────────────────────────────────────────────────────
-
-  String _dateKey(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-
-  String _formatSteps(int steps) {
-    if (steps >= 1000) return '${(steps / 1000).toStringAsFixed(1)}k';
-    return '$steps';
-  }
-
-  Color _hexToColor(String hex) {
-    final h = hex.replaceAll('#', '');
-    try {
-      return Color(int.parse('FF$h', radix: 16));
-    } catch (_) {
-      return Colors.teal;
-    }
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helper widgets
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _StatCard extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-  final Color color;
-
-  const _StatCard({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.5),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, size: 20),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            Text(
-              label,
-              style: theme.textTheme.bodySmall,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SessionStat extends StatelessWidget {
-  final String label;
-  final String value;
-  const _SessionStat({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      children: [
-        Text(value, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: Colors.green.shade800)),
-        Text(label, style: theme.textTheme.bodySmall?.copyWith(color: Colors.green.shade600)),
+        ))),
       ],
     );
   }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Ring progress painter
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _RingPainter extends CustomPainter {
-  final double progress;
-  final Color trackColor;
-  final Color progressColor;
-
-  _RingPainter({
-    required this.progress,
-    required this.trackColor,
-    required this.progressColor,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = (size.width - 16) / 2;
-    const strokeWidth = 10.0;
-
-    final trackPaint = Paint()
-      ..color = trackColor
-      ..strokeWidth = strokeWidth
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    final progressPaint = Paint()
-      ..color = progressColor
-      ..strokeWidth = strokeWidth
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    canvas.drawCircle(center, radius, trackPaint);
-
-    final sweepAngle = 2 * math.pi * progress;
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius),
-      -math.pi / 2,
-      sweepAngle,
-      false,
-      progressPaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_RingPainter old) => old.progress != progress;
 }

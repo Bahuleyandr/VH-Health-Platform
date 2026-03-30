@@ -355,8 +355,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
       FeatureIconData(
         icon: LucideIcons.footprints,
-        label: 'Steps',
-        color: const Color(0xFFFFE0B2),
+        label: 'Step Challenge',
+        color: const Color(0xFFA5D6A7),
         onTap: (ctx) => _openFeature(ctx, '/steps'),
       ),
     ];
