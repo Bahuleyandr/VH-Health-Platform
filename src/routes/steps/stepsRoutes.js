@@ -1,357 +1,306 @@
-import express from 'express';
-import db from '../../config/database.js';
-import { success, error } from '../../utils/responseHelper.js';
+// src/routes/steps/stepsRoutes.js
+// Step Challenge — sessions, history (tiered), leaderboard, profile, rewards
+
+import { Router } from 'express';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
+import { success, error } from '../../utils/responseHelper.js';
+import prisma from '../../db/prisma.js';
 
-const router = express.Router();
+const router = Router();
 
-// POST /steps/sync — upsert today's step log
-router.post('/sync', async (req, res) => {
+// ─── POST /session/start ────────────────────────────────────────────────────
+// Creates a new active walk session; closes any existing active session first.
+router.post('/session/start', async (req, res) => {
   try {
     const uid = req.user?.uid;
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
 
-    const { steps, distance_km = 0, active_min = 0, log_date } = req.body;
-    if (typeof steps !== 'number' || steps < 0) {
-      return error(res, 'Invalid steps value', HTTP_STATUS.BAD_REQUEST);
-    }
-    if (steps > 100000) {
-      return error(res, 'Steps value exceeds maximum (100,000)', HTTP_STATUS.BAD_REQUEST);
-    }
+    // Close any open session
+    await prisma.step_sessions.updateMany({
+      where: { user_uid: uid, is_active: true },
+      data: { is_active: false, ended_at: new Date() },
+    });
 
-    const date = log_date || new Date().toISOString().split('T')[0];
+    const session = await prisma.step_sessions.create({
+      data: {
+        user_uid: uid,
+        started_at: new Date(),
+        is_active: true,
+      },
+    });
 
-    // Upsert step log
-    const result = await db.query(`
-      INSERT INTO step_logs (patient_uid, log_date, steps, distance_km, active_min)
-      VALUES ($1, $2, $3, $4, $5)
-      ON CONFLICT (patient_uid, log_date)
-      DO UPDATE SET
-        steps = EXCLUDED.steps,
-        distance_km = EXCLUDED.distance_km,
-        active_min = EXCLUDED.active_min,
-        updated_at = NOW()
-      RETURNING *
-    `, [uid, date, steps, distance_km, active_min]);
-
-    // Update lifetime totals on step_profile
-    await db.query(`
-      INSERT INTO step_profile (patient_uid, leaderboard_name, total_steps, total_distance_km)
-      VALUES ($1, $2, $3, $4)
-      ON CONFLICT (patient_uid)
-      DO UPDATE SET
-        total_steps = (SELECT COALESCE(SUM(steps), 0) FROM step_logs WHERE patient_uid = $1),
-        total_distance_km = (SELECT COALESCE(SUM(distance_km), 0) FROM step_logs WHERE patient_uid = $1),
-        updated_at = NOW()
-    `, [uid, 'Walker', steps, distance_km]);
-
-    success(res, result.rows[0], 'Steps synced');
+    return success(res, { sessionId: session.id, startedAt: session.started_at }, 'Walk session started');
   } catch (err) {
-    logger.error('Error syncing steps:', err);
-    error(res, 'Failed to sync steps', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    logger.error('steps/session/start error', { error: err.message });
+    return error(res, 'Failed to start session', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 });
 
-// GET /steps/today — get today's step log for current patient
-router.get('/today', async (req, res) => {
+// ─── POST /session/stop ─────────────────────────────────────────────────────
+// Finalises a session with accumulated step/distance data.
+router.post('/session/stop', async (req, res) => {
   try {
     const uid = req.user?.uid;
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
 
-    const today = new Date().toISOString().split('T')[0];
-    const result = await db.query(
-      `SELECT * FROM step_logs WHERE patient_uid = $1 AND log_date = $2`,
-      [uid, today]
-    );
+    const { sessionId, steps, distanceMeters, durationSeconds } = req.body;
+    if (!sessionId) return error(res, 'sessionId is required', HTTP_STATUS.BAD_REQUEST);
 
-    success(res, result.rows[0] || { steps: 0, distance_km: 0, active_min: 0 }, "Today's steps");
+    const existing = await prisma.step_sessions.findFirst({
+      where: { id: parseInt(sessionId, 10), user_uid: uid },
+    });
+    if (!existing) return error(res, 'Session not found', HTTP_STATUS.NOT_FOUND);
+
+    const updated = await prisma.step_sessions.update({
+      where: { id: existing.id },
+      data: {
+        steps: parseInt(steps, 10) || 0,
+        distance_meters: parseFloat(distanceMeters) || 0,
+        duration_seconds: parseInt(durationSeconds, 10) || 0,
+        is_active: false,
+        ended_at: new Date(),
+      },
+    });
+
+    return success(res, { session: updated }, 'Walk session stopped');
   } catch (err) {
-    logger.error('Error getting today steps:', err);
-    error(res, 'Failed to get steps', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    logger.error('steps/session/stop error', { error: err.message });
+    return error(res, 'Failed to stop session', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 });
 
-// GET /steps/history?days=7 — get step history
+// ─── GET /history ────────────────────────────────────────────────────────────
+// Tiered: daily (last 30 days), weekly (days 31-90), monthly (days 91+)
 router.get('/history', async (req, res) => {
   try {
     const uid = req.user?.uid;
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
-    const days = Math.min(parseInt(req.query.days) || 7, 30);
 
-    const result = await db.query(`
-      SELECT log_date, steps, distance_km, active_min
-      FROM step_logs
-      WHERE patient_uid = $1 AND log_date >= CURRENT_DATE - INTERVAL '${days} days'
-      ORDER BY log_date DESC
-    `, [uid]);
-
-    success(res, result.rows, 'Step history');
-  } catch (err) {
-    logger.error('Error getting step history:', err);
-    error(res, 'Failed to get step history', HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  }
-});
-
-// GET /steps/history/tiered — tiered history: day/week/month resolution
-router.get('/history/tiered', async (req, res) => {
-  try {
-    const uid = req.user?.uid;
-    if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
-
-    const now = new Date();
-    const thirtyDaysAgo = new Date(now);
-    thirtyDaysAgo.setDate(now.getDate() - 30);
-    const ninetyDaysAgo = new Date(now);
-    ninetyDaysAgo.setDate(now.getDate() - 90);
-
-    // Last 30 days: day-by-day
-    const dailyResult = await db.query(`
+    // Daily — last 30 days
+    const dailyRows = await prisma.$queryRaw`
       SELECT
-        log_date::text AS period,
-        steps,
-        ROUND(distance_km::numeric, 3) AS distance_km,
-        'day' AS resolution
-      FROM step_logs
-      WHERE patient_uid = $1 AND log_date >= $2
-      ORDER BY log_date DESC
-    `, [uid, thirtyDaysAgo.toISOString().split('T')[0]]);
-
-    // 31-90 days: week-by-week average (ISO week)
-    const weeklyResult = await db.query(`
-      SELECT
-        TO_CHAR(DATE_TRUNC('week', log_date), 'YYYY-MM-DD') AS period,
-        ROUND(AVG(steps)) AS steps,
-        ROUND(AVG(distance_km::numeric), 3) AS distance_km,
-        'week' AS resolution
-      FROM step_logs
-      WHERE patient_uid = $1
-        AND log_date >= $2
-        AND log_date < $3
-      GROUP BY DATE_TRUNC('week', log_date)
-      ORDER BY DATE_TRUNC('week', log_date) DESC
-    `, [uid, ninetyDaysAgo.toISOString().split('T')[0], thirtyDaysAgo.toISOString().split('T')[0]]);
-
-    // 91+ days: month-by-month average
-    const monthlyResult = await db.query(`
-      SELECT
-        TO_CHAR(DATE_TRUNC('month', log_date), 'YYYY-MM-DD') AS period,
-        ROUND(AVG(steps)) AS steps,
-        ROUND(AVG(distance_km::numeric), 3) AS distance_km,
-        'month' AS resolution
-      FROM step_logs
-      WHERE patient_uid = $1
-        AND log_date < $2
-      GROUP BY DATE_TRUNC('month', log_date)
-      ORDER BY DATE_TRUNC('month', log_date) DESC
-    `, [uid, ninetyDaysAgo.toISOString().split('T')[0]]);
-
-    success(res, {
-      daily: dailyResult.rows,
-      weekly: weeklyResult.rows,
-      monthly: monthlyResult.rows,
-    }, 'Tiered step history');
-  } catch (err) {
-    logger.error('Error getting tiered step history:', err);
-    error(res, 'Failed to get step history', HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  }
-});
-
-// POST /steps/sessions/start — start a new session
-router.post('/sessions/start', async (req, res) => {
-  try {
-    const uid = req.user?.uid;
-    if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
-    const result = await db.query(`
-      INSERT INTO step_sessions (patient_uid, started_at)
-      VALUES ($1, NOW())
-      RETURNING *
-    `, [uid]);
-    success(res, result.rows[0], 'Session started', HTTP_STATUS.CREATED);
-  } catch (err) {
-    logger.error('Error starting session:', err);
-    error(res, 'Failed to start session', HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  }
-});
-
-// PUT /steps/sessions/:id/end — end a session with final data
-router.put('/sessions/:id/end', async (req, res) => {
-  try {
-    const uid = req.user?.uid;
-    if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
-    const sessionId = parseInt(req.params.id, 10);
-    if (isNaN(sessionId)) return error(res, 'Invalid session ID', HTTP_STATUS.BAD_REQUEST);
-
-    const { steps = 0, distance_km = 0, route_points = [] } = req.body;
-
-    const result = await db.query(`
-      UPDATE step_sessions
-      SET
-        ended_at = NOW(),
-        steps = $1,
-        distance_km = $2,
-        duration_sec = EXTRACT(EPOCH FROM (NOW() - started_at))::int,
-        route_points = $3
-      WHERE id = $4 AND patient_uid = $5 AND ended_at IS NULL
-      RETURNING *
-    `, [steps, distance_km, JSON.stringify(route_points), sessionId, uid]);
-
-    if (result.rows.length === 0) {
-      return error(res, 'Session not found or already ended', HTTP_STATUS.NOT_FOUND);
-    }
-
-    // Also sync these steps to today's step_log
-    const today = new Date().toISOString().split('T')[0];
-    await db.query(`
-      INSERT INTO step_logs (patient_uid, log_date, steps, distance_km)
-      VALUES ($1, $2, $3, $4)
-      ON CONFLICT (patient_uid, log_date)
-      DO UPDATE SET
-        steps = GREATEST(step_logs.steps, EXCLUDED.steps),
-        distance_km = GREATEST(step_logs.distance_km, EXCLUDED.distance_km),
-        updated_at = NOW()
-    `, [uid, today, steps, distance_km]);
-
-    success(res, result.rows[0], 'Session ended');
-  } catch (err) {
-    logger.error('Error ending session:', err);
-    error(res, 'Failed to end session', HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  }
-});
-
-// GET /steps/sessions — list recent sessions for current patient
-router.get('/sessions', async (req, res) => {
-  try {
-    const uid = req.user?.uid;
-    if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
-    const result = await db.query(`
-      SELECT id, started_at, ended_at, steps, distance_km, duration_sec
+        DATE(started_at AT TIME ZONE 'UTC') AS date,
+        SUM(steps)::int                     AS steps,
+        SUM(distance_meters)::float         AS "distanceMeters"
       FROM step_sessions
-      WHERE patient_uid = $1
-      ORDER BY started_at DESC
-      LIMIT 20
-    `, [uid]);
-    success(res, result.rows, 'Sessions');
+      WHERE user_uid = ${uid}::uuid
+        AND is_active = false
+        AND started_at >= NOW() - INTERVAL '30 days'
+      GROUP BY DATE(started_at AT TIME ZONE 'UTC')
+      ORDER BY date DESC
+    `;
+
+    // Weekly — days 31-90 (aggregate by ISO week start)
+    const weeklyRows = await prisma.$queryRaw`
+      SELECT
+        DATE_TRUNC('week', started_at AT TIME ZONE 'UTC')::date AS "weekStart",
+        ROUND(AVG(steps))::int                                  AS "avgSteps",
+        AVG(distance_meters)::float                             AS "avgDistanceMeters"
+      FROM step_sessions
+      WHERE user_uid = ${uid}::uuid
+        AND is_active = false
+        AND started_at >= NOW() - INTERVAL '90 days'
+        AND started_at <  NOW() - INTERVAL '30 days'
+      GROUP BY DATE_TRUNC('week', started_at AT TIME ZONE 'UTC')
+      ORDER BY "weekStart" DESC
+    `;
+
+    // Monthly — days 91+
+    const monthlyRows = await prisma.$queryRaw`
+      SELECT
+        TO_CHAR(started_at AT TIME ZONE 'UTC', 'YYYY-MM') AS month,
+        ROUND(AVG(steps))::int                            AS "avgSteps",
+        AVG(distance_meters)::float                       AS "avgDistanceMeters"
+      FROM step_sessions
+      WHERE user_uid = ${uid}::uuid
+        AND is_active = false
+        AND started_at < NOW() - INTERVAL '90 days'
+      GROUP BY TO_CHAR(started_at AT TIME ZONE 'UTC', 'YYYY-MM')
+      ORDER BY month DESC
+    `;
+
+    return success(
+      res,
+      {
+        daily: dailyRows.map(r => ({
+          date: r.date instanceof Date ? r.date.toISOString().split('T')[0] : String(r.date),
+          steps: Number(r.steps),
+          distanceMeters: Number(r.distanceMeters),
+        })),
+        weekly: weeklyRows.map(r => ({
+          weekStart: r.weekStart instanceof Date ? r.weekStart.toISOString().split('T')[0] : String(r.weekStart),
+          avgSteps: Number(r.avgSteps),
+          avgDistanceMeters: Number(r.avgDistanceMeters),
+        })),
+        monthly: monthlyRows.map(r => ({
+          month: String(r.month),
+          avgSteps: Number(r.avgSteps),
+          avgDistanceMeters: Number(r.avgDistanceMeters),
+        })),
+      },
+      'History fetched',
+    );
   } catch (err) {
-    logger.error('Error getting sessions:', err);
-    error(res, 'Failed to get sessions', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    logger.error('steps/history error', { error: err.message });
+    return error(res, 'Failed to fetch history', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 });
 
-// GET /steps/leaderboard — weekly top 20
+// ─── GET /leaderboard ────────────────────────────────────────────────────────
+// Current calendar month, hospital-wide, top 20, opted-in only.
 router.get('/leaderboard', async (req, res) => {
   try {
-    const result = await db.query(`
+    const uid = req.user?.uid;
+    if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+
+    const rows = await prisma.$queryRaw`
       SELECT
-        sp.leaderboard_name,
-        sp.avatar_color,
-        COALESCE(SUM(sl.steps), 0) AS weekly_steps,
-        COALESCE(SUM(sl.distance_km), 0) AS weekly_distance_km,
-        RANK() OVER (ORDER BY COALESCE(SUM(sl.steps), 0) DESC) AS rank
-      FROM step_profile sp
-      LEFT JOIN step_logs sl ON sl.patient_uid = sp.patient_uid
-        AND sl.log_date >= DATE_TRUNC('week', CURRENT_DATE)
-      WHERE sp.opt_out_leaderboard = false
-      GROUP BY sp.leaderboard_name, sp.avatar_color
-      ORDER BY weekly_steps DESC
+        ss.user_uid,
+        COALESCE(sp.display_name, 'Anonymous')   AS display_name,
+        COALESCE(sp.display_color, '#2196F3')     AS display_color,
+        SUM(ss.steps)::int                        AS total_steps,
+        SUM(ss.distance_meters)::float            AS total_distance_meters,
+        RANK() OVER (ORDER BY SUM(ss.steps) DESC) AS rank
+      FROM step_sessions ss
+      LEFT JOIN step_profiles sp ON sp.user_uid = ss.user_uid
+      WHERE ss.is_active = false
+        AND DATE_TRUNC('month', ss.started_at) = DATE_TRUNC('month', NOW())
+        AND (sp.opted_in IS NULL OR sp.opted_in = true)
+      GROUP BY ss.user_uid, sp.display_name, sp.display_color
+      ORDER BY total_steps DESC
       LIMIT 20
-    `);
+    `;
 
-    success(res, result.rows, 'Leaderboard');
+    // My rank (may not be in top 20)
+    const myRankRows = await prisma.$queryRaw`
+      SELECT rank, total_steps, total_distance_meters
+      FROM (
+        SELECT
+          ss.user_uid,
+          SUM(ss.steps)::int                        AS total_steps,
+          SUM(ss.distance_meters)::float            AS total_distance_meters,
+          RANK() OVER (ORDER BY SUM(ss.steps) DESC) AS rank
+        FROM step_sessions ss
+        LEFT JOIN step_profiles sp ON sp.user_uid = ss.user_uid
+        WHERE ss.is_active = false
+          AND DATE_TRUNC('month', ss.started_at) = DATE_TRUNC('month', NOW())
+          AND (sp.opted_in IS NULL OR sp.opted_in = true)
+        GROUP BY ss.user_uid
+      ) ranked
+      WHERE user_uid = ${uid}::uuid
+    `;
+
+    const myRankRow = myRankRows[0] ?? null;
+
+    return success(
+      res,
+      {
+        leaderboard: rows.map(r => ({
+          userUid: r.user_uid,
+          displayName: r.display_name,
+          displayColor: r.display_color,
+          totalSteps: Number(r.total_steps),
+          totalDistanceMeters: Number(r.total_distance_meters),
+          rank: Number(r.rank),
+          isMe: r.user_uid === uid,
+        })),
+        myRank: myRankRow
+          ? {
+              rank: Number(myRankRow.rank),
+              totalSteps: Number(myRankRow.total_steps),
+              totalDistanceMeters: Number(myRankRow.total_distance_meters),
+            }
+          : null,
+      },
+      'Leaderboard fetched',
+    );
   } catch (err) {
-    logger.error('Error getting leaderboard:', err);
-    error(res, 'Failed to get leaderboard', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    logger.error('steps/leaderboard error', { error: err.message });
+    return error(res, 'Failed to fetch leaderboard', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 });
 
-// GET /steps/my-rank — current patient's weekly rank
-router.get('/my-rank', async (req, res) => {
-  try {
-    const uid = req.user?.uid;
-    if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
-
-    const result = await db.query(`
-      WITH weekly AS (
-        SELECT patient_uid, COALESCE(SUM(steps), 0) AS weekly_steps
-        FROM step_logs
-        WHERE log_date >= DATE_TRUNC('week', CURRENT_DATE)
-        GROUP BY patient_uid
-      ),
-      ranked AS (
-        SELECT patient_uid, weekly_steps,
-          RANK() OVER (ORDER BY weekly_steps DESC) AS rank
-        FROM weekly
-      )
-      SELECT r.rank, r.weekly_steps, sp.leaderboard_name, sp.total_steps, sp.total_distance_km
-      FROM ranked r
-      JOIN step_profile sp ON sp.patient_uid = r.patient_uid
-      WHERE r.patient_uid = $1
-    `, [uid]);
-
-    success(res, result.rows[0] || { rank: null, weekly_steps: 0 }, 'My rank');
-  } catch (err) {
-    logger.error('Error getting rank:', err);
-    error(res, 'Failed to get rank', HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  }
-});
-
-// PUT /steps/profile — update leaderboard name & settings
-router.put('/profile', async (req, res) => {
-  try {
-    const uid = req.user?.uid;
-    if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
-
-    const { leaderboard_name, avatar_color, opt_out_leaderboard } = req.body;
-
-    if (leaderboard_name !== undefined) {
-      if (
-        typeof leaderboard_name !== 'string' ||
-        leaderboard_name.trim().length < 2 ||
-        leaderboard_name.trim().length > 30
-      ) {
-        return error(res, 'Leaderboard name must be 2–30 characters', HTTP_STATUS.BAD_REQUEST);
-      }
-    }
-
-    const result = await db.query(`
-      INSERT INTO step_profile (patient_uid, leaderboard_name, avatar_color, opt_out_leaderboard)
-      VALUES ($1, $2, $3, $4)
-      ON CONFLICT (patient_uid)
-      DO UPDATE SET
-        leaderboard_name = COALESCE($2, step_profile.leaderboard_name),
-        avatar_color = COALESCE($3, step_profile.avatar_color),
-        opt_out_leaderboard = COALESCE($4, step_profile.opt_out_leaderboard),
-        updated_at = NOW()
-      RETURNING *
-    `, [
-      uid,
-      leaderboard_name?.trim() ?? 'Walker',
-      avatar_color ?? null,
-      opt_out_leaderboard ?? false
-    ]);
-
-    success(res, result.rows[0], 'Profile updated');
-  } catch (err) {
-    logger.error('Error updating step profile:', err);
-    error(res, 'Failed to update profile', HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  }
-});
-
-// GET /steps/profile — get current patient's step profile
+// ─── GET /profile ─────────────────────────────────────────────────────────
+// Get or auto-create the step profile.
 router.get('/profile', async (req, res) => {
   try {
     const uid = req.user?.uid;
+    const phone = req.user?.phone ?? '';
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
 
-    const result = await db.query(
-      `SELECT * FROM step_profile WHERE patient_uid = $1`,
-      [uid]
-    );
+    let profile = await prisma.step_profiles.findUnique({ where: { user_uid: uid } });
 
-    success(res, result.rows[0] || null, 'Step profile');
+    if (!profile) {
+      const last4 = phone.length >= 4 ? phone.slice(-4) : phone || 'User';
+      profile = await prisma.step_profiles.create({
+        data: {
+          user_uid: uid,
+          display_name: `User${last4}`,
+          display_color: '#2196F3',
+          daily_goal: 8000,
+          opted_in: true,
+        },
+      });
+    }
+
+    return success(res, { profile }, 'Profile fetched');
   } catch (err) {
-    logger.error('Error getting step profile:', err);
-    error(res, 'Failed to get profile', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    logger.error('steps/profile GET error', { error: err.message });
+    return error(res, 'Failed to fetch profile', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+});
+
+// ─── PUT /profile ─────────────────────────────────────────────────────────
+// Upsert step profile.
+router.put('/profile', async (req, res) => {
+  try {
+    const uid = req.user?.uid;
+    const phone = req.user?.phone ?? '';
+    if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+
+    const { displayName, displayColor, dailyGoal, optedIn } = req.body;
+
+    const last4 = phone.length >= 4 ? phone.slice(-4) : phone || 'User';
+    const profile = await prisma.step_profiles.upsert({
+      where: { user_uid: uid },
+      create: {
+        user_uid: uid,
+        display_name: displayName || `User${last4}`,
+        display_color: displayColor || '#2196F3',
+        daily_goal: parseInt(dailyGoal, 10) || 8000,
+        opted_in: optedIn !== undefined ? Boolean(optedIn) : true,
+      },
+      update: {
+        ...(displayName !== undefined && { display_name: displayName }),
+        ...(displayColor !== undefined && { display_color: displayColor }),
+        ...(dailyGoal !== undefined && { daily_goal: parseInt(dailyGoal, 10) }),
+        ...(optedIn !== undefined && { opted_in: Boolean(optedIn) }),
+      },
+    });
+
+    return success(res, { profile }, 'Profile updated');
+  } catch (err) {
+    logger.error('steps/profile PUT error', { error: err.message });
+    return error(res, 'Failed to update profile', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+});
+
+// ─── GET /rewards ─────────────────────────────────────────────────────────
+router.get('/rewards', async (req, res) => {
+  try {
+    const uid = req.user?.uid;
+    if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+
+    const rewards = await prisma.step_rewards.findMany({
+      where: { user_uid: uid },
+      orderBy: { created_at: 'desc' },
+    });
+
+    return success(res, { rewards }, 'Rewards fetched');
+  } catch (err) {
+    logger.error('steps/rewards error', { error: err.message });
+    return error(res, 'Failed to fetch rewards', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 });
 
