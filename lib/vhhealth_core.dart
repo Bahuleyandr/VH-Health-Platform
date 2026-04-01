@@ -1,5 +1,3 @@
-library vhhealth_core;
-
 export 'config/api_config.dart';
 export 'services/auth_service.dart';
 export 'services/http_client.dart';
