@@ -1,5 +1,6 @@
 // src/utils/jwtUtils.js
 
+import crypto from 'crypto';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 import logger from '../logging/logger.js';
@@ -57,6 +58,7 @@ if (!JWT_SECRET) {
 export function generateToken(payload, expiresIn) {
   const { uid, phone, role, ...extraClaims } = payload;
   const tokenPayload = {
+    jti: crypto.randomUUID(),  // Unique token ID for revocation/blacklisting
     sub: uid,
     role: role || 'PATIENT',
     ...(phone && { phone }),

@@ -111,7 +111,7 @@ export const updateOnboardingTask = async (staffId, taskId, completed, completed
         completed_by = $2,
         updated_at = NOW()
     WHERE staff_id = $3 AND id = $4
-    RETURNING *
+    RETURNING id, staff_id, task_name, description, completed, completed_date, completed_by, updated_at
   `, [completed, completedBy, staffId, taskId]);
 
   if (result.rows.length === 0) {

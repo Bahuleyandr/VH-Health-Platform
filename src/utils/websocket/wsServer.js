@@ -2,6 +2,7 @@
 
 import { WebSocketServer } from 'ws';
 import { verifyToken } from '../jwtUtils.js';
+import { isTokenBlacklisted, isUserTokensRevoked } from '../tokenBlacklist.js';
 import logger from '../../logging/logger.js';
 
 /** @type {Map<string, Set<import('ws').WebSocket>>} userId → Set of sockets */
@@ -21,7 +22,7 @@ export function initWebSocket(server) {
 
   logger.info('🔌 WebSocket server initialized on /ws');
 
-  wss.on('connection', (ws, req) => {
+  wss.on('connection', async (ws, req) => {
     // Authenticate via Authorization header only (query string tokens are unsafe — they leak in logs/referrers)
     const token = req.headers.authorization?.replace('Bearer ', '');
 
@@ -38,10 +39,33 @@ export function initWebSocket(server) {
       return;
     }
 
+    if (!decoded) {
+      ws.close(4001, 'Invalid token');
+      return;
+    }
+
+    // Check token blacklist (revoked/rotated tokens)
+    if (decoded.jti) {
+      const blacklisted = await isTokenBlacklisted(decoded.jti);
+      if (blacklisted) {
+        ws.close(4001, 'Token has been revoked');
+        return;
+      }
+    }
+
     const userId = decoded.uid || decoded.id || decoded.sub;
     if (!userId) {
       ws.close(4001, 'Invalid token payload');
       return;
+    }
+
+    // Check if all user tokens were revoked (force-logout)
+    if (decoded.iat) {
+      const revoked = await isUserTokensRevoked(String(userId), decoded.iat);
+      if (revoked) {
+        ws.close(4001, 'All sessions revoked');
+        return;
+      }
     }
 
     // Enforce per-user connection limit

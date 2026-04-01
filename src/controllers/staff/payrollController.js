@@ -48,7 +48,11 @@ export const getPayslipDetail = async (req, res) => {
     const staffUid = req.user?.uid;
 
     const payslip = await db.query(`
-      SELECT p.* FROM payslips p
+      SELECT p.id, p.staff_uid, p.month, p.year, p.payroll_run_id, p.basic_salary, p.hra,
+        p.special_allowance, p.total_earnings, p.pf_employee, p.pf_employer, p.esi,
+        p.professional_tax, p.tds, p.total_deductions, p.net_salary, p.status, p.pdf_url,
+        p.created_at, p.updated_at
+      FROM payslips p
       WHERE p.id = $1 AND p.staff_uid = $2 AND p.status IN ('issued','viewed','downloaded')
     `, [id, staffUid]);
 
@@ -85,7 +89,7 @@ export const runPayroll = async (req, res) => {
 
     // Create or get payroll run
     let run = await db.query(
-      'SELECT * FROM payroll_runs WHERE month=$1 AND year=$2',
+      'SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE month=$1 AND year=$2',
       [month, year]
     );
 
@@ -93,7 +97,7 @@ export const runPayroll = async (req, res) => {
     if (run.rows.length === 0) {
       const newRun = await db.query(
         `INSERT INTO payroll_runs (month, year, status, generated_by, generated_at)
-         VALUES ($1,$2,'processing',$3,NOW()) RETURNING *`,
+         VALUES ($1,$2,'processing',$3,NOW()) RETURNING id, month, year, status, generated_by, total_gross, total_deductions, total_net, employee_count, created_at, updated_at`,
         [month, year, adminUid]
       );
       runId = newRun.rows[0].id;
@@ -204,7 +208,7 @@ export const issuePayslips = async (req, res) => {
 
     // Require both HR and Admin signatures before issuing
     const run = await db.query(
-      `SELECT * FROM payroll_runs WHERE month=$1 AND year=$2`,
+      `SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE month=$1 AND year=$2`,
       [month, year]
     );
 
@@ -222,7 +226,13 @@ export const issuePayslips = async (req, res) => {
 
     // Regenerate PDFs for any manually-edited payslips
     const editedPayslips = await db.query(
-      `SELECT p.*, ss.* FROM payslips p
+      `SELECT p.id, p.staff_uid, p.month, p.year, p.payroll_run_id, p.basic_salary, p.hra,
+        p.special_allowance, p.total_earnings, p.pf_employee, p.pf_employer, p.esi,
+        p.professional_tax, p.tds, p.total_deductions, p.net_salary, p.status, p.pdf_url,
+        p.created_at, p.updated_at,
+        ss.id as salary_id, ss.basic_salary as ss_basic, ss.hra as ss_hra,
+        ss.special_allowance as ss_special, ss.total_ctc, ss.is_active, ss.effective_from
+       FROM payslips p
        JOIN staff_salary ss ON ss.staff_uid = p.staff_uid
        WHERE p.month=$1 AND p.year=$2 AND p.manually_edited=true AND p.pdf_key IS NULL`,
       [month, year]
@@ -231,7 +241,7 @@ export const issuePayslips = async (req, res) => {
     if (generatePayslipPDF && editedPayslips.rows.length > 0) {
       for (const p of editedPayslips.rows) {
         try {
-          const staffRes = await db.query('SELECT * FROM users WHERE uid=$1', [p.staff_uid]);
+          const staffRes = await db.query('SELECT uid, name, email, phone, role, department, employee_id FROM users WHERE uid=$1', [p.staff_uid]);
           const pdfBuf = await generatePayslipPDF(p, staffRes.rows[0] || {});
           const pdfKey = `payroll/${year}/${String(month).padStart(2,'0')}/payslip_${p.staff_uid}_${year}_${String(month).padStart(2,'0')}.pdf`;
           await uploadFileToR2(pdfBuf, pdfKey, 'application/pdf');
@@ -321,7 +331,7 @@ export const getPayrollRunDetail = async (req, res) => {
       ORDER BY u.name
     `, [runId]);
 
-    const run = await db.query('SELECT * FROM payroll_runs WHERE id=$1', [runId]);
+    const run = await db.query('SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id=$1', [runId]);
     if (run.rows.length === 0) return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
 
     success(res, { run: run.rows[0], payslips: payslips.rows }, 'Payroll run detail fetched');
@@ -444,7 +454,7 @@ export const upsertStaffSalaryConfig = async (req, res) => {
         pf_uan=$17,
         bank_account=COALESCE(NULLIF($18,''), staff_salary.bank_account),
         bank_name=$19, bank_ifsc=$20, updated_at=NOW()
-      RETURNING *
+      RETURNING id, staff_uid, basic_salary, hra_pct, da_pct, special_allowance, transport_allowance, medical_allowance, pf_employee_pct, esi_applicable, professional_tax, tds_monthly, designation, department, employee_id, date_of_joining, pan_number, pf_uan, bank_account, bank_name, bank_ifsc, created_at, updated_at
     `, [
       staffUid, basic_salary,
       hra_pct ?? 40, da_pct ?? 10,
@@ -528,7 +538,7 @@ export const manualEditPayslip = async (req, res) => {
       WHERE id = $3
     `, [edit_reason, editorUid, id]);
 
-    const updated = await db.query('SELECT * FROM payslips WHERE id = $1', [id]);
+    const updated = await db.query('SELECT id, staff_uid, month, year, payroll_run_id, basic_salary, hra, special_allowance, total_earnings, pf_employee, pf_employer, esi, professional_tax, tds, total_deductions, net_salary, status, pdf_url, created_at, updated_at FROM payslips WHERE id = $1', [id]);
     success(res, updated.rows[0], 'Payslip updated — PDF will regenerate on issue');
   } catch (err) {
     logger.error('Manual Edit Payslip Error:', err);
@@ -543,7 +553,7 @@ export const hrSignPayrollRun = async (req, res) => {
     const hrUid = req.user?.uid;
     const { comment } = req.body;
 
-    const run = await db.query('SELECT * FROM payroll_runs WHERE id = $1', [runId]);
+    const run = await db.query('SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', [runId]);
     if (run.rows.length === 0) return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
     if (run.rows[0].status !== 'completed') {
       return error(res, 'Payroll run must be in completed state before signing', HTTP_STATUS.BAD_REQUEST);
@@ -558,7 +568,7 @@ export const hrSignPayrollRun = async (req, res) => {
       WHERE id = $3
     `, [hrUid, comment || null, runId]);
 
-    const updated = await db.query('SELECT * FROM payroll_runs WHERE id = $1', [runId]);
+    const updated = await db.query('SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', [runId]);
     success(res, updated.rows[0], 'HR signature applied — awaiting Admin countersign before payslips can be issued');
   } catch (err) {
     logger.error('HR Sign Payroll Run Error:', err);
@@ -573,7 +583,7 @@ export const adminSignPayrollRun = async (req, res) => {
     const adminUid = req.user?.uid;
     const { comment } = req.body;
 
-    const run = await db.query('SELECT * FROM payroll_runs WHERE id = $1', [runId]);
+    const run = await db.query('SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', [runId]);
     if (run.rows.length === 0) return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
     if (!run.rows[0].hr_approved_at) {
       return error(res, 'HR must sign before Admin countersign', HTTP_STATUS.BAD_REQUEST);
@@ -597,7 +607,7 @@ export const adminSignPayrollRun = async (req, res) => {
       WHERE id = $4
     `, [adminUid, comment || null, hash, runId]);
 
-    const updated = await db.query('SELECT * FROM payroll_runs WHERE id = $1', [runId]);
+    const updated = await db.query('SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', [runId]);
     success(res, updated.rows[0], 'Admin countersign complete — payslips can now be issued to staff');
   } catch (err) {
     logger.error('Admin Sign Payroll Run Error:', err);
@@ -618,7 +628,7 @@ export const getMyTaxSummary = async (req, res) => {
       : `${now.getFullYear() - 1}-${String(now.getFullYear()).slice(-2)}`);
 
     let summary = await db.query(
-      'SELECT * FROM annual_tax_summaries WHERE staff_uid=$1 AND financial_year=$2',
+      'SELECT id, staff_uid, financial_year, total_income, total_tds, total_pf, total_esi, created_at FROM annual_tax_summaries WHERE staff_uid=$1 AND financial_year=$2',
       [staffUid, financialYear]
     );
 
@@ -684,7 +694,7 @@ export const createAdvance = async (req, res) => {
       INSERT INTO salary_advances (staff_uid, amount, reason, approved_by, approved_at, status,
         monthly_deduction, months_remaining, deduction_start_month, deduction_start_year, notes)
       VALUES ($1,$2,$3,$4,NOW(),'approved',$5,$6,$7,$8,$9)
-      RETURNING *
+      RETURNING id, staff_uid, amount, reason, approved_by, approved_at, status, monthly_deduction, months_remaining, total_deducted, deduction_start_month, deduction_start_year, notes, created_at
     `, [
       staff_uid, amount, reason, adminUid, monthly_deduction, months_remaining,
       deduction_start_month || new Date().getMonth() + 1,
@@ -1066,7 +1076,7 @@ export const createFnF = async (req, res) => {
     const netPayable = grossPayable - totalDedns;
     const result = await db.query(
       `INSERT INTO full_final_settlements (staff_uid,separation_type,last_working_day,last_month_days_worked,last_month_basic,last_month_allowances,notice_period_days,notice_shortfall_days,notice_recovery_amount,years_of_service,gratuity_eligible,gratuity_amount,bonus_payable,other_deductions,other_deductions_reason,gross_payable,total_deductions,net_payable,notes,created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id, staff_uid, separation_type, last_working_day, last_month_days_worked, last_month_basic, last_month_allowances, notice_period_days, notice_shortfall_days, notice_recovery_amount, years_of_service, gratuity_eligible, gratuity_amount, bonus_payable, other_deductions, other_deductions_reason, gross_payable, total_deductions, net_payable, status, notes, created_at`,
       [staff_uid,separation_type,last_working_day,daysWorked,lastMonthBasic,lastMonthAllowances,s.notice_period_days||30,shortfall,noticeRecovery,Math.round(yearsOfService*100)/100,gratuityEligible,gratuityAmount,parseFloat(bonus_payable)||0,parseFloat(other_deductions)||0,other_deductions_reason||null,grossPayable,totalDedns,netPayable,notes||null,req.user?.uid]);
     success(res, result.rows[0], `F&F calculated. Net payable: ₹${netPayable}`);
   } catch (err) { logger.error('CreateFnF:', err); error(res, 'Failed to create settlement', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
@@ -1092,14 +1102,14 @@ export const approveFnF = async (req, res) => {
   try {
     const { id } = req.params;
     const role = req.user?.role; const uid = req.user?.uid;
-    const fnf = await db.query('SELECT * FROM full_final_settlements WHERE id=$1', [id]);
+    const fnf = await db.query('SELECT id, staff_uid, settlement_date, last_working_day, total_dues, total_deductions, net_payable, status, approved_by, created_at, updated_at FROM full_final_settlements WHERE id=$1', [id]);
     if (!fnf.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
     const f = fnf.rows[0];
     let update;
     if (role === 'HR' && f.status === 'draft') {
-      update = await db.query('UPDATE full_final_settlements SET status=$1,hr_approved_by=$2,hr_approved_at=NOW(),updated_at=NOW() WHERE id=$3 RETURNING *', ['hr_approved', uid, id]);
+      update = await db.query('UPDATE full_final_settlements SET status=$1,hr_approved_by=$2,hr_approved_at=NOW(),updated_at=NOW() WHERE id=$3 RETURNING id, staff_uid, separation_type, last_working_day, gross_payable, total_deductions, net_payable, status, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, created_at, updated_at', ['hr_approved', uid, id]);
     } else if (role === 'ADMIN' && f.status === 'hr_approved') {
-      update = await db.query('UPDATE full_final_settlements SET status=$1,admin_approved_by=$2,admin_approved_at=NOW(),updated_at=NOW() WHERE id=$3 RETURNING *', ['admin_approved', uid, id]);
+      update = await db.query('UPDATE full_final_settlements SET status=$1,admin_approved_by=$2,admin_approved_at=NOW(),updated_at=NOW() WHERE id=$3 RETURNING id, staff_uid, separation_type, last_working_day, gross_payable, total_deductions, net_payable, status, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, created_at, updated_at', ['admin_approved', uid, id]);
     } else return error(res, 'Cannot approve: wrong role or status', HTTP_STATUS.BAD_REQUEST);
     success(res, update.rows[0], 'F&F approved');
   } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
@@ -1108,7 +1118,7 @@ export const approveFnF = async (req, res) => {
 export const markFnFPaid = async (req, res) => {
   try {
     const { id } = req.params; const { payment_date, payment_reference } = req.body;
-    const result = await db.query('UPDATE full_final_settlements SET status=$1,payment_date=$2,payment_reference=$3,updated_at=NOW() WHERE id=$4 AND status=$5 RETURNING *', ['paid', payment_date, payment_reference, id, 'admin_approved']);
+    const result = await db.query('UPDATE full_final_settlements SET status=$1,payment_date=$2,payment_reference=$3,updated_at=NOW() WHERE id=$4 AND status=$5 RETURNING id, staff_uid, separation_type, last_working_day, gross_payable, total_deductions, net_payable, status, payment_date, payment_reference, created_at, updated_at', ['paid', payment_date, payment_reference, id, 'admin_approved']);
     if (!result.rows.length) return error(res, 'Not found or not admin-approved', HTTP_STATUS.BAD_REQUEST);
     success(res, result.rows[0], 'F&F marked as paid');
   } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
@@ -1165,7 +1175,7 @@ export const upsertDeclaration = async (req, res) => {
          status=CASE WHEN investment_declarations.status='locked' THEN 'locked' ELSE 'submitted' END,
          submitted_at=CASE WHEN investment_declarations.status='locked' THEN investment_declarations.submitted_at ELSE NOW() END,
          updated_at=NOW()
-       RETURNING *`,
+       RETURNING id, staff_uid, financial_year, ppf, epf_voluntary, elss, lic_premium, nsc, home_loan_principal, tuition_fees, other_80c, health_insurance_self, health_insurance_parents, education_loan_interest, rent_paid_monthly, rent_receipt_provided, home_loan_interest, nps_contribution, notes, status, submitted_at, created_at, updated_at`,
       [staffUid,financial_year,ppf,epf_voluntary,elss,lic_premium,nsc,home_loan_principal,tuition_fees,other_80c,health_insurance_self,health_insurance_parents,education_loan_interest,rent_paid_monthly,rent_receipt_provided,home_loan_interest,nps_contribution,notes||null]);
     success(res, result.rows[0], 'Declaration saved');
   } catch (err) { logger.error('UpsertDeclaration:', err); error(res, 'Failed to save declaration', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
@@ -1173,7 +1183,7 @@ export const upsertDeclaration = async (req, res) => {
 
 export const getMyDeclarations = async (req, res) => {
   try {
-    const result = await db.query('SELECT * FROM investment_declarations WHERE staff_uid=$1 ORDER BY financial_year DESC', [req.user?.uid]);
+    const result = await db.query('SELECT id, staff_uid, financial_year, section_80c, section_80d, hra_exemption, lta, other_deductions, status, created_at, updated_at FROM investment_declarations WHERE staff_uid=$1 ORDER BY financial_year DESC', [req.user?.uid]);
     success(res, result.rows, 'Declarations fetched');
   } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
@@ -1197,7 +1207,7 @@ export const getAllDeclarations = async (req, res) => {
 export const approveDeclaration = async (req, res) => {
   try {
     const result = await db.query(
-      `UPDATE investment_declarations SET status='approved',approved_by=$1,approved_at=NOW(),updated_at=NOW() WHERE id=$2 RETURNING *`,
+      `UPDATE investment_declarations SET status='approved',approved_by=$1,approved_at=NOW(),updated_at=NOW() WHERE id=$2 RETURNING id, staff_uid, financial_year, status, approved_by, approved_at, created_at, updated_at`,
       [req.user?.uid, req.params.id]);
     if (!result.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
     success(res, result.rows[0], 'Declaration approved');
@@ -1216,7 +1226,7 @@ export const calculateLeaveEncashment = async (req, res) => {
     const amount = Math.round(dailyRate * parseInt(leave_days) * 100) / 100;
     const result = await db.query(
       `INSERT INTO leave_encashments (staff_uid,encashment_type,leave_days,daily_rate,amount,financial_year,approved_by,approved_at,status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),'approved') RETURNING *`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),'approved') RETURNING id, staff_uid, encashment_type, leave_days, daily_rate, amount, financial_year, approved_by, approved_at, status, created_at`,
       [staff_uid, encashment_type, leave_days, dailyRate, amount, financial_year||null, req.user?.uid]);
     success(res, result.rows[0], `${leave_days} days × ₹${dailyRate.toFixed(2)}/day = ₹${amount}`);
   } catch (err) { logger.error('LeaveEncashment:', err); error(res, 'Failed to process leave encashment', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
@@ -1245,10 +1255,10 @@ export const raisePayslipQuery = async (req, res) => {
     const staffUid = req.user?.uid;
     const { payslip_id, subject, description, category } = req.body;
     if (!payslip_id || !subject || !description) return error(res, 'payslip_id, subject, description required', HTTP_STATUS.BAD_REQUEST);
-    const payslip = await db.query('SELECT * FROM payslips WHERE id=$1 AND staff_uid=$2', [payslip_id, staffUid]);
+    const payslip = await db.query('SELECT id, staff_uid, month, year, payroll_run_id, basic_salary, hra, special_allowance, total_earnings, pf_employee, pf_employer, esi, professional_tax, tds, total_deductions, net_salary, status, pdf_url, created_at, updated_at FROM payslips WHERE id=$1 AND staff_uid=$2', [payslip_id, staffUid]);
     if (!payslip.rows.length) return error(res, 'Payslip not found', HTTP_STATUS.NOT_FOUND);
     const result = await db.query(
-      `INSERT INTO payslip_queries (payslip_id,staff_uid,subject,description,category) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      `INSERT INTO payslip_queries (payslip_id,staff_uid,subject,description,category) VALUES ($1,$2,$3,$4,$5) RETURNING id, payslip_id, staff_uid, subject, description, category, status, created_at`,
       [payslip_id, staffUid, subject, description, category||'general']);
     success(res, result.rows[0], 'Query raised');
   } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
@@ -1297,7 +1307,7 @@ export const replyToPayslipQuery = async (req, res) => {
     } else {
       await db.query(`UPDATE payslip_queries SET status='in_review',updated_at=NOW() WHERE id=$1 AND status='open'`, [id]);
     }
-    const updated = await db.query('SELECT * FROM payslip_queries WHERE id=$1', [id]);
+    const updated = await db.query('SELECT id, payslip_id, staff_uid, query_type, description, status, resolution, resolved_by, created_at, resolved_at FROM payslip_queries WHERE id=$1', [id]);
     success(res, updated.rows[0], resolve ? 'Query resolved' : 'Reply sent');
   } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
@@ -1377,7 +1387,7 @@ export const createBulkRevision = async (req, res) => {
     if (staffCount===0) return error(res,`No active staff found for ${target_type}=${target_value}`,HTTP_STATUS.BAD_REQUEST);
     const job=await db.query(
       `INSERT INTO bulk_revision_jobs (description,revision_type,target_type,target_value,increment_type,increment_value,bonus_amount,effective_from,staff_count,status,created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'draft',$10) RETURNING *`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'draft',$10) RETURNING id, description, revision_type, target_type, target_value, increment_type, increment_value, bonus_amount, effective_from, staff_count, status, created_by, created_at`,
       [description,revision_type,target_type,target_value,increment_type,increment_value,bonus_amount,effective_from,staffCount,req.user?.uid]);
     success(res,job.rows[0],`Bulk revision draft created. Will affect ${staffCount} staff.`);
   } catch (err) { logger.error('CreateBulkRev:', err); error(res,'Failed to create bulk revision',HTTP_STATUS.INTERNAL_SERVER_ERROR); }
@@ -1386,7 +1396,7 @@ export const createBulkRevision = async (req, res) => {
 export const approveBulkRevision = async (req, res) => {
   try {
     const { id } = req.params; const adminUid=req.user?.uid;
-    const job=await db.query('SELECT * FROM bulk_revision_jobs WHERE id=$1',[id]);
+    const job=await db.query('SELECT id, status, total, processed, failed, started_at, completed_at, created_by, created_at FROM bulk_revision_jobs WHERE id=$1',[id]);
     if (!job.rows.length) return error(res,'Not found',HTTP_STATUS.NOT_FOUND);
     const j=job.rows[0];
     if (j.status!=='draft') return error(res,'Already processed',HTTP_STATUS.BAD_REQUEST);

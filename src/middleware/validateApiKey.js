@@ -14,28 +14,58 @@ function constantTimeCompare(a, b) {
 }
 
 /**
+ * Per-client API key registry.
+ * Supports multiple keys via environment variables:
+ *   API_KEY           — primary/shared key (backwards compatible)
+ *   API_KEY_PATIENT   — patient Flutter app
+ *   API_KEY_STAFF     — staff Flutter app
+ *   API_KEY_ADMIN     — admin portal
+ *
+ * If per-client keys are set, they take precedence. The shared API_KEY still works
+ * as a fallback for backwards compatibility.
+ */
+function buildKeyRegistry() {
+  const registry = [];
+
+  // Per-client keys (preferred)
+  if (process.env.API_KEY_PATIENT) registry.push({ key: process.env.API_KEY_PATIENT, client: 'patient' });
+  if (process.env.API_KEY_STAFF) registry.push({ key: process.env.API_KEY_STAFF, client: 'staff' });
+  if (process.env.API_KEY_ADMIN) registry.push({ key: process.env.API_KEY_ADMIN, client: 'admin' });
+
+  // Shared key (backwards compatible fallback)
+  if (process.env.API_KEY) registry.push({ key: process.env.API_KEY, client: 'shared' });
+
+  return registry;
+}
+
+const keyRegistry = buildKeyRegistry();
+
+/**
  * Middleware to validate the API Key sent in request headers.
- * Blocks the request if the provided API Key does not match the expected key from environment variables.
+ * Supports per-client keys for fine-grained revocation and audit trail.
+ * Sets req.apiClient to the matched client name ('patient', 'staff', 'admin', 'shared').
  */
 export default function validateApiKey(req, res, next) {
   const clientApiKey = req.headers['x-api-key'];
-  const serverApiKey = process.env.API_KEY;
 
-  if (!serverApiKey) {
-    logger.error('❌ Server misconfiguration: API_KEY not set in environment variables.');
+  if (keyRegistry.length === 0) {
+    logger.error('Server misconfiguration: no API keys configured');
     return res.status(500).json({ error: 'Server configuration error' });
   }
 
   if (!clientApiKey) {
-    logger.warn('❌ API Key missing in request headers');
     return res.status(401).json({ error: 'Missing API Key in request headers' });
   }
 
-  if (!constantTimeCompare(clientApiKey, serverApiKey)) {
-    logger.warn('❌ Invalid API Key provided in request headers');
+  // Check against all registered keys (timing-safe comparison for each)
+  const matched = keyRegistry.find(entry => constantTimeCompare(clientApiKey, entry.key));
+
+  if (!matched) {
+    logger.warn('Invalid API Key provided');
     return res.status(401).json({ error: 'Invalid API Key' });
   }
 
-  logger.info('✅ API Key validation passed');
+  // Attach client identifier for audit logging and role-scoped rate limiting
+  req.apiClient = matched.client;
   next();
 }

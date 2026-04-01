@@ -268,7 +268,7 @@ export const createPrescription = async (req, res) => {
         (appointment_id, patient_id, doctor_id, diagnosis, clinical_notes, medications,
          follow_up_date, follow_up_notes, vitals, handwritten_photo_key, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-       RETURNING *`,
+       RETURNING id, appointment_id, patient_uid, doctor_uid, medications, notes, status, created_at, prescription_number, diagnosis, clinical_notes, vitals, follow_up_date, follow_up_notes, pdf_key, handwritten_photo_key`,
       [
         appointment_id || null,
         patient_id,
@@ -541,7 +541,7 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       `INSERT INTO pharmacy_orders
         (phone, patient_id, patient_name, order_note, delivery_type, delivery_address, delivery_phone, items_list, total_cost, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')
-       RETURNING *`,
+       RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount, created_at, updated_at, order_number, delivery_type`,
       [
         phone,
         rx.patient_id,

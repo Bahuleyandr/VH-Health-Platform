@@ -328,7 +328,10 @@ export const getInvestigationsByPhone = async (req, res) => {
 
     // Get paginated results
     const result = await db.query(
-      'SELECT * FROM investigations WHERE phone = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+      `SELECT id, uid, phone, patient_name, doctor_name, test_name, test_category,
+        status, priority, notes, result_summary, lab_name, sample_collected_at,
+        report_ready_at, created_at, updated_at
+       FROM investigations WHERE phone = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
       [phone, limit, offset]
     );
 
@@ -394,7 +397,10 @@ export const getInvestigationsByUID = async (req, res) => {
     
     // Get paginated results
     const result = await db.query(
-      'SELECT * FROM investigations WHERE phone = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+      `SELECT id, uid, phone, patient_name, doctor_name, test_name, test_category,
+        status, priority, notes, result_summary, lab_name, sample_collected_at,
+        report_ready_at, created_at, updated_at
+       FROM investigations WHERE phone = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
       [phone, limit, offset]
     );
     
@@ -440,7 +446,7 @@ export const getTestCatalog = async (req, res) => {
     const { category } = req.query;
     const where = category ? 'WHERE category=$1 AND is_active=TRUE' : 'WHERE is_active=TRUE';
     const result = await db.query(
-      `SELECT * FROM investigation_test_catalog ${where} ORDER BY category, name`,
+      `SELECT id, name, category, price, description, turnaround_time, sample_type, is_available, created_at FROM investigation_test_catalog ${where} ORDER BY category, name`,
       category ? [category] : []
     );
     success(res, result.rows, 'Test catalog');
@@ -457,12 +463,12 @@ export const upsertTestCatalog = async (req, res) => {
     let result;
     if (id) {
       result = await db.query(
-        `UPDATE investigation_test_catalog SET name=$1,code=$2,category=$3,normal_range=$4,unit=$5,default_cost=$6,turnaround_hours=$7,requires_fasting=$8,patient_instructions=$9,description=$10 WHERE id=$11 RETURNING *`,
+        `UPDATE investigation_test_catalog SET name=$1,code=$2,category=$3,normal_range=$4,unit=$5,default_cost=$6,turnaround_hours=$7,requires_fasting=$8,patient_instructions=$9,description=$10 WHERE id=$11 RETURNING id, name, code, category, normal_range, unit, default_cost, turnaround_hours, requires_fasting, patient_instructions, description`,
         [name, code||null, category, normal_range||null, unit||null, default_cost||null, turnaround_hours||24, requires_fasting||false, patient_instructions||null, description||null, id]
       );
     } else {
       result = await db.query(
-        `INSERT INTO investigation_test_catalog (name,code,category,normal_range,unit,default_cost,turnaround_hours,requires_fasting,patient_instructions,description) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+        `INSERT INTO investigation_test_catalog (name,code,category,normal_range,unit,default_cost,turnaround_hours,requires_fasting,patient_instructions,description) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id, name, code, category, normal_range, unit, default_cost, turnaround_hours, requires_fasting, patient_instructions, description`,
         [name, code||null, category, normal_range||null, unit||null, default_cost||null, turnaround_hours||24, requires_fasting||false, patient_instructions||null, description||null]
       );
     }

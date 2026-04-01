@@ -257,7 +257,7 @@ export const updateStaffStatus = async (req, res) => {
         updated_by = $5,
         updated_at = NOW()
       WHERE id = $1
-      RETURNING *
+      RETURNING id, employee_id, department, shift, is_active, on_leave, status_reason, updated_by, updated_at
     `, [staffId, is_active, on_leave, reason, updatedBy]);
 
     if (result.rows.length === 0) {

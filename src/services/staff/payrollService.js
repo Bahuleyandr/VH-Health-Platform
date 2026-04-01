@@ -28,7 +28,7 @@ function calcProfessionalTax(grossMonthly) {
 export async function calculatePayslip(staffUid, month, year) {
   // Get salary config
   const salaryRes = await db.query(
-    'SELECT * FROM staff_salary WHERE staff_uid = $1 AND is_active = true',
+    'SELECT id, staff_uid, basic_salary, hra, special_allowance, total_ctc, is_active, effective_from FROM staff_salary WHERE staff_uid = $1 AND is_active = true',
     [staffUid]
   );
   if (salaryRes.rows.length === 0) {
@@ -127,7 +127,7 @@ export async function calculatePayslip(staffUid, month, year) {
 
   // ─── FEATURE 3: Check for active salary advances to deduct ──────────────
   const advanceRes = await db.query(`
-    SELECT * FROM salary_advances
+    SELECT id, staff_uid, amount, deduction_month, deduction_year, status, created_at FROM salary_advances
     WHERE staff_uid = $1
       AND status = 'approved'
       AND deduction_start_year <= $3
@@ -230,7 +230,7 @@ export async function savePayslip(payrollRunId, data) {
       tds=$23, total_deductions=$24, advance_deduction=$25, lop_days=$26, lop_deduction=$27,
       net_salary=$28, revision_note=$29,
       updated_at=NOW()
-    RETURNING *
+    RETURNING id, payroll_run_id, staff_uid, month, year, total_working_days, days_present, days_absent, days_leave, overtime_hours, overtime_rate, basic_earned, hra_earned, da_earned, special_allowance_earned, transport_allowance_earned, medical_allowance_earned, overtime_pay, arrears_amount, gross_salary, pf_employee, esi_employee, professional_tax, tds, total_deductions, advance_deduction, lop_days, lop_deduction, net_salary, revision_note, status, created_at, updated_at
   `, [
     payrollRunId, data.staff_uid, data.month, data.year,
     data.total_working_days, data.days_present, data.days_absent, data.days_leave,
@@ -255,7 +255,7 @@ export async function generateAnnualTaxSummary(staffUid, financialYear) {
   const endYear = startYear + 1;
 
   const payslips = await db.query(`
-    SELECT * FROM payslips
+    SELECT id, staff_uid, month, year, payroll_run_id, basic_salary, hra, special_allowance, total_earnings, pf_employee, pf_employer, esi, professional_tax, tds, total_deductions, net_salary, status, created_at FROM payslips
     WHERE staff_uid = $1
       AND status IN ('issued','viewed','downloaded')
       AND (
@@ -361,7 +361,7 @@ export async function generateAnnualTaxSummary(staffUid, financialYear) {
       total_advance_deductions=$17, total_deductions=$18, total_net=$19,
       taxable_income=$20, tax_payable=$21, months_included=$22,
       generated_at=NOW(), updated_at=NOW()
-    RETURNING *
+    RETURNING id, staff_uid, financial_year, total_basic, total_hra, total_da, total_special_allowance, total_transport_allowance, total_medical_allowance, total_overtime, total_bonus, total_arrears, total_gross, total_pf, total_esi, total_professional_tax, total_tds, total_advance_deductions, total_deductions, total_net, taxable_income, tax_payable, months_included, generated_at, created_at, updated_at
   `, [
     summary.staff_uid, summary.financial_year, summary.total_basic, summary.total_hra, summary.total_da,
     summary.total_special_allowance, summary.total_transport_allowance, summary.total_medical_allowance,
@@ -379,7 +379,7 @@ export async function generateAnnualTaxSummary(staffUid, financialYear) {
  */
 export async function calculateArrears(revisionId) {
   const revision = await db.query(
-    "SELECT * FROM salary_revisions WHERE id=$1 AND status='applied'",
+    "SELECT id, staff_uid, revision_type, old_basic, new_basic, old_ctc, new_ctc, effective_from, status, created_at FROM salary_revisions WHERE id=$1 AND status='applied'",
     [revisionId]
   );
   if (revision.rows.length === 0) throw new Error('Revision not found or not applied');
@@ -414,7 +414,7 @@ export async function calculateArrears(revisionId) {
 
   for (const { month, year } of arrearMonths) {
     const payslip = await db.query(
-      'SELECT * FROM payslips WHERE staff_uid=$1 AND month=$2 AND year=$3',
+      'SELECT id, staff_uid, month, year, payroll_run_id, basic_salary, hra, special_allowance, total_earnings, pf_employee, pf_employer, esi, professional_tax, tds, total_deductions, net_salary, status, created_at FROM payslips WHERE staff_uid=$1 AND month=$2 AND year=$3',
       [r.staff_uid, month, year]
     );
     if (payslip.rows.length > 0) {
@@ -433,7 +433,7 @@ export async function calculateArrears(revisionId) {
     INSERT INTO salary_arrears (staff_uid, revision_id, from_month, from_year, to_month, to_year, arrears_amount)
     VALUES ($1,$2,$3,$4,$5,$6,$7)
     ON CONFLICT DO NOTHING
-    RETURNING *
+    RETURNING id, staff_uid, revision_id, from_month, from_year, to_month, to_year, arrears_amount, status, created_at
   `, [r.staff_uid, revisionId, fromDate.month, fromDate.year, toDate.month, toDate.year, Math.round(totalArrears * 100) / 100]);
 
   return { arrears_amount: Math.round(totalArrears * 100) / 100, months: arrearMonths.length, result: insertResult.rows[0] };

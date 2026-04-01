@@ -6,7 +6,7 @@ import logger from '../../logging/logger.js';
  */
 export async function getStaffShift(staffId) {
   const res = await db.query(`
-    SELECT ss.* FROM staff_shifts ss
+    SELECT ss.id, ss.name, ss.start_time, ss.end_time, ss.is_active, ss.is_preset, ss.grace_minutes, ss.created_at FROM staff_shifts ss
     JOIN staff_shift_assignments ssa ON ss.id = ssa.shift_id
     WHERE ssa.staff_id = $1
       AND ssa.effective_from <= CURRENT_DATE
@@ -69,7 +69,7 @@ export function calculateOvertime(shift, checkInTime, checkOutTime) {
  */
 export async function getAllShifts() {
   const res = await db.query(`
-    SELECT * FROM staff_shifts
+    SELECT id, name, start_time, end_time, is_active, is_preset, grace_minutes, created_at FROM staff_shifts
     WHERE is_active = true
     ORDER BY is_preset DESC, start_time ASC
   `);
@@ -81,7 +81,7 @@ export async function getAllShifts() {
  */
 export async function getPresetShifts() {
   const res = await db.query(`
-    SELECT * FROM staff_shifts WHERE is_active = true AND is_preset = true ORDER BY start_time
+    SELECT id, name, start_time, end_time, is_active, is_preset, grace_minutes, created_at FROM staff_shifts WHERE is_active = true AND is_preset = true ORDER BY start_time
   `);
   return res.rows;
 }
@@ -101,7 +101,7 @@ export async function createCustomShift({ name, start_time, end_time, grace_peri
   const res = await db.query(`
     INSERT INTO staff_shifts (name, start_time, end_time, grace_period_minutes, late_threshold_minutes, absent_threshold_minutes, department, is_preset, is_active)
     VALUES ($1, $2, $3, $4, $5, $6, $7, false, true)
-    RETURNING *
+    RETURNING id, name, start_time, end_time, is_active, is_preset, grace_minutes, created_at
   `, [
     name.trim(),
     start_time,
@@ -131,7 +131,7 @@ export async function updateCustomShift(shiftId, updates) {
   const values = fields.map(f => updates[f]);
 
   const res = await db.query(
-    `UPDATE staff_shifts SET ${setClauses} WHERE id = $1 RETURNING *`,
+    `UPDATE staff_shifts SET ${setClauses} WHERE id = $1 RETURNING id, name, start_time, end_time, is_active, is_preset, grace_minutes, created_at`,
     [shiftId, ...values]
   );
   return res.rows[0];
@@ -146,7 +146,7 @@ export async function deactivateShift(shiftId) {
   if (existing.rows[0].is_preset) throw new Error('Preset shifts cannot be deleted');
 
   const res = await db.query(
-    'UPDATE staff_shifts SET is_active = false WHERE id = $1 RETURNING *',
+    'UPDATE staff_shifts SET is_active = false WHERE id = $1 RETURNING id, name, start_time, end_time, is_active, is_preset, grace_minutes, created_at',
     [shiftId]
   );
   return res.rows[0];
@@ -160,7 +160,7 @@ export async function assignShift(staffId, shiftId, effectiveFrom) {
     INSERT INTO staff_shift_assignments (staff_id, shift_id, effective_from)
     VALUES ($1, $2, $3)
     ON CONFLICT (staff_id, effective_from) DO UPDATE SET shift_id = $2
-    RETURNING *
+    RETURNING id, staff_id, shift_id, effective_from
   `, [staffId, shiftId, effectiveFrom || new Date().toISOString().split('T')[0]]);
   return res.rows[0];
 }

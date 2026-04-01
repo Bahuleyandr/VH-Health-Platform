@@ -12,7 +12,7 @@ export const createLegacyAppointment = async (req, res) => {
     const { doctor_name, date, time, department } = req.body;
 
     const result = await db.query(
-      'INSERT INTO appointments (phone, doctor_name, date, time) VALUES ($1, $2, $3, $4) RETURNING *',
+      'INSERT INTO appointments (phone, doctor_name, date, time) VALUES ($1, $2, $3, $4) RETURNING id, uid, phone, patient_name, doctor_name, date, status, created_at',
       [phone, doctor_name, date, time]
     );
 

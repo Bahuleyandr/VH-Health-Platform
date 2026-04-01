@@ -215,7 +215,7 @@ export class AdminDoctorService {
       const userResult = await client.query(`
         INSERT INTO users (phone, name, email, gender, address, birthday, role, registered_at)
         VALUES ($1, $2, $3, $4, $5, TO_DATE($6, 'DD-MM-YYYY'), 'DOCTOR', NOW())
-        RETURNING *
+        RETURNING id, uid, phone, name, email, gender, address, birthday, role, registered_at
       `, [
         phone,
         doctorData.name,
@@ -234,7 +234,7 @@ export class AdminDoctorService {
           available_days, available_hours, bio, education, certifications,
           is_available, created_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, NOW())
-        RETURNING *
+        RETURNING id, user_id, specialization, department, experience_years, consultation_fee, available_days, available_hours, bio, education, certifications, is_available, created_at
       `, [
         userId,
         doctorData.specialization,
@@ -367,7 +367,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
           notes = COALESCE($4, notes),
           updated_at = NOW()
         WHERE user_id = $5
-        RETURNING *
+        RETURNING id, user_id, specialization, department, experience_years, consultation_fee, available_days, available_hours, is_available, notes, created_at, updated_at
       `, [is_available, available_days, available_hours, reason, id]);
       
       if (result.rows.length === 0) {

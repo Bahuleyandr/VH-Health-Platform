@@ -65,7 +65,7 @@ export async function createOrUpdateUser(userData, requestingUser) {
         blood_group = $13, allergies = $14, medical_history = $15,
         updated_at = NOW(), updated_by = $16
       WHERE phone = $17
-      RETURNING *
+      RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at
     `, [
       name, email, gender, address, birthday, anniversary, role, 
       department || HOSPITAL_ROLES[role].department, specialty, finalEmployeeId,
@@ -86,7 +86,7 @@ export async function createOrUpdateUser(userData, requestingUser) {
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
         'active', NOW(), $17
-      ) RETURNING *
+      ) RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at
     `, [
       normalizedPhone, name, email, gender, address, birthday, anniversary,
       role, department || HOSPITAL_ROLES[role].department, specialty, finalEmployeeId,
@@ -224,7 +224,7 @@ export async function updateUser(identifier, updateData, requestingUser) {
   const updateResult = await db.query(`
     UPDATE users SET ${updateFields.join(', ')}
     WHERE ${column} = $${paramIndex + 1}
-    RETURNING *
+    RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at
   `, [...updateValues, targetUser[column]]);
 
   return {
@@ -264,7 +264,7 @@ export async function changeUserStatus(identifier, newStatus, reason, requesting
       status = $1, status_changed_at = NOW(), status_changed_by = $2,
       status_change_reason = $3, updated_at = NOW(), updated_by = $2
     WHERE ${column} = $4
-    RETURNING *
+    RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at
   `, [newStatus, requestingUserId, reason, targetUser[column]]);
 
   // Create status change record
@@ -327,7 +327,7 @@ export async function deactivateUser(identifier, reason, transferDataTo, request
       updated_at = NOW(),
       updated_by = $1
     WHERE ${column} = $4
-    RETURNING *
+    RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at
   `, [requestingUserId, reason, transferDataTo, targetUser[column]]);
 
   // Create deactivation record
@@ -385,7 +385,7 @@ export async function reactivateUser(userId, reason, requestingUser) {
       updated_at = NOW(),
       updated_by = $1
     WHERE uid = $3
-    RETURNING *
+    RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at
   `, [requestingUserId, reason, userId]);
 
   // Create reactivation record

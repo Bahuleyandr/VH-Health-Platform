@@ -354,7 +354,7 @@ class AdminDepartmentService {
           name, description, head_doctor_id, contact_number, 
           location, budget, is_active, created_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-        RETURNING *
+        RETURNING id, name, code, head_uid, is_active, description, floor, building, created_at, updated_at
       `, [name, description, head_doctor_id, contact_number, location, budget, is_active]);
       
       await client.query('COMMIT');
@@ -526,7 +526,7 @@ class AdminDepartmentService {
           deactivation_reason = $1,
           updated_at = NOW()
         WHERE id = $2
-        RETURNING *
+        RETURNING id, name, code, head_uid, is_active, description, floor, building, created_at, updated_at
       `, [reason, id]);
       
       await client.query('COMMIT');
@@ -572,14 +572,14 @@ async updateDepartment(id, data) {
       
       // Check if department exists
       const existingDept = await client.query(
-        'SELECT * FROM departments WHERE id = $1', 
+        'SELECT id, name, code, head_uid, is_active, description, floor, building, created_at, updated_at FROM departments WHERE id = $1',
         [id]
       );
-      
+
       if (existingDept.rows.length === 0) {
         throw new Error('Department not found');
       }
-      
+
       // If changing name, check if new name already exists
       if (name && name !== existingDept.rows[0].name) {
         const nameCheck = await client.query(
@@ -625,7 +625,7 @@ async updateDepartment(id, data) {
           is_active = COALESCE($7, is_active),
           updated_at = NOW()
         WHERE id = $8
-        RETURNING *
+        RETURNING id, name, code, head_uid, is_active, description, floor, building, created_at, updated_at
       `, [name, description, head_doctor_id, contact_number, location, budget, is_active, id]);
       
       await client.query('COMMIT');

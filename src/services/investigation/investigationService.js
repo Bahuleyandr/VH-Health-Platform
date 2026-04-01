@@ -315,7 +315,7 @@ export const updateStatus = async (id, status, notes, userId) => {
   const result = await db.query(`
     UPDATE investigations SET ${updateFields}
     WHERE id = $3
-    RETURNING *
+    RETURNING id, patient_id, doctor_id, test_name, test_code, type, status, priority, notes, completed_date, updated_at, updated_by
   `, params);
   
   return result.rows.length > 0 ? result.rows[0] : null;
@@ -336,7 +336,7 @@ export const addResults = async (id, resultData, userId) => {
       updated_at = NOW(),
       updated_by = $6
     WHERE id = $5
-    RETURNING *
+    RETURNING id, patient_id, doctor_id, test_name, test_code, type, status, results, interpretation, technician_notes, reviewed_by, completed_date, updated_at, updated_by
   `, [results, interpretation, technician_notes, reviewed_by, id, userId]);
   
   return result.rows.length > 0 ? result.rows[0] : null;

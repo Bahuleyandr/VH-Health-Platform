@@ -3,12 +3,15 @@
 // This is for: admin override, testing, special OTP needs
 // OTPs are stored in database only, no SMS sending
 
+import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import { OTP_CONFIG, OTP_ERRORS } from '../../config/otpConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+
+const OTP_HASH_ROUNDS = 6; // Lower than password hashing — OTPs are short-lived
 
 // Generate secure OTP
 export const generateOTP = () => {
@@ -50,7 +53,12 @@ export const requestOtp = async (phone, purpose, userId, req) => {
   // Log successful request
   await logActivity(normalizedPhone, purpose, 'request', true, null, req);
 
-  logger.info(`📱 OTP ${otp} generated for ${normalizedPhone} (${purpose}) - Session: ${sessionId}`);
+  // Only log OTP in development mode — never log plaintext OTP in production
+  if (OTP_CONFIG.devMode) {
+    logger.info(`📱 OTP ${otp} generated for ${normalizedPhone} (${purpose}) - Session: ${sessionId}`);
+  } else {
+    logger.info(`📱 OTP generated for ${normalizedPhone} (${purpose}) - Session: ${sessionId}`);
+  }
 
   return {
     phone: normalizedPhone,
@@ -101,8 +109,12 @@ export const verifyOtp = async (phone, inputOtp, purpose, req) => {
     data: { attempts: { increment: 1 } },
   });
 
-  // Verify OTP
-  if (session.otp !== inputOtp) {
+  // Verify OTP — use bcrypt.compare for timing-safe comparison of hashed OTPs
+  const isOtpValid = session.otp.startsWith('$2')
+    ? await bcrypt.compare(inputOtp, session.otp)  // Hashed OTP (new format)
+    : session.otp === inputOtp;                      // Legacy plaintext (migration-safe)
+
+  if (!isOtpValid) {
     const attemptsLeft = OTP_CONFIG.maxAttempts - session.attempts - 1;
     await logActivity(normalizedPhone, purpose, 'verify', false, 'invalid_otp', req);
     return { valid: false, reason: OTP_ERRORS.INVALID, attemptsLeft };
@@ -156,15 +168,18 @@ export const checkResendCooldown = async (phone, purpose) => {
   return !recentSession;
 };
 
-// Store OTP
+// Store OTP — hash before persisting to prevent plaintext exposure on DB compromise
 export const storeOTP = async (phone, purpose, userId) => {
   const otp = generateOTP();
   const expiresAt = new Date(Date.now() + (OTP_CONFIG.expirationMinutes * 60 * 1000));
 
+  // Hash OTP before storage (bcrypt handles salt internally)
+  const otpHash = await bcrypt.hash(otp, OTP_HASH_ROUNDS);
+
   const record = await prisma.otp_sessions.create({
     data: {
       phone,
-      otp,
+      otp: otpHash,
       purpose,
       expires_at: expiresAt,
       attempts: 0,
@@ -175,7 +190,7 @@ export const storeOTP = async (phone, purpose, userId) => {
   });
 
   return {
-    otp,
+    otp,       // Return plaintext to caller (for SMS/dev display), NOT stored
     expiresAt,
     sessionId: record.id
   };

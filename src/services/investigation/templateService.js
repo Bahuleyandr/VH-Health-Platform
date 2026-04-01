@@ -13,7 +13,7 @@ export const createTemplate = async (templateData) => {
     const templateResult = await client.query(`
       INSERT INTO investigation_templates (name, type, description, department_id, created_by)
       VALUES ($1, $2, $3, $4, $5)
-      RETURNING *
+      RETURNING id, name, type, description, department_id, is_active, created_by, created_at
     `, [name, type, description, department_id, created_by]);
     
     const template = templateResult.rows[0];
@@ -96,7 +96,7 @@ export const applyTemplate = async (templateId, patientId, doctorId, orderedBy) 
           patient_id, doctor_id, test_name, test_code, type,
           normal_range, unit, cost, status, requested_at, created_by
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING', NOW(), $9)
-        RETURNING *
+        RETURNING id, patient_id, doctor_id, test_name, test_code, type, normal_range, unit, cost, status, requested_at, created_by
       `, [
         patientId, doctorId, test.test_name, test.test_code,
         templateType, test.normal_range, test.unit,
@@ -183,7 +183,7 @@ export const updateTemplate = async (templateId, templateData) => {
       UPDATE investigation_templates
       SET name = $1, type = $2, description = $3, updated_by = $4, updated_at = NOW()
       WHERE id = $5
-      RETURNING *
+      RETURNING id, name, type, description, department_id, is_active, updated_by, updated_at, created_at
     `, [name, type, description, updated_by, templateId]);
 
     if (templateResult.rows.length === 0) {
@@ -226,7 +226,7 @@ export const deactivateTemplate = async (templateId, deactivatedBy) => {
       UPDATE investigation_templates
       SET is_active = false, updated_by = $1, updated_at = NOW()
       WHERE id = $2 AND is_active = true
-      RETURNING *
+      RETURNING id, name, type, description, department_id, is_active, updated_by, updated_at, created_at
     `, [deactivatedBy, templateId]);
     
     return result.rows[0] || null;

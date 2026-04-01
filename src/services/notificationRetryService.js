@@ -61,7 +61,7 @@ export async function retryFailedNotifications() {
   let pending;
   try {
     pending = await db.query(`
-      SELECT * FROM failed_notifications
+      SELECT id, phone, title, body, type, error_message, retry_count, last_retry_at, created_at FROM failed_notifications
       WHERE status = 'pending' AND next_retry_at <= NOW() AND retry_count < max_retries
       ORDER BY created_at ASC LIMIT 50
     `);

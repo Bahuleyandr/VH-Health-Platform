@@ -2,10 +2,18 @@
 // Quality & Infection Control Routes (JWT required)
 
 import { Router } from 'express';
+import { validationResult } from 'express-validator';
+import { requiredUUID, requiredString, requiredNumber, requiredEnum, optionalString, optionalNumber, optionalEnum, paramId } from '../../validators/sharedValidators.js';
 import qualityService from '../../services/quality/qualityService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isStaff, isAdmin, isClinical } from '../../utils/roleHelpers.js';
 import logger from '../../logging/logger.js';
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+  next();
+};
 
 const router = Router();
 
@@ -27,7 +35,7 @@ function hasICAccess(role) {
  * POST /quality/incidents
  * Report a new quality incident — any staff can report
  */
-router.post('/incidents', async (req, res, next) => {
+router.post('/incidents', requiredString('description', 2000), requiredEnum('severity', ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']), validate, async (req, res, next) => {
   try {
     if (!isStaff(req.user?.role) && !isAdmin(req.user?.role)) {
       return error(res, 'Only staff can report incidents', 403);
@@ -91,7 +99,7 @@ router.get('/incidents', async (req, res, next) => {
  * PUT /quality/incidents/:id
  * Update an incident — QUALITY_OFFICER, ADMIN
  */
-router.put('/incidents/:id', async (req, res, next) => {
+router.put('/incidents/:id', paramId(), validate, async (req, res, next) => {
   try {
     const role = req.user?.role;
     if (!QUALITY_ROLES.includes(role)) {
@@ -146,7 +154,7 @@ router.get('/dashboard', async (req, res, next) => {
  * POST /quality/infection-control/cases
  * Report an infection case — clinical + IC roles
  */
-router.post('/infection-control/cases', async (req, res, next) => {
+router.post('/infection-control/cases', requiredString('description', 2000), validate, async (req, res, next) => {
   try {
     const role = req.user?.role;
     if (!isClinical(role) && !IC_ROLES.includes(role) && !isAdmin(role)) {

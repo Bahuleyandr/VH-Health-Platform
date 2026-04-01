@@ -1,5 +1,6 @@
 // src/middleware/jwtMiddleware.js
 import { verifyToken } from '../utils/jwtUtils.js';
+import { isTokenBlacklisted, isUserTokensRevoked } from '../utils/tokenBlacklist.js';
 import logger from '../logging/logger.js';
 
 /**
@@ -29,7 +30,7 @@ function getHasuraClaims(decoded) {
  * - Attaches req.user = { uid, role, roles?, phone?, email? }
  * - 401 for missing/invalid token; 400 if UID cannot be derived
  */
-export default function jwtMiddleware(req, res, next) {
+export default async function jwtMiddleware(req, res, next) {
   const authHeader = req.headers?.authorization || req.headers?.Authorization || '';
 
   if (!authHeader.startsWith('Bearer ')) {
@@ -51,6 +52,33 @@ export default function jwtMiddleware(req, res, next) {
       error: isExpired ? 'Token has expired' : 'Invalid or expired token',
       code: isExpired ? 'TOKEN_EXPIRED' : 'TOKEN_INVALID'
     });
+  }
+
+  // Check token blacklist (jti-based revocation)
+  if (decoded.jti) {
+    const blacklisted = await isTokenBlacklisted(decoded.jti);
+    if (blacklisted) {
+      logger.warn(`JWT denied: token ${decoded.jti} is blacklisted`);
+      return res.status(401).json({
+        success: false,
+        error: 'Token has been revoked',
+        code: 'TOKEN_REVOKED'
+      });
+    }
+  }
+
+  // Check if all user tokens were revoked (force-logout)
+  const uid = decoded.uid ?? decoded.user_id ?? decoded.userId ?? decoded.id ?? decoded.sub;
+  if (uid && decoded.iat) {
+    const revoked = await isUserTokensRevoked(String(uid), decoded.iat);
+    if (revoked) {
+      logger.warn(`JWT denied: all tokens revoked for user ${uid}`);
+      return res.status(401).json({
+        success: false,
+        error: 'All sessions have been revoked. Please log in again.',
+        code: 'TOKEN_REVOKED'
+      });
+    }
   }
 
   const hasura = getHasuraClaims(decoded);

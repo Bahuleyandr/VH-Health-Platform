@@ -72,7 +72,6 @@ export const getRateLimiter = (profileName = 'default') => {
 
     // IMPORTANT: IPv6-safe config
     keyGenerator: keyGen,
-    keyGeneratorIpFallback: ipKeyGenerator,
 
     handler: handlerFn,
     skip: skipFn
@@ -84,6 +83,28 @@ export const genericLimiter = getRateLimiter('default');
 export const patientRateLimiter = getRateLimiter('patient');
 export const staffRateLimiter = getRateLimiter('staff');
 export const adminRateLimiter = getRateLimiter('admin'); // Less restrictive, not unlimited
+
+/**
+ * ✅ Auth login rate limiter — 5 attempts per 15 minutes.
+ * Compound key: IP + username/employeeId/email from request body.
+ * Prevents both single-IP brute force AND distributed attacks targeting one account.
+ */
+export const authRateLimiter = rateLimit({
+  windowMs: RATE_LIMIT_PROFILES.auth.windowMs,
+  max: RATE_LIMIT_PROFILES.auth.max,
+  message: RATE_LIMIT_PROFILES.auth.message,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const ip = ipKeyGenerator(req);
+    // Extract account identifier from request body (login endpoints)
+    const account = req.body?.username || req.body?.email || req.body?.employeeId || req.body?.phone || '';
+    if (account) return `auth:${ip}:${String(account).toLowerCase()}`;
+    return `auth:${ip}`;
+  },
+  handler: defaultHandler,
+  skip: () => false
+});
 
 /**
  * ✅ OTP rate limiter — keys by phone number extracted from request body.
@@ -103,7 +124,6 @@ export const otpRateLimiter = rateLimit({
     // Fallback to IP if no phone
     return `otp:${ipKeyGenerator(req)}`;
   },
-  keyGeneratorIpFallback: ipKeyGenerator,
   handler: defaultHandler,
   skip: () => false
 });
@@ -123,13 +143,15 @@ export const sosRateLimiter = rateLimit({
     if (uid) return `sos:u:${String(uid)}`;
     return `sos:${ipKeyGenerator(req)}`;
   },
-  keyGeneratorIpFallback: ipKeyGenerator,
   handler: defaultHandler,
   skip: () => false
 });
 
 /** ✅ Data export rate limiter — strict: 5 requests per hour */
 export const dataExportRateLimiter = getRateLimiter('dataExport');
+
+/** ✅ Dashboard rate limiter — 10/min per IP to limit phone enumeration */
+export const dashboardRateLimiter = getRateLimiter('dashboard');
 
 /** ✅ No Limiter (pass-through) */
 export const noRateLimiter = (req, res, next) => next();

@@ -152,7 +152,7 @@ export const requestRegularization = async (req, res) => {
       INSERT INTO attendance_regularization (staff_id, date, reason, requested_check_in, requested_check_out, status, created_at)
       VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
       ON CONFLICT (staff_id, date) DO UPDATE SET reason=$3, requested_check_in=$4, requested_check_out=$5, status='pending', created_at=NOW()
-      RETURNING *
+      RETURNING id, staff_id, date, reason, requested_check_in, requested_check_out, status, created_at
     `, [id, date, reason, check_in_time || null, check_out_time || null]);
 
     success(res, result.rows[0], 'Regularization request submitted');
@@ -193,7 +193,7 @@ export const startBreak = async (req, res) => {
     }
 
     const result = await db.query(`
-      INSERT INTO staff_breaks (attendance_id, staff_id, break_start) VALUES ($1, $2, NOW()) RETURNING *
+      INSERT INTO staff_breaks (attendance_id, staff_id, break_start) VALUES ($1, $2, NOW()) RETURNING id, attendance_id, staff_id, break_start, break_end, duration_minutes
     `, [att.rows[0].id, staffId]);
 
     success(res, result.rows[0], 'Break started');
@@ -223,7 +223,7 @@ export const endBreak = async (req, res) => {
     const result = await db.query(`
       UPDATE staff_breaks SET break_end=NOW(),
         duration_minutes=EXTRACT(EPOCH FROM (NOW() - break_start))/60
-      WHERE id=$1 RETURNING *
+      WHERE id=$1 RETURNING id, attendance_id, staff_id, break_start, break_end, duration_minutes
     `, [breakId]);
 
     success(res, result.rows[0], `Break ended — ${Math.round(result.rows[0].duration_minutes)} minutes`);
@@ -280,7 +280,7 @@ export const submitDispute = async (req, res) => {
       INSERT INTO attendance_disputes (staff_id, date, dispute_type, description, requested_check_in, requested_check_out, evidence_url)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       ON CONFLICT (staff_id, date) DO UPDATE SET dispute_type=$3, description=$4, requested_check_in=$5, requested_check_out=$6, evidence_url=$7, status='pending', created_at=NOW()
-      RETURNING *
+      RETURNING id, staff_uid, dispute_date, reason, status, resolution, created_at
     `, [staffId, date, dispute_type, description, requested_check_in || null, requested_check_out || null, evidence_url || null]);
 
     success(res, result.rows[0], 'Dispute submitted. HR will review within 24 hours.');
@@ -297,7 +297,8 @@ export const getMyDisputes = async (req, res) => {
   try {
     const staffId = req.user?.uid || req.params.id;
     const disputes = await db.query(`
-      SELECT d.*, u.name as reviewer_name
+      SELECT d.id, d.staff_uid, d.dispute_date, d.reason, d.status, d.resolution, d.resolved_by, d.created_at,
+        u.name as reviewer_name
       FROM attendance_disputes d
       LEFT JOIN users u ON d.reviewed_by = u.id
       WHERE d.staff_id = $1 ORDER BY d.date DESC LIMIT 30
@@ -316,7 +317,8 @@ export const getMyDisputes = async (req, res) => {
 export const getPendingDisputes = async (req, res) => {
   try {
     const disputes = await db.query(`
-      SELECT d.*, u.name as staff_name, u.employee_id, s.department
+      SELECT d.id, d.staff_uid, d.dispute_date, d.reason, d.status, d.resolution, d.resolved_by, d.created_at,
+        u.name as staff_name, u.employee_id, s.department
       FROM attendance_disputes d
       JOIN users u ON d.staff_id = u.id
       LEFT JOIN staff s ON u.id = s.user_id
@@ -343,7 +345,7 @@ export const resolveDispute = async (req, res) => {
       return error(res, 'status must be approved or rejected', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const dispute = await db.query('SELECT * FROM attendance_disputes WHERE id=$1', [id]);
+    const dispute = await db.query('SELECT id, staff_uid, dispute_date, reason, status, resolution, resolved_by, created_at FROM attendance_disputes WHERE id=$1', [id]);
     if (dispute.rows.length === 0) return error(res, 'Dispute not found', HTTP_STATUS.NOT_FOUND);
 
     const d = dispute.rows[0];
@@ -385,7 +387,7 @@ export const resolveDispute = async (req, res) => {
 
     const result = await db.query(`
       UPDATE attendance_disputes SET status=$1, reviewer_comment=$2, reviewed_by=$3, reviewed_at=NOW()
-      WHERE id=$4 RETURNING *
+      WHERE id=$4 RETURNING id, staff_uid, dispute_date, reason, status, resolution, created_at
     `, [status, reviewer_comment || null, reviewerId, id]);
 
     success(res, result.rows[0], `Dispute ${status}`);

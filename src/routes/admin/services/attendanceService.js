@@ -80,7 +80,7 @@ export async function getAttendanceAnomalies() {
         OR COUNT(*) FILTER (WHERE a.check_out_time::time < '17:00:00') > 3
         OR COUNT(*) FILTER (WHERE a.check_out_time IS NULL) > 0
     )
-    SELECT * FROM anomalies ORDER BY late_days DESC, early_leave_days DESC
+    SELECT id, name, department, employee_id, late_days, early_leave_days, missing_checkout_days FROM anomalies ORDER BY late_days DESC, early_leave_days DESC
     `,
     [],
     'attendance.anomalies'

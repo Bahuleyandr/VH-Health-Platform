@@ -2,9 +2,17 @@
 // Radiology Module Routes
 
 import { Router } from 'express';
+import { validationResult } from 'express-validator';
+import { requiredUUID, requiredString, requiredNumber, requiredEnum, optionalString, optionalNumber, optionalEnum, paramId } from '../../validators/sharedValidators.js';
 import radiologyService from '../../services/radiology/radiologyService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import logger from '../../logging/logger.js';
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+  next();
+};
 
 const router = Router();
 
@@ -12,7 +20,7 @@ const router = Router();
  * POST /radiology/orders
  * Create a new radiology order
  */
-router.post('/orders', async (req, res, next) => {
+router.post('/orders', requiredUUID('patient_uid'), requiredString('study_type', 200), validate, async (req, res, next) => {
   try {
     const orderData = {
       patient_uid: req.body.patient_uid,
@@ -67,7 +75,7 @@ router.get('/worklist', async (req, res, next) => {
  * PUT /radiology/:id/report
  * Submit a radiology report
  */
-router.put('/:id/report', async (req, res, next) => {
+router.put('/:id/report', paramId(), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
     const reportData = {
@@ -136,7 +144,7 @@ router.get('/:id', async (req, res, next) => {
  * PUT /radiology/:id/cancel
  * Cancel a radiology order
  */
-router.put('/:id/cancel', async (req, res, next) => {
+router.put('/:id/cancel', paramId(), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
     const result = await radiologyService.cancelOrder(parseInt(id, 10), req.user?.uid);

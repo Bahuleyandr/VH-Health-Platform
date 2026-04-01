@@ -2,9 +2,17 @@
 // Blood Bank Module Routes
 
 import { Router } from 'express';
+import { validationResult } from 'express-validator';
+import { requiredUUID, requiredString, requiredNumber, requiredEnum, optionalString, optionalNumber, optionalEnum, paramId } from '../../validators/sharedValidators.js';
 import bloodBankService from '../../services/bloodbank/bloodBankService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import logger from '../../logging/logger.js';
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+  next();
+};
 
 const router = Router();
 
@@ -12,7 +20,7 @@ const router = Router();
  * POST /blood-bank/request
  * Create a new blood request
  */
-router.post('/request', async (req, res, next) => {
+router.post('/request', requiredUUID('patient_uid'), requiredEnum('blood_group', ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']), requiredNumber('units', { min: 1, max: 10 }), validate, async (req, res, next) => {
   try {
     const requestData = {
       patient_uid: req.body.patient_uid,
@@ -40,7 +48,7 @@ router.post('/request', async (req, res, next) => {
  * PUT /blood-bank/:id/cross-match
  * Record cross-match result
  */
-router.put('/:id/cross-match', async (req, res, next) => {
+router.put('/:id/cross-match', paramId(), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
     const matchData = {
@@ -63,7 +71,7 @@ router.put('/:id/cross-match', async (req, res, next) => {
  * PUT /blood-bank/:id/issue
  * Issue blood to patient
  */
-router.put('/:id/issue', async (req, res, next) => {
+router.put('/:id/issue', paramId(), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
     const issueData = {
@@ -85,7 +93,7 @@ router.put('/:id/issue', async (req, res, next) => {
  * PUT /blood-bank/:id/transfused
  * Record transfusion completion
  */
-router.put('/:id/transfused', async (req, res, next) => {
+router.put('/:id/transfused', paramId(), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
     const transfusionData = {

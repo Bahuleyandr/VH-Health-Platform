@@ -1,9 +1,17 @@
 // src/routes/appointment/appointmentWorkflowRoutes.js
 import express from 'express';
+import { validationResult } from 'express-validator';
+import { requiredString, paramId } from '../../validators/sharedValidators.js';
 import * as workflowController from '../../controllers/appointment/appointmentWorkflowController.js';
 import * as docController from '../../controllers/appointment/appointmentDocumentController.js';
 import * as adminController from '../../controllers/appointment/appointmentAdminController.js';
 import { upload, validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+  next();
+};
 
 const router = express.Router();
 
@@ -14,7 +22,7 @@ const router = express.Router();
 router.get('/queue/today', workflowController.getTodayQueue);
 router.get('/pending', workflowController.getPendingAppointments);
 router.get('/slots', workflowController.getAvailableSlots);
-router.post('/walk-in', workflowController.registerWalkIn);
+router.post('/walk-in', requiredString('patient_name', 255), validate, workflowController.registerWalkIn);
 
 // Patient records
 router.get('/patient/records/all', docController.getPatientAllRecords);
@@ -30,10 +38,10 @@ router.get('/admin/audit-trail', adminController.getStatusAuditTrail);
 router.get('/admin/documents', docController.getAllDocumentsAdmin);
 
 // ── Per-appointment actions (parameterized) ──────────────────────────────────
-router.post('/:id/confirm', workflowController.confirmAppointment);
-router.post('/:id/no-show', workflowController.markNoShow);
-router.post('/:id/complete', workflowController.completeAppointment);
-router.post('/:id/cancel', workflowController.cancelAppointment);
+router.post('/:id/confirm', paramId(), validate, workflowController.confirmAppointment);
+router.post('/:id/no-show', paramId(), validate, workflowController.markNoShow);
+router.post('/:id/complete', paramId(), validate, workflowController.completeAppointment);
+router.post('/:id/cancel', paramId(), validate, workflowController.cancelAppointment);
 router.get('/:id/history', workflowController.getAppointmentHistory);
 router.get('/:appointment_id/documents', docController.getAppointmentDocuments);
 

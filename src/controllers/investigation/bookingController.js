@@ -67,7 +67,7 @@ export const createBooking = async (req, res) => {
         preferred_date, preferred_time_slot,
         estimated_cost
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-      RETURNING *
+      RETURNING id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at
     `, [
       patientId, patient.rows[0]?.phone, patient.rows[0]?.name,
       parsedTests || null, custom_test_names || null, slipPhotoKey, notes || null,
@@ -116,7 +116,9 @@ export const getMyBookings = async (req, res) => {
   try {
     const patientId = req.user?.id;
     const result = await db.query(`
-      SELECT ib.*,
+      SELECT ib.id, ib.investigation_id, ib.patient_id, ib.patient_name, ib.patient_phone,
+        ib.test_name, ib.status, ib.scheduled_date, ib.phlebotomist_id, ib.notes,
+        ib.created_at, ib.updated_at,
         (SELECT json_agg(t) FROM investigation_test_catalog t WHERE t.id = ANY(ib.selected_tests)) as test_details
       FROM investigation_bookings ib
       WHERE ib.patient_id = $1
@@ -150,7 +152,9 @@ export const getBookingQueue = async (req, res) => {
     if (to_date) { params.push(to_date); where += ` AND DATE(ib.created_at)<=$${params.length}`; }
 
     const result = await db.query(`
-      SELECT ib.*,
+      SELECT ib.id, ib.investigation_id, ib.patient_id, ib.patient_name, ib.patient_phone,
+        ib.test_name, ib.status, ib.scheduled_date, ib.phlebotomist_id, ib.notes,
+        ib.created_at, ib.updated_at,
         (SELECT json_agg(t.name) FROM investigation_test_catalog t WHERE t.id = ANY(ib.selected_tests)) as test_names,
         EXTRACT(EPOCH FROM (NOW() - ib.created_at))/60 as mins_since_booked,
         CASE WHEN NOW() > ib.sla_confirm_target AND ib.status='BOOKED' THEN TRUE ELSE FALSE END as sla_breached
@@ -188,7 +192,7 @@ export const confirmBooking = async (req, res) => {
     const staffId = req.user?.id;
     const { confirmation_notes, actual_tests, final_cost } = req.body;
 
-    const booking = await db.query('SELECT * FROM investigation_bookings WHERE id=$1', [id]);
+    const booking = await db.query('SELECT id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at FROM investigation_bookings WHERE id=$1', [id]);
     if (!booking.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
     if (booking.rows[0].status !== 'BOOKED') return error(res, 'Can only confirm BOOKED bookings', HTTP_STATUS.BAD_REQUEST);
 
@@ -198,7 +202,7 @@ export const confirmBooking = async (req, res) => {
         confirmation_notes=$2, actual_tests=$3, final_cost=COALESCE($4, estimated_cost),
         sla_dispatch_target=NOW()+INTERVAL '1 hour',
         updated_at=NOW()
-      WHERE id=$5 RETURNING *
+      WHERE id=$5 RETURNING id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at
     `, [staffId, confirmation_notes, actual_tests, final_cost, id]);
 
     await db.query(
@@ -239,7 +243,7 @@ export const dispatchCollector = async (req, res) => {
     const staffId = req.user?.id;
     const { assigned_collector, collector_phone, notes: dispatchNotes } = req.body;
 
-    const booking = await db.query('SELECT * FROM investigation_bookings WHERE id=$1', [id]);
+    const booking = await db.query('SELECT id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at FROM investigation_bookings WHERE id=$1', [id]);
     if (!booking.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
     if (booking.rows[0].status !== 'CONFIRMED') return error(res, 'Must be CONFIRMED first', HTTP_STATUS.BAD_REQUEST);
 
@@ -248,7 +252,7 @@ export const dispatchCollector = async (req, res) => {
         status='DISPATCHED', assigned_collector=$1, dispatched_at=NOW(),
         collector_phone=$2, sla_collect_target=NOW()+INTERVAL '2 hours',
         updated_at=NOW()
-      WHERE id=$3 RETURNING *
+      WHERE id=$3 RETURNING id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at
     `, [assigned_collector || staffId, collector_phone, id]);
 
     await db.query(
@@ -295,7 +299,7 @@ export const markCollected = async (req, res) => {
       UPDATE investigation_bookings SET
         status='COLLECTED', collected_at=NOW(), collected_by=$1,
         collection_notes=$2, collection_tracking_active=FALSE, updated_at=NOW()
-      WHERE id=$3 AND status IN ('DISPATCHED','CONFIRMED') RETURNING *
+      WHERE id=$3 AND status IN ('DISPATCHED','CONFIRMED') RETURNING id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at
     `, [staffId, collection_notes, id]);
 
     if (!result.rows.length) return error(res, 'Not found or wrong status', HTTP_STATUS.BAD_REQUEST);
@@ -318,7 +322,7 @@ export const startProcessing = async (req, res) => {
     const { id } = req.params;
     const staffId = req.user?.id;
 
-    const booking = await db.query('SELECT * FROM investigation_bookings WHERE id=$1', [id]);
+    const booking = await db.query('SELECT id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at FROM investigation_bookings WHERE id=$1', [id]);
     if (!booking.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
 
     // Calculate SLA target based on test turnaround
@@ -333,7 +337,7 @@ export const startProcessing = async (req, res) => {
         status='PROCESSING', processing_started_at=NOW(),
         sla_result_target=NOW()+INTERVAL '1 hour' * $2,
         updated_at=NOW()
-      WHERE id=$1 RETURNING *
+      WHERE id=$1 RETURNING id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at
     `, [id, maxTAT]);
 
     await db.query(
@@ -357,7 +361,7 @@ export const uploadResult = async (req, res) => {
 
     if (!req.file) return error(res, 'Result file is required', HTTP_STATUS.BAD_REQUEST);
 
-    const booking = await db.query('SELECT * FROM investigation_bookings WHERE id=$1', [id]);
+    const booking = await db.query('SELECT id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at FROM investigation_bookings WHERE id=$1', [id]);
     if (!booking.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
 
     // Upload to R2
@@ -373,7 +377,7 @@ export const uploadResult = async (req, res) => {
       UPDATE investigation_bookings SET
         status='RESULT_READY', result_uploaded_at=NOW(), result_uploaded_by=$1,
         result_file_key=$2, result_notes=$3, updated_at=NOW()
-      WHERE id=$4 RETURNING *
+      WHERE id=$4 RETURNING id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at
     `, [staffId, fileKey, result_notes, id]);
 
     await db.query(
@@ -412,7 +416,9 @@ export const getBookingDetail = async (req, res) => {
   try {
     const { id } = req.params;
     const booking = await db.query(`
-      SELECT ib.*,
+      SELECT ib.id, ib.investigation_id, ib.patient_id, ib.patient_name, ib.patient_phone,
+        ib.test_name, ib.status, ib.scheduled_date, ib.phlebotomist_id, ib.notes,
+        ib.created_at, ib.updated_at,
         (SELECT json_agg(t) FROM investigation_test_catalog t WHERE t.id = ANY(ib.selected_tests)) as test_details,
         cu.name as confirmed_by_name,
         au.name as collector_name
@@ -423,7 +429,7 @@ export const getBookingDetail = async (req, res) => {
     `, [id]);
     if (!booking.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
 
-    const history = await db.query('SELECT * FROM investigation_booking_history WHERE booking_id=$1 ORDER BY created_at', [id]);
+    const history = await db.query('SELECT id, booking_id, status, changed_by, notes, created_at FROM investigation_booking_history WHERE booking_id=$1 ORDER BY created_at', [id]);
 
     const b = booking.rows[0];
     if (b.slip_photo_key) b.slip_photo_url = await getSignedFileUrl(b.slip_photo_key, 3600).catch(() => null);

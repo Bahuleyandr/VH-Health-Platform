@@ -54,7 +54,7 @@ export const placeOrder = async (req, res) => {
         delivery_address, delivery_landmark, delivery_lat, delivery_lng,
         delivery_phone, status, created_by
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'PLACED',$12)
-      RETURNING *
+      RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount, created_at, updated_at, order_number, delivery_type
     `, [
       patientId, patientPhone, patientName,
       order_note || null, prescriptionPhotoKey,
@@ -97,7 +97,11 @@ export const getMyOrders = async (req, res) => {
   try {
     const patientId = req.user?.id;
     const result = await db.query(
-      `SELECT * FROM pharmacy_orders WHERE patient_id=$1 ORDER BY created_at DESC`,
+      `SELECT id, uid, patient_id, patient_name, patient_phone, prescription_url,
+        status, order_note, delivery_type, delivery_address, delivery_landmark,
+        total_amount, payment_status, assigned_pharmacist, token_number,
+        created_at, updated_at, dispatched_at, delivered_at
+       FROM pharmacy_orders WHERE patient_id=$1 ORDER BY created_at DESC`,
       [patientId]
     );
 
@@ -134,7 +138,10 @@ export const getOrderQueue = async (req, res) => {
     }
 
     const result = await db.query(`
-      SELECT po.*,
+      SELECT po.id, po.uid, po.patient_id, po.patient_name, po.patient_phone, po.prescription_url,
+        po.status, po.order_note, po.delivery_type, po.delivery_address, po.total_amount,
+        po.payment_status, po.assigned_pharmacist, po.token_number,
+        po.created_at, po.updated_at, po.dispatched_at, po.delivered_at,
         EXTRACT(EPOCH FROM (NOW()-po.created_at))/60 as mins_since_placed,
         CASE WHEN po.status='PLACED' AND NOW()>po.sla_confirm_target THEN TRUE ELSE FALSE END as sla_breached
       FROM pharmacy_orders po
@@ -165,7 +172,7 @@ export const confirmOrder = async (req, res) => {
     const staffId = req.user?.id;
     const { confirmation_notes, items_list, total_cost } = req.body;
 
-    const order = await db.query('SELECT * FROM pharmacy_orders WHERE id=$1', [id]);
+    const order = await db.query('SELECT id, uid, patient_id, patient_name, patient_phone, prescription_url, status, order_note, delivery_type, delivery_address, total_amount, payment_status, assigned_pharmacist, token_number, created_at, updated_at, dispatched_at, delivered_at FROM pharmacy_orders WHERE id=$1', [id]);
     if (!order.rows.length) return error(res, 'Order not found', HTTP_STATUS.NOT_FOUND);
     if (order.rows[0].status !== 'PLACED') {
       return error(res, 'Can only confirm PLACED orders', HTTP_STATUS.BAD_REQUEST);
@@ -176,7 +183,7 @@ export const confirmOrder = async (req, res) => {
         status='CONFIRMED', confirmed_by=$1, confirmed_at=NOW(),
         confirmation_notes=$2, items_list=$3, total_cost=$4,
         sla_dispatch_target=NOW()+INTERVAL '30 minutes', updated_at=NOW()
-      WHERE id=$5 RETURNING *
+      WHERE id=$5 RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount, created_at, updated_at
     `, [
       staffId, confirmation_notes || null,
       JSON.stringify(items_list || []),
@@ -219,7 +226,7 @@ export const markPreparing = async (req, res) => {
     const { id } = req.params;
     const result = await db.query(
       `UPDATE pharmacy_orders SET status='PREPARING', preparing_at=NOW(), updated_at=NOW()
-       WHERE id=$1 AND status='CONFIRMED' RETURNING *`,
+       WHERE id=$1 AND status='CONFIRMED' RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount, created_at, updated_at`,
       [id]
     );
 
@@ -247,7 +254,7 @@ export const dispatchOrder = async (req, res) => {
     const staffId = req.user?.id;
     const { delivery_person, delivery_person_phone } = req.body;
 
-    const order = await db.query('SELECT * FROM pharmacy_orders WHERE id=$1', [id]);
+    const order = await db.query('SELECT id, uid, patient_id, patient_name, patient_phone, prescription_url, status, order_note, delivery_type, delivery_address, total_amount, payment_status, assigned_pharmacist, token_number, created_at, updated_at, dispatched_at, delivered_at FROM pharmacy_orders WHERE id=$1', [id]);
     if (!order.rows.length) return error(res, 'Order not found', HTTP_STATUS.NOT_FOUND);
 
     const validStatuses = ['CONFIRMED', 'PREPARING'];
@@ -260,7 +267,7 @@ export const dispatchOrder = async (req, res) => {
         status='DISPATCHED', dispatched_at=NOW(), dispatched_by=$1,
         delivery_person=$2, delivery_person_phone=$3,
         sla_delivery_target=NOW()+INTERVAL '2 hours', updated_at=NOW()
-      WHERE id=$4 RETURNING *
+      WHERE id=$4 RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount, created_at, updated_at
     `, [staffId, delivery_person || null, delivery_person_phone || null, id]);
 
     await db.query(
@@ -303,7 +310,7 @@ export const markDelivered = async (req, res) => {
     const { id } = req.params;
     const result = await db.query(
       `UPDATE pharmacy_orders SET status='DELIVERED', delivered_at=NOW(), delivery_tracking_active=FALSE, updated_at=NOW()
-       WHERE id=$1 AND status='DISPATCHED' RETURNING *`,
+       WHERE id=$1 AND status='DISPATCHED' RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount, created_at, updated_at`,
       [id]
     );
 
@@ -330,7 +337,7 @@ export const cancelOrder = async (req, res) => {
     const { id } = req.params;
     const { cancellation_reason } = req.body;
 
-    const order = await db.query('SELECT * FROM pharmacy_orders WHERE id=$1', [id]);
+    const order = await db.query('SELECT id, uid, patient_id, patient_name, patient_phone, prescription_url, status, order_note, delivery_type, delivery_address, total_amount, payment_status, assigned_pharmacist, token_number, created_at, updated_at, dispatched_at, delivered_at FROM pharmacy_orders WHERE id=$1', [id]);
     if (!order.rows.length) return error(res, 'Order not found', HTTP_STATUS.NOT_FOUND);
     if (['DELIVERED', 'CANCELLED'].includes(order.rows[0].status)) {
       return error(res, 'Cannot cancel delivered or already cancelled order', HTTP_STATUS.BAD_REQUEST);
@@ -339,7 +346,7 @@ export const cancelOrder = async (req, res) => {
     const result = await db.query(
       `UPDATE pharmacy_orders SET status='CANCELLED', cancellation_reason=$2,
        cancelled_at=NOW(), updated_at=NOW()
-       WHERE id=$1 RETURNING *`,
+       WHERE id=$1 RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount, created_at, updated_at`,
       [id, cancellation_reason || null]
     );
 
@@ -405,11 +412,11 @@ export const getPharmacySLADashboard = async (req, res) => {
 export const getOrderDetail = async (req, res) => {
   try {
     const { id } = req.params;
-    const order = await db.query('SELECT * FROM pharmacy_orders WHERE id=$1', [id]);
+    const order = await db.query('SELECT id, uid, patient_id, patient_name, patient_phone, prescription_url, status, order_note, delivery_type, delivery_address, total_amount, payment_status, assigned_pharmacist, token_number, created_at, updated_at, dispatched_at, delivered_at FROM pharmacy_orders WHERE id=$1', [id]);
     if (!order.rows.length) return error(res, 'Order not found', HTTP_STATUS.NOT_FOUND);
 
     const history = await db.query(
-      'SELECT * FROM pharmacy_order_history WHERE order_id=$1 ORDER BY created_at',
+      'SELECT id, order_id, status, changed_by, notes, created_at FROM pharmacy_order_history WHERE order_id=$1 ORDER BY created_at',
       [id]
     );
 
@@ -443,7 +450,7 @@ export const getCatalog = async (req, res) => {
     }
 
     const result = await db.query(
-      `SELECT * FROM pharmacy_catalog ${where} ORDER BY category, name`,
+      `SELECT id, name, category, price, stock, is_available, description, created_at FROM pharmacy_catalog ${where} ORDER BY category, name`,
       params
     );
     success(res, result.rows, 'Catalog');
@@ -471,7 +478,7 @@ export const upsertCatalog = async (req, res) => {
           name=$1, generic_name=$2, category=$3, manufacturer=$4,
           unit_price=$5, pack_size=$6, requires_prescription=$7,
           in_stock=$8, stock_quantity=$9, reorder_level=$10, updated_at=NOW()
-        WHERE id=$11 RETURNING *`,
+        WHERE id=$11 RETURNING id, name, generic_name, category, manufacturer, unit_price, pack_size, requires_prescription, in_stock, stock_quantity, reorder_level, updated_at`,
         [name, generic_name, category, manufacturer, unit_price, pack_size,
          requires_prescription ?? true, in_stock ?? true,
          stock_quantity || 0, reorder_level || 10, id]
@@ -481,7 +488,7 @@ export const upsertCatalog = async (req, res) => {
         `INSERT INTO pharmacy_catalog
           (name, generic_name, category, manufacturer, unit_price, pack_size,
            requires_prescription, in_stock, stock_quantity, reorder_level)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id, name, generic_name, category, manufacturer, unit_price, pack_size, requires_prescription, in_stock, stock_quantity, reorder_level, created_at`,
         [name, generic_name || null, category || 'other', manufacturer || null,
          unit_price || null, pack_size || null, requires_prescription ?? true,
          in_stock ?? true, stock_quantity || 0, reorder_level || 10]
