@@ -113,8 +113,21 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
         allowedExtensions: ['pdf', 'doc', 'docx', 'jpg', 'png'],
       );
       if (result?.files.single.path != null) {
+        final file = File(result!.files.single.path!);
+        final sizeBytes = await file.length();
+        const maxSizeBytes = 10 * 1024 * 1024; // 10 MB
+        if (sizeBytes > maxSizeBytes) {
+          if (mounted) {
+            messenger.showSnackBar(SnackBar(
+              content: const Text('File too large. Maximum size is 10 MB.'),
+              backgroundColor: theme.colorScheme.error,
+              behavior: SnackBarBehavior.floating,
+            ));
+          }
+          return;
+        }
         setState(() {
-          _file = File(result!.files.single.path!);
+          _file = file;
           _fileName = result.files.single.name;
         });
       }
