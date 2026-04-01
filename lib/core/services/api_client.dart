@@ -324,10 +324,12 @@ class ApiResponse {
 
   /// Extract a list from [data], handling both direct lists and nested keys.
   List<dynamic> dataAsList([String? key]) {
-    if (key != null && data is Map) {
-      return (data[key] as List?) ?? [];
+    if (key != null) {
+      // Key specified: only look up in a Map; return [] for any other type.
+      if (data is Map) return (data[key] as List?) ?? [];
+      return [];
     }
-    if (data is List) return data;
+    if (data is List) return data as List<dynamic>;
     return [];
   }
 
