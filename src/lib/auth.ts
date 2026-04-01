@@ -2,31 +2,24 @@
 
 /**
  * Auth utilities for the admin portal.
- * - Type-safe JWT parsing (no `any`)
- * - LocalStorage helpers for token/user
- * - Expiry checks with small clock skew
+ *
+ * SECURITY: Tokens are stored ONLY in httpOnly cookies (set by /api/login).
+ * We no longer store tokens in localStorage to prevent XSS token theft.
+ * Only the admin user profile is cached in localStorage for UI purposes.
  */
 
-const TOKEN_KEY = "adminToken";
 const USER_KEY = "adminUser";
 
 /* =========================
  * Local storage helpers
  * ========================= */
 
-export function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-export function setToken(token: string): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(TOKEN_KEY, token);
-}
-
+/**
+ * Clear cached user data from localStorage.
+ * Note: The auth token is in an httpOnly cookie and cleared via /api/logout.
+ */
 export function clearAuthStorage(): void {
   if (typeof window === "undefined") return;
-  localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
 }
 
@@ -35,16 +28,13 @@ export function clearAuthStorage(): void {
  * ========================= */
 
 type JwtBase = {
-  // Standard JWT fields
   iss?: string;
   sub?: string;
   aud?: string | string[];
-  exp?: number; // seconds since epoch
+  exp?: number;
   nbf?: number;
   iat?: number;
   jti?: string;
-
-  // Custom claims we often see on admin tokens
   role?: string;
   permissions?: string[];
   [key: string]: unknown;
@@ -55,7 +45,6 @@ function b64urlToString(input: string): string {
   const pad = "===".slice(0, (4 - (input.length % 4)) % 4);
   const base64 = (input + pad).replace(/-/g, "+").replace(/_/g, "/");
   if (typeof window !== "undefined") {
-    // atob expects base64 (not base64url) — ok after the replacements above
     return decodeURIComponent(
       Array.prototype.map
         .call(
@@ -65,14 +54,14 @@ function b64urlToString(input: string): string {
         .join(""),
     );
   } else {
-    // Node
     return Buffer.from(base64, "base64").toString("utf8");
   }
 }
 
 /**
  * Parse a JWT payload into a typed object.
- * Usage: const payload = parseJwt<{ role: 'ADMIN' | 'SUPER_ADMIN' }>(token)
+ * NOTE: This does NOT verify the signature - only use for reading claims
+ * from tokens that have already been verified by the backend.
  */
 export function parseJwt<T extends Record<string, unknown> = JwtBase>(
   token: string,
@@ -83,7 +72,6 @@ export function parseJwt<T extends Record<string, unknown> = JwtBase>(
   const payloadJson = b64urlToString(parts[1] ?? "");
   const payload = JSON.parse(payloadJson) as unknown;
 
-  // Runtime guard
   if (!payload || typeof payload !== "object") {
     throw new Error("Invalid JWT payload");
   }

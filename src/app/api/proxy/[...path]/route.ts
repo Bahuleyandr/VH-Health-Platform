@@ -5,6 +5,34 @@ import { API_BASE_URL } from "@/lib/api-config";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+// Allowed API path prefixes — all other paths are rejected.
+// This prevents the proxy from being used to reach arbitrary backend endpoints.
+const ALLOWED_PATH_PREFIXES = [
+  "api/v1/admin/",
+  "api/v1/auth/",
+  "api/v1/users",
+  "api/v1/doctors",
+  "api/v1/departments",
+  "api/v1/appointments",
+  "api/v1/pharmacy",
+  "api/v1/notifications",
+  "api/v1/records",
+  "api/v1/staff",
+  "api/v1/investigations",
+  "api/v1/sos",
+  "api/v1/analytics",
+  "api/v1/devices",
+  "api/v1/feedback",
+  "api/v1/billing",
+  "api/v1/emr/",
+  "api/v1/logs/",
+  "api/v1/rbac/",
+  "api/v1/health-check",
+  "api/v1/health-records",
+  "api/v1/system/",
+  "api/v1/config/",
+];
+
 // Headers that must not be forwarded by proxies
 const HOP_BY_HOP = new Set([
   "connection",
@@ -54,6 +82,27 @@ async function handleProxy(req: NextRequest) {
   }
 
   const targetUrl = buildTargetUrl(req);
+
+  // Validate the proxy path against allowlist to prevent open relay
+  const path = extractPathSegments(req).join("/");
+  const isAllowed = ALLOWED_PATH_PREFIXES.some((prefix) =>
+    path.startsWith(prefix) || `api/v1/${path}`.startsWith(prefix),
+  );
+  if (!isAllowed) {
+    return NextResponse.json(
+      { message: "Proxy path not allowed" },
+      { status: 403 },
+    );
+  }
+
+  // Block path traversal attempts
+  if (path.includes("..") || path.includes("//")) {
+    return NextResponse.json(
+      { message: "Invalid path" },
+      { status: 400 },
+    );
+  }
+
   const method = req.method;
 
   const headers = forwardableHeaders(req.headers) as Record<string, string>;

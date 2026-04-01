@@ -1,25 +1,62 @@
 // src/middleware.ts
 import { NextRequest, NextResponse } from "next/server";
+import { jwtVerify } from "jose";
 
 /**
- * Lightweight JWT payload check for Edge runtime.
- * Does NOT verify the HMAC signature — only checks structure and expiry.
+ * JWT verification for Edge runtime using the `jose` library.
  *
- * ⚠️  SECURITY NOTICE: This is a UX redirect gate, NOT a security boundary.
+ * The JWT_SECRET environment variable must be set to the same secret
+ * used by the backend to sign tokens. This enables proper signature
+ * verification at the middleware layer.
  *
- * The Edge runtime does not have access to the signing secret, so signature
- * verification is unavoidable to omit here. A forged or tampered token with a
- * future `exp` value would pass this check and reach the Next.js page layer.
- *
- * ALL data-level security is enforced at the backend API:
- *   - The /api/proxy route validates the real auth_token cookie before forwarding.
- *   - The backend itself verifies the JWT signature and RBAC on every request.
- *
- * This middleware only provides fast client-side redirects (e.g., bounce
- * unauthenticated users to /login) to improve UX. Do not rely on it for
- * access control decisions that affect data.
+ * If JWT_SECRET is not set, falls back to structural checks only
+ * (expiry + format) with a warning logged at startup.
  */
-function parseTokenEdge(token: string): { valid: boolean; role: string | null } {
+const JWT_SECRET = process.env.JWT_SECRET;
+const secretKey = JWT_SECRET
+  ? new TextEncoder().encode(JWT_SECRET)
+  : null;
+
+if (!secretKey && process.env.NODE_ENV === "production") {
+  console.warn(
+    "⚠️  SECURITY WARNING: JWT_SECRET is not set. " +
+    "Middleware cannot verify JWT signatures. " +
+    "Set JWT_SECRET to enable signature verification.",
+  );
+}
+
+interface TokenResult {
+  valid: boolean;
+  role: string | null;
+}
+
+/**
+ * Verify JWT with signature validation (when secret is available)
+ * or fall back to structural checks.
+ */
+async function verifyToken(token: string): Promise<TokenResult> {
+  // Try full signature verification first
+  if (secretKey) {
+    try {
+      const { payload } = await jwtVerify(token, secretKey, {
+        clockTolerance: 30, // 30s clock skew tolerance
+      });
+      const role = typeof payload.role === "string" ? payload.role : null;
+      return { valid: true, role };
+    } catch {
+      return { valid: false, role: null };
+    }
+  }
+
+  // Fallback: structural check only (when secret not configured)
+  return parseTokenStructure(token);
+}
+
+/**
+ * Fallback structural JWT check (no signature verification).
+ * Only used when JWT_SECRET is not configured.
+ */
+function parseTokenStructure(token: string): TokenResult {
   try {
     const parts = token.split(".");
     if (parts.length < 2) return { valid: false, role: null };
@@ -29,7 +66,6 @@ function parseTokenEdge(token: string): { valid: boolean; role: string | null } 
     const base64 = (payload + pad).replace(/-/g, "+").replace(/_/g, "/");
     const json = JSON.parse(atob(base64)) as Record<string, unknown>;
 
-    // Check expiry with 30s clock-skew tolerance
     if (typeof json.exp === "number") {
       const nowSeconds = Math.floor(Date.now() / 1000);
       if (nowSeconds >= json.exp - 30) return { valid: false, role: null };
@@ -71,16 +107,15 @@ const ROLE_RANK: Record<string, number> = {
   SUPER_ADMIN: 4,
 };
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Auth is carried exclusively via the httpOnly "auth_token" cookie set by the backend.
-  // The non-httpOnly "adminToken" cookie has been removed (XSS risk).
+  // Auth is carried via the httpOnly "auth_token" cookie.
   const token = request.cookies.get("auth_token")?.value;
 
   // ── Dashboard route protection ──────────────────────────────────────────────
   if (pathname.startsWith("/dashboard")) {
-    const { valid, role } = parseTokenEdge(token ?? "");
+    const { valid, role } = await verifyToken(token ?? "");
 
     if (!valid) {
       const loginUrl = new URL("/login", request.url);
@@ -110,15 +145,13 @@ export function middleware(request: NextRequest) {
       }
     }
 
-    // Forward validated token downstream
     const response = NextResponse.next();
-    if (token) response.headers.set("x-auth-token", token);
     return response;
   }
 
   // ── Proxy route protection ──────────────────────────────────────────────────
   if (pathname.startsWith("/api/proxy")) {
-    const { valid } = parseTokenEdge(token ?? "");
+    const { valid } = await verifyToken(token ?? "");
     if (!valid) {
       return NextResponse.json(
         { message: "Authentication required" },
