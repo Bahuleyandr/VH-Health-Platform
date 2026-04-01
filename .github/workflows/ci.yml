@@ -30,6 +30,10 @@ jobs:
 
       - run: flutter pub get
 
+      - name: Scaffold Android platform (v2 embedding)
+        run: |
+          flutter create --platforms=android --project-name vhhealth_staff .
+
       - name: Security audit
         run: flutter pub audit
         continue-on-error: true
@@ -40,7 +44,6 @@ jobs:
 
       - name: Verify build
         run: flutter build apk --debug
-        continue-on-error: true
 
       - name: Notify Discord on failure
         if: failure()
