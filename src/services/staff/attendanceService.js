@@ -85,7 +85,7 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
         updated_by = $5,
         updated_at = NOW()
       WHERE staff_id = $6 AND DATE(check_in_time) = $7
-      RETURNING *
+      RETURNING id, staff_id, check_in_time, check_out_time, status, location, created_at
     `, [
       check_out_time, 
       location ? JSON.stringify(location) : null, 
@@ -102,7 +102,7 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
         staff_id, check_in_time, check_out_time, location,
         notes, break_duration_minutes, attendance_type, marked_by, created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-      RETURNING *
+      RETURNING id, staff_id, check_in_time, check_out_time, status, location, created_at
     `, [
       staff_id, 
       check_in_time || new Date(),

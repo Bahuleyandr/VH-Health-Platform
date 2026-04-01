@@ -75,7 +75,7 @@ export const generateInvestigationReport = async (investigationId) => {
 
 async function getInvestigationWithDetails(id) {
   const result = await db.query(`
-    SELECT i.*, 
+    SELECT i.id, i.uid, i.phone, i.patient_name, i.doctor_name, i.test_name, i.test_category, i.status, i.priority, i.notes, i.result_summary, i.lab_name, i.sample_collected_at, i.report_ready_at, i.created_at, i.updated_at,
            p.name as patient_name, p.birthday, p.gender,
            d.name as doctor_name,
            dept.department, dept.specialization
@@ -110,7 +110,7 @@ function calculateAge(birthday) {
  * Generates a summary PDF for a patient's investigations.
  */
 export const generatePatientSummaryReport = async ({ patient_id, date_from, date_to, type }) => {
-  let query = `SELECT * FROM investigations WHERE patient_id = $1 AND status = 'COMPLETED'`;
+  let query = `SELECT id, uid, phone, patient_name, doctor_name, test_name, test_category, status, priority, notes, result_summary, lab_name, sample_collected_at, report_ready_at, created_at, updated_at FROM investigations WHERE patient_id = $1 AND status = 'COMPLETED'`;
   const params = [patient_id];
 
   if (date_from && date_to) {
@@ -149,7 +149,7 @@ export const generatePatientSummaryReport = async ({ patient_id, date_from, date
  */
 export const exportInvestigationsToExcel = async (filters) => {
   // This would contain query logic similar to your controller to fetch data
-  const result = await db.query('SELECT * FROM investigations WHERE status = $1 LIMIT 100', [filters.status || 'COMPLETED']);
+  const result = await db.query('SELECT id, uid, phone, patient_name, doctor_name, test_name, test_category, status, priority, notes, result_summary, lab_name, sample_collected_at, report_ready_at, created_at, updated_at FROM investigations WHERE status = $1 LIMIT 100', [filters.status || 'COMPLETED']);
   const investigations = result.rows;
 
   const workbook = new ExcelJS.Workbook();

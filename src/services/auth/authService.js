@@ -8,6 +8,9 @@ import logger from '../../logging/logger.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import { generateToken, verifyToken } from '../../utils/jwtUtils.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
+import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
+import { blacklistToken, revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
 import * as otpService from './otpService.js';
 
 // ✅ Use your real Firebase service
@@ -196,6 +199,12 @@ export class AuthService {
           const lockoutExpiry = new Date(new Date(lastFailedAt).getTime() + LOCKOUT_DURATION_MINUTES * 60 * 1000);
           if (new Date() < lockoutExpiry) {
             logger.warn(`Admin account locked: ${identity} (${admin.failed_login_attempts} failed attempts)`);
+            logSecurityEvent('ACCOUNT_LOCKED', {
+              userId: String(admin.id),
+              userName: identity,
+              userRole: admin.role,
+              reason: `Lockout active: ${admin.failed_login_attempts} failed attempts`,
+            });
             throw new Error('Account temporarily locked due to too many failed attempts. Try again later.');
           }
         }
@@ -215,6 +224,13 @@ export class AuthService {
             last_failed_login: new Date(),
           },
         });
+        logSecurityEvent('LOGIN_FAILED', {
+          userId: String(admin.id),
+          userName: identity,
+          userRole: admin.role,
+          reason: 'Invalid password',
+        });
+        trackFailedLogin(null, identity); // IP not available here; tracked at middleware level
         throw new Error('Invalid credentials');
       }
 
@@ -225,7 +241,7 @@ export class AuthService {
         sub: String(admin.id),
         iss: 'vh-health-backend',
         aud: 'vh-health-admin',
-      });
+      }, SECURITY_CONFIG.jwt.adminExpiry);
 
       await prisma.admins.update({
         where: { id: admin.id },
@@ -616,6 +632,11 @@ export class AuthService {
       });
       if (!user) throw new Error('User not found');
 
+      // Token rotation: blacklist the old token before issuing a new one
+      if (decoded.jti && decoded.exp) {
+        await blacklistToken(decoded.jti, decoded.exp, 'refresh_rotation');
+      }
+
       const newToken = generateToken({
         uid: user.uid,
         phone: user.phone,
@@ -641,6 +662,11 @@ export class AuthService {
     try {
       const decoded = verifyToken(token);
       if (decoded) {
+        // Blacklist the token so it can't be reused
+        if (decoded.jti && decoded.exp) {
+          await blacklistToken(decoded.jti, decoded.exp, 'logout');
+        }
+
         await prisma.auth_logs.create({
           data: {
             user_id: decoded.uid,
@@ -656,6 +682,14 @@ export class AuthService {
       logger.error('Logout error:', error);
       return {};
     }
+  }
+
+  /**
+   * Force-revoke all tokens for a user (e.g., after password reset or account compromise).
+   */
+  static async revokeAllTokens(userId) {
+    await revokeAllUserTokens(userId);
+    return { revoked: true };
   }
 
   /* ============================== Misc ============================== */

@@ -154,7 +154,7 @@ export const applyForLeave = async (leaveData) => {
       reason, emergency_contact, status, applied_by, applied_date,
       created_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
-    RETURNING *
+    RETURNING id, staff_id, leave_type, start_date, end_date, days_taken, reason, emergency_contact, status, applied_by, applied_date, created_at
   `, [
     staff_id, leave_type, start_date, end_date, daysDifference,
     reason, emergency_contact, 'PENDING', appliedBy

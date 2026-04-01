@@ -1,12 +1,23 @@
 // src/routes/clinical/clinicalRoutes.js
 import express from 'express';
+import { validationResult } from 'express-validator';
 import { success, error } from '../../utils/responseHelper.js';
 import logger from '../../logging/logger.js';
 import news2Service from '../../services/clinical/news2Service.js';
 import marService from '../../services/clinical/marService.js';
 import handoverService from '../../services/clinical/handoverService.js';
+import {
+  requiredUUID, requiredString, requiredNumber, optionalString, optionalNumber,
+  optionalEnum, paramId,
+} from '../../validators/sharedValidators.js';
 
 const router = express.Router();
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+  next();
+};
 
 // ===================================================================
 // NEWS2 Scoring Routes
@@ -16,7 +27,7 @@ const router = express.Router();
  * POST /clinical/news2/record
  * Record a NEWS2 assessment for a patient.
  */
-router.post('/news2/record', async (req, res, next) => {
+router.post('/news2/record', requiredUUID('patient_uid'), validate, async (req, res, next) => {
   try {
     const { patient_uid, vitals } = req.body;
 
@@ -61,7 +72,7 @@ router.get('/news2/patient/:patientUid', async (req, res, next) => {
  * POST /clinical/mar/schedule
  * Schedule medications for a patient.
  */
-router.post('/mar/schedule', async (req, res, next) => {
+router.post('/mar/schedule', requiredUUID('patient_uid'), validate, async (req, res, next) => {
   try {
     const { patient_uid, prescription_id, medications } = req.body;
 
@@ -80,7 +91,7 @@ router.post('/mar/schedule', async (req, res, next) => {
  * POST /clinical/mar/:id/administer
  * Record medication administration.
  */
-router.post('/mar/:id/administer', async (req, res, next) => {
+router.post('/mar/:id/administer', paramId(), optionalString('notes', 500), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { notes, witness_uid } = req.body;
@@ -101,7 +112,7 @@ router.post('/mar/:id/administer', async (req, res, next) => {
  * POST /clinical/mar/:id/miss
  * Record a missed medication dose.
  */
-router.post('/mar/:id/miss', async (req, res, next) => {
+router.post('/mar/:id/miss', paramId(), requiredString('reason', 500), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
@@ -121,7 +132,7 @@ router.post('/mar/:id/miss', async (req, res, next) => {
  * POST /clinical/mar/:id/hold
  * Hold a medication with reason.
  */
-router.post('/mar/:id/hold', async (req, res, next) => {
+router.post('/mar/:id/hold', paramId(), requiredString('reason', 500), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
@@ -176,7 +187,7 @@ router.get('/mar/overdue', async (req, res, next) => {
  * POST /clinical/handover
  * Create a nurse handover note.
  */
-router.post('/handover', async (req, res, next) => {
+router.post('/handover', requiredUUID('patient_uid'), requiredString('summary', 2000), requiredString('incoming_nurse'), validate, async (req, res, next) => {
   try {
     const data = {
       ...req.body,
@@ -194,7 +205,7 @@ router.post('/handover', async (req, res, next) => {
  * POST /clinical/handover/:id/acknowledge
  * Acknowledge a handover as the incoming nurse.
  */
-router.post('/handover/:id/acknowledge', async (req, res, next) => {
+router.post('/handover/:id/acknowledge', paramId(), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
 

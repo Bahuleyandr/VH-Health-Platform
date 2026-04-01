@@ -34,7 +34,7 @@ export class UserService {
             preferred_hospital = COALESCE($13, preferred_hospital),
             updated_at = NOW()
           WHERE phone = $1
-          RETURNING *`,
+          RETURNING id, uid, phone, name, email, role, status, created_at, updated_at`,
           [
             phone, data.name, data.email, data.gender,
             data.birthday, data.anniversary, data.address,
@@ -55,7 +55,7 @@ export class UserService {
             blood_group, allergies, insurance_details, preferred_hospital,
             registered_at, last_login
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
-          RETURNING *`,
+          RETURNING id, uid, phone, name, email, role, status, created_at, updated_at`,
           [
             phone, data.name, data.email, data.gender,
             data.birthday, data.anniversary, data.address,
@@ -276,7 +276,7 @@ export class UserService {
       UPDATE users 
       SET ${updateFields.join(', ')}
       WHERE uid = $${paramIndex}
-      RETURNING *
+      RETURNING id, uid, phone, name, email, role, status, created_at, updated_at
     `;
     params.push(user.uid);
     

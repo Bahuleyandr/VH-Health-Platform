@@ -48,7 +48,7 @@ export const createInvestigationOrder = async (orderData) => {
         scheduled_date, notes, normal_range, unit, cost, status,
         ordered_date, created_at, created_by
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PENDING', NOW(), NOW(), $12)
-      RETURNING *
+      RETURNING id, patient_id, doctor_id, test_name, test_code, type, priority, scheduled_date, notes, normal_range, unit, cost, status, ordered_date, created_at, created_by
     `, [patient_id, doctor_id, test_name, test_code, type.toUpperCase(), priority.toUpperCase(),
         scheduled_date, notes, normal_range, unit, cost, orderedBy]);
     
@@ -85,7 +85,7 @@ export const createInvestigationOrder = async (orderData) => {
 
 export const createLegacyInvestigation = async ({ phone, test_name, file_key, createdBy }) => {
   const result = await db.query(
-    'INSERT INTO investigations (phone, test_name, file_key, created_by) VALUES ($1, $2, $3, $4) RETURNING *',
+    'INSERT INTO investigations (phone, test_name, file_key, created_by) VALUES ($1, $2, $3, $4) RETURNING id, phone, test_name, file_key, status, created_by, created_at',
     [phone, test_name, file_key || null, createdBy]
   );
 

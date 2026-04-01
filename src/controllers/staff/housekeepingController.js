@@ -19,7 +19,7 @@ function generateSignature(staffId, zoneId, timestamp, photoKey) {
 export const getZones = async (req, res) => {
   try {
     const zones = await db.query(
-      'SELECT * FROM housekeeping_zones WHERE is_active = true ORDER BY zone_type, name'
+      'SELECT id, name, zone_type, is_active, created_at FROM housekeeping_zones WHERE is_active = true ORDER BY zone_type, name'
     );
     success(res, zones.rows, 'Zones fetched');
   } catch (err) {
@@ -50,7 +50,7 @@ export const submitCleaningLog = async (req, res) => {
         (staff_id, zone_id, location_text, latitude, longitude, cleaning_type,
          notes, photo_key, photo_url, signature_hash, logged_at)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-      RETURNING *
+      RETURNING id, staff_id, zone_id, location_text, cleaning_type, notes, photo_url, signature_hash, log_number, logged_at, status, created_at
     `, [
       staffId, zone_id || null, location_text || null,
       latitude || null, longitude || null,
@@ -114,7 +114,7 @@ export const raiseRequest = async (req, res) => {
         (requester_id, zone_id, location_text, latitude, longitude,
          request_type, urgency, description, photo_key, photo_url, sla_due_at)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-      RETURNING *
+      RETURNING id, zone_id, assigned_to, task_type, status, notes, completed_at, created_at, request_number, urgency, sla_due_at
     `, [
       requesterId, zone_id || null, location_text || '',
       latitude || null, longitude || null,
@@ -141,7 +141,8 @@ export const getMyRequests = async (req, res) => {
     const staffId = req.user?.uid;
 
     const raised = await db.query(`
-      SELECT hr.*, hz.name as zone_name, u.name as assigned_to_name
+      SELECT hr.id, hr.zone_id, hr.assigned_to, hr.task_type, hr.status, hr.notes, hr.completed_at, hr.created_at,
+        hz.name as zone_name, u.name as assigned_to_name
       FROM housekeeping_requests hr
       LEFT JOIN housekeeping_zones hz ON hr.zone_id = hz.id
       LEFT JOIN users u ON hr.assigned_to = u.id
@@ -150,7 +151,8 @@ export const getMyRequests = async (req, res) => {
     `, [staffId]);
 
     const assigned = await db.query(`
-      SELECT hr.*, hz.name as zone_name, u.name as requester_name
+      SELECT hr.id, hr.zone_id, hr.assigned_to, hr.task_type, hr.status, hr.notes, hr.completed_at, hr.created_at,
+        hz.name as zone_name, u.name as requester_name
       FROM housekeeping_requests hr
       LEFT JOIN housekeeping_zones hz ON hr.zone_id = hz.id
       LEFT JOIN users u ON hr.requester_id = u.id
@@ -173,7 +175,7 @@ export const completeRequest = async (req, res) => {
     const { completion_notes, completion_photo_key, completion_photo_url } = req.body;
 
     const reqCheck = await db.query(
-      'SELECT * FROM housekeeping_requests WHERE id = $1 AND assigned_to = $2',
+      'SELECT id, zone_id, assigned_to, task_type, status, notes, completed_at, created_at FROM housekeeping_requests WHERE id = $1 AND assigned_to = $2',
       [id, staffId]
     );
     if (reqCheck.rows.length === 0) {
@@ -193,7 +195,7 @@ export const completeRequest = async (req, res) => {
         completion_signature_hash = $4,
         updated_at = NOW()
       WHERE id = $5
-      RETURNING *
+      RETURNING id, zone_id, assigned_to, task_type, status, notes, completed_at, created_at
     `, [completion_notes || null, completion_photo_key || null, completion_photo_url || null, signatureHash, id]);
 
     await db.query(`
@@ -268,7 +270,8 @@ export const getAllRequests = async (req, res) => {
     params.push(Math.min(parseInt(limit), 500), parseInt(offset));
 
     const requests = await db.query(`
-      SELECT hr.*, hz.name as zone_name,
+      SELECT hr.id, hr.zone_id, hr.assigned_to, hr.task_type, hr.status, hr.notes, hr.completed_at, hr.created_at,
+             hz.name as zone_name,
              u.name as requester_name, u.department as requester_dept,
              u2.name as assigned_to_name
       FROM housekeeping_requests hr
@@ -308,7 +311,7 @@ export const assignRequest = async (req, res) => {
         assigned_to = $1, assigned_at = NOW(), assigned_by = $2,
         status = 'assigned', updated_at = NOW()
       WHERE id = $3 AND status IN ('open','assigned')
-      RETURNING *
+      RETURNING id, zone_id, assigned_to, task_type, status, notes, completed_at, created_at
     `, [assigned_to, adminId, id]);
 
     if (result.rows.length === 0) return error(res, 'Request not found or already in progress', HTTP_STATUS.NOT_FOUND);
@@ -336,7 +339,7 @@ export const verifyLog = async (req, res) => {
 
     const result = await db.query(`
       UPDATE housekeeping_logs SET status = $1, verified_by = $2, verified_at = NOW(),
-        flag_reason = $3 WHERE id = $4 RETURNING *
+        flag_reason = $3 WHERE id = $4 RETURNING id, staff_id, zone_id, status, verified_by, verified_at, flag_reason, logged_at, created_at
     `, [action, verifierId, flag_reason || null, id]);
 
     if (result.rows.length === 0) return error(res, 'Log not found', HTTP_STATUS.NOT_FOUND);
@@ -355,7 +358,7 @@ export const verifyRequest = async (req, res) => {
 
     const result = await db.query(`
       UPDATE housekeeping_requests SET status = 'verified', verified_by = $1, verified_at = NOW(),
-        updated_at = NOW() WHERE id = $2 AND status = 'completed' RETURNING *
+        updated_at = NOW() WHERE id = $2 AND status = 'completed' RETURNING id, zone_id, assigned_to, task_type, status, notes, completed_at, created_at
     `, [verifierId, id]);
 
     if (result.rows.length === 0) return error(res, 'Request not found or not yet completed', HTTP_STATUS.NOT_FOUND);
@@ -445,7 +448,8 @@ export const getRequestDetail = async (req, res) => {
     const staffId = req.user?.uid;
 
     const req_ = await db.query(`
-      SELECT hr.*, hz.name as zone_name, u.name as requester_name,
+      SELECT hr.id, hr.zone_id, hr.assigned_to, hr.task_type, hr.status, hr.notes, hr.completed_at, hr.created_at,
+             hz.name as zone_name, u.name as requester_name,
              u2.name as assigned_to_name, u3.name as verified_by_name
       FROM housekeeping_requests hr
       LEFT JOIN housekeeping_zones hz ON hr.zone_id = hz.id
@@ -481,7 +485,7 @@ export const createZone = async (req, res) => {
     const result = await db.query(`
       INSERT INTO housekeeping_zones (name, zone_type, floor, building, is_active)
       VALUES ($1, $2, $3, $4, true)
-      RETURNING *
+      RETURNING id, name, zone_type, is_active, floor, building, created_at
     `, [name, zone_type, floor || null, building || null]);
 
     success(res, result.rows[0], 'Zone created');
@@ -506,7 +510,7 @@ export const updateZone = async (req, res) => {
         building = COALESCE($4, building),
         is_active = COALESCE($5, is_active)
       WHERE id = $6
-      RETURNING *
+      RETURNING id, name, zone_type, is_active, floor, building, created_at
     `, [name || null, zone_type || null, floor || null, building || null,
         is_active !== undefined ? is_active : null, id]);
 
@@ -546,7 +550,7 @@ export const adminCreateRequest = async (req, res) => {
          status, assigned_to, assigned_at, assigned_by, sla_due_at)
       VALUES ($1, $2, $3, $4, $5, $6,
               $7, $8, $9, $10, $11)
-      RETURNING *
+      RETURNING id, zone_id, assigned_to, task_type, status, notes, completed_at, created_at, request_number, urgency, sla_due_at
     `, [
       adminId,
       zone_id || null,

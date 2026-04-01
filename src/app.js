@@ -13,16 +13,16 @@ import swaggerUi from 'swagger-ui-express';
 // Logging and middleware imports
 import logger from './logging/logger.js';
 import { attachUserContext } from './middleware/attachUserContext.js';
-import authMiddleware from './middleware/authMiddleware.js';
 import corsMiddleware, { corsErrorHandler } from './middleware/corsMiddleware.js';
 import { errorHandlerMiddleware } from './middleware/errorHandlerMiddleware.js';
 import jwtAuth from './middleware/jwtMiddleware.js';
+import { phiAccessLogger } from './middleware/phiAccessMiddleware.js';
 import { requireRole } from './middleware/rbacMiddleware.js';
 import loggingMiddleware from './middleware/loggingMiddleware.js';
 import requestIdMiddleware from './middleware/requestIdMiddleware.js';
 import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
 import { auditLogMiddleware } from './middleware/auditLog.js';
-import { patientRateLimiter, genericLimiter, adminRateLimiter, dataExportRateLimiter } from './middleware/rateLimitMiddleware.js';
+import { patientRateLimiter, genericLimiter, adminRateLimiter, dataExportRateLimiter, dashboardRateLimiter } from './middleware/rateLimitMiddleware.js';
 import validateApiKey from './middleware/validateApiKey.js';
 import apiVersionMiddleware from './middleware/apiVersionMiddleware.js';
 import { selfHealingMiddleware } from './middleware/selfHealingMiddleware.js';
@@ -199,8 +199,8 @@ if (process.env.NODE_ENV === 'production') {
 app.use(compression({ threshold: 1024 })); // Only compress responses > 1KB
 app.use(requestIdMiddleware);
 app.use(apiVersionMiddleware);
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ limit: '1mb', extended: true }));
 app.use(corsMiddleware);
 
 // Logging
@@ -209,7 +209,7 @@ app.use(logger.morganMiddleware);
 
 // User context middleware
 app.use(attachUserContext);
-// NOTE: normalizeIdentityFields now runs AFTER authMiddleware below
+// NOTE: normalizeIdentityFields runs AFTER JWT auth below
 
 // Universal audit log — fire-and-forget, captures all routes, handles null user gracefully
 app.use(auditLogMiddleware);
@@ -220,12 +220,19 @@ app.use(prometheusMiddleware);
 // PUBLIC ROUTES (No authentication required)
 // ====================================
 
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
-app.use('/metrics', metricsRoutes);
+// Swagger docs — disabled in production to prevent API surface exposure
+const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+if (!isProduction) {
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+} else {
+  app.use('/api-docs', (req, res) => res.status(404).json({ success: false, message: 'Not found' }));
+}
+// Rate-limit public endpoints to prevent abuse/recon
+app.use('/metrics', genericLimiter, metricsRoutes);
 app.use('/api/v1/internal', validateApiKey, internalRoutes);
 
-// Root health check
-app.get('/', async (req, res, next) => {
+// Root health check — rate limited, minimal info in production
+app.get('/', genericLimiter, async (req, res, next) => {
   try {
     const db = (await import('./config/database.js')).default;
     const dbHealth = await db.healthCheck();
@@ -233,16 +240,12 @@ app.get('/', async (req, res, next) => {
       return res.status(503).json({
         status: 'degraded',
         message: 'Database unavailable',
-        version: process.env.API_VERSION || '1.0.0',
-        environment: process.env.NODE_ENV || 'development'
       });
     }
     res.json({
       status: 'healthy',
       message: 'VH Health API is running.',
       version: process.env.API_VERSION || '1.0.0',
-      environment: process.env.NODE_ENV || 'development',
-      uptime: Math.floor(process.uptime())
     });
   } catch (err) {
     next(err);
@@ -261,10 +264,7 @@ app.head('/', async (req, res, next) => {
 // Public API routes
 app.use('/api/v1/auth', patientRateLimiter, routes.auth); // Patient Auth
 app.use('/api/v1/otp', patientRateLimiter, routes.otp);
-app.use('/api/v1/health', healthRoutes);
-
-// Infrastructure (mixed auth handled inside)
-app.use('/api/v1', infrastructureRoutes);
+app.use('/api/v1/health', genericLimiter, healthRoutes);
 
 // ABDM gateway callbacks (public — no JWT/API key, validated via ABDM request signature)
 app.use('/api/v1/abdm', abdmCallbackRoutes);
@@ -276,23 +276,26 @@ app.use('/api/v1/abdm', abdmCallbackRoutes);
 
 app.use(validateApiKey);
 
+// Infrastructure routes (debug, swagger, version, rbac) — require API key
+app.use('/api/v1', infrastructureRoutes);
+
 // ====================================
 // API KEY ONLY ROUTES (no JWT required)
-// Mount before authMiddleware so Flutter can call these without a JWT
+// Mount before global JWT auth so Flutter can call these without a JWT
 // ====================================
 
 // Patient dashboard — Flutter app uses API key only for this
-app.use('/api/v1/dashboard', patientRateLimiter, dashboardRoutes);
+app.use('/api/v1/dashboard', dashboardRateLimiter, dashboardRoutes);
 
 // Campus config — staff app uses API key only for this
 app.use('/api/v1/config', configRoutes);
 
-// HL7v2 messaging — mounted before authMiddleware so /receive works with API key only.
+// HL7v2 messaging — mounted before global JWT auth so /receive works with API key only.
 // JWT is enforced on /generate within the route file itself.
 app.use('/api/v1/hl7', hl7Routes);
 
-app.use(authMiddleware);
-app.use(normalizeIdentityFields); // runs AFTER authMiddleware
+app.use(jwtAuth);  // Single JWT middleware for all authenticated routes
+app.use(normalizeIdentityFields); // runs AFTER JWT auth
 
 // ====================================
 // AUTHENTICATED ROUTES (API key required)
@@ -302,115 +305,112 @@ app.use(normalizeIdentityFields); // runs AFTER authMiddleware
 app.use('/api/v1/users', patientRateLimiter, userRoutes);
 
 // Healthcare services - Modularized
-app.use('/api/v1/appointments', patientRateLimiter, appointmentRoutes);
-app.use('/api/v1/records', patientRateLimiter, jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS', 'PATIENT'), recordRoutes);
-app.use('/api/v1/investigations', patientRateLimiter, jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF', 'MEDICAL_RECORDS'), investigationRoutes);
-app.use('/api/v1/pharmacy-orders', patientRateLimiter, jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF'), pharmacyRoutes);
-app.use('/api/v1/prescriptions', patientRateLimiter, jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'PATIENT'), prescriptionRoutes);
-app.use('/api/v1/delivery', patientRateLimiter, jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'PHARMACY_STAFF', 'DELIVERY_STAFF'), deliveryRoutes);
+app.use('/api/v1/appointments', patientRateLimiter, phiAccessLogger('APPOINTMENT'), appointmentRoutes);
+app.use('/api/v1/records', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS', 'PATIENT'), phiAccessLogger('MEDICAL_RECORD'), recordRoutes);
+app.use('/api/v1/investigations', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('INVESTIGATION'), investigationRoutes);
+app.use('/api/v1/pharmacy-orders', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF'), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
+app.use('/api/v1/prescriptions', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'PATIENT'), phiAccessLogger('PRESCRIPTION'), prescriptionRoutes);
+app.use('/api/v1/delivery', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'PHARMACY_STAFF', 'DELIVERY_STAFF'), deliveryRoutes);
 app.use('/api/v1/departments', departmentRoutes);
 app.use('/api/v1/doctors', doctorRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
 
-// Patient reminders (medication) — JWT via authMiddleware above
+// Patient reminders (medication) — JWT via global jwtAuth above
 app.use('/api/v1/reminders', patientRateLimiter, reminderRoutes);
-app.use('/api/v1/steps', patientRateLimiter, jwtAuth, stepsRoutes);
-app.use('/api/v1/rewards', patientRateLimiter, jwtAuth, stepRewardsRoutes);
+app.use('/api/v1/steps', patientRateLimiter, stepsRoutes);
+app.use('/api/v1/rewards', patientRateLimiter, stepRewardsRoutes);
 
 // Healthcare services - Legacy (to be modularized)
 app.use('/api/v1/devices', deviceRoutes);
 
 app.use('/api/v1/feedback', patientRateLimiter, routes.feedback);
 app.use('/api/v1/sos', patientRateLimiter, routes.sos);
-app.use('/api/v1/search', jwtAuth, searchRoutes);
+app.use('/api/v1/search', searchRoutes);
 app.use('/api/v1/upload', routes.upload);
 
 // GDPR Data Export
 app.use('/api/v1/data-export', dataExportRateLimiter, dataExportRoutes);
 
 // HIPAA Consent Management (requires JWT)
-app.use('/api/v1/consent', jwtAuth, consentRoutes);
+app.use('/api/v1/consent', consentRoutes);
 
 // ABDM patient-facing routes (JWT required — ABHA registration, consent management)
-app.use('/api/v1/abdm', jwtAuth, abdmPatientRoutes);
+app.use('/api/v1/abdm', abdmPatientRoutes);
 
 // ====================================
-// JWT PROTECTED ROUTES (JWT token required)
+// ROLE-PROTECTED ROUTES (JWT enforced globally above)
 // ====================================
 
-app.use('/api/v1/staff', jwtAuth, staffRoutes);
+app.use('/api/v1/staff', staffRoutes);
 
-// Bed/Ward management (admin only)
-app.use('/api/v1/beds', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), bedRouter);
-app.use('/api/v1/beds', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), bedManagementRoutes);
-app.use('/api/v1/wards', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), wardRouter);
+// Bed/Ward management
+app.use('/api/v1/beds', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), bedRouter);
+app.use('/api/v1/beds', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), bedManagementRoutes);
+app.use('/api/v1/wards', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), wardRouter);
 
-// FHIR R4 interoperability (JWT required)
-app.use('/api/v1/fhir', jwtAuth, fhirRoutes);
+// FHIR R4 interoperability
+app.use('/api/v1/fhir', fhirRoutes);
 
-// Clinical Document Export & Import (JWT + clinical roles)
-app.use('/api/v1/documents', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), documentRoutes);
+// Clinical Document Export & Import
+app.use('/api/v1/documents', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('CLINICAL_DOCUMENT'), documentRoutes);
 
-
-// Clinical workflows: MAR, NEWS2, Nurse Handover (staff roles)
-app.use('/api/v1/clinical', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), clinicalRoutes);
+// Clinical workflows: MAR, NEWS2, Nurse Handover
+app.use('/api/v1/clinical', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('CLINICAL_WORKFLOW'), clinicalRoutes);
 
 // EMR — Clinical Documentation (notes, timeline)
-app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), clinicalNotesRoutes);
+app.use('/api/v1/emr', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('CLINICAL_NOTE'), clinicalNotesRoutes);
 
 // EMR — ADT (Admission/Discharge/Transfer)
-app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), admissionRoutes);
+app.use('/api/v1/emr', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('ADMISSION'), admissionRoutes);
 
 // EMR — CPOE (Order Entry)
-app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), orderRoutes);
+app.use('/api/v1/emr', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('CLINICAL_ORDER'), orderRoutes);
 
 // EMR — Vitals Charting & I/O
-app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), vitalsRoutes);
+app.use('/api/v1/emr', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('VITAL_SIGN'), vitalsRoutes);
 
 // EMR — Clinical Decision Support (CDS) Engine
-app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), cdsRoutes);
+app.use('/api/v1/emr', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('CLINICAL_DECISION'), cdsRoutes);
 
 // EMR — Diagnosis & Problem List
-app.use('/api/v1/emr', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), diagnosisRoutes);
+app.use('/api/v1/emr', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('DIAGNOSIS'), diagnosisRoutes);
 
 // Centralized admin namespace
-// AdminDashboardRoutes internally mounts: /appointments, /departments, /doctors,
-// /users, /notifications, /records, /investigations, /pharmacy, /analytics
-app.use('/api/v1/admin', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, adminDashboardRoutes);
+app.use('/api/v1/admin', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, adminDashboardRoutes);
 
-// System settings + status (portal: /api/v1/system/settings, /api/v1/system/status)
-app.use('/api/v1/system', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, systemRoutes);
+// System settings + status
+app.use('/api/v1/system', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, systemRoutes);
 
-// Audit + system logs (portal: /api/v1/logs/audit, /api/v1/logs/system)
-app.use('/api/v1/logs', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, logRoutes);
+// Audit + system logs
+app.use('/api/v1/logs', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, logRoutes);
 
-// Radiology (JWT + clinical/admin roles)
-app.use('/api/v1/radiology', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'RADIOLOGY_STAFF'), radiologyRoutes);
+// Radiology
+app.use('/api/v1/radiology', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'RADIOLOGY_STAFF'), phiAccessLogger('RADIOLOGY'), radiologyRoutes);
 
-// Dietary / Nutrition (JWT + clinical/dietary roles)
-app.use('/api/v1/dietary', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'DIETARY_STAFF'), dietaryRoutes);
+// Dietary / Nutrition
+app.use('/api/v1/dietary', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'DIETARY_STAFF'), phiAccessLogger('DIETARY'), dietaryRoutes);
 
-// Operating Theatre (JWT + surgical/admin roles)
-app.use('/api/v1/theatre', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF'), theatreRoutes);
+// Operating Theatre
+app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF'), phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
 
-// Blood Bank (JWT + clinical/blood bank roles)
-app.use('/api/v1/blood-bank', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BLOOD_BANK_STAFF'), bloodBankRoutes);
+// Blood Bank
+app.use('/api/v1/blood-bank', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BLOOD_BANK_STAFF'), phiAccessLogger('BLOOD_BANK'), bloodBankRoutes);
 
-// Billing & Invoicing (JWT required — route-level role checks for mutations)
-app.use('/api/v1/billing', jwtAuth, billingRoutes);
+// Billing & Invoicing (route-level role checks for mutations)
+app.use('/api/v1/billing', billingRoutes);
 
-// Quality & Infection Control (JWT required — route-level role checks)
-app.use('/api/v1/quality', jwtAuth, qualityRoutes);
+// Quality & Infection Control (route-level role checks)
+app.use('/api/v1/quality', qualityRoutes);
 
-// Referral Management (JWT required — route-level role checks)
-app.use('/api/v1/referrals', jwtAuth, referralRoutes);
+// Referral Management (route-level role checks)
+app.use('/api/v1/referrals', phiAccessLogger('REFERRAL'), referralRoutes);
 
-// Inter-staff messaging (JWT + any staff role)
-app.use('/api/v1/messaging', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'HR_STAFF', 'GENERAL_STAFF', 'DELIVERY_STAFF', 'RECEPTIONIST'), messagingRoutes);
+// Inter-staff messaging
+app.use('/api/v1/messaging', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'HR_STAFF', 'GENERAL_STAFF', 'DELIVERY_STAFF', 'RECEPTIONIST'), messagingRoutes);
 
 // Compliance: Breach Notification + Audit Search (admin only)
-app.use('/api/v1/compliance', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, breachRoutes);
-app.use('/api/v1/compliance', jwtAuth, requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, auditSearchRoutes);
+app.use('/api/v1/compliance', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, breachRoutes);
+app.use('/api/v1/compliance', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, auditSearchRoutes);
 
 // (Optional but recommended) serve report exports if you use local file URLs
 app.use('/exports', express.static('exports'));

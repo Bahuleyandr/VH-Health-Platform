@@ -331,7 +331,7 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
       hire_date, supervisor_id, emergency_contact, skills, 
       certifications, notes, is_active, created_at, created_by
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, NOW(), $13)
-    RETURNING *
+    RETURNING id, user_id, employee_id, department, position, is_active, created_at
   `, [
     user_id, employee_id, position, department, shift.toUpperCase(), salary,
     hire_date, supervisor_id, emergency_contact, 
@@ -421,7 +421,7 @@ export const updateStaffProfile = async (id, data, updatedBy, updaterName, ipAdd
       updated_at = NOW(),
       updated_by = $12
     WHERE user_id = $13
-    RETURNING *
+    RETURNING id, user_id, employee_id, department, position, is_active, created_at
   `, [
     position, department, shift?.toUpperCase(), salary, supervisor_id,
     emergency_contact, 

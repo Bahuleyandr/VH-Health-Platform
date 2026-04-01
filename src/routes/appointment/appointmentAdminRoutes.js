@@ -551,7 +551,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
             status, created_at, created_by, 
             notes, admin_override, override_reason
           ) VALUES ($1, $2, $3, $4, 'scheduled', NOW(), $5, $6, true, $7)
-          RETURNING *
+          RETURNING id, patient_id, doctor_id, appointment_date, reason, status, notes, admin_override, override_reason, created_at, created_by, updated_at
         `, [
           patient_id, doctor_id, appointment_date, reason,
           req.user?.uid,
@@ -587,34 +587,34 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         switch (resolution_action) {
           case 'cancel_first':
             result = await db.query(
-              'UPDATE appointments SET status = $1, notes = $2 WHERE id = $3 RETURNING *',
+              'UPDATE appointments SET status = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, date, status, notes, created_at, updated_at',
               ['cancelled', `Cancelled by admin due to conflict resolution`, conflict_appointments[0]]
             );
             break;
-            
+
           case 'cancel_second':
             result = await db.query(
-              'UPDATE appointments SET status = $1, notes = $2 WHERE id = $3 RETURNING *',
+              'UPDATE appointments SET status = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, date, status, notes, created_at, updated_at',
               ['cancelled', `Cancelled by admin due to conflict resolution`, conflict_appointments[1]]
             );
             break;
-            
+
           case 'reschedule_first':
             if (!new_time) {
               return error(res, 'new_time required for rescheduling', HTTP_STATUS.BAD_REQUEST);
             }
             result = await db.query(
-              'UPDATE appointments SET appointment_date = $1, notes = $2 WHERE id = $3 RETURNING *',
+              'UPDATE appointments SET appointment_date = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, date, status, notes, created_at, updated_at',
               [new_time, `Rescheduled by admin due to conflict`, conflict_appointments[0]]
             );
             break;
-            
+
           case 'reschedule_second':
             if (!new_time) {
               return error(res, 'new_time required for rescheduling', HTTP_STATUS.BAD_REQUEST);
             }
             result = await db.query(
-              'UPDATE appointments SET appointment_date = $1, notes = $2 WHERE id = $3 RETURNING *',
+              'UPDATE appointments SET appointment_date = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, date, status, notes, created_at, updated_at',
               [new_time, `Rescheduled by admin due to conflict`, conflict_appointments[1]]
             );
             break;

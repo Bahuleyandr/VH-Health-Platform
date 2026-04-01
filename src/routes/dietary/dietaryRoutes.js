@@ -2,9 +2,17 @@
 // Dietary / Nutrition Module Routes
 
 import { Router } from 'express';
+import { validationResult } from 'express-validator';
+import { requiredUUID, requiredString, requiredNumber, requiredEnum, optionalString, optionalNumber, optionalEnum, paramId } from '../../validators/sharedValidators.js';
 import dietaryService from '../../services/dietary/dietaryService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import logger from '../../logging/logger.js';
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+  next();
+};
 
 const router = Router();
 
@@ -12,7 +20,7 @@ const router = Router();
  * POST /dietary/orders
  * Create a new diet order
  */
-router.post('/orders', async (req, res, next) => {
+router.post('/orders', requiredUUID('patient_uid'), requiredString('diet_type', 100), validate, async (req, res, next) => {
   try {
     const orderData = {
       patient_uid: req.body.patient_uid,
@@ -67,7 +75,7 @@ router.get('/worklist', async (req, res, next) => {
  * PUT /dietary/:id
  * Update a diet plan
  */
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', paramId(), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
     const updateData = {

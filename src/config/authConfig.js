@@ -64,7 +64,8 @@ export const AUTH_METHODS = {
 
 export const verifyDevice = async (deviceToken) => {
   const result = await db.query(
-    `SELECT * FROM staff_devices 
+    `SELECT device_id, device_name, platform, last_active, staff_id, is_active
+     FROM staff_devices
      WHERE device_token = $1 AND is_active = true`,
     [deviceToken]
   );
@@ -93,7 +94,7 @@ export const getTodayAttendance = async (staffId) => {
   today.setHours(0, 0, 0, 0);
   
   const result = await db.query(
-    `SELECT * FROM staff_attendance 
+    `SELECT id, staff_uid, check_in_time, check_out_time, duration_minutes, status, created_at FROM staff_attendance
      WHERE staff_uid = $1 AND DATE(check_in_time) = DATE($2)
      ORDER BY check_in_time DESC LIMIT 1`,
     [staffId, today]
@@ -136,7 +137,7 @@ export const getAttendanceHistory = async (staffId, { startDate, endDate, page, 
   
   const [attendance, total] = await Promise.all([
     db.query(
-      `SELECT * FROM staff_attendance 
+      `SELECT id, staff_uid, check_in_time, check_out_time, duration_minutes, status, created_at FROM staff_attendance
        ${whereClause}
        ORDER BY check_in_time DESC
        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,

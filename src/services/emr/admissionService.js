@@ -94,7 +94,7 @@ async function admitPatient(data) {
         $11, $12, $13, $14,
         $15, $16, NOW(), NOW()
       )
-      RETURNING *`,
+      RETURNING id, patient_uid, status, ward, bed_number, attending_doctor, admitted_at, discharged_at, code_status, created_at, updated_at`,
       [
         patient_uid, admitting_doctor, attending_doctor || null, department || null, ward || null, bed_id || null,
         chief_complaint, admitting_diagnosis || null, admission_type, priority,
@@ -201,7 +201,7 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
        SET status = $1, discharged_at = NOW(), discharge_type = $2,
            discharge_summary = $3, actual_los_days = $4, updated_at = NOW()
        WHERE id = $5
-       RETURNING *`,
+       RETURNING id, patient_uid, status, ward, bed_number, attending_doctor, admitted_at, discharged_at, code_status, created_at, updated_at`,
       [targetStatus, discharge_type, discharge_summary ? JSON.stringify(discharge_summary) : null, actualLosDays, admissionId]
     );
 
@@ -318,7 +318,7 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
       `UPDATE admissions
        SET bed_id = $1, ward = $2, status = 'transferred', updated_at = NOW()
        WHERE id = $3
-       RETURNING *`,
+       RETURNING id, patient_uid, status, ward, bed_number, attending_doctor, admitted_at, discharged_at, code_status, created_at, updated_at`,
       [toBedId, newWard, admissionId]
     );
 
@@ -502,7 +502,7 @@ async function updateCodeStatus(admissionId, codeStatus, updatedBy) {
     const previousStatus = admRows[0].code_status;
 
     const { rows: updated } = await client.query(
-      `UPDATE admissions SET code_status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      `UPDATE admissions SET code_status = $1, updated_at = NOW() WHERE id = $2 RETURNING id, patient_uid, status, ward, bed_number, attending_doctor, admitted_at, discharged_at, code_status, created_at, updated_at`,
       [codeStatus, admissionId]
     );
 
@@ -549,7 +549,7 @@ async function updateAttendingDoctor(admissionId, doctorUid, updatedBy) {
     const previousDoctor = admRows[0].attending_doctor;
 
     const { rows: updated } = await client.query(
-      `UPDATE admissions SET attending_doctor = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      `UPDATE admissions SET attending_doctor = $1, updated_at = NOW() WHERE id = $2 RETURNING id, patient_uid, status, ward, bed_number, attending_doctor, admitted_at, discharged_at, code_status, created_at, updated_at`,
       [doctorUid, admissionId]
     );
 

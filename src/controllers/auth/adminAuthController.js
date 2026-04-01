@@ -4,6 +4,7 @@ import { validationResult } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { AuthService } from '../../services/auth/authService.js';
+import { StaffAuthService } from '../../services/auth/staffAuthService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 /* util: pick username OR email from body */
@@ -259,5 +260,21 @@ export const reactivateAdmin = async (req, res) => {
       return error(res, 'Admin not found', HTTP_STATUS.NOT_FOUND);
     }
     return error(res, 'Failed to reactivate admin account', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+/* -------------------- REVOKE ALL SESSIONS ----------------------- */
+export const revokeAllSessions = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!userId) {
+      return error(res, 'User ID is required', HTTP_STATUS.BAD_REQUEST);
+    }
+    const result = await StaffAuthService.revokeAllSessions(parseInt(userId, 10));
+    logger.info(`Admin ${req.user?.uid} revoked all sessions for user ${userId}`);
+    return success(res, result, `Revoked ${result.revokedCount} session(s)`);
+  } catch (err) {
+    logger.error('Revoke all sessions error:', err);
+    return error(res, 'Failed to revoke sessions', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };

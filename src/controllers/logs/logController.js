@@ -12,7 +12,9 @@ export async function getAuditLogs(req, res) {
     const offset = Number(req.query.offset ?? 0);
 
     const result = await db.query(
-      `SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+      `SELECT id, uid, role, action, resource, resource_id, metadata,
+        ip_address, user_agent, created_at
+       FROM audit_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
       [limit, offset]
     );
 
@@ -40,7 +42,8 @@ export async function getSystemLogs(req, res) {
 
     try {
       const result = await db.query(
-        `SELECT * FROM admin_activity_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+        `SELECT id, admin_uid, action, description, details, ip_address, created_at
+         FROM admin_activity_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
         [limit, offset]
       );
       const countResult = await db.query(`SELECT COUNT(*) FROM admin_activity_logs`);
@@ -67,7 +70,9 @@ export async function exportAuditLogs(req, res) {
     const offset = Number(req.query.offset ?? 0);
 
     const result = await db.query(
-      `SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+      `SELECT id, uid, role, action, resource, resource_id, metadata,
+        ip_address, user_agent, created_at
+       FROM audit_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
       [limit, offset]
     );
 
@@ -97,7 +102,8 @@ export async function exportSystemLogs(req, res) {
 
     try {
       const result = await db.query(
-        `SELECT * FROM admin_activity_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+        `SELECT id, admin_uid, action, description, details, ip_address, created_at
+         FROM admin_activity_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
         [limit, offset]
       );
       rows = result.rows;

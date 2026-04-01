@@ -221,7 +221,7 @@ export class DoctorService {
           consultation_fee, available_days, available_hours, bio, education,
           qualifications, is_available, created_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, NOW())
-        RETURNING *
+        RETURNING id, name, department, intro, image_url, is_active, created_at
       `, [
         user_id,
         profileData.specialization,
@@ -259,7 +259,7 @@ export class DoctorService {
           qualifications = COALESCE($7, qualifications),
           updated_at = NOW()
         WHERE user_id = $8
-        RETURNING *
+        RETURNING id, name, department, intro, image_url, is_active, created_at
       `, [
         updates.specialization,
         updates.department,

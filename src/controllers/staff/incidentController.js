@@ -34,7 +34,7 @@ export const submitIncident = async (req, res) => {
         (reporter_id, incident_type, severity, title, description, location, incident_date,
          patient_involved, patient_name, witnesses, immediate_action_taken, is_anonymous, priority)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-      RETURNING *
+      RETURNING id, reported_by, description, category, severity, status, location, created_at, incident_number
     `, [
       is_anonymous ? null : reporterId,
       incident_type, severity, title, description,
@@ -80,7 +80,9 @@ export const getIncidentDetail = async (req, res) => {
     const staffId = req.user?.uid;
 
     const incident = await db.query(`
-      SELECT ir.*, u.name as reporter_name, u2.name as assigned_to_name
+      SELECT ir.id, ir.reported_by, ir.description, ir.category, ir.severity, ir.status,
+        ir.location, ir.acknowledged_by, ir.created_at, ir.updated_at,
+        u.name as reporter_name, u2.name as assigned_to_name
       FROM incident_reports ir
       LEFT JOIN users u ON ir.reporter_id = u.id
       LEFT JOIN users u2 ON ir.assigned_to = u2.id
@@ -120,7 +122,9 @@ export const getAllIncidents = async (req, res) => {
     params.push(parseInt(limit), parseInt(offset));
 
     const incidents = await db.query(`
-      SELECT ir.*, u.name as reporter_name, u.department as reporter_department, u2.name as assigned_to_name
+      SELECT ir.id, ir.reported_by, ir.description, ir.category, ir.severity, ir.status,
+        ir.location, ir.acknowledged_by, ir.created_at, ir.updated_at,
+        u.name as reporter_name, u.department as reporter_department, u2.name as assigned_to_name
       FROM incident_reports ir
       LEFT JOIN users u ON ir.reporter_id = u.id
       LEFT JOIN users u2 ON ir.assigned_to = u2.id
@@ -151,7 +155,9 @@ export const getAdminIncidentDetail = async (req, res) => {
     const { id } = req.params;
 
     const incident = await db.query(`
-      SELECT ir.*, u.name as reporter_name, u.department as reporter_department, u2.name as assigned_to_name
+      SELECT ir.id, ir.reported_by, ir.description, ir.category, ir.severity, ir.status,
+        ir.location, ir.acknowledged_by, ir.created_at, ir.updated_at,
+        u.name as reporter_name, u.department as reporter_department, u2.name as assigned_to_name
       FROM incident_reports ir
       LEFT JOIN users u ON ir.reporter_id = u.id
       LEFT JOIN users u2 ON ir.assigned_to = u2.id
@@ -182,7 +188,7 @@ export const updateIncident = async (req, res) => {
     const adminId = req.user?.uid;
     const { status, assigned_to, admin_notes, resolution, priority, internal_note, public_update } = req.body;
 
-    const existing = await db.query('SELECT * FROM incident_reports WHERE id = $1', [id]);
+    const existing = await db.query('SELECT id, reported_by, description, category, severity, status, location, acknowledged_by, created_at, updated_at FROM incident_reports WHERE id = $1', [id]);
     if (existing.rows.length === 0) return error(res, 'Incident not found', HTTP_STATUS.NOT_FOUND);
 
     const updates = [];
@@ -219,7 +225,7 @@ export const updateIncident = async (req, res) => {
       await db.query(`INSERT INTO report_updates (report_type, report_id, author_id, author_role, message, is_internal) VALUES ('incident',$1,$2,'system',$3,false)`, [id, adminId, `Status updated to: ${status.replace('_',' ').toUpperCase()}`]);
     }
 
-    const updated = await db.query(`SELECT ir.*, u.name as assigned_to_name FROM incident_reports ir LEFT JOIN users u ON ir.assigned_to = u.id WHERE ir.id = $1`, [id]);
+    const updated = await db.query(`SELECT ir.id, ir.reported_by, ir.description, ir.category, ir.severity, ir.status, ir.location, ir.acknowledged_by, ir.created_at, ir.updated_at, u.name as assigned_to_name FROM incident_reports ir LEFT JOIN users u ON ir.assigned_to = u.id WHERE ir.id = $1`, [id]);
     success(res, updated.rows[0], 'Incident updated');
   } catch (err) {
     logger.error('Update Incident Error:', err);

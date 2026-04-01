@@ -114,6 +114,26 @@ cron.schedule('30 3 * * *', withJobLock('purge-audit-logs', async () => {
   logger.info(`Audit log cleanup: ${result.rowCount} rows deleted`);
 }));
 
+// 🗓️ Daily at 03:35 - Purge expired token blacklist entries
+cron.schedule('35 3 * * *', withJobLock('purge-invalidated-tokens', async () => {
+  logger.info('Scheduled Task: Purging expired invalidated tokens...');
+  const { default: db } = await import('../config/database.js');
+  const result = await db.query(
+    `DELETE FROM invalidated_tokens WHERE expires_at < NOW()`
+  );
+  logger.info(`Invalidated tokens cleanup: ${result.rowCount} rows deleted`);
+}));
+
+// 🗓️ Daily at 03:40 - Purge expired OTP sessions
+cron.schedule('40 3 * * *', withJobLock('purge-expired-otps', async () => {
+  logger.info('Scheduled Task: Purging expired OTP sessions...');
+  const { default: db } = await import('../config/database.js');
+  const result = await db.query(
+    `DELETE FROM otp_sessions WHERE expires_at < NOW() - INTERVAL '1 day'`
+  );
+  logger.info(`Expired OTP cleanup: ${result.rowCount} rows deleted`);
+}));
+
 // 🗓️ Daily at 03:45 - Purge housekeeping photos past retention window
 cron.schedule('45 3 * * *', withJobLock('purge-housekeeping-photos', purgeHousekeepingPhotos));
 
@@ -193,7 +213,7 @@ cron.schedule('0 6 1 * *', withJobLock('monthly-payroll', async () => {
     `INSERT INTO payroll_runs (month, year, status)
      VALUES ($1, $2, 'processing')
      ON CONFLICT (month, year) DO UPDATE SET status='processing'
-     RETURNING *`,
+     RETURNING id, month, year, status, total_staff, total_gross, total_net, total_deductions, created_at`,
     [month, year]
   );
   const runId = run.rows[0].id;

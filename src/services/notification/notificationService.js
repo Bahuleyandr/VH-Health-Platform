@@ -79,7 +79,7 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
       const safeOffset = parseInt(offset) || 0;
 
       const result = await db.query(
-        `SELECT * FROM notifications WHERE phone = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+        `SELECT id, phone, title, body, type, is_read, data, created_at FROM notifications WHERE phone = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
         [normalizedPhone, safeLimit, safeOffset]
       );
 
@@ -185,7 +185,7 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
       }
 
       const result = await db.query(`
-        SELECT n.*, 
+        SELECT n.id, n.phone, n.title, n.body, n.type, n.is_read, n.data, n.created_at,
                u.name as recipient_name, u.phone as recipient_phone,
                ${userRole === 'ADMIN' ? 'u.email as recipient_email, sender.name as sender_name, sender.phone as sender_phone' : ''}
         FROM notifications n
@@ -427,7 +427,7 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
           user_id, title, message, type, priority, sender_id,
           scheduled_for, data, is_read, created_at, created_by, phone
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, NOW(), $9, $10)
-        RETURNING *
+        RETURNING id, phone, title, body, type, is_read, created_at
       `, [user_id, title, message, type.toUpperCase(), priority.toUpperCase(),
           sender_id, scheduled_for, extraData, user.uid, userCheck.rows[0].phone]);
 

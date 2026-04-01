@@ -1,5 +1,6 @@
 // src/middleware/rbacMiddleware.js
 import { hasRole, normalizeRole, SUPER_ADMIN } from '../utils/roles.js';
+import { logSecurityEvent } from '../utils/securityAuditLogger.js';
 
 /**
  * RBAC Enforcement Middleware (factory)
@@ -30,6 +31,16 @@ export default function rbacMiddleware(allowedRoles = []) {
 
       // Check role membership (case-insensitive)
       if (!hasRole(userRole, roles)) {
+        logSecurityEvent('PERMISSION_DENIED', {
+          userId: req.user.uid || req.user.id,
+          userName: req.user.email || req.user.phone,
+          userRole,
+          ip: req.ip,
+          userAgent: req.headers?.['user-agent'],
+          path: req.originalUrl,
+          method: req.method,
+          reason: `Role '${userRole}' not in allowed roles: [${roles.join(', ')}]`,
+        });
         return res.status(403).json({ success: false, error: 'Forbidden' });
       }
 

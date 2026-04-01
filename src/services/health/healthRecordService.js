@@ -178,7 +178,7 @@ export async function createHealthRecord(data, recorderId) {
       patient_id, record_type, recorded_by, vital_signs, 
       measurements, symptoms, notes, recorded_date, created_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
-    RETURNING *
+    RETURNING id, uid, patient_name, record_type, description, file_url, doctor_name, notes, created_at, updated_at
   `, [
     patient_id, 
     record_type.toUpperCase(), 
@@ -218,7 +218,7 @@ export async function updateHealthRecord(id, data, userId, userRole) {
       notes = COALESCE($4, notes),
       updated_at = NOW()
     WHERE id = $5
-    RETURNING *
+    RETURNING id, uid, patient_name, record_type, description, file_url, doctor_name, notes, created_at, updated_at
   `, [
     vital_signs ? JSON.stringify(vital_signs) : null,
     measurements ? JSON.stringify(measurements) : null,

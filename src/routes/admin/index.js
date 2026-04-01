@@ -68,7 +68,8 @@ const router = express.Router();
 
 wrapAutoRBAC(router, 'adminDashboard', {
   get: [
-    [
+    // /test endpoint — disabled in production to reduce attack surface
+    ...((process.env.NODE_ENV || '').toLowerCase() !== 'production' ? [[
       '/test',
       (_req, res) => {
         res.json({
@@ -89,7 +90,7 @@ wrapAutoRBAC(router, 'adminDashboard', {
           },
         });
       },
-    ],
+    ]] : []),
 
     [
       '/dashboard',

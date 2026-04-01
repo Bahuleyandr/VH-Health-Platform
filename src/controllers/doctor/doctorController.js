@@ -299,7 +299,7 @@ export const doctorController = {
       }
       
       const result = await db.query(
-        `INSERT INTO doctors (name, department, intro, image_url) VALUES ($1, $2, $3, $4) RETURNING *`,
+        `INSERT INTO doctors (name, department, intro, image_url) VALUES ($1, $2, $3, $4) RETURNING id, name, department, intro, image_url, is_active, created_at`,
         [name, department, intro, imageUrl]
       );
       
@@ -315,7 +315,7 @@ export const doctorController = {
       const { doctorId } = req.params;
       
       const deleteResult = await db.query(
-        'DELETE FROM doctors WHERE id = $1 RETURNING *',
+        'DELETE FROM doctors WHERE id = $1 RETURNING id, name, department, intro, image_url, is_active, created_at',
         [doctorId]
       );
       

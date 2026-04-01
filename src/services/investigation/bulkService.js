@@ -19,7 +19,7 @@ export const bulkUpdateStatus = async (investigationIds, status, notes, updatedB
           updated_at = NOW(),
           updated_by = $3
       WHERE id = ANY($4)
-      RETURNING *
+      RETURNING id, patient_id, doctor_id, test_name, test_code, type, status, priority, notes, updated_at, updated_by
     `, [status, notes, updatedBy, investigationIds]);
 
     await client.query('COMMIT');
@@ -49,7 +49,7 @@ export const bulkCancel = async (investigationIds, reason, cancelledBy) => {
           updated_at = NOW(),
           updated_by = $2
       WHERE id = ANY($3) AND status = 'PENDING'
-      RETURNING *
+      RETURNING id, patient_id, doctor_id, test_name, test_code, type, status, cancellation_reason, cancelled_at, cancelled_by, updated_at, updated_by
     `, [reason, cancelledBy, investigationIds]);
 
     await client.query('COMMIT');
