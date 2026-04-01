@@ -538,14 +538,21 @@ export const requiresAuth = (endpoint: string): boolean =>
     return endpoint === route;
   });
 
-// Helper to build WebSocket URLs
-export const buildWsUrl = (endpoint: string, token?: string): string => {
+/**
+ * Build WebSocket URL.
+ *
+ * SECURITY: Token is NOT appended to the URL (tokens in URLs leak to logs,
+ * browser history, and proxy caches). Instead, send the token as the first
+ * message after the WebSocket connection is established:
+ *
+ * ```ts
+ * const ws = new WebSocket(buildWsUrl('admin'));
+ * ws.onopen = () => ws.send(JSON.stringify({ type: 'auth', token }));
+ * ```
+ */
+export const buildWsUrl = (endpoint: string): string => {
   const wsEndpoint = WS_ENDPOINTS[endpoint as keyof typeof WS_ENDPOINTS] || endpoint;
-  const url = `${WS_BASE_URL}${wsEndpoint}`;
-  if (token) {
-    return `${url}?token=${encodeURIComponent(token)}`;
-  }
-  return url;
+  return `${WS_BASE_URL}${wsEndpoint}`;
 };
 
 // Endpoint mapping for legacy compatibility
