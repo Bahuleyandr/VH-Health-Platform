@@ -1,0 +1,16 @@
+# Analysis options for vhhealth_staff
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  errors:
+    # Downgrade deprecated API usage from warning to info (will be fixed in a future cleanup)
+    deprecated_member_use: info
+    deprecated_member_use_from_same_package: info
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+
+linter:
+  rules:
+    avoid_print: true
+    prefer_const_constructors: true
