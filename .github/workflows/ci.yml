@@ -82,6 +82,7 @@ jobs:
       - name: Deploy database migrations to staging
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        if: ${{ secrets.STAGING_DATABASE_URL != '' }}
         run: npx prisma migrate deploy
 
   codeql:
