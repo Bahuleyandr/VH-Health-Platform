@@ -33,6 +33,8 @@ jobs:
       - name: Scaffold Android platform (v2 embedding)
         run: |
           flutter create --platforms=android --project-name vhhealth_staff .
+          # Remove generated template test that conflicts with real tests
+          rm -f test/widget_test.dart
 
       - name: Security audit
         run: flutter pub audit
