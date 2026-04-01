@@ -708,6 +708,18 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                     allowedExtensions: ['pdf', 'jpg', 'png', 'doc', 'docx'],
                   );
                   if (result != null) {
+                    final fileSize = result.files.single.size;
+                    const maxSizeBytes = 10 * 1024 * 1024; // 10 MB
+                    if (fileSize > maxSizeBytes) {
+                      if (ctx.mounted) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(
+                            content: Text('File too large. Maximum size is 10 MB.'),
+                          ),
+                        );
+                      }
+                      return;
+                    }
                     setDialogState(
                         () => pickedFile = result.files.single);
                   }

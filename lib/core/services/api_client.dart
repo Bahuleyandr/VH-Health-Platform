@@ -128,24 +128,58 @@ class ApiClient {
   }
 
   /// Process an HTTP response: parse JSON and check for 401.
-  static ApiResponse _processResponse(http.Response response) {
+  static Future<ApiResponse> _processResponse(http.Response response) async {
     final parsed = ApiResponse._fromHttp(response);
-    _checkUnauthorized(parsed);
+    await _checkUnauthorized(parsed);
     return parsed;
   }
 
-  /// If the response is 401, clear local tokens and notify the app to redirect.
-  static void _checkUnauthorized(ApiResponse response) {
-    if (response.statusCode == 401) {
+  static bool _isRefreshing = false;
+
+  /// On 401, attempt a single token refresh before expiring the session.
+  static Future<void> _checkUnauthorized(ApiResponse response) async {
+    if (response.statusCode != 401) return;
+
+    // Prevent concurrent refresh attempts
+    if (_isRefreshing) return;
+    _isRefreshing = true;
+
+    try {
       if (kDebugMode) {
-        debugPrint('ApiClient: 401 Unauthorized — session expired');
+        debugPrint('ApiClient: 401 — attempting token refresh');
       }
-      // Clear stored staff JWT so stale tokens aren't reused
-      const FlutterSecureStorage().delete(key: 'staff_jwt');
-      // Notify the app to redirect to login
-      onSessionExpired
-          ?.call(response.message ?? 'Session expired. Please log in again.');
+
+      final headers = await ApiConfig.authenticatedHeaders();
+      final refreshResp = await http
+          .post(
+            Uri.parse('${ApiConfig.baseUrl}/auth/refresh-token'),
+            headers: headers,
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (refreshResp.statusCode >= 200 && refreshResp.statusCode < 300) {
+        final body = jsonDecode(refreshResp.body);
+        final newToken = body['data']?['token'] ?? body['token'];
+        if (newToken != null) {
+          await ApiConfig.saveJwt(newToken.toString());
+          if (kDebugMode) {
+            debugPrint('ApiClient: token refreshed successfully');
+          }
+          return; // Success — caller can retry the original request
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('ApiClient: token refresh failed: $e');
+      }
+    } finally {
+      _isRefreshing = false;
     }
+
+    // Refresh failed — clear tokens and redirect to login
+    const FlutterSecureStorage().delete(key: 'staff_jwt');
+    onSessionExpired
+        ?.call(response.message ?? 'Session expired. Please log in again.');
   }
 }
 

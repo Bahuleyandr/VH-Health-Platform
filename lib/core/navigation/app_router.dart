@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:vhhealth_staff/core/config/api_config.dart';
 
 // Splash & Auth
 import '../../features/splash/screens/splash_screen.dart';
@@ -67,6 +68,22 @@ final _shellNavigatorKey = GlobalKey<NavigatorState>();
 final GoRouter appRouter = GoRouter(
   navigatorKey: _rootNavigatorKey,
   initialLocation: '/',
+  redirect: (BuildContext context, GoRouterState state) async {
+    final isLoggedIn = await ApiConfig.isLoggedIn();
+    final isOnLogin = state.matchedLocation == '/login';
+    final isOnSplash = state.matchedLocation == '/';
+
+    // Allow splash screen always
+    if (isOnSplash) return null;
+
+    // Not logged in and not on login page -> redirect to login
+    if (!isLoggedIn && !isOnLogin) return '/login';
+
+    // Logged in and on login page -> redirect to dashboard
+    if (isLoggedIn && isOnLogin) return '/dashboard';
+
+    return null;
+  },
   routes: [
     // ─── Splash (no bottom nav) ─────────────────────────────────────────
     GoRoute(
