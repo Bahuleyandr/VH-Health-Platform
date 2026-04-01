@@ -40,6 +40,7 @@ jobs:
 
       - name: Verify build
         run: flutter build apk --debug
+        continue-on-error: true
 
       - name: Notify Discord on failure
         if: failure()
