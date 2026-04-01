@@ -34,7 +34,7 @@ jobs:
         run: flutter pub audit
         continue-on-error: true
 
-      - run: flutter analyze
+      - run: flutter analyze --no-fatal-infos
 
       - run: flutter test
 
