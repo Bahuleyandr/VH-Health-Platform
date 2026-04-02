@@ -82,8 +82,12 @@ jobs:
       - name: Deploy database migrations to staging
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-        if: ${{ secrets.STAGING_DATABASE_URL != '' }}
-        run: npx prisma migrate deploy
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "STAGING_DATABASE_URL not set — skipping migration"
+            exit 0
+          fi
+          npx prisma migrate deploy
 
   codeql:
     runs-on: ubuntu-latest
