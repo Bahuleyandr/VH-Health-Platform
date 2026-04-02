@@ -48,4 +48,17 @@ class SecurityConfig {
     // TODO: Replace with real SHA-256 fingerprint(s) before production release.
     // Example: 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2',
   ];
+
+  /// Call at app startup to verify security configuration is sane.
+  /// Throws [StateError] in production if certificate pinning is enabled
+  /// but no fingerprints are configured.
+  static void verifyOrWarn() {
+    if (isProduction && enableCertPinning && pinnedCertFingerprints.isEmpty) {
+      throw StateError(
+        'SecurityConfig: Certificate pinning is enabled in production but '
+        'pinnedCertFingerprints is empty. Add SHA-256 fingerprints or '
+        'disable pinning.',
+      );
+    }
+  }
 }

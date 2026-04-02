@@ -784,3 +784,375 @@ class PaginatedData<T> {
     );
   }
 }
+
+// ===================================================================
+// STAFF
+// ===================================================================
+
+class Staff {
+  final int? id;
+  final String? uid;
+  final String employeeId;
+  final String? name;
+  final String? phone;
+  final String? email;
+  final String role;
+  final String? department;
+  final String? designation;
+  final String? gender;
+  final String? profilePicture;
+  final String? dateOfJoining;
+  final bool isActive;
+  final String? createdAt;
+  final String? updatedAt;
+
+  const Staff({
+    this.id,
+    this.uid,
+    required this.employeeId,
+    this.name,
+    this.phone,
+    this.email,
+    this.role = 'GENERAL_STAFF',
+    this.department,
+    this.designation,
+    this.gender,
+    this.profilePicture,
+    this.dateOfJoining,
+    this.isActive = true,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  factory Staff.fromJson(Map<String, dynamic> json) {
+    return Staff(
+      id: json['id'] as int?,
+      uid: json['uid'] as String?,
+      employeeId: (json['employee_id'] ?? json['employeeId'] ?? '') as String,
+      name: json['name'] as String?,
+      phone: json['phone'] as String?,
+      email: json['email'] as String?,
+      role: (json['role'] ?? 'GENERAL_STAFF') as String,
+      department: json['department'] as String?,
+      designation: json['designation'] as String?,
+      gender: json['gender'] as String?,
+      profilePicture: (json['profile_picture'] ?? json['profilePicture']) as String?,
+      dateOfJoining: (json['date_of_joining'] ?? json['dateOfJoining']) as String?,
+      isActive: (json['is_active'] ?? json['isActive'] ?? true) as bool,
+      createdAt: (json['created_at'] ?? json['createdAt']) as String?,
+      updatedAt: (json['updated_at'] ?? json['updatedAt']) as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        if (id != null) 'id': id,
+        if (uid != null) 'uid': uid,
+        'employee_id': employeeId,
+        if (name != null) 'name': name,
+        if (phone != null) 'phone': phone,
+        if (email != null) 'email': email,
+        'role': role,
+        if (department != null) 'department': department,
+        if (designation != null) 'designation': designation,
+        if (gender != null) 'gender': gender,
+        if (profilePicture != null) 'profile_picture': profilePicture,
+        if (dateOfJoining != null) 'date_of_joining': dateOfJoining,
+        'is_active': isActive,
+      };
+}
+
+// ===================================================================
+// PRESCRIPTION
+// ===================================================================
+
+class Prescription {
+  final int? id;
+  final String? uid;
+  final int? appointmentId;
+  final int? doctorId;
+  final int? patientId;
+  final String? doctorName;
+  final String? patientName;
+  final String? diagnosis;
+  final List<PrescriptionItem> items;
+  final String? notes;
+  final String? fileUrl;
+  final String status;
+  final String? prescribedAt;
+  final String? createdAt;
+
+  const Prescription({
+    this.id,
+    this.uid,
+    this.appointmentId,
+    this.doctorId,
+    this.patientId,
+    this.doctorName,
+    this.patientName,
+    this.diagnosis,
+    this.items = const [],
+    this.notes,
+    this.fileUrl,
+    this.status = 'ACTIVE',
+    this.prescribedAt,
+    this.createdAt,
+  });
+
+  factory Prescription.fromJson(Map<String, dynamic> json) {
+    return Prescription(
+      id: json['id'] as int?,
+      uid: json['uid'] as String?,
+      appointmentId: (json['appointment_id'] ?? json['appointmentId']) as int?,
+      doctorId: (json['doctor_id'] ?? json['doctorId']) as int?,
+      patientId: (json['patient_id'] ?? json['patientId']) as int?,
+      doctorName: (json['doctor_name'] ?? json['doctorName']) as String?,
+      patientName: (json['patient_name'] ?? json['patientName']) as String?,
+      diagnosis: json['diagnosis'] as String?,
+      items: (json['items'] as List<dynamic>?)
+              ?.map((e) => PrescriptionItem.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+      notes: json['notes'] as String?,
+      fileUrl: (json['file_url'] ?? json['fileUrl']) as String?,
+      status: (json['status'] ?? 'ACTIVE') as String,
+      prescribedAt: (json['prescribed_at'] ?? json['prescribedAt']) as String?,
+      createdAt: (json['created_at'] ?? json['createdAt']) as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        if (id != null) 'id': id,
+        if (appointmentId != null) 'appointment_id': appointmentId,
+        if (doctorId != null) 'doctor_id': doctorId,
+        if (patientId != null) 'patient_id': patientId,
+        if (diagnosis != null) 'diagnosis': diagnosis,
+        'items': items.map((e) => e.toJson()).toList(),
+        if (notes != null) 'notes': notes,
+        'status': status,
+      };
+}
+
+class PrescriptionItem {
+  final String medicationName;
+  final String? dosage;
+  final String? frequency;
+  final String? duration;
+  final String? instructions;
+
+  const PrescriptionItem({
+    required this.medicationName,
+    this.dosage,
+    this.frequency,
+    this.duration,
+    this.instructions,
+  });
+
+  factory PrescriptionItem.fromJson(Map<String, dynamic> json) {
+    return PrescriptionItem(
+      medicationName: (json['medication_name'] ?? json['medicationName'] ?? json['name'] ?? '') as String,
+      dosage: json['dosage'] as String?,
+      frequency: json['frequency'] as String?,
+      duration: json['duration'] as String?,
+      instructions: json['instructions'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'medication_name': medicationName,
+        if (dosage != null) 'dosage': dosage,
+        if (frequency != null) 'frequency': frequency,
+        if (duration != null) 'duration': duration,
+        if (instructions != null) 'instructions': instructions,
+      };
+}
+
+// ===================================================================
+// ADMISSION
+// ===================================================================
+
+class Admission {
+  final int? id;
+  final String? uid;
+  final int? patientId;
+  final String? patientName;
+  final int? doctorId;
+  final String? doctorName;
+  final String? department;
+  final String? ward;
+  final String? bedNumber;
+  final String? admissionDate;
+  final String? dischargeDate;
+  final String? diagnosis;
+  final String status;
+  final String? notes;
+  final String? createdAt;
+  final String? updatedAt;
+
+  const Admission({
+    this.id,
+    this.uid,
+    this.patientId,
+    this.patientName,
+    this.doctorId,
+    this.doctorName,
+    this.department,
+    this.ward,
+    this.bedNumber,
+    this.admissionDate,
+    this.dischargeDate,
+    this.diagnosis,
+    this.status = 'ADMITTED',
+    this.notes,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  factory Admission.fromJson(Map<String, dynamic> json) {
+    return Admission(
+      id: json['id'] as int?,
+      uid: json['uid'] as String?,
+      patientId: (json['patient_id'] ?? json['patientId']) as int?,
+      patientName: (json['patient_name'] ?? json['patientName']) as String?,
+      doctorId: (json['doctor_id'] ?? json['doctorId']) as int?,
+      doctorName: (json['doctor_name'] ?? json['doctorName']) as String?,
+      department: json['department'] as String?,
+      ward: json['ward'] as String?,
+      bedNumber: (json['bed_number'] ?? json['bedNumber']) as String?,
+      admissionDate: (json['admission_date'] ?? json['admissionDate']) as String?,
+      dischargeDate: (json['discharge_date'] ?? json['dischargeDate']) as String?,
+      diagnosis: json['diagnosis'] as String?,
+      status: (json['status'] ?? 'ADMITTED') as String,
+      notes: json['notes'] as String?,
+      createdAt: (json['created_at'] ?? json['createdAt']) as String?,
+      updatedAt: (json['updated_at'] ?? json['updatedAt']) as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        if (id != null) 'id': id,
+        if (patientId != null) 'patient_id': patientId,
+        if (doctorId != null) 'doctor_id': doctorId,
+        if (department != null) 'department': department,
+        if (ward != null) 'ward': ward,
+        if (bedNumber != null) 'bed_number': bedNumber,
+        if (admissionDate != null) 'admission_date': admissionDate,
+        if (dischargeDate != null) 'discharge_date': dischargeDate,
+        if (diagnosis != null) 'diagnosis': diagnosis,
+        'status': status,
+        if (notes != null) 'notes': notes,
+      };
+}
+
+// ===================================================================
+// BILLING
+// ===================================================================
+
+class BillingInvoice {
+  final int? id;
+  final String? uid;
+  final int? patientId;
+  final String? patientName;
+  final String? invoiceNumber;
+  final double totalAmount;
+  final double paidAmount;
+  final double balanceAmount;
+  final String status;
+  final String? paymentMethod;
+  final List<BillingItem> items;
+  final String? invoiceDate;
+  final String? dueDate;
+  final String? createdAt;
+
+  const BillingInvoice({
+    this.id,
+    this.uid,
+    this.patientId,
+    this.patientName,
+    this.invoiceNumber,
+    this.totalAmount = 0,
+    this.paidAmount = 0,
+    this.balanceAmount = 0,
+    this.status = 'PENDING',
+    this.paymentMethod,
+    this.items = const [],
+    this.invoiceDate,
+    this.dueDate,
+    this.createdAt,
+  });
+
+  factory BillingInvoice.fromJson(Map<String, dynamic> json) {
+    return BillingInvoice(
+      id: json['id'] as int?,
+      uid: json['uid'] as String?,
+      patientId: (json['patient_id'] ?? json['patientId']) as int?,
+      patientName: (json['patient_name'] ?? json['patientName']) as String?,
+      invoiceNumber: (json['invoice_number'] ?? json['invoiceNumber']) as String?,
+      totalAmount: _safeDouble(json['total_amount'] ?? json['totalAmount']),
+      paidAmount: _safeDouble(json['paid_amount'] ?? json['paidAmount']),
+      balanceAmount: _safeDouble(json['balance_amount'] ?? json['balanceAmount']),
+      status: (json['status'] ?? 'PENDING') as String,
+      paymentMethod: (json['payment_method'] ?? json['paymentMethod']) as String?,
+      items: (json['items'] as List<dynamic>?)
+              ?.map((e) => BillingItem.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+      invoiceDate: (json['invoice_date'] ?? json['invoiceDate']) as String?,
+      dueDate: (json['due_date'] ?? json['dueDate']) as String?,
+      createdAt: (json['created_at'] ?? json['createdAt']) as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        if (id != null) 'id': id,
+        if (patientId != null) 'patient_id': patientId,
+        'total_amount': totalAmount,
+        'paid_amount': paidAmount,
+        'balance_amount': balanceAmount,
+        'status': status,
+        if (paymentMethod != null) 'payment_method': paymentMethod,
+        'items': items.map((e) => e.toJson()).toList(),
+      };
+
+  /// Safely parse a dynamic value to double, handling int, double, and String.
+  static double _safeDouble(dynamic val) {
+    if (val == null) return 0;
+    if (val is double) return val;
+    if (val is int) return val.toDouble();
+    if (val is String) return double.tryParse(val) ?? 0;
+    return 0;
+  }
+}
+
+class BillingItem {
+  final String description;
+  final int quantity;
+  final double unitPrice;
+  final double totalPrice;
+  final String? category;
+
+  const BillingItem({
+    required this.description,
+    this.quantity = 1,
+    this.unitPrice = 0,
+    this.totalPrice = 0,
+    this.category,
+  });
+
+  factory BillingItem.fromJson(Map<String, dynamic> json) {
+    return BillingItem(
+      description: (json['description'] ?? '') as String,
+      quantity: (json['quantity'] ?? 1) as int,
+      unitPrice: (json['unit_price'] ?? json['unitPrice'] ?? 0).toDouble(),
+      totalPrice: (json['total_price'] ?? json['totalPrice'] ?? 0).toDouble(),
+      category: json['category'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'description': description,
+        'quantity': quantity,
+        'unit_price': unitPrice,
+        'total_price': totalPrice,
+        if (category != null) 'category': category,
+      };
+}
