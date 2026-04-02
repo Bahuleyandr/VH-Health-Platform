@@ -10,7 +10,8 @@ const swaggerPath = path.join(__dirname, '../docs/swagger.yaml');
 
 try {
   logger.info('🔍 Validating Swagger file using Spectral...');
-  execSync(`npx spectral lint --ruleset @stoplight/spectral-rulesets/dist/oas ${swaggerPath}`, {
+  // Uses .spectral.yaml config at repo root for ruleset resolution
+  execSync(`npx spectral lint ${swaggerPath}`, {
     stdio: 'inherit'
   });
   logger.info('✅ Swagger validation passed.');
