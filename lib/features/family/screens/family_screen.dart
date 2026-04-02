@@ -73,7 +73,15 @@ class _FamilyScreenState extends State<FamilyScreen> {
   }
 
   Future<void> _removeMember(Map<String, dynamic> member) async {
-    final id = member['_id'] as String? ?? member['id'] as String? ?? '';
+    final id = (member['_id'] as String?) ?? (member['id']?.toString());
+    if (id == null || id.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Member ID not found')),
+        );
+      }
+      return;
+    }
     final name = member['name'] as String? ?? 'this family member';
 
     final confirmed = await showDialog<bool>(
@@ -469,7 +477,9 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
               ),
               validator: (v) {
                 if (v == null || v.trim().isEmpty) return 'Phone is required';
-                if (v.trim().length < 10) return 'Enter a valid phone number';
+                if (!RegExp(r'^[+]?[0-9]{10,15}$').hasMatch(v.trim())) {
+                  return 'Enter a valid phone number';
+                }
                 return null;
               },
             ),

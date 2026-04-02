@@ -31,6 +31,7 @@ class _RefillScreenState extends State<RefillScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _refillStatus.clear();
     });
     try {
       final response = await ApiClient.get('/prescriptions/patient/my');
@@ -59,7 +60,15 @@ class _RefillScreenState extends State<RefillScreen> {
   }
 
   Future<void> _requestRefill(Map<String, dynamic> prescription) async {
-    final id = prescription['_id'] as String? ?? prescription['id'] as String? ?? '';
+    final id = (prescription['_id'] as String?) ?? (prescription['id']?.toString());
+    if (id == null || id.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Prescription ID not found')),
+        );
+      }
+      return;
+    }
     final medName = prescription['medicationName'] as String? ??
         prescription['name'] as String? ??
         'this medication';
