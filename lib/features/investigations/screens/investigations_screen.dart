@@ -245,8 +245,22 @@ class _UploadTabState extends State<_UploadTab> {
                     allowedExtensions: ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'],
                   );
                   if (result?.files.single.path != null) {
+                    final file = File(result!.files.single.path!);
+                    final sizeBytes = await file.length();
+                    const maxSizeBytes = 10 * 1024 * 1024; // 10 MB
+                    if (sizeBytes > maxSizeBytes) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('File too large. Maximum size is 10 MB.'),
+                            backgroundColor: AppTheme.errorRed,
+                          ),
+                        );
+                      }
+                      return;
+                    }
                     setState(() {
-                      _file = File(result!.files.single.path!);
+                      _file = file;
                       _fileName = result.files.single.name;
                     });
                   }

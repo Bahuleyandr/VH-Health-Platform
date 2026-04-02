@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -33,7 +34,9 @@ void main() async {
               ),
               const SizedBox(height: 4),
               Text(
-                details.exceptionAsString(),
+                kDebugMode
+                    ? details.exceptionAsString()
+                    : 'Please restart the app or contact support.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
                 maxLines: 3,

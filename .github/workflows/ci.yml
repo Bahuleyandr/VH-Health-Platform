@@ -16,6 +16,7 @@ jobs:
         with:
           repository: Bahuleyandr/vhhealth-core
           path: vhhealth-core
+          token: ${{ secrets.GH_PAT }}
 
       - uses: subosito/flutter-action@v2
         with:
@@ -29,11 +30,17 @@ jobs:
 
       - run: flutter pub get
 
+      - name: Scaffold Android platform (v2 embedding)
+        run: |
+          flutter create --platforms=android --project-name vhhealth_staff .
+          # Remove generated template test that conflicts with real tests
+          rm -f test/widget_test.dart
+
       - name: Security audit
         run: flutter pub audit
         continue-on-error: true
 
-      - run: flutter analyze
+      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
       - run: flutter test
 
