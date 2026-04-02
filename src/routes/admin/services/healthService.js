@@ -1,5 +1,5 @@
 // src/routes/admin/services/healthService.js
-import db from '../../../config/database.js';
+import prisma from '../../../lib/prisma.js';
 
 /**
  * Module health:
@@ -12,8 +12,8 @@ export async function getModuleHealth() {
 
   const exists = async (sql, params = []) => {
     try {
-      const r = await db.query(sql, params);
-      return r.rowCount > 0;
+      const r = await prisma.$queryRawUnsafe(sql, params);
+      return r.length > 0;
     } catch {
       return false;
     }
@@ -21,7 +21,7 @@ export async function getModuleHealth() {
 
   // Users
   try {
-    await db.query('SELECT 1 FROM users LIMIT 1');
+    await prisma.$queryRawUnsafe('SELECT 1 FROM users LIMIT 1');
     health.users = 'healthy';
   } catch {
     health.users = 'unhealthy';
@@ -29,7 +29,7 @@ export async function getModuleHealth() {
 
   // Appointments (warning on schedule conflicts)
   try {
-    await db.query('SELECT 1 FROM appointments LIMIT 1');
+    await prisma.$queryRawUnsafe('SELECT 1 FROM appointments LIMIT 1');
     const hasConflict = await exists(
       `
       SELECT 1
@@ -50,7 +50,7 @@ export async function getModuleHealth() {
 
   // Pharmacy
   try {
-    await db.query('SELECT 1 FROM pharmacy_orders LIMIT 1');
+    await prisma.$queryRawUnsafe('SELECT 1 FROM pharmacy_orders LIMIT 1');
     health.pharmacy = 'healthy';
   } catch {
     health.pharmacy = 'unhealthy';
@@ -58,7 +58,7 @@ export async function getModuleHealth() {
 
   // Investigations
   try {
-    await db.query('SELECT 1 FROM investigations LIMIT 1');
+    await prisma.$queryRawUnsafe('SELECT 1 FROM investigations LIMIT 1');
     health.investigations = 'healthy';
   } catch {
     health.investigations = 'unhealthy';

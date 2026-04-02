@@ -4,7 +4,7 @@
  * Covers: leave approvals, regularization, disputes, overtime, bulk corrections, geofence breaches.
  * Read-only — no mutations.
  */
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
@@ -23,7 +23,7 @@ export const getAttendanceAuditDashboard = async (req, res) => {
   try {
     const [leaveSummary, regularizationSummary, disputeSummary, overtimeSummary, geofenceSummary, pendingActions] = await Promise.all([
 
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT
           COUNT(*) FILTER (WHERE status = 'pending') as pending_count,
           COUNT(*) FILTER (WHERE status = 'pending' AND created_at < NOW() - INTERVAL '48 hours') as overdue_count,
@@ -34,7 +34,7 @@ export const getAttendanceAuditDashboard = async (req, res) => {
         FROM leave_requests
       `).catch(() => ({ rows: [{ pending_count: 0, overdue_count: 0, approved_count: 0, rejected_count: 0, this_month: 0, avg_action_hours: null }] })),
 
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT
           COUNT(*) FILTER (WHERE status = 'pending') as pending_count,
           COUNT(*) FILTER (WHERE status = 'pending' AND created_at < NOW() - INTERVAL '24 hours') as overdue_count,
@@ -44,7 +44,7 @@ export const getAttendanceAuditDashboard = async (req, res) => {
         FROM attendance_regularization
       `).catch(() => ({ rows: [{ pending_count: 0, overdue_count: 0, approved_count: 0, rejected_count: 0, this_month: 0 }] })),
 
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT
           COUNT(*) FILTER (WHERE status = 'pending') as pending_count,
           COUNT(*) FILTER (WHERE status = 'pending' AND created_at < NOW() - INTERVAL '24 hours') as overdue_count,
@@ -54,7 +54,7 @@ export const getAttendanceAuditDashboard = async (req, res) => {
         FROM attendance_disputes
       `).catch(() => ({ rows: [{ pending_count: 0, overdue_count: 0, approved_count: 0, rejected_count: 0, this_month: 0 }] })),
 
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT
           COUNT(*) FILTER (WHERE status = 'pending') as pending_count,
           COUNT(*) FILTER (WHERE status = 'pending' AND created_at < NOW() - INTERVAL '72 hours') as overdue_count,
@@ -64,7 +64,7 @@ export const getAttendanceAuditDashboard = async (req, res) => {
         FROM overtime_requests
       `).catch(() => ({ rows: [{ pending_count: 0, overdue_count: 0, approved_count: 0, rejected_count: 0, this_month: 0 }] })),
 
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT
           COUNT(*) as total_breaches,
           COUNT(*) FILTER (WHERE occurred_at >= NOW() - INTERVAL '7 days') as this_week,
@@ -74,7 +74,7 @@ export const getAttendanceAuditDashboard = async (req, res) => {
       `).catch(() => ({ rows: [{ total_breaches: 0, this_week: 0, unique_staff: 0, unalerted: 0 }] })),
 
       // Combined pending items needing action
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT 'leave' as type, id, staff_id, 'Leave Request' as subject, created_at,
           EXTRACT(EPOCH FROM (NOW() - created_at))/3600 as hours_pending
         FROM leave_requests WHERE status = 'pending' AND created_at < NOW() - INTERVAL '48 hours'
@@ -95,11 +95,11 @@ export const getAttendanceAuditDashboard = async (req, res) => {
     ]);
 
     success(res, {
-      leave: leaveSummary.rows[0],
-      regularization: regularizationSummary.rows[0],
-      disputes: disputeSummary.rows[0],
-      overtime: overtimeSummary.rows[0],
-      geofence: geofenceSummary.rows[0],
+      leave: leaveSummary[0],
+      regularization: regularizationSummary[0],
+      disputes: disputeSummary[0],
+      overtime: overtimeSummary[0],
+      geofence: geofenceSummary[0],
       overdue_items: pendingActions.rows,
       sla_config: ATTENDANCE_SLA,
     }, 'Attendance audit dashboard fetched');
@@ -118,7 +118,7 @@ export const getAttendanceHRActivity = async (req, res) => {
     // Who approved/rejected what
     const [leaveActions, regularizationActions, disputeActions, overtimeActions, bulkCorrections] = await Promise.all([
 
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT
           u.id, u.name, u.role,
           COUNT(*) FILTER (WHERE lr.status = 'approved') as approved,
@@ -134,7 +134,7 @@ export const getAttendanceHRActivity = async (req, res) => {
         ORDER BY total DESC
       `, [interval]).catch(() => ({ rows: [] })),
 
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT
           u.id, u.name, u.role,
           COUNT(*) FILTER (WHERE ar.status = 'approved') as approved,
@@ -148,7 +148,7 @@ export const getAttendanceHRActivity = async (req, res) => {
         ORDER BY total DESC
       `, [interval]).catch(() => ({ rows: [] })),
 
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT
           u.id, u.name, u.role,
           COUNT(*) FILTER (WHERE ad.status = 'approved') as approved,
@@ -162,7 +162,7 @@ export const getAttendanceHRActivity = async (req, res) => {
         ORDER BY total DESC
       `, [interval]).catch(() => ({ rows: [] })),
 
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT
           u.id, u.name, u.role,
           COUNT(*) FILTER (WHERE ot.status = 'approved') as approved,
@@ -177,7 +177,7 @@ export const getAttendanceHRActivity = async (req, res) => {
       `, [interval]).catch(() => ({ rows: [] })),
 
       // Bulk corrections — potentially sensitive, full log
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT
           ar.id, ar.staff_id, ar.date, ar.reason, ar.status,
           ar.reviewed_by, ar.reviewed_at, ar.requested_check_in, ar.requested_check_out,
@@ -236,7 +236,7 @@ export const getGeofenceBreachLog = async (req, res) => {
     const whereClause = staff_id ? 'WHERE gb.staff_id = $2' : '';
     const params = staff_id ? [parseInt(limit), staff_id] : [parseInt(limit)];
 
-    const breaches = await db.query(`
+    const breaches = await prisma.$queryRawUnsafe(`
       SELECT gb.*, u.name as staff_name, u.department, u.role as staff_role
       FROM geofence_breaches gb
       JOIN users u ON gb.staff_id = u.id
@@ -246,7 +246,7 @@ export const getGeofenceBreachLog = async (req, res) => {
     `, params);
 
     // Summary stats
-    const stats = await db.query(`
+    const stats = await prisma.$queryRawUnsafe(`
       SELECT
         COUNT(*) as total,
         COUNT(DISTINCT staff_id) as unique_staff,
@@ -258,7 +258,7 @@ export const getGeofenceBreachLog = async (req, res) => {
     `);
 
     // Most frequent offenders
-    const frequent = await db.query(`
+    const frequent = await prisma.$queryRawUnsafe(`
       SELECT gb.staff_id, u.name, u.department, COUNT(*) as breach_count, MAX(gb.occurred_at) as last_breach
       FROM geofence_breaches gb
       JOIN users u ON gb.staff_id = u.id
@@ -269,7 +269,7 @@ export const getGeofenceBreachLog = async (req, res) => {
 
     success(res, {
       breaches: breaches.rows,
-      stats: stats.rows[0],
+      stats: stats[0],
       frequent_offenders: frequent.rows,
     }, 'Geofence breach log fetched');
   } catch (err) {
@@ -283,7 +283,7 @@ export const getLeaveAuditTrail = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const leave = await db.query(`
+    const leave = await prisma.$queryRawUnsafe(`
       SELECT lr.*, u.name as staff_name, u.department,
              u2.name as reviewed_by_name,
              rr.status as replacement_status, u3.name as replacement_name
@@ -297,19 +297,19 @@ export const getLeaveAuditTrail = async (req, res) => {
 
     if (leave.rows.length === 0) return error(res, 'Leave request not found', HTTP_STATUS.NOT_FOUND);
 
-    const hoursToAction = leave.rows[0].updated_at && leave.rows[0].status !== 'pending'
-      ? (new Date(leave.rows[0].updated_at).getTime() - new Date(leave.rows[0].created_at).getTime()) / 3600000
+    const hoursToAction = leave[0].updated_at && leave[0].status !== 'pending'
+      ? (new Date(leave[0].updated_at).getTime() - new Date(leave[0].created_at).getTime()) / 3600000
       : null;
 
     success(res, {
-      leave: leave.rows[0],
+      leave: leave[0],
       sla: {
         threshold_hours: ATTENDANCE_SLA.leave_approval.action,
         hours_to_action: hoursToAction ? Math.round(hoursToAction * 10) / 10 : null,
         within_sla: hoursToAction ? hoursToAction <= ATTENDANCE_SLA.leave_approval.action : null,
-        still_pending: leave.rows[0].status === 'pending',
-        hours_pending: leave.rows[0].status === 'pending'
-          ? Math.round((Date.now() - new Date(leave.rows[0].created_at).getTime()) / 360000) / 10
+        still_pending: leave[0].status === 'pending',
+        hours_pending: leave[0].status === 'pending'
+          ? Math.round((Date.now() - new Date(leave[0].created_at).getTime()) / 360000) / 10
           : null,
       },
     }, 'Leave audit trail fetched');
@@ -327,7 +327,7 @@ export const getAttendanceSLAReport = async (req, res) => {
 
     const [leaveSLA, regularizationSLA, disputeSLA, overtimeSLA] = await Promise.all([
 
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT
           COUNT(*) as total,
           COUNT(*) FILTER (WHERE status != 'pending') as actioned,
@@ -338,7 +338,7 @@ export const getAttendanceSLAReport = async (req, res) => {
         WHERE created_at >= NOW() - $1::INTERVAL
       `, [interval]).catch(() => ({ rows: [{}] })),
 
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT
           COUNT(*) as total,
           COUNT(*) FILTER (WHERE status != 'pending') as actioned,
@@ -349,7 +349,7 @@ export const getAttendanceSLAReport = async (req, res) => {
         WHERE created_at >= NOW() - $1::INTERVAL
       `, [interval]).catch(() => ({ rows: [{}] })),
 
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT
           COUNT(*) as total,
           COUNT(*) FILTER (WHERE status != 'pending') as actioned,
@@ -360,7 +360,7 @@ export const getAttendanceSLAReport = async (req, res) => {
         WHERE created_at >= NOW() - $1::INTERVAL
       `, [interval]).catch(() => ({ rows: [{}] })),
 
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT
           COUNT(*) as total,
           COUNT(*) FILTER (WHERE status != 'pending') as actioned,
@@ -374,10 +374,10 @@ export const getAttendanceSLAReport = async (req, res) => {
 
     success(res, {
       period_days: parseInt(days),
-      leave:           { ...leaveSLA.rows[0],          sla_hours: 48,  label: 'Leave Approvals' },
-      regularization:  { ...regularizationSLA.rows[0], sla_hours: 24,  label: 'Regularization' },
-      disputes:        { ...disputeSLA.rows[0],         sla_hours: 24,  label: 'Attendance Disputes' },
-      overtime:        { ...overtimeSLA.rows[0],        sla_hours: 72,  label: 'Overtime Requests' },
+      leave:           { ...leaveSLA[0],          sla_hours: 48,  label: 'Leave Approvals' },
+      regularization:  { ...regularizationSLA[0], sla_hours: 24,  label: 'Regularization' },
+      disputes:        { ...disputeSLA[0],         sla_hours: 24,  label: 'Attendance Disputes' },
+      overtime:        { ...overtimeSLA[0],        sla_hours: 72,  label: 'Overtime Requests' },
     }, 'Attendance SLA report fetched');
   } catch (err) {
     logger.error('Attendance SLA Error:', err);

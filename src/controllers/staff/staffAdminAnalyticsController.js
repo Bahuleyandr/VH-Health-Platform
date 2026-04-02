@@ -1,5 +1,5 @@
 // src/controllers/staff/staffAdminAnalyticsController.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -13,7 +13,7 @@ export const getPerformanceAnalytics = async (req, res) => {
     const intervalMap = { quarterly: '3 months', yearly: '1 year', monthly: '1 month' };
     const safeInterval = intervalMap[timeframe] || '1 year';
     
-    const analytics = await db.query(`
+    const analytics = await prisma.$queryRawUnsafe(`
       SELECT 
         s.department,
         COUNT(DISTINCT pr.staff_id) as reviewed_staff,
@@ -41,7 +41,7 @@ export const getPerformanceAnalytics = async (req, res) => {
 // Department Analytics
 export const getDepartmentAnalytics = async (req, res) => {
   try {
-    const analytics = await db.query(`
+    const analytics = await prisma.$queryRawUnsafe(`
       SELECT 
         s.department,
         COUNT(DISTINCT s.id) as total_staff,
@@ -72,7 +72,7 @@ export const getEfficiencyReport = async (req, res) => {
   try {
     const { department, start_date, end_date } = req.query;
     
-    const efficiency = await db.query(`
+    const efficiency = await prisma.$queryRawUnsafe(`
       SELECT 
         s.department,
         COUNT(DISTINCT s.id) as staff_count,
@@ -107,7 +107,7 @@ export const getOvertimeReport = async (req, res) => {
   try {
     const { department, month = new Date().getMonth() + 1, year = new Date().getFullYear() } = req.query;
     
-    const overtime = await db.query(`
+    const overtime = await prisma.$queryRawUnsafe(`
       SELECT 
         s.name,
         s.employee_id,
@@ -149,7 +149,7 @@ export const getTurnoverReport = async (req, res) => {
   try {
     const { year = new Date().getFullYear() } = req.query;
     
-    const turnover = await db.query(`
+    const turnover = await prisma.$queryRawUnsafe(`
       WITH monthly_turnover AS (
         SELECT 
           EXTRACT(MONTH FROM s.updated_at) as month,

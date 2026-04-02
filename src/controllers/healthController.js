@@ -1,6 +1,6 @@
 // src/controllers/healthController.js
 
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 
 /**
@@ -13,7 +13,7 @@ export async function healthCheck(req, res) {
     let retries = 3;
     while (retries) {
       try {
-        await db.query('SELECT 1');
+        await prisma.$queryRawUnsafe('SELECT 1');
         break;
       } catch (err) {
         retries -= 1;

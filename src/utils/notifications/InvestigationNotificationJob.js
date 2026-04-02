@@ -1,6 +1,6 @@
 // src/utils/notifications/InvestigationNotificationJob.js
 
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { sendPushNotification } from './sendPushNotification.js';
 import { sendSMS } from '../../services/smsService.js';
@@ -11,7 +11,7 @@ export async function sendInvestigationNotifications() {
 
   try {
     // Query completed investigations not yet notified, join users by patient_id for device_token
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT i.id, i.test_name, i.patient_id,
               u.name, u.phone, u.device_token, u.id as user_id
        FROM investigations i
@@ -56,14 +56,14 @@ export async function sendInvestigationNotifications() {
         }
 
         // 3. In-app notification
-        await db.query(
+        await prisma.$queryRawUnsafe(
           `INSERT INTO notifications (phone, title, body, type, created_at, read)
            VALUES ($1, $2, $3, $4, NOW(), false)`,
           [row.phone || 'unknown', 'Investigation Report Ready', message, 'investigation']
         );
 
         // 4. Mark as notified
-        await db.query(
+        await prisma.$queryRawUnsafe(
           `UPDATE investigations SET notified = true, notified_at = NOW(), patient_notified_at = NOW() WHERE id = $1`,
           [row.id]
         );

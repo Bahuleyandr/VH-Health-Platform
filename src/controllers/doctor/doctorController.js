@@ -1,6 +1,6 @@
 // src/controllers/doctor/doctorController.js
 import { validationResult } from 'express-validator';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { doctorService } from '../../services/doctor/doctorService.js';
@@ -298,12 +298,12 @@ export const doctorController = {
         return error(res, 'Doctor name and department are required', HTTP_STATUS.BAD_REQUEST);
       }
       
-      const result = await db.query(
+      const result = await prisma.$queryRawUnsafe(
         `INSERT INTO doctors (name, department, intro, image_url) VALUES ($1, $2, $3, $4) RETURNING id, name, department, intro, image_url, is_active, created_at`,
         [name, department, intro, imageUrl]
       );
       
-      success(res, result.rows[0], 'Doctor saved successfully');
+      success(res, result[0], 'Doctor saved successfully');
     } catch (err) {
       logger.error('Error adding doctor:', err);
       error(res, RESPONSE_MESSAGES.DATABASE_ERROR, HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -314,16 +314,16 @@ export const doctorController = {
     try {
       const { doctorId } = req.params;
       
-      const deleteResult = await db.query(
+      const deleteResult = await prisma.$queryRawUnsafe(
         'DELETE FROM doctors WHERE id = $1 RETURNING id, name, department, intro, image_url, is_active, created_at',
         [doctorId]
       );
       
-      if (deleteResult.rowCount === 0) {
+      if (deleteResult.length === 0) {
         return error(res, 'Doctor not found or already deleted', HTTP_STATUS.NOT_FOUND);
       }
       
-      success(res, deleteResult.rows[0], 'Doctor deleted successfully');
+      success(res, deleteResult[0], 'Doctor deleted successfully');
     } catch (err) {
       logger.error('Error deleting doctor:', err);
       error(res, RESPONSE_MESSAGES.DATABASE_ERROR, HTTP_STATUS.INTERNAL_SERVER_ERROR);

@@ -1,6 +1,6 @@
 // src/routes/deviceRoutes.js - COMPLETE PRODUCTION VERSION WITH RBAC
 import express from 'express';
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import { HTTP_STATUS } from '../config/responseCodes.js';
 import { wrapAutoRBAC } from '../config/routeWrapper.js';
 import { registerDevice } from '../controllers/deviceController.js';
@@ -52,7 +52,7 @@ wrapAutoRBAC(
               return error(res, 'Can only view your own devices', HTTP_STATUS.FORBIDDEN);
             }
 
-            const devices = await db.query(
+            const devices = await prisma.$queryRawUnsafe(
               `SELECT 
                 device_id, device_name, platform, app_version, os_version,
                 last_active, created_at, fcm_token,
@@ -112,7 +112,7 @@ wrapAutoRBAC(
 
             const [deviceStats, platformStats, activityStats] = await Promise.all([
               // Overall device statistics
-              db.query(`
+              prisma.$queryRawUnsafe(`
                 SELECT 
                   COUNT(*) as total_devices,
                   COUNT(DISTINCT user_uid) as unique_users,
@@ -123,7 +123,7 @@ wrapAutoRBAC(
               `),
               
               // Platform distribution
-              db.query(`
+              prisma.$queryRawUnsafe(`
                 SELECT 
                   platform,
                   COUNT(*) as device_count,
@@ -134,7 +134,7 @@ wrapAutoRBAC(
               `),
               
               // Activity over time (last 30 days)
-              db.query(`
+              prisma.$queryRawUnsafe(`
                 SELECT 
                   DATE(last_active) as activity_date,
                   COUNT(DISTINCT device_id) as active_devices,
@@ -147,7 +147,7 @@ wrapAutoRBAC(
             ]);
 
             success(res, {
-              overview: deviceStats.rows[0],
+              overview: deviceStats[0],
               platformDistribution: platformStats.rows,
               activityTrend: activityStats.rows,
               requestedBy: req.user?.name,
@@ -188,7 +188,7 @@ wrapAutoRBAC(
               return error(res, 'Admin access required to view device details', HTTP_STATUS.FORBIDDEN);
             }
 
-            const result = await db.query(
+            const result = await prisma.$queryRawUnsafe(
               `SELECT 
                 ud.*, u.name as user_name, u.phone as user_phone, u.role as user_role
                FROM user_devices ud
@@ -202,7 +202,7 @@ wrapAutoRBAC(
             }
 
             success(res, {
-              device: result.rows[0],
+              device: result[0],
               requestedBy: req.user?.name
             }, 'Device details retrieved successfully');
 
@@ -237,7 +237,7 @@ wrapAutoRBAC(
             }
 
             // Get user UID
-            const userResult = await db.query(
+            const userResult = await prisma.$queryRawUnsafe(
               'SELECT uid, name FROM users WHERE phone = $1',
               [normalizedPhone]
             );
@@ -246,10 +246,10 @@ wrapAutoRBAC(
               return error(res, 'User not found', HTTP_STATUS.NOT_FOUND);
             }
 
-            const user = userResult.rows[0];
+            const user = userResult[0];
 
             // Register/update device with enhanced conflict resolution
-            const result = await db.query(
+            const result = await prisma.$queryRawUnsafe(
               `INSERT INTO user_devices (
                 user_uid, device_id, device_name, platform, app_version, 
                 os_version, fcm_token, last_active, created_at
@@ -267,12 +267,12 @@ wrapAutoRBAC(
               [user.uid, deviceId, deviceName, platform, appVersion, osVersion, fcmToken]
             );
 
-            const isNewRegistration = result.rows[0].is_new_registration;
+            const isNewRegistration = result[0].is_new_registration;
             
             logger.info(`📱 Device ${isNewRegistration ? 'registered' : 'updated'}: ${deviceName} for ${normalizedPhone} by ${req.user?.name || 'system'}`);
 
             success(res, {
-              deviceRegistrationId: result.rows[0].id,
+              deviceRegistrationId: result[0].id,
               phone: normalizedPhone,
               deviceId,
               deviceName,
@@ -325,7 +325,7 @@ wrapAutoRBAC(
               RETURNING device_name, last_active
             `;
 
-            const result = await db.query(updateQuery, [
+            const result = await prisma.$queryRawUnsafe(updateQuery, [
               deviceId, 
               normalizedPhone,
               additionalData.appVersion,
@@ -339,8 +339,8 @@ wrapAutoRBAC(
             success(res, { 
               phone: normalizedPhone,
               deviceId,
-              deviceName: result.rows[0].device_name,
-              lastActive: result.rows[0].last_active,
+              deviceName: result[0].device_name,
+              lastActive: result[0].last_active,
               updatedBy: req.user?.name
             }, 'Device activity updated successfully');
 
@@ -369,7 +369,7 @@ wrapAutoRBAC(
               return error(res, 'Can only update tokens for your own devices', HTTP_STATUS.FORBIDDEN);
             }
 
-            const result = await db.query(
+            const result = await prisma.$queryRawUnsafe(
               `UPDATE user_devices 
                SET fcm_token = $1, last_active = NOW(), updated_at = NOW()
                WHERE device_id = $2 
@@ -382,12 +382,12 @@ wrapAutoRBAC(
               return error(res, 'Device not found or access denied', HTTP_STATUS.NOT_FOUND);
             }
 
-            logger.info(`🔄 FCM token updated for device: ${result.rows[0].device_name} (${deviceId}) by ${req.user?.name || 'system'}`);
+            logger.info(`🔄 FCM token updated for device: ${result[0].device_name} (${deviceId}) by ${req.user?.name || 'system'}`);
 
             success(res, {
               phone: normalizedPhone,
               deviceId,
-              deviceName: result.rows[0].device_name,
+              deviceName: result[0].device_name,
               tokenUpdated: true,
               updatedBy: req.user?.name,
               updatedAt: new Date().toISOString()
@@ -420,7 +420,7 @@ wrapAutoRBAC(
               return error(res, 'Can only unregister your own devices', HTTP_STATUS.FORBIDDEN);
             }
 
-            const result = await db.query(
+            const result = await prisma.$queryRawUnsafe(
               `DELETE FROM user_devices 
                WHERE device_id = $1 
                  AND user_uid = (SELECT uid FROM users WHERE phone = $2)
@@ -432,7 +432,7 @@ wrapAutoRBAC(
               return error(res, 'Device not found or access denied', HTTP_STATUS.NOT_FOUND);
             }
 
-            const deviceInfo = result.rows[0];
+            const deviceInfo = result[0];
             
             logger.info(`🗑️ Device unregistered: ${deviceInfo.device_name} (${deviceInfo.platform}) for ${normalizedPhone} by ${req.user?.name || 'system'}`);
 
@@ -464,7 +464,7 @@ wrapAutoRBAC(
               return error(res, 'Admin access required for device cleanup', HTTP_STATUS.FORBIDDEN);
             }
 
-            const result = await db.query(
+            const result = await prisma.$queryRawUnsafe(
               `DELETE FROM user_devices 
                WHERE last_active < NOW() - INTERVAL '${olderThanDays} days'
                RETURNING device_name, platform, last_active`,

@@ -2,7 +2,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import { 
@@ -107,7 +107,7 @@ export class VersionService {
       
       // Quick database check
       try {
-        await db.query('SELECT 1');
+        await prisma.$queryRawUnsafe('SELECT 1');
         healthStatus.services.database = 'operational';
       } catch (dbErr) {
         healthStatus.services.database = 'degraded';
@@ -244,7 +244,7 @@ export class VersionService {
         ORDER BY table_name
       `;
       
-      const result = await db.query(tablesQuery);
+      const result = await prisma.$queryRawUnsafe(tablesQuery);
       
       return {
         database: {
@@ -314,8 +314,8 @@ export class VersionService {
       
       // Advanced database diagnostics
       try {
-        const dbVersionResult = await db.query('SELECT version()');
-        const dbStatsResult = await db.query(`
+        const dbVersionResult = await prisma.$queryRawUnsafe('SELECT version()');
+        const dbStatsResult = await prisma.$queryRawUnsafe(`
           SELECT 
             count(*) as total_connections,
             sum(case when state = 'active' then 1 else 0 end) as active_connections
@@ -323,8 +323,8 @@ export class VersionService {
         `);
         
         diagnostics.database.status = 'operational';
-        diagnostics.database.version = dbVersionResult.rows[0].version.split(' ')[1];
-        diagnostics.database.connections = dbStatsResult.rows[0];
+        diagnostics.database.version = dbVersionResult[0].version.split(' ')[1];
+        diagnostics.database.connections = dbStatsResult[0];
       } catch (dbErr) {
         diagnostics.database.status = 'error';
         diagnostics.database.error = dbErr.message;
@@ -366,7 +366,7 @@ export class VersionService {
       // Database performance check
       try {
         const start = Date.now();
-        await db.query('SELECT 1');
+        await prisma.$queryRawUnsafe('SELECT 1');
         const responseTime = Date.now() - start;
         
         metrics.database.status = 'operational';

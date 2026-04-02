@@ -1,6 +1,6 @@
 // src/services/feedback/feedbackService.js
 
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 class FeedbackService {
@@ -9,7 +9,7 @@ class FeedbackService {
    * Extracted from getMyFeedback controller.
    */
   async getFeedbackByPhone(phone) {
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT
         f.id, f.rating, f.comment, f.category, f.created_at,
         f.anonymous, f.improvement_suggestions, f.response_status,
@@ -40,7 +40,7 @@ class FeedbackService {
    * Extracted from getMyStats controller.
    */
   async getFeedbackStats(phone) {
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT
         COUNT(*) as total_feedback,
         ROUND(AVG(rating), 2) as average_rating,
@@ -56,7 +56,7 @@ class FeedbackService {
       [phone]
     );
 
-    return result.rows[0];
+    return result[0];
   }
 
   /**
@@ -69,7 +69,7 @@ class FeedbackService {
     // Overall statistics
     // Safety: `interval` must be whitelisted by the caller (only '7 days', '30 days', '90 days').
     // PostgreSQL does not support parameterized INTERVAL literals directly.
-    const overallStats = await db.query(`
+    const overallStats = await prisma.$queryRawUnsafe(`
       SELECT
         COUNT(*) as total_feedback,
         ROUND(AVG(rating), 2) as average_rating,
@@ -82,7 +82,7 @@ class FeedbackService {
     `);
 
     // Feedback by category
-    const categoryStats = await db.query(`
+    const categoryStats = await prisma.$queryRawUnsafe(`
       SELECT
         category,
         COUNT(*) as count,
@@ -94,7 +94,7 @@ class FeedbackService {
     `);
 
     // Daily trend
-    const dailyTrend = await db.query(`
+    const dailyTrend = await prisma.$queryRawUnsafe(`
       SELECT
         DATE(created_at) as date,
         COUNT(*) as feedback_count,
@@ -107,7 +107,7 @@ class FeedbackService {
     `);
 
     return {
-      overallStats: overallStats.rows[0],
+      overallStats: overallStats[0],
       categoryBreakdown: categoryStats.rows,
       dailyTrend: dailyTrend.rows
     };
@@ -169,7 +169,7 @@ class FeedbackService {
       paramIndex++;
     }
 
-    const feedback = await db.query(`
+    const feedback = await prisma.$queryRawUnsafe(`
       SELECT
         f.id, f.phone, f.rating, f.comment, f.category, f.created_at,
         f.anonymous, f.improvement_suggestions, f.response_status,
@@ -190,7 +190,7 @@ class FeedbackService {
       LIMIT $1 OFFSET $2
     `, params);
 
-    const total = await db.query(
+    const total = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM feedback f ${whereClause}`,
       params.slice(2)
     );
@@ -200,8 +200,8 @@ class FeedbackService {
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        total: parseInt(total.rows[0].count),
-        totalPages: Math.ceil(total.rows[0].count / limit)
+        total: parseInt(total[0].count),
+        totalPages: Math.ceil(total[0].count / limit)
       }
     };
   }
@@ -241,12 +241,12 @@ class FeedbackService {
       ORDER BY average_rating DESC, feedback_count DESC
     `;
 
-    const doctorRankings = await db.query(doctorQuery, doctorParams);
+    const doctorRankings = await prisma.$queryRawUnsafe(doctorQuery, doctorParams);
 
     // Department performance (admin/nurse only)
     let departmentPerformance = [];
     if (['ADMIN', 'NURSE'].includes(userRole)) {
-      const deptResult = await db.query(`
+      const deptResult = await prisma.$queryRawUnsafe(`
         SELECT
           dept.id, dept.name,
           COUNT(f.id) as feedback_count,
@@ -274,7 +274,7 @@ class FeedbackService {
     }
 
     // Safety: `safeGroupBy` is whitelisted above, so interpolation is safe
-    const satisfactionTrends = await db.query(`
+    const satisfactionTrends = await prisma.$queryRawUnsafe(`
       SELECT
         DATE_TRUNC('${safeGroupBy}', created_at) as period,
         ROUND(AVG(rating), 2) as avg_rating,
@@ -311,7 +311,7 @@ class FeedbackService {
       queryParams.push(startDate, endDate);
     }
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT
         COUNT(*) as total_feedback,
         ROUND(AVG(rating), 2) as overall_rating,
@@ -326,7 +326,7 @@ class FeedbackService {
       ${dateFilter}
     `, queryParams);
 
-    return result.rows[0];
+    return result[0];
   }
 
   /**
@@ -340,7 +340,7 @@ class FeedbackService {
       anonymous, improvement_suggestions
     } = data;
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `INSERT INTO feedback (
         phone, user_uid, rating, comment, category,
         appointment_id, doctor_id, department_id,
@@ -354,12 +354,12 @@ class FeedbackService {
       ]
     );
 
-    const feedback = result.rows[0];
+    const feedback = result[0];
 
     // Send notification to relevant staff if feedback is critical (rating <= 2)
     if (rating <= 2) {
       try {
-        await db.query(
+        await prisma.$queryRawUnsafe(
           `INSERT INTO notifications (
             recipient_role, title, body, type, priority, created_at
           ) VALUES ($1, $2, $3, $4, $5, NOW())`,
@@ -386,7 +386,7 @@ class FeedbackService {
   async submitQuickRating(data) {
     const { phone, rating, category, appointment_id } = data;
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `INSERT INTO feedback (
         phone, rating, category, appointment_id, created_at
       ) VALUES ($1, $2, $3, $4, NOW())
@@ -394,7 +394,7 @@ class FeedbackService {
       [phone, rating, category, appointment_id]
     );
 
-    return result.rows[0];
+    return result[0];
   }
 
   /**
@@ -403,7 +403,7 @@ class FeedbackService {
    */
   async respondToFeedback(feedbackId, staffUid, response) {
     // Insert response
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `INSERT INTO feedback_responses (
         feedback_id, responder_uid, response_text, created_at
       ) VALUES ($1, $2, $3, NOW())
@@ -412,12 +412,12 @@ class FeedbackService {
     );
 
     // Mark feedback as responded
-    await db.query(
+    await prisma.$queryRawUnsafe(
       'UPDATE feedback SET responded_at = NOW(), response_status = $1 WHERE id = $2',
       ['responded', feedbackId]
     );
 
-    return result.rows[0];
+    return result[0];
   }
 
   /**
@@ -425,7 +425,7 @@ class FeedbackService {
    * Extracted from deleteFeedback controller.
    */
   async deleteFeedback(feedbackId, adminUid, reason) {
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       'DELETE FROM feedback WHERE id = $1 RETURNING id, uid, phone, type, comment, rating, status, created_at, updated_at',
       [feedbackId]
     );
@@ -436,7 +436,7 @@ class FeedbackService {
 
     // Log the deletion
     try {
-      await db.query(
+      await prisma.$queryRawUnsafe(
         `INSERT INTO admin_actions (
           admin_uid, action_type, target_type, target_id, reason, created_at
         ) VALUES ($1, $2, $3, $4, $5, NOW())`,
@@ -446,29 +446,29 @@ class FeedbackService {
       logger.warn('Failed to log admin action:', logErr.message);
     }
 
-    return result.rows[0];
+    return result[0];
   }
 
   /**
    * Look up a user by phone. Used for validation before submitting feedback.
    */
   async getUserByPhone(phone) {
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       'SELECT uid, name FROM users WHERE phone = $1',
       [phone]
     );
-    return result.rows[0] || null;
+    return result[0] || null;
   }
 
   /**
    * Look up feedback by ID. Used for permission checks before responding.
    */
   async getFeedbackById(feedbackId) {
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       'SELECT id, phone, rating, doctor_id FROM feedback WHERE id = $1',
       [feedbackId]
     );
-    return result.rows[0] || null;
+    return result[0] || null;
   }
 
   /**
@@ -476,11 +476,11 @@ class FeedbackService {
    * Used by the basic submitFeedback controller.
    */
   async submitSimpleFeedback(phone, rating, comment, question) {
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       'INSERT INTO feedback (phone, rating, comment, question) VALUES ($1, $2, $3, $4) RETURNING id, phone, rating, comment, question, created_at',
       [phone, rating || null, comment || null, question || null]
     );
-    return result.rows[0];
+    return result[0];
   }
 
   /**

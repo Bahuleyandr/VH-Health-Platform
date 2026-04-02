@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import YAML from 'yamljs';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import { 
@@ -252,7 +252,7 @@ export class SwaggerService {
       // Get documentation access logs if available
       let accessStats = null;
       try {
-        const accessResult = await db.query(`
+        const accessResult = await prisma.$queryRawUnsafe(`
           SELECT 
             DATE(created_at) as date,
             COUNT(*) as views,
@@ -385,7 +385,7 @@ export class SwaggerService {
       }
       
       // Log regeneration activity
-      await db.query(
+      await prisma.$queryRawUnsafe(
         `INSERT INTO admin_activity_logs (
           admin_uid, action, description, details, 
           ip_address, created_at

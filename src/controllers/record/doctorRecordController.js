@@ -1,6 +1,6 @@
 // src/controllers/record/doctorRecordController.js
 import { validationResult } from 'express-validator';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { RECORD_MESSAGES, AUDIT_ACTIONS } from '../../config/recordConfig.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
@@ -13,8 +13,8 @@ import { ADMIN } from '../../utils/roles.js';
 
 async function getDoctorUserId(uid) {
   try {
-    const result = await db.query('SELECT id FROM users WHERE uid = $1::uuid', [uid]);
-    return result.rows[0]?.id || null;
+    const result = await prisma.$queryRawUnsafe('SELECT id FROM users WHERE uid = $1::uuid', [uid]);
+    return result[0]?.id || null;
   } catch (error) {
     logger.error(`[GetDoctorUserId] ${error.message}`);
     return null;

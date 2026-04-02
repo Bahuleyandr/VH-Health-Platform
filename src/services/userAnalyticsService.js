@@ -1,7 +1,7 @@
 // src/services/userAnalyticsService.js - Hospital User Analytics Service
 
 import { format } from 'date-fns';
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import { HOSPITAL_ROLES, REPORT_TYPES } from '../config/userConfig.js';
 import logger from '../logging/logger.js';
 
@@ -27,7 +27,7 @@ export async function getUserAnalytics(timeframe = '30d', department = null) {
 
   try {
     // Overall user statistics
-    const overallStats = await db.query(`
+    const overallStats = await prisma.$queryRawUnsafe(`
       SELECT 
         COUNT(*) as total_users,
         COUNT(*) FILTER (WHERE status = 'active') as active_users,
@@ -45,7 +45,7 @@ export async function getUserAnalytics(timeframe = '30d', department = null) {
     `, params);
 
     // Role distribution
-    const roleDistribution = await db.query(`
+    const roleDistribution = await prisma.$queryRawUnsafe(`
       SELECT 
         role,
         COUNT(*) as user_count,
@@ -58,7 +58,7 @@ export async function getUserAnalytics(timeframe = '30d', department = null) {
     `, params);
 
     // Department breakdown
-    const departmentStats = await db.query(`
+    const departmentStats = await prisma.$queryRawUnsafe(`
       SELECT 
         department,
         COUNT(*) as total_users,
@@ -72,7 +72,7 @@ export async function getUserAnalytics(timeframe = '30d', department = null) {
     `);
 
     // Registration trends
-    const registrationTrends = await db.query(`
+    const registrationTrends = await prisma.$queryRawUnsafe(`
       SELECT 
         DATE(registered_at) as registration_date,
         COUNT(*) as new_registrations,
@@ -86,7 +86,7 @@ export async function getUserAnalytics(timeframe = '30d', department = null) {
     `, params);
 
     // Activity metrics
-    const activityMetrics = await db.query(`
+    const activityMetrics = await prisma.$queryRawUnsafe(`
       SELECT 
         DATE(ual.created_at) as activity_date,
         COUNT(DISTINCT ual.user_id) as active_users,
@@ -106,7 +106,7 @@ export async function getUserAnalytics(timeframe = '30d', department = null) {
       timeframe,
       interval,
       department: department || 'All Departments',
-      overallStatistics: overallStats.rows[0],
+      overallStatistics: overallStats[0],
       roleDistribution: roleDistribution.rows,
       departmentBreakdown: departmentStats.rows,
       registrationTrends: registrationTrends.rows,
@@ -135,7 +135,7 @@ export async function getInactiveUsersReport(inactiveDays = 90, role = null, inc
 
   try {
     // Find inactive users
-    const inactiveUsers = await db.query(`
+    const inactiveUsers = await prisma.$queryRawUnsafe(`
       SELECT 
         u.uid, u.name, u.phone, u.email, u.role, u.department,
         u.employee_id, u.status, u.registered_at, u.last_login,
@@ -152,7 +152,7 @@ export async function getInactiveUsersReport(inactiveDays = 90, role = null, inc
     `, params.slice(1));
 
     // Inactivity statistics by department
-    const departmentStats = await db.query(`
+    const departmentStats = await prisma.$queryRawUnsafe(`
       SELECT 
         u.department,
         COUNT(*) as inactive_count,
@@ -167,7 +167,7 @@ export async function getInactiveUsersReport(inactiveDays = 90, role = null, inc
     `, params.slice(1));
 
     // Risk assessment
-    const riskAssessment = await db.query(`
+    const riskAssessment = await prisma.$queryRawUnsafe(`
       SELECT 
         CASE 
           WHEN u.role IN ('ADMIN', 'CHIEF_DOCTOR', 'HEAD_NURSE') THEN 'Critical'
@@ -258,7 +258,7 @@ export async function generateReport(reportType, filters = {}, options = {}) {
 }
 
 async function generateDepartmentReport(statusFilter, dateFilter) {
-  const deptData = await db.query(`
+  const deptData = await prisma.$queryRawUnsafe(`
     SELECT 
       department,
       COUNT(*) as total_users,
@@ -278,14 +278,14 @@ async function generateDepartmentReport(statusFilter, dateFilter) {
     departments: deptData.rows,
     summary: {
       totalDepartments: deptData.rows.length,
-      largestDepartment: deptData.rows[0]?.department || 'None',
+      largestDepartment: deptData[0]?.department || 'None',
       smallestDepartment: deptData.rows[deptData.rows.length - 1]?.department || 'None'
     }
   };
 }
 
 async function generateRoleReport(statusFilter, dateFilter) {
-  const roleData = await db.query(`
+  const roleData = await prisma.$queryRawUnsafe(`
     SELECT 
       role,
       COUNT(*) as user_count,
@@ -315,14 +315,14 @@ async function generateRoleReport(statusFilter, dateFilter) {
     })),
     summary: {
       totalRoles: roleData.rows.length,
-      mostCommonRole: roleData.rows[0]?.role || 'None',
+      mostCommonRole: roleData[0]?.role || 'None',
       leastCommonRole: roleData.rows[roleData.rows.length - 1]?.role || 'None'
     }
   };
 }
 
 async function generateActivityReport() {
-  const activityData = await db.query(`
+  const activityData = await prisma.$queryRawUnsafe(`
     SELECT 
       u.uid, u.name, u.role, u.department, u.last_login,
       COUNT(ual.id) as total_actions,
@@ -351,7 +351,7 @@ async function generateActivityReport() {
       activity_score: user.total_actions + (user.active_days * 2)
     })),
     summary: {
-      mostActiveUser: activityData.rows[0]?.name || 'None',
+      mostActiveUser: activityData[0]?.name || 'None',
       averageActionsPerUser: activityData.rows.length > 0
         ? (activityData.rows.reduce((sum, u) => sum + u.total_actions, 0) / activityData.rows.length).toFixed(1)
         : 0
@@ -361,7 +361,7 @@ async function generateActivityReport() {
 
 async function generateComprehensiveReport(statusFilter, dateFilter) {
   const [overallStats, deptStats, roleStats, recentActivity] = await Promise.all([
-    db.query(`
+    prisma.$queryRawUnsafe(`
       SELECT 
         COUNT(*) as total_users,
         COUNT(*) FILTER (WHERE status = 'active') as active_users,
@@ -372,7 +372,7 @@ async function generateComprehensiveReport(statusFilter, dateFilter) {
       FROM users
       WHERE 1=1 ${statusFilter} ${dateFilter}
     `),
-    db.query(`
+    prisma.$queryRawUnsafe(`
       SELECT department, COUNT(*) as count
       FROM users 
       WHERE 1=1 ${statusFilter} ${dateFilter}
@@ -380,14 +380,14 @@ async function generateComprehensiveReport(statusFilter, dateFilter) {
       ORDER BY count DESC 
       LIMIT 10
     `),
-    db.query(`
+    prisma.$queryRawUnsafe(`
       SELECT role, COUNT(*) as count
       FROM users 
       WHERE 1=1 ${statusFilter} ${dateFilter}
       GROUP BY role 
       ORDER BY count DESC
     `),
-    db.query(`
+    prisma.$queryRawUnsafe(`
       SELECT DATE(registered_at) as date, COUNT(*) as registrations
       FROM users 
       WHERE registered_at > NOW() - INTERVAL '30 days' ${statusFilter}
@@ -398,7 +398,7 @@ async function generateComprehensiveReport(statusFilter, dateFilter) {
 
   return {
     type: 'Comprehensive Hospital User Report',
-    overallStatistics: overallStats.rows[0],
+    overallStatistics: overallStats[0],
     departmentBreakdown: deptStats.rows,
     roleDistribution: roleStats.rows,
     recentRegistrations: recentActivity.rows.map(reg => ({
@@ -406,8 +406,8 @@ async function generateComprehensiveReport(statusFilter, dateFilter) {
       date_formatted: format(new Date(reg.date), 'dd-MM-yyyy')
     })),
     insights: {
-      largestDepartment: deptStats.rows[0]?.department || 'None',
-      mostCommonRole: roleStats.rows[0]?.role || 'None',
+      largestDepartment: deptStats[0]?.department || 'None',
+      mostCommonRole: roleStats[0]?.role || 'None',
       recentGrowth: recentActivity.rows.reduce((sum, r) => sum + parseInt(r.registrations), 0)
     }
   };
@@ -418,7 +418,7 @@ async function generateComprehensiveReport(statusFilter, dateFilter) {
  */
 export async function getSpecialtyDistribution() {
   try {
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT 
         specialty,
         COUNT(*) as specialist_count,

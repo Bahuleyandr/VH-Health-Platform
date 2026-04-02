@@ -1,12 +1,12 @@
 // src/services/bed/bedService.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 class BedService {
   // ===== WARD OPERATIONS =====
 
   async listWards() {
-    const { rows } = await db.query(`
+    const { rows } = await prisma.$queryRawUnsafe(`
       SELECT w.*, d.name as department_name,
         (SELECT COUNT(*) FROM beds b WHERE b.ward_id = w.id) as bed_count,
         (SELECT COUNT(*) FROM beds b WHERE b.ward_id = w.id AND b.status = 'occupied') as occupied_count
@@ -19,7 +19,7 @@ class BedService {
 
   async createWard(data) {
     const { name, floor, department_id, total_beds } = data;
-    const { rows } = await db.query(
+    const { rows } = await prisma.$queryRawUnsafe(
       `INSERT INTO wards (name, floor, department_id, total_beds) VALUES ($1, $2, $3, $4) RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
       [name, floor || 1, department_id || null, total_beds || 0]
     );
@@ -28,7 +28,7 @@ class BedService {
 
   async updateWard(id, data) {
     const { name, floor, department_id, total_beds } = data;
-    const { rows } = await db.query(
+    const { rows } = await prisma.$queryRawUnsafe(
       `UPDATE wards SET name = COALESCE($1, name), floor = COALESCE($2, floor),
        department_id = COALESCE($3, department_id), total_beds = COALESCE($4, total_beds),
        updated_at = NOW() WHERE id = $5 RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
@@ -38,14 +38,14 @@ class BedService {
   }
 
   async deleteWard(id) {
-    const { rowCount } = await db.query('DELETE FROM wards WHERE id = $1', [id]);
+    const { rowCount } = await prisma.$queryRawUnsafe('DELETE FROM wards WHERE id = $1', [id]);
     return rowCount > 0;
   }
 
   // ===== BED OPERATIONS =====
 
   async listBeds() {
-    const { rows } = await db.query(`
+    const { rows } = await prisma.$queryRawUnsafe(`
       SELECT b.*, w.name as ward_name, w.floor as ward_floor
       FROM beds b
       LEFT JOIN wards w ON b.ward_id = w.id
@@ -55,7 +55,7 @@ class BedService {
   }
 
   async getBedsByWard(wardId) {
-    const { rows } = await db.query(`
+    const { rows } = await prisma.$queryRawUnsafe(`
       SELECT b.*, w.name as ward_name
       FROM beds b
       LEFT JOIN wards w ON b.ward_id = w.id
@@ -66,7 +66,7 @@ class BedService {
   }
 
   async getBedSummary() {
-    const { rows } = await db.query(`
+    const { rows } = await prisma.$queryRawUnsafe(`
       SELECT w.id as ward_id, w.name as ward_name, w.floor, w.total_beds,
         COUNT(b.id) as actual_beds,
         COUNT(b.id) FILTER (WHERE b.status = 'occupied') as occupied,
@@ -83,7 +83,7 @@ class BedService {
 
   async createBed(data) {
     const { ward_id, bed_number, status, notes } = data;
-    const { rows } = await db.query(
+    const { rows } = await prisma.$queryRawUnsafe(
       `INSERT INTO beds (ward_id, bed_number, status, notes) VALUES ($1, $2, $3, $4) RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
       [ward_id, bed_number, status || 'available', notes || null]
     );
@@ -92,7 +92,7 @@ class BedService {
 
   async updateBed(id, data) {
     const { ward_id, bed_number, status, patient_id, patient_name, notes } = data;
-    const { rows } = await db.query(
+    const { rows } = await prisma.$queryRawUnsafe(
       `UPDATE beds SET
         ward_id = COALESCE($1, ward_id),
         bed_number = COALESCE($2, bed_number),
@@ -108,12 +108,12 @@ class BedService {
   }
 
   async deleteBed(id) {
-    const { rowCount } = await db.query('DELETE FROM beds WHERE id = $1', [id]);
+    const { rowCount } = await prisma.$queryRawUnsafe('DELETE FROM beds WHERE id = $1', [id]);
     return rowCount > 0;
   }
 
   async admitPatient(bedId, { patient_id, patient_name, notes }) {
-    const { rows } = await db.query(
+    const { rows } = await prisma.$queryRawUnsafe(
       `UPDATE beds SET status = 'occupied', patient_id = $1, patient_name = $2,
        admitted_at = NOW(), notes = COALESCE($3, notes), updated_at = NOW()
        WHERE id = $4 AND status = 'available' RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
@@ -123,7 +123,7 @@ class BedService {
   }
 
   async dischargePatient(bedId) {
-    const { rows } = await db.query(
+    const { rows } = await prisma.$queryRawUnsafe(
       `UPDATE beds SET status = 'available', patient_id = NULL, patient_name = NULL,
        admitted_at = NULL, updated_at = NOW()
        WHERE id = $1 AND status = 'occupied' RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,

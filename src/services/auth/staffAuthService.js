@@ -5,12 +5,29 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { AUTH_CONFIG } from '../../config/authConfig.js';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import logger from '../../logging/logger.js';
 import { generateToken, verifyToken } from '../../utils/jwtUtils.js';
 import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
 import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
+
+
+const query = async (sql, params = []) => {
+  const normalizedSql = sql.trim();
+  const upperSql = normalizedSql.toUpperCase();
+  const usesReturning = /\bRETURNING\b/i.test(normalizedSql);
+  const isReadQuery = upperSql.startsWith('SELECT') || upperSql.startsWith('WITH') || usesReturning;
+
+  if (isReadQuery) {
+    const rows = await prisma.$queryRawUnsafe(normalizedSql, ...params);
+    return { rows, rowCount: Array.isArray(rows) ? rows.length : 0 };
+  }
+
+  const rowCount = await prisma.$executeRawUnsafe(normalizedSql, ...params);
+  return { rows: [], rowCount: Number(rowCount) || 0 };
+};
+
 
 const MAX_DEVICES_PER_STAFF = parseInt(process.env.MAX_DEVICES_PER_STAFF) || 5;
 const MAX_LOGIN_ATTEMPTS = parseInt(process.env.MAX_LOGIN_ATTEMPTS) || AUTH_CONFIG.rateLimit.loginAttempts;
@@ -29,7 +46,7 @@ export class StaffAuthService {
    * @param {string} [path] - Request path (for security logging)
    */
   static async _checkStaffLockout(employeeId, req, path = '/api/v1/auth/staff/login') {
-    const lockCheck = await db.query(`
+    const lockCheck = await query(`
       SELECT COUNT(*) as cnt FROM auth_logs
       WHERE phone = $1 AND success = false
         AND action IN ('STAFF_LOGIN', 'STAFF_PIN_LOGIN', 'QUICK_LOGIN')
@@ -58,7 +75,7 @@ export class StaffAuthService {
       await this._checkStaffLockout(employeeId, req, '/api/v1/auth/staff/login');
 
       // Find staff member by employee ID
-      const result = await db.query(`
+      const result = await query(`
         SELECT
           u.id, u.uid, u.name, u.email, u.phone, u.role, u.encrypted_password,
           s.employee_id, s.department, s.position, s.is_active, s.shift_type
@@ -115,7 +132,7 @@ export class StaffAuthService {
       const accessToken = this.generateAccessToken(staff);
       const refreshToken = this.generateRefreshToken(staff);
 
-      await db.query('UPDATE users SET last_sign_in_at = NOW() WHERE id = $1', [staff.id]);
+      await query('UPDATE users SET last_sign_in_at = NOW() WHERE id = $1', [staff.id]);
       await this.logActivity(staff.uid, 'STAFF_LOGIN', 'Staff login successful', req);
 
       return {
@@ -146,7 +163,7 @@ export class StaffAuthService {
       const userId = staff.id;
 
       // Check device limit
-      const deviceCountResult = await db.query(
+      const deviceCountResult = await query(
         'SELECT COUNT(*) FROM staff_devices WHERE staff_id = $1 AND is_active = true',
         [userId]
       );
@@ -158,7 +175,7 @@ export class StaffAuthService {
       const deviceToken = this.generateDeviceToken();
       const deviceId = uuidv4();
 
-      await db.query(`
+      await query(`
         INSERT INTO staff_devices (
           staff_id, device_id, device_name, device_token,
           is_active, registered_at, registered_location, trust_expires_at
@@ -196,7 +213,7 @@ export class StaffAuthService {
 
   static async quickLogin(deviceToken, pin, biometric, location, req) {
     try {
-      const deviceResult = await db.query(`
+      const deviceResult = await query(`
         SELECT 
           d.id as internal_device_id, d.staff_id, d.device_id, d.pin_hash, d.biometric_enabled,
           u.uid, u.name, u.email, u.phone, u.role, u.encrypted_password,
@@ -256,7 +273,7 @@ export class StaffAuthService {
       const refreshToken = this.generateRefreshToken(deviceAndStaff);
 
       await this.createSession(deviceAndStaff.staff_id, deviceAndStaff.device_id, refreshToken, req);
-      await db.query('UPDATE staff_devices SET last_used = NOW() WHERE id = $1', [deviceAndStaff.internal_device_id]);
+      await query('UPDATE staff_devices SET last_used = NOW() WHERE id = $1', [deviceAndStaff.internal_device_id]);
       await this.logActivity(deviceAndStaff.uid, 'QUICK_LOGIN', `Quick login via ${authMethod}`, req, { deviceId: deviceAndStaff.device_id });
 
       return {
@@ -288,7 +305,7 @@ export class StaffAuthService {
       // ✅ FIX: Uses the new helper method to reduce duplication.
       const internalDeviceId = await this._verifyDeviceOwnership(staffUid, deviceToken);
       const pinHash = await bcrypt.hash(pin, 10);
-      await db.query('UPDATE staff_devices SET pin_hash = $1 WHERE id = $2', [pinHash, internalDeviceId]);
+      await query('UPDATE staff_devices SET pin_hash = $1 WHERE id = $2', [pinHash, internalDeviceId]);
       return { success: true, message: 'PIN setup successfully' };
     } catch (error) {
       logger.error('PIN setup error:', error);
@@ -300,7 +317,7 @@ export class StaffAuthService {
     try {
       // ✅ FIX: Uses the new helper method to reduce duplication.
       const internalDeviceId = await this._verifyDeviceOwnership(staffUid, deviceToken);
-      await db.query('UPDATE staff_devices SET biometric_enabled = $1 WHERE id = $2', [enabled, internalDeviceId]);
+      await query('UPDATE staff_devices SET biometric_enabled = $1 WHERE id = $2', [enabled, internalDeviceId]);
       return { success: true, biometricEnabled: enabled };
     } catch (error) {
       logger.error('Toggle biometric error:', error);
@@ -314,7 +331,7 @@ export class StaffAuthService {
       if (!decoded) throw new Error('Invalid or expired refresh token');
 
       const incomingHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
-      const sessionResult = await db.query(`
+      const sessionResult = await query(`
         SELECT s.*, u.uid, u.name, u.email, u.role, st.employee_id, st.is_active
         FROM staff_auth_sessions s
         JOIN users u ON s.staff_id = u.id
@@ -326,7 +343,7 @@ export class StaffAuthService {
       const session = sessionResult.rows[0];
       if (!session.is_active) throw new Error('Account deactivated');
 
-      await db.query('UPDATE staff_auth_sessions SET last_activity = NOW() WHERE id = $1', [session.id]);
+      await query('UPDATE staff_auth_sessions SET last_activity = NOW() WHERE id = $1', [session.id]);
       const accessToken = this.generateAccessToken(session);
 
       return {
@@ -346,7 +363,7 @@ export class StaffAuthService {
       await this._checkStaffLockout(employeeId, req, '/api/v1/auth/staff/login-pin');
 
       // Find staff member by employee ID
-      const result = await db.query(`
+      const result = await query(`
         SELECT
           u.id, u.uid, u.name, u.email, u.phone, u.role,
           s.employee_id, s.department, s.position, s.is_active,
@@ -410,7 +427,7 @@ export class StaffAuthService {
       const accessToken = this.generateAccessToken(staff);
       const refreshToken = this.generateRefreshToken(staff);
 
-      await db.query('UPDATE users SET last_sign_in_at = NOW() WHERE id = $1', [staff.id]);
+      await query('UPDATE users SET last_sign_in_at = NOW() WHERE id = $1', [staff.id]);
       await this.logActivity(staff.uid, 'STAFF_PIN_LOGIN', 'Staff login with PIN successful', req);
 
       return {
@@ -435,17 +452,17 @@ export class StaffAuthService {
 
   static async logoutStaff(staffUid, deviceToken, req) {
     try {
-      const userResult = await db.query('SELECT id FROM users WHERE uid = $1', [staffUid]);
+      const userResult = await query('SELECT id FROM users WHERE uid = $1', [staffUid]);
       if (userResult.rows.length === 0) throw new Error('Staff not found');
       const userId = userResult.rows[0].id;
 
       if (deviceToken) {
-        const deviceResult = await db.query('SELECT device_id FROM staff_devices WHERE device_token = $1 AND staff_id = $2', [deviceToken, userId]);
+        const deviceResult = await query('SELECT device_id FROM staff_devices WHERE device_token = $1 AND staff_id = $2', [deviceToken, userId]);
         if (deviceResult.rows.length > 0) {
-          await db.query('DELETE FROM staff_auth_sessions WHERE staff_id = $1 AND device_id = $2', [userId, deviceResult.rows[0].device_id]);
+          await query('DELETE FROM staff_auth_sessions WHERE staff_id = $1 AND device_id = $2', [userId, deviceResult.rows[0].device_id]);
         }
       } else {
-        await db.query('DELETE FROM staff_auth_sessions WHERE staff_id = $1', [userId]);
+        await query('DELETE FROM staff_auth_sessions WHERE staff_id = $1', [userId]);
       }
 
       await this.logActivity(staffUid, 'STAFF_LOGOUT', 'Logged out', req);
@@ -458,11 +475,11 @@ export class StaffAuthService {
 
   static async listStaffDevices(staffUid) {
     try {
-      const userResult = await db.query('SELECT id FROM users WHERE uid = $1', [staffUid]);
+      const userResult = await query('SELECT id FROM users WHERE uid = $1', [staffUid]);
       if (userResult.rows.length === 0) throw new Error('Staff not found');
       const userId = userResult.rows[0].id;
 
-      const devices = await db.query(`
+      const devices = await query(`
         SELECT 
           device_id as id,
           device_name as "deviceName",
@@ -488,7 +505,7 @@ export class StaffAuthService {
 
   static async adminForceLogout(staffId, reason, adminUid, req) {
     try {
-      await db.query('DELETE FROM staff_auth_sessions WHERE staff_id = $1', [staffId]);
+      await query('DELETE FROM staff_auth_sessions WHERE staff_id = $1', [staffId]);
       // ✅ FIX: Uses the logActivity helper for consistency.
       await this.logActivity(adminUid, 'ADMIN_FORCE_LOGOUT', `Force logout staff ${staffId}: ${reason}`, req, { affectedStaffId: staffId, reason });
       return { success: true, message: 'Staff member logged out from all devices' };
@@ -500,7 +517,7 @@ export class StaffAuthService {
 
   static async adminResetPin(staffId, adminUid, req) {
     try {
-      const result = await db.query(
+      const result = await query(
         'UPDATE staff_devices SET pin_hash = NULL WHERE staff_id = $1 AND is_active = true RETURNING id',
         [staffId]
       );
@@ -521,13 +538,13 @@ export class StaffAuthService {
    * ✅ FIX: New private helper to verify device ownership and reduce code duplication.
    */
   static async _verifyDeviceOwnership(staffUid, deviceToken) {
-    const userResult = await db.query('SELECT id FROM users WHERE uid = $1', [staffUid]);
+    const userResult = await query('SELECT id FROM users WHERE uid = $1', [staffUid]);
     if (userResult.rows.length === 0) {
       throw new Error('Staff not found');
     }
     const userId = userResult.rows[0].id;
 
-    const deviceResult = await db.query(
+    const deviceResult = await query(
       'SELECT id FROM staff_devices WHERE device_token = $1 AND staff_id = $2 AND is_active = true',
       [deviceToken, userId]
     );
@@ -557,39 +574,33 @@ export class StaffAuthService {
     expiresAt.setDate(expiresAt.getDate() + 30);
     const sessionHash = crypto.createHash('sha256').update(sessionToken).digest('hex');
 
-    // Use a transaction to atomically enforce session limits + insert new session
-    const client = await db.getClient();
-    try {
-      await client.query('BEGIN');
-
-      // Lock active sessions for this staff to prevent race conditions
-      const activeSessions = await client.query(
+    await prisma.$transaction(async (tx) => {
+      const activeSessions = await tx.$queryRawUnsafe(
         'SELECT id FROM staff_auth_sessions WHERE staff_id = $1 AND expires_at > NOW() ORDER BY created_at ASC FOR UPDATE',
-        [staffId]
+        staffId
       );
-      const excess = activeSessions.rows.length - (MAX_CONCURRENT_SESSIONS - 1);
+
+      const excess = activeSessions.length - (MAX_CONCURRENT_SESSIONS - 1);
       if (excess > 0) {
-        const idsToRevoke = activeSessions.rows.slice(0, excess).map(r => r.id);
-        await client.query(
+        const idsToRevoke = activeSessions.slice(0, excess).map((row) => row.id);
+        await tx.$executeRawUnsafe(
           'DELETE FROM staff_auth_sessions WHERE id = ANY($1)',
-          [idsToRevoke]
+          idsToRevoke
         );
         logger.info(`Evicted ${excess} oldest session(s) for staff ${staffId} (limit: ${MAX_CONCURRENT_SESSIONS})`);
       }
 
-      await client.query(`
-        INSERT INTO staff_auth_sessions (
+      await tx.$executeRawUnsafe(
+        `INSERT INTO staff_auth_sessions (
           staff_id, device_id, session_token, expires_at, ip_address, created_at
-        ) VALUES ($1, $2, $3, $4, $5, NOW())
-      `, [staffId, deviceId, sessionHash, expiresAt, req.ip || '']);
-
-      await client.query('COMMIT');
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
+        ) VALUES ($1, $2, $3, $4, $5, NOW())`,
+        staffId,
+        deviceId,
+        sessionHash,
+        expiresAt,
+        req.ip || ''
+      );
+    });
   }
 
   /**
@@ -597,7 +608,7 @@ export class StaffAuthService {
    * Used by admin to force-logout a compromised account.
    */
   static async revokeAllSessions(staffId) {
-    const result = await db.query(
+    const result = await query(
       'DELETE FROM staff_auth_sessions WHERE staff_id = $1',
       [staffId]
     );
@@ -607,7 +618,7 @@ export class StaffAuthService {
 
   static async logAuthAttempt(phone, action, success, failureReason, authMethod, req) {
     try {
-      await db.query(`
+      await query(`
         INSERT INTO auth_logs (
           phone, action, success, failure_reason, auth_method, ip_address, user_agent, created_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
@@ -619,7 +630,7 @@ export class StaffAuthService {
 
   static async logActivity(uid, action, description, req, details = {}) {
     try {
-      await db.query(`
+      await query(`
         INSERT INTO admin_activity_logs (
           admin_uid, action, description, details, ip_address, created_at
         ) VALUES ($1, $2, $3, $4, $5, NOW())

@@ -63,7 +63,7 @@ export const AUTH_METHODS = {
 };
 
 export const verifyDevice = async (deviceToken) => {
-  const result = await db.query(
+  const result = await prisma.$queryRawUnsafe(
     `SELECT device_id, device_name, platform, last_active, staff_id, is_active
      FROM staff_devices
      WHERE device_token = $1 AND is_active = true`,
@@ -76,7 +76,7 @@ export const verifyDevice = async (deviceToken) => {
     throw error;
   }
   
-  const device = result.rows[0];
+  const device = result[0];
   
   return {
     valid: true,
@@ -93,7 +93,7 @@ export const getTodayAttendance = async (staffId) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   
-  const result = await db.query(
+  const result = await prisma.$queryRawUnsafe(
     `SELECT id, staff_uid, check_in_time, check_out_time, duration_minutes, status, created_at FROM staff_attendance
      WHERE staff_uid = $1 AND DATE(check_in_time) = DATE($2)
      ORDER BY check_in_time DESC LIMIT 1`,
@@ -109,7 +109,7 @@ export const getTodayAttendance = async (staffId) => {
     };
   }
   
-  const attendance = result.rows[0];
+  const attendance = result[0];
   
   return {
     date: formatDateDDMMYYYY(today),
@@ -136,14 +136,14 @@ export const getAttendanceHistory = async (staffId, { startDate, endDate, page, 
   }
   
   const [attendance, total] = await Promise.all([
-    db.query(
+    prisma.$queryRawUnsafe(
       `SELECT id, staff_uid, check_in_time, check_out_time, duration_minutes, status, created_at FROM staff_attendance
        ${whereClause}
        ORDER BY check_in_time DESC
        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, limit, offset]
     ),
-    db.query(
+    prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM staff_attendance ${whereClause}`,
       params
     )
@@ -161,8 +161,8 @@ export const getAttendanceHistory = async (staffId, { startDate, endDate, page, 
     pagination: {
       page,
       limit,
-      total: parseInt(total.rows[0].count),
-      totalPages: Math.ceil(total.rows[0].count / limit)
+      total: parseInt(total[0].count),
+      totalPages: Math.ceil(total[0].count / limit)
     }
   };
 };

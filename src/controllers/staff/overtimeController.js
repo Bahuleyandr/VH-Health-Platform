@@ -1,4 +1,4 @@
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
@@ -15,12 +15,12 @@ export const requestOvertime = async (req, res) => {
       return error(res, 'date, extra_hours, and reason are required', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       INSERT INTO overtime_requests (staff_id, date, extra_hours, reason, type)
       VALUES ($1, $2, $3, $4, $5) RETURNING id, staff_uid, date, hours, reason, status, approved_by, created_at
     `, [staffId, date, extra_hours, reason, type || 'comp_time']);
 
-    success(res, result.rows[0], 'Overtime request submitted');
+    success(res, result[0], 'Overtime request submitted');
   } catch (err) {
     logger.error('Overtime Request Error:', err);
     error(res, 'Failed to submit overtime request', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -33,7 +33,7 @@ export const requestOvertime = async (req, res) => {
 export const getMyOvertimeRequests = async (req, res) => {
   try {
     const staffId = req.user?.uid;
-    const rows = await db.query(`
+    const rows = await prisma.$queryRawUnsafe(`
       SELECT o.*, u.name as approved_by_name
       FROM overtime_requests o
       LEFT JOIN users u ON o.approved_by = u.id
@@ -60,7 +60,7 @@ export const approveOvertime = async (req, res) => {
       return error(res, 'status must be approved or rejected', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       UPDATE overtime_requests
       SET status=$1, approved_by=$2, approved_at=NOW(), rejection_reason=$3
       WHERE id=$4 RETURNING id, staff_uid, date, hours, reason, status, approved_by, created_at
@@ -70,7 +70,7 @@ export const approveOvertime = async (req, res) => {
       return error(res, 'Request not found', HTTP_STATUS.NOT_FOUND);
     }
 
-    success(res, result.rows[0], `Overtime request ${status}`);
+    success(res, result[0], `Overtime request ${status}`);
   } catch (err) {
     logger.error('Approve Overtime Error:', err);
     error(res, 'Failed to approve overtime request', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -82,7 +82,7 @@ export const approveOvertime = async (req, res) => {
  */
 export const getPendingOvertimeRequests = async (req, res) => {
   try {
-    const rows = await db.query(`
+    const rows = await prisma.$queryRawUnsafe(`
       SELECT o.*, u.name as staff_name, u.employee_id, s.department
       FROM overtime_requests o
       JOIN users u ON o.staff_id = u.id

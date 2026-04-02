@@ -1,4 +1,4 @@
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { dispatch } from '../notifications/notificationDispatcher.js';
 
@@ -61,7 +61,7 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
   // fails, the error propagates to the caller so it can be handled appropriately.
   if (alerts.length > 0) {
     for (const alert of alerts) {
-      await db.query(
+      await prisma.$queryRawUnsafe(
         `INSERT INTO clinical_alerts (patient_id, alert_type, vital_name, vital_value, severity, message, created_by, created_at)
          VALUES ($1, 'VITAL_ANOMALY', $2, $3, $4, $5, $6, NOW())`,
         [alert.patient_id, alert.vital_name, alert.value, alert.severity, alert.message, alert.recorded_by]

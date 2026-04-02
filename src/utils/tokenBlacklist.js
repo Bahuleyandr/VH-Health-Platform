@@ -9,7 +9,7 @@
  */
 
 import { cacheGet, cacheSet, isRedisConnected } from '../lib/redis.js';
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 
 const BLACKLIST_PREFIX = 'blacklist:';
@@ -37,7 +37,7 @@ export async function blacklistToken(jti, expiresAt, reason = 'logout') {
   // DB: persistent fallback (fire-and-forget)
   setImmediate(async () => {
     try {
-      await db.query(`
+      await prisma.$queryRawUnsafe(`
         INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
         VALUES ($1, to_timestamp($2), $3, NOW())
         ON CONFLICT (jti) DO NOTHING
@@ -71,7 +71,7 @@ export async function isTokenBlacklisted(jti) {
 
   // DB: fallback when Redis is unavailable
   try {
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       'SELECT 1 FROM invalidated_tokens WHERE jti = $1 AND expires_at > NOW() LIMIT 1',
       [jti]
     );
@@ -102,7 +102,7 @@ export async function revokeAllUserTokens(userId) {
 
   setImmediate(async () => {
     try {
-      await db.query(`
+      await prisma.$queryRawUnsafe(`
         INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
         VALUES ($1, NOW() + INTERVAL '30 days', $2, NOW())
         ON CONFLICT (jti) DO UPDATE SET expires_at = EXCLUDED.expires_at
@@ -132,7 +132,7 @@ export async function isUserTokensRevoked(userId, tokenIssuedAt) {
   }
 
   try {
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT 1 FROM invalidated_tokens WHERE jti = $1 AND expires_at > NOW() LIMIT 1`,
       [`user:${userId}`]
     );

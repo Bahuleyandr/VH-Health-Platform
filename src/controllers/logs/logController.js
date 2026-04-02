@@ -1,5 +1,5 @@
 // src/controllers/logs/logController.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 
@@ -11,15 +11,15 @@ export async function getAuditLogs(req, res) {
     const limit = Math.min(Number(req.query.limit ?? 50), 500);
     const offset = Number(req.query.offset ?? 0);
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, uid, role, action, resource, resource_id, metadata,
         ip_address, user_agent, created_at
        FROM audit_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
       [limit, offset]
     );
 
-    const countResult = await db.query(`SELECT COUNT(*) FROM audit_logs`);
-    const total = parseInt(countResult.rows[0].count, 10);
+    const countResult = await prisma.$queryRawUnsafe(`SELECT COUNT(*) FROM audit_logs`);
+    const total = parseInt(countResult[0].count, 10);
 
     success(res, { logs: result.rows, total, limit, offset }, 'Audit logs fetched');
   } catch (err) {
@@ -41,14 +41,14 @@ export async function getSystemLogs(req, res) {
     let total = 0;
 
     try {
-      const result = await db.query(
+      const result = await prisma.$queryRawUnsafe(
         `SELECT id, admin_uid, action, description, details, ip_address, created_at
          FROM admin_activity_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
         [limit, offset]
       );
-      const countResult = await db.query(`SELECT COUNT(*) FROM admin_activity_logs`);
+      const countResult = await prisma.$queryRawUnsafe(`SELECT COUNT(*) FROM admin_activity_logs`);
       rows = result.rows;
-      total = parseInt(countResult.rows[0].count, 10);
+      total = parseInt(countResult[0].count, 10);
     } catch {
       // Table does not exist yet — return empty list, not an error
       logger.warn('[logs] admin_activity_logs table not found; returning empty system logs');
@@ -69,7 +69,7 @@ export async function exportAuditLogs(req, res) {
     const limit = Math.min(Number(req.query.limit ?? 1000), 10000);
     const offset = Number(req.query.offset ?? 0);
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, uid, role, action, resource, resource_id, metadata,
         ip_address, user_agent, created_at
        FROM audit_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
@@ -101,7 +101,7 @@ export async function exportSystemLogs(req, res) {
     let rows = [];
 
     try {
-      const result = await db.query(
+      const result = await prisma.$queryRawUnsafe(
         `SELECT id, admin_uid, action, description, details, ip_address, created_at
          FROM admin_activity_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
         [limit, offset]

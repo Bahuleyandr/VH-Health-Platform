@@ -3,7 +3,7 @@
 
 import express from 'express';
 import { validationResult } from 'express-validator';
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
 import logger from '../logging/logger.js';
 import { OTPService } from '../services/otpService.js';
@@ -31,7 +31,7 @@ if (isDevelopment) {
   router.get('/stats', async (req, res) => {
     try {
       // Get OTP statistics from database
-      const stats = await db.query(`
+      const stats = await prisma.$queryRawUnsafe(`
         SELECT 
           COUNT(*) as total_otps,
           COUNT(CASE WHEN verified = true THEN 1 END) as verified_otps,
@@ -41,7 +41,7 @@ if (isDevelopment) {
         WHERE created_at >= NOW() - INTERVAL '24 hours'
       `);
 
-      const dailyStats = await db.query(`
+      const dailyStats = await prisma.$queryRawUnsafe(`
         SELECT 
           DATE(created_at) as date,
           COUNT(*) as count,
@@ -53,7 +53,7 @@ if (isDevelopment) {
       `);
 
       success(res, {
-        summary: stats.rows[0] || {},
+        summary: stats[0] || {},
         daily: dailyStats.rows || [],
         warning: 'Development statistics only'
       }, 'OTP statistics retrieved');
@@ -77,7 +77,7 @@ if (isDevelopment) {
         return error(res, 'Invalid phone number format', HTTP_STATUS.BAD_REQUEST);
       }
 
-      const otps = await db.query(`
+      const otps = await prisma.$queryRawUnsafe(`
         SELECT id, otp_code, purpose, expires_at, verified, created_at, attempts
         FROM otp_codes 
         WHERE phone = $1 
@@ -123,13 +123,13 @@ if (isDevelopment) {
       const expirationMinutes = 30; // 30 minutes for development
       const expiresAt = new Date(Date.now() + expirationMinutes * 60 * 1000);
       
-      const result = await db.query(`
+      const result = await prisma.$queryRawUnsafe(`
         INSERT INTO otp_codes (phone, otp_code, purpose, expires_at, created_at)
         VALUES ($1, $2, $3, $4, NOW())
         RETURNING id, session_id
       `, [normalizedPhone, otpCode, purpose, expiresAt]);
 
-      const sessionId = result.rows[0]?.session_id || 'dev-session';
+      const sessionId = result[0]?.session_id || 'dev-session';
 
       logger.info(`🧪 [DEV] Test OTP generated for ${normalizedPhone}: ${otpCode}`);
 
@@ -214,19 +214,19 @@ if (isDevelopment) {
       const { phone } = req.body;
       const normalizedPhone = normalizePhone(phone);
 
-      const result = await db.query(`
+      const result = await prisma.$queryRawUnsafe(`
         DELETE FROM otp_codes 
         WHERE phone = $1
       `, [normalizedPhone]);
 
-      logger.info(`🧪 [DEV] Cleared ${result.rowCount} OTP records for ${normalizedPhone}`);
+      logger.info(`🧪 [DEV] Cleared ${result.length} OTP records for ${normalizedPhone}`);
 
       success(res, {
         phone: normalizedPhone,
-        deletedCount: result.rowCount,
+        deletedCount: result.length,
         clearedAt: new Date().toISOString(),
         warning: 'Development cleanup only'
-      }, `Cleared ${result.rowCount} OTP records`);
+      }, `Cleared ${result.length} OTP records`);
 
     } catch (err) {
       logger.error('OTP Clear Error:', err);
@@ -248,7 +248,7 @@ if (isDevelopment) {
       const { phone } = req.body;
       const normalizedPhone = normalizePhone(phone);
 
-      const otps = await db.query(`
+      const otps = await prisma.$queryRawUnsafe(`
         SELECT id, otp_code, purpose, expires_at, verified, created_at, attempts
         FROM otp_codes 
         WHERE phone = $1 
@@ -277,19 +277,19 @@ if (isDevelopment) {
   router.delete('/clear-all-test-data', async (req, res) => {
     try {
       // Only clear test/development OTP data
-      const result = await db.query(`
+      const result = await prisma.$queryRawUnsafe(`
         DELETE FROM otp_codes 
         WHERE purpose IN ('test', 'development', 'debug')
         OR created_at < NOW() - INTERVAL '24 hours'
       `);
 
-      logger.warn(`🧪 [DEV] Cleared ${result.rowCount} test OTP records`);
+      logger.warn(`🧪 [DEV] Cleared ${result.length} test OTP records`);
 
       success(res, {
-        deletedCount: result.rowCount,
+        deletedCount: result.length,
         clearedAt: new Date().toISOString(),
         warning: 'Cleared test and expired OTP data only'
-      }, `Cleared ${result.rowCount} test OTP records`);
+      }, `Cleared ${result.length} test OTP records`);
 
     } catch (err) {
       logger.error('OTP Test Data Clear Error:', err);

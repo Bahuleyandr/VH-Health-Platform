@@ -1,5 +1,5 @@
 // src/controllers/appointment/appointmentDocumentController.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
@@ -20,9 +20,9 @@ export const uploadAppointmentDocument = async (req, res) => {
       return error(res, 'appointment_id and file are required', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const appt = await db.query('SELECT id, patient_id, doctor_id FROM appointments WHERE id=$1', [appointment_id]);
+    const appt = await prisma.$queryRawUnsafe('SELECT id, patient_id, doctor_id FROM appointments WHERE id=$1', [appointment_id]);
     if (!appt.rows.length) return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
-    const a = appt.rows[0];
+    const a = appt[0];
 
     const timestamp = Date.now();
     const ext = req.file.originalname.split('.').pop();
@@ -37,7 +37,7 @@ export const uploadAppointmentDocument = async (req, res) => {
       return error(res, 'File upload failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       INSERT INTO appointment_documents
         (appointment_id, patient_id, doctor_id, uploaded_by, upload_role,
          document_type, file_key, file_url, file_name, file_size, file_mime, notes)
@@ -51,12 +51,12 @@ export const uploadAppointmentDocument = async (req, res) => {
 
     // Notify patient if staff upload
     if (uploadRole === 'staff' && a.patient_id) {
-      const patient = await db.query('SELECT device_token FROM users WHERE id=$1', [a.patient_id]);
-      if (patient.rows[0]?.device_token) {
+      const patient = await prisma.$queryRawUnsafe('SELECT device_token FROM users WHERE id=$1', [a.patient_id]);
+      if (patient[0]?.device_token) {
         setImmediate(async () => {
           try {
             await sendPushNotification({
-              tokens: patient.rows[0].device_token,
+              tokens: patient[0].device_token,
               title: 'Document Available',
               body: `Your ${document_type || 'prescription'} from your recent visit is now available in Records.`,
               data: { type: 'document_uploaded', appointment_id: String(appointment_id) },
@@ -67,7 +67,7 @@ export const uploadAppointmentDocument = async (req, res) => {
       }
     }
 
-    success(res, result.rows[0], 'Document uploaded');
+    success(res, result[0], 'Document uploaded');
   } catch (err) {
     logger.error('Upload Appointment Doc Error:', err);
     error(res, 'Failed to upload document', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -80,7 +80,7 @@ export const uploadAppointmentDocument = async (req, res) => {
 export const getAppointmentDocuments = async (req, res) => {
   try {
     const { appointment_id } = req.params;
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT ad.id, ad.appointment_id, ad.patient_id, ad.doctor_id, ad.uploaded_by, ad.upload_role, ad.document_type, ad.file_key, ad.file_url, ad.file_name, ad.file_size, ad.file_mime, ad.notes, ad.created_at, u.name as uploaded_by_name
        FROM appointment_documents ad
        LEFT JOIN users u ON ad.uploaded_by = u.id
@@ -111,7 +111,7 @@ export const getPatientAllRecords = async (req, res) => {
     const patientId = req.user?.id;
 
     const [apptDocs, ownRecords] = await Promise.all([
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT ad.id, ad.appointment_id, ad.patient_id, ad.doctor_id, ad.uploaded_by, ad.upload_role, ad.document_type, ad.file_key, ad.file_url, ad.file_name, ad.file_size, ad.file_mime, ad.notes, ad.created_at, 'appointment' as source,
           a.appointment_date, a.appointment_time,
           d.name as doctor_name, doc.department as doctor_department
@@ -122,7 +122,7 @@ export const getPatientAllRecords = async (req, res) => {
         WHERE ad.patient_id=$1 AND ad.is_visible_to_patient=TRUE
         ORDER BY ad.created_at DESC
       `, [patientId]),
-      db.query(
+      prisma.$queryRawUnsafe(
         `SELECT id, patient_id, document_type, title, file_key, file_url, file_name, file_size, file_mime, source_hospital, record_date, notes, created_at, 'patient_upload' as source FROM patient_records WHERE patient_id=$1 ORDER BY created_at DESC`,
         [patientId]
       ),
@@ -172,7 +172,7 @@ export const uploadPatientRecord = async (req, res) => {
       return error(res, 'File upload failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       INSERT INTO patient_records
         (patient_id, document_type, title, file_key, file_url, file_name, file_size, file_mime, source_hospital, record_date, notes)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
@@ -183,7 +183,7 @@ export const uploadPatientRecord = async (req, res) => {
       source_hospital || null, record_date || null, notes || null,
     ]);
 
-    success(res, result.rows[0], 'Record uploaded');
+    success(res, result[0], 'Record uploaded');
   } catch (err) {
     logger.error('Patient Upload Error:', err);
     error(res, 'Failed to upload record', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -197,15 +197,15 @@ export const deletePatientRecord = async (req, res) => {
   try {
     const patientId = req.user?.id;
     const { id } = req.params;
-    const record = await db.query('SELECT id, file_key FROM patient_records WHERE id=$1 AND patient_id=$2', [id, patientId]);
+    const record = await prisma.$queryRawUnsafe('SELECT id, file_key FROM patient_records WHERE id=$1 AND patient_id=$2', [id, patientId]);
     if (!record.rows.length) return error(res, 'Record not found', HTTP_STATUS.NOT_FOUND);
 
-    const fileKey = record.rows[0].file_key;
+    const fileKey = record[0].file_key;
     setImmediate(async () => {
       try { await deleteObject(fileKey); } catch (e) { logger.warn('R2 delete failed:', e.message); }
     });
 
-    await db.query('DELETE FROM patient_records WHERE id=$1', [id]);
+    await prisma.$queryRawUnsafe('DELETE FROM patient_records WHERE id=$1', [id]);
     success(res, { deleted: true }, 'Record deleted');
   } catch (err) {
     logger.error('Delete Patient Record Error:', err);
@@ -228,7 +228,7 @@ export const getAllDocumentsAdmin = async (req, res) => {
     params.push(parseInt(limit));
     params.push(parseInt(offset));
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT ad.id, ad.appointment_id, ad.patient_id, ad.doctor_id, ad.uploaded_by, ad.upload_role, ad.document_type, ad.file_key, ad.file_url, ad.file_name, ad.file_size, ad.file_mime, ad.notes, ad.created_at, u.name as uploaded_by_name,
         p.name as patient_name, d.name as doctor_name,
         a.appointment_date, a.appointment_time

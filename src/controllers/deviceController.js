@@ -1,6 +1,6 @@
 // src/controllers/deviceController.js
 
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
 
@@ -12,7 +12,7 @@ export const registerDevice = async (req, res) => {
   }
 
   try {
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `INSERT INTO devices (phone, fcm_token, platform)
        VALUES ($1, $2, $3)
        ON CONFLICT (phone) DO UPDATE
@@ -22,7 +22,7 @@ export const registerDevice = async (req, res) => {
       [phone, fcm_token, platform]
     );
 
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `INSERT INTO audit_logs (action, phone, platform)
        VALUES ($1, $2, $3)`,
       ['DEVICE_REGISTERED', phone, platform]

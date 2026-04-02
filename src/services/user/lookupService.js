@@ -1,13 +1,48 @@
-// src/services/user/lookupService.js
-// Migrated from raw pg to Prisma ORM
-
 import { Prisma } from '@prisma/client';
 import prisma from '../../lib/prisma.js';
 import { USER_CONFIG } from '../../config/userConfig.js';
 import logger from '../../logging/logger.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 
+function buildLookupSelect(userRole) {
+  if (userRole === USER_CONFIG.ROLES.ADMIN) {
+    return `
+      uid,
+      phone,
+      name,
+      email,
+      role,
+      registered_at,
+      COALESCE(updated_at, registered_at) AS last_login,
+      profile_picture,
+      address,
+      birthday,
+      anniversary
+    `;
+  }
+
+  if (['DOCTOR', 'NURSING_STAFF'].includes(userRole)) {
+    return `
+      uid,
+      phone,
+      name,
+      email,
+      role,
+      registered_at
+    `;
+  }
+
+  return `
+    uid,
+    phone,
+    name,
+    registered_at,
+    role
+  `;
+}
+
 export class LookupService {
+  // Basic user lookup
   static async lookupUser(searchParams, userRole, requestedBy) {
     const { phone, uid, name, email, limit = 10 } = searchParams;
 
@@ -15,142 +50,164 @@ export class LookupService {
       throw new Error('Provide at least one search parameter');
     }
 
-    // Rate limit check
-    const recentRows = await prisma.$queryRaw`
-      SELECT COUNT(*)::int AS count
-      FROM audit_logs
-      WHERE uid = ${requestedBy}::uuid
-        AND action = 'user-lookup'
-        AND created_at > NOW() - INTERVAL '1 hour'
-    `;
-    const lookupCount = recentRows[0].count;
-    const maxLookups = USER_CONFIG.PRIVACY?.MAX_LOOKUPS_PER_HOUR?.[userRole] ||
-                       USER_CONFIG.PRIVACY?.MAX_LOOKUPS_PER_HOUR?.DEFAULT || 100;
-
-    if (lookupCount >= maxLookups) {
-      throw new Error('Lookup rate limit exceeded. Please try again later.');
-    }
-
-    // Build field list by role
-    let baseFields;
-    if (userRole === USER_CONFIG.ROLES.ADMIN) {
-      baseFields = 'uid, phone, name, email, role, registered_at, last_login, profile_picture, address, birthday, anniversary';
-    } else if (['DOCTOR', 'NURSING_STAFF'].includes(userRole)) {
-      baseFields = 'uid, phone, name, email, role, registered_at';
-    } else {
-      baseFields = 'uid, phone, name, registered_at, role';
-    }
-
-    const conditions = [];
-    if (phone) conditions.push(Prisma.sql`phone = ${normalizePhone(phone)}`);
-    if (uid) conditions.push(Prisma.sql`uid = ${uid}::uuid`);
-    if (name) conditions.push(Prisma.sql`LOWER(name) LIKE ${`%${name.toLowerCase()}%`}`);
-    if (email && ['ADMIN', 'DOCTOR'].includes(userRole)) {
-      conditions.push(Prisma.sql`LOWER(email) LIKE ${`%${email.toLowerCase()}%`}`);
-    }
-    if (userRole !== USER_CONFIG.ROLES.ADMIN) {
-      conditions.push(Prisma.sql`role != ${USER_CONFIG.ROLES.ADMIN}`);
-    }
-
-    const whereClause = Prisma.join(conditions, ' OR ');
-    const maxLimit = userRole === 'ADMIN' ? 50 : 20;
-    const limitNum = Math.min(parseInt(limit), maxLimit);
-
-    const users = await prisma.$queryRaw`
-      SELECT ${Prisma.raw(baseFields)} FROM users
-      WHERE ${whereClause}
-      ORDER BY registered_at DESC
-      LIMIT ${limitNum}
-    `;
-
-    const filtered = users.map(user => {
-      const u = { ...user };
-      if (userRole !== USER_CONFIG.ROLES.ADMIN) {
-        delete u.last_login;
-        delete u.address;
-        delete u.birthday;
-        delete u.anniversary;
-        if (!['DOCTOR', 'NURSING_STAFF', 'ADMIN'].includes(userRole)) {
-          u.phone = u.phone
-            ? u.phone.slice(0, -(USER_CONFIG.PRIVACY?.PHONE_MASK_LENGTH || 4)) + '****'
-            : null;
-        }
-      }
-      return u;
-    });
-
-    // Audit log
-    await prisma.audit_logs.create({
-      data: {
-        uid: requestedBy || null,
+    const recentLookups = await prisma.audit_logs.count({
+      where: {
+        uid: requestedBy,
         action: 'user-lookup',
-        metadata: { searchParams, resultsCount: filtered.length },
+        created_at: {
+          gt: new Date(Date.now() - 60 * 60 * 1000),
+        },
       },
     });
 
-    return filtered;
-  }
+    const maxLookups = USER_CONFIG.PRIVACY.MAX_LOOKUPS_PER_HOUR[userRole] ||
+      USER_CONFIG.PRIVACY.MAX_LOOKUPS_PER_HOUR.DEFAULT;
 
-  static async verifyUser(identifier, userRole, requestedBy) {
-    const { phone, uid } = identifier;
-    if (!phone && !uid) throw new Error('Provide phone or uid for verification');
-
-    let rows;
-    if (uid) {
-      rows = await prisma.$queryRaw`
-        SELECT uid, phone, name, role, registered_at FROM users WHERE uid = ${uid}::uuid
-      `;
-    } else {
-      rows = await prisma.$queryRaw`
-        SELECT uid, phone, name, role, registered_at FROM users WHERE phone = ${normalizePhone(phone)}
-      `;
+    if (recentLookups >= maxLookups) {
+      throw new Error('Lookup rate limit exceeded. Please try again later.');
     }
 
-    if (rows.length === 0) {
+    const conditions = [];
+
+    if (phone) {
+      conditions.push(Prisma.sql`phone = ${normalizePhone(phone)}`);
+    }
+
+    if (uid) {
+      conditions.push(Prisma.sql`uid = ${uid}::uuid`);
+    }
+
+    if (name) {
+      conditions.push(Prisma.sql`LOWER(name) LIKE ${`%${name.toLowerCase()}%`}`);
+    }
+
+    if (email && ['ADMIN', 'DOCTOR'].includes(userRole)) {
+      conditions.push(Prisma.sql`LOWER(email) LIKE ${`%${email.toLowerCase()}%`}`);
+    }
+
+    if (userRole !== USER_CONFIG.ROLES.ADMIN) {
+      conditions.push(Prisma.sql`role != 'ADMIN'`);
+    }
+
+    const whereClause = Prisma.sql`WHERE ${Prisma.join(conditions, ' OR ')}`;
+    const parsedLimit = Math.min(parseInt(limit, 10) || 10, userRole === 'ADMIN' ? 50 : 20);
+
+    const result = await prisma.$queryRaw(
+      Prisma.sql`
+        SELECT ${Prisma.raw(buildLookupSelect(userRole))}
+        FROM users
+        ${whereClause}
+        ORDER BY registered_at DESC
+        LIMIT ${parsedLimit}
+      `
+    );
+
+    const filteredResults = result.map((user) => {
+      if (userRole !== USER_CONFIG.ROLES.ADMIN) {
+        delete user.last_login;
+        delete user.address;
+        delete user.birthday;
+        delete user.anniversary;
+
+        if (!['DOCTOR', 'NURSING_STAFF', 'ADMIN'].includes(userRole)) {
+          user.phone = user.phone
+            ? user.phone.slice(0, -USER_CONFIG.PRIVACY.PHONE_MASK_LENGTH) + '****'
+            : null;
+        }
+      }
+      return user;
+    });
+
+    await prisma.audit_logs.create({
+      data: {
+        uid: requestedBy,
+        role: userRole,
+        action: 'user-lookup',
+        resource: 'users',
+        metadata: { searchParams, resultsCount: filteredResults.length },
+      },
+    });
+
+    return filteredResults;
+  }
+
+  // Quick user verification
+  static async verifyUser(identifier, userRole, requestedBy) {
+    const { phone, uid } = identifier;
+
+    if (!phone && !uid) {
+      throw new Error('Provide phone or uid for verification');
+    }
+
+    const user = await prisma.users.findFirst({
+      where: uid
+        ? { uid }
+        : { phone: normalizePhone(phone) },
+      select: {
+        uid: true,
+        phone: true,
+        name: true,
+        role: true,
+        registered_at: true,
+      },
+    });
+
+    if (!user) {
       await prisma.audit_logs.create({
         data: {
-          uid: requestedBy || null,
+          uid: requestedBy,
+          role: userRole,
           action: 'user-verification-failed',
+          resource: 'users',
           metadata: identifier,
         },
       });
+
       return { verified: false, exists: false };
     }
 
-    const user = { ...rows[0] };
     if (userRole !== USER_CONFIG.ROLES.ADMIN && !['DOCTOR', 'NURSING_STAFF'].includes(userRole)) {
-      user.phone = user.phone.slice(0, -(USER_CONFIG.PRIVACY?.PHONE_MASK_LENGTH || 4)) + '****';
+      user.phone = user.phone.slice(0, -USER_CONFIG.PRIVACY.PHONE_MASK_LENGTH) + '****';
     }
 
     await prisma.audit_logs.create({
       data: {
-        uid: requestedBy || null,
+        uid: requestedBy,
+        role: userRole,
         action: 'user-verification-success',
+        resource: 'users',
+        resource_id: user.uid,
         metadata: { foundUser: user.uid },
       },
     });
 
-    return { verified: true, exists: true, user };
+    return {
+      verified: true,
+      exists: true,
+      user,
+    };
   }
 
+  // Get user statistics
   static async getUserStatistics(detailed = false, userRole) {
-    const [basicStats, roleDistribution] = await Promise.all([
-      prisma.$queryRaw`
-        SELECT
-          COUNT(*)::int                                                              AS total_users,
-          COUNT(*) FILTER (WHERE registered_at > NOW() - INTERVAL '30 days')::int  AS new_users_30d,
-          COUNT(*) FILTER (WHERE last_login   > NOW() - INTERVAL '7 days')::int    AS active_users_7d,
-          COUNT(*) FILTER (WHERE last_login   > NOW() - INTERVAL '30 days')::int   AS active_users_30d,
-          COUNT(DISTINCT role)::int                                                 AS unique_roles,
-          MIN(registered_at) AS first_registration,
-          MAX(registered_at) AS latest_registration
-        FROM users
-      `,
-      prisma.$queryRaw`
-        SELECT role, COUNT(*)::int AS count
-        FROM users GROUP BY role ORDER BY count DESC
-      `,
-    ]);
+    const basicStats = await prisma.$queryRaw`
+      SELECT
+        COUNT(*)::int AS total_users,
+        COUNT(*) FILTER (WHERE registered_at > NOW() - INTERVAL '30 days')::int AS new_users_30d,
+        COUNT(*) FILTER (WHERE COALESCE(updated_at, registered_at) > NOW() - INTERVAL '7 days')::int AS active_users_7d,
+        COUNT(*) FILTER (WHERE COALESCE(updated_at, registered_at) > NOW() - INTERVAL '30 days')::int AS active_users_30d,
+        COUNT(DISTINCT role)::int AS unique_roles,
+        MIN(registered_at) AS first_registration,
+        MAX(registered_at) AS latest_registration
+      FROM users
+    `;
+
+    const roleDistribution = await prisma.$queryRaw`
+      SELECT role, COUNT(*)::int AS count
+      FROM users
+      GROUP BY role
+      ORDER BY count DESC
+    `;
 
     const responseData = {
       overallStats: basicStats[0],
@@ -161,16 +218,18 @@ export class LookupService {
       const [registrationTrends, loginActivity, ageDistribution, departmentStats] = await Promise.all([
         prisma.$queryRaw`
           SELECT DATE(registered_at) AS date, COUNT(*)::int AS registrations
-          FROM users WHERE registered_at > NOW() - INTERVAL '30 days'
-          GROUP BY DATE(registered_at) ORDER BY date DESC
+          FROM users
+          WHERE registered_at > NOW() - INTERVAL '30 days'
+          GROUP BY DATE(registered_at)
+          ORDER BY date DESC
         `,
         prisma.$queryRaw`
           SELECT
-            COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '1 day')::int   AS logins_1d,
-            COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '7 days')::int  AS logins_7d,
-            COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '30 days')::int AS logins_30d,
-            COUNT(*) FILTER (WHERE last_login IS NULL)::int                      AS never_logged_in,
-            AVG(EXTRACT(EPOCH FROM (NOW() - last_login))/86400) AS avg_days_since_login
+            COUNT(*) FILTER (WHERE COALESCE(updated_at, registered_at) > NOW() - INTERVAL '1 day')::int AS logins_1d,
+            COUNT(*) FILTER (WHERE COALESCE(updated_at, registered_at) > NOW() - INTERVAL '7 days')::int AS logins_7d,
+            COUNT(*) FILTER (WHERE COALESCE(updated_at, registered_at) > NOW() - INTERVAL '30 days')::int AS logins_30d,
+            0::int AS never_logged_in,
+            AVG(EXTRACT(EPOCH FROM (NOW() - COALESCE(updated_at, registered_at))) / 86400) AS avg_days_since_login
           FROM users
         `,
         prisma.$queryRaw`
@@ -184,13 +243,17 @@ export class LookupService {
               ELSE 'Unknown'
             END AS age_group,
             COUNT(*)::int AS count
-          FROM users WHERE role = 'PATIENT' AND birthday IS NOT NULL
-          GROUP BY age_group ORDER BY count DESC
+          FROM users
+          WHERE role = 'PATIENT' AND birthday IS NOT NULL
+          GROUP BY age_group
+          ORDER BY count DESC
         `,
         prisma.$queryRaw`
           SELECT d.department, d.specialty AS specialization, COUNT(u.uid)::int AS staff_count
-          FROM doctors d LEFT JOIN users u ON d.user_uid = u.uid
-          GROUP BY d.department, d.specialty ORDER BY staff_count DESC
+          FROM doctors d
+          LEFT JOIN users u ON d.user_id = u.id
+          GROUP BY d.department, d.specialty
+          ORDER BY staff_count DESC
         `,
       ]);
 
@@ -205,50 +268,96 @@ export class LookupService {
     return responseData;
   }
 
+  // Get recent user activity
   static async getRecentActivity(days = 7, limit = 50) {
-    const daysInt = parseInt(days);
-    const rows = await prisma.$queryRaw`
+    const daysInt = parseInt(days, 10) || 7;
+    const parsedLimit = Math.min(parseInt(limit, 10) || 50, 100);
+
+    const result = await prisma.$queryRaw`
       SELECT
-        u.uid, u.phone, u.name, u.role, u.last_login, u.registered_at,
+        u.uid, u.phone, u.name, u.role,
+        COALESCE(u.updated_at, u.registered_at) AS last_login,
+        u.registered_at,
         CASE
-          WHEN u.last_login > NOW() - INTERVAL '1 day'   THEN 'Very Active'
-          WHEN u.last_login > NOW() - INTERVAL '7 days'  THEN 'Active'
-          WHEN u.last_login > NOW() - INTERVAL '30 days' THEN 'Inactive'
+          WHEN COALESCE(u.updated_at, u.registered_at) > NOW() - INTERVAL '1 day' THEN 'Very Active'
+          WHEN COALESCE(u.updated_at, u.registered_at) > NOW() - INTERVAL '7 days' THEN 'Active'
+          WHEN COALESCE(u.updated_at, u.registered_at) > NOW() - INTERVAL '30 days' THEN 'Inactive'
           ELSE 'Long Inactive'
         END AS activity_status
       FROM users u
-      WHERE u.registered_at > NOW() - (${daysInt} || ' days')::interval
-         OR u.last_login    > NOW() - (${daysInt} || ' days')::interval
-      ORDER BY COALESCE(u.last_login, u.registered_at) DESC
-      LIMIT ${Math.min(parseInt(limit), 100)}
+      WHERE u.registered_at > NOW() - (${daysInt} * INTERVAL '1 day')
+         OR COALESCE(u.updated_at, u.registered_at) > NOW() - (${daysInt} * INTERVAL '1 day')
+      ORDER BY COALESCE(u.updated_at, u.registered_at) DESC
+      LIMIT ${parsedLimit}
     `;
-    return rows;
+
+    return result;
   }
 
+  // Bulk user search
   static async bulkSearch(criteria, options = {}) {
     const { includeInactive = true, sortBy = 'registered_at', sortOrder = 'DESC', limit = 100 } = options;
 
     const conditions = [Prisma.sql`1=1`];
-    if (criteria.role) conditions.push(Prisma.sql`role = ${criteria.role.toUpperCase()}`);
-    if (criteria.registeredAfter) conditions.push(Prisma.sql`registered_at >= ${new Date(criteria.registeredAfter)}`);
-    if (criteria.registeredBefore) conditions.push(Prisma.sql`registered_at <= ${new Date(criteria.registeredBefore)}`);
-    if (criteria.namePattern) conditions.push(Prisma.sql`LOWER(name) LIKE ${`%${criteria.namePattern.toLowerCase()}%`}`);
-    if (criteria.phonePattern) conditions.push(Prisma.sql`phone LIKE ${`%${criteria.phonePattern}%`}`);
-    if (!includeInactive) conditions.push(Prisma.sql`last_login > NOW() - INTERVAL '30 days'`);
 
-    const whereClause = Prisma.join(conditions, ' AND ');
+    if (criteria.role) {
+      conditions.push(Prisma.sql`u.role = ${criteria.role.toUpperCase()}`);
+    }
 
-    const allowedSortFields = ['name', 'registered_at', 'last_login', 'role', 'phone'];
-    const sortField = allowedSortFields.includes(sortBy) ? sortBy : 'registered_at';
-    const order = sortOrder.toUpperCase() === 'ASC' ? Prisma.sql`ASC` : Prisma.sql`DESC`;
+    if (criteria.registeredAfter) {
+      conditions.push(Prisma.sql`u.registered_at >= ${criteria.registeredAfter}::timestamp`);
+    }
 
-    return prisma.$queryRaw`
-      SELECT id, uid, phone, name, email, gender, role,
-             is_active, registered_at, updated_at, last_login
-      FROM users
-      WHERE ${whereClause}
-      ORDER BY ${Prisma.raw(sortField)} ${order}
-      LIMIT ${Math.min(parseInt(limit), 500)}
+    if (criteria.registeredBefore) {
+      conditions.push(Prisma.sql`u.registered_at <= ${criteria.registeredBefore}::timestamp`);
+    }
+
+    if (criteria.namePattern) {
+      conditions.push(Prisma.sql`LOWER(u.name) LIKE ${`%${criteria.namePattern.toLowerCase()}%`}`);
+    }
+
+    if (criteria.phonePattern) {
+      conditions.push(Prisma.sql`u.phone LIKE ${`%${criteria.phonePattern}%`}`);
+    }
+
+    if (!includeInactive) {
+      conditions.push(Prisma.sql`COALESCE(u.updated_at, u.registered_at) > NOW() - INTERVAL '30 days'`);
+    }
+
+    const allowedSortFields = {
+      name: 'u.name',
+      registered_at: 'u.registered_at',
+      last_login: 'COALESCE(u.updated_at, u.registered_at)',
+      role: 'u.role',
+      phone: 'u.phone',
+    };
+    const sortField = allowedSortFields[sortBy] || allowedSortFields.registered_at;
+    const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    const parsedLimit = Math.min(parseInt(limit, 10) || 100, 500);
+
+    const result = await prisma.$queryRaw`
+      SELECT
+        u.id,
+        u.uid,
+        u.phone,
+        u.name,
+        u.email,
+        u.gender,
+        u.role,
+        NULL::text AS department,
+        NULL::text AS specialty,
+        NULL::text AS employee_id,
+        u.is_active,
+        CASE WHEN u.is_active THEN 'active' ELSE 'inactive' END AS status,
+        u.registered_at,
+        u.updated_at,
+        COALESCE(u.updated_at, u.registered_at) AS last_login
+      FROM users u
+      WHERE ${Prisma.join(conditions, ' AND ')}
+      ORDER BY ${Prisma.raw(sortField)} ${Prisma.raw(order)}
+      LIMIT ${parsedLimit}
     `;
+
+    return result;
   }
 }

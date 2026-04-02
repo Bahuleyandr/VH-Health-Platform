@@ -2,7 +2,7 @@
 // Lightweight Prometheus metrics collection without external dependencies.
 // Exposes histograms, counters, and gauges in Prometheus exposition format.
 
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 
 // ---------------------------------------------------------------------------

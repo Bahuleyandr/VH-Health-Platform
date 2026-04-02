@@ -1,7 +1,7 @@
 // src/services/abdm/abdmService.js
 // ABDM Business Logic — ABHA registration, consent management, health data exchange
 
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { ABDM_CONFIG } from '../../config/abdmConfig.js';
@@ -32,7 +32,7 @@ class ABDMService {
     }
 
     // Check patient exists
-    const patientResult = await db.query(
+    const patientResult = await prisma.$queryRawUnsafe(
       `SELECT uid, name, phone FROM users WHERE uid = $1 AND is_active = true LIMIT 1`,
       [patientUid]
     );
@@ -41,7 +41,7 @@ class ABDMService {
     }
 
     // Check ABHA not already linked to another patient
-    const existingAbha = await db.query(
+    const existingAbha = await prisma.$queryRawUnsafe(
       `SELECT uid FROM users WHERE abha_number = $1 AND uid != $2 LIMIT 1`,
       [abhaNumber, patientUid]
     );
@@ -63,7 +63,7 @@ class ABDMService {
     }
 
     // Update patient with ABHA details
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `UPDATE users
        SET abha_number = $1, abha_address = $2, updated_at = NOW()
        WHERE uid = $3
@@ -77,7 +77,7 @@ class ABDMService {
       abhaAddress: abhaAddress || null,
     });
 
-    return result.rows[0];
+    return result[0];
   }
 
   /**
@@ -90,7 +90,7 @@ class ABDMService {
       throw AppError.badRequest('ABHA number is required', 'MISSING_ABHA_NUMBER');
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT uid, name, phone, email, gender, birthday, abha_number, abha_address, registered_at
        FROM users
        WHERE abha_number = $1 AND is_active = true
@@ -102,7 +102,7 @@ class ABDMService {
       throw AppError.notFound('No patient found with this ABHA number', 'ABHA_NOT_FOUND');
     }
 
-    return result.rows[0];
+    return result[0];
   }
 
   /**
@@ -133,7 +133,7 @@ class ABDMService {
     }
 
     // Find patient by ABHA number
-    const patientResult = await db.query(
+    const patientResult = await prisma.$queryRawUnsafe(
       `SELECT uid FROM users WHERE abha_number = $1 AND is_active = true LIMIT 1`,
       [patient.id]
     );
@@ -143,10 +143,10 @@ class ABDMService {
       throw AppError.notFound('Patient not registered at this facility', 'PATIENT_NOT_FOUND');
     }
 
-    const patientUid = patientResult.rows[0].uid;
+    const patientUid = patientResult[0].uid;
 
     // Check for duplicate consent request
-    const existing = await db.query(
+    const existing = await prisma.$queryRawUnsafe(
       `SELECT id FROM abdm_consents WHERE consent_id = $1 LIMIT 1`,
       [consentRequestId]
     );
@@ -157,7 +157,7 @@ class ABDMService {
     // Calculate expiry date
     const expiryDate = expiry ? new Date(expiry) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // default 30 days
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `INSERT INTO abdm_consents
         (consent_id, patient_uid, hip_id, hiu_id, purpose, hi_types,
          date_range_from, date_range_to, expiry_date, status, requester_name, created_at)
@@ -183,7 +183,7 @@ class ABDMService {
       purpose,
     });
 
-    return result.rows[0];
+    return result[0];
   }
 
   /**
@@ -205,7 +205,7 @@ class ABDMService {
 
     // Check expiry
     if (new Date(consent.expiry_date) < new Date()) {
-      await db.query(
+      await prisma.$queryRawUnsafe(
         `UPDATE abdm_consents SET status = 'EXPIRED' WHERE consent_id = $1`,
         [consentId]
       );
@@ -233,7 +233,7 @@ class ABDMService {
       },
     };
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `UPDATE abdm_consents
        SET status = 'GRANTED', granted_at = NOW(), consent_artifact = $1
        WHERE consent_id = $2
@@ -253,7 +253,7 @@ class ABDMService {
 
     logger.info('ABDM consent granted', { consentId, patientUid });
 
-    return result.rows[0];
+    return result[0];
   }
 
   /**
@@ -273,7 +273,7 @@ class ABDMService {
       );
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `UPDATE abdm_consents
        SET status = 'DENIED'
        WHERE consent_id = $1
@@ -293,7 +293,7 @@ class ABDMService {
 
     logger.info('ABDM consent denied', { consentId, patientUid, reason: reason || 'not specified' });
 
-    return result.rows[0];
+    return result[0];
   }
 
   /**
@@ -312,7 +312,7 @@ class ABDMService {
       );
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `UPDATE abdm_consents
        SET status = 'REVOKED', revoked_at = NOW()
        WHERE consent_id = $1
@@ -332,7 +332,7 @@ class ABDMService {
 
     logger.info('ABDM consent revoked', { consentId, patientUid });
 
-    return result.rows[0];
+    return result[0];
   }
 
   /**
@@ -354,7 +354,7 @@ class ABDMService {
     }
 
     // Verify consent exists and is GRANTED
-    const consentResult = await db.query(
+    const consentResult = await prisma.$queryRawUnsafe(
       `SELECT consent_id, patient_uid, status, hi_types, date_range_from, date_range_to, expiry_date
        FROM abdm_consents
        WHERE consent_id = $1
@@ -366,7 +366,7 @@ class ABDMService {
       throw AppError.notFound('Consent not found', 'CONSENT_NOT_FOUND');
     }
 
-    const consent = consentResult.rows[0];
+    const consent = consentResult[0];
 
     if (consent.status !== 'GRANTED') {
       throw AppError.forbidden('Consent is not in GRANTED status', 'CONSENT_NOT_GRANTED');
@@ -374,7 +374,7 @@ class ABDMService {
 
     // Check consent expiry
     if (new Date(consent.expiry_date) < new Date()) {
-      await db.query(
+      await prisma.$queryRawUnsafe(
         `UPDATE abdm_consents SET status = 'EXPIRED' WHERE consent_id = $1`,
         [consentId]
       );
@@ -382,7 +382,7 @@ class ABDMService {
     }
 
     // Create data request record
-    const requestResult = await db.query(
+    const requestResult = await prisma.$queryRawUnsafe(
       `INSERT INTO abdm_data_requests
         (transaction_id, consent_id, patient_uid, hi_types, date_range_from, date_range_to, key_material, status, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, 'PROCESSING', NOW())
@@ -412,13 +412,13 @@ class ABDMService {
         error: err.message,
       });
       // Mark as FAILED
-      db.query(
+      prisma.$queryRawUnsafe(
         `UPDATE abdm_data_requests SET status = 'FAILED' WHERE transaction_id = $1`,
         [transactionId]
       ).catch(() => {});
     });
 
-    return requestResult.rows[0];
+    return requestResult[0];
   }
 
   /**
@@ -431,7 +431,7 @@ class ABDMService {
       throw AppError.badRequest('Patient UID is required', 'MISSING_PATIENT_UID');
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, consent_id, hip_id, hiu_id, purpose, hi_types,
               date_range_from, date_range_to, expiry_date, status,
               requester_name, granted_at, revoked_at, created_at
@@ -477,7 +477,7 @@ class ABDMService {
     for (const hiType of hiTypes) {
       switch (hiType) {
         case 'Prescription': {
-          const rxResult = await db.query(
+          const rxResult = await prisma.$queryRawUnsafe(
             `SELECT id, medication_name, dosage, frequency, duration, instructions, doctor_uid, created_at
              FROM prescriptions
              WHERE patient_uid = $1${dateClause}
@@ -503,7 +503,7 @@ class ABDMService {
         }
 
         case 'DiagnosticReport': {
-          const labResult = await db.query(
+          const labResult = await prisma.$queryRawUnsafe(
             `SELECT id, test_name, result_value, result_unit, reference_range, status, doctor_uid, created_at
              FROM investigations
              WHERE patient_uid = $1${dateClause}
@@ -529,7 +529,7 @@ class ABDMService {
         }
 
         case 'DischargeSummary': {
-          const dcResult = await db.query(
+          const dcResult = await prisma.$queryRawUnsafe(
             `SELECT id, admission_id, summary, diagnosis, treatment_given, discharge_instructions, doctor_uid, created_at
              FROM discharge_summaries
              WHERE patient_uid = $1${dateClause}
@@ -554,7 +554,7 @@ class ABDMService {
         }
 
         case 'OPConsultation': {
-          const opResult = await db.query(
+          const opResult = await prisma.$queryRawUnsafe(
             `SELECT id, doctor_uid, reason, notes, status, appointment_date, created_at
              FROM appointments
              WHERE patient_uid = $1 AND status = 'completed'${dateClause}
@@ -580,7 +580,7 @@ class ABDMService {
         case 'ImmunizationRecord': {
           // Query immunization records if available
           try {
-            const immResult = await db.query(
+            const immResult = await prisma.$queryRawUnsafe(
               `SELECT id, vaccine_name, dose_number, administered_date, administered_by, lot_number, created_at
                FROM immunizations
                WHERE patient_uid = $1${dateClause}
@@ -635,7 +635,7 @@ class ABDMService {
       throw AppError.badRequest('Consent ID and patient UID are required');
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT c.id, c.consent_id, c.patient_uid, c.hip_id, c.hiu_id, c.purpose,
               c.hi_types, c.date_range_from, c.date_range_to, c.expiry_date,
               c.status, c.requester_name, c.granted_at, c.revoked_at,
@@ -651,7 +651,7 @@ class ABDMService {
       throw AppError.notFound('Consent not found', 'CONSENT_NOT_FOUND');
     }
 
-    const consent = result.rows[0];
+    const consent = result[0];
 
     // IDOR check — patient can only manage their own consents
     if (String(consent.patient_uid) !== String(patientUid)) {
@@ -679,7 +679,7 @@ class ABDMService {
     }
 
     // Mark as delivered
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `UPDATE abdm_data_requests SET status = 'DELIVERED', delivered_at = NOW() WHERE transaction_id = $1`,
       [transactionId]
     );

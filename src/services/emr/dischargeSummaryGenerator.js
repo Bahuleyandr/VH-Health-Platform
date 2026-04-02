@@ -12,7 +12,10 @@
 // The generated summary is ALWAYS a draft. It must be reviewed, edited, and
 // signed by a doctor before it becomes the official discharge summary.
 
-import db from '../../config/database.js';
+const db = createPrismaDb(prisma);
+
+import prisma from '../../lib/prisma.js';
+import { createPrismaDb } from '../../lib/prismaCompat.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
@@ -176,7 +179,7 @@ function buildTemplateSummary(data) {
 // ===================================================================
 async function collectClinicalData(admissionId) {
   // Get admission details
-  const { rows: admRows } = await db.query(
+  const { rows: admRows } = await prisma.$queryRawUnsafe(
     `SELECT a.*, u.name as patient_name, u.gender, u.phone, u.birthday, u.allergies as patient_allergies
      FROM admissions a
      LEFT JOIN users u ON a.patient_uid = u.uid
@@ -187,7 +190,7 @@ async function collectClinicalData(admissionId) {
   const admission = admRows[0];
 
   // Get all clinical notes for this encounter
-  const { rows: notes } = await db.query(
+  const { rows: notes } = await prisma.$queryRawUnsafe(
     `SELECT id, note_type, content, author_uid, is_signed, created_at
      FROM clinical_notes
      WHERE encounter_id = $1
@@ -199,7 +202,7 @@ async function collectClinicalData(admissionId) {
   const procedures = notes.filter(n => n.note_type === 'procedure');
 
   // Get diagnoses
-  const { rows: diagnoses } = await db.query(
+  const { rows: diagnoses } = await prisma.$queryRawUnsafe(
     `SELECT icd10_code, description, diagnosis_type, status, severity, onset_date
      FROM diagnoses
      WHERE encounter_id = $1
@@ -208,7 +211,7 @@ async function collectClinicalData(admissionId) {
   );
 
   // Get latest vitals
-  const { rows: vitalsRows } = await db.query(
+  const { rows: vitalsRows } = await prisma.$queryRawUnsafe(
     `SELECT heart_rate, systolic_bp, diastolic_bp, temperature, spo2,
             respiratory_rate, blood_glucose, pain_score, gcs_score, consciousness
      FROM vitals_chart
@@ -218,7 +221,7 @@ async function collectClinicalData(admissionId) {
   );
 
   // Get medication administrations
-  const { rows: medications } = await db.query(
+  const { rows: medications } = await prisma.$queryRawUnsafe(
     `SELECT medication_name, dose, route, status, administered_at
      FROM medication_administrations
      WHERE patient_uid = $1 AND created_at >= $2
@@ -227,7 +230,7 @@ async function collectClinicalData(admissionId) {
   );
 
   // Get investigations
-  const { rows: investigations } = await db.query(
+  const { rows: investigations } = await prisma.$queryRawUnsafe(
     `SELECT type, test_name, status, result_summary, created_at
      FROM investigations
      WHERE patient_uid = $1 AND created_at >= $2
@@ -236,7 +239,7 @@ async function collectClinicalData(admissionId) {
   );
 
   // Get active orders
-  const { rows: activeOrders } = await db.query(
+  const { rows: activeOrders } = await prisma.$queryRawUnsafe(
     `SELECT order_type, details, status, priority
      FROM clinical_orders
      WHERE encounter_id = $1 AND status NOT IN ('completed', 'cancelled', 'discontinued')
@@ -341,7 +344,7 @@ async function generateDischargeSummary(admissionId, requestedBy, req) {
 // Save edited discharge summary as clinical note (draft or final)
 // ===================================================================
 async function saveDischargeSummary(admissionId, summary, savedBy) {
-  const { rows: admRows } = await db.query(
+  const { rows: admRows } = await prisma.$queryRawUnsafe(
     `SELECT encounter_id, patient_uid, status FROM admissions WHERE id = $1`,
     [admissionId]
   );
@@ -350,7 +353,7 @@ async function saveDischargeSummary(admissionId, summary, savedBy) {
   const admission = admRows[0];
 
   // Check if a discharge note already exists for this encounter
-  const { rows: existing } = await db.query(
+  const { rows: existing } = await prisma.$queryRawUnsafe(
     `SELECT id FROM clinical_notes
      WHERE encounter_id = $1 AND note_type = 'discharge'
      ORDER BY version DESC LIMIT 1`,
@@ -359,7 +362,7 @@ async function saveDischargeSummary(admissionId, summary, savedBy) {
 
   if (existing.length) {
     // Update existing draft (only if not signed)
-    const { rows: note } = await db.query(
+    const { rows: note } = await prisma.$queryRawUnsafe(
       `SELECT is_signed FROM clinical_notes WHERE id = $1`,
       [existing[0].id]
     );
@@ -367,7 +370,7 @@ async function saveDischargeSummary(admissionId, summary, savedBy) {
       throw AppError.badRequest('Signed discharge summary cannot be modified. Add an addendum instead.');
     }
 
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `UPDATE clinical_notes
        SET content = $1, version = version + 1, updated_at = NOW()
        WHERE id = $2`,
@@ -378,7 +381,7 @@ async function saveDischargeSummary(admissionId, summary, savedBy) {
   }
 
   // Create new discharge note
-  const { rows: created } = await db.query(
+  const { rows: created } = await prisma.$queryRawUnsafe(
     `INSERT INTO clinical_notes
      (encounter_id, patient_uid, author_uid, author_role, note_type, content, version, is_signed)
      VALUES ($1, $2, $3, 'DOCTOR', 'discharge', $4, 1, false)
@@ -393,7 +396,7 @@ async function saveDischargeSummary(admissionId, summary, savedBy) {
 // Sign discharge summary — makes it official and immutable
 // ===================================================================
 async function signDischargeSummary(admissionId, doctorUid) {
-  const { rows: admRows } = await db.query(
+  const { rows: admRows } = await prisma.$queryRawUnsafe(
     `SELECT encounter_id, patient_uid FROM admissions WHERE id = $1`,
     [admissionId]
   );
@@ -401,7 +404,7 @@ async function signDischargeSummary(admissionId, doctorUid) {
 
   // Verify the signer is a doctor — Medical Records staff can edit but NOT sign
   const { canSignDischargeSummary } = await import('../../utils/roleHelpers.js');
-  const { rows: userRows } = await db.query(
+  const { rows: userRows } = await prisma.$queryRawUnsafe(
     `SELECT role FROM users WHERE uid = $1`,
     [doctorUid]
   );
@@ -411,7 +414,7 @@ async function signDischargeSummary(admissionId, doctorUid) {
   }
 
   // Find the discharge note
-  const { rows: noteRows } = await db.query(
+  const { rows: noteRows } = await prisma.$queryRawUnsafe(
     `SELECT id, is_signed FROM clinical_notes
      WHERE encounter_id = $1 AND note_type = 'discharge'
      ORDER BY version DESC LIMIT 1`,
@@ -421,7 +424,7 @@ async function signDischargeSummary(admissionId, doctorUid) {
   if (noteRows[0].is_signed) throw AppError.badRequest('Discharge summary is already signed');
 
   // Sign the note — this makes it immutable
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `UPDATE clinical_notes
      SET is_signed = true, signed_at = NOW(), signed_by = $1
      WHERE id = $2`,
@@ -429,7 +432,7 @@ async function signDischargeSummary(admissionId, doctorUid) {
   );
 
   // Audit log
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, details, created_at)
      VALUES ($1, 'SIGN_DISCHARGE_SUMMARY', 'clinical_notes', $2, $3, NOW())`,
     [doctorUid, String(noteRows[0].id), JSON.stringify({

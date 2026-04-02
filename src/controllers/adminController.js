@@ -3,7 +3,7 @@ import admin from 'firebase-admin';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { executeCleanup } from '../utils/r2CleanupJob.js';
 import { listObjectsV2 } from '../utils/r2Storage.js';
@@ -136,7 +136,7 @@ export const validateSwagger = (req, res) => {
 // ✅ View Role Audit Log
 export const viewRoleAudit = async (req, res) => {
   try {
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT phone, old_role, new_role, changed_by_uid, changed_at
        FROM user_role_audit
        ORDER BY changed_at DESC
@@ -158,13 +158,13 @@ export const sendTestNotification = async (req, res) => {
   }
 
   try {
-    const result = await db.query('SELECT fcm_token FROM devices WHERE phone = $1', [phone]);
+    const result = await prisma.$queryRawUnsafe('SELECT fcm_token FROM devices WHERE phone = $1', [phone]);
 
-    if (result.rowCount === 0) {
+    if (result.length === 0) {
       return res.status(404).json({ success: false, message: 'Device not registered.' });
     }
 
-    const token = result.rows[0].fcm_token;
+    const token = result[0].fcm_token;
 
     const message = {
       token,
@@ -187,7 +187,7 @@ export const sendTestNotification = async (req, res) => {
 // ✅ Audit Logs Viewer
 export const getAuditLogs = async (req, res) => {
   try {
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, action, phone, platform, timestamp
        FROM audit_logs
        ORDER BY timestamp DESC

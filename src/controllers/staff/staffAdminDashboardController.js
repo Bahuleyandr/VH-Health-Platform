@@ -1,5 +1,5 @@
 // src/controllers/staff/staffAdminDashboardController.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -7,7 +7,7 @@ import { success, error } from '../../utils/responseHelper.js';
 // Staff Admin Dashboard
 export const getStaffAdminDashboard = async (req, res) => {
   try {
-    const dashboardData = await db.query(`
+    const dashboardData = await prisma.$queryRawUnsafe(`
       WITH staff_stats AS (
         SELECT 
           COUNT(DISTINCT s.id) as total_staff,
@@ -44,7 +44,7 @@ export const getStaffAdminDashboard = async (req, res) => {
       FROM staff_stats, attendance_today, hr_pending
     `);
 
-    const recentActivity = await db.query(`
+    const recentActivity = await prisma.$queryRawUnsafe(`
       SELECT 
         'attendance' as type,
         CONCAT(s.name, ' checked in') as description,
@@ -57,7 +57,7 @@ export const getStaffAdminDashboard = async (req, res) => {
     `);
 
     success(res, {
-      overview: dashboardData.rows[0],
+      overview: dashboardData[0],
       recentActivity: recentActivity.rows,
       lastUpdated: new Date()
     }, 'Staff admin dashboard loaded successfully');

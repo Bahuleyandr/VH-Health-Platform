@@ -1,6 +1,6 @@
 // src/services/userAuditService.js - Hospital User Audit Service
 
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import { USER_ACTIONS } from '../config/userConfig.js';
 import logger from '../logging/logger.js';
 
@@ -9,7 +9,7 @@ import logger from '../logging/logger.js';
  */
 export async function logUserAction(userId, action, targetUserId = null, details = null, ipAddress = null) {
   try {
-    await db.query(`
+    await prisma.$queryRawUnsafe(`
       INSERT INTO user_action_logs (
         user_id, action, target_user_id, details, ip_address, created_at
       ) VALUES ($1, $2, $3, $4, $5, NOW())
@@ -24,7 +24,7 @@ export async function logUserAction(userId, action, targetUserId = null, details
  */
 export async function getUserActivityLogs(userId, limit = 20) {
   try {
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT 
         action, details, created_at, ip_address
       FROM user_action_logs 
@@ -69,7 +69,7 @@ export async function getActivityAudit(filters = {}) {
   }
 
   try {
-    const activityLogs = await db.query(`
+    const activityLogs = await prisma.$queryRawUnsafe(`
       SELECT 
         ual.id, ual.user_id, ual.action, ual.target_user_id, ual.details,
         ual.ip_address, ual.created_at,
@@ -95,7 +95,7 @@ export async function getActivityAudit(filters = {}) {
  */
 export async function getActivitySummary(days = 30) {
   try {
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT 
         ual.action,
         COUNT(*) as action_count,
@@ -121,7 +121,7 @@ export async function getActivitySummary(days = 30) {
  */
 export async function detectSuspiciousActivity(days = 30) {
   try {
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT 
         ual.ip_address,
         ual.user_id,
@@ -165,7 +165,7 @@ export async function logBulkAction(action, performedBy, affectedUsers, details 
  */
 export async function getUserAccessHistory(userId, days = 90) {
   try {
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT 
         DATE(created_at) as access_date,
         COUNT(*) as action_count,
@@ -191,14 +191,14 @@ export async function getUserAccessHistory(userId, days = 90) {
  */
 export async function cleanOldAuditLogs(retentionDays = 365) {
   try {
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       DELETE FROM user_action_logs
       WHERE created_at < NOW() - INTERVAL '${retentionDays} days'
       RETURNING id
     `);
 
-    logger.info(`Cleaned ${result.rowCount} old audit logs`);
-    return result.rowCount;
+    logger.info(`Cleaned ${result.length} old audit logs`);
+    return result.length;
   } catch (err) {
     logger.error('Failed to clean old audit logs:', err);
     throw err;
@@ -210,7 +210,7 @@ export async function cleanOldAuditLogs(retentionDays = 365) {
  */
 export async function getActionStatsByRole(days = 30) {
   try {
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT 
         u.role,
         ual.action,
@@ -277,7 +277,7 @@ export async function generateAuditReport(startDate, endDate, options = {}) {
       `;
     }
 
-    const result = await db.query(query, [startDate, endDate]);
+    const result = await prisma.$queryRawUnsafe(query, [startDate, endDate]);
     return result.rows;
   } catch (err) {
     logger.error('Failed to generate audit report:', err);

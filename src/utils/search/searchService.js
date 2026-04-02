@@ -1,6 +1,6 @@
 // src/utils/search/searchService.js
 
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 /**
@@ -18,7 +18,7 @@ export async function searchUsers(query, limit = 20) {
   const tsQuery = buildTsQuery(query);
 
   if (tsQuery) {
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT id, name, phone, email, role,
         ts_rank(search_vector, to_tsquery('english', $1)) AS rank,
         ts_headline('english', coalesce(name, '') || ' ' || coalesce(email, ''),
@@ -32,7 +32,7 @@ export async function searchUsers(query, limit = 20) {
   }
 
   // Fallback: ILIKE for short queries
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     SELECT id, name, phone, email, role, 0 AS rank
     FROM users
     WHERE name ILIKE $1 OR phone ILIKE $1 OR email ILIKE $1
@@ -45,7 +45,7 @@ export async function searchDoctors(query, limit = 20) {
   const tsQuery = buildTsQuery(query);
 
   if (tsQuery) {
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT id, name, specialization, qualification, phone, is_active,
         ts_rank(search_vector, to_tsquery('english', $1)) AS rank,
         ts_headline('english', coalesce(name, '') || ' ' || coalesce(specialization, ''),
@@ -58,7 +58,7 @@ export async function searchDoctors(query, limit = 20) {
     return result.rows.map(r => ({ ...r, type: 'doctor' }));
   }
 
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     SELECT id, name, specialization, qualification, phone, is_active, 0 AS rank
     FROM doctors
     WHERE name ILIKE $1 OR specialization ILIKE $1 OR qualification ILIKE $1
@@ -71,7 +71,7 @@ export async function searchAppointments(query, limit = 20) {
   const tsQuery = buildTsQuery(query);
 
   if (tsQuery) {
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT a.id, a.reason, a.notes, a.status, a.appointment_date, a.patient_id, a.doctor_id,
         ts_rank(to_tsvector('english', coalesce(a.reason, '') || ' ' || coalesce(a.notes, '')),
           to_tsquery('english', $1)) AS rank,
@@ -86,7 +86,7 @@ export async function searchAppointments(query, limit = 20) {
     return result.rows.map(r => ({ ...r, type: 'appointment' }));
   }
 
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     SELECT id, reason, notes, status, appointment_date, patient_id, doctor_id, 0 AS rank
     FROM appointments
     WHERE reason ILIKE $1 OR notes ILIKE $1

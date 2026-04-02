@@ -1,7 +1,7 @@
 // src/utils/notifications/stuckOrderEscalation.js
 // Escalation cron — detects stuck orders and alerts admins
 
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 /**
@@ -15,7 +15,7 @@ export async function escalateStuckOrders() {
   logger.info('[Escalation] Checking for stuck orders...');
 
   // 1. Appointments stuck in SCHEDULED >48h with no staff confirmation
-  const stuckAppointments = await db.query(`
+  const stuckAppointments = await prisma.$queryRawUnsafe(`
     UPDATE appointments
     SET notes = COALESCE(notes, '') || ' [AUTO-ESCALATED: No confirmation after 48h]'
     WHERE status = 'SCHEDULED' AND confirmed_at IS NULL
@@ -25,7 +25,7 @@ export async function escalateStuckOrders() {
   `);
 
   // 2. Pharmacy orders stuck past SLA confirm target
-  const stuckPharmacy = await db.query(`
+  const stuckPharmacy = await prisma.$queryRawUnsafe(`
     SELECT po.id, po.order_number, po.patient_name, po.phone AS patient_phone,
       ROUND(EXTRACT(EPOCH FROM (NOW() - po.created_at)) / 60) as mins_waiting
     FROM pharmacy_orders po
@@ -34,7 +34,7 @@ export async function escalateStuckOrders() {
   `);
 
   // 3. Investigation bookings stuck in DISPATCHED >4h
-  const stuckInvestigations = await db.query(`
+  const stuckInvestigations = await prisma.$queryRawUnsafe(`
     SELECT ib.id, ib.booking_number, ib.patient_name,
       ROUND(EXTRACT(EPOCH FROM (NOW() - ib.dispatched_at)) / 60) as mins_since_dispatch
     FROM investigation_bookings ib
@@ -43,13 +43,13 @@ export async function escalateStuckOrders() {
   `);
 
   const totalStuck =
-    stuckAppointments.rowCount +
+    stuckAppointments.length +
     stuckPharmacy.rows.length +
     stuckInvestigations.rows.length;
 
   if (totalStuck > 0) {
     // Find admin users with device tokens
-    const admins = await db.query(`
+    const admins = await prisma.$queryRawUnsafe(`
       SELECT id, device_token FROM users
       WHERE role IN ('ADMIN', 'SUPER_ADMIN') AND device_token IS NOT NULL AND is_active = TRUE
       LIMIT 10
@@ -69,7 +69,7 @@ export async function escalateStuckOrders() {
           await sendPushNotification({
             tokens: admin.device_token,
             title: '⚠️ Stuck Orders Alert',
-            body: `${stuckAppointments.rowCount} appointments, ${stuckPharmacy.rows.length} pharmacy orders, ${stuckInvestigations.rows.length} lab bookings need attention.`,
+            body: `${stuckAppointments.length} appointments, ${stuckPharmacy.rows.length} pharmacy orders, ${stuckInvestigations.rows.length} lab bookings need attention.`,
             data: { type: 'stuck_orders_alert' },
             userId: admin.id,
           });
@@ -79,13 +79,13 @@ export async function escalateStuckOrders() {
       }
     }
 
-    logger.warn(`[Escalation] Found ${totalStuck} stuck orders — admins alerted (${stuckAppointments.rowCount} appt, ${stuckPharmacy.rows.length} pharm, ${stuckInvestigations.rows.length} inv)`);
+    logger.warn(`[Escalation] Found ${totalStuck} stuck orders — admins alerted (${stuckAppointments.length} appt, ${stuckPharmacy.rows.length} pharm, ${stuckInvestigations.rows.length} inv)`);
   } else {
     logger.info('[Escalation] No stuck orders found');
   }
 
   return {
-    stuckAppointments: stuckAppointments.rowCount,
+    stuckAppointments: stuckAppointments.length,
     stuckPharmacy: stuckPharmacy.rows.length,
     stuckInvestigations: stuckInvestigations.rows.length,
   };

@@ -1,5 +1,5 @@
 // src/services/locationService.js
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import { calculateDistance } from '../utils/geoUtils.js';
 
 export const findNearbyEmergencyServices = async (latitude, longitude, radius = 25) => {
@@ -11,7 +11,7 @@ export const findNearbyEmergencyServices = async (latitude, longitude, radius = 
 };
 
 export const findNearbyHospitals = async (latitude, longitude, radius) => {
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     SELECT 
       id, name, phone as hospital_phone, address, website,
       latitude as hosp_lat, longitude as hosp_lon,
@@ -44,7 +44,7 @@ export const findNearbyHospitals = async (latitude, longitude, radius) => {
 // Add these functions after the findNearbyHospitals function in locationService.js
 
 export const findNearbyPharmacies = async (latitude, longitude, radius) => {
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     SELECT 
       id, name, phone, address, 
       latitude as pharmacy_lat, longitude as pharmacy_lon,
@@ -73,7 +73,7 @@ export const findNearbyPharmacies = async (latitude, longitude, radius) => {
 };
 
 export const findNearbyBloodBanks = async (latitude, longitude, radius) => {
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     SELECT 
       id, name, phone, address, 
       latitude as blood_bank_lat, longitude as blood_bank_lon,

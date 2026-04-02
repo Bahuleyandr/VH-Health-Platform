@@ -1,4 +1,4 @@
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
@@ -29,7 +29,7 @@ export const submitIncident = async (req, res) => {
 
     const priority = ['sentinel','severe'].includes(severity) ? 'urgent' : severity === 'moderate' ? 'high' : 'normal';
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       INSERT INTO incident_reports
         (reporter_id, incident_type, severity, title, description, location, incident_date,
          patient_involved, patient_name, witnesses, immediate_action_taken, is_anonymous, priority)
@@ -44,12 +44,12 @@ export const submitIncident = async (req, res) => {
       is_anonymous, priority
     ]);
 
-    await db.query(`
+    await prisma.$queryRawUnsafe(`
       INSERT INTO report_updates (report_type, report_id, author_role, message, is_internal)
       VALUES ('incident', $1, 'system', $2, false)
-    `, [result.rows[0].id, `Incident report ${result.rows[0].report_number} submitted. Severity: ${severity.toUpperCase()}.`]);
+    `, [result[0].id, `Incident report ${result[0].report_number} submitted. Severity: ${severity.toUpperCase()}.`]);
 
-    success(res, result.rows[0], `Incident report ${result.rows[0].report_number} submitted successfully`);
+    success(res, result[0], `Incident report ${result[0].report_number} submitted successfully`);
   } catch (err) {
     logger.error('Submit Incident Error:', err);
     error(res, 'Failed to submit incident report', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -60,7 +60,7 @@ export const submitIncident = async (req, res) => {
 export const getMyIncidents = async (req, res) => {
   try {
     const staffId = req.user?.uid;
-    const incidents = await db.query(`
+    const incidents = await prisma.$queryRawUnsafe(`
       SELECT id, report_number, incident_type, severity, title, status, priority, incident_date, created_at, is_anonymous
       FROM incident_reports
       WHERE reporter_id = $1
@@ -79,7 +79,7 @@ export const getIncidentDetail = async (req, res) => {
     const { id } = req.params;
     const staffId = req.user?.uid;
 
-    const incident = await db.query(`
+    const incident = await prisma.$queryRawUnsafe(`
       SELECT ir.id, ir.reported_by, ir.description, ir.category, ir.severity, ir.status,
         ir.location, ir.acknowledged_by, ir.created_at, ir.updated_at,
         u.name as reporter_name, u2.name as assigned_to_name
@@ -91,7 +91,7 @@ export const getIncidentDetail = async (req, res) => {
 
     if (incident.rows.length === 0) return error(res, 'Incident not found', HTTP_STATUS.NOT_FOUND);
 
-    const updates = await db.query(`
+    const updates = await prisma.$queryRawUnsafe(`
       SELECT ru.*, u.name as author_name
       FROM report_updates ru
       LEFT JOIN users u ON ru.author_id = u.id
@@ -99,7 +99,7 @@ export const getIncidentDetail = async (req, res) => {
       ORDER BY ru.created_at ASC
     `, [id]);
 
-    success(res, { ...incident.rows[0], updates: updates.rows }, 'Incident detail fetched');
+    success(res, { ...incident[0], updates: updates.rows }, 'Incident detail fetched');
   } catch (err) {
     logger.error('Get Incident Detail Error:', err);
     error(res, 'Failed to fetch incident', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -121,7 +121,7 @@ export const getAllIncidents = async (req, res) => {
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     params.push(parseInt(limit), parseInt(offset));
 
-    const incidents = await db.query(`
+    const incidents = await prisma.$queryRawUnsafe(`
       SELECT ir.id, ir.reported_by, ir.description, ir.category, ir.severity, ir.status,
         ir.location, ir.acknowledged_by, ir.created_at, ir.updated_at,
         u.name as reporter_name, u.department as reporter_department, u2.name as assigned_to_name
@@ -135,11 +135,11 @@ export const getAllIncidents = async (req, res) => {
       LIMIT $${idx++} OFFSET $${idx}
     `, params);
 
-    const countResult = await db.query(`SELECT COUNT(*) FROM incident_reports ir ${where}`, params.slice(0, -2));
+    const countResult = await prisma.$queryRawUnsafe(`SELECT COUNT(*) FROM incident_reports ir ${where}`, params.slice(0, -2));
 
     success(res, {
       incidents: incidents.rows,
-      total: parseInt(countResult.rows[0].count),
+      total: parseInt(countResult[0].count),
       limit: parseInt(limit),
       offset: parseInt(offset)
     }, 'Incidents fetched');
@@ -154,7 +154,7 @@ export const getAdminIncidentDetail = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const incident = await db.query(`
+    const incident = await prisma.$queryRawUnsafe(`
       SELECT ir.id, ir.reported_by, ir.description, ir.category, ir.severity, ir.status,
         ir.location, ir.acknowledged_by, ir.created_at, ir.updated_at,
         u.name as reporter_name, u.department as reporter_department, u2.name as assigned_to_name
@@ -166,7 +166,7 @@ export const getAdminIncidentDetail = async (req, res) => {
 
     if (incident.rows.length === 0) return error(res, 'Incident not found', HTTP_STATUS.NOT_FOUND);
 
-    const updates = await db.query(`
+    const updates = await prisma.$queryRawUnsafe(`
       SELECT ru.*, u.name as author_name
       FROM report_updates ru
       LEFT JOIN users u ON ru.author_id = u.id
@@ -174,7 +174,7 @@ export const getAdminIncidentDetail = async (req, res) => {
       ORDER BY ru.created_at ASC
     `, [id]);
 
-    success(res, { ...incident.rows[0], updates: updates.rows }, 'Incident detail fetched');
+    success(res, { ...incident[0], updates: updates.rows }, 'Incident detail fetched');
   } catch (err) {
     logger.error('Get Admin Incident Detail Error:', err);
     error(res, 'Failed to fetch incident', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -188,7 +188,7 @@ export const updateIncident = async (req, res) => {
     const adminId = req.user?.uid;
     const { status, assigned_to, admin_notes, resolution, priority, internal_note, public_update } = req.body;
 
-    const existing = await db.query('SELECT id, reported_by, description, category, severity, status, location, acknowledged_by, created_at, updated_at FROM incident_reports WHERE id = $1', [id]);
+    const existing = await prisma.$queryRawUnsafe('SELECT id, reported_by, description, category, severity, status, location, acknowledged_by, created_at, updated_at FROM incident_reports WHERE id = $1', [id]);
     if (existing.rows.length === 0) return error(res, 'Incident not found', HTTP_STATUS.NOT_FOUND);
 
     const updates = [];
@@ -212,21 +212,21 @@ export const updateIncident = async (req, res) => {
     vals.push(id);
 
     if (updates.length > 1) {
-      await db.query(`UPDATE incident_reports SET ${updates.join(', ')} WHERE id = $${idx}`, vals);
+      await prisma.$queryRawUnsafe(`UPDATE incident_reports SET ${updates.join(', ')} WHERE id = $${idx}`, vals);
     }
 
     if (internal_note) {
-      await db.query(`INSERT INTO report_updates (report_type, report_id, author_id, author_role, message, is_internal) VALUES ('incident',$1,$2,'admin',$3,true)`, [id, adminId, internal_note]);
+      await prisma.$queryRawUnsafe(`INSERT INTO report_updates (report_type, report_id, author_id, author_role, message, is_internal) VALUES ('incident',$1,$2,'admin',$3,true)`, [id, adminId, internal_note]);
     }
     if (public_update) {
-      await db.query(`INSERT INTO report_updates (report_type, report_id, author_id, author_role, message, is_internal) VALUES ('incident',$1,$2,'admin',$3,false)`, [id, adminId, public_update]);
+      await prisma.$queryRawUnsafe(`INSERT INTO report_updates (report_type, report_id, author_id, author_role, message, is_internal) VALUES ('incident',$1,$2,'admin',$3,false)`, [id, adminId, public_update]);
     }
-    if (status && status !== existing.rows[0].status) {
-      await db.query(`INSERT INTO report_updates (report_type, report_id, author_id, author_role, message, is_internal) VALUES ('incident',$1,$2,'system',$3,false)`, [id, adminId, `Status updated to: ${status.replace('_',' ').toUpperCase()}`]);
+    if (status && status !== existing[0].status) {
+      await prisma.$queryRawUnsafe(`INSERT INTO report_updates (report_type, report_id, author_id, author_role, message, is_internal) VALUES ('incident',$1,$2,'system',$3,false)`, [id, adminId, `Status updated to: ${status.replace('_',' ').toUpperCase()}`]);
     }
 
-    const updated = await db.query(`SELECT ir.id, ir.reported_by, ir.description, ir.category, ir.severity, ir.status, ir.location, ir.acknowledged_by, ir.created_at, ir.updated_at, u.name as assigned_to_name FROM incident_reports ir LEFT JOIN users u ON ir.assigned_to = u.id WHERE ir.id = $1`, [id]);
-    success(res, updated.rows[0], 'Incident updated');
+    const updated = await prisma.$queryRawUnsafe(`SELECT ir.id, ir.reported_by, ir.description, ir.category, ir.severity, ir.status, ir.location, ir.acknowledged_by, ir.created_at, ir.updated_at, u.name as assigned_to_name FROM incident_reports ir LEFT JOIN users u ON ir.assigned_to = u.id WHERE ir.id = $1`, [id]);
+    success(res, updated[0], 'Incident updated');
   } catch (err) {
     logger.error('Update Incident Error:', err);
     error(res, 'Failed to update incident', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -236,7 +236,7 @@ export const updateIncident = async (req, res) => {
 // Admin: Stats summary
 export const getIncidentStats = async (req, res) => {
   try {
-    const stats = await db.query(`
+    const stats = await prisma.$queryRawUnsafe(`
       SELECT
         COUNT(*) FILTER (WHERE status = 'submitted') as new_count,
         COUNT(*) FILTER (WHERE status = 'under_review' OR status = 'investigating') as active_count,
@@ -248,14 +248,14 @@ export const getIncidentStats = async (req, res) => {
       FROM incident_reports
     `);
 
-    const byType = await db.query(`
+    const byType = await prisma.$queryRawUnsafe(`
       SELECT incident_type, COUNT(*) as count
       FROM incident_reports
       WHERE created_at >= NOW() - INTERVAL '30 days'
       GROUP BY incident_type ORDER BY count DESC
     `);
 
-    success(res, { summary: stats.rows[0], by_type: byType.rows }, 'Stats fetched');
+    success(res, { summary: stats[0], by_type: byType.rows }, 'Stats fetched');
   } catch (err) {
     logger.error('Incident Stats Error:', err);
     error(res, 'Failed to fetch stats', HTTP_STATUS.INTERNAL_SERVER_ERROR);

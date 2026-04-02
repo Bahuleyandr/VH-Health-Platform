@@ -31,7 +31,7 @@ export async function purgeHousekeepingPhotos() {
 
   try {
     // ── 1. Verified cleaning logs older than 90 days ──────────────────────────
-    const expiredVerified = await db.query(`
+    const expiredVerified = await prisma.$queryRawUnsafe(`
       SELECT id, photo_key FROM housekeeping_logs
       WHERE photo_key IS NOT NULL
         AND status = 'verified'
@@ -41,7 +41,7 @@ export async function purgeHousekeepingPhotos() {
     for (const row of expiredVerified.rows) {
       try {
         await deleteObject(row.photo_key);
-        await db.query(
+        await prisma.$queryRawUnsafe(
           `UPDATE housekeeping_logs SET photo_key = NULL, photo_url = NULL WHERE id = $1`,
           [row.id]
         );
@@ -53,7 +53,7 @@ export async function purgeHousekeepingPhotos() {
     }
 
     // ── 2. Unverified logs older than 180 days (grace period) ─────────────────
-    const expiredUnverified = await db.query(`
+    const expiredUnverified = await prisma.$queryRawUnsafe(`
       SELECT id, photo_key FROM housekeeping_logs
       WHERE photo_key IS NOT NULL
         AND status != 'verified'
@@ -63,7 +63,7 @@ export async function purgeHousekeepingPhotos() {
     for (const row of expiredUnverified.rows) {
       try {
         await deleteObject(row.photo_key);
-        await db.query(
+        await prisma.$queryRawUnsafe(
           `UPDATE housekeeping_logs SET photo_key = NULL, photo_url = NULL WHERE id = $1`,
           [row.id]
         );
@@ -75,7 +75,7 @@ export async function purgeHousekeepingPhotos() {
     }
 
     // ── 3. Completed/verified requests older than 90 days ────────────────────
-    const expiredCompleted = await db.query(`
+    const expiredCompleted = await prisma.$queryRawUnsafe(`
       SELECT id, photo_key, completion_photo_key FROM housekeeping_requests
       WHERE status IN ('completed','verified','closed')
         AND created_at < NOW() - $1::INTERVAL
@@ -93,7 +93,7 @@ export async function purgeHousekeepingPhotos() {
         }
       }
       if (keysToDelete.length) {
-        await db.query(`
+        await prisma.$queryRawUnsafe(`
           UPDATE housekeeping_requests SET
             photo_key = NULL, photo_url = NULL,
             completion_photo_key = NULL, completion_photo_url = NULL
@@ -103,7 +103,7 @@ export async function purgeHousekeepingPhotos() {
     }
 
     // ── 4. Stale open requests (30+ days, never actioned) ────────────────────
-    const staleOpen = await db.query(`
+    const staleOpen = await prisma.$queryRawUnsafe(`
       SELECT id, photo_key FROM housekeeping_requests
       WHERE photo_key IS NOT NULL
         AND status IN ('open','assigned')
@@ -113,7 +113,7 @@ export async function purgeHousekeepingPhotos() {
     for (const row of staleOpen.rows) {
       try {
         await deleteObject(row.photo_key);
-        await db.query(
+        await prisma.$queryRawUnsafe(
           `UPDATE housekeeping_requests SET photo_key = NULL, photo_url = NULL WHERE id = $1`,
           [row.id]
         );

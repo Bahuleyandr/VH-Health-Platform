@@ -1,7 +1,7 @@
 // src/controllers/system/healthController.js
 // Comprehensive system health monitor — admin-only deep health check
 
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success } from '../../utils/responseHelper.js';
 
@@ -16,7 +16,7 @@ export const getSystemHealth = async (req, res) => {
   // 1. Database latency
   try {
     const start = Date.now();
-    await db.query('SELECT 1');
+    await prisma.$queryRawUnsafe('SELECT 1');
     checks.database = { status: 'healthy', latency_ms: Date.now() - start };
   } catch (e) {
     checks.database = { status: 'down', error: e.message };
@@ -58,7 +58,7 @@ export const getSystemHealth = async (req, res) => {
 
   // 6. Failed notifications backlog
   try {
-    const backlog = await db.query(
+    const backlog = await prisma.$queryRawUnsafe(
       `SELECT status, COUNT(*)::int as count FROM failed_notifications GROUP BY status`
     );
     const counts = {};
@@ -77,14 +77,14 @@ export const getSystemHealth = async (req, res) => {
   // 7. Stuck orders count
   try {
     const [stuckAppt, stuckPharm, stuckInv] = await Promise.all([
-      db.query(`SELECT COUNT(*)::int as c FROM appointments WHERE status='SCHEDULED' AND confirmed_at IS NULL AND created_at < NOW()-INTERVAL '48 hours'`),
-      db.query(`SELECT COUNT(*)::int as c FROM pharmacy_orders WHERE status='PLACED' AND sla_confirm_target IS NOT NULL AND NOW()>sla_confirm_target`),
-      db.query(`SELECT COUNT(*)::int as c FROM investigation_bookings WHERE status='DISPATCHED' AND dispatched_at IS NOT NULL AND dispatched_at < NOW()-INTERVAL '4 hours'`),
+      prisma.$queryRawUnsafe(`SELECT COUNT(*)::int as c FROM appointments WHERE status='SCHEDULED' AND confirmed_at IS NULL AND created_at < NOW()-INTERVAL '48 hours'`),
+      prisma.$queryRawUnsafe(`SELECT COUNT(*)::int as c FROM pharmacy_orders WHERE status='PLACED' AND sla_confirm_target IS NOT NULL AND NOW()>sla_confirm_target`),
+      prisma.$queryRawUnsafe(`SELECT COUNT(*)::int as c FROM investigation_bookings WHERE status='DISPATCHED' AND dispatched_at IS NOT NULL AND dispatched_at < NOW()-INTERVAL '4 hours'`),
     ]);
     checks.stuck_orders = {
-      appointments: stuckAppt.rows[0].c,
-      pharmacy: stuckPharm.rows[0].c,
-      investigations: stuckInv.rows[0].c,
+      appointments: stuckAppt[0].c,
+      pharmacy: stuckPharm[0].c,
+      investigations: stuckInv[0].c,
     };
   } catch (e) {
     checks.stuck_orders = { status: 'unknown', error: e.message };

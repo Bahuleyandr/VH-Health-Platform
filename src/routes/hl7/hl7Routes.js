@@ -2,7 +2,7 @@
 // HL7v2 messaging routes — HTTP bridge for MLLP-style HL7v2 message exchange.
 
 import express from 'express';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { parseHL7, generateACK } from '../../services/hl7/hl7Parser.js';
@@ -74,7 +74,7 @@ router.post(
 
         if (messageType === 'ADT^A01' || messageType === 'ADT^A02') {
           // Create admission
-          await db.query(
+          await prisma.$queryRawUnsafe(
             `INSERT INTO admissions (patient_uid, status, ward, bed_number, admitting_doctor, admitted_at, reason, created_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
              ON CONFLICT DO NOTHING`,
@@ -90,7 +90,7 @@ router.post(
           );
         } else if (messageType === 'ADT^A03') {
           // Discharge — update most recent admission for this patient
-          await db.query(
+          await prisma.$queryRawUnsafe(
             `UPDATE admissions SET status = 'DISCHARGED', discharged_at = $2
              WHERE patient_uid = $1 AND status = 'ADMITTED'
              ORDER BY admitted_at DESC LIMIT 1`,
@@ -111,7 +111,7 @@ router.post(
           return res.status(400).send(generateACK(controlId, 'AE', 'Patient identifier (PID.3) is required'));
         }
 
-        await db.query(
+        await prisma.$queryRawUnsafe(
           `INSERT INTO investigations (patient_uid, test_name, status, ordered_at, created_at)
            VALUES ($1, $2, $3, $4, NOW())`,
           [
@@ -163,7 +163,7 @@ router.post(
         throw AppError.badRequest('admission_id is required for ADT events');
       }
 
-      const { rows: admissionRows } = await db.query(
+      const { rows: admissionRows } = await prisma.$queryRawUnsafe(
         `SELECT id, patient_uid, status, ward, bed_number, priority, admission_type,
                 admitting_doctor, attending_doctor, admitted_at, discharged_at,
                 encounter_id, reason, reason_for_admission, discharge_disposition, discharge_type
@@ -177,7 +177,7 @@ router.post(
 
       const admission = admissionRows[0];
 
-      const { rows: patientRows } = await db.query(
+      const { rows: patientRows } = await prisma.$queryRawUnsafe(
         `SELECT uid, name, phone, gender, birthday, address FROM users WHERE uid = $1 LIMIT 1`,
         [admission.patient_uid]
       );
@@ -194,7 +194,7 @@ router.post(
         throw AppError.badRequest('investigation_id is required for ORM/ORU events');
       }
 
-      const { rows: investigationRows } = await db.query(
+      const { rows: investigationRows } = await prisma.$queryRawUnsafe(
         `SELECT id, patient_uid, uid, test_name, investigation_type, status,
                 results, conclusion, interpretation, ordered_at, completed_at, created_at
          FROM investigations WHERE id = $1 LIMIT 1`,
@@ -208,7 +208,7 @@ router.post(
       const investigation = investigationRows[0];
       const patientUid = investigation.patient_uid || investigation.uid;
 
-      const { rows: patientRows } = await db.query(
+      const { rows: patientRows } = await prisma.$queryRawUnsafe(
         `SELECT uid, name, phone, gender, birthday, address FROM users WHERE uid = $1 LIMIT 1`,
         [patientUid]
       );

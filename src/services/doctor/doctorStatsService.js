@@ -1,5 +1,5 @@
 // src/services/doctor/doctorStatsService.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { DOCTOR_CONFIG, DOCTOR_MESSAGES } from '../../config/doctorConfig.js';
 import logger from '../../logging/logger.js';
 
@@ -9,7 +9,7 @@ export class DoctorStatsService {
     try {
       const [appointmentStats, patientStats, revenueStats] = await Promise.all([
         // Appointment statistics
-        db.query(`
+        prisma.$queryRawUnsafe(`
           SELECT 
             COUNT(*) as total_appointments,
             COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) as completed_appointments,
@@ -21,7 +21,7 @@ export class DoctorStatsService {
         `, [doctorId]),
         
         // Patient statistics
-        db.query(`
+        prisma.$queryRawUnsafe(`
           SELECT 
             COUNT(DISTINCT patient_id) as unique_patients,
             COUNT(*) as total_consultations
@@ -30,7 +30,7 @@ export class DoctorStatsService {
         `, [doctorId]),
         
         // Revenue statistics
-        db.query(`
+        prisma.$queryRawUnsafe(`
           SELECT 
             COUNT(CASE WHEN a.status = 'COMPLETED' THEN 1 END) * d.consultation_fee as estimated_revenue,
             d.consultation_fee
@@ -42,9 +42,9 @@ export class DoctorStatsService {
       ]);
       
       return {
-        appointments: appointmentStats.rows[0],
-        patients: patientStats.rows[0],
-        revenue: revenueStats.rows[0] || { estimated_revenue: 0, consultation_fee: 0 }
+        appointments: appointmentStats[0],
+        patients: patientStats[0],
+        revenue: revenueStats[0] || { estimated_revenue: 0, consultation_fee: 0 }
       };
     } catch (error) {
       logger.error('Error fetching doctor statistics:', error);
@@ -56,7 +56,7 @@ export class DoctorStatsService {
   async getDoctorAnalytics(doctorId, months = 6) {
     try {
       // Verify doctor exists
-      const doctorCheck = await db.query(
+      const doctorCheck = await prisma.$queryRawUnsafe(
         'SELECT u.name, d.specialization, d.department FROM users u JOIN doctors d ON u.id = d.user_id WHERE u.id = $1',
         [doctorId]
       );
@@ -67,7 +67,7 @@ export class DoctorStatsService {
       
       const [appointmentStats, monthlyTrends, patientFeedback] = await Promise.all([
         // Appointment statistics
-        db.query(`
+        prisma.$queryRawUnsafe(`
           SELECT 
             COUNT(*) as total_appointments,
             COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) as completed_appointments,
@@ -79,7 +79,7 @@ export class DoctorStatsService {
         `, [doctorId]),
         
         // Monthly trends
-        db.query(`
+        prisma.$queryRawUnsafe(`
           SELECT 
             TO_CHAR(DATE_TRUNC('month', appointment_date), 'MM-YYYY') as month,
             COUNT(*) as total_appointments,
@@ -93,7 +93,7 @@ export class DoctorStatsService {
         `, [doctorId]),
         
         // Patient feedback (if table exists)
-        db.query(`
+        prisma.$queryRawUnsafe(`
           SELECT AVG(rating) as avg_rating, COUNT(*) as total_reviews,
                  COUNT(CASE WHEN rating >= 4 THEN 1 END) as positive_reviews
           FROM patient_feedback 
@@ -104,10 +104,10 @@ export class DoctorStatsService {
       ]);
       
       return {
-        doctor: doctorCheck.rows[0],
-        appointment_statistics: appointmentStats.rows[0],
+        doctor: doctorCheck[0],
+        appointment_statistics: appointmentStats[0],
         monthly_trends: monthlyTrends.rows,
-        patient_feedback: patientFeedback.rows[0]
+        patient_feedback: patientFeedback[0]
       };
     } catch (error) {
       logger.error('Error fetching doctor analytics:', error);
@@ -148,7 +148,7 @@ export class DoctorStatsService {
                  d.available_days, d.available_hours, d.consultation_fee
                  ORDER BY total_appointments DESC`;
       
-      const result = await db.query(query, params);
+      const result = await prisma.$queryRawUnsafe(query, params);
       
       // Calculate workload distribution
       const workloadDistribution = result.rows.reduce((acc, doctor) => {

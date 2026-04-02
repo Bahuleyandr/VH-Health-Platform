@@ -1,11 +1,11 @@
 // src/services/auditService.js - Hospital File Audit Service
 
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 
 export async function logFileAccess(fileId, accessType, userId, ipAddress, userAgent = null, notes = null) {
   try {
-    await db.query(`
+    await prisma.$queryRawUnsafe(`
       INSERT INTO file_access_logs (
         file_id, user_id, access_type, ip_address, user_agent, 
         accessed_at, notes
@@ -18,7 +18,7 @@ export async function logFileAccess(fileId, accessType, userId, ipAddress, userA
 
 export async function logBulkOperation(operationType, performedBy, affectedCount, successCount, errorCount, operationDetails) {
   try {
-    await db.query(`
+    await prisma.$queryRawUnsafe(`
       INSERT INTO bulk_operation_logs (
         operation_type, performed_by, affected_count, success_count, 
         error_count, operation_details, performed_at
@@ -34,7 +34,7 @@ export async function logBulkOperation(operationType, performedBy, affectedCount
 
 export async function logFileDeletion(fileInfo, deletedBy, deletionReason, deletionType, ipAddress) {
   try {
-    await db.query(`
+    await prisma.$queryRawUnsafe(`
       INSERT INTO file_deletion_log (
         file_id, file_name, storage_key, category, file_size,
         is_hipaa_protected, uploaded_by, deleted_by, deletion_reason,
@@ -52,7 +52,7 @@ export async function logFileDeletion(fileInfo, deletedBy, deletionReason, delet
 
 export async function createSystemAlert(alertType, severity, message, relatedFileId = null) {
   try {
-    await db.query(`
+    await prisma.$queryRawUnsafe(`
       INSERT INTO system_alerts (
         alert_type, severity, message, related_file_id, created_at
       ) VALUES ($1, $2, $3, $4, NOW())
@@ -64,7 +64,7 @@ export async function createSystemAlert(alertType, severity, message, relatedFil
 
 export async function getFileAccessLogs(fileId, limit = 10) {
   try {
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT 
         fal.access_type, fal.accessed_at, fal.ip_address, fal.notes,
         u.name as user_name, u.phone as user_phone, fal.user_id
@@ -89,7 +89,7 @@ export async function getFileAccessLogs(fileId, limit = 10) {
 export async function getHipaaAuditReport(days = 30) {
   try {
     // HIPAA file access audit
-    const accessAudit = await db.query(`
+    const accessAudit = await prisma.$queryRawUnsafe(`
       SELECT 
         fal.file_id, fm.file_name, fm.category, fal.access_type,
         fal.accessed_at, fal.user_id, u.name as user_name, u.phone as user_phone,
@@ -104,7 +104,7 @@ export async function getHipaaAuditReport(days = 30) {
     `);
 
     // HIPAA file modifications
-    const modifications = await db.query(`
+    const modifications = await prisma.$queryRawUnsafe(`
       SELECT 
         id, file_name, category, uploaded_by, uploaded_at,
         is_deleted, deleted_at, deleted_by, deletion_reason
@@ -116,7 +116,7 @@ export async function getHipaaAuditReport(days = 30) {
     `);
 
     // Unauthorized access attempts
-    const unauthorizedAttempts = await db.query(`
+    const unauthorizedAttempts = await prisma.$queryRawUnsafe(`
       SELECT 
         fal.accessed_at, fal.user_id, u.name as user_name, fal.access_type,
         fal.ip_address, COUNT(*) as attempt_count
@@ -131,7 +131,7 @@ export async function getHipaaAuditReport(days = 30) {
     `);
 
     // User access patterns
-    const userPatterns = await db.query(`
+    const userPatterns = await prisma.$queryRawUnsafe(`
       SELECT 
         fal.user_id, u.name as user_name, u.phone as user_phone,
         COUNT(*) as total_accesses,
@@ -160,7 +160,7 @@ export async function getHipaaAuditReport(days = 30) {
         uniqueUsers: new Set(accessAudit.rows.map(a => a.user_id)).size,
         totalModifications: modifications.rows.length,
         unauthorizedAttemptCount: unauthorizedAttempts.rows.length,
-        mostActiveUser: userPatterns.rows[0]?.user_name || 'None'
+        mostActiveUser: userPatterns[0]?.user_name || 'None'
       }
     };
   } catch (err) {

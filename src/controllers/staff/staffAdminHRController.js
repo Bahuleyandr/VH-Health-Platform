@@ -1,5 +1,5 @@
 // src/controllers/staff/staffAdminHRController.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -7,7 +7,7 @@ import { success, error } from '../../utils/responseHelper.js';
 // Get Pending Reviews
 export const getPendingReviews = async (req, res) => {
   try {
-    const pendingReviews = await db.query(`
+    const pendingReviews = await prisma.$queryRawUnsafe(`
       SELECT 
         pr.id,
         pr.staff_id,
@@ -35,7 +35,7 @@ export const getPendingReviews = async (req, res) => {
 // Get Onboarding Status
 export const getOnboardingStatus = async (req, res) => {
   try {
-    const onboardingStatus = await db.query(`
+    const onboardingStatus = await prisma.$queryRawUnsafe(`
       SELECT 
         s.id,
         s.name,
@@ -67,7 +67,7 @@ export const approvePerformanceReview = async (req, res) => {
     const { comments, final_rating } = req.body;
     const approvedBy = req.user?.uid;
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       UPDATE performance_reviews
       SET 
         status = 'approved',
@@ -83,7 +83,7 @@ export const approvePerformanceReview = async (req, res) => {
       return error(res, 'Performance review not found', HTTP_STATUS.NOT_FOUND);
     }
 
-    success(res, result.rows[0], 'Performance review approved successfully');
+    success(res, result[0], 'Performance review approved successfully');
   } catch (err) {
     logger.error('Approve Review Error:', err);
     error(res, 'Failed to approve performance review', HTTP_STATUS.INTERNAL_SERVER_ERROR);

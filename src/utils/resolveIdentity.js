@@ -1,14 +1,14 @@
 // src/utils/resolveIdentity.js
 
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 /**
  * Resolve phone number from UID using users table
  * @param {string} uid - The unique user ID
  * @returns {Promise<string|null>} - The resolved phone number or null if not found
  */
 export async function resolvePhoneFromUID(uid) {
-  const result = await db.query('SELECT phone FROM users WHERE uid = $1', [uid]);
-  return result.rows.length ? result.rows[0].phone : null;
+  const result = await prisma.$queryRawUnsafe('SELECT phone FROM users WHERE uid = $1', [uid]);
+  return result.rows.length ? result[0].phone : null;
 }
 
 /**
@@ -17,8 +17,8 @@ export async function resolvePhoneFromUID(uid) {
  * @returns {Promise<string|null>} - The UID if found, or null
  */
 export async function resolveUIDFromPhone(phone) {
-  const result = await db.query('SELECT uid FROM users WHERE phone = $1', [phone]);
-  return result.rows.length ? result.rows[0].uid : null;
+  const result = await prisma.$queryRawUnsafe('SELECT uid FROM users WHERE phone = $1', [phone]);
+  return result.rows.length ? result[0].uid : null;
 }
 
 /**

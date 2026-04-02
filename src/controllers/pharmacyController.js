@@ -1,6 +1,6 @@
 // src/controllers/pharmacyController.js
 
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import { resolvePhoneFromUID } from '../utils/resolveIdentity.js';
@@ -22,12 +22,12 @@ export async function placePharmacyOrder(req, res) {
   }
 
   try {
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_orders (phone, order_note, file_key)
        VALUES ($1, $2, $3) RETURNING id, phone, order_note, file_key, status, created_at`,
       [phone, order_note, file_key || null]
     );
-    success(res, result.rows[0], 'Pharmacy order placed');
+    success(res, result[0], 'Pharmacy order placed');
   } catch (err) {
     logger.error(err.stack || err.toString());
     error(res, 'Database error');
@@ -50,7 +50,7 @@ export async function getPharmacyOrdersByPhone(req, res) {
   }
 
   try {
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, phone, order_note, file_key, prescription_id, urgent, status, notes, created_at, updated_at FROM pharmacy_orders WHERE phone = $1 ORDER BY created_at DESC`,
       [phone]
     );
@@ -81,7 +81,7 @@ export async function getPharmacyOrdersByUID(req, res) {
       return error(res, 'UID not found in users table', 404);
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, phone, order_note, file_key, prescription_id, urgent, status, notes, created_at, updated_at FROM pharmacy_orders WHERE phone = $1 ORDER BY created_at DESC`,
       [phone]
     );

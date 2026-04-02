@@ -1,5 +1,5 @@
 // src/controllers/staff/staffAdminOperationsController.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -99,19 +99,19 @@ export const advancedStaffSearch = async (req, res) => {
     query += ` LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
     params.push(limit, (page - 1) * limit);
 
-    const result = await db.query(query, params);
+    const result = await prisma.$queryRawUnsafe(query, params);
 
     // Get total count
     const countQuery = query.replace(/SELECT[\s\S]*FROM/, 'SELECT COUNT(*) FROM').replace(/ORDER BY[\s\S]*$/, '');
-    const countResult = await db.query(countQuery, params.slice(0, -2));
+    const countResult = await prisma.$queryRawUnsafe(countQuery, params.slice(0, -2));
 
     success(res, {
       staff: result.rows,
       pagination: {
-        total: parseInt(countResult.rows[0].count),
+        total: parseInt(countResult[0].count),
         page: parseInt(page),
         limit: parseInt(limit),
-        totalPages: Math.ceil(countResult.rows[0].count / limit)
+        totalPages: Math.ceil(countResult[0].count / limit)
       }
     }, 'Staff search completed successfully');
   } catch (err) {
@@ -166,7 +166,7 @@ export const bulkShiftAssignment = async (req, res) => {
     const results = await Promise.all(
       assignments.map(async (assignment) => {
         try {
-          await db.query(`
+          await prisma.$queryRawUnsafe(`
             UPDATE staff
             SET 
               shift = $2,
@@ -198,7 +198,7 @@ export const generatePayrollData = async (req, res) => {
   try {
     const { month, year, department } = req.body;
     
-    const payrollData = await db.query(`
+    const payrollData = await prisma.$queryRawUnsafe(`
       SELECT 
         s.employee_id,
         u.name,
@@ -248,7 +248,7 @@ export const updateStaffStatus = async (req, res) => {
     const { is_active, on_leave, reason } = req.body;
     const updatedBy = req.user?.uid;
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       UPDATE staff
       SET 
         is_active = COALESCE($2, is_active),
@@ -264,7 +264,7 @@ export const updateStaffStatus = async (req, res) => {
       return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
     }
 
-    success(res, result.rows[0], 'Staff status updated successfully');
+    success(res, result[0], 'Staff status updated successfully');
   } catch (err) {
     logger.error('Update Staff Status Error:', err);
     error(res, 'Failed to update staff status', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -278,7 +278,7 @@ export const archiveStaffMember = async (req, res) => {
     const { reason } = req.body;
     const archivedBy = req.user?.uid;
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       UPDATE staff
       SET 
         is_active = false,
@@ -294,7 +294,7 @@ export const archiveStaffMember = async (req, res) => {
       return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
     }
 
-    success(res, result.rows[0], 'Staff member archived successfully');
+    success(res, result[0], 'Staff member archived successfully');
   } catch (err) {
     logger.error('Archive Staff Error:', err);
     error(res, 'Failed to archive staff member', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -313,14 +313,14 @@ export const purgeOldRecords = async (req, res) => {
     let result;
     switch (record_type) {
       case 'attendance':
-        result = await db.query(`
+        result = await prisma.$queryRawUnsafe(`
           DELETE FROM staff_attendance
           WHERE check_in_time < NOW() - make_interval(days => $1)
           RETURNING id
         `, [safeDays]);
         break;
       case 'reviews':
-        result = await db.query(`
+        result = await prisma.$queryRawUnsafe(`
           DELETE FROM performance_reviews
           WHERE created_at < NOW() - make_interval(days => $1)
           AND status = 'completed'
@@ -332,7 +332,7 @@ export const purgeOldRecords = async (req, res) => {
     }
 
     // Log the purge operation
-    await db.query(`
+    await prisma.$queryRawUnsafe(`
       INSERT INTO audit_logs (action, entity_type, performed_by, details)
       VALUES ('purge', $1, $2, $3)
     `, [record_type, purgedBy, { deleted_count: result.rows.length, older_than_days }]);
@@ -350,7 +350,7 @@ export const purgeOldRecords = async (req, res) => {
 
 // Helper functions for exports
 async function exportAttendanceData(department, start_date, end_date) {
-  const data = await db.query(`
+  const data = await prisma.$queryRawUnsafe(`
     SELECT 
       s.employee_id,
       u.name,

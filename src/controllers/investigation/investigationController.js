@@ -1,4 +1,4 @@
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { PAGINATION, INVESTIGATION_STATUS } from '../../config/investigationConfig.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
@@ -315,8 +315,8 @@ export const getInvestigationsByPhone = async (req, res) => {
     
     // Access control FIRST
     if (userRole === 'PATIENT') {
-      const userResult = await db.query('SELECT phone FROM users WHERE uid = $1', [req.user.uid]);
-      if (userResult.rows.length === 0 || userResult.rows[0].phone !== phone) {
+      const userResult = await prisma.$queryRawUnsafe('SELECT phone FROM users WHERE uid = $1', [req.user.uid]);
+      if (userResult.rows.length === 0 || userResult[0].phone !== phone) {
         return error(res, 'Access denied: Cannot view other patient records', 403);
       }
     }
@@ -327,7 +327,7 @@ export const getInvestigationsByPhone = async (req, res) => {
     const offset = (page - 1) * limit;
 
     // Get paginated results
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, uid, phone, patient_name, doctor_name, test_name, test_category,
         status, priority, notes, result_summary, lab_name, sample_collected_at,
         report_ready_at, created_at, updated_at
@@ -336,12 +336,12 @@ export const getInvestigationsByPhone = async (req, res) => {
     );
 
     // Get total count for pagination
-    const countResult = await db.query(
+    const countResult = await prisma.$queryRawUnsafe(
       'SELECT COUNT(*) FROM investigations WHERE phone = $1',
       [phone]
     );
     
-    const totalInvestigations = parseInt(countResult.rows[0].count);
+    const totalInvestigations = parseInt(countResult[0].count);
     const totalPages = Math.ceil(totalInvestigations / limit);
     
     await logAudit(req, 'investigations-phone-lookup', { 
@@ -383,12 +383,12 @@ export const getInvestigationsByUID = async (req, res) => {
     }
 
     // Resolve UID to phone
-    const userResult = await db.query('SELECT phone FROM users WHERE uid = $1', [uid]);
+    const userResult = await prisma.$queryRawUnsafe('SELECT phone FROM users WHERE uid = $1', [uid]);
     if (userResult.rows.length === 0) {
       return error(res, 'User not found', 404);
     }
     
-    const phone = userResult.rows[0].phone;
+    const phone = userResult[0].phone;
     
     // Pagination parameters
     const page = parseInt(req.query.page) || 1;
@@ -396,7 +396,7 @@ export const getInvestigationsByUID = async (req, res) => {
     const offset = (page - 1) * limit;
     
     // Get paginated results
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, uid, phone, patient_name, doctor_name, test_name, test_category,
         status, priority, notes, result_summary, lab_name, sample_collected_at,
         report_ready_at, created_at, updated_at
@@ -405,12 +405,12 @@ export const getInvestigationsByUID = async (req, res) => {
     );
     
     // Get total count
-    const countResult = await db.query(
+    const countResult = await prisma.$queryRawUnsafe(
       'SELECT COUNT(*) FROM investigations WHERE phone = $1',
       [phone]
     );
     
-    const totalInvestigations = parseInt(countResult.rows[0].count);
+    const totalInvestigations = parseInt(countResult[0].count);
     const totalPages = Math.ceil(totalInvestigations / limit);
     
     await logAudit(req, 'investigations-uid-lookup', { 
@@ -445,7 +445,7 @@ export const getTestCatalog = async (req, res) => {
   try {
     const { category } = req.query;
     const where = category ? 'WHERE category=$1 AND is_active=TRUE' : 'WHERE is_active=TRUE';
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, name, category, price, description, turnaround_time, sample_type, is_available, created_at FROM investigation_test_catalog ${where} ORDER BY category, name`,
       category ? [category] : []
     );
@@ -462,17 +462,17 @@ export const upsertTestCatalog = async (req, res) => {
     if (!name || !category) return error(res, 'name and category required', HTTP_STATUS.BAD_REQUEST);
     let result;
     if (id) {
-      result = await db.query(
+      result = await prisma.$queryRawUnsafe(
         `UPDATE investigation_test_catalog SET name=$1,code=$2,category=$3,normal_range=$4,unit=$5,default_cost=$6,turnaround_hours=$7,requires_fasting=$8,patient_instructions=$9,description=$10 WHERE id=$11 RETURNING id, name, code, category, normal_range, unit, default_cost, turnaround_hours, requires_fasting, patient_instructions, description`,
         [name, code||null, category, normal_range||null, unit||null, default_cost||null, turnaround_hours||24, requires_fasting||false, patient_instructions||null, description||null, id]
       );
     } else {
-      result = await db.query(
+      result = await prisma.$queryRawUnsafe(
         `INSERT INTO investigation_test_catalog (name,code,category,normal_range,unit,default_cost,turnaround_hours,requires_fasting,patient_instructions,description) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id, name, code, category, normal_range, unit, default_cost, turnaround_hours, requires_fasting, patient_instructions, description`,
         [name, code||null, category, normal_range||null, unit||null, default_cost||null, turnaround_hours||24, requires_fasting||false, patient_instructions||null, description||null]
       );
     }
-    success(res, result.rows[0], id ? 'Updated' : 'Added');
+    success(res, result[0], id ? 'Updated' : 'Added');
   } catch (err) {
     logger.error('Upsert Test Catalog Error:', err);
     error(res, 'Failed to save test catalog entry', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -488,7 +488,7 @@ export const getInvestigationSLADashboard = async (req, res) => {
     const to = to_date || new Date().toISOString().split('T')[0];
 
     const [summary, byStatus, byPriority, urgentPending, recentCompleted] = await Promise.all([
-      db.query(
+      prisma.$queryRawUnsafe(
         `SELECT COUNT(*) as total,
           COUNT(CASE WHEN status IN ('completed','COMPLETED','result_ready') THEN 1 END) as completed,
           COUNT(CASE WHEN status='PENDING' THEN 1 END) as pending,
@@ -496,20 +496,20 @@ export const getInvestigationSLADashboard = async (req, res) => {
           AVG(CASE WHEN result_uploaded_at IS NOT NULL THEN EXTRACT(EPOCH FROM (result_uploaded_at-ordered_date))/3600 END) as avg_tat_hours
         FROM investigations WHERE DATE(ordered_date) BETWEEN $1 AND $2`, [from, to]
       ),
-      db.query(
+      prisma.$queryRawUnsafe(
         `SELECT status, COUNT(*) as count FROM investigations WHERE DATE(ordered_date) BETWEEN $1 AND $2 GROUP BY status`, [from, to]
       ),
-      db.query(
+      prisma.$queryRawUnsafe(
         `SELECT priority, COUNT(*) as count FROM investigations WHERE DATE(ordered_date) BETWEEN $1 AND $2 GROUP BY priority`, [from, to]
       ),
-      db.query(
+      prisma.$queryRawUnsafe(
         `SELECT i.*, u.name as patient_name, u.phone as patient_phone, d.name as doctor_name,
           ROUND(EXTRACT(EPOCH FROM (NOW()-i.ordered_date))/3600) as hours_waiting
         FROM investigations i LEFT JOIN users u ON i.patient_id=u.id LEFT JOIN users d ON i.doctor_id=d.id
         WHERE i.priority IN ('URGENT','STAT') AND i.status NOT IN ('completed','COMPLETED')
         ORDER BY i.ordered_date ASC LIMIT 20`
       ),
-      db.query(
+      prisma.$queryRawUnsafe(
         `SELECT i.*, u.name as patient_name,
           ROUND(EXTRACT(EPOCH FROM (COALESCE(i.result_uploaded_at,i.completed_date)-i.ordered_date))/3600,1) as tat_hours
         FROM investigations i LEFT JOIN users u ON i.patient_id=u.id
@@ -518,7 +518,7 @@ export const getInvestigationSLADashboard = async (req, res) => {
     ]);
 
     success(res, {
-      summary: summary.rows[0],
+      summary: summary[0],
       by_status: byStatus.rows,
       by_priority: byPriority.rows,
       urgent_pending: urgentPending.rows,

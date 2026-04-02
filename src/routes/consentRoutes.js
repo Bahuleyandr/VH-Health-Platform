@@ -4,7 +4,7 @@
 import { Router } from 'express';
 import { validationResult } from 'express-validator';
 import { requiredUUID, requiredString } from '../validators/sharedValidators.js';
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
 import { logPhiAccess } from '../utils/hipaaAudit.js';
@@ -39,7 +39,7 @@ router.post('/grant', requiredUUID('patient_uid'), requiredString('consent_type'
     const ip = req.ip || req.headers['x-forwarded-for'] || null;
 
     // Check if an active consent of this type already exists
-    const existing = await db.query(
+    const existing = await prisma.$queryRawUnsafe(
       `SELECT id FROM patient_consents
        WHERE patient_uid = $1 AND consent_type = $2 AND granted = true AND revoked_at IS NULL
        LIMIT 1`,
@@ -50,7 +50,7 @@ router.post('/grant', requiredUUID('patient_uid'), requiredString('consent_type'
       return error(res, 'Active consent of this type already exists for this patient', 409);
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `INSERT INTO patient_consents
         (patient_uid, consent_type, granted, granted_at, granted_by, ip_address, notes, created_at)
        VALUES ($1, $2, true, NOW(), $3, $4, $5, NOW())
@@ -70,7 +70,7 @@ router.post('/grant', requiredUUID('patient_uid'), requiredString('consent_type'
 
     logger.info('Consent granted', { patient_uid, consent_type, granted_by: grantedBy });
 
-    return success(res, result.rows[0], 'Consent granted successfully', 201);
+    return success(res, result[0], 'Consent granted successfully', 201);
   } catch (err) {
     logger.error('Failed to grant consent:', { error: err.message });
     next(err);
@@ -90,7 +90,7 @@ router.post('/revoke', requiredUUID('patient_uid'), requiredString('consent_type
       return error(res, 'patient_uid and consent_type are required', 400);
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `UPDATE patient_consents
        SET revoked_at = NOW(), granted = false
        WHERE patient_uid = $1
@@ -119,7 +119,7 @@ router.post('/revoke', requiredUUID('patient_uid'), requiredString('consent_type
 
     logger.info('Consent revoked', { patient_uid, consent_type });
 
-    return success(res, result.rows[0], 'Consent revoked successfully');
+    return success(res, result[0], 'Consent revoked successfully');
   } catch (err) {
     logger.error('Failed to revoke consent:', { error: err.message });
     next(err);
@@ -138,7 +138,7 @@ router.get('/:patientUid', async (req, res, next) => {
       return error(res, 'Patient UID is required', 400);
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, consent_type, granted, granted_at, revoked_at,
               granted_by, ip_address, notes, created_at
        FROM patient_consents
@@ -178,7 +178,7 @@ router.get('/:patientUid/:consentType', async (req, res, next) => {
       return error(res, 'Patient UID and consent type are required', 400);
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, consent_type, granted, granted_at, revoked_at,
               granted_by, ip_address, notes, created_at
        FROM patient_consents
@@ -193,7 +193,7 @@ router.get('/:patientUid/:consentType', async (req, res, next) => {
       return success(res, { has_consent: false, consent: null }, 'No consent record found');
     }
 
-    const consent = result.rows[0];
+    const consent = result[0];
     const isActive = consent.granted === true && consent.revoked_at === null;
 
     return success(res, {

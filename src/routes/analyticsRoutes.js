@@ -2,7 +2,7 @@
 
 // src/routes/analyticsRoutes.js - COMPLETE PRODUCTION VERSION WITH RBAC
 import express from 'express';
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import { HTTP_STATUS } from '../config/responseCodes.js';
 import { wrapAutoRBAC } from '../config/routeWrapper.js';
 import * as analyticsController from '../controllers/analyticsController.js';
@@ -45,7 +45,7 @@ wrapAutoRBAC(
               investigationStats, pharmacyStats, feedbackStats, sosStats
             ] = await Promise.all([
               // User analytics
-              db.query(`
+              prisma.$queryRawUnsafe(`
                 SELECT 
                   COUNT(*) as total_users,
                   COUNT(*) FILTER (WHERE registered_at > NOW() - INTERVAL '${interval}') as new_users,
@@ -58,7 +58,7 @@ wrapAutoRBAC(
               `),
               
               // Appointment analytics
-              db.query(`
+              prisma.$queryRawUnsafe(`
                 SELECT 
                   COUNT(*) as total_appointments,
                   COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '${interval}') as recent_appointments,
@@ -71,7 +71,7 @@ wrapAutoRBAC(
               `),
               
               // Health records analytics
-              db.query(`
+              prisma.$queryRawUnsafe(`
                 SELECT 
                   COUNT(*) as total_records,
                   COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '${interval}') as recent_records,
@@ -83,7 +83,7 @@ wrapAutoRBAC(
               `),
               
               // Investigation analytics
-              db.query(`
+              prisma.$queryRawUnsafe(`
                 SELECT 
                   COUNT(*) as total_investigations,
                   COUNT(*) FILTER (WHERE requested_at > NOW() - INTERVAL '${interval}') as recent_investigations,
@@ -97,7 +97,7 @@ wrapAutoRBAC(
               `),
               
               // Pharmacy analytics
-              db.query(`
+              prisma.$queryRawUnsafe(`
                 SELECT 
                   COUNT(*) as total_orders,
                   COUNT(*) FILTER (WHERE placed_at > NOW() - INTERVAL '${interval}') as recent_orders,
@@ -112,7 +112,7 @@ wrapAutoRBAC(
               `),
               
               // Feedback analytics
-              db.query(`
+              prisma.$queryRawUnsafe(`
                 SELECT 
                   COUNT(*) as total_feedback,
                   COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '${interval}') as recent_feedback,
@@ -125,7 +125,7 @@ wrapAutoRBAC(
               `),
               
               // SOS analytics
-              db.query(`
+              prisma.$queryRawUnsafe(`
                 SELECT 
                   COUNT(*) as total_alerts,
                   COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '${interval}') as recent_alerts,
@@ -140,13 +140,13 @@ wrapAutoRBAC(
 
             const analytics = {
               timeframe,
-              userAnalytics: userStats.rows[0],
-              appointmentAnalytics: appointmentStats.rows[0],
-              healthRecordAnalytics: healthRecordStats.rows[0],
-              investigationAnalytics: investigationStats.rows[0],
-              pharmacyAnalytics: pharmacyStats.rows[0],
-              feedbackAnalytics: feedbackStats.rows[0],
-              sosAnalytics: sosStats.rows[0],
+              userAnalytics: userStats[0],
+              appointmentAnalytics: appointmentStats[0],
+              healthRecordAnalytics: healthRecordStats[0],
+              investigationAnalytics: investigationStats[0],
+              pharmacyAnalytics: pharmacyStats[0],
+              feedbackAnalytics: feedbackStats[0],
+              sosAnalytics: sosStats[0],
               generatedAt: new Date().toISOString(),
               requestedBy: req.user?.name || 'Unknown'
             };
@@ -297,7 +297,7 @@ wrapAutoRBAC(
                 return error(res, 'Invalid metric specified. Valid options: users, appointments, investigations, feedback, pharmacy', HTTP_STATUS.BAD_REQUEST);
             }
 
-            const trends = await db.query(`
+            const trends = await prisma.$queryRawUnsafe(`
               SELECT 
                 TO_CHAR(${dateField}, '${dateFormat}') as period,
                 COUNT(*) as count,
@@ -366,7 +366,7 @@ wrapAutoRBAC(
               default: interval = '30 days';
             }
 
-            const departmentStats = await db.query(`
+            const departmentStats = await prisma.$queryRawUnsafe(`
               SELECT 
                 d.department,
                 COUNT(DISTINCT doc.user_id) as total_doctors,
@@ -437,7 +437,7 @@ wrapAutoRBAC(
 
             const [orderStats, topMedicines, revenueByDay] = await Promise.all([
               // Order statistics
-              db.query(`
+              prisma.$queryRawUnsafe(`
                 SELECT 
                   COUNT(*) as total_orders,
                   COUNT(*) FILTER (WHERE placed_at > NOW() - INTERVAL '${interval}') as recent_orders,
@@ -453,7 +453,7 @@ wrapAutoRBAC(
               `),
               
               // Top medicines
-              db.query(`
+              prisma.$queryRawUnsafe(`
                 SELECT 
                   medicine_name,
                   SUM(quantity) as total_quantity_sold,
@@ -467,7 +467,7 @@ wrapAutoRBAC(
               `),
               
               // Daily revenue trend
-              db.query(`
+              prisma.$queryRawUnsafe(`
                 SELECT 
                   DATE(placed_at) as order_date,
                   COUNT(*) as daily_orders,
@@ -482,7 +482,7 @@ wrapAutoRBAC(
 
             success(res, {
               timeframe,
-              orderStatistics: orderStats.rows[0],
+              orderStatistics: orderStats[0],
               topMedicines: topMedicines.rows,
               dailyRevenue: revenueByDay.rows,
               requestedBy: req.user?.name,
@@ -552,7 +552,7 @@ wrapAutoRBAC(
 
             const [ratingStats, departmentRatings, timelyRatings] = await Promise.all([
               // Overall satisfaction statistics
-              db.query(`
+              prisma.$queryRawUnsafe(`
                 SELECT 
                   COUNT(*) as total_feedback,
                   ROUND(AVG(rating), 2) as average_rating,
@@ -569,7 +569,7 @@ wrapAutoRBAC(
               `),
               
               // Department-wise ratings
-              db.query(`
+              prisma.$queryRawUnsafe(`
                 SELECT 
                   d.department,
                   COUNT(f.id) as feedback_count,
@@ -586,7 +586,7 @@ wrapAutoRBAC(
               `),
               
               // Rating trends over time
-              db.query(`
+              prisma.$queryRawUnsafe(`
                 SELECT 
                   DATE(created_at) as feedback_date,
                   COUNT(*) as daily_feedback,
@@ -601,7 +601,7 @@ wrapAutoRBAC(
 
             success(res, {
               timeframe,
-              overallSatisfaction: ratingStats.rows[0],
+              overallSatisfaction: ratingStats[0],
               departmentRatings: departmentRatings.rows,
               ratingTrends: timelyRatings.rows,
               requestedBy: req.user?.name,
@@ -672,7 +672,7 @@ wrapAutoRBAC(
 
             const [featureUsage, deviceStats, peakHours] = await Promise.all([
               // Feature usage statistics
-              db.query(`
+              prisma.$queryRawUnsafe(`
                 SELECT 
                   'Appointments' as feature,
                   COUNT(*) as usage_count
@@ -700,7 +700,7 @@ wrapAutoRBAC(
               `),
               
               // Device/platform statistics (if available)
-              db.query(`
+              prisma.$queryRawUnsafe(`
                 SELECT 
                   device_type,
                   platform,
@@ -713,7 +713,7 @@ wrapAutoRBAC(
               `),
               
               // Peak usage hours
-              db.query(`
+              prisma.$queryRawUnsafe(`
                 SELECT 
                   EXTRACT(HOUR FROM created_at) as hour_of_day,
                   COUNT(*) as activity_count

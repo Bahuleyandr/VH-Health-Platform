@@ -1,4 +1,4 @@
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 export const updatePharmacyOrderStatus = async (data) => {
@@ -9,7 +9,7 @@ export const updatePharmacyOrderStatus = async (data) => {
   } = data;
 
   // Update pharmacy order
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     UPDATE pharmacy_orders SET 
       status = $1, 
       order_note = COALESCE($2, order_note),
@@ -42,7 +42,7 @@ export const updatePharmacyOrderStatus = async (data) => {
     cancelled: 'Your pharmacy order has been cancelled.'
   };
 
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `INSERT INTO notifications (
       phone, title, body, type, related_id, created_at
     ) VALUES ($1, $2, $3, $4, $5, NOW())`,
@@ -56,7 +56,7 @@ export const updatePharmacyOrderStatus = async (data) => {
   );
 
   // Log activity
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `INSERT INTO pharmacy_activity_logs (
       staff_uid, action, patient_phone, order_id,
       old_status, new_status, notes, created_at
@@ -76,10 +76,10 @@ export const updatePharmacyOrderStatus = async (data) => {
 
   return {
     order: {
-      ...result.rows[0],
-      placed_at: result.rows[0].placed_at ? result.rows[0].placed_at.toLocaleString('en-IN') : null,
-      dispensed_at: result.rows[0].dispensed_at ? result.rows[0].dispensed_at.toLocaleString('en-IN') : null,
-      updated_at: result.rows[0].updated_at.toLocaleString('en-IN')
+      ...result[0],
+      placed_at: result[0].placed_at ? result[0].placed_at.toLocaleString('en-IN') : null,
+      dispensed_at: result[0].dispensed_at ? result[0].dispensed_at.toLocaleString('en-IN') : null,
+      updated_at: result[0].updated_at.toLocaleString('en-IN')
     },
     updatedBy: updatedByName,
     patientNotified: true

@@ -1,5 +1,5 @@
 // src/services/staff/hr/dashboardService.js
-import db from '../../../config/database.js';
+import prisma from '../../../lib/prisma.js';
 import { STAFF_ROLES } from '../../../config/staffConfig.js';
 import logger from '../../../logging/logger.js';
 
@@ -11,7 +11,7 @@ import logger from '../../../logging/logger.js';
  */
 export const getHRDashboardData = async (timeframe) => {
   // Staff overview statistics
-  const staffOverview = await db.query(`
+  const staffOverview = await prisma.$queryRawUnsafe(`
     SELECT 
       COUNT(*) as total_staff,
       COUNT(CASE WHEN s.is_active = true THEN 1 END) as active_staff,
@@ -25,7 +25,7 @@ export const getHRDashboardData = async (timeframe) => {
   `, [Object.values(STAFF_ROLES)]);
 
   // Department staffing levels
-  const departmentStats = await db.query(`
+  const departmentStats = await prisma.$queryRawUnsafe(`
     SELECT 
       s.department,
       COUNT(*) as total_staff,
@@ -42,7 +42,7 @@ export const getHRDashboardData = async (timeframe) => {
   // Recent attendance trends
   let attendanceTrends = [];
   try {
-    const attendanceResult = await db.query(`
+    const attendanceResult = await prisma.$queryRawUnsafe(`
       SELECT 
         DATE(check_in_time) as date,
         COUNT(DISTINCT staff_id) as unique_staff,
@@ -71,7 +71,7 @@ export const getHRDashboardData = async (timeframe) => {
   // Performance metrics
   let performanceMetrics = null;
   try {
-    const performanceResult = await db.query(`
+    const performanceResult = await prisma.$queryRawUnsafe(`
       SELECT 
         AVG(performance_rating) as avg_performance_rating,
         COUNT(CASE WHEN performance_rating >= 4.0 THEN 1 END) as high_performers,
@@ -80,10 +80,10 @@ export const getHRDashboardData = async (timeframe) => {
       WHERE performance_rating IS NOT NULL AND is_active = true
     `);
 
-    if (performanceResult.rows[0].avg_performance_rating) {
+    if (performanceResult[0].avg_performance_rating) {
       performanceMetrics = {
-        ...performanceResult.rows[0],
-        avg_performance_rating: Math.round(performanceResult.rows[0].avg_performance_rating * 100) / 100
+        ...performanceResult[0],
+        avg_performance_rating: Math.round(performanceResult[0].avg_performance_rating * 100) / 100
       };
     }
   } catch (performanceError) {
@@ -93,7 +93,7 @@ export const getHRDashboardData = async (timeframe) => {
   // Upcoming reviews and tasks
   let upcomingTasks = [];
   try {
-    const tasksResult = await db.query(`
+    const tasksResult = await prisma.$queryRawUnsafe(`
       SELECT 
         'performance_review' as task_type,
         u.name as staff_name,
@@ -121,11 +121,11 @@ export const getHRDashboardData = async (timeframe) => {
 
   return {
     overview: {
-      ...staffOverview.rows[0],
-      average_salary: staffOverview.rows[0].average_salary ? 
-        Math.round(staffOverview.rows[0].average_salary) : null,
-      attendance_rate: staffOverview.rows[0].total_staff > 0 ? 
-        Math.round((staffOverview.rows[0].currently_checked_in / staffOverview.rows[0].total_staff) * 100) : 0
+      ...staffOverview[0],
+      average_salary: staffOverview[0].average_salary ? 
+        Math.round(staffOverview[0].average_salary) : null,
+      attendance_rate: staffOverview[0].total_staff > 0 ? 
+        Math.round((staffOverview[0].currently_checked_in / staffOverview[0].total_staff) * 100) : 0
     },
     departmentBreakdown: departmentStats.rows.map(dept => ({
       ...dept,
@@ -139,7 +139,7 @@ export const getHRDashboardData = async (timeframe) => {
     alerts: {
       low_attendance: departmentStats.rows.filter(d => (d.present_today / d.active_staff) < 0.7).length,
       upcoming_reviews: upcomingTasks.length,
-      new_hires_need_onboarding: parseInt(staffOverview.rows[0].new_hires_30_days) || 0
+      new_hires_need_onboarding: parseInt(staffOverview[0].new_hires_30_days) || 0
     },
     lastUpdated: new Date().toISOString()
   };

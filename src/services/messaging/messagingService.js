@@ -1,9 +1,26 @@
 // src/services/messaging/messagingService.js
 
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import notificationOutbox from '../../utils/notifications/notificationOutbox.js';
+
+
+const query = async (sql, params = []) => {
+  const normalizedSql = sql.trim();
+  const upperSql = normalizedSql.toUpperCase();
+  const usesReturning = /\bRETURNING\b/i.test(normalizedSql);
+  const isReadQuery = upperSql.startsWith('SELECT') || upperSql.startsWith('WITH') || usesReturning;
+
+  if (isReadQuery) {
+    const rows = await prisma.$queryRawUnsafe(normalizedSql, ...params);
+    return { rows, rowCount: Array.isArray(rows) ? rows.length : 0 };
+  }
+
+  const rowCount = await prisma.$executeRawUnsafe(normalizedSql, ...params);
+  return { rows: [], rowCount: Number(rowCount) || 0 };
+};
+
 
 const VALID_PRIORITIES = ['normal', 'urgent', 'critical'];
 
@@ -33,7 +50,7 @@ const messagingService = {
     }
 
     try {
-      const result = await db.query(
+      const result = await query(
         `INSERT INTO staff_messages
           (sender_uid, recipient_uid, patient_uid, subject, body, priority, is_read, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, false, NOW())
@@ -41,7 +58,7 @@ const messagingService = {
         [senderUid, recipientUid, patientUid, subject, body, priority]
       );
 
-      const message = result.rows[0];
+      const message = result[0];
 
       // Queue notification for recipient (fire-and-forget)
       notificationOutbox.queue({
@@ -80,12 +97,12 @@ const messagingService = {
     const offset = (safePage - 1) * safeLimit;
 
     try {
-      const countResult = await db.query(
+      const countResult = await query(
         `SELECT COUNT(*)::int AS total FROM staff_messages WHERE recipient_uid = $1`,
         [staffUid]
       );
 
-      const result = await db.query(
+      const result = await query(
         `SELECT id, sender_uid, recipient_uid, patient_uid, subject, body, priority, is_read, read_at, created_at
          FROM staff_messages
          WHERE recipient_uid = $1
@@ -96,7 +113,7 @@ const messagingService = {
 
       return {
         messages: result.rows,
-        total: countResult.rows[0].total,
+        total: countResult[0].total,
         page: safePage,
         limit: safeLimit,
       };
@@ -132,7 +149,7 @@ const messagingService = {
 
       query += ` ORDER BY created_at ASC`;
 
-      const result = await db.query(query, params);
+      const result = await query(query, params);
       return result.rows;
     } catch (err) {
       logger.error('Error fetching thread:', err.message);
@@ -149,7 +166,7 @@ const messagingService = {
    */
   async markAsRead(messageId, staffUid) {
     try {
-      const result = await db.query(
+      const result = await query(
         `UPDATE staff_messages
          SET is_read = true, read_at = NOW()
          WHERE id = $1 AND recipient_uid = $2 AND is_read = false
@@ -159,7 +176,7 @@ const messagingService = {
 
       if (result.rows.length === 0) {
         // Check if message exists at all
-        const exists = await db.query(
+        const exists = await query(
           `SELECT id, recipient_uid, is_read FROM staff_messages WHERE id = $1`,
           [messageId]
         );
@@ -168,15 +185,15 @@ const messagingService = {
           throw AppError.notFound('Message not found');
         }
 
-        if (String(exists.rows[0].recipient_uid) !== String(staffUid)) {
+        if (String(exists[0].recipient_uid) !== String(staffUid)) {
           throw AppError.forbidden('Cannot mark another user\'s message as read');
         }
 
         // Already read
-        return { id: messageId, is_read: true, read_at: exists.rows[0].read_at };
+        return { id: messageId, is_read: true, read_at: exists[0].read_at };
       }
 
-      return result.rows[0];
+      return result[0];
     } catch (err) {
       if (err instanceof AppError) throw err;
       logger.error('Error marking message as read:', err.message);
@@ -191,14 +208,14 @@ const messagingService = {
    */
   async getUnreadCount(staffUid) {
     try {
-      const result = await db.query(
+      const result = await query(
         `SELECT COUNT(*)::int AS unread_count
          FROM staff_messages
          WHERE recipient_uid = $1 AND is_read = false`,
         [staffUid]
       );
 
-      return { unread_count: result.rows[0].unread_count };
+      return { unread_count: result[0].unread_count };
     } catch (err) {
       logger.error('Error fetching unread count:', err.message);
       throw AppError.internal('Failed to fetch unread count');
@@ -212,7 +229,7 @@ const messagingService = {
    */
   async getPatientDiscussion(patientUid) {
     try {
-      const result = await db.query(
+      const result = await query(
         `SELECT id, sender_uid, recipient_uid, patient_uid, subject, body, priority, is_read, read_at, created_at
          FROM staff_messages
          WHERE patient_uid = $1

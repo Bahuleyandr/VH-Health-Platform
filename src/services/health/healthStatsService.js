@@ -1,13 +1,16 @@
 // src/services/health/healthStatsService.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
+import { createPrismaDb } from '../../lib/prismaCompat.js';
 import { TREND_PERIODS } from '../../config/healthConfig.js';
 import logger from '../../logging/logger.js';
+
+const db = createPrismaDb(prisma);
 
 export async function getHealthStatistics(days = TREND_PERIODS.WEEK) {
   try {
     const [recordStats, typeStats, dailyActivity] = await Promise.all([
       // Total health record statistics
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT 
           COUNT(*) as total_records,
           COUNT(DISTINCT patient_id) as unique_patients,
@@ -16,7 +19,7 @@ export async function getHealthStatistics(days = TREND_PERIODS.WEEK) {
       `),
       
       // Record type breakdown
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT record_type, COUNT(*) as count
         FROM health_records 
         WHERE recorded_date >= CURRENT_DATE - INTERVAL '${days} days'
@@ -25,7 +28,7 @@ export async function getHealthStatistics(days = TREND_PERIODS.WEEK) {
       `),
       
       // Daily activity
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT DATE(recorded_date) as date, COUNT(*) as records_count
         FROM health_records 
         WHERE recorded_date >= CURRENT_DATE - INTERVAL '${days} days'
@@ -35,7 +38,7 @@ export async function getHealthStatistics(days = TREND_PERIODS.WEEK) {
     ]);
     
     return {
-      totals: recordStats.rows[0],
+      totals: recordStats[0],
       by_type: typeStats.rows,
       daily_activity: dailyActivity.rows
     };

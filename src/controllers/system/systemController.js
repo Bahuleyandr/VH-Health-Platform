@@ -1,5 +1,5 @@
 // src/controllers/system/systemController.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 import * as systemHealthService from '../../services/health/systemHealthService.js';
@@ -33,10 +33,10 @@ export async function getSettings(req, res) {
   try {
     // Try to load settings from DB if a settings table exists
     try {
-      const result = await db.query(
+      const result = await prisma.$queryRawUnsafe(
         `SELECT key, value FROM system_settings ORDER BY key`
       );
-      if (result.rowCount > 0) {
+      if (result.length > 0) {
         const dbSettings = {};
         for (const row of result.rows) {
           try {
@@ -80,7 +80,7 @@ export async function updateSettings(req, res) {
     // Try to persist to DB if table exists
     try {
       for (const [key, value] of Object.entries(filtered)) {
-        await db.query(
+        await prisma.$queryRawUnsafe(
           `INSERT INTO system_settings (key, value, updated_at)
            VALUES ($1, $2, NOW())
            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,

@@ -1,5 +1,5 @@
 // services/infrastructure/debugService.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import { 
@@ -39,8 +39,8 @@ export class DebugService {
   // Get database information
   static async getDatabaseInfo() {
     try {
-      const versionResult = await db.query('SELECT version()');
-      const connectionResult = await db.query(`
+      const versionResult = await prisma.$queryRawUnsafe('SELECT version()');
+      const connectionResult = await prisma.$queryRawUnsafe(`
         SELECT count(*) as total_connections,
                sum(case when state = 'active' then 1 else 0 end) as active_connections
         FROM pg_stat_activity
@@ -48,8 +48,8 @@ export class DebugService {
       
       return {
         connected: true,
-        version: versionResult.rows[0].version.split(' ')[1],
-        connections: connectionResult.rows[0],
+        version: versionResult[0].version.split(' ')[1],
+        connections: connectionResult[0],
         host: process.env.DATABASE_URL ? '[REDACTED]' : 'unknown'
       };
     } catch (error) {
@@ -79,11 +79,11 @@ export class DebugService {
   static async testDatabaseConnection() {
     try {
       const start = Date.now();
-      const result = await db.query('SELECT NOW() as server_time, version() as postgres_version');
+      const result = await prisma.$queryRawUnsafe('SELECT NOW() as server_time, version() as postgres_version');
       const responseTime = Date.now() - start;
       
       // Test additional database operations
-      const tableCheck = await db.query(`
+      const tableCheck = await prisma.$queryRawUnsafe(`
         SELECT table_name, table_type 
         FROM information_schema.tables 
         WHERE table_schema = 'public' 
@@ -94,8 +94,8 @@ export class DebugService {
       return {
         connected: true,
         responseTimeMs: responseTime,
-        serverTime: result.rows[0].server_time,
-        postgresVersion: result.rows[0].postgres_version.split(' ')[0],
+        serverTime: result[0].server_time,
+        postgresVersion: result[0].postgres_version.split(' ')[0],
         sampleTables: tableCheck.rows,
         tableCount: tableCheck.rows.length
       };
@@ -122,7 +122,7 @@ export class DebugService {
       // Database health check
       try {
         const dbStart = Date.now();
-        await db.query('SELECT 1');
+        await prisma.$queryRawUnsafe('SELECT 1');
         healthData.checks.database = {
           status: 'healthy',
           responseTimeMs: Date.now() - dbStart
@@ -217,7 +217,7 @@ export class DebugService {
       // Database performance test
       try {
         const dbStart = process.hrtime.bigint();
-        await db.query('SELECT COUNT(*) FROM information_schema.tables');
+        await prisma.$queryRawUnsafe('SELECT COUNT(*) FROM information_schema.tables');
         const dbEnd = process.hrtime.bigint();
         metrics.database = {
           queryTimeNs: Number(dbEnd - dbStart),

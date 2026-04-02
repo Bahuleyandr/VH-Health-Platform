@@ -124,12 +124,12 @@ export const checkRoleCapacity = async (role, db) => {
   const roleData = ROLE_HIERARCHY[role];
   if (!roleData.maxUsers) {return { hasCapacity: true, current: 0, max: null };}
   
-  const result = await db.query(
+  const result = await prisma.$queryRawUnsafe(
     'SELECT COUNT(*) FROM users WHERE role = $1 AND is_active = true',
     [role]
   );
   
-  const current = parseInt(result.rows[0].count);
+  const current = parseInt(result[0].count);
   return {
     hasCapacity: current < roleData.maxUsers,
     current,

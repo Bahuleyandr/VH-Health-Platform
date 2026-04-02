@@ -1,7 +1,7 @@
 // src/utils/search/setupSearchIndexes.js
 // Idempotent full-text search setup for PostgreSQL
 
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 const SETUP_SQL = `
@@ -65,7 +65,7 @@ CREATE INDEX IF NOT EXISTS idx_appointments_search
 export async function setupSearchIndexes() {
   try {
     logger.info('🔍 Setting up full-text search indexes...');
-    await db.query(SETUP_SQL);
+    await prisma.$queryRawUnsafe(SETUP_SQL);
     logger.info('✅ Full-text search indexes created successfully');
     return true;
   } catch (err) {

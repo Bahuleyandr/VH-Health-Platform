@@ -1,4 +1,4 @@
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 
@@ -9,7 +9,7 @@ export const uploadConsultation = async (data) => {
     vital_signs, medications_prescribed, uploadedBy, uploadedByName
   } = data;
 
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     INSERT INTO consultations (
       phone, file_key, file_name, file_type, consultation_type,
       doctor_notes, diagnosis, treatment_plan, follow_up_date,
@@ -25,7 +25,7 @@ export const uploadConsultation = async (data) => {
   ]);
 
   // Create notification
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `INSERT INTO notifications (
       phone, title, body, type, related_id, created_at
     ) VALUES ($1, $2, $3, $4, $5, NOW())`,
@@ -34,12 +34,12 @@ export const uploadConsultation = async (data) => {
       'New Consultation Record Available',
       `Your consultation record from ${new Date().toLocaleDateString('en-GB')} is now available for review.`,
       'consultation_uploaded',
-      result.rows[0].id
+      result[0].id
     ]
   );
 
   // Log activity
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `INSERT INTO medical_activity_logs (
       staff_uid, action, patient_phone, description,
       consultation_id, created_at
@@ -49,7 +49,7 @@ export const uploadConsultation = async (data) => {
       'CONSULTATION_UPLOADED',
       phone,
       `Consultation document uploaded: ${file_name}`,
-      result.rows[0].id
+      result[0].id
     ]
   );
 
@@ -57,10 +57,10 @@ export const uploadConsultation = async (data) => {
 
   return {
     consultation: {
-      ...result.rows[0],
-      created_at: result.rows[0].created_at.toLocaleString('en-IN'),
-      follow_up_date: result.rows[0].follow_up_date ? 
-        new Date(result.rows[0].follow_up_date).toLocaleDateString('en-GB', {
+      ...result[0],
+      created_at: result[0].created_at.toLocaleString('en-IN'),
+      follow_up_date: result[0].follow_up_date ? 
+        new Date(result[0].follow_up_date).toLocaleDateString('en-GB', {
           day: '2-digit',
           month: '2-digit',
           year: 'numeric'
@@ -79,7 +79,7 @@ export const uploadInvestigationResult = async (data) => {
     urgent_flag = false, uploadedBy, uploadedByName
   } = data;
 
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     INSERT INTO investigations (
       phone, test_name, file_key, file_name, file_type,
       result_status, lab_values, reference_ranges, technician_notes,
@@ -105,7 +105,7 @@ export const uploadInvestigationResult = async (data) => {
     `URGENT: Your ${test_name} results require immediate attention. Please contact your doctor.` :
     `Your ${test_name} investigation results are now available for review.`;
 
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `INSERT INTO notifications (
       phone, title, body, type, priority, related_id, created_at
     ) VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
@@ -113,14 +113,14 @@ export const uploadInvestigationResult = async (data) => {
       phone, notificationTitle, notificationBody,
       'investigation_result',
       urgent_flag || result_status === 'critical' ? 'high' : 'normal',
-      result.rows[0].id
+      result[0].id
     ]
   );
 
   // Send push notification for urgent/critical results
   if (urgent_flag || result_status === 'critical') {
     try {
-      const userTokens = await db.query(
+      const userTokens = await prisma.$queryRawUnsafe(
         'SELECT fcm_token FROM user_devices WHERE phone = $1 AND fcm_token IS NOT NULL',
         [phone]
       );
@@ -132,7 +132,7 @@ export const uploadInvestigationResult = async (data) => {
           body: notificationBody,
           data: {
             type: 'investigation_urgent',
-            investigation_id: result.rows[0].id.toString(),
+            investigation_id: result[0].id.toString(),
             test_name,
             result_status
           }
@@ -144,7 +144,7 @@ export const uploadInvestigationResult = async (data) => {
   }
 
   // Log activity
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `INSERT INTO medical_activity_logs (
       staff_uid, action, patient_phone, description,
       investigation_id, urgent_flag, created_at
@@ -154,7 +154,7 @@ export const uploadInvestigationResult = async (data) => {
       'INVESTIGATION_UPLOADED',
       phone,
       `Investigation result uploaded: ${test_name} (${result_status})`,
-      result.rows[0].id,
+      result[0].id,
       urgent_flag
     ]
   );
@@ -163,8 +163,8 @@ export const uploadInvestigationResult = async (data) => {
 
   return {
     investigation: {
-      ...result.rows[0],
-      requested_at: result.rows[0].requested_at.toLocaleString('en-IN')
+      ...result[0],
+      requested_at: result[0].requested_at.toLocaleString('en-IN')
     },
     uploadedBy: uploadedByName,
     patientNotified: true,

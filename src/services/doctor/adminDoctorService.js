@@ -1,5 +1,5 @@
 // src/services/doctor/adminDoctorService.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { DOCTOR_CONFIG, DOCTOR_MESSAGES } from '../../config/doctorConfig.js';
 import logger from '../../logging/logger.js';
 
@@ -9,7 +9,7 @@ export class AdminDoctorService {
     try {
       const [doctorStats, performanceMetrics, departmentDistribution] = await Promise.all([
         // Doctor statistics
-        db.query(`
+        prisma.$queryRawUnsafe(`
           SELECT 
             COUNT(*) as total_doctors,
             COUNT(CASE WHEN d.is_available = true THEN 1 END) as available_doctors,
@@ -23,7 +23,7 @@ export class AdminDoctorService {
         `),
         
         // Performance metrics (last 30 days)
-        db.query(`
+        prisma.$queryRawUnsafe(`
           SELECT u.id, u.name, d.specialization, d.department,
                  COUNT(a.id) as total_appointments,
                  COUNT(CASE WHEN a.status = 'COMPLETED' THEN 1 END) as completed_appointments,
@@ -41,7 +41,7 @@ export class AdminDoctorService {
         `),
         
         // Department distribution
-        db.query(`
+        prisma.$queryRawUnsafe(`
           SELECT d.department, d.specialization,
                  COUNT(*) as doctor_count,
                  COUNT(CASE WHEN d.is_available = true THEN 1 END) as available_count,
@@ -53,7 +53,7 @@ export class AdminDoctorService {
       ]);
       
       return {
-        statistics: doctorStats.rows[0],
+        statistics: doctorStats[0],
         top_performers: performanceMetrics.rows,
         department_distribution: departmentDistribution.rows
       };
@@ -132,7 +132,7 @@ export class AdminDoctorService {
       params.push(limit, offset);
       
       const [doctors, total] = await Promise.all([
-        db.query(query, params),
+        prisma.$queryRawUnsafe(query, params),
         this.countManagementDoctors(filters)
       ]);
       
@@ -188,8 +188,8 @@ export class AdminDoctorService {
         params.push(`%${search}%`);
       }
       
-      const result = await db.query(query, params);
-      return parseInt(result.rows[0].count);
+      const result = await prisma.$queryRawUnsafe(query, params);
+      return parseInt(result[0].count);
     } catch (error) {
       logger.error('Error counting management doctors:', error);
       throw error;
@@ -225,7 +225,7 @@ export class AdminDoctorService {
         doctorData.birthday
       ]);
       
-      const userId = userResult.rows[0].id;
+      const userId = userResult[0].id;
       
       // Create doctor profile
       const doctorResult = await client.query(`
@@ -251,8 +251,8 @@ export class AdminDoctorService {
       await client.query('COMMIT');
       
       return {
-        user: userResult.rows[0],
-        doctor_profile: doctorResult.rows[0]
+        user: userResult[0],
+        doctor_profile: doctorResult[0]
       };
     } catch (error) {
       await client.query('ROLLBACK');
@@ -275,7 +275,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
     
     switch (operation) {
       case 'activate': {
-        const activateResult = await db.query(
+        const activateResult = await prisma.$queryRawUnsafe(
           'UPDATE doctors SET is_available = true, updated_at = NOW() WHERE user_id = ANY($1) RETURNING user_id',
           [doctorIds]
         );
@@ -284,13 +284,13 @@ async performBulkOperation(operation, doctorIds, data = {}) {
       }
         
       case 'deactivate': {
-        const deactivateResult = await db.query(
+        const deactivateResult = await prisma.$queryRawUnsafe(
           'UPDATE doctors SET is_available = false, updated_at = NOW() WHERE user_id = ANY($1) RETURNING user_id',
           [doctorIds]
         );
         
         // Cancel future appointments for deactivated doctors
-        await db.query(`
+        await prisma.$queryRawUnsafe(`
           UPDATE appointments SET 
             status = 'CANCELLED',
             notes = COALESCE(notes || ' ', '') || 'Doctor deactivated by admin',
@@ -306,7 +306,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
         if (!data.consultation_fee) {
           throw new Error('consultation_fee is required for update_fee operation');
         }
-        const feeResult = await db.query(
+        const feeResult = await prisma.$queryRawUnsafe(
           'UPDATE doctors SET consultation_fee = $1, updated_at = NOW() WHERE user_id = ANY($2) RETURNING user_id, consultation_fee',
           [data.consultation_fee, doctorIds]
         );
@@ -318,7 +318,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
         if (!data.department) {
           throw new Error('department is required for change_department operation');
         }
-        const deptResult = await db.query(
+        const deptResult = await prisma.$queryRawUnsafe(
           'UPDATE doctors SET department = $1, updated_at = NOW() WHERE user_id = ANY($2) RETURNING user_id, department',
           [data.department, doctorIds]
         );
@@ -330,7 +330,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
         if (!data.available_days || !data.available_hours) {
           throw new Error('available_days and available_hours are required for update_schedule operation');
         }
-        const scheduleResult = await db.query(
+        const scheduleResult = await prisma.$queryRawUnsafe(
           'UPDATE doctors SET available_days = $1, available_hours = $2, updated_at = NOW() WHERE user_id = ANY($3) RETURNING user_id, available_days, available_hours',
           [data.available_days, data.available_hours, doctorIds]
         );
@@ -393,7 +393,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
       await client.query('COMMIT');
       
       return {
-        doctor: result.rows[0],
+        doctor: result[0],
         affected_appointments: affectedAppointments.length,
         cancelled_appointments: affectedAppointments
       };
@@ -431,7 +431,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
         [id, 'SCHEDULED']
       );
       
-      const futureCount = parseInt(futureAppointments.rows[0].count);
+      const futureCount = parseInt(futureAppointments[0].count);
       
       if (futureCount > 0 && !transfer_patients_to) {
         throw new Error(`Doctor has ${futureCount} future appointments. Provide transfer_patients_to doctor ID or cancel appointments first`);
@@ -477,7 +477,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
       await client.query('COMMIT');
       
       return {
-        doctor: doctorCheck.rows[0],
+        doctor: doctorCheck[0],
         appointments_handled: {
           future_appointments: futureCount,
           action: transfer_patients_to ? 'transferred' : 'cancelled',

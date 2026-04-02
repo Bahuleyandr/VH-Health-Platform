@@ -1,5 +1,5 @@
 // src/services/staff/hr/departmentService.js
-import db from '../../../config/database.js';
+import prisma from '../../../lib/prisma.js';
 import logger from '../../../logging/logger.js';
 
 /**
@@ -9,7 +9,7 @@ import logger from '../../../logging/logger.js';
  */
 export const getDepartmentStaffSummary = async (department) => {
   // Basic department statistics
-  const departmentStats = await db.query(`
+  const departmentStats = await prisma.$queryRawUnsafe(`
     SELECT 
       COUNT(*) as total_staff,
       COUNT(CASE WHEN s.is_active = true THEN 1 END) as active_staff,
@@ -25,7 +25,7 @@ export const getDepartmentStaffSummary = async (department) => {
   `, [department]);
 
   // Staff by position
-  const positionBreakdown = await db.query(`
+  const positionBreakdown = await prisma.$queryRawUnsafe(`
     SELECT 
       s.position,
       COUNT(*) as count,
@@ -38,7 +38,7 @@ export const getDepartmentStaffSummary = async (department) => {
   `, [department]);
 
   // Staff by shift
-  const shiftBreakdown = await db.query(`
+  const shiftBreakdown = await prisma.$queryRawUnsafe(`
     SELECT 
       s.shift_type,
       COUNT(*) as count
@@ -50,7 +50,7 @@ export const getDepartmentStaffSummary = async (department) => {
   `, [department]);
 
   // Experience distribution
-  const experienceDistribution = await db.query(`
+  const experienceDistribution = await prisma.$queryRawUnsafe(`
     SELECT 
       CASE
         WHEN AGE(NOW(), s.hire_date) < INTERVAL '1 year' THEN '0-1 years'
@@ -75,7 +75,7 @@ export const getDepartmentStaffSummary = async (department) => {
   `, [department]);
 
   // Recent attendance
-  const attendanceMetrics = await db.query(`
+  const attendanceMetrics = await prisma.$queryRawUnsafe(`
     SELECT 
       COUNT(DISTINCT sa.staff_id) as staff_present_today,
       AVG(EXTRACT(EPOCH FROM (sa.check_out_time - sa.check_in_time))/3600) as avg_hours_today
@@ -87,7 +87,7 @@ export const getDepartmentStaffSummary = async (department) => {
   `, [department]);
 
   // Performance metrics
-  const performanceMetrics = await db.query(`
+  const performanceMetrics = await prisma.$queryRawUnsafe(`
     SELECT 
       AVG(s.performance_rating) as avg_performance,
       COUNT(CASE WHEN s.performance_rating >= 4.0 THEN 1 END) as high_performers,
@@ -97,7 +97,7 @@ export const getDepartmentStaffSummary = async (department) => {
   `, [department]);
 
   // Staff list
-  const staffList = await db.query(`
+  const staffList = await prisma.$queryRawUnsafe(`
     SELECT 
       u.id, u.name, u.email, u.phone,
       s.employee_id, s.position, s.shift_type, s.employment_type,
@@ -115,9 +115,9 @@ export const getDepartmentStaffSummary = async (department) => {
     ORDER BY s.position, u.name
   `, [department]);
 
-  const stats = departmentStats.rows[0];
-  const attendance = attendanceMetrics.rows[0];
-  const performance = performanceMetrics.rows[0];
+  const stats = departmentStats[0];
+  const attendance = attendanceMetrics[0];
+  const performance = performanceMetrics[0];
 
   return {
     department,
@@ -189,7 +189,7 @@ export const getAttendanceAnalytics = async (queryParams) => {
   }
 
   // Attendance overview
-  const overview = await db.query(`
+  const overview = await prisma.$queryRawUnsafe(`
     SELECT 
       COUNT(DISTINCT sa.staff_id) as unique_staff,
       COUNT(*) as total_check_ins,
@@ -221,7 +221,7 @@ export const getAttendanceAnalytics = async (queryParams) => {
       dateFormat = "to_char(DATE(sa.check_in_time), 'DD-MM-YYYY')";
   }
 
-  const trendsData = await db.query(`
+  const trendsData = await prisma.$queryRawUnsafe(`
     SELECT 
       ${dateFormat} as period,
       COUNT(DISTINCT sa.staff_id) as unique_staff,
@@ -241,7 +241,7 @@ export const getAttendanceAnalytics = async (queryParams) => {
   // Department comparison (if not filtering by department)
   let departmentComparison = [];
   if (!department) {
-    const deptResult = await db.query(`
+    const deptResult = await prisma.$queryRawUnsafe(`
       SELECT 
         s.department,
         COUNT(DISTINCT sa.staff_id) as unique_staff,
@@ -261,7 +261,7 @@ export const getAttendanceAnalytics = async (queryParams) => {
   }
 
   // Punctuality analysis
-  const punctualityData = await db.query(`
+  const punctualityData = await prisma.$queryRawUnsafe(`
     SELECT 
       CASE 
         WHEN TIME(sa.check_in_time) <= '09:00:00' THEN 'on_time'
@@ -284,7 +284,7 @@ export const getAttendanceAnalytics = async (queryParams) => {
   `, queryParams);
 
   // Top performers (most consistent attendance)
-  const topPerformers = await db.query(`
+  const topPerformers = await prisma.$queryRawUnsafe(`
     SELECT 
       u.name,
       s.employee_id,
@@ -304,7 +304,7 @@ export const getAttendanceAnalytics = async (queryParams) => {
     LIMIT 10
   `, queryParams);
 
-  const overviewData = overview.rows[0];
+  const overviewData = overview[0];
 
   return {
     filters: {

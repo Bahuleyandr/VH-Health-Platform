@@ -1,5 +1,5 @@
 // src/services/staff/hr/performanceService.js
-import db from '../../../config/database.js';
+import prisma from '../../../lib/prisma.js';
 import logger from '../../../logging/logger.js';
 
 /**
@@ -35,7 +35,7 @@ export const generatePerformanceReport = async (queryParams) => {
   queryParams.push(...dateParams);
 
   // Performance summary by staff
-  const performanceData = await db.query(`
+  const performanceData = await prisma.$queryRawUnsafe(`
     SELECT 
       u.id, u.name, s.employee_id, s.position, s.department,
       s.performance_rating as current_rating,
@@ -52,7 +52,7 @@ export const generatePerformanceReport = async (queryParams) => {
   `, queryParams);
 
   // Department performance averages
-  const departmentPerformance = await db.query(`
+  const departmentPerformance = await prisma.$queryRawUnsafe(`
     SELECT 
       s.department,
       COUNT(DISTINCT s.user_id) as staff_count,
@@ -67,7 +67,7 @@ export const generatePerformanceReport = async (queryParams) => {
   `, dateParams);
 
   // Performance distribution
-  const performanceDistribution = await db.query(`
+  const performanceDistribution = await prisma.$queryRawUnsafe(`
     SELECT 
       CASE 
         WHEN performance_rating >= 4.5 THEN 'excellent'
@@ -139,7 +139,7 @@ export const createPerformanceReview = async (reviewData) => {
   } = reviewData;
 
   // Verify staff member exists
-  const staffCheck = await db.query(
+  const staffCheck = await prisma.$queryRawUnsafe(
     'SELECT u.name, s.employee_id FROM users u JOIN staff s ON u.id = s.user_id WHERE u.id = $1',
     [staff_id]
   );
@@ -148,10 +148,10 @@ export const createPerformanceReview = async (reviewData) => {
     throw new Error('STAFF_NOT_FOUND');
   }
 
-  const staff = staffCheck.rows[0];
+  const staff = staffCheck[0];
 
   // Create performance review
-  const reviewResult = await db.query(`
+  const reviewResult = await prisma.$queryRawUnsafe(`
     INSERT INTO staff_performance_reviews (
       staff_id, reviewer_id, rating, review_period, reviewer_comments,
       goals_achieved, areas_for_improvement, future_goals,
@@ -167,13 +167,13 @@ export const createPerformanceReview = async (reviewData) => {
   ]);
 
   // Update staff's current performance rating
-  await db.query(
+  await prisma.$queryRawUnsafe(
     'UPDATE staff SET performance_rating = $1, last_review_date = CURRENT_DATE WHERE user_id = $2',
     [rating, staff_id]
   );
 
   // Create notification for staff member
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `INSERT INTO notifications (
       user_id, title, body, type, related_id, created_at
     ) VALUES ($1, $2, $3, $4, $5, NOW())`,
@@ -182,12 +182,12 @@ export const createPerformanceReview = async (reviewData) => {
       'Performance Review Completed',
       `Your ${review_period} performance review has been completed. Rating: ${rating}/5.0`,
       'performance_review',
-      reviewResult.rows[0].id
+      reviewResult[0].id
     ]
   );
 
   // Log review activity
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `INSERT INTO hr_activity_logs (
       hr_staff_uid, action, staff_id, description, created_at
     ) VALUES ($1, $2, $3, $4, NOW())`,
@@ -203,13 +203,13 @@ export const createPerformanceReview = async (reviewData) => {
 
   return {
     review: {
-      ...reviewResult.rows[0],
-      review_date: reviewResult.rows[0].review_date.toLocaleDateString('en-GB', {
+      ...reviewResult[0],
+      review_date: reviewResult[0].review_date.toLocaleDateString('en-GB', {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric'
       }),
-      created_at: reviewResult.rows[0].created_at.toLocaleString('en-IN')
+      created_at: reviewResult[0].created_at.toLocaleString('en-IN')
     },
     staffInfo: {
       name: staff.name,

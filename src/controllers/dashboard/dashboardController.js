@@ -1,7 +1,7 @@
 // src/controllers/dashboard/dashboardController.js
 // Patient dashboard endpoint — API key only (no JWT), used by Flutter app
 
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
@@ -25,16 +25,16 @@ export async function getPatientDashboard(req, res) {
     const normalizedPhone = normalizePhone(phone);
 
     // --- 1. Get patient name ---
-    const userResult = await db.query(
+    const userResult = await prisma.$queryRawUnsafe(
       'SELECT name FROM users WHERE phone = $1',
       [normalizedPhone]
     );
 
     // Allow the request even if the user doesn't exist yet (might be first login)
-    const name = userResult.rows[0]?.name || null;
+    const name = userResult[0]?.name || null;
 
     // --- 2. Last appointment (past) — date only, no doctor/details ---
-    const lastAppointmentResult = await db.query(
+    const lastAppointmentResult = await prisma.$queryRawUnsafe(
       `SELECT date FROM appointments
        WHERE phone = $1 AND date < NOW()
        ORDER BY date DESC
@@ -43,7 +43,7 @@ export async function getPatientDashboard(req, res) {
     );
 
     // --- 3. Next upcoming appointment — date only ---
-    const nextAppointmentResult = await db.query(
+    const nextAppointmentResult = await prisma.$queryRawUnsafe(
       `SELECT date FROM appointments
        WHERE phone = $1 AND date >= NOW()
        ORDER BY date ASC
@@ -52,17 +52,17 @@ export async function getPatientDashboard(req, res) {
     );
 
     // --- 4. Total upcoming count ---
-    const upcomingCountResult = await db.query(
+    const upcomingCountResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM appointments
        WHERE phone = $1 AND date >= NOW()`,
       [normalizedPhone]
     );
-    const upcomingCount = parseInt(upcomingCountResult.rows[0]?.count || '0', 10);
+    const upcomingCount = parseInt(upcomingCountResult[0]?.count || '0', 10);
 
     return success(res, {
       name,
-      lastAppointment: lastAppointmentResult.rows[0]?.date || null,
-      nextAppointment: nextAppointmentResult.rows[0]?.date || null,
+      lastAppointment: lastAppointmentResult[0]?.date || null,
+      nextAppointment: nextAppointmentResult[0]?.date || null,
       upcomingCount
     }, 'Dashboard data retrieved successfully');
 

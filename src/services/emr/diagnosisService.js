@@ -1,7 +1,10 @@
 // src/services/emr/diagnosisService.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
+import { createPrismaDb } from '../../lib/prismaCompat.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+
+const db = createPrismaDb(prisma);
 
 // ===================================================================
 // Diagnosis & Problem List Service
@@ -45,7 +48,7 @@ export async function addDiagnosis(data) {
   // If ICD-10 code provided, look up the description
   let icd10Description = null;
   if (icd10_code) {
-    const { rows: icdRows } = await db.query(
+    const { rows: icdRows } = await prisma.$queryRawUnsafe(
       `SELECT description FROM icd10_codes WHERE code = $1`,
       [icd10_code.toUpperCase().trim()]
     );
@@ -56,7 +59,7 @@ export async function addDiagnosis(data) {
 
   // Verify encounter exists if provided
   if (encounter_id) {
-    const { rows: encRows } = await db.query(
+    const { rows: encRows } = await prisma.$queryRawUnsafe(
       `SELECT id FROM admissions WHERE encounter_id = $1`,
       [encounter_id]
     );
@@ -65,7 +68,7 @@ export async function addDiagnosis(data) {
     }
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `INSERT INTO diagnoses
        (patient_uid, encounter_id, icd10_code, icd10_description, description,
         diagnosis_type, status, onset_date, severity, diagnosed_by, notes, created_at)
@@ -113,7 +116,7 @@ export async function updateDiagnosisStatus(id, status, resolvedDate, updatedBy)
     throw AppError.badRequest(`Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}`);
   }
 
-  const { rows: existing } = await db.query(
+  const { rows: existing } = await prisma.$queryRawUnsafe(
     `SELECT id, status FROM diagnoses WHERE id = $1`,
     [id]
   );
@@ -124,7 +127,7 @@ export async function updateDiagnosisStatus(id, status, resolvedDate, updatedBy)
 
   const resolvedAt = status === 'resolved' ? (resolvedDate || new Date().toISOString()) : null;
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `UPDATE diagnoses
      SET status = $2, resolved_date = $3, updated_at = NOW()
      WHERE id = $1
@@ -152,7 +155,7 @@ export async function getActiveProblemList(patientUid) {
     throw AppError.badRequest('Patient UID is required');
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, encounter_id, icd10_code, icd10_description, description,
             diagnosis_type, status, onset_date, resolved_date, severity, diagnosed_by,
             notes, created_at, updated_at
@@ -181,7 +184,7 @@ export async function getEncounterDiagnoses(encounterId) {
     throw AppError.badRequest('Encounter ID is required');
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, encounter_id, icd10_code, icd10_description, description,
             diagnosis_type, status, onset_date, resolved_date, severity, diagnosed_by,
             notes, created_at, updated_at
@@ -210,7 +213,7 @@ export async function getPatientDiagnosisHistory(patientUid) {
     throw AppError.badRequest('Patient UID is required');
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, encounter_id, icd10_code, icd10_description, description,
             diagnosis_type, status, onset_date, resolved_date, severity, diagnosed_by,
             notes, created_at, updated_at
@@ -239,7 +242,7 @@ export async function searchICD10(query) {
 
   const searchTerm = `%${query.trim()}%`;
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, code, description, category, chapter, is_billable
      FROM icd10_codes
      WHERE code ILIKE $1 OR description ILIKE $1
@@ -270,7 +273,7 @@ export async function seedCommonICD10Codes() {
 
   for (const entry of ICD10_SEED_DATA) {
     try {
-      const { rows: existing } = await db.query(
+      const { rows: existing } = await prisma.$queryRawUnsafe(
         `SELECT id FROM icd10_codes WHERE code = $1`,
         [entry.code]
       );
@@ -280,7 +283,7 @@ export async function seedCommonICD10Codes() {
         continue;
       }
 
-      await db.query(
+      await prisma.$queryRawUnsafe(
         `INSERT INTO icd10_codes (code, description, category, chapter, is_billable)
          VALUES ($1, $2, $3, $4, $5)`,
         [entry.code, entry.description, entry.category, entry.chapter || null, entry.is_billable !== false]

@@ -1,5 +1,5 @@
 // controllers/investigation/uploadController.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { 
@@ -78,7 +78,7 @@ export const getFiles = async (req, res) => {
     // Patients can only view files for their own investigations
     if (userRole === 'PATIENT') {
       // Verify the investigation belongs to this patient
-      const investigationCheck = await db.query(`
+      const investigationCheck = await prisma.$queryRawUnsafe(`
         SELECT patient_id 
         FROM investigations i
         JOIN users u ON i.patient_id = u.id
@@ -118,7 +118,7 @@ export const downloadFile = async (req, res) => {
     
     // Access control similar to getFiles
     if (userRole === 'PATIENT') {
-      const investigationCheck = await db.query(`
+      const investigationCheck = await prisma.$queryRawUnsafe(`
         SELECT patient_id 
         FROM investigations i
         JOIN users u ON i.patient_id = u.id

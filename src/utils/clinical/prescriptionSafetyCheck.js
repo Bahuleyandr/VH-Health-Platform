@@ -1,4 +1,4 @@
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 /**
@@ -14,7 +14,7 @@ export async function validatePrescriptionSafety(patientId, medications) {
 
   try {
     // 1. Check patient allergies
-    const allergyResult = await db.query(
+    const allergyResult = await prisma.$queryRawUnsafe(
       `SELECT allergy_name, severity FROM patient_allergies WHERE patient_id = $1 AND is_active = true`,
       [patientId]
     );
@@ -45,7 +45,7 @@ export async function validatePrescriptionSafety(patientId, medications) {
     }
 
     // 2. Check for duplicate active prescriptions (same medication)
-    const activeMedsResult = await db.query(
+    const activeMedsResult = await prisma.$queryRawUnsafe(
       `SELECT medication_name FROM e_prescriptions
        WHERE patient_id = $1 AND status = 'ACTIVE' AND end_date >= CURRENT_DATE`,
       [patientId]
