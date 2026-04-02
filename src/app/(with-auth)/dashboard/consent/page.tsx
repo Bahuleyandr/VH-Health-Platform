@@ -96,7 +96,7 @@ export default function ConsentManagementPage() {
   } = useQuery<ConsentRecord[]>({
     queryKey: ["consent-records"],
     queryFn: async () => {
-      const res = await fetchAdminAPI<unknown>("/consent/");
+      const res = await fetchAdminAPI<unknown>("/consent");
       return unwrap<ConsentRecord[]>(res);
     },
   });
@@ -257,12 +257,12 @@ export default function ConsentManagementPage() {
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
             <div>
               <span className="text-muted-foreground">Consent Type:</span>
-              <p className="font-medium">{CONSENT_TYPE_LABELS[selectedRecord.consent_type] ?? selectedRecord.consent_type}</p>
+              <p className="font-medium">{CONSENT_TYPE_LABELS[selectedRecord.consent_type] ?? "Unknown"}</p>
             </div>
             <div>
               <span className="text-muted-foreground">Status:</span>
               <p>
-                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[selectedRecord.status] ?? ""}`}>
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[selectedRecord.status] ?? "bg-gray-100 text-gray-600"}`}>
                   {selectedRecord.status}
                 </span>
               </p>
@@ -332,7 +332,7 @@ export default function ConsentManagementPage() {
                         CONSENT_TYPE_ICONS[record.consent_type] ?? "bg-gray-100 text-gray-700"
                       }`}
                     >
-                      {CONSENT_TYPE_LABELS[record.consent_type] ?? record.consent_type}
+                      {CONSENT_TYPE_LABELS[record.consent_type] ?? "Unknown"}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-center">

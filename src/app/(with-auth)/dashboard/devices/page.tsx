@@ -21,6 +21,7 @@ import { toast } from "react-hot-toast";
 
 interface Device {
   id?: number;
+  _id?: string;
   device_id?: string;
   user_id?: string;
   user_name?: string;
@@ -311,9 +312,10 @@ export default function DevicesPage() {
           <div className="flex gap-2 pt-2">
             <button
               onClick={() => {
-                const id = selectedDevice.device_id ?? String(selectedDevice.id);
-                if (id && confirm("Remove this device?")) {
-                  removeMutation.mutate(id);
+                const id = selectedDevice.device_id ?? selectedDevice._id ?? selectedDevice.id;
+                if (!id) { toast.error("Device ID is missing"); return; }
+                if (confirm("Remove this device?")) {
+                  removeMutation.mutate(String(id));
                 }
               }}
               disabled={removeMutation.isPending}
@@ -377,9 +379,10 @@ export default function DevicesPage() {
                       </button>
                       <button
                         onClick={() => {
-                          const id = device.device_id ?? String(device.id);
-                          if (id && confirm("Remove this device?")) {
-                            removeMutation.mutate(id);
+                          const id = device.device_id ?? device._id ?? device.id;
+                          if (!id) { toast.error("Device ID is missing"); return; }
+                          if (confirm("Remove this device?")) {
+                            removeMutation.mutate(String(id));
                           }
                         }}
                         disabled={removeMutation.isPending}

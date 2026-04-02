@@ -377,13 +377,13 @@ export default function CompliancePage() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                 <div>
                   <span className="text-muted-foreground">Severity:</span>{" "}
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${SEVERITY_STYLES[selectedBreach.severity] ?? ""}`}>
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${SEVERITY_STYLES[selectedBreach.severity] ?? "bg-gray-100 text-gray-600"}`}>
                     {selectedBreach.severity}
                   </span>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Status:</span>{" "}
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[selectedBreach.status] ?? ""}`}>
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[selectedBreach.status] ?? "bg-gray-100 text-gray-600"}`}>
                     {selectedBreach.status}
                   </span>
                 </div>
