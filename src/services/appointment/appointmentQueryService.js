@@ -1,91 +1,58 @@
-import { APPOINTMENT_CONFIG, APPOINTMENT_QUERIES } from '../../config/appointmentConfig.js';
-import db from '../../config/database.js';
+// src/services/appointment/appointmentQueryService.js
+// Migrated from raw pg to Prisma ORM
+
+import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { buildPaginationMeta } from '../../utils/appointment/appointmentHelpers.js';
 
 export class AppointmentQueryService {
-  // Build filter conditions for queries
-  buildFilterConditions(filters, params = [], startIndex = 1) {
-    const conditions = [];
-    let currentIndex = startIndex;
-
-    if (filters.status) {
-      conditions.push(`a.status = $${currentIndex}`);
-      params.push(filters.status.toUpperCase());
-      currentIndex++;
-    }
-
-    if (filters.doctor_id) {
-      conditions.push(`a.doctor_id = $${currentIndex}`);
-      params.push(filters.doctor_id);
-      currentIndex++;
-    }
-
-    if (filters.patient_id) {
-      conditions.push(`a.patient_id = $${currentIndex}`);
-      params.push(filters.patient_id);
-      currentIndex++;
-    }
-
-    if (filters.date) {
-      conditions.push(`DATE(a.appointment_date) = $${currentIndex}`);
-      params.push(filters.date);
-      currentIndex++;
-    }
-
-    return { conditions, params, nextIndex: currentIndex };
-  }
-
-  // Get appointments with filters and pagination
   async getAppointments(filters = {}, pagination = {}, userRole = null, userId = null) {
     try {
       const page = pagination.page || APPOINTMENT_CONFIG.DEFAULT_PAGINATION.PAGE;
       const limit = pagination.limit || APPOINTMENT_CONFIG.DEFAULT_PAGINATION.LIMIT;
       const offset = (page - 1) * limit;
 
-      let query = APPOINTMENT_QUERIES.LIST_ALL + ' WHERE 1=1';
-      const params = [];
-      let paramIndex = 1;
-
-      // Apply role-based filtering
-      if (userRole === 'DOCTOR') {
-        query += ` AND a.doctor_id = $${paramIndex}`;
-        params.push(userId);
-        paramIndex++;
+      const where = {};
+      if (userRole === 'DOCTOR') where.doctor_id = parseInt(userId);
+      if (filters.status) where.status = filters.status.toUpperCase();
+      if (filters.doctor_id) where.doctor_id = parseInt(filters.doctor_id);
+      if (filters.patient_id) where.patient_id = parseInt(filters.patient_id);
+      if (filters.date) {
+        where.appointment_date = new Date(filters.date);
       }
 
-      // Apply filters
-      const { conditions, params: filterParams, nextIndex } = this.buildFilterConditions(
-        filters,
-        params,
-        paramIndex
-      );
+      // Build the query string and params list dynamically using Prisma.sql joins
+      const { Prisma } = await import('@prisma/client');
+      const conditions = [Prisma.sql`1=1`];
+      if (userRole === 'DOCTOR') conditions.push(Prisma.sql`a.doctor_id = ${parseInt(userId)}`);
+      if (filters.status) conditions.push(Prisma.sql`a.status = ${filters.status.toUpperCase()}`);
+      if (filters.doctor_id) conditions.push(Prisma.sql`a.doctor_id = ${parseInt(filters.doctor_id)}`);
+      if (filters.date) conditions.push(Prisma.sql`DATE(a.appointment_date) = ${filters.date}::date`);
 
-      if (conditions.length > 0) {
-        query += ' AND ' + conditions.join(' AND ');
-      }
+      const whereClause = Prisma.join(conditions, ' AND ');
 
-      // Add ordering and pagination
-      query += ` ORDER BY a.appointment_date, a.appointment_time LIMIT $${nextIndex} OFFSET $${nextIndex + 1}`;
-      filterParams.push(limit, offset);
-
-      const result = await db.query(query, filterParams);
-
-      // Get total count
-      const countQuery = `
-        SELECT COUNT(*) FROM appointments a 
-        WHERE 1=1 ${userRole === 'DOCTOR' ? `AND a.doctor_id = $1` : ''} 
-        ${conditions.length > 0 ? 'AND ' + conditions.join(' AND ') : ''}
-      `;
-      const countParams = userRole === 'DOCTOR' ? [userId, ...params.slice(1)] : params;
-      const countResult = await db.query(countQuery, countParams.slice(0, -2)); // Remove limit and offset
-
-      const total = parseInt(countResult.rows[0].count);
+      const [total, appointments] = await Promise.all([
+        prisma.appointments.count({ where }),
+        prisma.$queryRaw`
+          SELECT a.id, a.appointment_date, a.appointment_time, a.status, a.reason, a.notes,
+                 a.created_at, a.updated_at,
+                 p.name AS patient_name, p.phone AS patient_phone,
+                 d.name AS doctor_name, d.phone AS doctor_phone
+          FROM appointments a
+          LEFT JOIN users p ON a.uid = p.uid
+          LEFT JOIN users d ON a.doctor_id = d.id
+          LEFT JOIN doctors dp ON d.id = dp.user_id
+          WHERE ${whereClause}
+          ORDER BY a.appointment_date, a.appointment_time
+          LIMIT ${limit} OFFSET ${offset}
+        `,
+      ]);
 
       return {
-        appointments: result.rows,
+        appointments,
         pagination: buildPaginationMeta(page, limit, total),
-        filters
+        filters,
       };
     } catch (error) {
       logger.error('Error getting appointments:', error);
@@ -93,113 +60,135 @@ export class AppointmentQueryService {
     }
   }
 
-  // Get doctor appointments
   async getDoctorAppointments(doctorId, filters = {}) {
     try {
-      let query = `
-        SELECT a.id, a.appointment_date, a.appointment_time, a.status, a.reason, a.notes,
-               p.name as patient_name, p.phone as patient_phone, p.id as patient_id,
-               p.email as patient_email
-        FROM appointments a
-        LEFT JOIN users p ON a.patient_id = p.id
-        WHERE a.doctor_id = $1
-      `;
-      const params = [doctorId];
-      let paramIndex = 2;
+      const status = (filters.status || APPOINTMENT_CONFIG.STATUSES.SCHEDULED).toUpperCase();
 
-      const status = filters.status || APPOINTMENT_CONFIG.STATUSES.SCHEDULED;
-      query += ` AND a.status = $${paramIndex}`;
-      params.push(status.toUpperCase());
-      paramIndex++;
-
+      let rows;
       if (filters.date) {
-        query += ` AND DATE(a.appointment_date) = $${paramIndex}`;
-        params.push(filters.date);
+        rows = await prisma.$queryRaw`
+          SELECT a.id, a.appointment_date, a.appointment_time, a.status, a.reason, a.notes,
+                 p.name AS patient_name, p.phone AS patient_phone, p.id AS patient_id,
+                 p.email AS patient_email
+          FROM appointments a
+          LEFT JOIN users p ON a.patient_id = p.id
+          WHERE a.doctor_id = ${parseInt(doctorId)}
+            AND a.status = ${status}
+            AND DATE(a.appointment_date) = ${filters.date}::date
+          ORDER BY a.appointment_date, a.appointment_time
+        `;
+      } else {
+        rows = await prisma.$queryRaw`
+          SELECT a.id, a.appointment_date, a.appointment_time, a.status, a.reason, a.notes,
+                 p.name AS patient_name, p.phone AS patient_phone, p.id AS patient_id,
+                 p.email AS patient_email
+          FROM appointments a
+          LEFT JOIN users p ON a.patient_id = p.id
+          WHERE a.doctor_id = ${parseInt(doctorId)}
+            AND a.status = ${status}
+          ORDER BY a.appointment_date, a.appointment_time
+        `;
       }
 
-      query += ' ORDER BY a.appointment_date, a.appointment_time';
-
-      const result = await db.query(query, params);
-      return result.rows;
+      return rows;
     } catch (error) {
       logger.error('Error getting doctor appointments:', error);
       throw error;
     }
   }
 
-  // Get patient appointments
   async getPatientAppointments(patientId, filters = {}) {
     try {
-      let query = `
-        SELECT a.id, a.appointment_date, a.appointment_time, a.status, a.reason, a.notes,
-               a.created_at, a.updated_at,
-               d.name as doctor_name, d.phone as doctor_phone, d.id as doctor_id,
-               dp.specialization, dp.department, dp.consultation_fee
-        FROM appointments a
-        LEFT JOIN users d ON a.doctor_id = d.id
-        LEFT JOIN doctors dp ON d.id = dp.user_id
-        WHERE a.patient_id = $1
-      `;
-      const params = [patientId];
-
+      let rows;
       if (filters.status) {
-        query += ' AND a.status = $2';
-        params.push(filters.status.toUpperCase());
+        rows = await prisma.$queryRaw`
+          SELECT a.id, a.appointment_date, a.appointment_time, a.status, a.reason, a.notes,
+                 a.created_at, a.updated_at,
+                 d.name AS doctor_name, d.phone AS doctor_phone, d.id AS doctor_id,
+                 dp.specialization, dp.department, dp.consultation_fee
+          FROM appointments a
+          LEFT JOIN users d ON a.doctor_id = d.id
+          LEFT JOIN doctors dp ON d.id = dp.user_id
+          WHERE a.patient_id = ${parseInt(patientId)}
+            AND a.status = ${filters.status.toUpperCase()}
+          ORDER BY a.appointment_date DESC, a.appointment_time DESC
+        `;
+      } else {
+        rows = await prisma.$queryRaw`
+          SELECT a.id, a.appointment_date, a.appointment_time, a.status, a.reason, a.notes,
+                 a.created_at, a.updated_at,
+                 d.name AS doctor_name, d.phone AS doctor_phone, d.id AS doctor_id,
+                 dp.specialization, dp.department, dp.consultation_fee
+          FROM appointments a
+          LEFT JOIN users d ON a.doctor_id = d.id
+          LEFT JOIN doctors dp ON d.id = dp.user_id
+          WHERE a.patient_id = ${parseInt(patientId)}
+          ORDER BY a.appointment_date DESC, a.appointment_time DESC
+        `;
       }
 
-      query += ' ORDER BY a.appointment_date DESC, a.appointment_time DESC';
-
-      const result = await db.query(query, params);
-      return result.rows;
+      return rows;
     } catch (error) {
       logger.error('Error getting patient appointments:', error);
       throw error;
     }
   }
 
-  // Get today's appointments
   async getTodayAppointments(userRole = null, userId = null) {
     try {
       const today = new Date().toISOString().split('T')[0];
-      
-      let query = `
-        SELECT a.id, a.appointment_time, a.status, a.reason,
-               p.name as patient_name, p.phone as patient_phone,
-               d.name as doctor_name, dp.department, dp.specialization
-        FROM appointments a
-        LEFT JOIN users p ON a.patient_id = p.id
-        LEFT JOIN users d ON a.doctor_id = d.id
-        LEFT JOIN doctors dp ON d.id = dp.user_id
-        WHERE DATE(a.appointment_date) = $1
-      `;
-      const params = [today];
 
+      let rows;
       if (userRole === 'DOCTOR') {
-        query += ' AND a.doctor_id = $2';
-        params.push(userId);
+        rows = await prisma.$queryRaw`
+          SELECT a.id, a.appointment_time, a.status, a.reason,
+                 p.name AS patient_name, p.phone AS patient_phone,
+                 d.name AS doctor_name, dp.department, dp.specialization
+          FROM appointments a
+          LEFT JOIN users p ON a.patient_id = p.id
+          LEFT JOIN users d ON a.doctor_id = d.id
+          LEFT JOIN doctors dp ON d.id = dp.user_id
+          WHERE DATE(a.appointment_date) = ${today}::date
+            AND a.doctor_id = ${parseInt(userId)}
+          ORDER BY a.appointment_time
+        `;
+      } else {
+        rows = await prisma.$queryRaw`
+          SELECT a.id, a.appointment_time, a.status, a.reason,
+                 p.name AS patient_name, p.phone AS patient_phone,
+                 d.name AS doctor_name, dp.department, dp.specialization
+          FROM appointments a
+          LEFT JOIN users p ON a.patient_id = p.id
+          LEFT JOIN users d ON a.doctor_id = d.id
+          LEFT JOIN doctors dp ON d.id = dp.user_id
+          WHERE DATE(a.appointment_date) = ${today}::date
+          ORDER BY a.appointment_time
+        `;
       }
 
-      query += ' ORDER BY a.appointment_time';
-
-      const result = await db.query(query, params);
-      return {
-        appointments: result.rows,
-        date: today
-      };
+      return { appointments: rows, date: today };
     } catch (error) {
       logger.error('Error getting today appointments:', error);
       throw error;
     }
   }
 
-  // Get appointment by ID
   async getAppointmentById(id) {
     try {
-      const result = await db.query(
-        APPOINTMENT_QUERIES.APPOINTMENT_DETAIL + ' WHERE a.id = $1',
-        [id]
-      );
-      return result.rows.length > 0 ? result.rows[0] : null;
+      const rows = await prisma.$queryRaw`
+        SELECT a.id, a.uid, a.phone, a.doctor_id, a.doctor_name, a.patient_name,
+               a.appointment_date, a.appointment_time, a.status, a.reason, a.notes,
+               a.created_at, a.updated_at,
+               u.email AS patient_email,
+               d.name AS doctor_name_detail, d.phone AS doctor_phone, d.email AS doctor_email,
+               dp.specialization, dp.department, dp.consultation_fee
+        FROM appointments a
+        LEFT JOIN users u ON a.uid = u.uid
+        LEFT JOIN users d ON a.doctor_id = d.id
+        LEFT JOIN doctors dp ON d.id = dp.user_id
+        WHERE a.id = ${parseInt(id)}
+      `;
+      return rows.length > 0 ? rows[0] : null;
     } catch (error) {
       logger.error('Error getting appointment by ID:', error);
       throw error;
