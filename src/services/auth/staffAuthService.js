@@ -6,8 +6,11 @@ import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { AUTH_CONFIG } from '../../config/authConfig.js';
 import db from '../../config/database.js';
+import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import logger from '../../logging/logger.js';
 import { generateToken, verifyToken } from '../../utils/jwtUtils.js';
+import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
+import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 
 const MAX_DEVICES_PER_STAFF = parseInt(process.env.MAX_DEVICES_PER_STAFF) || 5;
 const MAX_LOGIN_ATTEMPTS = parseInt(process.env.MAX_LOGIN_ATTEMPTS) || AUTH_CONFIG.rateLimit.loginAttempts;
@@ -15,30 +18,48 @@ const MAX_LOGIN_ATTEMPTS = parseInt(process.env.MAX_LOGIN_ATTEMPTS) || AUTH_CONF
 // ✅ FIX: All methods are now correctly inside the class block.
 export class StaffAuthService {
   // =================================================================
+  // SHARED LOCKOUT CHECK
+  // =================================================================
+
+  /**
+   * Check if a staff account is locked due to failed login attempts.
+   * Shared across password, PIN, and quick login flows.
+   * @param {string} employeeId - Employee ID to check
+   * @param {Object} [req] - Express request (for security logging)
+   * @param {string} [path] - Request path (for security logging)
+   */
+  static async _checkStaffLockout(employeeId, req, path = '/api/v1/auth/staff/login') {
+    const lockCheck = await db.query(`
+      SELECT COUNT(*) as cnt FROM auth_logs
+      WHERE phone = $1 AND success = false
+        AND action IN ('STAFF_LOGIN', 'STAFF_PIN_LOGIN', 'QUICK_LOGIN')
+        AND created_at > NOW() - INTERVAL '15 minutes'
+    `, [employeeId]);
+
+    if (parseInt(lockCheck.rows[0].cnt) >= MAX_LOGIN_ATTEMPTS) {
+      logSecurityEvent('ACCOUNT_LOCKED', {
+        userName: employeeId,
+        ip: req?.ip,
+        userAgent: req?.headers?.['user-agent'],
+        path,
+        reason: `Staff lockout: ${MAX_LOGIN_ATTEMPTS} failed attempts across all auth methods in 15 minutes`,
+      });
+      trackFailedLogin(req?.ip, employeeId);
+      throw new Error('Account temporarily locked due to multiple failed attempts');
+    }
+  }
+
+  // =================================================================
   // PRIMARY AUTHENTICATION METHODS
   // =================================================================
 
   static async authenticateStaff(employeeId, password, req) {
     try {
-      // Check if account is locked
-      const lockCheck = await db.query(`
-        SELECT failure_reason, created_at 
-        FROM auth_logs 
-        WHERE phone = $1 
-          AND success = false 
-          AND action = 'STAFF_LOGIN'
-          AND created_at > NOW() - INTERVAL '15 minutes'
-        ORDER BY created_at DESC
-        LIMIT $2
-      `, [employeeId, MAX_LOGIN_ATTEMPTS]);
-
-      if (lockCheck.rows.length >= MAX_LOGIN_ATTEMPTS) {
-        throw new Error('Account temporarily locked due to multiple failed attempts');
-      }
+      await this._checkStaffLockout(employeeId, req, '/api/v1/auth/staff/login');
 
       // Find staff member by employee ID
       const result = await db.query(`
-        SELECT 
+        SELECT
           u.id, u.uid, u.name, u.email, u.phone, u.role, u.encrypted_password,
           s.employee_id, s.department, s.position, s.is_active, s.shift_type
         FROM staff s
@@ -48,6 +69,13 @@ export class StaffAuthService {
 
       if (result.rows.length === 0) {
         await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', false, 'Invalid employee ID', 'password', req);
+        logSecurityEvent('LOGIN_FAILED', {
+          userName: employeeId,
+          ip: req?.ip,
+          userAgent: req?.headers?.['user-agent'],
+          path: '/api/v1/auth/staff/login',
+          reason: 'Invalid employee ID',
+        });
         throw new Error('Invalid employee ID or password');
       }
 
@@ -55,12 +83,30 @@ export class StaffAuthService {
 
       if (!staff.is_active) {
         await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', false, 'Account deactivated', 'password', req);
+        logSecurityEvent('LOGIN_FAILED', {
+          userId: String(staff.uid),
+          userName: employeeId,
+          userRole: staff.role,
+          ip: req?.ip,
+          userAgent: req?.headers?.['user-agent'],
+          path: '/api/v1/auth/staff/login',
+          reason: 'Account deactivated',
+        });
         throw new Error('Account deactivated');
       }
 
       const isPasswordValid = await bcrypt.compare(password, staff.encrypted_password);
       if (!isPasswordValid) {
         await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', false, 'Invalid password', 'password', req);
+        logSecurityEvent('LOGIN_FAILED', {
+          userId: String(staff.uid),
+          userName: employeeId,
+          userRole: staff.role,
+          ip: req?.ip,
+          userAgent: req?.headers?.['user-agent'],
+          path: '/api/v1/auth/staff/login',
+          reason: 'Invalid password',
+        });
         throw new Error('Invalid employee ID or password');
       }
 
@@ -172,6 +218,9 @@ export class StaffAuthService {
 
       const deviceAndStaff = deviceResult.rows[0];
 
+      // Check lockout across all auth methods for this employee
+      await this._checkStaffLockout(deviceAndStaff.employee_id, req, '/api/v1/auth/staff/quick-login');
+
       if (!deviceAndStaff.is_active) {
         throw new Error('Account deactivated');
       }
@@ -182,6 +231,15 @@ export class StaffAuthService {
         const isPinValid = await bcrypt.compare(pin, deviceAndStaff.pin_hash);
         if (!isPinValid) {
           await this.logAuthAttempt(deviceAndStaff.employee_id, 'QUICK_LOGIN', false, 'Invalid PIN', 'pin', req);
+          logSecurityEvent('LOGIN_FAILED', {
+            userId: String(deviceAndStaff.uid),
+            userName: deviceAndStaff.employee_id,
+            userRole: deviceAndStaff.role,
+            ip: req?.ip,
+            userAgent: req?.headers?.['user-agent'],
+            path: '/api/v1/auth/staff/quick-login',
+            reason: 'Invalid PIN (quick login)',
+          });
           throw new Error('Invalid PIN');
         }
         authMethod = 'pin';
@@ -285,21 +343,11 @@ export class StaffAuthService {
 
   static async authenticateStaffWithPin(employeeId, pin, req) {
     try {
-      // Check if account is locked (same logic as password auth)
-      const lockCheck = await db.query(`
-        SELECT failure_reason FROM auth_logs 
-        WHERE phone = $1 AND success = false AND action = 'STAFF_PIN_LOGIN'
-        AND created_at > NOW() - INTERVAL '15 minutes'
-        ORDER BY created_at DESC LIMIT $2
-      `, [employeeId, MAX_LOGIN_ATTEMPTS]);
-
-      if (lockCheck.rows.length >= MAX_LOGIN_ATTEMPTS) {
-        throw new Error('Account temporarily locked due to multiple failed attempts');
-      }
+      await this._checkStaffLockout(employeeId, req, '/api/v1/auth/staff/login-pin');
 
       // Find staff member by employee ID
       const result = await db.query(`
-        SELECT 
+        SELECT
           u.id, u.uid, u.name, u.email, u.phone, u.role,
           s.employee_id, s.department, s.position, s.is_active,
           s.pin_hash -- Assumes a PIN hash is stored on the staff table
@@ -310,6 +358,13 @@ export class StaffAuthService {
 
       if (result.rows.length === 0) {
         await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'Invalid employee ID', 'pin', req);
+        logSecurityEvent('LOGIN_FAILED', {
+          userName: employeeId,
+          ip: req?.ip,
+          userAgent: req?.headers?.['user-agent'],
+          path: '/api/v1/auth/staff/login-pin',
+          reason: 'Invalid employee ID (PIN login)',
+        });
         throw new Error('Invalid employee ID or PIN');
       }
 
@@ -317,6 +372,15 @@ export class StaffAuthService {
 
       if (!staff.is_active) {
         await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'Account deactivated', 'pin', req);
+        logSecurityEvent('LOGIN_FAILED', {
+          userId: String(staff.uid),
+          userName: employeeId,
+          userRole: staff.role,
+          ip: req?.ip,
+          userAgent: req?.headers?.['user-agent'],
+          path: '/api/v1/auth/staff/login-pin',
+          reason: 'Account deactivated (PIN login)',
+        });
         throw new Error('Account deactivated');
       }
 
@@ -325,10 +389,19 @@ export class StaffAuthService {
         await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'PIN not set', 'pin', req);
         throw new Error('PIN not set for this account.');
       }
-      
+
       const isPinValid = await bcrypt.compare(pin, staff.pin_hash);
       if (!isPinValid) {
         await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'Invalid PIN', 'pin', req);
+        logSecurityEvent('LOGIN_FAILED', {
+          userId: String(staff.uid),
+          userName: employeeId,
+          userRole: staff.role,
+          ip: req?.ip,
+          userAgent: req?.headers?.['user-agent'],
+          path: '/api/v1/auth/staff/login-pin',
+          reason: 'Invalid PIN',
+        });
         throw new Error('Invalid employee ID or PIN');
       }
 
@@ -466,7 +539,7 @@ export class StaffAuthService {
   }
 
   static generateAccessToken(staff) {
-    return generateToken({ uid: staff.uid, role: staff.role });
+    return generateToken({ uid: staff.uid, role: staff.role }, SECURITY_CONFIG.jwt.staffAccessExpiry);
   }
 
   static generateRefreshToken(staff) {
@@ -479,14 +552,57 @@ export class StaffAuthService {
   }
 
   static async createSession(staffId, deviceId, sessionToken, req) {
+    const MAX_CONCURRENT_SESSIONS = parseInt(process.env.MAX_STAFF_SESSIONS || '3');
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 30);
     const sessionHash = crypto.createHash('sha256').update(sessionToken).digest('hex');
-    await db.query(`
-      INSERT INTO staff_auth_sessions (
-        staff_id, device_id, session_token, expires_at, ip_address, created_at
-      ) VALUES ($1, $2, $3, $4, $5, NOW())
-    `, [staffId, deviceId, sessionHash, expiresAt, req.ip || '']);
+
+    // Use a transaction to atomically enforce session limits + insert new session
+    const client = await db.getClient();
+    try {
+      await client.query('BEGIN');
+
+      // Lock active sessions for this staff to prevent race conditions
+      const activeSessions = await client.query(
+        'SELECT id FROM staff_auth_sessions WHERE staff_id = $1 AND expires_at > NOW() ORDER BY created_at ASC FOR UPDATE',
+        [staffId]
+      );
+      const excess = activeSessions.rows.length - (MAX_CONCURRENT_SESSIONS - 1);
+      if (excess > 0) {
+        const idsToRevoke = activeSessions.rows.slice(0, excess).map(r => r.id);
+        await client.query(
+          'DELETE FROM staff_auth_sessions WHERE id = ANY($1)',
+          [idsToRevoke]
+        );
+        logger.info(`Evicted ${excess} oldest session(s) for staff ${staffId} (limit: ${MAX_CONCURRENT_SESSIONS})`);
+      }
+
+      await client.query(`
+        INSERT INTO staff_auth_sessions (
+          staff_id, device_id, session_token, expires_at, ip_address, created_at
+        ) VALUES ($1, $2, $3, $4, $5, NOW())
+      `, [staffId, deviceId, sessionHash, expiresAt, req.ip || '']);
+
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Revoke all active sessions for a given staff user.
+   * Used by admin to force-logout a compromised account.
+   */
+  static async revokeAllSessions(staffId) {
+    const result = await db.query(
+      'DELETE FROM staff_auth_sessions WHERE staff_id = $1',
+      [staffId]
+    );
+    logger.info(`Revoked all sessions for staff ${staffId} (${result.rowCount} sessions deleted)`);
+    return { revokedCount: result.rowCount };
   }
 
   static async logAuthAttempt(phone, action, success, failureReason, authMethod, req) {

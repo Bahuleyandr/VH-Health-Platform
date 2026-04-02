@@ -13,5 +13,6 @@ export default function apiVersionMiddleware(req, res, next) {
 
   req.apiVersion = parseInt(version, 10) || 1;
   res.setHeader('X-API-Version', String(req.apiVersion));
+  res.setHeader('X-App-Version', process.env.API_VERSION || '1.0.0');
   next();
 }

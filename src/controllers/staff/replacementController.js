@@ -23,7 +23,7 @@ export const requestReplacement = async (req, res) => {
 
     const result = await db.query(`
       INSERT INTO replacement_requests (leave_request_id, requester_id, replacement_staff_id, dates, status, requester_message, requested_at)
-      VALUES ($1, $2, $3, $4, 'pending', $5, NOW()) RETURNING *
+      VALUES ($1, $2, $3, $4, 'pending', $5, NOW()) RETURNING id, original_staff_id, replacement_staff_id, shift_date, status, reason, created_at
     `, [leave_request_id || null, requesterId, replacement_staff_id, JSON.stringify(dates), message || null]);
 
     success(res, result.rows[0], 'Replacement request sent');
@@ -45,7 +45,7 @@ export const respondToReplacement = async (req, res) => {
 
     // Verify this person is the designated replacement
     const reqCheck = await db.query(
-      'SELECT * FROM replacement_requests WHERE id = $1 AND replacement_staff_id = $2',
+      'SELECT id, original_staff_id, replacement_staff_id, shift_date, status, reason, created_at FROM replacement_requests WHERE id = $1 AND replacement_staff_id = $2',
       [id, responderId]
     );
     if (reqCheck.rows.length === 0) {
@@ -54,7 +54,7 @@ export const respondToReplacement = async (req, res) => {
 
     const result = await db.query(`
       UPDATE replacement_requests SET status=$1, responder_message=$2, responded_at=NOW()
-      WHERE id=$3 RETURNING *
+      WHERE id=$3 RETURNING id, original_staff_id, replacement_staff_id, shift_date, status, reason, created_at
     `, [status, message || null, id]);
 
     success(res, result.rows[0], `Replacement request ${status}`);
@@ -68,7 +68,8 @@ export const getPendingReplacements = async (req, res) => {
   try {
     const staffId = req.user?.uid;
     const rows = await db.query(`
-      SELECT rr.*, u.name as requester_name, u2.name as replacement_name
+      SELECT rr.id, rr.original_staff_id, rr.replacement_staff_id, rr.shift_date, rr.status, rr.reason, rr.created_at,
+        u.name as requester_name, u2.name as replacement_name
       FROM replacement_requests rr
       JOIN users u ON rr.requester_id = u.id
       JOIN users u2 ON rr.replacement_staff_id = u2.id
@@ -86,7 +87,8 @@ export const getReplacementHistory = async (req, res) => {
   try {
     const staffId = req.user?.uid;
     const rows = await db.query(`
-      SELECT rr.*, u.name as requester_name, u2.name as replacement_name
+      SELECT rr.id, rr.original_staff_id, rr.replacement_staff_id, rr.shift_date, rr.status, rr.reason, rr.created_at,
+        u.name as requester_name, u2.name as replacement_name
       FROM replacement_requests rr
       JOIN users u ON rr.requester_id = u.id
       JOIN users u2 ON rr.replacement_staff_id = u2.id
@@ -106,7 +108,7 @@ export const hrApproveReplacement = async (req, res) => {
     const hrId = req.user?.uid;
     const result = await db.query(`
       UPDATE replacement_requests SET status='hr_approved', hr_approved_at=NOW(), hr_approved_by=$1
-      WHERE id=$2 AND status='accepted' RETURNING *
+      WHERE id=$2 AND status='accepted' RETURNING id, original_staff_id, replacement_staff_id, shift_date, status, reason, created_at
     `, [hrId, id]);
     if (result.rows.length === 0) {
       return error(res, 'Replacement request not found or not in accepted state', HTTP_STATUS.NOT_FOUND);

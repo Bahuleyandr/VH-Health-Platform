@@ -4,11 +4,15 @@
 import db from '../../config/database.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
 
 /**
  * GET /api/v1/dashboard?phone=<phone>
- * Returns a summary for the patient dashboard in the Flutter app.
- * Auth: API key only (validateApiKey middleware applied at mount point)
+ * Returns a minimal summary for the patient dashboard in the Flutter app.
+ * Auth: API key only (validateApiKey middleware applied at mount point).
+ *
+ * Security: Returns minimal data to limit enumeration risk.
+ * Does NOT return doctor names or appointment details — only dates and counts.
  */
 export async function getPatientDashboard(req, res) {
   try {
@@ -18,51 +22,47 @@ export async function getPatientDashboard(req, res) {
       return error(res, 'phone query parameter is required', 400);
     }
 
+    const normalizedPhone = normalizePhone(phone);
+
     // --- 1. Get patient name ---
     const userResult = await db.query(
       'SELECT name FROM users WHERE phone = $1',
-      [phone]
+      [normalizedPhone]
     );
 
     // Allow the request even if the user doesn't exist yet (might be first login)
     const name = userResult.rows[0]?.name || null;
 
-    // --- 2. Last appointment (past) ---
+    // --- 2. Last appointment (past) — date only, no doctor/details ---
     const lastAppointmentResult = await db.query(
-      `SELECT * FROM appointments
+      `SELECT date FROM appointments
        WHERE phone = $1 AND date < NOW()
        ORDER BY date DESC
        LIMIT 1`,
-      [phone]
+      [normalizedPhone]
     );
-    const lastAppointment = lastAppointmentResult.rows[0] || null;
 
-    // --- 3. Next upcoming appointment ---
+    // --- 3. Next upcoming appointment — date only ---
     const nextAppointmentResult = await db.query(
-      `SELECT * FROM appointments
+      `SELECT date FROM appointments
        WHERE phone = $1 AND date >= NOW()
        ORDER BY date ASC
        LIMIT 1`,
-      [phone]
+      [normalizedPhone]
     );
-    const nextAppointment = nextAppointmentResult.rows[0] || null;
 
     // --- 4. Total upcoming count ---
     const upcomingCountResult = await db.query(
       `SELECT COUNT(*) FROM appointments
        WHERE phone = $1 AND date >= NOW()`,
-      [phone]
+      [normalizedPhone]
     );
     const upcomingCount = parseInt(upcomingCountResult.rows[0]?.count || '0', 10);
 
-    logger.info(`📊 Dashboard fetched for phone: ${phone}`);
-
     return success(res, {
       name,
-      lastAppointment: lastAppointment?.date || null,
-      nextAppointment: nextAppointment?.date || null,
-      lastAppointmentDoctor: lastAppointment?.doctor_name || null,
-      nextAppointmentDoctor: nextAppointment?.doctor_name || null,
+      lastAppointment: lastAppointmentResult.rows[0]?.date || null,
+      nextAppointment: nextAppointmentResult.rows[0]?.date || null,
       upcomingCount
     }, 'Dashboard data retrieved successfully');
 

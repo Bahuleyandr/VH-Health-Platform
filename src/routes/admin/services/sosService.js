@@ -87,7 +87,7 @@ export async function getAllAlerts(limit = 50, offset = 0) {
     return [];
   }
   const list = await safeQuery(
-    `SELECT * FROM sos_alerts ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+    `SELECT id, user_uid, phone, latitude, longitude, status, notes, description, address, created_at, resolved_at FROM sos_alerts ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
     [limit, offset],
     'sos.all_alerts'
   );

@@ -2,9 +2,17 @@
 // HIPAA Data Breach Management Routes (admin only)
 
 import { Router } from 'express';
+import { validationResult } from 'express-validator';
+import { requiredString, requiredEnum, paramId } from '../../validators/sharedValidators.js';
 import breachService from '../../services/compliance/breachService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import logger from '../../logging/logger.js';
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+  next();
+};
 
 const router = Router();
 
@@ -13,7 +21,7 @@ const router = Router();
  * Report a new data breach.
  * Body: { severity, description, affected_records?, affected_patient_uids?, reported_by? }
  */
-router.post('/breach/report', async (req, res, next) => {
+router.post('/breach/report', requiredString('description', 2000), requiredEnum('severity', ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']), validate, async (req, res, next) => {
   try {
     const { severity, description, affected_records, affected_patient_uids } = req.body;
 
@@ -48,7 +56,7 @@ router.post('/breach/report', async (req, res, next) => {
  * Mark a breach as contained.
  * Body: { containment_actions }
  */
-router.put('/breach/:id/contain', async (req, res, next) => {
+router.put('/breach/:id/contain', paramId(), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { containment_actions } = req.body;
@@ -75,7 +83,7 @@ router.put('/breach/:id/contain', async (req, res, next) => {
  * Mark a breach as resolved.
  * Body: { resolution_notes }
  */
-router.put('/breach/:id/resolve', async (req, res, next) => {
+router.put('/breach/:id/resolve', paramId(), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { resolution_notes } = req.body;

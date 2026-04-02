@@ -56,7 +56,7 @@ export const uploadInvestigationFile = async (investigationId, file, uploadedBy)
       INSERT INTO investigation_files 
       (investigation_id, file_name, file_path, file_type, file_size, uploaded_by)
       VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING *
+      RETURNING id, investigation_id, file_name, file_path, file_type, file_size, uploaded_by, uploaded_at
     `, [
       investigationId,
       file.originalname,
@@ -94,7 +94,7 @@ export const getInvestigationFiles = async (investigationId) => {
 
 export const getFileById = async (fileId) => {
   const result = await db.query(`
-    SELECT * FROM investigation_files WHERE id = $1
+    SELECT id, investigation_id, file_name, file_url, file_type, file_size, uploaded_by, created_at FROM investigation_files WHERE id = $1
   `, [fileId]);
   
   if (result.rows.length === 0) {
@@ -112,7 +112,7 @@ export const deleteFile = async (fileId, deletedBy) => {
     
     // Get file info
     const fileResult = await client.query(
-      'SELECT * FROM investigation_files WHERE id = $1',
+      'SELECT id, investigation_id, file_name, file_url, file_type, file_size, uploaded_by, created_at FROM investigation_files WHERE id = $1',
       [fileId]
     );
     

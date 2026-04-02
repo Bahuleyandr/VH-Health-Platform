@@ -19,8 +19,8 @@ export const updatePharmacyOrderStatus = async (data) => {
       dispensed_at = CASE WHEN $1 = 'dispensed' THEN COALESCE($6, NOW()) ELSE dispensed_at END,
       updated_by = $7,
       updated_at = NOW()
-    WHERE id = $8 AND phone = $9 
-    RETURNING *
+    WHERE id = $8 AND phone = $9
+    RETURNING id, phone, status, order_note, dispensed_medications, pharmacist_notes, dispensed_by, dispensed_at, updated_by, updated_at, placed_at
   `, [
     status, notes, 
     dispensed_medications ? JSON.stringify(dispensed_medications) : null,

@@ -60,7 +60,7 @@ export const getAttendanceAnomalies = async (req, res) => {
           OR COUNT(*) FILTER (WHERE a.check_out_time::time < '17:00:00') > 3
           OR COUNT(*) FILTER (WHERE a.check_out_time IS NULL) > 0
       )
-      SELECT * FROM anomalies ORDER BY late_days DESC, early_leave_days DESC
+      SELECT staff_uid, name, late_days, early_leave_days, absent_days FROM anomalies ORDER BY late_days DESC, early_leave_days DESC
     `);
 
     success(res, {
@@ -229,7 +229,7 @@ export const overrideAttendance = async (req, res) => {
         override_reason = $4,
         overridden_by = $5,
         updated_at = NOW()
-      RETURNING *
+      RETURNING id, staff_uid, check_in_time, check_out_time, status, created_at
     `, [staff_id, check_in, check_out, reason, overriddenBy]);
 
     success(res, result.rows[0], 'Attendance override successful');

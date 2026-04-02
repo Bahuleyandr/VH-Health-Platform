@@ -17,8 +17,8 @@ export async function insertUser(userData) {
     ) VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
       'active', NOW(), $17
-    ) RETURNING *`;
-  
+    ) RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at`;
+
   return db.query(query, [
     userData.phone, userData.name, userData.email, userData.gender,
     userData.address, userData.birthday, userData.anniversary,
@@ -47,22 +47,28 @@ export async function updateUser(whereClause, whereValue, updateData, updatedBy)
     UPDATE users 
     SET ${updateFields.join(', ')}
     WHERE ${whereClause} = $${paramIndex + 1}
-    RETURNING *`;
+    RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at`;
 
   return db.query(query, [...updateValues, whereValue]);
 }
 
+// Safe column list for user queries — never includes encrypted_password, pin_hash, password_hash
+const USER_SAFE_COLUMNS = `id, uid, phone, name, email, gender, address, birthday, anniversary,
+  profile_picture, role, department, specialty, employee_id, license_number,
+  emergency_contact, blood_group, allergies, medical_history, is_active, status,
+  registered_at, updated_at, last_login, last_sign_in_at, firebase_uid`;
+
 export async function getUserByPhone(phone) {
   const normalizedPhone = normalizePhone(phone);
-  return db.query('SELECT * FROM users WHERE phone = $1', [normalizedPhone]);
+  return db.query(`SELECT ${USER_SAFE_COLUMNS} FROM users WHERE phone = $1`, [normalizedPhone]);
 }
 
 export async function getUserByUid(uid) {
-  return db.query('SELECT * FROM users WHERE uid = $1', [uid]);
+  return db.query(`SELECT ${USER_SAFE_COLUMNS} FROM users WHERE uid = $1`, [uid]);
 }
 
 export async function getUserByEmployeeId(employeeId) {
-  return db.query('SELECT * FROM users WHERE employee_id = $1', [employeeId]);
+  return db.query(`SELECT ${USER_SAFE_COLUMNS} FROM users WHERE employee_id = $1`, [employeeId]);
 }
 
 /**
@@ -279,7 +285,7 @@ export async function updateUserStatus(identifier, column, newStatus, changedBy,
       updated_at = NOW(), 
       updated_by = $2
     WHERE ${column} = $4
-    RETURNING *`;
+    RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at`;
 
   return db.query(query, [newStatus, changedBy, reason, identifier]);
 }
@@ -309,7 +315,7 @@ export async function deactivateUser(identifier, column, deactivatedBy, reason, 
       updated_at = NOW(),
       updated_by = $1
     WHERE ${column} = $4
-    RETURNING *`;
+    RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at`;
 
   return db.query(query, [deactivatedBy, reason, transferTo, identifier]);
 }
@@ -388,15 +394,15 @@ export async function getDepartmentStats() {
 
 export async function getUserGrowthStats(days = 30) {
   const query = `
-    SELECT 
+    SELECT
       DATE(registered_at) as registration_date,
       COUNT(*) as new_users,
       COUNT(*) FILTER (WHERE role != 'PATIENT') as new_staff,
       COUNT(*) FILTER (WHERE role = 'PATIENT') as new_patients
     FROM users
-    WHERE registered_at > NOW() - INTERVAL '${days} days'
+    WHERE registered_at > NOW() - make_interval(days => $1)
     GROUP BY DATE(registered_at)
     ORDER BY registration_date DESC`;
 
-  return db.query(query);
+  return db.query(query, [parseInt(days, 10)]);
 }

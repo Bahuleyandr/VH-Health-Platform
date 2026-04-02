@@ -116,7 +116,7 @@ class DepartmentService {
       if (isNumeric) {
         // Search by ID
         result = await db.query(`
-          SELECT d.*, u.name as head_doctor_name, u.phone as head_doctor_phone,
+          SELECT d.id, d.name, d.code, d.head_uid, d.is_active, d.description, d.floor, d.building, d.created_at, d.updated_at, u.name as head_doctor_name, u.phone as head_doctor_phone,
                  u.email as head_doctor_email
           FROM departments d
           LEFT JOIN users u ON d.head_doctor_id = u.id
@@ -125,7 +125,7 @@ class DepartmentService {
       } else {
         // Search by name
         result = await db.query(`
-          SELECT d.*, u.name as head_doctor_name, u.phone as head_doctor_phone,
+          SELECT d.id, d.name, d.code, d.head_uid, d.is_active, d.description, d.floor, d.building, d.created_at, d.updated_at, u.name as head_doctor_name, u.phone as head_doctor_phone,
                  u.email as head_doctor_email
           FROM departments d
           LEFT JOIN users u ON d.head_doctor_id = u.id
@@ -196,7 +196,7 @@ class DepartmentService {
       const result = await db.query(`
         INSERT INTO departments (name, description, head_doctor_id, contact_number, location, is_active, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, NOW())
-        RETURNING *
+        RETURNING id, name, code, head_uid, is_active, description, floor, building, created_at, updated_at
       `, [name, description, head_doctor_id, contact_number, location, is_active]);
       
       logger.info(`Department created: ${name} by user ID ${userId}`);
@@ -219,7 +219,7 @@ class DepartmentService {
       } = data;
       
       // Check if department exists
-      const existingDept = await db.query('SELECT * FROM departments WHERE id = $1', [id]);
+      const existingDept = await db.query('SELECT id, name, code, head_uid, is_active, description, floor, building, created_at, updated_at FROM departments WHERE id = $1', [id]);
       if (existingDept.rows.length === 0) {
         return null;
       }
@@ -245,7 +245,7 @@ class DepartmentService {
           is_active = COALESCE($6, is_active),
           updated_at = NOW()
         WHERE id = $7
-        RETURNING *
+        RETURNING id, name, code, head_uid, is_active, description, floor, building, created_at, updated_at
       `, [name, description, head_doctor_id, contact_number, location, is_active, id]);
       
       logger.info(`Department updated: ${result.rows[0].name} by user ID ${userId}`);
@@ -265,7 +265,7 @@ class DepartmentService {
     try {
       // Check if department exists
       const existingDept = await db.query(
-        'SELECT * FROM departments WHERE id = $1', 
+        'SELECT id, name, code, head_uid, is_active, description, floor, building, created_at, updated_at FROM departments WHERE id = $1',
         [id]
       );
       
@@ -291,7 +291,7 @@ class DepartmentService {
           is_active = false,
           updated_at = NOW()
         WHERE id = $1
-        RETURNING *
+        RETURNING id, name, code, head_uid, is_active, description, floor, building, created_at, updated_at
       `, [id]);
       
       logger.info(`Department deactivated: ${result.rows[0].name} by user ID ${userId} - Reason: ${reason}`);

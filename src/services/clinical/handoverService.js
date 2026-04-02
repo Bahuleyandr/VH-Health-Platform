@@ -43,7 +43,7 @@ export async function createHandover(data) {
         patient_summary, active_issues, pending_tasks, medications_due,
         special_instructions)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-     RETURNING *`,
+     RETURNING id, patient_uid, outgoing_nurse, incoming_nurse, summary, pending_tasks, alerts, status, created_at`,
     [
       patient_uid,
       ward || null,
@@ -89,7 +89,7 @@ export async function acknowledgeHandover(id, nurseUid) {
          acknowledged_at = NOW(),
          incoming_nurse = COALESCE(incoming_nurse, $2)
      WHERE id = $1
-     RETURNING *`,
+     RETURNING id, patient_uid, outgoing_nurse, incoming_nurse, summary, pending_tasks, alerts, status, created_at`,
     [id, nurseUid]
   );
 

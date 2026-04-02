@@ -102,7 +102,7 @@ class BedManagementService {
              expected_discharge = $2,
              updated_at = NOW()
          WHERE id = $3
-         RETURNING *`,
+         RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
         [patientUid, expectedDischarge, bedId]
       );
 
@@ -165,7 +165,7 @@ class BedManagementService {
              expected_discharge = NULL,
              updated_at = NOW()
          WHERE id = $1
-         RETURNING *`,
+         RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
         [bedId]
       );
 
@@ -230,7 +230,7 @@ class BedManagementService {
         `UPDATE beds
          SET status = 'occupied', patient_uid = $1, admitted_at = NOW(), updated_at = NOW()
          WHERE id = $2
-         RETURNING *`,
+         RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
         [patientUid, toBedId]
       );
 
@@ -298,7 +298,7 @@ class BedManagementService {
       `UPDATE beds
        SET status = 'available', updated_at = NOW()
        WHERE id = $1 AND status = 'cleaning'
-       RETURNING *`,
+       RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
       [bedId]
     );
 

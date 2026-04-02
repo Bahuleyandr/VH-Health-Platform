@@ -262,7 +262,8 @@ export class LookupService {
   static async bulkSearch(criteria, options = {}) {
     const { includeInactive = true, sortBy = 'registered_at', sortOrder = 'DESC', limit = 100 } = options;
     
-    let query = 'SELECT * FROM users WHERE 1=1';
+    let query = `SELECT id, uid, phone, name, email, gender, role, department, specialty,
+      employee_id, is_active, status, registered_at, updated_at, last_login FROM users WHERE 1=1`;
     const params = [];
     
     // Build dynamic query based on criteria

@@ -513,7 +513,7 @@ async performBulkOperations(data, user) {
           name, title_template, message_template, type, priority,
           variables, description, is_active, created_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-        RETURNING *
+        RETURNING id, name, title_template, body_template, type, is_active, created_at
       `, [name, title_template, message_template, type.toUpperCase(), priority.toUpperCase(),
           JSON.stringify(variables), description, is_active]);
       
@@ -549,7 +549,7 @@ async performBulkOperations(data, user) {
       
       // Get template
       const templateResult = await db.query(
-        'SELECT * FROM notification_templates WHERE id = $1 AND is_active = true',
+        'SELECT id, name, title_template, body_template, type, is_active, created_at FROM notification_templates WHERE id = $1 AND is_active = true',
         [template_id]
       );
       

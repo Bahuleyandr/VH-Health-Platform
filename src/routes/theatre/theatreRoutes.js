@@ -2,9 +2,17 @@
 // Operating Theatre Module Routes
 
 import { Router } from 'express';
+import { validationResult } from 'express-validator';
+import { requiredUUID, requiredString, requiredNumber, requiredEnum, optionalString, optionalNumber, optionalEnum, paramId } from '../../validators/sharedValidators.js';
 import theatreService from '../../services/theatre/theatreService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import logger from '../../logging/logger.js';
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+  next();
+};
 
 const router = Router();
 
@@ -12,7 +20,7 @@ const router = Router();
  * POST /theatre/schedule
  * Schedule a new surgery
  */
-router.post('/schedule', async (req, res, next) => {
+router.post('/schedule', requiredUUID('patient_uid'), requiredString('procedure_name', 300), requiredString('surgeon_uid'), validate, async (req, res, next) => {
   try {
     const scheduleData = {
       patient_uid: req.body.patient_uid,
@@ -86,7 +94,7 @@ router.get('/availability', async (req, res, next) => {
  * PUT /theatre/:id/status
  * Update surgery status
  */
-router.put('/:id/status', async (req, res, next) => {
+router.put('/:id/status', paramId(), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -106,7 +114,7 @@ router.put('/:id/status', async (req, res, next) => {
  * PUT /theatre/:id/checklist
  * Update pre-op checklist
  */
-router.put('/:id/checklist', async (req, res, next) => {
+router.put('/:id/checklist', paramId(), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { checklist } = req.body;
@@ -126,7 +134,7 @@ router.put('/:id/checklist', async (req, res, next) => {
  * DELETE /theatre/:id
  * Cancel a scheduled surgery
  */
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', paramId(), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
     const result = await theatreService.cancelSurgery(parseInt(id, 10), req.user?.uid);

@@ -8,7 +8,7 @@ const REFRESH_INTERVAL_MS = 60 * 1000; // 60 seconds
 
 async function refreshCache() {
   try {
-    const { rows } = await db.query('SELECT * FROM feature_flags');
+    const { rows } = await db.query('SELECT id, name, is_enabled, description, created_at FROM feature_flags');
     flagCache.clear();
     for (const row of rows) {
       flagCache.set(row.name, row);
@@ -84,7 +84,7 @@ export async function setFlag(name, data) {
        rollout_percentage = $4,
        allowed_roles = $5,
        updated_at = NOW()
-     RETURNING *`,
+     RETURNING id, name, is_enabled, description, created_at`,
     [name, description, enabled, rollout_percentage, allowed_roles]
   );
 

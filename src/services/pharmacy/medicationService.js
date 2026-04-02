@@ -211,9 +211,9 @@ export const createMedication = async (medicationData) => {
       price, stock_quantity, expiry_date, manufacturer, 
       prescription_required, description, is_active, created_at, created_by
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, NOW(), $13)
-    RETURNING *
-  `, [name, generic_name, brand, category, dosage, form, 
-      price, stock_quantity, expiry_date, manufacturer, 
+    RETURNING id, name, generic_name, category, stock_quantity, price, is_available, created_at, updated_at
+  `, [name, generic_name, brand, category, dosage, form,
+      price, stock_quantity, expiry_date, manufacturer,
       prescription_required, description, createdBy]);
 
   logger.info(`Medication created: ${name} by ${createdBy}`);
@@ -245,7 +245,7 @@ export const updateMedication = async (id, updateData) => {
       updated_at = NOW(),
       updated_by = $14
     WHERE id = $13 AND is_active = true
-    RETURNING *
+    RETURNING id, name, generic_name, category, stock_quantity, price, is_available, created_at, updated_at
   `, [name, generic_name, brand, category, dosage, form, 
       price, stock_quantity, expiry_date, manufacturer, 
       prescription_required, description, id, updatedBy]);
@@ -280,15 +280,15 @@ export const updateStock = async (id, quantity, operation, updatedBy) => {
 
   switch (operation) {
     case 'add':
-      query = 'UPDATE medications SET stock_quantity = stock_quantity + $1, updated_at = NOW(), updated_by = $3 WHERE id = $2 RETURNING *';
+      query = 'UPDATE medications SET stock_quantity = stock_quantity + $1, updated_at = NOW(), updated_by = $3 WHERE id = $2 RETURNING id, name, generic_name, category, stock_quantity, price, is_available, created_at, updated_at';
       params = [quantity, id, updatedBy];
       break;
     case 'subtract':
-      query = 'UPDATE medications SET stock_quantity = GREATEST(stock_quantity - $1, 0), updated_at = NOW(), updated_by = $3 WHERE id = $2 RETURNING *';
+      query = 'UPDATE medications SET stock_quantity = GREATEST(stock_quantity - $1, 0), updated_at = NOW(), updated_by = $3 WHERE id = $2 RETURNING id, name, generic_name, category, stock_quantity, price, is_available, created_at, updated_at';
       params = [quantity, id, updatedBy];
       break;
     default: // 'set'
-      query = 'UPDATE medications SET stock_quantity = $1, updated_at = NOW(), updated_by = $3 WHERE id = $2 RETURNING *';
+      query = 'UPDATE medications SET stock_quantity = $1, updated_at = NOW(), updated_by = $3 WHERE id = $2 RETURNING id, name, generic_name, category, stock_quantity, price, is_available, created_at, updated_at';
       params = [quantity, id, updatedBy];
   }
 

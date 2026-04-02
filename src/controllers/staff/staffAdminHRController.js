@@ -76,7 +76,7 @@ export const approvePerformanceReview = async (req, res) => {
         approver_comments = $3,
         final_rating = COALESCE($4, rating)
       WHERE id = $1
-      RETURNING *
+      RETURNING id, staff_id, review_period, status, rating, final_rating, approved_by, approved_at, approver_comments, created_at
     `, [reviewId, approvedBy, comments, final_rating]);
 
     if (result.rows.length === 0) {

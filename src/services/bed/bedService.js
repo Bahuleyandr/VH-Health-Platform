@@ -20,7 +20,7 @@ class BedService {
   async createWard(data) {
     const { name, floor, department_id, total_beds } = data;
     const { rows } = await db.query(
-      `INSERT INTO wards (name, floor, department_id, total_beds) VALUES ($1, $2, $3, $4) RETURNING *`,
+      `INSERT INTO wards (name, floor, department_id, total_beds) VALUES ($1, $2, $3, $4) RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
       [name, floor || 1, department_id || null, total_beds || 0]
     );
     return rows[0];
@@ -31,7 +31,7 @@ class BedService {
     const { rows } = await db.query(
       `UPDATE wards SET name = COALESCE($1, name), floor = COALESCE($2, floor),
        department_id = COALESCE($3, department_id), total_beds = COALESCE($4, total_beds),
-       updated_at = NOW() WHERE id = $5 RETURNING *`,
+       updated_at = NOW() WHERE id = $5 RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
       [name, floor, department_id, total_beds, id]
     );
     return rows[0];
@@ -84,7 +84,7 @@ class BedService {
   async createBed(data) {
     const { ward_id, bed_number, status, notes } = data;
     const { rows } = await db.query(
-      `INSERT INTO beds (ward_id, bed_number, status, notes) VALUES ($1, $2, $3, $4) RETURNING *`,
+      `INSERT INTO beds (ward_id, bed_number, status, notes) VALUES ($1, $2, $3, $4) RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
       [ward_id, bed_number, status || 'available', notes || null]
     );
     return rows[0];
@@ -101,7 +101,7 @@ class BedService {
         patient_name = $5,
         notes = COALESCE($6, notes),
         updated_at = NOW()
-      WHERE id = $7 RETURNING *`,
+      WHERE id = $7 RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
       [ward_id, bed_number, status, patient_id ?? null, patient_name ?? null, notes, id]
     );
     return rows[0];
@@ -116,7 +116,7 @@ class BedService {
     const { rows } = await db.query(
       `UPDATE beds SET status = 'occupied', patient_id = $1, patient_name = $2,
        admitted_at = NOW(), notes = COALESCE($3, notes), updated_at = NOW()
-       WHERE id = $4 AND status = 'available' RETURNING *`,
+       WHERE id = $4 AND status = 'available' RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
       [patient_id || null, patient_name, notes || null, bedId]
     );
     return rows[0];
@@ -126,7 +126,7 @@ class BedService {
     const { rows } = await db.query(
       `UPDATE beds SET status = 'available', patient_id = NULL, patient_name = NULL,
        admitted_at = NULL, updated_at = NOW()
-       WHERE id = $1 AND status = 'occupied' RETURNING *`,
+       WHERE id = $1 AND status = 'occupied' RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
       [bedId]
     );
     return rows[0];

@@ -157,7 +157,7 @@ export const createPerformanceReview = async (reviewData) => {
       goals_achieved, areas_for_improvement, future_goals,
       training_recommendations, review_date, created_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_DATE, NOW())
-    RETURNING *
+    RETURNING id, staff_id, reviewer_id, rating, review_period, reviewer_comments, goals_achieved, areas_for_improvement, future_goals, training_recommendations, review_date, created_at
   `, [
     staff_id, reviewerId, rating, review_period, reviewer_comments,
     goals_achieved ? JSON.stringify(goals_achieved) : null,

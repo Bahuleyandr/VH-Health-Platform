@@ -144,7 +144,7 @@ export const adminDoctorController = {
           is_available = COALESCE($10, is_available),
           updated_at = NOW()
         WHERE user_id = $11
-        RETURNING *
+        RETURNING id, name, department, intro, image_url, is_active, created_at
       `, [
         req.body.specialization,
         req.body.department,
@@ -242,7 +242,7 @@ export const adminDoctorController = {
       }
       
       const result = await db.query(
-        `INSERT INTO doctors (name, department, intro, image_url) VALUES ($1, $2, $3, $4) RETURNING *`,
+        `INSERT INTO doctors (name, department, intro, image_url) VALUES ($1, $2, $3, $4) RETURNING id, name, department, intro, image_url, is_active, created_at`,
         [name, department, intro, imageUrl]
       );
       
@@ -258,7 +258,7 @@ export const adminDoctorController = {
       const { doctorId } = req.params;
       
       const deleteResult = await db.query(
-        'DELETE FROM doctors WHERE id = $1 RETURNING *',
+        'DELETE FROM doctors WHERE id = $1 RETURNING id, name, department, intro, image_url, is_active, created_at',
         [doctorId]
       );
       
