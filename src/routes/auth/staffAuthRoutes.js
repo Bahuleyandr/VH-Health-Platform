@@ -6,6 +6,8 @@ import { validationResult , body } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
 import * as staffAuthController from '../../controllers/auth/staffAuthController.js';
+import jwtAuth from '../../middleware/jwtMiddleware.js';
+import { authRateLimiter } from '../../middleware/rateLimitMiddleware.js';
 import { staffPinLoginValidator } from '../../validators/auth/adminAuthValidator.js';
 import {
   staffPasswordLoginValidator,
@@ -36,9 +38,10 @@ wrapRoutesWithValidation(
   [],
   {
     post: [
-      // Initial staff login with Employee ID + Password
+      // Initial staff login with Employee ID + Password — rate limited: 5 attempts/15min per IP
       [
         '/login',
+        authRateLimiter,
         ...staffPasswordLoginValidator,
         handleValidation,
         staffAuthController.login
@@ -46,22 +49,25 @@ wrapRoutesWithValidation(
 
       [
         '/login-pin',
+        authRateLimiter,
         ...staffPinLoginValidator,
         handleValidation,
-        staffAuthController.pinLogin // Note: You'll need to create this controller function
+        staffAuthController.pinLogin
       ],
 
       // Register device for trusted access
       [
         '/register-device',
+        authRateLimiter,
         ...deviceRegistrationValidator,
         handleValidation,
         staffAuthController.registerDevice
       ],
-      
-      // Quick login with PIN/Biometric
+
+      // Quick login with PIN/Biometric — rate limited
       [
         '/quick-login',
+        authRateLimiter,
         ...quickLoginValidator,
         handleValidation,
         staffAuthController.quickLogin
@@ -89,25 +95,7 @@ wrapRoutesWithValidation(
 );
 
 // Protected Staff Routes (requires authentication)
-// Note: In production, import authenticateToken from '../../middleware/auth.js'
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(HTTP_STATUS.UNAUTHORIZED).json({
-      success: false,
-      error: 'Authorization token required'
-    });
-  }
-  
-  // In production, this would verify the JWT and extract user info
-  // For now, pass through with placeholder user
-  req.user = { uid: 1 };
-  next();
-};
-
-// Protected Staff Routes (requires authentication)
-router.use(authenticateToken); // Apply auth middleware
+router.use(jwtAuth);
 
 wrapRoutesWithValidation(
   router,

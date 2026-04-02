@@ -7,8 +7,8 @@ import { validationResult, body, oneOf, param } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import { wrapRoutesWithValidation, wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as adminAuthController from '../../controllers/auth/adminAuthController.js';
-import { authenticateToken } from '../../middleware/auth.js';
-import { otpRateLimiter } from '../../middleware/rateLimitMiddleware.js';
+import jwtAuth from '../../middleware/jwtMiddleware.js';
+import { otpRateLimiter, authRateLimiter } from '../../middleware/rateLimitMiddleware.js';
 
 // Use the dedicated admin validators
 import {
@@ -65,8 +65,8 @@ wrapRoutesWithValidation(
   [],
   {
     post: [
-      // Login (username OR email + password)
-      ['/login', ...adminLoginValidator, handleValidation, adminAuthController.login],
+      // Login (username OR email + password) — rate limited: 5 attempts/15min per IP
+      ['/login', authRateLimiter, ...adminLoginValidator, handleValidation, adminAuthController.login],
 
       // Request password reset (send OTP)
       ['/forgot-password', otpRateLimiter, ...forgotPasswordValidator, handleValidation, adminAuthController.forgotPassword],
@@ -84,7 +84,7 @@ wrapRoutesWithValidation(
 );
 
 /* ------------------------ protected auth routes -------------------- */
-router.use(authenticateToken);
+router.use(jwtAuth);
 
 wrapRoutesWithValidation(
   router,
@@ -130,6 +130,14 @@ wrapAutoRBAC(
         body('adminId').isInt({ min: 1 }).withMessage('Invalid admin ID').toInt(),
         handleValidation,
         adminAuthController.reactivateAdmin,
+      ],
+
+      // Revoke all sessions for a user (force-logout compromised accounts)
+      [
+        '/revoke-all-sessions/:userId',
+        param('userId').isInt({ min: 1 }).withMessage('Invalid user ID').toInt(),
+        handleValidation,
+        adminAuthController.revokeAllSessions,
       ],
     ],
     get: [

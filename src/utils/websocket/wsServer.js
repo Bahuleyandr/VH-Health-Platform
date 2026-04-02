@@ -2,6 +2,7 @@
 
 import { WebSocketServer } from 'ws';
 import { verifyToken } from '../jwtUtils.js';
+import { isTokenBlacklisted, isUserTokensRevoked } from '../tokenBlacklist.js';
 import logger from '../../logging/logger.js';
 
 /** @type {Map<string, Set<import('ws').WebSocket>>} userId → Set of sockets */
@@ -21,11 +22,11 @@ export function initWebSocket(server) {
 
   logger.info('🔌 WebSocket server initialized on /ws');
 
-  wss.on('connection', (ws, req) => {
-    // Authenticate via Authorization header (preferred) or query string token (browser WebSocket fallback —
-    // browsers cannot set custom headers on WS connections, so query string is the only option).
-    const url = new URL(req.url, 'ws://localhost');
-    const queryToken = url.searchParams.get('token');
+  wss.on('connection', async (ws, req) => {
+    // Accept token from Authorization header (preferred) or ?token= query param
+    // Browsers cannot set custom headers on WebSocket connections, so query param is the fallback.
+    const wsUrl = new URL(req.url, 'ws://localhost');
+    const queryToken = wsUrl.searchParams.get('token');
     const headerToken = req.headers.authorization?.replace('Bearer ', '');
     const token = headerToken || queryToken;
 
@@ -42,10 +43,33 @@ export function initWebSocket(server) {
       return;
     }
 
+    if (!decoded) {
+      ws.close(4001, 'Invalid token');
+      return;
+    }
+
+    // Check token blacklist (revoked/rotated tokens)
+    if (decoded.jti) {
+      const blacklisted = await isTokenBlacklisted(decoded.jti);
+      if (blacklisted) {
+        ws.close(4001, 'Token has been revoked');
+        return;
+      }
+    }
+
     const userId = decoded.uid || decoded.id || decoded.sub;
     if (!userId) {
       ws.close(4001, 'Invalid token payload');
       return;
+    }
+
+    // Check if all user tokens were revoked (force-logout)
+    if (decoded.iat) {
+      const revoked = await isUserTokensRevoked(String(userId), decoded.iat);
+      if (revoked) {
+        ws.close(4001, 'All sessions revoked');
+        return;
+      }
     }
 
     // Enforce per-user connection limit

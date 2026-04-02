@@ -14,8 +14,8 @@ export const uploadConsultation = async (data) => {
       phone, file_key, file_name, file_type, consultation_type,
       doctor_notes, diagnosis, treatment_plan, follow_up_date,
       vital_signs, medications_prescribed, uploaded_by, created_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW()) 
-    RETURNING *
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+    RETURNING id, phone, file_key, file_name, file_type, consultation_type, doctor_notes, diagnosis, treatment_plan, follow_up_date, vital_signs, medications_prescribed, uploaded_by, created_at
   `, [
     phone, file_key, file_name, file_type, consultation_type,
     doctor_notes, diagnosis, treatment_plan, follow_up_date,
@@ -84,8 +84,8 @@ export const uploadInvestigationResult = async (data) => {
       phone, test_name, file_key, file_name, file_type,
       result_status, lab_values, reference_ranges, technician_notes,
       reviewed_by_doctor, urgent_flag, uploaded_by, status, requested_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'completed', NOW()) 
-    RETURNING *
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'completed', NOW())
+    RETURNING id, phone, test_name, file_key, file_name, file_type, result_status, lab_values, reference_ranges, technician_notes, reviewed_by_doctor, urgent_flag, uploaded_by, status, requested_at
   `, [
     phone, test_name, file_key, file_name, file_type,
     result_status, 

@@ -82,7 +82,7 @@ export class AppointmentService {
           patient_id, doctor_id, appointment_date, appointment_time,
           reason, notes, status, created_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-        RETURNING *
+        RETURNING id, uid, phone, patient_name, doctor_name, department, date, time_slot, status, notes, created_at, updated_at
       `, [patient_id, doctor_id, appointment_date, appointment_time, reason, notes, APPOINTMENT_CONFIG.STATUSES.SCHEDULED]);
 
       await client.query('COMMIT');
@@ -109,7 +109,7 @@ export class AppointmentService {
           notes = COALESCE($4, notes),
           updated_at = NOW()
         WHERE id = $5
-        RETURNING *
+        RETURNING id, uid, phone, patient_name, doctor_name, department, date, time_slot, status, notes, created_at, updated_at
       `, [appointment_date, appointment_time, reason, notes, id]);
       
       return result.rows[0];
@@ -131,7 +131,7 @@ export class AppointmentService {
           END,
           updated_at = NOW()
         WHERE id = $3
-        RETURNING *
+        RETURNING id, uid, phone, patient_name, doctor_name, department, date, time_slot, status, notes, created_at, updated_at
       `, [status, notes, id]);
       
       return result.rows[0];

@@ -52,12 +52,17 @@ export const errorHandlerMiddleware = (err, req, res, next) => {
     Sentry.captureException(err);
   }
 
-  // 6. Create the response body
+  // 6. Create the response body — never leak internal error details in production
+  const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
   const errorResponse = {
     success: false,
-    message: err.message || 'An internal server error occurred.',
+    message: isProduction && statusCode >= 500
+      ? 'An internal server error occurred.'
+      : (err.message || 'An internal server error occurred.'),
+    // Include requestId for client-side log correlation
+    ...(req.id && { requestId: req.id }),
     // Only include the stack in development for security reasons
-    ...(process.env.NODE_ENV === 'development' && { stack }),
+    ...(!isProduction && { stack }),
   };
 
   // 7. Send the final response

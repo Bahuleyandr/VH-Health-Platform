@@ -1,8 +1,16 @@
 // src/routes/doctor/adminDoctorRoutes.js
 import express from 'express';
+import { validationResult } from 'express-validator';
+import { requiredString } from '../../validators/sharedValidators.js';
 import { adminDoctorController } from '../../controllers/doctor/adminDoctorController.js';
 import { doctorStatsController } from '../../controllers/doctor/doctorStatsController.js';
 import { adminDoctorValidators } from '../../validators/doctor/adminDoctorValidator.js';
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+  next();
+};
 
 const router = express.Router();
 
@@ -34,7 +42,7 @@ router.put('/:id/availability', adminDoctorValidators.updateAvailability, adminD
 router.delete('/:id/account', adminDoctorValidators.deleteDoctor, adminDoctorController.deleteDoctorAccount);
 
 // Legacy routes
-router.post('/', adminDoctorController.addDoctor);
+router.post('/', requiredString('name', 255), validate, adminDoctorController.addDoctor);
 router.delete('/:doctorId', validateDoctorId, adminDoctorController.deleteDoctor);
 
 export default router;

@@ -135,7 +135,7 @@ export async function recordNEWS2(patientUid, vitals, recordedBy) {
         temperature, systolic_bp, heart_rate, consciousness,
         total_score, clinical_risk, escalation_action, recorded_by)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-     RETURNING *`,
+     RETURNING id, patient_uid, total_score, risk_level, recorded_by, created_at`,
     [
       patientUid,
       vitals.respiration_rate,

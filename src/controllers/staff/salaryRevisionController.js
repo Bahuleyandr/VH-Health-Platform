@@ -44,7 +44,7 @@ export const proposeRevision = async (req, res) => {
     }
 
     // Get current salary
-    const currentSalaryRes = await db.query('SELECT * FROM staff_salary WHERE staff_uid=$1', [staff_uid]);
+    const currentSalaryRes = await db.query('SELECT id, staff_uid, basic_salary, hra, special_allowance, total_ctc, is_active, effective_from, created_at FROM staff_salary WHERE staff_uid=$1', [staff_uid]);
     const currentSalary = currentSalaryRes.rows[0];
 
     // Calculate proposed gross if basic is provided
@@ -67,7 +67,7 @@ export const proposeRevision = async (req, res) => {
         effective_from, reason, proposed_by,
         current_gross, proposed_gross
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-      RETURNING *
+      RETURNING id, staff_uid, revision_type, old_basic, new_basic, status, approved_by, reason, created_at, revision_number, current_basic, proposed_basic
     `, [
       staff_uid, revision_type,
       currentSalary?.basic_salary ?? null,
@@ -97,7 +97,7 @@ export const hrSignRevision = async (req, res) => {
     const hrUid = req.user?.uid;
     const { comment } = req.body;
 
-    const rev = await db.query('SELECT * FROM salary_revisions WHERE id=$1', [id]);
+    const rev = await db.query('SELECT id, staff_uid, revision_type, old_basic, new_basic, old_ctc, new_ctc, effective_from, status, approved_by, reason, created_at FROM salary_revisions WHERE id=$1', [id]);
     if (rev.rows.length === 0) return error(res, 'Revision not found', HTTP_STATUS.NOT_FOUND);
     if (rev.rows[0].status !== 'pending_hr') {
       return error(res, 'Revision is not awaiting HR signature', HTTP_STATUS.BAD_REQUEST);
@@ -107,7 +107,7 @@ export const hrSignRevision = async (req, res) => {
       UPDATE salary_revisions
       SET hr_signed_by=$1, hr_signed_at=NOW(), hr_comment=$2, status='pending_admin', updated_at=NOW()
       WHERE id=$3
-      RETURNING *
+      RETURNING id, staff_uid, revision_type, old_basic, new_basic, status, approved_by, reason, created_at
     `, [hrUid, comment ?? null, id]);
 
     success(res, result.rows[0], 'HR signature applied — awaiting Admin countersign');
@@ -124,7 +124,7 @@ export const adminSignRevision = async (req, res) => {
     const adminUid = req.user?.uid;
     const { comment } = req.body;
 
-    const rev = await db.query('SELECT * FROM salary_revisions WHERE id=$1', [id]);
+    const rev = await db.query('SELECT id, staff_uid, revision_type, old_basic, new_basic, old_ctc, new_ctc, effective_from, status, approved_by, reason, created_at FROM salary_revisions WHERE id=$1', [id]);
     if (rev.rows.length === 0) return error(res, 'Revision not found', HTTP_STATUS.NOT_FOUND);
     if (rev.rows[0].status !== 'pending_admin') {
       return error(res, 'Revision must be HR-signed before Admin countersign', HTTP_STATUS.BAD_REQUEST);
@@ -141,7 +141,7 @@ export const adminSignRevision = async (req, res) => {
       SET admin_signed_by=$1, admin_signed_at=NOW(), admin_comment=$2,
           status='approved', signature_hash=$3, updated_at=NOW()
       WHERE id=$4
-      RETURNING *
+      RETURNING id, staff_uid, revision_type, old_basic, new_basic, status, approved_by, reason, created_at
     `, [adminUid, comment ?? null, hash, id]);
 
     success(res, result.rows[0], 'Admin countersign complete — revision approved');
@@ -156,7 +156,7 @@ export const applyRevision = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const rev = await db.query('SELECT * FROM salary_revisions WHERE id=$1', [id]);
+    const rev = await db.query('SELECT id, staff_uid, revision_type, old_basic, new_basic, old_ctc, new_ctc, effective_from, status, approved_by, reason, created_at FROM salary_revisions WHERE id=$1', [id]);
     if (rev.rows.length === 0) return error(res, 'Revision not found', HTTP_STATUS.NOT_FOUND);
     if (rev.rows[0].status !== 'approved') {
       return error(res, 'Revision must be approved by both HR and Admin before applying', HTTP_STATUS.FORBIDDEN);
@@ -228,7 +228,7 @@ export const rejectRevision = async (req, res) => {
       UPDATE salary_revisions
       SET status='rejected', rejected_by=$1, rejected_at=NOW(), rejection_reason=$2, updated_at=NOW()
       WHERE id=$3 AND status IN ('pending_hr','pending_admin')
-      RETURNING *
+      RETURNING id, staff_uid, revision_type, old_basic, new_basic, status, approved_by, reason, created_at
     `, [rejecterUid, reason ?? null, id]);
 
     if (result.rows.length === 0) {
@@ -256,7 +256,8 @@ export const getRevisions = async (req, res) => {
     params.push(Math.min(parseInt(limit) || 50, 200));
 
     const revisions = await db.query(`
-      SELECT sr.*,
+      SELECT sr.id, sr.staff_uid, sr.revision_type, sr.old_basic, sr.new_basic, sr.old_ctc, sr.new_ctc,
+             sr.effective_from, sr.status, sr.approved_by, sr.reason, sr.created_at,
              u.name as staff_name, COALESCE(s.department, ss.department) as department,
              u2.name as proposed_by_name,
              u3.name as hr_signed_by_name,
@@ -322,7 +323,8 @@ export const getRevisionDetail = async (req, res) => {
     const { id } = req.params;
 
     const result = await db.query(`
-      SELECT sr.*,
+      SELECT sr.id, sr.staff_uid, sr.revision_type, sr.old_basic, sr.new_basic, sr.old_ctc, sr.new_ctc,
+             sr.effective_from, sr.status, sr.approved_by, sr.reason, sr.created_at,
              u.name as staff_name, COALESCE(s.department, ss.department) as department,
              u2.name as proposed_by_name,
              u3.name as hr_signed_by_name,

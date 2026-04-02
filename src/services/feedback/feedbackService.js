@@ -346,7 +346,7 @@ class FeedbackService {
         appointment_id, doctor_id, department_id,
         anonymous, improvement_suggestions, created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
-      RETURNING *`,
+      RETURNING id, uid, phone, type, comment, rating, status, created_at, updated_at`,
       [
         phone, userUid, rating, comment, category,
         appointment_id, doctor_id, department_id,
@@ -407,7 +407,7 @@ class FeedbackService {
       `INSERT INTO feedback_responses (
         feedback_id, responder_uid, response_text, created_at
       ) VALUES ($1, $2, $3, NOW())
-      RETURNING *`,
+      RETURNING id, uid, phone, type, comment, rating, status, created_at, updated_at`,
       [feedbackId, staffUid, response]
     );
 
@@ -426,7 +426,7 @@ class FeedbackService {
    */
   async deleteFeedback(feedbackId, adminUid, reason) {
     const result = await db.query(
-      'DELETE FROM feedback WHERE id = $1 RETURNING *',
+      'DELETE FROM feedback WHERE id = $1 RETURNING id, uid, phone, type, comment, rating, status, created_at, updated_at',
       [feedbackId]
     );
 

@@ -115,7 +115,7 @@ export const approveLeaveRequest = async (req, res) => {
         approved_at = NOW(),
         approver_comments = $3
       WHERE id = $1
-      RETURNING *
+      RETURNING id, staff_uid, leave_type, start_date, end_date, status, approved_by, reason, created_at
     `, [leaveId, approvedBy, comments]);
 
     if (result.rows.length === 0) {

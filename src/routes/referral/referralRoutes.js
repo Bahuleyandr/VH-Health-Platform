@@ -2,10 +2,18 @@
 // Referral Management Routes (JWT required)
 
 import { Router } from 'express';
+import { validationResult } from 'express-validator';
+import { requiredUUID, requiredString, paramId } from '../../validators/sharedValidators.js';
 import referralService from '../../services/referral/referralService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isDoctor, isAdmin, isClinical } from '../../utils/roleHelpers.js';
 import logger from '../../logging/logger.js';
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+  next();
+};
 
 const router = Router();
 
@@ -17,7 +25,7 @@ function canManageReferrals(role) {
  * POST /referrals
  * Create a new referral — DOCTOR only
  */
-router.post('/', async (req, res, next) => {
+router.post('/', requiredUUID('patient_uid'), requiredString('to_department', 100), requiredString('reason', 1000), validate, async (req, res, next) => {
   try {
     if (!canManageReferrals(req.user?.role)) {
       return error(res, 'Only doctors can create referrals', 403);
@@ -113,7 +121,7 @@ router.get('/outgoing', async (req, res, next) => {
  * PUT /referrals/:id/accept
  * Accept a referral — DOCTOR
  */
-router.put('/:id/accept', async (req, res, next) => {
+router.put('/:id/accept', paramId(), validate, async (req, res, next) => {
   try {
     if (!canManageReferrals(req.user?.role)) {
       return error(res, 'Only doctors can accept referrals', 403);
@@ -135,7 +143,7 @@ router.put('/:id/accept', async (req, res, next) => {
  * PUT /referrals/:id/complete
  * Complete a referral — DOCTOR
  */
-router.put('/:id/complete', async (req, res, next) => {
+router.put('/:id/complete', paramId(), validate, async (req, res, next) => {
   try {
     if (!canManageReferrals(req.user?.role)) {
       return error(res, 'Only doctors can complete referrals', 403);
@@ -160,7 +168,7 @@ router.put('/:id/complete', async (req, res, next) => {
  * PUT /referrals/:id/decline
  * Decline a referral — DOCTOR
  */
-router.put('/:id/decline', async (req, res, next) => {
+router.put('/:id/decline', paramId(), requiredString('reason', 500), validate, async (req, res, next) => {
   try {
     if (!canManageReferrals(req.user?.role)) {
       return error(res, 'Only doctors can decline referrals', 403);

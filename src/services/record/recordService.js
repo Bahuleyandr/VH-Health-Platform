@@ -14,7 +14,7 @@ function isValidUUID(uuid) {
 export async function getRecordsByUID(uid) {
   try {
     const result = await db.query(
-      'SELECT * FROM health_records WHERE uid = $1 ORDER BY created_at DESC',
+      'SELECT id, uid, patient_name, record_type, description, file_url, doctor_name, notes, created_at, updated_at FROM health_records WHERE uid = $1 ORDER BY created_at DESC',
       [uid]
     );
     return result.rows;
@@ -30,7 +30,7 @@ export async function getHealthRecordsByPhone(phone, filters = {}) {
     const { type, limit = DEFAULT_PAGINATION.DEFAULT_LIMIT, offset = DEFAULT_PAGINATION.DEFAULT_OFFSET } = filters;
     
     let query = `
-      SELECT hr.*, 
+      SELECT hr.id, hr.uid, hr.patient_name, hr.record_type, hr.description, hr.file_url, hr.doctor_name, hr.notes, hr.created_at, hr.updated_at,
              TO_CHAR(hr.created_at, 'DD-MM-YYYY HH24:MI') as created_at_formatted,
              u.name as patient_name, u.uid as patient_uid
       FROM health_records hr
@@ -66,7 +66,7 @@ export async function createHealthRecord(data, createdBy, createdByRole) {
       `INSERT INTO health_records (
         phone, file_key, file_name, file_type, privacy_level, notes, 
         created_by, created_by_role, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW()) RETURNING *`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW()) RETURNING id, uid, patient_name, record_type, description, file_url, doctor_name, notes, created_at, updated_at`,
       [normalizePhone(phone), file_key, file_name, file_type, privacy_level, notes, createdByUuid, createdByRole]
     );
     
@@ -180,7 +180,7 @@ const countResult = await db.query(countQuery, countParams);
 export async function getMedicalRecordById(id) {
   try {
     const result = await db.query(`
-      SELECT mr.*, 
+      SELECT mr.id, mr.record_type, mr.title, mr.description, mr.diagnosis, mr.treatment, mr.medications, mr.privacy_level, mr.created_at, mr.updated_at,
              TO_CHAR(mr.created_at, 'DD-MM-YYYY HH24:MI') as created_at_formatted,
              TO_CHAR(mr.updated_at, 'DD-MM-YYYY HH24:MI') as updated_at_formatted,
              p.name as patient_name, p.phone as patient_phone, p.email as patient_email,
@@ -224,7 +224,7 @@ export async function createMedicalRecord(data, doctorId, createdBy) {
         diagnosis, treatment, medications, lab_results, attachments, 
         privacy_level, created_by, created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
-      RETURNING *
+      RETURNING id, uid, patient_name, record_type, description, file_url, doctor_name, notes, created_at, updated_at
     `, [
       data.patient_id, doctorId, data.record_type.toUpperCase(), 
       data.title, data.description, data.diagnosis, data.treatment, 
@@ -266,7 +266,7 @@ export async function updateMedicalRecord(id, data, updatedBy) {
         updated_at = NOW(),
         updated_by = $9
       WHERE id = $8
-      RETURNING *
+      RETURNING id, uid, patient_name, record_type, description, file_url, doctor_name, notes, created_at, updated_at
     `, [title, description, diagnosis, treatment, medications, lab_results, attachments, id, updatedBy]);
     
     return result.rows[0];
@@ -308,7 +308,7 @@ export async function searchMedicalRecords(searchTerm, userRole, limit = 50) {
     const privacyFilter = getPrivacyFilterForRole(userRole);
     
     const result = await db.query(`
-      SELECT mr.*, 
+      SELECT mr.id, mr.record_type, mr.title, mr.description, mr.diagnosis, mr.treatment, mr.medications, mr.privacy_level, mr.created_at, mr.updated_at,
              TO_CHAR(mr.created_at, 'DD-MM-YYYY HH24:MI') as created_at_formatted,
              p.name as patient_name, p.phone as patient_phone,
              d.name as doctor_name

@@ -1,11 +1,19 @@
 // src/routes/messaging/messagingRoutes.js
 
 import express from 'express';
+import { validationResult } from 'express-validator';
+import { requiredString, paramId } from '../../validators/sharedValidators.js';
 import messagingService from '../../services/messaging/messagingService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { sanitizeBody } from '../../middleware/sanitizeMiddleware.js';
 import { isStaff } from '../../utils/roleHelpers.js';
 import logger from '../../logging/logger.js';
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+  next();
+};
 
 const router = express.Router();
 
@@ -16,7 +24,7 @@ const sanitizeMessageFields = sanitizeBody('body', 'subject');
  * POST /messaging/send
  * Send a message to another staff member.
  */
-router.post('/send', sanitizeMessageFields, async (req, res, next) => {
+router.post('/send', requiredString('to_uid'), requiredString('content', 2000), validate, sanitizeMessageFields, async (req, res, next) => {
   try {
     const senderUid = req.user?.uid;
     if (!senderUid) {
@@ -120,7 +128,7 @@ router.get('/patient/:patientUid', async (req, res, next) => {
  * PATCH /messaging/:id/read
  * Mark a message as read.
  */
-router.patch('/:id/read', async (req, res, next) => {
+router.patch('/:id/read', paramId(), validate, async (req, res, next) => {
   try {
     const staffUid = req.user?.uid;
     if (!staffUid) {

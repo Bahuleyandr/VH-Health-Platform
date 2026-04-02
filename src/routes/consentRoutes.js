@@ -2,10 +2,18 @@
 // HIPAA Patient Consent Management Routes
 
 import { Router } from 'express';
+import { validationResult } from 'express-validator';
+import { requiredUUID, requiredString } from '../validators/sharedValidators.js';
 import db from '../config/database.js';
 import logger from '../logging/logger.js';
 import { success, error } from '../utils/responseHelper.js';
 import { logPhiAccess } from '../utils/hipaaAudit.js';
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+  next();
+};
 
 const router = Router();
 
@@ -14,7 +22,7 @@ const router = Router();
  * Grant a consent for a patient.
  * Body: { patient_uid, consent_type, notes? }
  */
-router.post('/grant', async (req, res, next) => {
+router.post('/grant', requiredUUID('patient_uid'), requiredString('consent_type', 100), validate, async (req, res, next) => {
   try {
     const { patient_uid, consent_type, notes } = req.body;
 
@@ -74,7 +82,7 @@ router.post('/grant', async (req, res, next) => {
  * Revoke a consent for a patient.
  * Body: { patient_uid, consent_type }
  */
-router.post('/revoke', async (req, res, next) => {
+router.post('/revoke', requiredUUID('patient_uid'), requiredString('consent_type', 100), validate, async (req, res, next) => {
   try {
     const { patient_uid, consent_type } = req.body;
 

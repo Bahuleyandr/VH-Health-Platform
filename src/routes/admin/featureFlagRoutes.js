@@ -1,7 +1,15 @@
 import express from 'express';
+import { validationResult } from 'express-validator';
+import { requiredString, paramId } from '../../validators/sharedValidators.js';
 import { getFlags, setFlag, deleteFlag } from '../../services/featureFlags/featureFlagService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import logger from '../../logging/logger.js';
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+  next();
+};
 
 const router = express.Router();
 
@@ -17,7 +25,7 @@ router.get('/', async (req, res) => {
 });
 
 // POST /admin/feature-flags — create or update a flag
-router.post('/', async (req, res) => {
+router.post('/', requiredString('name', 100), validate, async (req, res) => {
   try {
     const { name, description, enabled, rollout_percentage, allowed_roles } = req.body || {};
     if (!name) {
@@ -32,7 +40,7 @@ router.post('/', async (req, res) => {
 });
 
 // DELETE /admin/feature-flags/:name — delete a flag
-router.delete('/:name', async (req, res) => {
+router.delete('/:name', paramId('name'), validate, async (req, res) => {
   try {
     const deleted = await deleteFlag(req.params.name);
     if (!deleted) {

@@ -37,7 +37,7 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
       `INSERT INTO medication_administrations
          (patient_uid, prescription_id, medication_name, dose, route, scheduled_time, notes, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, 'scheduled')
-       RETURNING *`,
+       RETURNING id, patient_uid, medication_name, dosage, route, scheduled_time, status, administered_by, notes, created_at`,
       [
         patientUid,
         prescriptionId || null,
@@ -89,7 +89,7 @@ export async function recordAdministration(id, administeredBy, notes = null, wit
          notes = COALESCE($3, notes),
          witness_uid = $4
      WHERE id = $1
-     RETURNING *`,
+     RETURNING id, patient_uid, medication_name, dosage, route, scheduled_time, status, administered_by, notes, created_at`,
     [id, administeredBy, notes, witnessUid]
   );
 
@@ -121,7 +121,7 @@ export async function recordMissed(id, reason) {
     `UPDATE medication_administrations
      SET status = 'missed', notes = COALESCE($2, notes)
      WHERE id = $1
-     RETURNING *`,
+     RETURNING id, patient_uid, medication_name, dosage, route, scheduled_time, status, administered_by, notes, created_at`,
     [id, reason]
   );
 
@@ -158,7 +158,7 @@ export async function holdMedication(id, reason, heldBy) {
     `UPDATE medication_administrations
      SET status = 'held', hold_reason = $2, administered_by = $3
      WHERE id = $1
-     RETURNING *`,
+     RETURNING id, patient_uid, medication_name, dosage, route, scheduled_time, status, administered_by, notes, created_at`,
     [id, reason, heldBy]
   );
 

@@ -1,7 +1,15 @@
 // src/routes/doctor/doctorRoutes.js
 import express from 'express';
+import { validationResult } from 'express-validator';
+import { requiredString } from '../../validators/sharedValidators.js';
 import { doctorController } from '../../controllers/doctor/doctorController.js';
 import { doctorValidators } from '../../validators/doctor/doctorValidator.js';
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+  next();
+};
 
 const router = express.Router();
 
@@ -22,7 +30,7 @@ router.get('/test', doctorController.test);
 // Legacy routes (backward compatibility)
 router.get('/', doctorController.getAllDoctors);
 router.get('/:doctorId', validateDoctorId, doctorController.getDoctorById);
-router.post('/', doctorController.addDoctor);
+router.post('/', requiredString('name', 255), validate, doctorController.addDoctor);
 router.delete('/:doctorId', validateDoctorId, doctorController.deleteDoctor);
 
 // Enhanced routes

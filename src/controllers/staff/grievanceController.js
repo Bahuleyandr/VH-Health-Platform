@@ -26,7 +26,7 @@ export const submitGrievance = async (req, res) => {
       INSERT INTO staff_grievances
         (reporter_id, grievance_type, subject, description, against_whom, department, incident_date, is_anonymous)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-      RETURNING *
+      RETURNING id, staff_uid, subject, status, assigned_to, resolution, created_at, updated_at, grievance_number
     `, [
       is_anonymous ? null : reporterId,
       grievance_type, subject, description,
@@ -146,7 +146,8 @@ export const getGrievanceAdminDetail = async (req, res) => {
     const { id } = req.params;
 
     const grievance = await db.query(`
-      SELECT sg.*,
+      SELECT sg.id, sg.staff_uid, sg.subject, sg.description, sg.category, sg.priority,
+             sg.status, sg.assigned_to, sg.hr_notes, sg.resolution, sg.created_at, sg.updated_at,
              CASE WHEN sg.is_anonymous THEN NULL ELSE u.name END as reporter_name,
              CASE WHEN sg.is_anonymous THEN NULL ELSE u.department END as reporter_department,
              u2.name as assigned_to_name
@@ -180,7 +181,7 @@ export const updateGrievance = async (req, res) => {
     const adminId = req.user?.uid;
     const { status, assigned_to, hr_notes, resolution, priority, public_update, internal_note } = req.body;
 
-    const existing = await db.query('SELECT * FROM staff_grievances WHERE id = $1', [id]);
+    const existing = await db.query('SELECT id, staff_uid, subject, description, category, priority, status, assigned_to, hr_notes, resolution, created_at, updated_at FROM staff_grievances WHERE id = $1', [id]);
     if (existing.rows.length === 0) return error(res, 'Grievance not found', HTTP_STATUS.NOT_FOUND);
 
     const updates = [];
@@ -217,7 +218,7 @@ export const updateGrievance = async (req, res) => {
       await db.query(`INSERT INTO report_updates (report_type, report_id, author_id, author_role, message, is_internal) VALUES ('grievance',$1,$2,'system',$3,false)`, [id, adminId, `Status updated to: ${status.replace('_',' ').toUpperCase()}`]);
     }
 
-    const updated = await db.query(`SELECT sg.*, u.name as assigned_to_name FROM staff_grievances sg LEFT JOIN users u ON sg.assigned_to = u.id WHERE sg.id = $1`, [id]);
+    const updated = await db.query(`SELECT sg.id, sg.staff_uid, sg.subject, sg.description, sg.category, sg.priority, sg.status, sg.assigned_to, sg.hr_notes, sg.resolution, sg.created_at, sg.updated_at, u.name as assigned_to_name FROM staff_grievances sg LEFT JOIN users u ON sg.assigned_to = u.id WHERE sg.id = $1`, [id]);
     success(res, updated.rows[0], 'Grievance updated');
   } catch (err) {
     logger.error('Update Grievance Error:', err);

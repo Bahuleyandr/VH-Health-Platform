@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
@@ -72,7 +72,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
@@ -82,6 +82,7 @@ jobs:
       - name: Deploy database migrations to staging
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        if: ${{ secrets.STAGING_DATABASE_URL != '' }}
         run: npx prisma migrate deploy
 
   codeql:

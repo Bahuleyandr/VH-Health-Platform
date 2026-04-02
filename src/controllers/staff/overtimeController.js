@@ -17,7 +17,7 @@ export const requestOvertime = async (req, res) => {
 
     const result = await db.query(`
       INSERT INTO overtime_requests (staff_id, date, extra_hours, reason, type)
-      VALUES ($1, $2, $3, $4, $5) RETURNING *
+      VALUES ($1, $2, $3, $4, $5) RETURNING id, staff_uid, date, hours, reason, status, approved_by, created_at
     `, [staffId, date, extra_hours, reason, type || 'comp_time']);
 
     success(res, result.rows[0], 'Overtime request submitted');
@@ -63,7 +63,7 @@ export const approveOvertime = async (req, res) => {
     const result = await db.query(`
       UPDATE overtime_requests
       SET status=$1, approved_by=$2, approved_at=NOW(), rejection_reason=$3
-      WHERE id=$4 RETURNING *
+      WHERE id=$4 RETURNING id, staff_uid, date, hours, reason, status, approved_by, created_at
     `, [status, approverId, rejection_reason || null, id]);
 
     if (result.rows.length === 0) {

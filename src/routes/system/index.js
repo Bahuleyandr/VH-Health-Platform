@@ -1,7 +1,14 @@
 // src/routes/system/index.js
 import express from 'express';
+import { validationResult, body } from 'express-validator';
 import * as systemController from '../../controllers/system/systemController.js';
 import * as healthController from '../../controllers/system/healthController.js';
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+  next();
+};
 
 const router = express.Router();
 
@@ -13,7 +20,7 @@ const router = express.Router();
  */
 
 router.get('/settings', systemController.getSettings);
-router.put('/settings', systemController.updateSettings);
+router.put('/settings', body('settings').exists().withMessage('settings is required').isObject().withMessage('settings must be an object'), validate, systemController.updateSettings);
 router.get('/status', systemController.getSystemStatus);
 router.get('/health', healthController.getSystemHealth);
 

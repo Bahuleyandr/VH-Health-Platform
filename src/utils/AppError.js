@@ -49,6 +49,31 @@ export class AppError extends Error {
       { from, to, allowed }
     );
   }
+
+  // Security-specific factory methods
+  static accountLocked(message = 'Account temporarily locked due to too many failed attempts') {
+    return new AppError(message, 423, 'ACCOUNT_LOCKED');
+  }
+
+  static tokenExpired(message = 'Token has expired') {
+    return new AppError(message, 401, 'TOKEN_EXPIRED');
+  }
+
+  static tokenRevoked(message = 'Token has been revoked') {
+    return new AppError(message, 401, 'TOKEN_REVOKED');
+  }
+
+  static tokenInvalid(message = 'Invalid or expired token') {
+    return new AppError(message, 401, 'TOKEN_INVALID');
+  }
+
+  static invalidCredentials(message = 'Invalid credentials') {
+    return new AppError(message, 401, 'INVALID_CREDENTIALS');
+  }
+
+  static accountDeactivated(message = 'Account is deactivated') {
+    return new AppError(message, 403, 'ACCOUNT_DEACTIVATED');
+  }
 }
 
 export default AppError;

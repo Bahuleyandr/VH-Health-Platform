@@ -35,7 +35,7 @@ prisma/schema.prisma  # DB documentation (58 models, NOT used for queries)
 - **Domain grouping**: Controllers, routes, services, validators are grouped by domain (auth/, appointment/, staff/, etc.)
 - **wrapAutoRBAC**: Routes use `wrapAutoRBAC(router, configKey, routeMap)` from `src/config/routeWrapper.js` for role-based access control.
 - **Response format**: All responses use `success(res, data, message, status, meta)` or `error(res, message, statusCode, details)` from `src/utils/responseHelper.js`. Envelope: `{ success: true, message: "...", data: {...}, requestId: "..." }`. Optional `meta` param for pagination.
-- **Unified req.user shape**: Both `authMiddleware` and `jwtMiddleware` normalize to `{ uid, id, role, phone, email }`. `uid` is the string UID, `id` is the DB integer PK. Use `String()` comparison for IDOR checks.
+- **Unified req.user shape**: `jwtMiddleware` (the sole JWT auth layer) normalizes to `{ uid, role, roles?, phone?, email? }`. `uid` is the string UID. Use `String()` comparison for IDOR checks.
 - **AppError class**: Services throw `AppError` (from `src/utils/AppError.js`) with `statusCode`, `code`, and `details`. Factory methods: `AppError.badRequest()`, `.notFound()`, `.forbidden()`, `.unauthorized()`, `.invalidTransition(from, to, allowed)`. The global error handler recognizes these and returns structured responses.
 - **Role helpers**: Use `isStaff()`, `isClinical()`, `isAdmin()`, `isDoctor()` from `src/utils/roleHelpers.js` — never inline role arrays like `['ADMIN','DOCTOR','NURSE']`.
 - **Security config**: All security constants (lockout, OTP limits, JWT expiry, device trust) live in `src/config/securityConfig.js` — not hardcoded in services.
@@ -48,10 +48,17 @@ prisma/schema.prisma  # DB documentation (58 models, NOT used for queries)
 - **Patient login**: Firebase OTP → `POST /api/v1/auth/firebase/firebase-login` (idToken) → JWT
 - **Staff login**: Employee ID + password → `POST /api/v1/auth/staff/login` → accessToken + refreshToken
 - **Admin login**: Username + password → `POST /api/v1/auth/admin/login` → JWT
-- **Middleware chain**: `requestIdMiddleware` → `apiVersionMiddleware` → `validateApiKey` (timing-safe) → `authMiddleware` (JWT + normalized req.user) → route handlers
+- **Middleware chain**: `requestIdMiddleware` → `apiVersionMiddleware` → `validateApiKey` (timing-safe, per-client keys) → `jwtAuth` (JWT + blacklist check + normalized req.user) → `requireRole()` (per-route RBAC)
+- **Single auth middleware**: `jwtMiddleware.js` is the sole JWT verification layer. `auth.js` and `authMiddleware.js` have been removed.
 - **Admin lockout**: 5 failed attempts → 15min lockout (configurable via `SECURITY_CONFIG`)
-- **JWT**: HS256 signed, 7d default expiry. App crashes on startup if `JWT_SECRET` missing. Token expiry differentiated: `TOKEN_EXPIRED` vs `TOKEN_INVALID` error codes.
-- **API key**: Compared using `crypto.timingSafeEqual()` to prevent timing attacks.
+- **Staff lockout**: Centralized `_checkStaffLockout()` checks across password, PIN, and quick-login — 5 failed attempts → 15min lockout
+- **JWT**: HS256 signed with `jti` (JWT ID) for revocation. Role-specific expiry: patient 7d, staff 8h, admin 4h. Crashes on startup if `JWT_SECRET` missing. Error codes: `TOKEN_EXPIRED`, `TOKEN_INVALID`, `TOKEN_REVOKED`.
+- **Token blacklist**: Redis fast-path + DB persistent fallback (`invalidated_tokens` table). Tokens blacklisted on logout + refresh rotation. `revokeAllUserTokens()` for force-logout.
+- **Token rotation**: On refresh, old token is blacklisted before issuing new one. Prevents token replay.
+- **OTP hashing**: OTPs hashed with bcrypt before storage. Timing-safe comparison via `bcrypt.compare()`. Backwards-compatible with legacy plaintext.
+- **API keys**: Per-client keys via `API_KEY_PATIENT`, `API_KEY_STAFF`, `API_KEY_ADMIN` env vars. Shared `API_KEY` as fallback. `req.apiClient` set for audit trail.
+- **Anomaly detection**: `loginAnomalyDetector.js` tracks credential stuffing (10+ accounts from same IP). IP threat level assessment for adaptive rate limiting.
+- **Security webhooks**: `securityWebhook.js` sends Slack/PagerDuty alerts for critical events (ACCOUNT_LOCKED, BRUTE_FORCE_DETECTED).
 
 ## Security Architecture
 
@@ -61,7 +68,9 @@ prisma/schema.prisma  # DB documentation (58 models, NOT used for queries)
 | patient | 15min | 100 | /users, /appointments, /records, /feedback |
 | staff | 15min | 500 | /staff/* |
 | admin | 15min | 100 | /admin/*, /system/*, /logs/* |
+| auth | 15min | 5 per IP+account | /auth/admin/login, /auth/staff/login, /auth/staff/quick-login |
 | otp | 10min | 3 per phone | /auth/firebase-login, /auth/request-otp |
+| dashboard | 1min | 10 per IP | /dashboard |
 | sos | 1hr | 3 per user | POST /sos/ |
 
 ### IDOR Protection
@@ -145,10 +154,11 @@ Prefer `/my` endpoints that derive phone from JWT:
 - Token number generation is atomic (prevents race condition duplicates)
 
 ### HIPAA Compliance
-- `logPhiAccess()` from `src/utils/hipaaAudit.js` logs all Protected Health Information access
-- Records: who accessed, which patient, what record type, IP, request ID, timestamp
+- **Route-level PHI logging**: `phiAccessLogger(recordType)` middleware from `src/middleware/phiAccessMiddleware.js` auto-logs all PHI access at the route level. Applied to: appointments, records, investigations, prescriptions, pharmacy-orders, EMR (clinical notes, vitals, diagnoses, admissions, orders, CDS), clinical workflows, documents, radiology, dietary, theatre, blood-bank, referrals.
+- **Controller-level PHI logging**: `logPhiAccess()` from `src/utils/hipaaAudit.js` for granular per-controller tracking
+- Records: who accessed, which patient, what record type, action (VIEW/CREATE/UPDATE/DELETE), IP, request ID, timestamp
 - File fallback via Winston when DB unavailable — HIPAA audit entries never lost
-- Patient health endpoints (summary, vitals, allergies, conditions) all log PHI access
+- Only logs successful accesses (2xx/3xx) — auth failures don't generate PHI audit entries
 
 ### Clinical Safety
 - **Vital sign anomaly detection**: `src/utils/clinical/vitalSignMonitor.js`
@@ -253,8 +263,8 @@ docker exec vhhealth-db psql -U vhhealth -d vhhealth
 - External services (R2, Firebase) must degrade gracefully — never crash at import time
 
 ## Security Checklist (for PRs)
-- [ ] No `SELECT *` — explicit columns only, never return `pwd`/`pin_hash`
-- [ ] No `err.message` in API responses — use generic messages, log real errors server-side
+- [ ] No `SELECT *` — explicit columns only, never return `pwd`/`pin_hash`/`encrypted_password`
+- [ ] No `err.message` in API responses — use `AppError` (not raw `new Error()`), generic messages in production
 - [ ] IDOR check on any endpoint that mutates a specific resource — use `String()` comparison
 - [ ] Input sanitization on any user-provided text field — use `sanitizeBody()` middleware
 - [ ] File uploads validated with `validateFileContent` + `validatePatientUpload`
@@ -265,3 +275,9 @@ docker exec vhhealth-db psql -U vhhealth -d vhhealth
 - [ ] No `console.log` — use Winston `logger.info/warn/error()`
 - [ ] API key compared with `crypto.timingSafeEqual()` — no `===`/`!==`
 - [ ] No hardcoded secrets or OTPs — crash on missing env vars, never fallback
+- [ ] PHI endpoints must have `phiAccessLogger()` middleware or explicit `logPhiAccess()` call
+- [ ] Auth failures must call `logSecurityEvent()` — use `SecurityEvents.*` convenience methods
+- [ ] New login paths must include `_checkStaffLockout()` or equivalent lockout check
+- [ ] Tokens must include `jti` claim (automatic via `generateToken()`)
+- [ ] Logout must blacklist the token (automatic via `authService.logout()`)
+- [ ] Security constants in `src/config/securityConfig.js` — never hardcoded in services
