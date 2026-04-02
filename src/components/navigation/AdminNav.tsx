@@ -47,6 +47,18 @@ const navSections: NavSection[] = [
     ],
   },
   {
+    title: "Clinical Services",
+    minRole: "STAFF", // all clinical staff
+    items: [
+      { name: "Radiology",   href: "/dashboard/radiology" },
+      { name: "Dietary",     href: "/dashboard/dietary" },
+      { name: "Theatre",     href: "/dashboard/theatre" },
+      { name: "Blood Bank",  href: "/dashboard/blood-bank" },
+      { name: "Quality",     href: "/dashboard/quality" },
+      { name: "Referrals",   href: "/dashboard/referral" },
+    ],
+  },
+  {
     title: "HR Management",
     minRole: "HR", // HR | ADMIN | SUPER_ADMIN
     items: [
