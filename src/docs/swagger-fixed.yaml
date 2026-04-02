@@ -23,7 +23,7 @@ components:
             type: apiKey
             in: header
             name: x-api-key
-            description: 'API key for authentication (use: vhhealth123 for development)'
+            description: 'API key for authentication (use your configured backend API key; do not hardcode secrets in source control)'
         BearerAuth:
             type: http
             scheme: bearer
