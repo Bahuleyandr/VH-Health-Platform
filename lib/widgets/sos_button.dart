@@ -1,9 +1,9 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../models/api_response.dart';
 import '../services/http_client.dart';
 
 /// Emergency contact number for the SOS feature.
@@ -48,9 +48,10 @@ Future<void> triggerSOS([BuildContext? ctx]) async {
     'latitude': lat,
     'longitude': lng,
     'emergencyType': 'medical',
-  }).catchError((e) {
+  }).catchError((Object e) {
     debugPrint('SOS POST error: $e');
-  }));
+    return const ApiResponse(statusCode: 0, isSuccess: false, message: 'SOS POST failed');
+  }));  
 
   // ── 3. Open dialer ───────────────────────────────────────────────────────
   final telUri = Uri.parse('tel:$kSosEmergencyNumber');
