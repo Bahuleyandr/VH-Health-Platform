@@ -59,7 +59,7 @@ export const uploadInvestigationFile = async (investigationId, file, uploadedBy)
     logger.info(`File uploaded for investigation ${investigationId}: ${fileName}`);
     return result;
   } catch (err) {
-    try { await fs.unlink(filePath); } catch {}
+    try { await fs.unlink(filePath); } catch (_e) { /* ignore */ }
     throw err;
   }
 };
@@ -101,7 +101,7 @@ export const deleteFile = async (fileId, deletedBy) => {
   await prisma.investigation_files.delete({ where: { id: parseInt(fileId) } });
 
   if (file.file_path) {
-    try { await fs.unlink(file.file_path); } catch {}
+    try { await fs.unlink(file.file_path); } catch (_e) { /* ignore */ }
   }
 
   logger.info(`File deleted: ${file.file_name} by ${deletedBy}`);
@@ -114,7 +114,7 @@ export const getFileStream = async (fileId) => {
 
   try {
     await fs.access(file.file_path);
-  } catch {
+  } catch (_e) {
     throw new Error('File not found on disk');
   }
 

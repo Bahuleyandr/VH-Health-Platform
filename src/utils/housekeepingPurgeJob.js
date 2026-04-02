@@ -11,6 +11,7 @@
  * - Open/assigned requests older than 30 days with no completion: purge request photo (stale)
  */
 
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { deleteObject } from './r2Storage.js';
 
