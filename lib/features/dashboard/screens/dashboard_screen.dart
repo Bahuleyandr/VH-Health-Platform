@@ -360,6 +360,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
         color: const Color(0xFFA5D6A7),
         onTap: (ctx) => _openFeature(ctx, '/steps'),
       ),
+      FeatureIconData(
+        icon: LucideIcons.heartPulse,
+        label: 'Vitals',
+        color: const Color(0xFFEF9A9A),
+        description: 'Log and track daily vitals like blood pressure, heart rate, and SpO2',
+        onTap: (ctx) => _openFeature(ctx, '/vitals'),
+      ),
+      FeatureIconData(
+        icon: LucideIcons.refreshCw,
+        label: 'Refills',
+        color: const Color(0xFF81D4FA),
+        description: 'Request prescription refills from your active medications',
+        onTap: (ctx) => _openFeature(ctx, '/refill'),
+      ),
+      FeatureIconData(
+        icon: LucideIcons.users,
+        label: 'Family',
+        color: const Color(0xFFCE93D8),
+        description: 'Manage family members linked to your account',
+        onTap: (ctx) => _openFeature(ctx, '/family'),
+      ),
     ];
   }
 
