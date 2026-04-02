@@ -71,6 +71,7 @@ class AboutUsScreen extends StatelessWidget {
     );
   }
 
+  // ignore: unused_element
   Future<void> _emailHospital() async {
     await _launchUrl('mailto:$_hospitalEmail?subject=Enquiry%20from%20VHHealth%20App');
   }
@@ -107,9 +108,9 @@ class AboutUsScreen extends StatelessWidget {
               margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
               decoration: BoxDecoration(
-                color: cs.primary.withOpacity(0.06),
+                color: cs.primary.withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: cs.primary.withOpacity(0.15)),
+                border: Border.all(color: cs.primary.withValues(alpha: 0.15)),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -266,7 +267,7 @@ class _ContactAction extends StatelessWidget {
         children: [
           CircleAvatar(
             radius: 24,
-            backgroundColor: color.withOpacity(0.12),
+            backgroundColor: color.withValues(alpha: 0.12),
             child: Icon(icon, color: color, size: 22),
           ),
           const SizedBox(height: 6),

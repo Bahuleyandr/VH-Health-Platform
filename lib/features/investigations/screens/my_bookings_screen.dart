@@ -36,6 +36,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     'RESULT_READY': 'Results Ready',
   };
 
+  // ignore: unused_field
   static const _statusIcons = {
     'BOOKED': Icons.bookmark_added,
     'CONFIRMED': Icons.check_circle_outline,

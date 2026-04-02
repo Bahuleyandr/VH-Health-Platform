@@ -107,6 +107,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ? (notification['data'] as Map)['type']?.toString()
             : null) ??
         '';
+          // ignore: unused_local_variable
     final data = notification['data'] is Map
         ? notification['data'] as Map<String, dynamic>
         : <String, dynamic>{};

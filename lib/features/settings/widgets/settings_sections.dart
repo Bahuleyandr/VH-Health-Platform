@@ -163,7 +163,7 @@ List<Widget> buildSettingsSections(SettingsController c) {
                     ),
                     FilledButton(
                       onPressed: () => Navigator.of(ctx).pop(true),
-                      child: Text(c.loc.commonResetButton ?? 'Reset'),
+                      child: Text(c.loc.commonResetButton),
                     ),
                   ],
                 ),
@@ -174,7 +174,7 @@ List<Widget> buildSettingsSections(SettingsController c) {
                 if (c.context.mounted) {
                   ScaffoldMessenger.of(c.context).showSnackBar(
                     SnackBar(
-                      content: Text(c.loc.settingsThemeResetSuccess ?? 'Theme settings reset to defaults'),
+                      content: Text(c.loc.settingsThemeResetSuccess),
                       behavior: SnackBarBehavior.floating,
                     ),
                   );

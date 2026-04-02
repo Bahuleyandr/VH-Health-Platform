@@ -249,6 +249,7 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
       final isHovered = index == hoveredIndex;
       
       // Items at top are slightly larger
+      // ignore: unused_local_variable
       final distanceFromTop = (angle + pi / 2).abs();
       final positionScale = index == 0 ? 1.05 : 1.0; // Reduced from 1.1 to prevent cutoff
 

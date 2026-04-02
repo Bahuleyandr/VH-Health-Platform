@@ -127,8 +127,8 @@ class OtpInput extends StatelessWidget {
         activeColor: Colors.teal,
         selectedColor: Colors.orange,
         inactiveColor: Colors.grey[300]!,
-        activeFillColor: Colors.teal.withOpacity(0.1),
-        selectedFillColor: Colors.orange.withOpacity(0.1),
+        activeFillColor: Colors.teal.withValues(alpha: 0.1),
+        selectedFillColor: Colors.orange.withValues(alpha: 0.1),
         inactiveFillColor: Colors.grey[50]!,
       ),
       enableActiveFill: true,
@@ -246,9 +246,9 @@ class OtpStatusIndicator extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.green.withOpacity(0.1),
+        color: Colors.green.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.green.withOpacity(0.3)),
+        border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
       ),
       child: const Row(
         children: [

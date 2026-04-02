@@ -118,7 +118,7 @@ class _SplashScreenState extends State<SplashScreen>
           children: [
             ColorFiltered(
               colorFilter: ColorFilter.mode(
-                Colors.black.withOpacity(0.4),
+                Colors.black.withValues(alpha: 0.4),
                 BlendMode.darken,
               ),
               child: Image.asset(

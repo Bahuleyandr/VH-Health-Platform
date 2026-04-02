@@ -51,12 +51,12 @@ class StepShareCard extends StatelessWidget {
       width: 340,
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [accent.withOpacity(0.15), Colors.white],
+          colors: [accent.withValues(alpha: 0.15), Colors.white],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: accent.withOpacity(0.3), width: 1.5),
+        border: Border.all(color: accent.withValues(alpha: 0.3), width: 1.5),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -76,7 +76,7 @@ class StepShareCard extends StatelessWidget {
               children: [
                 CircleAvatar(
                   radius: 20,
-                  backgroundColor: Colors.white.withOpacity(0.3),
+                  backgroundColor: Colors.white.withValues(alpha: 0.3),
                   child: Text(
                     displayName.isNotEmpty ? displayName[0].toUpperCase() : 'W',
                     style: const TextStyle(
@@ -102,7 +102,7 @@ class StepShareCard extends StatelessWidget {
                       Text(
                         'VH Health Step Challenge',
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.8),
+                          color: Colors.white.withValues(alpha: 0.8),
                           fontSize: 12,
                         ),
                       ),
@@ -212,9 +212,9 @@ class StepShareCard extends StatelessWidget {
                     children: badges.take(5).map((b) => Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: accent.withOpacity(0.1),
+                        color: accent.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: accent.withOpacity(0.3)),
+                        border: Border.all(color: accent.withValues(alpha: 0.3)),
                       ),
                       child: Text(
                         '${b['emoji']} ${b['label']}',

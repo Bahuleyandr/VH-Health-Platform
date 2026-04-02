@@ -94,6 +94,7 @@ context.go('/home');
 
       // Check stored user data to determine navigation
       final storedIsNewUser = await _secureStorage.read(key: 'isNewUser');
+  // ignore: unused_local_variable
       final storedJwt = await _secureStorage.read(key: 'jwt');
       
       String targetRoute;

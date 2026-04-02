@@ -127,7 +127,7 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                 child: Row(
                   children: [
                     CircleAvatar(
-                      backgroundColor: cs.primary.withOpacity(0.1),
+                      backgroundColor: cs.primary.withValues(alpha: 0.1),
                       child: Icon(Icons.medication,
                           color: cs.primary, size: 22),
                     ),
@@ -253,7 +253,7 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
                             color: const Color(0xFF00838F)
-                                .withOpacity(0.1),
+                                .withValues(alpha: 0.1),
                             shape: BoxShape.circle,
                           ),
                           child: Text('${e.key + 1}',

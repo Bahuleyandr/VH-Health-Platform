@@ -44,9 +44,9 @@ class ContactBanner extends StatelessWidget {
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.06),
+        color: color.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Row(
         children: [
@@ -77,7 +77,7 @@ class ContactBanner extends StatelessWidget {
                             fontWeight: FontWeight.w600,
                             color: color,
                             decoration: TextDecoration.underline,
-                            decorationColor: color.withOpacity(0.4),
+                            decorationColor: color.withValues(alpha: 0.4),
                           ),
                         ),
                       ],

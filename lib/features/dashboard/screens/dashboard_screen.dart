@@ -46,6 +46,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? lastAppointment;
   String? nextAppointment;
   String? cachedName;
+  // ignore: unused_field
   Color _focusColor = Colors.blue;
   
   // Offline support

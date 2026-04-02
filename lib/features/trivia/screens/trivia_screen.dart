@@ -93,9 +93,9 @@ class _TriviaScreenState extends State<TriviaScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
             decoration: BoxDecoration(
-              color: cs.surfaceContainerHighest.withOpacity(.75),
+              color: cs.surfaceContainerHighest.withValues(alpha: .75),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: cs.outline.withOpacity(.4)),
+              border: Border.all(color: cs.outline.withValues(alpha: .4)),
             ),
             child: Text(
               _translateTrivia(l10n),

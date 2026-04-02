@@ -36,7 +36,7 @@ class LogoBackground extends StatelessWidget {
                   fit: BoxFit.contain,
                   // Apply color filter in dark mode for better visibility
                   color: isDarkMode 
-                      ? theme.colorScheme.onSurface.withOpacity(0.5)
+                      ? theme.colorScheme.onSurface.withValues(alpha: 0.5)
                       : null,
                   colorBlendMode: isDarkMode ? BlendMode.modulate : null,
                   errorBuilder: (context, error, stackTrace) {
@@ -44,7 +44,7 @@ class LogoBackground extends StatelessWidget {
                     return Icon(
                       Icons.local_hospital,
                       size: 200,
-                      color: theme.colorScheme.onSurface.withOpacity(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 
                         isDarkMode ? 0.05 : 0.1
                       ),
                     );

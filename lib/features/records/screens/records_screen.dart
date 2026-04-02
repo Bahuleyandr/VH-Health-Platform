@@ -68,6 +68,7 @@ class RecordsScreen extends StatefulWidget {
 class _RecordsScreenState extends State<RecordsScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  // ignore: unused_field
   static const _storage = FlutterSecureStorage();
 
   List<_RecordItem> _hospitalRecords = [];
@@ -531,7 +532,7 @@ class _RecordCard extends StatelessWidget {
               Container(
                 width: 44, height: 44,
                 decoration: BoxDecoration(
-                  color: typeColor.withOpacity(0.12),
+                  color: typeColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(_iconForType(record.documentType), color: typeColor, size: 24),
@@ -561,7 +562,7 @@ class _RecordCard extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: typeColor.withOpacity(0.12),
+                            color: typeColor.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(

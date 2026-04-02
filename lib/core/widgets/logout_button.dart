@@ -102,7 +102,6 @@ class LogoutButton extends StatelessWidget {
         );
       
       case LogoutButtonStyle.listTile:
-      default:
         return ListTile(
           leading: Icon(icon, color: theme.colorScheme.error),
           title: Text(
