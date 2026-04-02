@@ -27,6 +27,9 @@ import 'package:vhhealth/features/departments/screens/departments_screen.dart';
 import 'package:vhhealth/features/about/screens/about_us_screen.dart';
 import 'package:vhhealth/features/calendar/screens/calendar_screen.dart';
 import 'package:vhhealth/features/steps/screens/step_challenge_screen.dart';
+import 'package:vhhealth/features/vitals/screens/vitals_screen.dart';
+import 'package:vhhealth/features/prescriptions/screens/refill_screen.dart';
+import 'package:vhhealth/features/family/screens/family_screen.dart';
 import 'package:vhhealth/core/widgets/main_scaffold_go_router.dart';
 
 class AppRouter {
@@ -268,6 +271,24 @@ class AppRouter {
       GoRoute(
         path: '/steps',
         builder: (context, state) => const StepChallengeScreen(),
+      ),
+      GoRoute(
+        path: '/vitals',
+        builder: (context, state) => VitalsScreen(
+          phone: _phone(context),
+        ),
+      ),
+      GoRoute(
+        path: '/refill',
+        builder: (context, state) => RefillScreen(
+          phone: _phone(context),
+        ),
+      ),
+      GoRoute(
+        path: '/family',
+        builder: (context, state) => FamilyScreen(
+          phone: _phone(context),
+        ),
       ),
       GoRoute(
         path: '/records',
