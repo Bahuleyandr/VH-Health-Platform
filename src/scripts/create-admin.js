@@ -56,6 +56,7 @@ async function createTestAdmin() {
     }
     
     // Hash the password
+    // ⚠️  CHANGE THIS PASSWORD IMMEDIATELY AFTER FIRST LOGIN — do not use in production
     const password = 'Admin123!';
     const passwordHash = await bcrypt.hash(password, 10);
     
@@ -95,7 +96,7 @@ async function createTestAdmin() {
     console.log('\n✅ Admin created successfully!');
     console.log('=====================================');
     console.log('🔑 Username: admin');
-    console.log('🔐 Password: Admin123!');
+    console.log('🔐 Password: Admin123!  ← CHANGE THIS IMMEDIATELY');
     console.log('📧 Email: admin@vhhealth.com');
     console.log('=====================================\n');
     console.log('Admin details:', result.rows[0]);

@@ -858,6 +858,7 @@ async function initDB() {
 
     // ─── Seed Admin User ───────────────────────────────────────────────────────
     console.log('\n🔑 Seeding admin user...');
+    // ⚠️  CHANGE THIS PASSWORD IMMEDIATELY AFTER FIRST LOGIN — do not use in production
     const password = 'Admin123!';
     const passwordHash = await bcrypt.hash(password, 10);
 
@@ -880,7 +881,7 @@ async function initDB() {
         'admin', passwordHash, 'admin@vhhealth.com',
         'Super Admin', 'SUPER_ADMIN', true, 'active', ['all']
       ]);
-      console.log('  ✅ Admin user created (admin / Admin123!)');
+      console.log('  ✅ Admin user created (admin / Admin123!)  ← CHANGE PASSWORD IMMEDIATELY');
     }
 
     await client.query('COMMIT');
