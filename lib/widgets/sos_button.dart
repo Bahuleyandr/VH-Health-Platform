@@ -1,10 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
-import '../config/api_config.dart';
+import '../services/http_client.dart';
 
 /// Emergency contact number for the SOS feature.
 /// Override at build time: `--dart-define=VH_SOS_NUMBER=+91XXXXXXXXXX`
@@ -43,13 +43,14 @@ Future<void> triggerSOS([BuildContext? ctx]) async {
   }
 
   // ── 2. Backend POST (fire-and-forget) ────────────────────────────────────
-  unawaited(ApiConfig.authenticatedHeaders().then(
-    (headers) => http.post(
-      Uri.parse('${ApiConfig.baseUrl}/sos/'),
-      headers: headers,
-      body: '{"phone":"$phone","latitude":${lat ?? "null"},"longitude":${lng ?? "null"},"emergencyType":"medical"}',
-    ),
-  ));
+  unawaited(VHHttpClient.post('/sos/', body: {
+    'phone': phone,
+    'latitude': lat,
+    'longitude': lng,
+    'emergencyType': 'medical',
+  }).catchError((e) {
+    debugPrint('SOS POST error: $e');
+  }));
 
   // ── 3. Open dialer ───────────────────────────────────────────────────────
   final telUri = Uri.parse('tel:$kSosEmergencyNumber');

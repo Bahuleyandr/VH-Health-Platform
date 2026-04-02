@@ -229,7 +229,7 @@ void main() {
       final med = Medication.fromJson(json);
       expect(med.name, 'Paracetamol');
       expect(med.price, 25.50);
-      expect(med.requiresPrescription, true);
+      expect(med.prescriptionRequired, true);
     });
   });
 }

@@ -1087,9 +1087,9 @@ class BillingInvoice {
       patientId: (json['patient_id'] ?? json['patientId']) as int?,
       patientName: (json['patient_name'] ?? json['patientName']) as String?,
       invoiceNumber: (json['invoice_number'] ?? json['invoiceNumber']) as String?,
-      totalAmount: (json['total_amount'] ?? json['totalAmount'] ?? 0).toDouble(),
-      paidAmount: (json['paid_amount'] ?? json['paidAmount'] ?? 0).toDouble(),
-      balanceAmount: (json['balance_amount'] ?? json['balanceAmount'] ?? 0).toDouble(),
+      totalAmount: _safeDouble(json['total_amount'] ?? json['totalAmount']),
+      paidAmount: _safeDouble(json['paid_amount'] ?? json['paidAmount']),
+      balanceAmount: _safeDouble(json['balance_amount'] ?? json['balanceAmount']),
       status: (json['status'] ?? 'PENDING') as String,
       paymentMethod: (json['payment_method'] ?? json['paymentMethod']) as String?,
       items: (json['items'] as List<dynamic>?)
@@ -1112,6 +1112,15 @@ class BillingInvoice {
         if (paymentMethod != null) 'payment_method': paymentMethod,
         'items': items.map((e) => e.toJson()).toList(),
       };
+
+  /// Safely parse a dynamic value to double, handling int, double, and String.
+  static double _safeDouble(dynamic val) {
+    if (val == null) return 0;
+    if (val is double) return val;
+    if (val is int) return val.toDouble();
+    if (val is String) return double.tryParse(val) ?? 0;
+    return 0;
+  }
 }
 
 class BillingItem {

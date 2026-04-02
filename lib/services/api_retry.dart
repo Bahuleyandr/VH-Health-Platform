@@ -21,7 +21,7 @@ class ApiRetry {
         if (attempt >= maxRetries) rethrow;
         if (shouldRetry != null && !shouldRetry(e)) rethrow;
 
-        final delay = initialDelay * pow(2, attempt - 1);
+        final delay = initialDelay * pow(2, attempt - 1).toInt();
         if (kDebugMode) {
           debugPrint('ApiRetry: attempt $attempt failed, retrying in ${delay.inMilliseconds}ms');
         }
