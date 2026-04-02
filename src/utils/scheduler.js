@@ -2,6 +2,7 @@
 
 import cron from 'node-cron';
 import path from 'path';
+import prisma from '../lib/prisma.js';
 import backupDb from '../../admin/backup-db.js';
 import { cleanupOldBackups as cleanupBackups } from '../../admin/cleanup-backups.js';
 import purgeArchives from '../../admin/purge-archives.js';
