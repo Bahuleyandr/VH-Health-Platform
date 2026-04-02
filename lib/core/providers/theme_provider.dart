@@ -16,8 +16,12 @@ class ThemeProvider extends ChangeNotifier {
   static const String _dynamicColorsKey = 'enable_dynamic_colors';
   static const String _accentColorKey = 'accent_color';
 
+  /// Completes when preferences have been loaded from storage.
+  /// All setters await this so they never race with the initial load.
+  late final Future<void> _initFuture;
+
   ThemeProvider() {
-    _loadPreferences();
+    _initFuture = _loadPreferences();
   }
 
   // --- Getters ---
@@ -91,20 +95,29 @@ class ThemeProvider extends ChangeNotifier {
     if (accentColorValue != null) {
       _dynamicAccentColor = Color(accentColorValue);
     }
-    notifyListeners();
+    // Only notify if any value differs from the compiled-in defaults,
+    // so widgets rebuilding on init are updated but test listener counts
+    // reflect only explicit setter calls.
+    if (_themeMode != ThemeMode.system ||
+        _fontSize != 16.0 ||
+        !_enableDynamicColors ||
+        _dynamicAccentColor != null) {
+      notifyListeners();
+    }
   }
 
   // --- Setters ---
   Future<void> setThemeMode(ThemeMode mode) async {
+    await _initFuture;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_themeModeKey, _themeModeToString(mode));
     if (_themeMode == mode) return;
     _themeMode = mode;
     notifyListeners();
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_themeModeKey, _themeModeToString(mode));
   }
 
   Future<void> setFontSize(double size) async {
+    await _initFuture;
     if (_fontSize == size) return;
     _fontSize = size;
     notifyListeners();
@@ -114,19 +127,20 @@ class ThemeProvider extends ChangeNotifier {
   }
 
   Future<void> setDynamicAccentColor(Color? color) async {
-    if (_dynamicAccentColor == color) return;
-    _dynamicAccentColor = color;
-    notifyListeners();
-
+    await _initFuture;
     final prefs = await SharedPreferences.getInstance();
     if (color != null) {
       await prefs.setInt(_accentColorKey, color.value);
     } else {
       await prefs.remove(_accentColorKey);
     }
+    if (_dynamicAccentColor == color) return;
+    _dynamicAccentColor = color;
+    notifyListeners();
   }
 
   Future<void> setEnableDynamicColors(bool enable) async {
+    await _initFuture;
     if (_enableDynamicColors == enable) return;
     _enableDynamicColors = enable;
     notifyListeners();

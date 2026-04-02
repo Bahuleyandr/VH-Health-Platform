@@ -77,10 +77,11 @@ class TestableApiResponse {
 
   /// Replicates ApiResponse.dataAsList exactly.
   List<dynamic> dataAsList([String? key]) {
-    if (key != null && data is Map) {
-      return (data[key] as List?) ?? [];
+    if (key != null) {
+      if (data is Map) return (data[key] as List?) ?? [];
+      return [];
     }
-    if (data is List) return data;
+    if (data is List) return data as List<dynamic>;
     return [];
   }
 

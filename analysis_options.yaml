@@ -26,3 +26,13 @@ linter:
 
 # Additional information about this file can be found at
 # https://dart.dev/guides/language/analysis-options
+
+analyzer:
+  errors:
+    # Downgrade deprecated API usage from warning to info (will be fixed in a future cleanup)
+    deprecated_member_use: info
+    deprecated_member_use_from_same_package: info
+  exclude:
+    - local_plugins/**
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"

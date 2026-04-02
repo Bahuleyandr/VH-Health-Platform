@@ -61,8 +61,17 @@ class _OrderFormTabState extends State<OrderFormTab> {
       imageQuality: 85,
     );
     if (picked != null && mounted) {
+      final file = File(picked.path);
+      final sizeBytes = await file.length();
+      const maxSizeBytes = 10 * 1024 * 1024; // 10 MB
+      if (sizeBytes > maxSizeBytes) {
+        if (mounted) {
+          _showSnack('File too large. Maximum size is 10 MB.', isError: true);
+        }
+        return;
+      }
       setState(() {
-        _prescriptionPhoto = File(picked.path);
+        _prescriptionPhoto = file;
         _prescriptionName = picked.name;
       });
     }
