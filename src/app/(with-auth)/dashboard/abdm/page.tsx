@@ -365,7 +365,7 @@ export default function ABDMPage() {
                 <div>
                   <span className="text-muted-foreground">Status:</span>
                   <p>
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${CONSENT_STATUS_STYLES[selectedRequest.status ?? ""] ?? ""}`}>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${CONSENT_STATUS_STYLES[selectedRequest.status ?? ""] ?? "bg-gray-100 text-gray-600"}`}>
                       {selectedRequest.status ?? "\u2014"}
                     </span>
                   </p>

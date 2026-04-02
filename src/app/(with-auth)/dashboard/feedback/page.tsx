@@ -97,7 +97,7 @@ export default function FeedbackPage() {
   } = useQuery<FeedbackItem[]>({
     queryKey: ["feedback-list"],
     queryFn: async () => {
-      const res = await fetchAdminAPI<unknown>("/feedback/");
+      const res = await fetchAdminAPI<unknown>("/feedback");
       return unwrap<FeedbackItem[]>(res);
     },
   });
