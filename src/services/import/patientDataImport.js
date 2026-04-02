@@ -2,7 +2,7 @@
 // Imports patient data from FHIR Bundles and C-CDA XML documents.
 // Includes deduplication to avoid creating duplicate records on re-import.
 
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { fromFhirPatient } from '../fhir/fhirAdapter.js';
 import logger from '../../logging/logger.js';
 
@@ -142,7 +142,7 @@ async function importPatient(fhirPatient, importedBy) {
   }
 
   // Dedup by phone
-  const { rows: existing } = await db.query(
+  const { rows: existing } = await prisma.$queryRawUnsafe(
     `SELECT uid FROM users WHERE phone = $1 LIMIT 1`,
     [patient.phone]
   );
@@ -161,7 +161,7 @@ async function importPatient(fhirPatient, importedBy) {
 
     if (updates.length > 0) {
       updates.push(`updated_at = NOW()`);
-      await db.query(
+      await prisma.$queryRawUnsafe(
         `UPDATE users SET ${updates.join(', ')} WHERE uid = $${idx}`,
         [...params, existing[0].uid]
       );
@@ -172,7 +172,7 @@ async function importPatient(fhirPatient, importedBy) {
 
   // Create new patient — generate UID
   const uid = `IMP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `INSERT INTO users (uid, phone, name, gender, birthday, address, email, role, is_active, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, 'PATIENT', true, NOW())`,
     [uid, patient.phone, patient.name, patient.gender, patient.birthday, patient.address, patient.email]
@@ -196,7 +196,7 @@ async function importCondition(fhirCondition, importedBy) {
   const clinicalStatus = fhirCondition.clinicalStatus?.coding?.[0]?.code || 'active';
 
   // Dedup: check by patient + icd10 code + description
-  const { rows: existing } = await db.query(
+  const { rows: existing } = await prisma.$queryRawUnsafe(
     `SELECT id FROM diagnoses
      WHERE patient_uid = $1 AND (
        (icd10_code IS NOT NULL AND icd10_code = $2)
@@ -210,7 +210,7 @@ async function importCondition(fhirCondition, importedBy) {
     return;
   }
 
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `INSERT INTO diagnoses (patient_uid, icd10_code, description, status, onset_date, diagnosed_by, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
     [
@@ -246,7 +246,7 @@ async function importMedication(fhirMedication, importedBy) {
   const status = statusMap[fhirMedication.status] || 'PENDING';
 
   // Dedup: check recent orders for same patient + medication text
-  const { rows: existing } = await db.query(
+  const { rows: existing } = await prisma.$queryRawUnsafe(
     `SELECT id FROM pharmacy_orders
      WHERE uid = $1 AND medication = $2 AND created_at > NOW() - INTERVAL '24 hours'
      LIMIT 1`,
@@ -258,7 +258,7 @@ async function importMedication(fhirMedication, importedBy) {
     return;
   }
 
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `INSERT INTO pharmacy_orders (uid, medication, order_note, status, prescribed_by, created_at)
      VALUES ($1, $2, $3, $4, $5, NOW())`,
     [patientUid, medication, note, status, importedBy]
@@ -303,7 +303,7 @@ async function importObservation(fhirObservation, importedBy) {
   }
 
   // Dedup: check for a vitals record within same minute
-  const { rows: existing } = await db.query(
+  const { rows: existing } = await prisma.$queryRawUnsafe(
     `SELECT id FROM vitals_chart
      WHERE patient_uid = $1 AND recorded_at BETWEEN $2::timestamp - INTERVAL '1 minute' AND $2::timestamp + INTERVAL '1 minute'
      LIMIT 1`,
@@ -312,7 +312,7 @@ async function importObservation(fhirObservation, importedBy) {
 
   if (existing.length) {
     // Update existing record with the new vital value
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `UPDATE vitals_chart SET ${column} = $1 WHERE id = $2`,
       [value, existing[0].id]
     );
@@ -320,7 +320,7 @@ async function importObservation(fhirObservation, importedBy) {
   }
 
   // Create new vitals record
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `INSERT INTO vitals_chart (patient_uid, ${column}, recorded_at, recorded_by, created_at)
      VALUES ($1, $2, $3, $4, NOW())`,
     [patientUid, value, recordedAt, importedBy]
@@ -440,7 +440,7 @@ async function importPatientFromCCDA(patientData, importedBy) {
   }
 
   // Dedup by phone
-  const { rows: existing } = await db.query(
+  const { rows: existing } = await prisma.$queryRawUnsafe(
     `SELECT uid FROM users WHERE phone = $1 LIMIT 1`,
     [patientData.phone]
   );
@@ -454,7 +454,7 @@ async function importPatientFromCCDA(patientData, importedBy) {
   const uid = `IMP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   patientData.uid = uid;
 
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `INSERT INTO users (uid, phone, name, gender, birthday, address, role, is_active, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, 'PATIENT', true, NOW())`,
     [uid, patientData.phone, patientData.name, patientData.gender, patientData.birthday, patientData.address]
@@ -466,13 +466,13 @@ async function importDiagnosisFromCCDA(problem, patientUid, importedBy) {
   if (!patientUid || !problem.displayName) return;
 
   // Dedup
-  const { rows: existing } = await db.query(
+  const { rows: existing } = await prisma.$queryRawUnsafe(
     `SELECT id FROM diagnoses WHERE patient_uid = $1 AND description = $2 LIMIT 1`,
     [patientUid, problem.displayName]
   );
   if (existing.length) return;
 
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `INSERT INTO diagnoses (patient_uid, description, status, diagnosed_by, created_at)
      VALUES ($1, $2, 'active', $3, NOW())`,
     [patientUid, problem.displayName, importedBy]
@@ -483,13 +483,13 @@ async function importMedicationFromCCDA(med, patientUid, importedBy) {
   if (!patientUid || !med.displayName) return;
 
   // Dedup
-  const { rows: existing } = await db.query(
+  const { rows: existing } = await prisma.$queryRawUnsafe(
     `SELECT id FROM pharmacy_orders WHERE uid = $1 AND medication = $2 AND created_at > NOW() - INTERVAL '24 hours' LIMIT 1`,
     [patientUid, med.displayName]
   );
   if (existing.length) return;
 
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `INSERT INTO pharmacy_orders (uid, medication, status, prescribed_by, created_at)
      VALUES ($1, $2, 'PENDING', $3, NOW())`,
     [patientUid, med.displayName, importedBy]
@@ -500,13 +500,13 @@ async function importAllergyFromCCDA(allergy, patientUid, importedBy) {
   if (!patientUid || !allergy.displayName) return;
 
   // Dedup
-  const { rows: existing } = await db.query(
+  const { rows: existing } = await prisma.$queryRawUnsafe(
     `SELECT id FROM allergies WHERE patient_uid = $1 AND (allergen = $2 OR name = $2) LIMIT 1`,
     [patientUid, allergy.displayName]
   );
   if (existing.length) return;
 
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `INSERT INTO allergies (patient_uid, allergen, name, recorded_at)
      VALUES ($1, $2, $2, NOW())`,
     [patientUid, allergy.displayName]

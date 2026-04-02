@@ -2,7 +2,7 @@
 // Full pharmacy order lifecycle: PLACED → CONFIRMED → PREPARING → DISPATCHED → DELIVERED
 
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
@@ -43,11 +43,11 @@ export const placeOrder = async (req, res) => {
       await uploadFileToR2(req.file.buffer, prescriptionPhotoKey, req.file.mimetype);
     }
 
-    const patient = await db.query('SELECT name, phone FROM users WHERE id=$1', [patientId]);
-    const patientName = patient.rows[0]?.name || 'Patient';
-    const patientPhone = patient.rows[0]?.phone || '';
+    const patient = await prisma.$queryRawUnsafe('SELECT name, phone FROM users WHERE id=$1', [patientId]);
+    const patientName = patient[0]?.name || 'Patient';
+    const patientPhone = patient[0]?.phone || '';
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       INSERT INTO pharmacy_orders (
         patient_id, phone, patient_name, order_note,
         prescription_photo_key, delivery_type,
@@ -65,10 +65,10 @@ export const placeOrder = async (req, res) => {
       req.user?.uid
     ]);
 
-    const order = result.rows[0];
+    const order = result[0];
 
     // Log history
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_order_history (order_id, to_status, changed_by, changed_by_role, notes)
        VALUES ($1,'PLACED',$2,'patient','Order placed')`,
       [order.id, patientId]
@@ -96,7 +96,7 @@ export const placeOrder = async (req, res) => {
 export const getMyOrders = async (req, res) => {
   try {
     const patientId = req.user?.id;
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, uid, patient_id, patient_name, patient_phone, prescription_url,
         status, order_note, delivery_type, delivery_address, delivery_landmark,
         total_amount, payment_status, assigned_pharmacist, token_number,
@@ -137,7 +137,7 @@ export const getOrderQueue = async (req, res) => {
       where += ` AND DATE(po.created_at)<=$${params.length}`;
     }
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT po.id, po.uid, po.patient_id, po.patient_name, po.patient_phone, po.prescription_url,
         po.status, po.order_note, po.delivery_type, po.delivery_address, po.total_amount,
         po.payment_status, po.assigned_pharmacist, po.token_number,
@@ -172,13 +172,13 @@ export const confirmOrder = async (req, res) => {
     const staffId = req.user?.id;
     const { confirmation_notes, items_list, total_cost } = req.body;
 
-    const order = await db.query('SELECT id, uid, patient_id, patient_name, patient_phone, prescription_url, status, order_note, delivery_type, delivery_address, total_amount, payment_status, assigned_pharmacist, token_number, created_at, updated_at, dispatched_at, delivered_at FROM pharmacy_orders WHERE id=$1', [id]);
+    const order = await prisma.$queryRawUnsafe('SELECT id, uid, patient_id, patient_name, patient_phone, prescription_url, status, order_note, delivery_type, delivery_address, total_amount, payment_status, assigned_pharmacist, token_number, created_at, updated_at, dispatched_at, delivered_at FROM pharmacy_orders WHERE id=$1', [id]);
     if (!order.rows.length) return error(res, 'Order not found', HTTP_STATUS.NOT_FOUND);
-    if (order.rows[0].status !== 'PLACED') {
+    if (order[0].status !== 'PLACED') {
       return error(res, 'Can only confirm PLACED orders', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       UPDATE pharmacy_orders SET
         status='CONFIRMED', confirmed_by=$1, confirmed_at=NOW(),
         confirmation_notes=$2, items_list=$3, total_cost=$4,
@@ -187,11 +187,11 @@ export const confirmOrder = async (req, res) => {
     `, [
       staffId, confirmation_notes || null,
       JSON.stringify(items_list || []),
-      total_cost || order.rows[0].total_cost,
+      total_cost || order[0].total_cost,
       id
     ]);
 
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role, notes)
        VALUES ($1,'PLACED','CONFIRMED',$2,'pharmacist',$3)`,
       [id, staffId, confirmation_notes]
@@ -201,11 +201,11 @@ export const confirmOrder = async (req, res) => {
     setImmediate(async () => {
       try {
         const { sendSMS } = await import('../../services/smsService.js');
-        const patientPhone = order.rows[0].phone || order.rows[0].delivery_phone;
+        const patientPhone = order[0].phone || order[0].delivery_phone;
         if (sendSMS && patientPhone) {
           await sendSMS(
             patientPhone,
-            `Dear ${order.rows[0].patient_name || 'Patient'}, your pharmacy order ${order.rows[0].order_number} is confirmed. Total: Rs.${total_cost || 'TBD'}. Cash on delivery.`
+            `Dear ${order[0].patient_name || 'Patient'}, your pharmacy order ${order[0].order_number} is confirmed. Total: Rs.${total_cost || 'TBD'}. Cash on delivery.`
           ).catch(e => logger.warn('Pharmacy confirm SMS failed:', e.message));
         }
       } catch (e) {
@@ -213,7 +213,7 @@ export const confirmOrder = async (req, res) => {
       }
     });
 
-    success(res, result.rows[0], 'Order confirmed');
+    success(res, result[0], 'Order confirmed');
   } catch (err) {
     logger.error('Confirm pharmacy order error:', err);
     error(res, 'Failed to confirm order', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -224,7 +224,7 @@ export const confirmOrder = async (req, res) => {
 export const markPreparing = async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `UPDATE pharmacy_orders SET status='PREPARING', preparing_at=NOW(), updated_at=NOW()
        WHERE id=$1 AND status='CONFIRMED' RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount, created_at, updated_at`,
       [id]
@@ -234,13 +234,13 @@ export const markPreparing = async (req, res) => {
       return error(res, 'Order not found or wrong status', HTTP_STATUS.BAD_REQUEST);
     }
 
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role)
        VALUES ($1,'CONFIRMED','PREPARING',$2,'pharmacist')`,
       [id, req.user?.id]
     );
 
-    success(res, result.rows[0], 'Preparing');
+    success(res, result[0], 'Preparing');
   } catch (err) {
     logger.error('Mark preparing error:', err);
     error(res, 'Failed to update order', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -254,15 +254,15 @@ export const dispatchOrder = async (req, res) => {
     const staffId = req.user?.id;
     const { delivery_person, delivery_person_phone } = req.body;
 
-    const order = await db.query('SELECT id, uid, patient_id, patient_name, patient_phone, prescription_url, status, order_note, delivery_type, delivery_address, total_amount, payment_status, assigned_pharmacist, token_number, created_at, updated_at, dispatched_at, delivered_at FROM pharmacy_orders WHERE id=$1', [id]);
+    const order = await prisma.$queryRawUnsafe('SELECT id, uid, patient_id, patient_name, patient_phone, prescription_url, status, order_note, delivery_type, delivery_address, total_amount, payment_status, assigned_pharmacist, token_number, created_at, updated_at, dispatched_at, delivered_at FROM pharmacy_orders WHERE id=$1', [id]);
     if (!order.rows.length) return error(res, 'Order not found', HTTP_STATUS.NOT_FOUND);
 
     const validStatuses = ['CONFIRMED', 'PREPARING'];
-    if (!validStatuses.includes(order.rows[0].status)) {
+    if (!validStatuses.includes(order[0].status)) {
       return error(res, 'Order must be CONFIRMED or PREPARING to dispatch', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       UPDATE pharmacy_orders SET
         status='DISPATCHED', dispatched_at=NOW(), dispatched_by=$1,
         delivery_person=$2, delivery_person_phone=$3,
@@ -270,26 +270,26 @@ export const dispatchOrder = async (req, res) => {
       WHERE id=$4 RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount, created_at, updated_at
     `, [staffId, delivery_person || null, delivery_person_phone || null, id]);
 
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role)
        VALUES ($1,$2,'DISPATCHED',$3,'pharmacist')`,
-      [id, order.rows[0].status, staffId]
+      [id, order[0].status, staffId]
     );
 
     // Calculate ETA based on delivery destination
-    const eta = calculateETA(order.rows[0].delivery_lat, order.rows[0].delivery_lng);
-    await db.query(`UPDATE pharmacy_orders SET estimated_delivery_mins=$1, delivery_distance_km=$2, delivery_started_at=NOW(), delivery_tracking_active=TRUE WHERE id=$3`,
+    const eta = calculateETA(order[0].delivery_lat, order[0].delivery_lng);
+    await prisma.$queryRawUnsafe(`UPDATE pharmacy_orders SET estimated_delivery_mins=$1, delivery_distance_km=$2, delivery_started_at=NOW(), delivery_tracking_active=TRUE WHERE id=$3`,
       [eta.estimated_mins, eta.distance_km, id]);
 
     // Notify patient
     setImmediate(async () => {
       try {
         const { sendSMS } = await import('../../services/smsService.js');
-        const patientPhone = order.rows[0].phone || order.rows[0].delivery_phone;
+        const patientPhone = order[0].phone || order[0].delivery_phone;
         if (sendSMS && patientPhone) {
           await sendSMS(
             patientPhone,
-            `Your medicines (${order.rows[0].order_number}) have been dispatched. Estimated delivery: ~${eta.estimated_mins} minutes. ${delivery_person_phone ? 'Delivery contact: ' + delivery_person_phone : ''}`
+            `Your medicines (${order[0].order_number}) have been dispatched. Estimated delivery: ~${eta.estimated_mins} minutes. ${delivery_person_phone ? 'Delivery contact: ' + delivery_person_phone : ''}`
           ).catch(e => logger.warn('Dispatch SMS failed:', e.message));
         }
       } catch (e) {
@@ -297,7 +297,7 @@ export const dispatchOrder = async (req, res) => {
       }
     });
 
-    success(res, result.rows[0], 'Order dispatched');
+    success(res, result[0], 'Order dispatched');
   } catch (err) {
     logger.error('Dispatch pharmacy order error:', err);
     error(res, 'Failed to dispatch order', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -308,7 +308,7 @@ export const dispatchOrder = async (req, res) => {
 export const markDelivered = async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `UPDATE pharmacy_orders SET status='DELIVERED', delivered_at=NOW(), delivery_tracking_active=FALSE, updated_at=NOW()
        WHERE id=$1 AND status='DISPATCHED' RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount, created_at, updated_at`,
       [id]
@@ -318,13 +318,13 @@ export const markDelivered = async (req, res) => {
       return error(res, 'Order not found or wrong status', HTTP_STATUS.BAD_REQUEST);
     }
 
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role)
        VALUES ($1,'DISPATCHED','DELIVERED',$2,'pharmacist')`,
       [id, req.user?.id]
     );
 
-    success(res, result.rows[0], 'Delivered');
+    success(res, result[0], 'Delivered');
   } catch (err) {
     logger.error('Mark delivered error:', err);
     error(res, 'Failed to update order', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -337,26 +337,26 @@ export const cancelOrder = async (req, res) => {
     const { id } = req.params;
     const { cancellation_reason } = req.body;
 
-    const order = await db.query('SELECT id, uid, patient_id, patient_name, patient_phone, prescription_url, status, order_note, delivery_type, delivery_address, total_amount, payment_status, assigned_pharmacist, token_number, created_at, updated_at, dispatched_at, delivered_at FROM pharmacy_orders WHERE id=$1', [id]);
+    const order = await prisma.$queryRawUnsafe('SELECT id, uid, patient_id, patient_name, patient_phone, prescription_url, status, order_note, delivery_type, delivery_address, total_amount, payment_status, assigned_pharmacist, token_number, created_at, updated_at, dispatched_at, delivered_at FROM pharmacy_orders WHERE id=$1', [id]);
     if (!order.rows.length) return error(res, 'Order not found', HTTP_STATUS.NOT_FOUND);
-    if (['DELIVERED', 'CANCELLED'].includes(order.rows[0].status)) {
+    if (['DELIVERED', 'CANCELLED'].includes(order[0].status)) {
       return error(res, 'Cannot cancel delivered or already cancelled order', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `UPDATE pharmacy_orders SET status='CANCELLED', cancellation_reason=$2,
        cancelled_at=NOW(), updated_at=NOW()
        WHERE id=$1 RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount, created_at, updated_at`,
       [id, cancellation_reason || null]
     );
 
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role, notes)
        VALUES ($1,$2,'CANCELLED',$3,'staff',$4)`,
-      [id, order.rows[0].status, req.user?.id, cancellation_reason]
+      [id, order[0].status, req.user?.id, cancellation_reason]
     );
 
-    success(res, result.rows[0], 'Order cancelled');
+    success(res, result[0], 'Order cancelled');
   } catch (err) {
     logger.error('Cancel pharmacy order error:', err);
     error(res, 'Failed to cancel order', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -371,7 +371,7 @@ export const getPharmacySLADashboard = async (req, res) => {
     const to = to_date || new Date().toISOString().split('T')[0];
 
     const [summary, avgTimes, slaBreaches] = await Promise.all([
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT COUNT(*) as total,
           COUNT(CASE WHEN status='PLACED' THEN 1 END) as placed,
           COUNT(CASE WHEN status='CONFIRMED' THEN 1 END) as confirmed,
@@ -382,14 +382,14 @@ export const getPharmacySLADashboard = async (req, res) => {
           SUM(CASE WHEN status='DELIVERED' THEN COALESCE(total_cost,0) ELSE 0 END) as total_revenue
         FROM pharmacy_orders WHERE DATE(created_at) BETWEEN $1 AND $2
       `, [from, to]),
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT
           AVG(EXTRACT(EPOCH FROM (confirmed_at-created_at))/60) as avg_confirm_mins,
           AVG(EXTRACT(EPOCH FROM (dispatched_at-confirmed_at))/60) as avg_dispatch_mins,
           AVG(EXTRACT(EPOCH FROM (delivered_at-dispatched_at))/60) as avg_delivery_mins
         FROM pharmacy_orders WHERE delivered_at IS NOT NULL AND DATE(created_at) BETWEEN $1 AND $2
       `, [from, to]),
-      db.query(
+      prisma.$queryRawUnsafe(
         `SELECT COUNT(*) as count FROM pharmacy_orders
          WHERE status='PLACED' AND NOW()>sla_confirm_target AND DATE(created_at) BETWEEN $1 AND $2`,
         [from, to]
@@ -397,9 +397,9 @@ export const getPharmacySLADashboard = async (req, res) => {
     ]);
 
     success(res, {
-      summary: summary.rows[0],
-      avg_times: avgTimes.rows[0],
-      sla_breaches: parseInt(slaBreaches.rows[0]?.count || 0),
+      summary: summary[0],
+      avg_times: avgTimes[0],
+      sla_breaches: parseInt(slaBreaches[0]?.count || 0),
       date_range: { from, to }
     });
   } catch (err) {
@@ -412,17 +412,17 @@ export const getPharmacySLADashboard = async (req, res) => {
 export const getOrderDetail = async (req, res) => {
   try {
     const { id } = req.params;
-    const order = await db.query('SELECT id, uid, patient_id, patient_name, patient_phone, prescription_url, status, order_note, delivery_type, delivery_address, total_amount, payment_status, assigned_pharmacist, token_number, created_at, updated_at, dispatched_at, delivered_at FROM pharmacy_orders WHERE id=$1', [id]);
+    const order = await prisma.$queryRawUnsafe('SELECT id, uid, patient_id, patient_name, patient_phone, prescription_url, status, order_note, delivery_type, delivery_address, total_amount, payment_status, assigned_pharmacist, token_number, created_at, updated_at, dispatched_at, delivered_at FROM pharmacy_orders WHERE id=$1', [id]);
     if (!order.rows.length) return error(res, 'Order not found', HTTP_STATUS.NOT_FOUND);
 
-    const history = await db.query(
+    const history = await prisma.$queryRawUnsafe(
       'SELECT id, order_id, status, changed_by, notes, created_at FROM pharmacy_order_history WHERE order_id=$1 ORDER BY created_at',
       [id]
     );
 
-    await attachSignedUrl(order.rows[0]);
+    await attachSignedUrl(order[0]);
 
-    success(res, { order: order.rows[0], history: history.rows }, 'Order detail');
+    success(res, { order: order[0], history: history.rows }, 'Order detail');
   } catch (err) {
     logger.error('Get pharmacy order detail error:', err);
     error(res, 'Failed to fetch order detail', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -449,7 +449,7 @@ export const getCatalog = async (req, res) => {
       where += ` AND (name ILIKE $${params.length} OR generic_name ILIKE $${params.length})`;
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, name, category, price, stock, is_available, description, created_at FROM pharmacy_catalog ${where} ORDER BY category, name`,
       params
     );
@@ -473,7 +473,7 @@ export const upsertCatalog = async (req, res) => {
 
     let result;
     if (id) {
-      result = await db.query(
+      result = await prisma.$queryRawUnsafe(
         `UPDATE pharmacy_catalog SET
           name=$1, generic_name=$2, category=$3, manufacturer=$4,
           unit_price=$5, pack_size=$6, requires_prescription=$7,
@@ -484,7 +484,7 @@ export const upsertCatalog = async (req, res) => {
          stock_quantity || 0, reorder_level || 10, id]
       );
     } else {
-      result = await db.query(
+      result = await prisma.$queryRawUnsafe(
         `INSERT INTO pharmacy_catalog
           (name, generic_name, category, manufacturer, unit_price, pack_size,
            requires_prescription, in_stock, stock_quantity, reorder_level)
@@ -495,7 +495,7 @@ export const upsertCatalog = async (req, res) => {
       );
     }
 
-    success(res, result.rows[0], id ? 'Medicine updated' : 'Medicine added');
+    success(res, result[0], id ? 'Medicine updated' : 'Medicine added');
   } catch (err) {
     logger.error('Upsert pharmacy catalog error:', err);
     error(res, 'Failed to save medicine', HTTP_STATUS.INTERNAL_SERVER_ERROR);

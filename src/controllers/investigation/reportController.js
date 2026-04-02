@@ -1,5 +1,5 @@
 // controllers/investigation/reportController.js
-import db from '../../config/database.js'; // <-- ADD THIS LINE
+import prisma from '../../lib/prisma.js'; // <-- ADD THIS LINE
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import * as investigationService from '../../services/investigation/investigationService.js';
@@ -64,8 +64,8 @@ export const generateSummaryReport = async (req, res) => {
     // Validate permissions
     if (userRole === 'PATIENT') {
       // Patients can only generate their own summary reports
-      const userResult = await db.query('SELECT id FROM users WHERE uid = $1', [requestedBy]);
-      if (!userResult.rows.length || userResult.rows[0].id !== parseInt(patient_id)) {
+      const userResult = await prisma.$queryRawUnsafe('SELECT id FROM users WHERE uid = $1', [requestedBy]);
+      if (!userResult.rows.length || userResult[0].id !== parseInt(patient_id)) {
         return error(res, 'Access denied: Cannot generate reports for other patients', 403);
       }
     }

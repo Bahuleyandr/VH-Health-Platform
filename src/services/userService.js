@@ -1,7 +1,7 @@
 // src/services/userService.js - Hospital User Operations Service
 
 import crypto from 'crypto';
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import { HOSPITAL_ROLES, USER_STATUS } from '../config/userConfig.js';
 import logger from '../logging/logger.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
@@ -38,7 +38,7 @@ export async function createOrUpdateUser(userData, requestingUser) {
     : null;
 
   // Check for existing user
-  const existingUser = await db.query(
+  const existingUser = await prisma.$queryRawUnsafe(
     'SELECT id, uid, role, name FROM users WHERE phone = $1',
     [normalizedPhone]
   );
@@ -47,7 +47,7 @@ export async function createOrUpdateUser(userData, requestingUser) {
 
   if (existingUser.rows.length > 0) {
     // Update existing user
-    const existing = existingUser.rows[0];
+    const existing = existingUser[0];
     userId = existing.id;
     userUid = existing.uid;
     operation = 'update';
@@ -57,7 +57,7 @@ export async function createOrUpdateUser(userData, requestingUser) {
       throw new Error('Insufficient permissions to update this user');
     }
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       UPDATE users SET 
         name = $1, email = $2, gender = $3, address = $4, birthday = $5,
         anniversary = $6, role = $7, department = $8, specialty = $9,
@@ -77,7 +77,7 @@ export async function createOrUpdateUser(userData, requestingUser) {
     // Create new user
     operation = 'create';
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       INSERT INTO users (
         phone, name, email, gender, address, birthday, anniversary,
         role, department, specialty, employee_id, license_number,
@@ -94,12 +94,12 @@ export async function createOrUpdateUser(userData, requestingUser) {
       medicalHistory, requestingUserId
     ]);
 
-    userId = result.rows[0].id;
-    userUid = result.rows[0].uid;
+    userId = result[0].id;
+    userUid = result[0].uid;
   }
 
   // Get updated user data with additional info
-  const userResult = await db.query(`
+  const userResult = await prisma.$queryRawUnsafe(`
     SELECT 
       u.*, ur.role_description, ur.permissions,
       COUNT(DISTINCT ual.id) as total_actions,
@@ -112,7 +112,7 @@ export async function createOrUpdateUser(userData, requestingUser) {
   `, [userUid]);
 
   return {
-    user: userResult.rows[0],
+    user: userResult[0],
     operation,
     userId: userUid
   };
@@ -138,7 +138,7 @@ export async function getUserByIdentifier(identifier) {
     value = identifier;
   }
 
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     SELECT 
       u.*, ur.role_description, ur.permissions,
       COUNT(DISTINCT ual.id) as total_actions,
@@ -159,7 +159,7 @@ export async function getUserByIdentifier(identifier) {
   }
 
   return {
-    user: result.rows[0],
+    user: result[0],
     searchedBy: column
   };
 }
@@ -221,14 +221,14 @@ export async function updateUser(identifier, updateData, requestingUser) {
 
   // Perform update
   const column = userResult.searchedBy;
-  const updateResult = await db.query(`
+  const updateResult = await prisma.$queryRawUnsafe(`
     UPDATE users SET ${updateFields.join(', ')}
     WHERE ${column} = $${paramIndex + 1}
     RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at
   `, [...updateValues, targetUser[column]]);
 
   return {
-    user: updateResult.rows[0],
+    user: updateResult[0],
     previousData: targetUser,
     updatedFields: Object.keys(updateData).filter(key => allowedFields.includes(key))
   };
@@ -259,7 +259,7 @@ export async function changeUserStatus(identifier, newStatus, reason, requesting
   }
 
   const column = userResult.searchedBy;
-  const updateResult = await db.query(`
+  const updateResult = await prisma.$queryRawUnsafe(`
     UPDATE users SET 
       status = $1, status_changed_at = NOW(), status_changed_by = $2,
       status_change_reason = $3, updated_at = NOW(), updated_by = $2
@@ -268,7 +268,7 @@ export async function changeUserStatus(identifier, newStatus, reason, requesting
   `, [newStatus, requestingUserId, reason, targetUser[column]]);
 
   // Create status change record
-  await db.query(`
+  await prisma.$queryRawUnsafe(`
     INSERT INTO user_status_history (
       user_id, previous_status, new_status, changed_by, change_reason,
       changed_at, ip_address
@@ -276,7 +276,7 @@ export async function changeUserStatus(identifier, newStatus, reason, requesting
   `, [targetUser.uid, targetUser.status, newStatus, requestingUserId, reason, null]);
 
   return {
-    user: updateResult.rows[0],
+    user: updateResult[0],
     previousStatus: targetUser.status,
     newStatus
   };
@@ -302,7 +302,7 @@ export async function deactivateUser(identifier, reason, transferDataTo, request
 
   // Validate transfer target if specified
   if (transferDataTo) {
-    const transferTarget = await db.query(
+    const transferTarget = await prisma.$queryRawUnsafe(
       'SELECT uid, name, role, status FROM users WHERE uid = $1',
       [transferDataTo]
     );
@@ -311,13 +311,13 @@ export async function deactivateUser(identifier, reason, transferDataTo, request
       throw new Error('Transfer target user not found');
     }
 
-    if (transferTarget.rows[0].status !== 'active') {
+    if (transferTarget[0].status !== 'active') {
       throw new Error('Transfer target must be an active user');
     }
   }
 
   const column = userResult.searchedBy;
-  const deactivationResult = await db.query(`
+  const deactivationResult = await prisma.$queryRawUnsafe(`
     UPDATE users SET 
       status = 'terminated',
       deactivated_at = NOW(),
@@ -331,7 +331,7 @@ export async function deactivateUser(identifier, reason, transferDataTo, request
   `, [requestingUserId, reason, transferDataTo, targetUser[column]]);
 
   // Create deactivation record
-  await db.query(`
+  await prisma.$queryRawUnsafe(`
     INSERT INTO user_deactivation_log (
       user_id, deactivated_by, deactivation_reason, data_transferred_to,
       deactivated_at, ip_address, user_data
@@ -347,7 +347,7 @@ export async function deactivateUser(identifier, reason, transferDataTo, request
   ]);
 
   return {
-    deactivatedUser: deactivationResult.rows[0],
+    deactivatedUser: deactivationResult[0],
     transferDataTo
   };
 }
@@ -356,7 +356,7 @@ export async function deactivateUser(identifier, reason, transferDataTo, request
  * Reactivate user
  */
 export async function reactivateUser(userId, reason, requestingUser) {
-  const userResult = await db.query(
+  const userResult = await prisma.$queryRawUnsafe(
     'SELECT uid, name, role, status, deactivated_at FROM users WHERE uid = $1',
     [userId]
   );
@@ -365,7 +365,7 @@ export async function reactivateUser(userId, reason, requestingUser) {
     throw new Error('Hospital user not found');
   }
 
-  const user = userResult.rows[0];
+  const user = userResult[0];
 
   if (user.status === 'active') {
     throw new Error('User is already active');
@@ -373,7 +373,7 @@ export async function reactivateUser(userId, reason, requestingUser) {
 
   const requestingUserId = requestingUser?.uid;
 
-  const reactivationResult = await db.query(`
+  const reactivationResult = await prisma.$queryRawUnsafe(`
     UPDATE users SET 
       status = 'active',
       reactivated_at = NOW(),
@@ -389,14 +389,14 @@ export async function reactivateUser(userId, reason, requestingUser) {
   `, [requestingUserId, reason, userId]);
 
   // Create reactivation record
-  await db.query(`
+  await prisma.$queryRawUnsafe(`
     INSERT INTO user_reactivation_log (
       user_id, reactivated_by, reactivation_reason, reactivated_at, ip_address
     ) VALUES ($1, $2, $3, NOW(), $4)
   `, [userId, requestingUserId, reason, null]);
 
   return {
-    reactivatedUser: reactivationResult.rows[0],
+    reactivatedUser: reactivationResult[0],
     previousStatus: user.status,
     deactivatedPeriod: user.deactivated_at 
       ? Math.floor((new Date() - new Date(user.deactivated_at)) / (1000 * 60 * 60 * 24))
@@ -422,7 +422,7 @@ export async function bulkImportUsers(users, options, requestingUser) {
       const employeeId = userData.employeeId || userUtils.generateEmployeeId(userData.role, department);
 
       // Check if user exists
-      const existing = await db.query('SELECT uid FROM users WHERE phone = $1', [normalizedPhone]);
+      const existing = await prisma.$queryRawUnsafe('SELECT uid FROM users WHERE phone = $1', [normalizedPhone]);
 
       if (existing.rows.length > 0) {
         errors.push({
@@ -435,7 +435,7 @@ export async function bulkImportUsers(users, options, requestingUser) {
       }
 
       // Create user
-      const result = await db.query(`
+      const result = await prisma.$queryRawUnsafe(`
         INSERT INTO users (
           phone, name, email, gender, role, department, employee_id,
           status, registered_at, created_by
@@ -448,7 +448,7 @@ export async function bulkImportUsers(users, options, requestingUser) {
 
       results.push({
         index: i + 1,
-        user: result.rows[0],
+        user: result[0],
         status: 'created'
       });
 
@@ -463,7 +463,7 @@ export async function bulkImportUsers(users, options, requestingUser) {
   }
 
   // Log bulk operation
-  await db.query(`
+  await prisma.$queryRawUnsafe(`
     INSERT INTO bulk_operation_logs (
       operation_type, performed_by, total_items, success_count, 
       error_count, operation_details, performed_at

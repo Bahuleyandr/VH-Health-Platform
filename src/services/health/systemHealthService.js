@@ -1,7 +1,10 @@
 // src/services/health/systemHealthService.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
+import { createPrismaDb } from '../../lib/prismaCompat.js';
 import { REQUIRED_ENV_VARS, SYSTEM_INFO } from '../../config/healthConfig.js';
 import logger from '../../logging/logger.js';
+
+const db = createPrismaDb(prisma);
 
 export async function checkDatabaseHealth() {
   let retries = 3;
@@ -9,7 +12,7 @@ export async function checkDatabaseHealth() {
   
   while (retries > 0) {
     try {
-      await db.query('SELECT 1');
+      await prisma.$queryRawUnsafe('SELECT 1');
       return { status: 'connected', error: null };
     } catch (err) {
       lastError = err;

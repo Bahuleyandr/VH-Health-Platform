@@ -1,8 +1,25 @@
 // src/services/notificationRetryService.js
 // Self-healing notification retry — wraps push/SMS with automatic retry on failure
 
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
+
+
+const query = async (sql, params = []) => {
+  const normalizedSql = sql.trim();
+  const upperSql = normalizedSql.toUpperCase();
+  const usesReturning = /\bRETURNING\b/i.test(normalizedSql);
+  const isReadQuery = upperSql.startsWith('SELECT') || upperSql.startsWith('WITH') || usesReturning;
+
+  if (isReadQuery) {
+    const rows = await prisma.$queryRawUnsafe(normalizedSql, ...params);
+    return { rows, rowCount: Array.isArray(rows) ? rows.length : 0 };
+  }
+
+  const rowCount = await prisma.$executeRawUnsafe(normalizedSql, ...params);
+  return { rows: [], rowCount: Number(rowCount) || 0 };
+};
+
 
 /**
  * Send push notification with automatic retry on failure.
@@ -21,7 +38,7 @@ export async function sendPushWithRetry(deviceToken, payload, userId = null) {
   } catch (err) {
     logger.warn(`[RetryService] Push failed for user ${userId}, queuing retry: ${err.message}`);
     try {
-      await db.query(`
+      await query(`
         INSERT INTO failed_notifications (user_id, type, device_token, title, body, data, error_message)
         VALUES ($1, 'push', $2, $3, $4, $5, $6)
       `, [userId, deviceToken, payload.title, payload.body, JSON.stringify(payload.data || {}), err.message]);
@@ -42,7 +59,7 @@ export async function sendSMSWithRetry(phone, message, userId = null) {
   } catch (err) {
     logger.warn(`[RetryService] SMS failed for ${phone}, queuing retry: ${err.message}`);
     try {
-      await db.query(`
+      await query(`
         INSERT INTO failed_notifications (user_id, type, phone, body, error_message)
         VALUES ($1, 'sms', $2, $3, $4)
       `, [userId, phone, message, err.message]);
@@ -60,7 +77,7 @@ export async function sendSMSWithRetry(phone, message, userId = null) {
 export async function retryFailedNotifications() {
   let pending;
   try {
-    pending = await db.query(`
+    pending = await query(`
       SELECT id, phone, title, body, type, error_message, retry_count, last_retry_at, created_at FROM failed_notifications
       WHERE status = 'pending' AND next_retry_at <= NOW() AND retry_count < max_retries
       ORDER BY created_at ASC LIMIT 50
@@ -85,12 +102,12 @@ export async function retryFailedNotifications() {
           data: notif.data || {},
           userId: notif.user_id,
         });
-        await db.query(`UPDATE failed_notifications SET status='sent' WHERE id=$1`, [notif.id]);
+        await query(`UPDATE failed_notifications SET status='sent' WHERE id=$1`, [notif.id]);
         logger.info(`[RetryService] Push retry succeeded for notification ${notif.id}`);
       } else if (notif.type === 'sms' && notif.phone) {
         const { sendSMS } = await import('./smsService.js');
         await sendSMS(notif.phone, notif.body);
-        await db.query(`UPDATE failed_notifications SET status='sent' WHERE id=$1`, [notif.id]);
+        await query(`UPDATE failed_notifications SET status='sent' WHERE id=$1`, [notif.id]);
         logger.info(`[RetryService] SMS retry succeeded for notification ${notif.id}`);
       }
     } catch (err) {
@@ -98,13 +115,13 @@ export async function retryFailedNotifications() {
       const backoffMinutes = Math.pow(2, newRetry) * 5; // 10, 20, 40 minutes
 
       if (newRetry >= notif.max_retries) {
-        await db.query(
+        await query(
           `UPDATE failed_notifications SET status='failed_permanent', retry_count=$1, error_message=$2 WHERE id=$3`,
           [newRetry, err.message, notif.id]
         );
         logger.warn(`[RetryService] Notification ${notif.id} permanently failed after ${newRetry} retries`);
       } else {
-        await db.query(
+        await query(
           `UPDATE failed_notifications SET retry_count=$1, next_retry_at=NOW()+INTERVAL '${backoffMinutes} minutes', error_message=$2 WHERE id=$3`,
           [newRetry, err.message, notif.id]
         );

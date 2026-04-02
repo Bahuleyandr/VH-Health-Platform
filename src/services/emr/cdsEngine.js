@@ -1,7 +1,10 @@
 // src/services/emr/cdsEngine.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
+import { createPrismaDb } from '../../lib/prismaCompat.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+
+const db = createPrismaDb(prisma);
 
 // ===================================================================
 // Clinical Decision Support (CDS) Engine
@@ -90,7 +93,7 @@ export async function checkOrder(order, patientContext = {}) {
     for (const alert of alerts) {
       if (alert.severity === 'critical' || alert.severity === 'warning') {
         try {
-          await db.query(
+          await prisma.$queryRawUnsafe(
             `INSERT INTO cds_alerts (patient_uid, encounter_id, alert_type, severity, title, description, source_data, created_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
             [
@@ -145,7 +148,7 @@ export async function checkDrugInteractions(medicationName, patientUid) {
   const alerts = [];
 
   // Get patient's active medications from MAR and prescriptions
-  const { rows: activeMeds } = await db.query(
+  const { rows: activeMeds } = await prisma.$queryRawUnsafe(
     `SELECT DISTINCT LOWER(medication_name) AS medication_name
      FROM medication_administrations
      WHERE patient_uid = $1 AND status IN ('scheduled', 'administered')
@@ -165,7 +168,7 @@ export async function checkDrugInteractions(medicationName, patientUid) {
   for (const activeMed of activeNames) {
     if (activeMed === drugLower) continue; // skip self
 
-    const { rows: interactions } = await db.query(
+    const { rows: interactions } = await prisma.$queryRawUnsafe(
       `SELECT id, drug_a, drug_b, severity, description, clinical_effect, management
        FROM drug_interactions
        WHERE (LOWER(drug_a) = $1 AND LOWER(drug_b) = $2)
@@ -218,14 +221,14 @@ export async function checkAllergies(medicationName, patientUid) {
   const alerts = [];
 
   // Fetch allergies from admissions and health records
-  const { rows: admissionAllergies } = await db.query(
+  const { rows: admissionAllergies } = await prisma.$queryRawUnsafe(
     `SELECT allergies FROM admissions
      WHERE patient_uid = $1 AND status = 'admitted'
      ORDER BY admitted_at DESC LIMIT 1`,
     [patientUid]
   );
 
-  const { rows: healthRecordAllergies } = await db.query(
+  const { rows: healthRecordAllergies } = await prisma.$queryRawUnsafe(
     `SELECT allergies FROM health_records
      WHERE patient_uid = $1 AND allergies IS NOT NULL
      ORDER BY created_at DESC LIMIT 1`,
@@ -322,7 +325,7 @@ export async function checkDuplicateOrders(orderType, details, patientUid) {
     const medLower = details.medication_name.toLowerCase().trim();
 
     // Check active prescriptions
-    const { rows: activePrescriptions } = await db.query(
+    const { rows: activePrescriptions } = await prisma.$queryRawUnsafe(
       `SELECT id, medication_name, dosage, frequency, status, created_at
        FROM prescriptions
        WHERE patient_uid = $1 AND status = 'active'
@@ -331,7 +334,7 @@ export async function checkDuplicateOrders(orderType, details, patientUid) {
     );
 
     // Check scheduled/recent MAR entries
-    const { rows: scheduledMar } = await db.query(
+    const { rows: scheduledMar } = await prisma.$queryRawUnsafe(
       `SELECT id, medication_name, dose, status, created_at
        FROM medication_administrations
        WHERE patient_uid = $1 AND status = 'scheduled'
@@ -364,7 +367,7 @@ export async function checkDuplicateOrders(orderType, details, patientUid) {
   } else if (orderType === 'investigation' && details.test_name) {
     const testLower = details.test_name.toLowerCase().trim();
 
-    const { rows: pendingTests } = await db.query(
+    const { rows: pendingTests } = await prisma.$queryRawUnsafe(
       `SELECT id, test_name, status, created_at
        FROM investigations
        WHERE patient_uid = $1 AND status IN ('ordered', 'in_progress', 'collected')
@@ -403,7 +406,7 @@ export async function checkRecentResults(testName, patientUid) {
   const alerts = [];
   const testLower = testName.toLowerCase().trim();
 
-  const { rows: recentResults } = await db.query(
+  const { rows: recentResults } = await prisma.$queryRawUnsafe(
     `SELECT id, test_name, status, result, created_at
      FROM investigations
      WHERE patient_uid = $1 AND status = 'completed'
@@ -485,7 +488,7 @@ export async function checkCriticalLabValues(labResult, patientUid) {
 
     // Persist critical lab alerts immediately
     try {
-      await db.query(
+      await prisma.$queryRawUnsafe(
         `INSERT INTO cds_alerts (patient_uid, encounter_id, alert_type, severity, title, description, source_data, created_at)
          VALUES ($1, $2, 'critical_lab', $3, $4, $5, $6, NOW())`,
         [
@@ -521,7 +524,7 @@ export async function getProtocolReminders(patientUid, encounterId) {
   const alerts = [];
 
   // Fetch active protocols
-  const { rows: protocols } = await db.query(
+  const { rows: protocols } = await prisma.$queryRawUnsafe(
     `SELECT id, name, category, trigger_conditions, recommendations, priority
      FROM clinical_protocols
      WHERE is_active = true
@@ -533,29 +536,29 @@ export async function getProtocolReminders(patientUid, encounterId) {
 
   // Fetch patient context
   const [admissionResult, diagnosisResult, medicationResult, investigationResult] = await Promise.all([
-    db.query(
+    prisma.$queryRawUnsafe(
       `SELECT id, encounter_id, status, admission_type, department, chief_complaint, admitted_at, allergies, code_status
        FROM admissions WHERE patient_uid = $1 AND status = 'admitted' ORDER BY admitted_at DESC LIMIT 1`,
       [patientUid]
     ),
-    db.query(
+    prisma.$queryRawUnsafe(
       `SELECT id, icd10_code, description, status, diagnosis_type
        FROM diagnoses WHERE patient_uid = $1 AND status IN ('active', 'chronic') ORDER BY created_at DESC`,
       [patientUid]
     ),
-    db.query(
+    prisma.$queryRawUnsafe(
       `SELECT DISTINCT LOWER(medication_name) AS medication_name
        FROM prescriptions WHERE patient_uid = $1 AND status = 'active'`,
       [patientUid]
     ),
-    db.query(
+    prisma.$queryRawUnsafe(
       `SELECT DISTINCT LOWER(test_name) AS test_name, status
        FROM investigations WHERE patient_uid = $1 AND created_at >= NOW() - INTERVAL '7 days'`,
       [patientUid]
     ),
   ]);
 
-  const admission = admissionResult.rows[0] || null;
+  const admission = admissionResult[0] || null;
   const diagnoses = diagnosisResult.rows;
   const activeMeds = medicationResult.rows.map((m) => m.medication_name);
   const recentTests = investigationResult.rows;
@@ -603,7 +606,7 @@ export async function getProtocolReminders(patientUid, encounterId) {
 
       // Persist protocol reminder
       try {
-        await db.query(
+        await prisma.$queryRawUnsafe(
           `INSERT INTO cds_alerts (patient_uid, encounter_id, alert_type, severity, title, description, source_data, created_at)
            VALUES ($1, $2, 'protocol_reminder', $3, $4, $5, $6, NOW())`,
           [patientUid, encounterId || null, alertSeverity, alert.title, alert.description, JSON.stringify(alert.sourceData)]
@@ -713,7 +716,7 @@ export async function acknowledgeAlert(alertId, acknowledgedBy, overrideReason =
     throw AppError.badRequest('Alert ID and acknowledgedBy are required');
   }
 
-  const { rows: existing } = await db.query(
+  const { rows: existing } = await prisma.$queryRawUnsafe(
     `SELECT id, acknowledged FROM cds_alerts WHERE id = $1`,
     [alertId]
   );
@@ -726,7 +729,7 @@ export async function acknowledgeAlert(alertId, acknowledgedBy, overrideReason =
     throw AppError.conflict('Alert is already acknowledged');
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `UPDATE cds_alerts
      SET acknowledged = true, acknowledged_by = $2, acknowledged_at = NOW(), override_reason = $3
      WHERE id = $1
@@ -753,7 +756,7 @@ export async function getActiveAlerts(patientUid) {
     throw AppError.badRequest('Patient UID is required');
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, encounter_id, alert_type, severity, title, description,
             source_data, acknowledged, acknowledged_by, acknowledged_at, override_reason, created_at
      FROM cds_alerts
@@ -778,7 +781,7 @@ export async function getActiveAlerts(patientUid) {
  */
 export async function listProtocols(category = null) {
   if (category) {
-    const { rows } = await db.query(
+    const { rows } = await prisma.$queryRawUnsafe(
       `SELECT id, name, category, trigger_conditions, recommendations, priority, is_active, created_at
        FROM clinical_protocols WHERE category = $1 ORDER BY name`,
       [category]
@@ -786,7 +789,7 @@ export async function listProtocols(category = null) {
     return rows;
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, name, category, trigger_conditions, recommendations, priority, is_active, created_at
      FROM clinical_protocols ORDER BY category, name`,
     []
@@ -806,7 +809,7 @@ export async function createProtocol(data) {
     throw AppError.badRequest('name, category, trigger_conditions, and recommendations are required');
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `INSERT INTO clinical_protocols (name, category, trigger_conditions, recommendations, priority, is_active, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, NOW())
      RETURNING id, name, category, trigger_conditions, recommendations, priority, is_active, created_at`,

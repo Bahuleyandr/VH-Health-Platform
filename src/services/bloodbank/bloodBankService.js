@@ -1,6 +1,6 @@
 // src/services/bloodbank/bloodBankService.js
 
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
@@ -40,7 +40,7 @@ class BloodBankService {
       throw AppError.badRequest('Units must be a positive integer');
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `INSERT INTO blood_requests
         (patient_uid, encounter_id, blood_group, component, units, urgency,
          clinical_indication, cross_match_status, status, ordered_by, created_at)
@@ -50,8 +50,8 @@ class BloodBankService {
       [patient_uid, encounter_id || null, blood_group, component, units, urgency, clinical_indication, ordered_by]
     );
 
-    logger.info('Blood request created', { requestId: result.rows[0].id, blood_group, component, units, urgency });
-    return result.rows[0];
+    logger.info('Blood request created', { requestId: result[0].id, blood_group, component, units, urgency });
+    return result[0];
   }
 
   /**
@@ -68,7 +68,7 @@ class BloodBankService {
       throw AppError.badRequest('cross_match_status must be compatible or incompatible');
     }
 
-    const existing = await db.query(
+    const existing = await prisma.$queryRawUnsafe(
       `SELECT id, status FROM blood_requests WHERE id = $1`,
       [id]
     );
@@ -77,11 +77,11 @@ class BloodBankService {
       throw AppError.notFound('Blood request not found');
     }
 
-    if (existing.rows[0].status !== 'requested') {
+    if (existing[0].status !== 'requested') {
       throw AppError.badRequest('Cross-match can only be performed on requests with status "requested"');
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `UPDATE blood_requests
        SET cross_match_status = $1, cross_matched_by = $2, cross_matched_at = NOW(),
            status = 'cross_matched'
@@ -92,7 +92,7 @@ class BloodBankService {
     );
 
     logger.info('Blood cross-match recorded', { requestId: id, cross_match_status, cross_matched_by });
-    return result.rows[0];
+    return result[0];
   }
 
   /**
@@ -105,7 +105,7 @@ class BloodBankService {
       throw AppError.badRequest('Missing required field: issued_by');
     }
 
-    const existing = await db.query(
+    const existing = await prisma.$queryRawUnsafe(
       `SELECT id, status, cross_match_status FROM blood_requests WHERE id = $1`,
       [id]
     );
@@ -114,15 +114,15 @@ class BloodBankService {
       throw AppError.notFound('Blood request not found');
     }
 
-    if (existing.rows[0].status !== 'cross_matched') {
+    if (existing[0].status !== 'cross_matched') {
       throw AppError.badRequest('Blood can only be issued after cross-matching');
     }
 
-    if (existing.rows[0].cross_match_status !== 'compatible') {
+    if (existing[0].cross_match_status !== 'compatible') {
       throw AppError.badRequest('Cannot issue blood with incompatible cross-match result');
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `UPDATE blood_requests
        SET issued = true, issued_by = $1, issued_at = NOW(), status = 'issued'
        WHERE id = $2
@@ -131,7 +131,7 @@ class BloodBankService {
     );
 
     logger.info('Blood issued', { requestId: id, issued_by });
-    return result.rows[0];
+    return result[0];
   }
 
   /**
@@ -140,7 +140,7 @@ class BloodBankService {
   async recordTransfusion(id, data) {
     const { transfusion_reaction } = data;
 
-    const existing = await db.query(
+    const existing = await prisma.$queryRawUnsafe(
       `SELECT id, status FROM blood_requests WHERE id = $1`,
       [id]
     );
@@ -149,11 +149,11 @@ class BloodBankService {
       throw AppError.notFound('Blood request not found');
     }
 
-    if (existing.rows[0].status !== 'issued') {
+    if (existing[0].status !== 'issued') {
       throw AppError.badRequest('Transfusion can only be recorded for issued blood');
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `UPDATE blood_requests
        SET transfused = true, transfusion_reaction = $1, status = 'transfused'
        WHERE id = $2
@@ -162,14 +162,14 @@ class BloodBankService {
     );
 
     logger.info('Transfusion recorded', { requestId: id, hasReaction: !!transfusion_reaction });
-    return result.rows[0];
+    return result[0];
   }
 
   /**
    * Get blood inventory summary (aggregated from requests)
    */
   async getInventory() {
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT blood_group, component,
               SUM(CASE WHEN status = 'requested' THEN units ELSE 0 END) as requested_units,
               SUM(CASE WHEN status = 'cross_matched' THEN units ELSE 0 END) as cross_matched_units,
@@ -206,16 +206,16 @@ class BloodBankService {
 
     const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
-    const countResult = await db.query(
+    const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM blood_requests ${whereClause}`,
       params
     );
-    const total = parseInt(countResult.rows[0].count, 10);
+    const total = parseInt(countResult[0].count, 10);
 
     params.push(parseInt(limit, 10));
     params.push(offset);
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, encounter_id, blood_group, component, units, urgency,
               clinical_indication, cross_match_status, cross_matched_by, cross_matched_at,
               status, ordered_by, created_at

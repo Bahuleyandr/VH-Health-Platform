@@ -1,5 +1,5 @@
 // src/controllers/staff/staffAdminLeaveController.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -9,7 +9,7 @@ export const getLeavePatterns = async (req, res) => {
   try {
     const { department, year = new Date().getFullYear() } = req.query;
     
-    const patterns = await db.query(`
+    const patterns = await prisma.$queryRawUnsafe(`
       SELECT 
         EXTRACT(MONTH FROM la.start_date) as month,
         la.leave_type,
@@ -40,7 +40,7 @@ export const getAllLeaveRequests = async (req, res) => {
   try {
     const { status = 'pending', department } = req.query;
     
-    const leaveRequests = await db.query(`
+    const leaveRequests = await prisma.$queryRawUnsafe(`
       SELECT 
         la.id,
         la.staff_id,
@@ -79,7 +79,7 @@ export const bulkLeaveApproval = async (req, res) => {
     const approvedBy = req.user?.uid;
     const status = action === 'approve' ? 'approved' : 'rejected';
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       UPDATE leave_applications
       SET 
         status = $1,
@@ -107,7 +107,7 @@ export const approveLeaveRequest = async (req, res) => {
     const { comments } = req.body;
     const approvedBy = req.user?.uid;
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       UPDATE leave_applications
       SET 
         status = 'approved',
@@ -122,7 +122,7 @@ export const approveLeaveRequest = async (req, res) => {
       return error(res, 'Leave request not found', HTTP_STATUS.NOT_FOUND);
     }
 
-    success(res, result.rows[0], 'Leave request approved successfully');
+    success(res, result[0], 'Leave request approved successfully');
   } catch (err) {
     logger.error('Approve Leave Error:', err);
     error(res, 'Failed to approve leave request', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -135,7 +135,7 @@ export const overrideLeaveBalance = async (req, res) => {
     const { staff_id, leave_type, new_balance, reason } = req.body;
     const overriddenBy = req.user?.uid;
 
-    await db.query(`
+    await prisma.$queryRawUnsafe(`
       INSERT INTO leave_balance_overrides (staff_id, leave_type, new_balance, reason, overridden_by)
       VALUES ($1, $2, $3, $4, $5)
     `, [staff_id, leave_type, new_balance, reason, overriddenBy]);

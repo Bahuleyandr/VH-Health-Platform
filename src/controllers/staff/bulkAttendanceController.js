@@ -1,4 +1,4 @@
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
@@ -32,7 +32,7 @@ export const bulkCorrectAttendance = async (req, res) => {
             continue;
           }
 
-          const existing = await db.query(
+          const existing = await prisma.$queryRawUnsafe(
             'SELECT id FROM staff_attendance WHERE staff_id=$1 AND DATE(check_in_time)=$2',
             [c.staff_id, c.date]
           );
@@ -53,15 +53,15 @@ export const bulkCorrectAttendance = async (req, res) => {
             }
 
             if (updates.length) {
-              vals.push(existing.rows[0].id);
-              await db.query(
+              vals.push(existing[0].id);
+              await prisma.$queryRawUnsafe(
                 `UPDATE staff_attendance SET ${updates.join(', ')} WHERE id=$${idx}`,
                 vals
               );
             }
           } else if (c.check_in_time) {
             // Insert new record
-            await db.query(
+            await prisma.$queryRawUnsafe(
               `INSERT INTO staff_attendance (staff_id, check_in_time, check_out_time, location)
                VALUES ($1, $2, $3, $4)`,
               [
@@ -74,7 +74,7 @@ export const bulkCorrectAttendance = async (req, res) => {
           }
 
           // Log the correction in attendance_regularization
-          await db.query(
+          await prisma.$queryRawUnsafe(
             `INSERT INTO attendance_regularization (staff_id, date, reason, requested_check_in, requested_check_out, status, reviewed_by, reviewed_at)
              VALUES ($1, $2, $3, $4, $5, 'approved', $6, NOW())
              ON CONFLICT (staff_id, date) DO UPDATE SET status='approved', reviewed_by=$6, reviewed_at=NOW()`,

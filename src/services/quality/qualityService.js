@@ -1,6 +1,6 @@
 // src/services/quality/qualityService.js
 
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
@@ -23,7 +23,7 @@ class QualityService {
     const yearMonth = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
     const prefix = `INC-${yearMonth}-`;
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT incident_number FROM quality_incidents
        WHERE incident_number LIKE $1
        ORDER BY id DESC LIMIT 1`,
@@ -32,7 +32,7 @@ class QualityService {
 
     let sequence = 1;
     if (result.rows.length > 0) {
-      const lastNumber = result.rows[0].incident_number;
+      const lastNumber = result[0].incident_number;
       const lastSeq = parseInt(lastNumber.split('-')[2], 10);
       if (!isNaN(lastSeq)) {
         sequence = lastSeq + 1;
@@ -71,7 +71,7 @@ class QualityService {
 
     const incidentNumber = await this._generateIncidentNumber();
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `INSERT INTO quality_incidents (
         incident_number, reported_by, patient_uid, incident_type, severity,
         description, location, date_occurred
@@ -85,7 +85,7 @@ class QualityService {
     );
 
     logger.info(`Quality incident reported: ${incidentNumber} by ${reported_by}`);
-    return result.rows[0];
+    return result[0];
   }
 
   /**
@@ -113,14 +113,14 @@ class QualityService {
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const countResult = await db.readQuery(
+    const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) AS total FROM quality_incidents ${whereClause}`,
       params
     );
 
-    const total = parseInt(countResult.rows[0].total, 10);
+    const total = parseInt(countResult[0].total, 10);
 
-    const result = await db.readQuery(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, incident_number, reported_by, patient_uid, incident_type,
         severity, description, location, date_occurred, root_cause,
         corrective_action, preventive_action, status, investigated_by,
@@ -152,7 +152,7 @@ class QualityService {
     }
 
     // Verify exists
-    const existing = await db.query(
+    const existing = await prisma.$queryRawUnsafe(
       `SELECT id, status FROM quality_incidents WHERE id = $1`,
       [incidentId]
     );
@@ -171,7 +171,7 @@ class QualityService {
 
     const resolvedAt = (status === 'resolved' || status === 'closed') ? new Date() : null;
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `UPDATE quality_incidents SET
         root_cause = COALESCE($1, root_cause),
         corrective_action = COALESCE($2, corrective_action),
@@ -191,45 +191,45 @@ class QualityService {
     );
 
     logger.info(`Quality incident ${incidentId} updated, status: ${status || 'unchanged'}`);
-    return result.rows[0];
+    return result[0];
   }
 
   /**
    * Quality dashboard metrics
    */
   async getQualityDashboard() {
-    const totalResult = await db.readQuery(
+    const totalResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) AS total FROM quality_incidents`
     );
 
-    const openResult = await db.readQuery(
+    const openResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) AS open_count FROM quality_incidents
        WHERE status NOT IN ('resolved', 'closed')`
     );
 
-    const byTypeResult = await db.readQuery(
+    const byTypeResult = await prisma.$queryRawUnsafe(
       `SELECT incident_type, COUNT(*) AS count
        FROM quality_incidents
        GROUP BY incident_type
        ORDER BY count DESC`
     );
 
-    const bySeverityResult = await db.readQuery(
+    const bySeverityResult = await prisma.$queryRawUnsafe(
       `SELECT severity, COUNT(*) AS count
        FROM quality_incidents
        GROUP BY severity
        ORDER BY count DESC`
     );
 
-    const recentResult = await db.readQuery(
+    const recentResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) AS count FROM quality_incidents
        WHERE created_at >= NOW() - INTERVAL '30 days'`
     );
 
     return {
-      total_incidents: parseInt(totalResult.rows[0].total, 10),
-      open_incidents: parseInt(openResult.rows[0].open_count, 10),
-      last_30_days: parseInt(recentResult.rows[0].count, 10),
+      total_incidents: parseInt(totalResult[0].total, 10),
+      open_incidents: parseInt(openResult[0].open_count, 10),
+      last_30_days: parseInt(recentResult[0].count, 10),
       by_type: byTypeResult.rows,
       by_severity: bySeverityResult.rows,
     };
@@ -266,7 +266,7 @@ class QualityService {
       throw AppError.badRequest(`Invalid isolation_type. Must be one of: ${VALID_ISOLATION_TYPES.join(', ')}`);
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `INSERT INTO infection_cases (
         patient_uid, encounter_id, organism, infection_site,
         detection_date, culture_date, antibiotic_sensitivity,
@@ -286,7 +286,7 @@ class QualityService {
     );
 
     logger.info(`Infection case reported for patient ${patient_uid}, organism: ${organism}`);
-    return result.rows[0];
+    return result[0];
   }
 
   /**
@@ -314,13 +314,13 @@ class QualityService {
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const countResult = await db.readQuery(
+    const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) AS total FROM infection_cases ${whereClause}`,
       params
     );
-    const total = parseInt(countResult.rows[0].total, 10);
+    const total = parseInt(countResult[0].total, 10);
 
-    const result = await db.readQuery(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, encounter_id, organism, infection_site,
         detection_date, culture_date, antibiotic_sensitivity,
         isolation_required, isolation_type, status, treatment_notes,
@@ -332,7 +332,7 @@ class QualityService {
     );
 
     // Summary stats
-    const summaryResult = await db.readQuery(
+    const summaryResult = await prisma.$queryRawUnsafe(
       `SELECT
          COUNT(*) FILTER (WHERE status = 'active') AS active_cases,
          COUNT(*) FILTER (WHERE isolation_required = true AND status = 'active') AS isolation_count,
@@ -342,7 +342,7 @@ class QualityService {
 
     return {
       cases: result.rows,
-      summary: summaryResult.rows[0],
+      summary: summaryResult[0],
       pagination: {
         page: parseInt(page, 10),
         limit: parseInt(limit, 10),
@@ -357,7 +357,7 @@ class QualityService {
    */
   async getOutbreakAlerts() {
     // Flag organisms with 3+ active cases in the last 14 days
-    const result = await db.readQuery(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT organism, infection_site, COUNT(*) AS case_count,
         MIN(detection_date) AS first_detected,
         MAX(detection_date) AS last_detected,
@@ -371,13 +371,13 @@ class QualityService {
     );
 
     // Also get total active cases
-    const totalActive = await db.readQuery(
+    const totalActive = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) AS total FROM infection_cases WHERE status = 'active'`
     );
 
     return {
       alerts: result.rows,
-      total_active_cases: parseInt(totalActive.rows[0].total, 10),
+      total_active_cases: parseInt(totalActive[0].total, 10),
       threshold: 3,
       window_days: 14,
     };

@@ -1,12 +1,15 @@
 // src/services/health/patientHealthService.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
+import { createPrismaDb } from '../../lib/prismaCompat.js';
 import { TREND_PERIODS } from '../../config/healthConfig.js';
 import logger from '../../logging/logger.js';
+
+const db = createPrismaDb(prisma);
 
 export async function getPatientSummary(patientId, days = TREND_PERIODS.MONTH) {
   try {
     // Get patient basic info
-    const patientInfo = await db.query(
+    const patientInfo = await prisma.$queryRawUnsafe(
       'SELECT name, phone, email, birthday, gender FROM users WHERE id = $1',
       [patientId]
     );
@@ -18,7 +21,7 @@ export async function getPatientSummary(patientId, days = TREND_PERIODS.MONTH) {
     // Get comprehensive health data
     const [latestVitals, vitalTrends, activeConditions, medications] = await Promise.all([
       // Latest vitals
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT vital_signs, measurements, recorded_date, r.name as recorded_by_name
         FROM health_records h
         LEFT JOIN users r ON h.recorded_by = r.id
@@ -28,7 +31,7 @@ export async function getPatientSummary(patientId, days = TREND_PERIODS.MONTH) {
       `, [patientId]),
       
       // Vital trends
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT DATE(recorded_date) as date, vital_signs, measurements
         FROM health_records 
         WHERE patient_id = $1 AND record_type = 'VITALS'
@@ -37,7 +40,7 @@ export async function getPatientSummary(patientId, days = TREND_PERIODS.MONTH) {
       `, [patientId]),
       
       // Active conditions
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT id, symptoms, notes, recorded_date
         FROM health_records 
         WHERE patient_id = $1 AND record_type = 'CONDITION'
@@ -46,7 +49,7 @@ export async function getPatientSummary(patientId, days = TREND_PERIODS.MONTH) {
       `, [patientId]),
       
       // Medications
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT id, notes as medication_details, recorded_date
         FROM health_records 
         WHERE patient_id = $1 AND record_type = 'MEDICATION'
@@ -56,8 +59,8 @@ export async function getPatientSummary(patientId, days = TREND_PERIODS.MONTH) {
     ]);
     
     return {
-      patient: patientInfo.rows[0],
-      latest_vitals: latestVitals.rows[0] || null,
+      patient: patientInfo[0],
+      latest_vitals: latestVitals[0] || null,
       vital_trends: vitalTrends.rows,
       active_conditions: activeConditions.rows,
       recent_medications: medications.rows,
@@ -71,7 +74,7 @@ export async function getPatientSummary(patientId, days = TREND_PERIODS.MONTH) {
 
 export async function getPatientVitalTrends(patientId, days = TREND_PERIODS.MONTH, vitalType = null) {
   try {
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT DATE(recorded_date) as date, vital_signs, measurements, recorded_date
       FROM health_records 
       WHERE patient_id = $1 AND record_type = 'VITALS'
@@ -129,7 +132,7 @@ export async function getPatientVitalTrends(patientId, days = TREND_PERIODS.MONT
 export async function getPatientAllergies(patientId) {
   try {
     const [allergies, patientInfo] = await Promise.all([
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT h.id, h.symptoms, h.notes, h.recorded_date,
                r.name as recorded_by_name
         FROM health_records h
@@ -138,13 +141,13 @@ export async function getPatientAllergies(patientId) {
         ORDER BY h.recorded_date DESC
       `, [patientId]),
       
-      db.query('SELECT name, phone FROM users WHERE id = $1', [patientId])
+      prisma.$queryRawUnsafe('SELECT name, phone FROM users WHERE id = $1', [patientId])
     ]);
     
     return {
       allergies: allergies.rows,
       count: allergies.rows.length,
-      patient: patientInfo.rows[0] || null
+      patient: patientInfo[0] || null
     };
   } catch (error) {
     logger.error(`[PatientHealthService] Error getting patient allergies: ${error.message}`);
@@ -169,7 +172,7 @@ export async function getPatientConditions(patientId, activeOnly = false) {
     
     query += ' ORDER BY h.recorded_date DESC';
     
-    const result = await db.query(query, params);
+    const result = await prisma.$queryRawUnsafe(query, params);
     
     return {
       conditions: result.rows,

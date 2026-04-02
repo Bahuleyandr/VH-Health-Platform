@@ -2,7 +2,7 @@
 // HIPAA Consent Verification Middleware
 // Checks that a patient has granted the required consent type before allowing access.
 
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { logPhiAccess } from '../utils/hipaaAudit.js';
 
@@ -33,7 +33,7 @@ export function requireConsent(consentType) {
       }
 
       // Query for active consent (granted = true, not revoked)
-      const result = await db.query(
+      const result = await prisma.$queryRawUnsafe(
         `SELECT id, consent_type, granted, granted_at
          FROM patient_consents
          WHERE patient_uid = $1
@@ -52,7 +52,7 @@ export function requireConsent(consentType) {
       // Log the consent check in audit log (fire-and-forget)
       setImmediate(async () => {
         try {
-          await db.query(
+          await prisma.$queryRawUnsafe(
             `INSERT INTO audit_log
               (user_id, user_name, user_role, ip_address, method, path, module, action,
                request_summary, status_code, success)
@@ -95,7 +95,7 @@ export function requireConsent(consentType) {
       }
 
       // Consent exists — attach to request for downstream use
-      req.patientConsent = result.rows[0];
+      req.patientConsent = result[0];
       next();
     } catch (err) {
       logger.error('Consent middleware error:', { error: err.message });

@@ -1,6 +1,6 @@
 // src/services/radiology/radiologyService.js
 
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
@@ -31,7 +31,7 @@ class RadiologyService {
       throw AppError.badRequest(`Invalid priority. Must be one of: ${VALID_PRIORITIES.join(', ')}`);
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `INSERT INTO radiology_orders
         (patient_uid, encounter_id, modality, body_part, clinical_indication, priority, status, ordered_by, notes, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, 'ordered', $7, $8, NOW())
@@ -39,8 +39,8 @@ class RadiologyService {
       [patient_uid, encounter_id || null, modality, body_part, clinical_indication, priority, ordered_by, notes || null]
     );
 
-    logger.info('Radiology order created', { orderId: result.rows[0].id, modality, patient_uid });
-    return result.rows[0];
+    logger.info('Radiology order created', { orderId: result[0].id, modality, patient_uid });
+    return result[0];
   }
 
   /**
@@ -67,17 +67,17 @@ class RadiologyService {
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const countResult = await db.query(
+    const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM radiology_orders ro ${whereClause}`,
       params
     );
 
-    const total = parseInt(countResult.rows[0].count, 10);
+    const total = parseInt(countResult[0].count, 10);
 
     params.push(parseInt(limit, 10));
     params.push(offset);
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT ro.id, ro.patient_uid, ro.encounter_id, ro.modality, ro.body_part,
               ro.clinical_indication, ro.priority, ro.status, ro.ordered_by,
               ro.reported_by, ro.reported_at, ro.notes, ro.created_at
@@ -112,7 +112,7 @@ class RadiologyService {
     }
 
     // Verify order exists and is not cancelled
-    const existing = await db.query(
+    const existing = await prisma.$queryRawUnsafe(
       `SELECT id, status FROM radiology_orders WHERE id = $1`,
       [id]
     );
@@ -121,11 +121,11 @@ class RadiologyService {
       throw AppError.notFound('Radiology order not found');
     }
 
-    if (existing.rows[0].status === 'cancelled') {
+    if (existing[0].status === 'cancelled') {
       throw AppError.badRequest('Cannot submit report for a cancelled order');
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `UPDATE radiology_orders
        SET report = $1, findings = $2, impression = $3, images = $4,
            reported_by = $5, reported_at = NOW(), status = 'completed'
@@ -135,7 +135,7 @@ class RadiologyService {
     );
 
     logger.info('Radiology report submitted', { orderId: id, reported_by });
-    return result.rows[0];
+    return result[0];
   }
 
   /**
@@ -145,14 +145,14 @@ class RadiologyService {
     const { page = 1, limit = 20 } = filters;
     const offset = (Math.max(1, parseInt(page, 10)) - 1) * parseInt(limit, 10);
 
-    const countResult = await db.query(
+    const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM radiology_orders WHERE patient_uid = $1`,
       [patientUid]
     );
 
-    const total = parseInt(countResult.rows[0].count, 10);
+    const total = parseInt(countResult[0].count, 10);
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, encounter_id, modality, body_part, clinical_indication,
               priority, status, report, findings, impression, images,
               ordered_by, reported_by, reported_at, notes, created_at
@@ -178,7 +178,7 @@ class RadiologyService {
    * Get detail for a single radiology order
    */
   async getOrderDetail(id) {
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, encounter_id, modality, body_part, clinical_indication,
               priority, status, report, findings, impression, images,
               ordered_by, reported_by, reported_at, notes, created_at
@@ -191,14 +191,14 @@ class RadiologyService {
       throw AppError.notFound('Radiology order not found');
     }
 
-    return result.rows[0];
+    return result[0];
   }
 
   /**
    * Cancel a radiology order
    */
   async cancelOrder(id, cancelledBy) {
-    const existing = await db.query(
+    const existing = await prisma.$queryRawUnsafe(
       `SELECT id, status FROM radiology_orders WHERE id = $1`,
       [id]
     );
@@ -207,22 +207,22 @@ class RadiologyService {
       throw AppError.notFound('Radiology order not found');
     }
 
-    if (existing.rows[0].status === 'completed') {
+    if (existing[0].status === 'completed') {
       throw AppError.badRequest('Cannot cancel a completed order');
     }
 
-    if (existing.rows[0].status === 'cancelled') {
+    if (existing[0].status === 'cancelled') {
       throw AppError.badRequest('Order is already cancelled');
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `UPDATE radiology_orders SET status = 'cancelled' WHERE id = $1
        RETURNING id, patient_uid, modality, body_part, status`,
       [id]
     );
 
     logger.info('Radiology order cancelled', { orderId: id, cancelledBy });
-    return result.rows[0];
+    return result[0];
   }
 }
 

@@ -1,4 +1,4 @@
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 // In-memory cache
@@ -8,7 +8,7 @@ const REFRESH_INTERVAL_MS = 60 * 1000; // 60 seconds
 
 async function refreshCache() {
   try {
-    const { rows } = await db.query('SELECT id, name, is_enabled, description, created_at FROM feature_flags');
+    const { rows } = await prisma.$queryRawUnsafe('SELECT id, name, is_enabled, description, created_at FROM feature_flags');
     flagCache.clear();
     for (const row of rows) {
       flagCache.set(row.name, row);
@@ -74,7 +74,7 @@ export async function getFlags() {
 export async function setFlag(name, data) {
   const { description = null, enabled = false, rollout_percentage = 100, allowed_roles = [] } = data;
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `INSERT INTO feature_flags (name, description, enabled, rollout_percentage, allowed_roles, updated_at)
      VALUES ($1, $2, $3, $4, $5, NOW())
      ON CONFLICT (name)
@@ -100,7 +100,7 @@ export async function setFlag(name, data) {
  * @returns {Promise<boolean>}
  */
 export async function deleteFlag(name) {
-  const { rowCount } = await db.query('DELETE FROM feature_flags WHERE name = $1', [name]);
+  const { rowCount } = await prisma.$queryRawUnsafe('DELETE FROM feature_flags WHERE name = $1', [name]);
   flagCache.delete(name);
   logger.info(`Feature flag deleted: ${name}`);
   return rowCount > 0;

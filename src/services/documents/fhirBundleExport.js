@@ -3,7 +3,7 @@
 // aggregating all clinical data into interoperable FHIR resources.
 
 import * as fhirAdapter from '../fhir/fhirAdapter.js';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 /**
@@ -26,47 +26,47 @@ export async function generatePatientBundle(patientUid) {
     allergyResult,
     procedureResult,
   ] = await Promise.all([
-    db.readQuery(
+    prisma.$queryRawUnsafe(
       `SELECT uid, phone, name, gender, email, birthday, address, profile_picture, is_active
        FROM users WHERE uid = $1 LIMIT 1`,
       [patientUid]
     ),
-    db.readQuery(
+    prisma.$queryRawUnsafe(
       `SELECT id, uid, phone, patient_name, doctor_id, doctor_name,
               appointment_date, appointment_time, status, reason, notes, created_at
        FROM appointments WHERE uid = $1
        ORDER BY appointment_date DESC LIMIT 200`,
       [patientUid]
     ),
-    db.readQuery(
+    prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, status, icd10_code, icd10_description, description,
               onset_date, resolved_date, diagnosed_by, notes, created_at
        FROM diagnoses WHERE patient_uid = $1
        ORDER BY created_at DESC`,
       [patientUid]
     ),
-    db.readQuery(
+    prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp,
               temperature, spo2, respiratory_rate, blood_glucose, recorded_at
        FROM vitals_chart WHERE patient_uid = $1
        ORDER BY recorded_at DESC LIMIT 200`,
       [patientUid]
     ),
-    db.readQuery(
+    prisma.$queryRawUnsafe(
       `SELECT id, uid, phone, status, medication, order_note, prescribed_by,
               priority, urgent, ordered_at, created_at
        FROM pharmacy_orders WHERE uid = $1
        ORDER BY created_at DESC LIMIT 200`,
       [patientUid]
     ),
-    db.readQuery(
+    prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, uid, status, test_name, investigation_type, results,
               conclusion, interpretation, ordered_at, completed_at, created_at
        FROM investigations WHERE patient_uid = $1
        ORDER BY created_at DESC LIMIT 200`,
       [patientUid]
     ),
-    db.readQuery(
+    prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, status, priority, admission_type, reason, reason_for_admission,
               admitting_doctor, attending_doctor, admitted_at, discharged_at,
               discharge_disposition, discharge_type, ward, bed_number
@@ -74,13 +74,13 @@ export async function generatePatientBundle(patientUid) {
        ORDER BY admitted_at DESC LIMIT 100`,
       [patientUid]
     ),
-    db.readQuery(
+    prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, allergen, description, name, severity, reaction, recorded_at
        FROM allergies WHERE patient_uid = $1
        ORDER BY recorded_at DESC`,
       [patientUid]
     ),
-    db.readQuery(
+    prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, note_type, title, content, status, procedure_name,
               performed_at, performed_by, author_id, outcome, complications, notes, created_at
        FROM clinical_notes WHERE patient_uid = $1 AND note_type = 'procedure'
@@ -89,7 +89,7 @@ export async function generatePatientBundle(patientUid) {
     ),
   ]);
 
-  const patient = patientResult.rows[0];
+  const patient = patientResult[0];
   if (!patient) {
     throw new Error(`Patient not found: ${patientUid}`);
   }

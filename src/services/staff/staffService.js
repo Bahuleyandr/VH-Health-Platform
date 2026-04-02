@@ -1,4 +1,4 @@
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { STAFF_ROLES, SHIFT_TYPES } from '../../config/staffConfig.js';
 import logger from '../../logging/logger.js';
 import { getStaffHierarchy } from '../../utils/staff/staffHelpers.js';
@@ -78,7 +78,7 @@ export const getStaffList = async (filters, userRole) => {
     LIMIT $2 OFFSET $3
   `;
 
-  const result = await db.query(query, params);
+  const result = await prisma.$queryRawUnsafe(query, params);
 
   // Get total count
   const countQuery = `
@@ -88,11 +88,11 @@ export const getStaffList = async (filters, userRole) => {
     LEFT JOIN users sup ON s.supervisor_id = sup.id
     ${whereClause}
   `;
-  const countResult = await db.query(countQuery, params.slice(3));
-  const totalStaff = parseInt(countResult.rows[0].count);
+  const countResult = await prisma.$queryRawUnsafe(countQuery, params.slice(3));
+  const totalStaff = parseInt(countResult[0].count);
 
   // Get statistics
-  const departmentStats = await db.query(`
+  const departmentStats = await prisma.$queryRawUnsafe(`
     SELECT s.department, COUNT(*) as count
     FROM users u 
     LEFT JOIN staff s ON u.id = s.user_id 
@@ -101,7 +101,7 @@ export const getStaffList = async (filters, userRole) => {
     ORDER BY count DESC
   `, [allowedRoles]);
 
-  const roleStats = await db.query(`
+  const roleStats = await prisma.$queryRawUnsafe(`
     SELECT u.role, COUNT(*) as count
     FROM users u 
     LEFT JOIN staff s ON u.id = s.user_id 
@@ -151,7 +151,7 @@ export const getStaffProfile = async (identifier, userRole, userId, includePriva
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
   const column = isUUID ? 'u.uid' : 'u.id';
 
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     SELECT 
       u.*, 
       s.employee_id, s.position, s.department, s.shift, s.salary,
@@ -176,7 +176,7 @@ export const getStaffProfile = async (identifier, userRole, userId, includePriva
     throw new Error('NOT_FOUND');
   }
 
-  const staff = result.rows[0];
+  const staff = result[0];
 
   // Privacy filtering
   const canViewPrivate = ['ADMIN', 'HR_STAFF'].includes(userRole) || 
@@ -195,7 +195,7 @@ export const getStaffProfile = async (identifier, userRole, userId, includePriva
   // Get recent attendance
   let recentAttendance = [];
   try {
-    const attendanceResult = await db.query(`
+    const attendanceResult = await prisma.$queryRawUnsafe(`
       SELECT 
         DATE(check_in_time) as date,
         check_in_time, check_out_time,
@@ -223,7 +223,7 @@ export const getStaffProfile = async (identifier, userRole, userId, includePriva
   let performanceMetrics = null;
   if (canViewPrivate) {
     try {
-      const performanceResult = await db.query(`
+      const performanceResult = await prisma.$queryRawUnsafe(`
         SELECT 
           AVG(rating) as average_rating,
           COUNT(*) as total_reviews,
@@ -233,13 +233,13 @@ export const getStaffProfile = async (identifier, userRole, userId, includePriva
           AND review_date >= CURRENT_DATE - INTERVAL '1 year'
       `, [staff.id]);
       
-      if (performanceResult.rows[0].total_reviews > 0) {
+      if (performanceResult[0].total_reviews > 0) {
         performanceMetrics = {
-          ...performanceResult.rows[0],
-          average_rating: performanceResult.rows[0].average_rating ? 
-            Math.round(performanceResult.rows[0].average_rating * 10) / 10 : null,
-          last_review_date: performanceResult.rows[0].last_review_date ? 
-            new Date(performanceResult.rows[0].last_review_date).toLocaleDateString('en-IN') : null
+          ...performanceResult[0],
+          average_rating: performanceResult[0].average_rating ? 
+            Math.round(performanceResult[0].average_rating * 10) / 10 : null,
+          last_review_date: performanceResult[0].last_review_date ? 
+            new Date(performanceResult[0].last_review_date).toLocaleDateString('en-IN') : null
         };
       }
     } catch (performanceError) {
@@ -276,7 +276,7 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
   } = data;
 
   // Verify user exists and has appropriate role
-  const userCheck = await db.query(
+  const userCheck = await prisma.$queryRawUnsafe(
     'SELECT id, role, name, phone FROM users WHERE id = $1',
     [user_id]
   );
@@ -285,7 +285,7 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
     throw new Error('USER_NOT_FOUND');
   }
 
-  const user = userCheck.rows[0];
+  const user = userCheck[0];
   const validStaffRoles = Object.values(STAFF_ROLES);
   
   if (!validStaffRoles.includes(user.role)) {
@@ -293,7 +293,7 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
   }
 
   // Check if staff profile already exists
-  const existingProfile = await db.query(
+  const existingProfile = await prisma.$queryRawUnsafe(
     'SELECT user_id FROM staff WHERE user_id = $1',
     [user_id]
   );
@@ -303,7 +303,7 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
   }
 
   // Check employee_id uniqueness
-  const employeeIdCheck = await db.query(
+  const employeeIdCheck = await prisma.$queryRawUnsafe(
     'SELECT user_id FROM staff WHERE employee_id = $1',
     [employee_id]
   );
@@ -314,7 +314,7 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
 
   // Validate supervisor if provided
   if (supervisor_id) {
-    const supervisorCheck = await db.query(
+    const supervisorCheck = await prisma.$queryRawUnsafe(
       'SELECT id FROM users WHERE id = $1 AND role IN ($2, $3, $4)',
       [supervisor_id, 'ADMIN', 'DOCTOR', 'HR_STAFF']
     );
@@ -325,7 +325,7 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
   }
 
   // Create staff profile
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     INSERT INTO staff (
       user_id, employee_id, position, department, shift, salary,
       hire_date, supervisor_id, emergency_contact, skills, 
@@ -341,7 +341,7 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
   ]);
 
   // Log staff creation activity
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `INSERT INTO admin_activity_logs (
       admin_uid, action, description, affected_user_id,
       details, ip_address, created_at
@@ -360,9 +360,9 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
 
   return {
     staff: {
-      ...result.rows[0],
-      hire_date: result.rows[0].hire_date ? new Date(result.rows[0].hire_date).toLocaleDateString('en-IN') : null,
-      shift_details: SHIFT_TYPES[result.rows[0].shift] || null
+      ...result[0],
+      hire_date: result[0].hire_date ? new Date(result[0].hire_date).toLocaleDateString('en-IN') : null,
+      shift_details: SHIFT_TYPES[result[0].shift] || null
     },
     userInfo: {
       name: user.name,
@@ -381,7 +381,7 @@ export const updateStaffProfile = async (id, data, updatedBy, updaterName, ipAdd
   } = data;
 
   // Verify staff profile exists
-  const staffCheck = await db.query(
+  const staffCheck = await prisma.$queryRawUnsafe(
     'SELECT s.*, u.name FROM staff s JOIN users u ON s.user_id = u.id WHERE s.user_id = $1',
     [id]
   );
@@ -390,11 +390,11 @@ export const updateStaffProfile = async (id, data, updatedBy, updaterName, ipAdd
     throw new Error('NOT_FOUND');
   }
 
-  const currentStaff = staffCheck.rows[0];
+  const currentStaff = staffCheck[0];
 
   // Validate supervisor if provided
   if (supervisor_id) {
-    const supervisorCheck = await db.query(
+    const supervisorCheck = await prisma.$queryRawUnsafe(
       'SELECT id FROM users WHERE id = $1 AND role IN ($2, $3, $4)',
       [supervisor_id, 'ADMIN', 'DOCTOR', 'HR_STAFF']
     );
@@ -405,7 +405,7 @@ export const updateStaffProfile = async (id, data, updatedBy, updaterName, ipAdd
   }
 
   // Update staff profile
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     UPDATE staff SET 
       position = COALESCE($1, position),
       department = COALESCE($2, department),
@@ -438,7 +438,7 @@ export const updateStaffProfile = async (id, data, updatedBy, updaterName, ipAdd
   if (is_active !== undefined && is_active !== currentStaff.is_active) {changes.is_active = { from: currentStaff.is_active, to: is_active };}
 
   // Log staff update activity
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `INSERT INTO admin_activity_logs (
       admin_uid, action, description, affected_user_id,
       details, ip_address, created_at
@@ -457,9 +457,9 @@ export const updateStaffProfile = async (id, data, updatedBy, updaterName, ipAdd
 
   return {
     staff: {
-      ...result.rows[0],
-      updated_at: result.rows[0].updated_at.toLocaleString('en-IN'),
-      shift_details: SHIFT_TYPES[result.rows[0].shift] || null
+      ...result[0],
+      updated_at: result[0].updated_at.toLocaleString('en-IN'),
+      shift_details: SHIFT_TYPES[result[0].shift] || null
     },
     changes,
     updatedBy: updaterName
@@ -499,7 +499,7 @@ export const getStaffByDepartment = async (department, shift, includeInactive, u
     ORDER BY s.position, u.name
   `;
 
-  const result = await db.query(query, params);
+  const result = await prisma.$queryRawUnsafe(query, params);
 
   // Calculate department statistics
   const stats = {
@@ -577,7 +577,7 @@ export const getStaffByShift = async (shift, department, date, userRole) => {
   `;
 
   params.push(date);
-  const result = await db.query(query, params);
+  const result = await prisma.$queryRawUnsafe(query, params);
 
   // Calculate shift statistics
   const shiftDetails = SHIFT_TYPES[shift];
@@ -624,7 +624,7 @@ export const getStaffStatistics = async (userRole, timeframe) => {
   const allowedRoles = getStaffHierarchy(userRole);
 
   // Basic staff statistics
-  const totalStats = await db.query(`
+  const totalStats = await prisma.$queryRawUnsafe(`
     SELECT 
       COUNT(*) as total_staff,
       COUNT(CASE WHEN s.is_active = true THEN 1 END) as active_staff,
@@ -637,7 +637,7 @@ export const getStaffStatistics = async (userRole, timeframe) => {
   `, [allowedRoles]);
 
   // Department breakdown
-  const departmentStats = await db.query(`
+  const departmentStats = await prisma.$queryRawUnsafe(`
     SELECT 
       s.department, 
       COUNT(*) as total_count,
@@ -651,7 +651,7 @@ export const getStaffStatistics = async (userRole, timeframe) => {
   `, [allowedRoles]);
 
   // Role distribution
-  const roleStats = await db.query(`
+  const roleStats = await prisma.$queryRawUnsafe(`
     SELECT 
       u.role, 
       COUNT(*) as count,
@@ -664,7 +664,7 @@ export const getStaffStatistics = async (userRole, timeframe) => {
   `, [allowedRoles]);
 
   // Shift distribution
-  const shiftStats = await db.query(`
+  const shiftStats = await prisma.$queryRawUnsafe(`
     SELECT 
       s.shift, 
       COUNT(*) as count,
@@ -679,7 +679,7 @@ export const getStaffStatistics = async (userRole, timeframe) => {
   // Attendance statistics (if available)
   let attendanceStats = null;
   try {
-    const attendanceResult = await db.query(`
+    const attendanceResult = await prisma.$queryRawUnsafe(`
       SELECT 
         COUNT(DISTINCT staff_id) as staff_with_attendance,
         COUNT(*) as total_attendance_records,
@@ -690,24 +690,24 @@ export const getStaffStatistics = async (userRole, timeframe) => {
     `);
     
     attendanceStats = {
-      ...attendanceResult.rows[0],
-      avg_daily_hours: attendanceResult.rows[0].avg_daily_hours ? 
-        Math.round(attendanceResult.rows[0].avg_daily_hours * 100) / 100 : null
+      ...attendanceResult[0],
+      avg_daily_hours: attendanceResult[0].avg_daily_hours ? 
+        Math.round(attendanceResult[0].avg_daily_hours * 100) / 100 : null
     };
   } catch (attendanceError) {
     logger.warn('Attendance statistics unavailable:', attendanceError.message);
   }
 
   // Calculate operational efficiency
-  const totalActive = parseInt(totalStats.rows[0].active_staff);
-  const currentlyCheckedIn = parseInt(totalStats.rows[0].currently_checked_in);
+  const totalActive = parseInt(totalStats[0].active_staff);
+  const currentlyCheckedIn = parseInt(totalStats[0].currently_checked_in);
   const operationalEfficiency = totalActive > 0 ? Math.round((currentlyCheckedIn / totalActive) * 100) : 0;
 
   return {
     overview: {
-      ...totalStats.rows[0],
-      average_salary: totalStats.rows[0].average_salary ? 
-        Math.round(totalStats.rows[0].average_salary) : null,
+      ...totalStats[0],
+      average_salary: totalStats[0].average_salary ? 
+        Math.round(totalStats[0].average_salary) : null,
       operational_efficiency: operationalEfficiency,
       staffing_status: operationalEfficiency >= 70 ? 'well_staffed' : 
                       operationalEfficiency >= 50 ? 'adequately_staffed' : 'understaffed'

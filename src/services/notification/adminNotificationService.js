@@ -1,6 +1,6 @@
 // src/services/notification/adminNotificationService.js
 
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { 
   NOTIFICATION_TYPES, 
   NOTIFICATION_PRIORITIES,
@@ -17,6 +17,23 @@ import {
 } from '../../utils/notification/notificationHelpers.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 
+
+const query = async (sql, params = []) => {
+  const normalizedSql = sql.trim();
+  const upperSql = normalizedSql.toUpperCase();
+  const usesReturning = /\bRETURNING\b/i.test(normalizedSql);
+  const isReadQuery = upperSql.startsWith('SELECT') || upperSql.startsWith('WITH') || usesReturning;
+
+  if (isReadQuery) {
+    const rows = await prisma.$queryRawUnsafe(normalizedSql, ...params);
+    return { rows, rowCount: Array.isArray(rows) ? rows.length : 0 };
+  }
+
+  const rowCount = await prisma.$executeRawUnsafe(normalizedSql, ...params);
+  return { rows: [], rowCount: Number(rowCount) || 0 };
+};
+
+
 export const adminNotificationService = {
   /**
    * Get notification system overview
@@ -25,7 +42,7 @@ export const adminNotificationService = {
     try {
       const [notificationStats, typeDistribution, userEngagement, recentActivity] = await Promise.all([
         // Overall notification statistics
-        db.query(`
+        query(`
           SELECT 
             COUNT(*) as total_notifications,
             COUNT(CASE WHEN is_read = false THEN 1 END) as unread_notifications,
@@ -36,7 +53,7 @@ export const adminNotificationService = {
         `),
         
         // Notification type distribution
-        db.query(`
+        query(`
           SELECT type, priority,
                  COUNT(*) as count,
                  COUNT(CASE WHEN is_read = true THEN 1 END) as read_count,
@@ -48,7 +65,7 @@ export const adminNotificationService = {
         `),
         
         // User engagement metrics
-        db.query(`
+        query(`
           SELECT u.role,
                  COUNT(n.id) as notifications_received,
                  COUNT(CASE WHEN n.is_read = true THEN 1 END) as notifications_read,
@@ -62,7 +79,7 @@ export const adminNotificationService = {
         `),
         
         // Recent notification activity
-        db.query(`
+        query(`
           SELECT DATE(created_at) as date,
                  COUNT(*) as notifications_sent,
                  COUNT(CASE WHEN is_read = true THEN 1 END) as notifications_read
@@ -74,7 +91,7 @@ export const adminNotificationService = {
       ]);
       
       return {
-        statistics: notificationStats.rows[0],
+        statistics: notificationStats[0],
         type_distribution: typeDistribution.rows,
         user_engagement: userEngagement.rows,
         daily_activity: recentActivity.rows,
@@ -113,14 +130,14 @@ export const adminNotificationService = {
       query += ` ORDER BY n.created_at DESC LIMIT $${filterQuery.params.length + 1} OFFSET $${filterQuery.params.length + 2}`;
       const params = [...filterQuery.params, limit, offset];
       
-      const result = await db.query(query, params);
+      const result = await query(query, params);
       
       // Get total count
       let countQuery = 'SELECT COUNT(*) FROM notifications n LEFT JOIN users u ON n.user_id = u.id WHERE 1=1';
       countQuery += filterQuery.query;
       
-      const countResult = await db.query(countQuery, filterQuery.params);
-      const totalNotifications = parseInt(countResult.rows[0].count);
+      const countResult = await query(countQuery, filterQuery.params);
+      const totalNotifications = parseInt(countResult[0].count);
       
       return {
         notifications: result.rows.map(n => formatNotificationResponse(n, true)),
@@ -145,7 +162,7 @@ export const adminNotificationService = {
    */
   async getTemplates() {
     try {
-      const result = await db.query(`
+      const result = await query(`
         SELECT id, name, title_template, message_template, type, priority, 
                variables, description, is_active, created_at
         FROM notification_templates 
@@ -175,7 +192,7 @@ export const adminNotificationService = {
     try {
       const [deliveryMetrics, failureAnalysis, engagementRates] = await Promise.all([
         // Delivery success metrics
-        db.query(`
+        query(`
           SELECT 
             COUNT(*) as total_sent,
             COUNT(CASE WHEN scheduled_for IS NULL OR scheduled_for <= NOW() THEN 1 END) as delivered,
@@ -187,7 +204,7 @@ export const adminNotificationService = {
         `),
         
         // Failure analysis (if available)
-        db.query(`
+        query(`
           SELECT error_type, COUNT(*) as count, 
                  STRING_AGG(DISTINCT error_message, '; ') as sample_errors
           FROM notification_delivery_log 
@@ -197,7 +214,7 @@ export const adminNotificationService = {
         `),
         
         // Engagement rates by user type
-        db.query(`
+        query(`
           SELECT u.role,
                  COUNT(n.id) as notifications_received,
                  COUNT(CASE WHEN n.is_read = true THEN 1 END) as notifications_read,
@@ -213,7 +230,7 @@ export const adminNotificationService = {
       ]);
       
       return {
-        overall_metrics: deliveryMetrics.rows[0],
+        overall_metrics: deliveryMetrics[0],
         failure_analysis: failureAnalysis.rows,
         engagement_by_role: engagementRates.rows,
         period_days: days
@@ -250,7 +267,7 @@ export const adminNotificationService = {
 
       const inserts = phones.map(phone => {
         const normalized = normalizePhone(phone);
-        return db.query(
+        return query(
           `INSERT INTO notifications (phone, title, body, type, created_at, is_read, created_by)
            VALUES ($1, $2, $3, $4, NOW(), false, $5)`,
           [normalized, title, body, type, user?.uid || 'admin']
@@ -302,7 +319,7 @@ export const adminNotificationService = {
         targetQuery += ' WHERE ' + whereConditions.join(' AND ');
       }
       
-      const targetUsers = await db.query(targetQuery, targetParams);
+      const targetUsers = await query(targetQuery, targetParams);
       
       if (targetUsers.rows.length === 0) {
         throw new Error('No users match the targeting criteria');
@@ -321,7 +338,7 @@ export const adminNotificationService = {
       
       const flatParams = notifications.flat();
       
-      const result = await db.query(`
+      const result = await query(`
         INSERT INTO notifications (user_id, title, message, type, priority, sender_id, scheduled_for, is_read, created_at, phone)
         VALUES ${values}
         RETURNING id, user_id
@@ -367,7 +384,7 @@ export const adminNotificationService = {
       // Apply criteria-based targeting if provided
       if (Object.keys(criteria).length > 0) {
         const targetingQuery = buildUserTargetingQuery(criteria);
-        const criteriaUsers = await db.query(targetingQuery.query, targetingQuery.params);
+        const criteriaUsers = await query(targetingQuery.query, targetingQuery.params);
         const criteriaUserIds = criteriaUsers.rows.map(u => u.id);
         
         // Combine with explicitly provided user_ids
@@ -379,7 +396,7 @@ export const adminNotificationService = {
       }
       
       // Verify target users exist
-      const userCheck = await db.query(
+      const userCheck = await query(
         'SELECT id, name, role, phone FROM users WHERE id = ANY($1)',
         [targetUserIds]
       );
@@ -401,7 +418,7 @@ export const adminNotificationService = {
       
       const flatParams = notifications.flat();
       
-      const result = await db.query(`
+      const result = await query(`
         INSERT INTO notifications (user_id, title, message, type, priority, sender_id, scheduled_for, is_read, created_at, phone)
         VALUES ${values}
         RETURNING id, user_id
@@ -442,7 +459,7 @@ async performBulkOperations(data, user) {
     
     switch (operation) {
       case VALID_OPERATIONS.MARK_READ: {
-        const readResult = await db.query(
+        const readResult = await query(
           'UPDATE notifications SET is_read = true, read_at = NOW() WHERE id = ANY($1) RETURNING id, title',
           [notification_ids]
         );
@@ -451,7 +468,7 @@ async performBulkOperations(data, user) {
       }
       
       case VALID_OPERATIONS.MARK_UNREAD: {
-        const unreadResult = await db.query(
+        const unreadResult = await query(
           'UPDATE notifications SET is_read = false, read_at = NULL WHERE id = ANY($1) RETURNING id, title',
           [notification_ids]
         );
@@ -460,7 +477,7 @@ async performBulkOperations(data, user) {
       }
       
       case VALID_OPERATIONS.DELETE: {
-        const deleteResult = await db.query(
+        const deleteResult = await query(
           'DELETE FROM notifications WHERE id = ANY($1) RETURNING id, title',
           [notification_ids]
         );
@@ -472,7 +489,7 @@ async performBulkOperations(data, user) {
         if (!operationData?.priority) {
           throw new Error('priority is required for update_priority operation');
         }
-        const priorityResult = await db.query(
+        const priorityResult = await query(
           'UPDATE notifications SET priority = $1 WHERE id = ANY($2) RETURNING id, title, priority',
           [operationData.priority.toUpperCase(), notification_ids]
         );
@@ -508,7 +525,7 @@ async performBulkOperations(data, user) {
         variables = [], description, is_active = true 
       } = data;
       
-      const result = await db.query(`
+      const result = await query(`
         INSERT INTO notification_templates (
           name, title_template, message_template, type, priority,
           variables, description, is_active, created_at
@@ -519,7 +536,7 @@ async performBulkOperations(data, user) {
       
       logger.info(`Notification template created: ${name} by ${user?.uid}`);
       
-      return result.rows[0];
+      return result[0];
     } catch (error) {
       logger.error('Error creating template:', error.message);
       // Return simulated template if table doesn't exist
@@ -548,7 +565,7 @@ async performBulkOperations(data, user) {
       } = data;
       
       // Get template
-      const templateResult = await db.query(
+      const templateResult = await query(
         'SELECT id, name, title_template, body_template, type, is_active, created_at FROM notification_templates WHERE id = $1 AND is_active = true',
         [template_id]
       );
@@ -557,14 +574,14 @@ async performBulkOperations(data, user) {
         throw new Error('Notification template not found');
       }
       
-      const template = templateResult.rows[0];
+      const template = templateResult[0];
       
       // Replace variables in title and message
       const title = processTemplate(template.title_template, variable_values);
       const message = processTemplate(template.message_template, variable_values);
       
       // Verify target users exist
-      const userCheck = await db.query(
+      const userCheck = await query(
         'SELECT id, name, phone FROM users WHERE id = ANY($1)',
         [target_users]
       );
@@ -586,7 +603,7 @@ async performBulkOperations(data, user) {
       
       const flatParams = notifications.flat();
       
-      const result = await db.query(`
+      const result = await query(`
         INSERT INTO notifications (user_id, title, message, type, priority, sender_id, scheduled_for, is_read, created_at, phone)
         VALUES ${values}
         RETURNING id, user_id
@@ -631,7 +648,7 @@ async performBulkOperations(data, user) {
       
       deleteQuery += ' RETURNING id, title, created_at';
       
-      const result = await db.query(deleteQuery, queryParams);
+      const result = await query(deleteQuery, queryParams);
       
       logger.info(`Notification cleanup: ${result.rows.length} notifications deleted (older than ${days} days) by ${user?.uid}`);
       

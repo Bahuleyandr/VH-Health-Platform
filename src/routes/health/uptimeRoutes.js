@@ -1,7 +1,7 @@
 // src/routes/health/uptimeRoutes.js
 // Dedicated health check endpoints optimized for external monitoring tools
 import express from 'express';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 const router = express.Router();
@@ -38,7 +38,7 @@ router.get('/deep', async (_req, res) => {
   // Database
   try {
     const start = Date.now();
-    await db.query('SELECT 1');
+    await prisma.$queryRawUnsafe('SELECT 1');
     checks.database = { status: 'ok', latency_ms: Date.now() - start };
   } catch (err) {
     checks.database = { status: 'error', message: err.message };

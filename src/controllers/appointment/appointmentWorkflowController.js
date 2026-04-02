@@ -1,5 +1,5 @@
 // src/controllers/appointment/appointmentWorkflowController.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
@@ -10,7 +10,7 @@ import { sendAppointmentConfirmationSMS } from '../../services/smsService.js';
  * Staff confirms an appointment — assigns token, sets confirmed_at, notifies patient
  */
 export const confirmAppointment = async (req, res) => {
-  const client = await db.getClient();
+  const client = await prisma;
   try {
     const { id } = req.params;
     const staffId = req.user?.id;
@@ -27,7 +27,7 @@ export const confirmAppointment = async (req, res) => {
       await client.query('ROLLBACK');
       return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
     }
-    const a = appt.rows[0];
+    const a = appt[0];
     if (a.status === 'CANCELLED') {
       await client.query('ROLLBACK');
       return error(res, 'Cannot confirm a cancelled appointment', HTTP_STATUS.BAD_REQUEST);
@@ -41,7 +41,7 @@ export const confirmAppointment = async (req, res) => {
        WHERE DATE(appointment_date) = DATE($1) AND confirmed_at IS NOT NULL`,
       [targetDate]
     );
-    const tokenNumber = parseInt(tokenResult.rows[0].next_token);
+    const tokenNumber = parseInt(tokenResult[0].next_token);
 
     const newDate = appointment_date || a.appointment_date;
     const newTime = appointment_time || a.appointment_time;
@@ -72,16 +72,16 @@ export const confirmAppointment = async (req, res) => {
     await client.query('COMMIT');
 
     // Notify patient via FCM + SMS (fire-and-forget, outside transaction)
-    const patient = await db.query('SELECT device_token, name, phone FROM users WHERE id=$1', [a.patient_id]);
-    const patientRow = patient.rows[0];
+    const patient = await prisma.$queryRawUnsafe('SELECT device_token, name, phone FROM users WHERE id=$1', [a.patient_id]);
+    const patientRow = patient[0];
 
     // Get doctor name and department for SMS
-    const doctorRow = await db.query(
+    const doctorRow = await prisma.$queryRawUnsafe(
       'SELECT u.name, doc.department FROM users u LEFT JOIN doctors doc ON doc.user_id = u.id WHERE u.id=$1',
       [a.doctor_id]
     );
-    const doctorName = doctorRow.rows[0]?.name || 'Doctor';
-    const department = doctorRow.rows[0]?.department || a.department || null;
+    const doctorName = doctorRow[0]?.name || 'Doctor';
+    const department = doctorRow[0]?.department || a.department || null;
 
     setImmediate(async () => {
       try {
@@ -109,7 +109,7 @@ export const confirmAppointment = async (req, res) => {
       } catch (e) { logger.warn('Appointment notification/SMS failed:', e.message); }
     });
 
-    success(res, result.rows[0], `Appointment confirmed. Token #${tokenNumber}`);
+    success(res, result[0], `Appointment confirmed. Token #${tokenNumber}`);
   } catch (err) {
     await client.query('ROLLBACK').catch(rollbackErr => {
       logger.error('Transaction rollback failed:', rollbackErr);
@@ -125,7 +125,7 @@ export const confirmAppointment = async (req, res) => {
  * Staff marks appointment as no-show
  */
 export const markNoShow = async (req, res) => {
-  const client = await db.getClient();
+  const client = await prisma;
   try {
     const { id } = req.params;
     const staffId = req.user?.id;
@@ -144,11 +144,11 @@ export const markNoShow = async (req, res) => {
     );
     await client.query(
       `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role) VALUES ($1,$2,'NO_SHOW',$3,'staff')`,
-      [id, appt.rows[0].status, staffId]
+      [id, appt[0].status, staffId]
     );
 
     await client.query('COMMIT');
-    success(res, result.rows[0], 'Marked as no-show');
+    success(res, result[0], 'Marked as no-show');
   } catch (err) {
     await client.query('ROLLBACK').catch(rollbackErr => {
       logger.error('Transaction rollback failed:', rollbackErr);
@@ -164,7 +164,7 @@ export const markNoShow = async (req, res) => {
  * Staff marks appointment as completed (patient visited)
  */
 export const completeAppointment = async (req, res) => {
-  const client = await db.getClient();
+  const client = await prisma;
   try {
     const { id } = req.params;
     const staffId = req.user?.id;
@@ -184,7 +184,7 @@ export const completeAppointment = async (req, res) => {
     );
     await client.query(
       `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role) VALUES ($1,$2,'COMPLETED',$3,'staff')`,
-      [id, appt.rows[0].status, staffId]
+      [id, appt[0].status, staffId]
     );
 
     await client.query('COMMIT');
@@ -192,8 +192,8 @@ export const completeAppointment = async (req, res) => {
     // Schedule feedback request 2 hours after visit (fire-and-forget, outside transaction)
     setImmediate(async () => {
       try {
-        const a = appt.rows[0];
-        await db.query(`
+        const a = appt[0];
+        await prisma.$queryRawUnsafe(`
           INSERT INTO scheduled_notifications (user_id, type, data, send_at, status)
           VALUES ($1, 'feedback_request', $2, NOW() + INTERVAL '2 hours', 'pending')
         `, [
@@ -206,7 +206,7 @@ export const completeAppointment = async (req, res) => {
       }
     });
 
-    success(res, result.rows[0], 'Appointment completed');
+    success(res, result[0], 'Appointment completed');
   } catch (err) {
     await client.query('ROLLBACK').catch(rollbackErr => {
       logger.error('Transaction rollback failed:', rollbackErr);
@@ -222,7 +222,7 @@ export const completeAppointment = async (req, res) => {
  * Staff/patient cancels appointment
  */
 export const cancelAppointment = async (req, res) => {
-  const client = await db.getClient();
+  const client = await prisma;
   try {
     const { id } = req.params;
     const staffId = req.user?.id;
@@ -242,28 +242,28 @@ export const cancelAppointment = async (req, res) => {
     );
     await client.query(
       `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role, reason) VALUES ($1,$2,'CANCELLED',$3,'staff',$4)`,
-      [id, appt.rows[0].status, staffId, cancellation_reason || null]
+      [id, appt[0].status, staffId, cancellation_reason || null]
     );
 
     await client.query('COMMIT');
 
     // Notify patient (fire-and-forget, outside transaction)
-    const patient = await db.query('SELECT device_token FROM users WHERE id=$1', [appt.rows[0].patient_id]);
-    if (patient.rows[0]?.device_token) {
+    const patient = await prisma.$queryRawUnsafe('SELECT device_token FROM users WHERE id=$1', [appt[0].patient_id]);
+    if (patient[0]?.device_token) {
       setImmediate(async () => {
         try {
           await sendPushNotification({
-            tokens: patient.rows[0].device_token,
+            tokens: patient[0].device_token,
             title: 'Appointment Cancelled',
             body: `Your appointment has been cancelled. ${cancellation_reason || 'Please rebook.'}`,
             data: { type: 'appointment_cancelled', appointment_id: String(id) },
-            userId: String(appt.rows[0].patient_id),
+            userId: String(appt[0].patient_id),
           });
         } catch (e) { logger.warn('Cancel notification failed:', e.message); }
       });
     }
 
-    success(res, result.rows[0], 'Appointment cancelled');
+    success(res, result[0], 'Appointment cancelled');
   } catch (err) {
     await client.query('ROLLBACK').catch(rollbackErr => {
       logger.error('Transaction rollback failed:', rollbackErr);
@@ -286,7 +286,7 @@ export const getTodayQueue = async (req, res) => {
     if (doctor_id) { params.push(doctor_id); where += ` AND a.doctor_id=$${params.length}`; }
     if (department) { params.push(department); where += ` AND a.department=$${params.length}`; }
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT a.id, a.patient_id, a.doctor_id, a.appointment_date, a.appointment_time,
         a.status, a.reason, a.notes, a.token_number, a.department, a.confirmed_at, a.created_at, a.updated_at,
         p.name as patient_name, p.phone as patient_phone, p.blood_group,
@@ -319,7 +319,7 @@ export const getPendingAppointments = async (req, res) => {
     if (to_date) { params.push(to_date); where += ` AND DATE(a.appointment_date) <= $${params.length}`; }
     if (doctor_id) { params.push(doctor_id); where += ` AND a.doctor_id=$${params.length}`; }
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT a.id, a.patient_id, a.doctor_id, a.appointment_date, a.appointment_time,
         a.status, a.reason, a.token_number, a.department, a.sla_target_at, a.created_at, a.updated_at,
         p.name as patient_name, p.phone as patient_phone,
@@ -352,7 +352,7 @@ export const getAvailableSlots = async (req, res) => {
     }
 
     // Doctor can be referenced by users.id OR doctors.id
-    const doctorQuery = await db.query(
+    const doctorQuery = await prisma.$queryRawUnsafe(
       `SELECT doc.id, doc.user_id, doc.department, doc.specialization, doc.available_days, doc.available_hours, u.name as doctor_name
        FROM doctors doc
        JOIN users u ON doc.user_id = u.id
@@ -362,7 +362,7 @@ export const getAvailableSlots = async (req, res) => {
     if (!doctorQuery.rows.length) {
       return error(res, 'Doctor not found', HTTP_STATUS.NOT_FOUND);
     }
-    const doc = doctorQuery.rows[0];
+    const doc = doctorQuery[0];
     const doctorUserId = doc.user_id;
 
     const requestedDate = new Date(date);
@@ -379,7 +379,7 @@ export const getAvailableSlots = async (req, res) => {
     }
 
     // Get booked slots for this doctor on this date
-    const booked = await db.query(`
+    const booked = await prisma.$queryRawUnsafe(`
       SELECT appointment_time FROM appointments
       WHERE doctor_id = $1
         AND DATE(appointment_date) = DATE($2)
@@ -436,7 +436,7 @@ export const getAvailableSlots = async (req, res) => {
  * Register a walk-in patient — creates appointment directly in CONFIRMED state
  */
 export const registerWalkIn = async (req, res) => {
-  const client = await db.getClient();
+  const client = await prisma;
   try {
     const staffId = req.user?.id;
     const {
@@ -461,13 +461,13 @@ export const registerWalkIn = async (req, res) => {
         [patient_phone, patient_phone.replace(/\D/g, '').slice(-10)]
       );
       if (existing.rows.length > 0) {
-        patientId = existing.rows[0].id;
+        patientId = existing[0].id;
       } else {
         const newUser = await client.query(
           `INSERT INTO users (phone, name, role) VALUES ($1, $2, 'PATIENT') RETURNING id`,
           [patient_phone, patient_name || 'Walk-in Patient']
         );
-        patientId = newUser.rows[0].id;
+        patientId = newUser[0].id;
       }
     }
 
@@ -477,7 +477,7 @@ export const registerWalkIn = async (req, res) => {
        FROM appointments
        WHERE DATE(appointment_date) = CURRENT_DATE AND confirmed_at IS NOT NULL`
     );
-    const tokenNumber = parseInt(tokenResult.rows[0].next_token);
+    const tokenNumber = parseInt(tokenResult[0].next_token);
 
     const result = await client.query(`
       INSERT INTO appointments
@@ -498,7 +498,7 @@ export const registerWalkIn = async (req, res) => {
       patient_phone || null
     ]);
 
-    const apptId = result.rows[0].id;
+    const apptId = result[0].id;
     await client.query(
       `INSERT INTO appointment_status_history
          (appointment_id, from_status, to_status, changed_by, changed_by_role, reason)
@@ -508,7 +508,7 @@ export const registerWalkIn = async (req, res) => {
 
     await client.query('COMMIT');
 
-    success(res, { ...result.rows[0], token_number: tokenNumber }, `Walk-in registered. Token #${tokenNumber}`);
+    success(res, { ...result[0], token_number: tokenNumber }, `Walk-in registered. Token #${tokenNumber}`);
   } catch (err) {
     await client.query('ROLLBACK').catch(rollbackErr => {
       logger.error('Transaction rollback failed:', rollbackErr);
@@ -526,7 +526,7 @@ export const registerWalkIn = async (req, res) => {
 export const getAppointmentHistory = async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT ash.id, ash.appointment_id, ash.from_status, ash.to_status, ash.changed_by, ash.changed_by_role, ash.reason, ash.created_at, u.name as changed_by_name
       FROM appointment_status_history ash
       LEFT JOIN users u ON ash.changed_by = u.id

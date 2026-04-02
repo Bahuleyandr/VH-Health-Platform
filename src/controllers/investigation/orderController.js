@@ -1,4 +1,4 @@
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { INVESTIGATION_TYPES, PRIORITY_LEVELS } from '../../config/investigationConfig.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
@@ -11,7 +11,7 @@ import { success, error } from '../../utils/responseHelper.js';
 // Fire-and-forget urgent alert to lab-adjacent staff
 async function sendUrgentAlert(investigation, patientName) {
   try {
-    const staffResult = await db.query(
+    const staffResult = await prisma.$queryRawUnsafe(
       `SELECT id, device_token, name FROM users
        WHERE role IN ('NURSE', 'NURSING_STAFF', 'TECHNICIAN', 'LAB_TECHNICIAN', 'LAB', 'RECEPTIONIST', 'RADIOLOGIST')
          AND device_token IS NOT NULL`
@@ -32,7 +32,7 @@ async function sendUrgentAlert(investigation, patientName) {
       data: { type: 'urgent_investigation', investigation_id: String(investigation.id) }
     });
 
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `UPDATE investigations SET urgent_alert_sent = TRUE WHERE id = $1`,
       [investigation.id]
     );

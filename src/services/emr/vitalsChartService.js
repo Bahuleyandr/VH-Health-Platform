@@ -1,9 +1,12 @@
 // src/services/emr/vitalsChartService.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
+import { createPrismaDb } from '../../lib/prismaCompat.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import news2Service from '../clinical/news2Service.js';
 import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
+
+const db = createPrismaDb(prisma);
 
 // ===================================================================
 // Vitals Charting Service
@@ -76,7 +79,7 @@ export async function recordVitals(data) {
     throw AppError.badRequest(`consciousness must be one of: ${VALID_CONSCIOUSNESS.join(', ')}`);
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `INSERT INTO vitals_chart
        (patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp, temperature,
         spo2, respiratory_rate, blood_glucose, pain_score, weight_kg, height_cm,
@@ -192,7 +195,7 @@ export async function getVitalsTrend(patientUid, vitalType, dateFrom, dateTo) {
   }
 
   // vitalType is validated against VALID_VITAL_TYPES whitelist above — safe for interpolation
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT recorded_at AS timestamp, ${vitalType} AS value
      FROM vitals_chart
      WHERE ${conditions.join(' AND ')}
@@ -213,7 +216,7 @@ export async function getVitalsTrend(patientUid, vitalType, dateFrom, dateTo) {
  * @returns {Object|null} Latest vitals record
  */
 export async function getLatestVitals(patientUid) {
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp,
             temperature, spo2, respiratory_rate, blood_glucose, pain_score,
             weight_kg, height_cm, gcs_score, supplemental_o2, o2_flow_rate,
@@ -256,13 +259,13 @@ export async function getVitalsChart(patientUid, encounterId, pagination = {}) {
   const safeLimit = Math.min(Math.max(1, parseInt(limit, 10)), 100);
   const offset = (Math.max(1, parseInt(page, 10)) - 1) * safeLimit;
 
-  const { rows: countRows } = await db.query(
+  const { rows: countRows } = await prisma.$queryRawUnsafe(
     `SELECT COUNT(*) AS total FROM vitals_chart WHERE ${whereClause}`,
     params
   );
   const total = parseInt(countRows[0].total, 10);
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp,
             temperature, spo2, respiratory_rate, blood_glucose, pain_score,
             weight_kg, height_cm, gcs_score, supplemental_o2, o2_flow_rate,
@@ -313,7 +316,7 @@ export async function recordIntakeOutput(data) {
     throw AppError.badRequest('amount_ml must be a non-negative number');
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `INSERT INTO intake_output
        (patient_uid, encounter_id, io_type, category, amount_ml, description, recorded_by, recorded_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
@@ -354,7 +357,7 @@ export async function getIOBalance(patientUid, encounterId, date) {
   const whereClause = conditions.join(' AND ');
 
   // Get totals by type
-  const { rows: totals } = await db.query(
+  const { rows: totals } = await prisma.$queryRawUnsafe(
     `SELECT io_type, COALESCE(SUM(amount_ml), 0) AS total_ml
      FROM intake_output
      WHERE ${whereClause}
@@ -370,7 +373,7 @@ export async function getIOBalance(patientUid, encounterId, date) {
   }
 
   // Get individual entries
-  const { rows: entries } = await db.query(
+  const { rows: entries } = await prisma.$queryRawUnsafe(
     `SELECT id, io_type, category, amount_ml, description, recorded_by, recorded_at
      FROM intake_output
      WHERE ${whereClause}
@@ -424,7 +427,7 @@ export async function getIOChart(patientUid, encounterId, dateFrom, dateTo) {
 
   const whereClause = conditions.join(' AND ');
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, io_type, category, amount_ml, description, recorded_by, recorded_at
      FROM intake_output
      WHERE ${whereClause}

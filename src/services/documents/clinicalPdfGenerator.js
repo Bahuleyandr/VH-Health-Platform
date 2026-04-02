@@ -2,7 +2,7 @@
 // Generates clinical PDF documents (discharge summary, lab report) using pdfkit.
 
 import PDFDocument from 'pdfkit';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 // =============================================================================
@@ -148,7 +148,7 @@ export async function generateDischargeSummaryPDF(admissionId) {
 export async function generateLabReportPDF(investigationId) {
   logger.info(`Generating lab report PDF for investigation ${investigationId}`);
 
-  const { rows: invRows } = await db.readQuery(
+  const { rows: invRows } = await prisma.$queryRawUnsafe(
     `SELECT i.id, i.patient_uid, i.test_name, i.investigation_type, i.status,
             i.result_summary, i.conclusion, i.interpretation, i.results,
             i.ordered_at, i.completed_at, i.created_at,

@@ -2,7 +2,7 @@
 // E-Prescription system — structured prescription entry, PDF generation, auto-pharmacy order
 
 import PDFDocument from 'pdfkit';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -245,7 +245,7 @@ export const createPrescription = async (req, res) => {
 
     // Validate appointment if provided
     if (appointment_id) {
-      const apptCheck = await db.query('SELECT id FROM appointments WHERE id=$1', [appointment_id]);
+      const apptCheck = await prisma.$queryRawUnsafe('SELECT id FROM appointments WHERE id=$1', [appointment_id]);
       if (apptCheck.rows.length === 0) {
         return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
       }
@@ -263,7 +263,7 @@ export const createPrescription = async (req, res) => {
     const created_by = req.user?.id || req.user?.userId || null;
 
     // Insert prescription
-    const insertResult = await db.query(
+    const insertResult = await prisma.$queryRawUnsafe(
       `INSERT INTO e_prescriptions
         (appointment_id, patient_id, doctor_id, diagnosis, clinical_notes, medications,
          follow_up_date, follow_up_notes, vitals, handwritten_photo_key, created_by)
@@ -284,24 +284,24 @@ export const createPrescription = async (req, res) => {
       ]
     );
 
-    const prescription = insertResult.rows[0];
+    const prescription = insertResult[0];
 
     // Fetch patient and doctor info for PDF
     const [patientRes, doctorRes] = await Promise.all([
-      db.query('SELECT id, name, phone, gender, birthday FROM users WHERE id=$1', [patient_id]),
-      db.query(`SELECT u.id, u.name, u.phone, d.specialization, d.qualification
+      prisma.$queryRawUnsafe('SELECT id, name, phone, gender, birthday FROM users WHERE id=$1', [patient_id]),
+      prisma.$queryRawUnsafe(`SELECT u.id, u.name, u.phone, d.specialization, d.qualification
                 FROM users u LEFT JOIN doctors d ON d.user_id = u.id
                 WHERE u.id=$1`, [doctor_id]),
     ]);
-    const patient = patientRes.rows[0] || {};
-    const doctor = doctorRes.rows[0] || {};
+    const patient = patientRes[0] || {};
+    const doctor = doctorRes[0] || {};
 
     // Generate PDF
     try {
       const pdfBuffer = await generatePrescriptionPDF(prescription, patient, doctor);
       const pdfKey = `prescriptions/pdf/${prescription.prescription_number}.pdf`;
       await uploadFileToR2(pdfBuffer, pdfKey, 'application/pdf');
-      await db.query('UPDATE e_prescriptions SET pdf_key=$1 WHERE id=$2', [pdfKey, prescription.id]);
+      await prisma.$queryRawUnsafe('UPDATE e_prescriptions SET pdf_key=$1 WHERE id=$2', [pdfKey, prescription.id]);
       prescription.pdf_key = pdfKey;
     } catch (pdfErr) {
       logger.error('Failed to generate prescription PDF:', pdfErr);
@@ -331,7 +331,7 @@ export const createPrescription = async (req, res) => {
 export const getPrescription = async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT ep.*,
               p.name AS patient_name, p.phone AS patient_phone, p.gender AS patient_gender, p.birthday AS patient_birthday,
               d.name AS doctor_name, doc.specialization AS doctor_specialization, doc.qualification AS doctor_qualification
@@ -346,7 +346,7 @@ export const getPrescription = async (req, res) => {
       return error(res, 'Prescription not found', HTTP_STATUS.NOT_FOUND);
     }
 
-    const rx = result.rows[0];
+    const rx = result[0];
 
     // Sign URLs
     if (rx.pdf_key) {
@@ -369,7 +369,7 @@ export const getPrescription = async (req, res) => {
 export const getPrescriptionByAppointment = async (req, res) => {
   try {
     const { appointmentId } = req.params;
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT ep.*,
               p.name AS patient_name, p.phone AS patient_phone,
               d.name AS doctor_name, doc.specialization AS doctor_specialization
@@ -385,7 +385,7 @@ export const getPrescriptionByAppointment = async (req, res) => {
       return error(res, 'No prescription found for this appointment', HTTP_STATUS.NOT_FOUND);
     }
 
-    const rx = result.rows[0];
+    const rx = result[0];
     if (rx.pdf_key) {
       try { rx.pdf_url = await getSignedFileUrl(rx.pdf_key); } catch (e) { logger.warn('Signed URL generation failed for PDF:', e.message); }
     }
@@ -407,7 +407,7 @@ export const getMyPrescriptions = async (req, res) => {
       return error(res, 'Authentication required', HTTP_STATUS.UNAUTHORIZED);
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT ep.*,
               d.name AS doctor_name, doc.specialization AS doctor_specialization
        FROM e_prescriptions ep
@@ -462,7 +462,7 @@ export const getAllPrescriptions = async (req, res) => {
     params.push(parseInt(limit));
     params.push(offset);
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT ep.*,
               p.name AS patient_name, p.phone AS patient_phone,
               d.name AS doctor_name, doc.specialization AS doctor_specialization
@@ -493,7 +493,7 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     const userId = req.user?.id || req.user?.userId;
 
     // Fetch prescription
-    const rxResult = await db.query(
+    const rxResult = await prisma.$queryRawUnsafe(
       `SELECT ep.*, p.name AS patient_name, p.phone AS patient_phone
        FROM e_prescriptions ep
        JOIN users p ON p.id = ep.patient_id
@@ -503,7 +503,7 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     if (rxResult.rows.length === 0) {
       return error(res, 'Prescription not found', HTTP_STATUS.NOT_FOUND);
     }
-    const rx = rxResult.rows[0];
+    const rx = rxResult[0];
 
     if (rx.pharmacy_opted) {
       return error(res, 'Pharmacy order already placed for this prescription', HTTP_STATUS.BAD_REQUEST);
@@ -517,12 +517,12 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     for (const med of medications) {
       let price = 0;
       if (med.catalog_id) {
-        const catRes = await db.query('SELECT unit_price FROM pharmacy_catalog WHERE id=$1', [med.catalog_id]);
-        if (catRes.rows.length > 0) price = parseFloat(catRes.rows[0].unit_price);
+        const catRes = await prisma.$queryRawUnsafe('SELECT unit_price FROM pharmacy_catalog WHERE id=$1', [med.catalog_id]);
+        if (catRes.rows.length > 0) price = parseFloat(catRes[0].unit_price);
       } else {
         // Try matching by name
-        const catRes = await db.query('SELECT unit_price FROM pharmacy_catalog WHERE name ILIKE $1 LIMIT 1', [med.name]);
-        if (catRes.rows.length > 0) price = parseFloat(catRes.rows[0].unit_price);
+        const catRes = await prisma.$queryRawUnsafe('SELECT unit_price FROM pharmacy_catalog WHERE name ILIKE $1 LIMIT 1', [med.name]);
+        if (catRes.rows.length > 0) price = parseFloat(catRes[0].unit_price);
       }
       const qty = med.quantity || 1;
       const lineTotal = price * qty;
@@ -537,7 +537,7 @@ export const orderPharmacyFromPrescription = async (req, res) => {
 
     // Create pharmacy order
     const phone = delivery_phone || rx.patient_phone;
-    const orderResult = await db.query(
+    const orderResult = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_orders
         (phone, patient_id, patient_name, order_note, delivery_type, delivery_address, delivery_phone, items_list, total_cost, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')
@@ -554,10 +554,10 @@ export const orderPharmacyFromPrescription = async (req, res) => {
         totalCost,
       ]
     );
-    const pharmacyOrder = orderResult.rows[0];
+    const pharmacyOrder = orderResult[0];
 
     // Link back to prescription
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `UPDATE e_prescriptions
        SET pharmacy_order_id = $1, pharmacy_opted = TRUE, pharmacy_opt_type = $2,
            status = 'pharmacy_linked', updated_at = NOW()
@@ -587,12 +587,12 @@ export const orderPharmacyFromPrescription = async (req, res) => {
 export const downloadPrescriptionPDF = async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await db.query('SELECT pdf_key FROM e_prescriptions WHERE id=$1', [id]);
-    if (result.rows.length === 0 || !result.rows[0].pdf_key) {
+    const result = await prisma.$queryRawUnsafe('SELECT pdf_key FROM e_prescriptions WHERE id=$1', [id]);
+    if (result.rows.length === 0 || !result[0].pdf_key) {
       return error(res, 'PDF not found', HTTP_STATUS.NOT_FOUND);
     }
 
-    const url = await getSignedFileUrl(result.rows[0].pdf_key);
+    const url = await getSignedFileUrl(result[0].pdf_key);
     success(res, { url }, 'PDF URL');
   } catch (err) {
     logger.error('Download prescription PDF error:', err);

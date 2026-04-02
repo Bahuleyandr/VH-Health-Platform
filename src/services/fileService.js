@@ -1,6 +1,6 @@
 // src/services/fileService.js - Hospital File Operations Service
 
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import { HOSPITAL_UPLOAD_CONFIG } from '../config/uploadConfig.js';
 import logger from '../logging/logger.js';
 import { scanFileWithClamAV } from '../utils/clamavScanHelper.js';
@@ -66,7 +66,7 @@ export async function processAndUploadFile(file, metadata, user) {
   const retentionDate = calculateRetentionDate(category);
 
   // Store comprehensive metadata
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     INSERT INTO file_metadata (
       file_name, file_type, file_size, original_size, storage_key, storage_url,
       category, description, is_private, is_hipaa_protected, uploaded_by,
@@ -86,7 +86,7 @@ export async function processAndUploadFile(file, metadata, user) {
     ]
   );
 
-  const fileId = result.rows[0].id;
+  const fileId = result[0].id;
 
   // Log file upload
   await auditService.logFileAccess(fileId, 'upload', uploadedBy, ipAddress, userAgent, 
@@ -109,7 +109,7 @@ export async function processAndUploadFile(file, metadata, user) {
     category,
     isHipaaProtected: finalHipaaProtected,
     storageKey: key,
-    retentionDate: result.rows[0].retention_date,
+    retentionDate: result[0].retention_date,
     url: (isPrivate || finalHipaaProtected) ? null : url,
     scanStatus: 'pending',
     processingTimeMs: processingTime,
@@ -142,7 +142,7 @@ function scheduleVirusScan(fileId, url, fileName, urgencyLevel, ipAddress, key) 
       }
 
       // Update scan results
-      await db.query(`
+      await prisma.$queryRawUnsafe(`
         UPDATE file_metadata SET 
           scan_status = $1, scan_result = $2, scanned_at = NOW(),
           scan_duration_ms = $3
@@ -151,7 +151,7 @@ function scheduleVirusScan(fileId, url, fileName, urgencyLevel, ipAddress, key) 
 
       // Immediate quarantine for infected files
       if (status === 'infected') {
-        await db.query(`
+        await prisma.$queryRawUnsafe(`
           UPDATE file_metadata SET 
             is_quarantined = true, quarantined_at = NOW(), 
             quarantine_reason = $1, quarantined_by = 'system'
@@ -175,7 +175,7 @@ function scheduleVirusScan(fileId, url, fileName, urgencyLevel, ipAddress, key) 
 
     } catch (scanError) {
       logger.error('File scanning error:', scanError);
-      await db.query(`
+      await prisma.$queryRawUnsafe(`
         UPDATE file_metadata SET 
           scan_status = $1, scan_result = $2, scanned_at = NOW()
         WHERE id = $3
@@ -185,7 +185,7 @@ function scheduleVirusScan(fileId, url, fileName, urgencyLevel, ipAddress, key) 
 }
 
 export async function getFileMetadata(fileId, userId, userRole) {
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     SELECT 
       fm.*,
       u.name as uploaded_by_name,
@@ -212,7 +212,7 @@ export async function getFileMetadata(fileId, userId, userRole) {
     return null;
   }
 
-  const file = result.rows[0];
+  const file = result[0];
 
   // Access control checks
   const canAccess = 
@@ -229,7 +229,7 @@ export async function getFileMetadata(fileId, userId, userRole) {
 }
 
 export async function generateDownloadUrl(fileId, userId, userRole, expiresIn = 3600, ipAddress) {
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     SELECT 
       storage_key, file_name, is_private, is_hipaa_protected, 
       is_quarantined, scan_status, uploaded_by, urgency_level,
@@ -242,7 +242,7 @@ export async function generateDownloadUrl(fileId, userId, userRole, expiresIn = 
     throw new Error('Hospital file not found');
   }
 
-  const file = result.rows[0];
+  const file = result[0];
 
   // Security checks
   if (file.is_quarantined) {
@@ -305,7 +305,7 @@ export async function generateDownloadUrl(fileId, userId, userRole, expiresIn = 
 }
 
 export async function deleteFile(fileId, userId, userRole, reason, permanentDelete, ipAddress) {
-  const fileResult = await db.query(`
+  const fileResult = await prisma.$queryRawUnsafe(`
     SELECT 
       storage_key, file_name, uploaded_by, is_private, is_hipaa_protected,
       file_size, category, retention_date
@@ -317,7 +317,7 @@ export async function deleteFile(fileId, userId, userRole, reason, permanentDele
     throw new Error('Hospital file not found');
   }
 
-  const file = fileResult.rows[0];
+  const file = fileResult[0];
 
   // Permission checks
   const canDelete = 
@@ -341,7 +341,7 @@ export async function deleteFile(fileId, userId, userRole, reason, permanentDele
 
   if (file.is_hipaa_protected && isWithinRetention && !permanentDelete) {
     // Soft delete for HIPAA files within retention period
-    await db.query(`
+    await prisma.$queryRawUnsafe(`
       UPDATE file_metadata 
       SET is_deleted = true, deleted_at = NOW(), deleted_by = $1, deletion_reason = $2
       WHERE id = $3
@@ -366,7 +366,7 @@ export async function deleteFile(fileId, userId, userRole, reason, permanentDele
     }
 
     // Remove from database
-    await db.query('DELETE FROM file_metadata WHERE id = $1', [fileId]);
+    await prisma.$queryRawUnsafe('DELETE FROM file_metadata WHERE id = $1', [fileId]);
 
     // Log permanent deletion
     await auditService.logFileDeletion(

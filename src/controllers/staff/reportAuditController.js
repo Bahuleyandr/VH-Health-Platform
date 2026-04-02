@@ -4,7 +4,7 @@
  * Tracks SLA compliance, HR/admin activity, unresolved items, and action history.
  * All queries are read-only — no mutations here.
  */
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
@@ -29,7 +29,7 @@ export const getAuditDashboard = async (req, res) => {
   try {
     const [incidentSummary, grievanceSummary, slaBreaches, recentActivity, unassigned] = await Promise.all([
 
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT
           COUNT(*) FILTER (WHERE status NOT IN ('resolved','closed')) as open_count,
           COUNT(*) FILTER (WHERE status = 'submitted' AND created_at < NOW() - INTERVAL '24 hours') as overdue_new,
@@ -41,7 +41,7 @@ export const getAuditDashboard = async (req, res) => {
         FROM incident_reports
       `),
 
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT
           COUNT(*) FILTER (WHERE status NOT IN ('resolved','closed')) as open_count,
           COUNT(*) FILTER (WHERE status = 'submitted' AND created_at < NOW() - INTERVAL '48 hours') as overdue_new,
@@ -53,7 +53,7 @@ export const getAuditDashboard = async (req, res) => {
       `),
 
       // SLA breaches — incidents past acknowledge threshold with no update
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT
           'incident' as type,
           ir.id,
@@ -84,7 +84,7 @@ export const getAuditDashboard = async (req, res) => {
       `),
 
       // Recent admin/HR activity
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT
           ru.id,
           ru.report_type,
@@ -106,7 +106,7 @@ export const getAuditDashboard = async (req, res) => {
       `),
 
       // Unassigned open reports
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT 'incident' as type, id, report_number, severity as priority_indicator, title as subject, created_at
         FROM incident_reports
         WHERE assigned_to IS NULL AND status NOT IN ('resolved','closed')
@@ -120,8 +120,8 @@ export const getAuditDashboard = async (req, res) => {
     ]);
 
     success(res, {
-      incidents: incidentSummary.rows[0],
-      grievances: grievanceSummary.rows[0],
+      incidents: incidentSummary[0],
+      grievances: grievanceSummary[0],
       sla_breaches: slaBreaches.rows,
       recent_activity: recentActivity.rows,
       unassigned: unassigned.rows,
@@ -160,11 +160,11 @@ export const getReportAuditTrail = async (req, res) => {
          LEFT JOIN users u3 ON sg.resolved_by = u3.id
          WHERE sg.id = $1`;
 
-    const report = await db.query(reportQuery, [id]);
+    const report = await prisma.$queryRawUnsafe(reportQuery, [id]);
     if (report.rows.length === 0) return error(res, 'Report not found', HTTP_STATUS.NOT_FOUND);
 
     // All updates including internal (audit view sees everything)
-    const trail = await db.query(`
+    const trail = await prisma.$queryRawUnsafe(`
       SELECT ru.*, u.name as author_name, u.role as author_db_role
       FROM report_updates ru
       LEFT JOIN users u ON ru.author_id = u.id
@@ -173,7 +173,7 @@ export const getReportAuditTrail = async (req, res) => {
     `, [type, id]);
 
     // SLA calculation
-    const reportData = report.rows[0];
+    const reportData = report[0];
     const createdAt = new Date(reportData.created_at);
     const resolvedAt = reportData.resolved_at ? new Date(reportData.resolved_at) : null;
     const hoursOpen = (Date.now() - createdAt.getTime()) / 3600000;
@@ -213,7 +213,7 @@ export const getAdminActivityReport = async (req, res) => {
     const interval = `${parseInt(days)} days`;
 
     // Per-admin action counts
-    const adminActivity = await db.query(`
+    const adminActivity = await prisma.$queryRawUnsafe(`
       SELECT
         u.id,
         u.name,
@@ -234,7 +234,7 @@ export const getAdminActivityReport = async (req, res) => {
     `, [interval]);
 
     // Reports that had NO admin action in expected window
-    const neglected = await db.query(`
+    const neglected = await prisma.$queryRawUnsafe(`
       SELECT
         'incident' as type,
         ir.id,
@@ -280,7 +280,7 @@ export const getAdminActivityReport = async (req, res) => {
     `, [interval]);
 
     // Resolution rate
-    const resolutionStats = await db.query(`
+    const resolutionStats = await prisma.$queryRawUnsafe(`
       SELECT
         'incident' as type,
         COUNT(*) FILTER (WHERE status IN ('resolved','closed')) as resolved,
@@ -319,7 +319,7 @@ export const getSLAReport = async (req, res) => {
   try {
     const { days = 30 } = req.query;
 
-    const incidentSLA = await db.query(`
+    const incidentSLA = await prisma.$queryRawUnsafe(`
       SELECT
         severity,
         COUNT(*) as total,
@@ -337,7 +337,7 @@ export const getSLAReport = async (req, res) => {
       ORDER BY CASE severity WHEN 'sentinel' THEN 1 WHEN 'severe' THEN 2 WHEN 'moderate' THEN 3 ELSE 4 END
     `, [`${parseInt(days)} days`]);
 
-    const grievanceSLA = await db.query(`
+    const grievanceSLA = await prisma.$queryRawUnsafe(`
       SELECT
         priority,
         COUNT(*) as total,

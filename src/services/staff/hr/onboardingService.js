@@ -1,5 +1,5 @@
 // src/services/staff/hr/onboardingService.js
-import db from '../../../config/database.js';
+import prisma from '../../../lib/prisma.js';
 import logger from '../../../logging/logger.js';
 
 /**
@@ -9,7 +9,7 @@ import logger from '../../../logging/logger.js';
  */
 export const getOnboardingChecklist = async (staffId) => {
   // Get staff information
-  const staffInfo = await db.query(`
+  const staffInfo = await prisma.$queryRawUnsafe(`
     SELECT u.name, u.email, u.phone, s.employee_id, s.position, 
            s.department, s.hire_date, s.supervisor_id
     FROM users u
@@ -21,12 +21,12 @@ export const getOnboardingChecklist = async (staffId) => {
     return null;
   }
 
-  const staff = staffInfo.rows[0];
+  const staff = staffInfo[0];
 
   // Get onboarding checklist
   let onboardingTasks = [];
   try {
-    const tasksResult = await db.query(`
+    const tasksResult = await prisma.$queryRawUnsafe(`
       SELECT task_name, description, completed, completed_date, 
              assigned_to, due_date, priority
       FROM staff_onboarding_tasks
@@ -104,7 +104,7 @@ export const getOnboardingChecklist = async (staffId) => {
  * @returns {Object} Updated task details
  */
 export const updateOnboardingTask = async (staffId, taskId, completed, completedBy) => {
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     UPDATE staff_onboarding_tasks 
     SET completed = $1, 
         completed_date = CASE WHEN $1 = true THEN NOW() ELSE NULL END,
@@ -119,7 +119,7 @@ export const updateOnboardingTask = async (staffId, taskId, completed, completed
   }
 
   return {
-    task: result.rows[0],
+    task: result[0],
     message: completed ? 'Task marked as completed' : 'Task marked as incomplete'
   };
 };
@@ -131,7 +131,7 @@ export const updateOnboardingTask = async (staffId, taskId, completed, completed
  * @returns {boolean} True if viewing own onboarding
  */
 export const isUserViewingOwnOnboarding = async (staffId, userUid) => {
-  const result = await db.query(
+  const result = await prisma.$queryRawUnsafe(
     'SELECT 1 FROM users WHERE id = $1 AND uid = $2',
     [staffId, userUid]
   );

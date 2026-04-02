@@ -1,6 +1,6 @@
 // src/routes/appointment/appointmentAdminRoutes.js
 import express from 'express';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import logger from '../../logging/logger.js';
@@ -49,7 +49,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         }
 
         // Overall statistics
-        const overallStats = await db.query(`
+        const overallStats = await prisma.$queryRawUnsafe(`
           SELECT 
             COUNT(*) as total_appointments,
             COUNT(CASE WHEN status = 'scheduled' THEN 1 END) as scheduled,
@@ -68,7 +68,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         `, params);
 
         // Appointment trends
-        const trends = await db.query(`
+        const trends = await prisma.$queryRawUnsafe(`
           SELECT 
             DATE(appointment_date) as date,
             COUNT(*) as total,
@@ -83,7 +83,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         `, params);
 
         // Department-wise breakdown
-        const departmentStats = await db.query(`
+        const departmentStats = await prisma.$queryRawUnsafe(`
           SELECT 
             dept.name as department,
             COUNT(a.id) as appointments,
@@ -98,7 +98,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         `, params);
 
         // Peak hours analysis
-        const peakHours = await db.query(`
+        const peakHours = await prisma.$queryRawUnsafe(`
           SELECT 
             EXTRACT(HOUR FROM appointment_date) as hour,
             COUNT(*) as appointments,
@@ -112,7 +112,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
 
         success(res, {
           timeframe,
-          overall: overallStats.rows[0],
+          overall: overallStats[0],
           trends: trends.rows,
           departmentBreakdown: departmentStats.rows,
           peakHours: peakHours.rows,
@@ -181,7 +181,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           : '';
 
         // Get appointments with full details
-        const appointments = await db.query(`
+        const appointments = await prisma.$queryRawUnsafe(`
           SELECT 
             a.*,
             p.name as patient_name,
@@ -204,7 +204,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         `, [...params, limit, offset]);
 
         // Get total count
-        const countResult = await db.query(`
+        const countResult = await prisma.$queryRawUnsafe(`
           SELECT COUNT(*) 
           FROM appointments a
           JOIN users p ON a.patient_id = p.id
@@ -214,7 +214,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           ${whereClause}
         `, params);
 
-        const totalCount = parseInt(countResult.rows[0].count);
+        const totalCount = parseInt(countResult[0].count);
 
         success(res, {
           appointments: appointments.rows,
@@ -255,7 +255,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           whereClause += ` AND a1.doctor_id = $${params.length}`;
         }
 
-        const conflicts = await db.query(`
+        const conflicts = await prisma.$queryRawUnsafe(`
           SELECT 
             a1.id as appointment1_id,
             a1.appointment_date as appointment1_time,
@@ -305,7 +305,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           default: interval = '30 days';
         }
 
-        const noShowPatients = await db.query(`
+        const noShowPatients = await prisma.$queryRawUnsafe(`
           SELECT 
             p.id,
             p.name,
@@ -365,7 +365,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           ? 'WHERE ' + whereConditions.join(' AND ') 
           : '';
 
-        const appointments = await db.query(`
+        const appointments = await prisma.$queryRawUnsafe(`
           SELECT 
             a.id,
             a.appointment_date,
@@ -426,7 +426,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           whereClause += ` AND doc.department_id = $${params.length}`;
         }
 
-        const capacity = await db.query(`
+        const capacity = await prisma.$queryRawUnsafe(`
           SELECT 
             d.id as doctor_id,
             d.name as doctor_name,
@@ -451,7 +451,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           ORDER BY utilization_percentage DESC
         `, params);
 
-        const summary = await db.query(`
+        const summary = await prisma.$queryRawUnsafe(`
           SELECT 
             COUNT(DISTINCT doc.id) as total_doctors,
             SUM(doc.max_appointments_per_day) as total_capacity,
@@ -464,7 +464,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
 
         success(res, {
           date,
-          summary: summary.rows[0],
+          summary: summary[0],
           doctorCapacity: capacity.rows,
           department_id,
           requestedBy: req.user?.name
@@ -493,7 +493,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
 
         const placeholders = appointment_ids.map((_, i) => `$${i + 3}`).join(',');
         
-        const result = await db.query(`
+        const result = await prisma.$queryRawUnsafe(`
           UPDATE appointments 
           SET status = $1, 
               notes = COALESCE(notes || E'\n', '') || 'Admin update: ' || $2,
@@ -532,7 +532,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
 
         // Check for conflicts unless explicitly ignored
         if (!ignore_conflicts) {
-          const conflictCheck = await db.query(`
+          const conflictCheck = await prisma.$queryRawUnsafe(`
             SELECT id FROM appointments 
             WHERE doctor_id = $1 
               AND appointment_date = $2 
@@ -545,7 +545,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         }
 
         // Create appointment with admin override
-        const result = await db.query(`
+        const result = await prisma.$queryRawUnsafe(`
           INSERT INTO appointments (
             patient_id, doctor_id, appointment_date, reason,
             status, created_at, created_by, 
@@ -559,10 +559,10 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           override_reason
         ]);
 
-        logger.info(`Admin ${req.user?.name} override booked appointment ${result.rows[0].id}`);
+        logger.info(`Admin ${req.user?.name} override booked appointment ${result[0].id}`);
 
         success(res, {
-          appointment: result.rows[0],
+          appointment: result[0],
           override: true,
           bookedBy: req.user?.name
         }, 'Appointment booked with admin override');
@@ -586,14 +586,14 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         
         switch (resolution_action) {
           case 'cancel_first':
-            result = await db.query(
+            result = await prisma.$queryRawUnsafe(
               'UPDATE appointments SET status = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, date, status, notes, created_at, updated_at',
               ['cancelled', `Cancelled by admin due to conflict resolution`, conflict_appointments[0]]
             );
             break;
 
           case 'cancel_second':
-            result = await db.query(
+            result = await prisma.$queryRawUnsafe(
               'UPDATE appointments SET status = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, date, status, notes, created_at, updated_at',
               ['cancelled', `Cancelled by admin due to conflict resolution`, conflict_appointments[1]]
             );
@@ -603,7 +603,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
             if (!new_time) {
               return error(res, 'new_time required for rescheduling', HTTP_STATUS.BAD_REQUEST);
             }
-            result = await db.query(
+            result = await prisma.$queryRawUnsafe(
               'UPDATE appointments SET appointment_date = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, date, status, notes, created_at, updated_at',
               [new_time, `Rescheduled by admin due to conflict`, conflict_appointments[0]]
             );
@@ -613,7 +613,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
             if (!new_time) {
               return error(res, 'new_time required for rescheduling', HTTP_STATUS.BAD_REQUEST);
             }
-            result = await db.query(
+            result = await prisma.$queryRawUnsafe(
               'UPDATE appointments SET appointment_date = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, date, status, notes, created_at, updated_at',
               [new_time, `Rescheduled by admin due to conflict`, conflict_appointments[1]]
             );
@@ -627,7 +627,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
 
         success(res, {
           resolution: resolution_action,
-          updatedAppointment: result.rows[0],
+          updatedAppointment: result[0],
           resolvedBy: req.user?.name
         }, 'Conflict resolved successfully');
 
@@ -657,7 +657,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           whereConditions.push(`doc.department_id = ANY($${params.length})`);
         }
 
-        const appointments = await db.query(`
+        const appointments = await prisma.$queryRawUnsafe(`
           SELECT 
             a.id,
             a.appointment_date,
@@ -679,7 +679,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         const appointmentIds = appointments.rows.map(a => a.id);
         
         if (appointmentIds.length > 0) {
-          await db.query(
+          await prisma.$queryRawUnsafe(
             `UPDATE appointments SET reminder_sent = true WHERE id = ANY($1)`,
             [appointmentIds]
           );
@@ -720,7 +720,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         }
 
         // Archive before deletion
-        const archiveResult = await db.query(`
+        const archiveResult = await prisma.$queryRawUnsafe(`
           INSERT INTO appointment_archive (
             original_id, patient_id, doctor_id, appointment_date,
             status, reason, notes, deleted_by, deleted_at, deletion_reason
@@ -735,7 +735,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
 
         // Delete appointments
         const placeholders = appointment_ids.map((_, i) => `$${i + 1}`).join(',');
-        await db.query(
+        await prisma.$queryRawUnsafe(
           `DELETE FROM appointments WHERE id IN (${placeholders})`,
           appointment_ids
         );

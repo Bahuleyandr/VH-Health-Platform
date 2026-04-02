@@ -1,5 +1,5 @@
 // src/services/staff/hr/reportingService.js
-import db from '../../../config/database.js';
+import prisma from '../../../lib/prisma.js';
 import logger from '../../../logging/logger.js';
 
 /**
@@ -71,7 +71,7 @@ const generateAttendanceReport = async (department, start_date, end_date) => {
     queryParams.push(start_date, end_date);
   }
 
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     SELECT 
       u.name,
       s.employee_id,
@@ -118,7 +118,7 @@ const generatePerformanceReportData = async (department, start_date, end_date) =
     queryParams.push(department);
   }
 
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     SELECT 
       u.name,
       s.employee_id,
@@ -164,7 +164,7 @@ const generateLeaveReport = async (department, start_date, end_date) => {
     queryParams.push(start_date, end_date);
   }
 
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     SELECT 
       u.name,
       s.employee_id,
@@ -210,7 +210,7 @@ const generatePayrollReport = async (department, start_date, end_date) => {
     queryParams.push(department);
   }
 
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     SELECT 
       u.name,
       s.employee_id,

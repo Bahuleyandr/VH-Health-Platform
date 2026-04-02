@@ -1,6 +1,6 @@
 // src/utils/logAudit.js
 
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 
 /**
@@ -15,7 +15,7 @@ export async function logAudit(req, action, metadata = {}) {
   const ip = req.headers['x-forwarded-for'] || req.connection?.remoteAddress || null;
 
   try {
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `INSERT INTO audit_logs (uid, role, ip, action, metadata)
        VALUES ($1, $2, $3, $4, $5)`,
       [uid, role, ip, action, metadata]

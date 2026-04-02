@@ -7,7 +7,7 @@
  * Falls back to Winston file logging when DB writes fail.
  */
 
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 
 let pendingSecurityLogs = 0;
@@ -39,7 +39,7 @@ export function logSecurityEvent(eventType, details = {}) {
   // Fire-and-forget with bounded queue
   setImmediate(async () => {
     try {
-      await db.query(`
+      await prisma.$queryRawUnsafe(`
         INSERT INTO audit_log
           (user_id, user_name, user_role, ip_address, method, path, module, action,
            query_params, request_summary, status_code, response_time_ms, success, user_agent)

@@ -1,4 +1,4 @@
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 
 /**
@@ -11,7 +11,7 @@ export async function runCanaryChecks() {
   // 1. Database read
   try {
     const start = Date.now();
-    await db.query('SELECT 1 AS ok');
+    await prisma.$queryRawUnsafe('SELECT 1 AS ok');
     results.database_read = { status: 'ok', latency_ms: Date.now() - start };
   } catch (err) {
     results.database_read = { status: 'fail', error: err.message };
@@ -20,7 +20,7 @@ export async function runCanaryChecks() {
   // 2. Database write (to a canary table)
   try {
     const start = Date.now();
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `INSERT INTO canary_checks (checked_at, status) VALUES (NOW(), 'ok')
        ON CONFLICT DO NOTHING`
     );
@@ -32,11 +32,11 @@ export async function runCanaryChecks() {
 
   // 3. Check for stuck notifications (older than 30 min in PENDING)
   try {
-    const stuck = await db.query(
+    const stuck = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) as count FROM notification_outbox
        WHERE status = 'PENDING' AND created_at < NOW() - INTERVAL '30 minutes'`
     );
-    const stuckCount = parseInt(stuck.rows[0]?.count || 0);
+    const stuckCount = parseInt(stuck[0]?.count || 0);
     results.stuck_notifications = {
       status: stuckCount > 50 ? 'warn' : 'ok',
       count: stuckCount
@@ -47,11 +47,11 @@ export async function runCanaryChecks() {
 
   // 4. Check for unprocessed clinical alerts (older than 15 min)
   try {
-    const alerts = await db.query(
+    const alerts = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) as count FROM clinical_alerts
        WHERE acknowledged_at IS NULL AND severity = 'CRITICAL' AND created_at < NOW() - INTERVAL '15 minutes'`
     );
-    const alertCount = parseInt(alerts.rows[0]?.count || 0);
+    const alertCount = parseInt(alerts[0]?.count || 0);
     results.unacknowledged_critical_alerts = {
       status: alertCount > 0 ? 'critical' : 'ok',
       count: alertCount

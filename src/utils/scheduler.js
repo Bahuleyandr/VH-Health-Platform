@@ -108,30 +108,30 @@ cron.schedule('0 9 * * *', withJobLock('investigation-notifications', sendInvest
 cron.schedule('30 3 * * *', withJobLock('purge-audit-logs', async () => {
   logger.info('Scheduled Task: Purging audit logs older than 90 days...');
   const { default: db } = await import('../config/database.js');
-  const result = await db.query(
+  const result = await prisma.$queryRawUnsafe(
     `DELETE FROM audit_log WHERE created_at < NOW() - INTERVAL '90 days'`
   );
-  logger.info(`Audit log cleanup: ${result.rowCount} rows deleted`);
+  logger.info(`Audit log cleanup: ${result.length} rows deleted`);
 }));
 
 // 🗓️ Daily at 03:35 - Purge expired token blacklist entries
 cron.schedule('35 3 * * *', withJobLock('purge-invalidated-tokens', async () => {
   logger.info('Scheduled Task: Purging expired invalidated tokens...');
   const { default: db } = await import('../config/database.js');
-  const result = await db.query(
+  const result = await prisma.$queryRawUnsafe(
     `DELETE FROM invalidated_tokens WHERE expires_at < NOW()`
   );
-  logger.info(`Invalidated tokens cleanup: ${result.rowCount} rows deleted`);
+  logger.info(`Invalidated tokens cleanup: ${result.length} rows deleted`);
 }));
 
 // 🗓️ Daily at 03:40 - Purge expired OTP sessions
 cron.schedule('40 3 * * *', withJobLock('purge-expired-otps', async () => {
   logger.info('Scheduled Task: Purging expired OTP sessions...');
   const { default: db } = await import('../config/database.js');
-  const result = await db.query(
+  const result = await prisma.$queryRawUnsafe(
     `DELETE FROM otp_sessions WHERE expires_at < NOW() - INTERVAL '1 day'`
   );
-  logger.info(`Expired OTP cleanup: ${result.rowCount} rows deleted`);
+  logger.info(`Expired OTP cleanup: ${result.length} rows deleted`);
 }));
 
 // 🗓️ Daily at 03:45 - Purge housekeeping photos past retention window
@@ -189,17 +189,17 @@ cron.schedule('0 6 1 * *', withJobLock('monthly-payroll', async () => {
   const { calculatePayslip, savePayslip } = await import('../services/staff/payrollService.js');
 
   // Check if already done
-  const existing = await db.query(
+  const existing = await prisma.$queryRawUnsafe(
     'SELECT id, status FROM payroll_runs WHERE month=$1 AND year=$2',
     [month, year]
   );
-  if (existing.rows.length > 0 && existing.rows[0].status === 'completed') {
+  if (existing.rows.length > 0 && existing[0].status === 'completed') {
     logger.info(`Payroll for ${month}/${year} already completed`);
     return;
   }
 
   // Get all active staff with salary config
-  const staffList = await db.query(`
+  const staffList = await prisma.$queryRawUnsafe(`
     SELECT ss.staff_uid, u.name, u.role,
            COALESCE(s.department, ss.department) as department
     FROM staff_salary ss
@@ -209,14 +209,14 @@ cron.schedule('0 6 1 * *', withJobLock('monthly-payroll', async () => {
   `);
 
   // Create / reset run
-  const run = await db.query(
+  const run = await prisma.$queryRawUnsafe(
     `INSERT INTO payroll_runs (month, year, status)
      VALUES ($1, $2, 'processing')
      ON CONFLICT (month, year) DO UPDATE SET status='processing'
      RETURNING id, month, year, status, total_staff, total_gross, total_net, total_deductions, created_at`,
     [month, year]
   );
-  const runId = run.rows[0].id;
+  const runId = run[0].id;
 
   let processed = 0;
   let totalGross = 0, totalNet = 0, totalDeductions = 0;
@@ -233,7 +233,7 @@ cron.schedule('0 6 1 * *', withJobLock('monthly-payroll', async () => {
     }
   }
 
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `UPDATE payroll_runs SET status='completed', total_staff=$1, total_gross=$2, total_net=$3, total_deductions=$4 WHERE id=$5`,
     [processed, totalGross.toFixed(2), totalNet.toFixed(2), totalDeductions.toFixed(2), runId]
   );
@@ -245,7 +245,7 @@ cron.schedule('0 8 1 12 *', withJobLock('annual-salary-review', async () => {
   logger.info('Scheduled Task: Annual salary review reminder...');
   const year = new Date().getFullYear();
   const { default: db } = await import('../config/database.js');
-  await db.query(`
+  await prisma.$queryRawUnsafe(`
     INSERT INTO annual_review_reminders (staff_uid, review_year, reminder_sent_at)
     SELECT ss.staff_uid, $1, NOW()
     FROM staff_salary ss

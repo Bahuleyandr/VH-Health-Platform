@@ -1,4 +1,4 @@
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 
 /**
@@ -21,7 +21,7 @@ export async function detectSchemaDrift() {
   ];
 
   try {
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT table_name FROM information_schema.tables
        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`
     );

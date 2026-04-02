@@ -1,5 +1,5 @@
 // src/services/clinical/marService.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
@@ -33,7 +33,7 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
       throw AppError.badRequest(`Invalid route: ${med.route}. Must be one of: ${VALID_ROUTES.join(', ')}`);
     }
 
-    const { rows } = await db.query(
+    const { rows } = await prisma.$queryRawUnsafe(
       `INSERT INTO medication_administrations
          (patient_uid, prescription_id, medication_name, dose, route, scheduled_time, notes, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, 'scheduled')
@@ -64,7 +64,7 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
  * @returns {Object} Updated record
  */
 export async function recordAdministration(id, administeredBy, notes = null, witnessUid = null) {
-  const { rows: existing } = await db.query(
+  const { rows: existing } = await prisma.$queryRawUnsafe(
     'SELECT id, status FROM medication_administrations WHERE id = $1',
     [id]
   );
@@ -81,7 +81,7 @@ export async function recordAdministration(id, administeredBy, notes = null, wit
     throw AppError.invalidTransition(existing[0].status, 'administered', ['scheduled', 'held']);
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `UPDATE medication_administrations
      SET status = 'administered',
          administered_at = NOW(),
@@ -104,7 +104,7 @@ export async function recordAdministration(id, administeredBy, notes = null, wit
  * @returns {Object} Updated record
  */
 export async function recordMissed(id, reason) {
-  const { rows: existing } = await db.query(
+  const { rows: existing } = await prisma.$queryRawUnsafe(
     'SELECT id, status FROM medication_administrations WHERE id = $1',
     [id]
   );
@@ -117,7 +117,7 @@ export async function recordMissed(id, reason) {
     throw AppError.invalidTransition(existing[0].status, 'missed', ['scheduled']);
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `UPDATE medication_administrations
      SET status = 'missed', notes = COALESCE($2, notes)
      WHERE id = $1
@@ -141,7 +141,7 @@ export async function holdMedication(id, reason, heldBy) {
     throw AppError.badRequest('Hold reason is required');
   }
 
-  const { rows: existing } = await db.query(
+  const { rows: existing } = await prisma.$queryRawUnsafe(
     'SELECT id, status FROM medication_administrations WHERE id = $1',
     [id]
   );
@@ -154,7 +154,7 @@ export async function holdMedication(id, reason, heldBy) {
     throw AppError.invalidTransition(existing[0].status, 'held', ['scheduled']);
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `UPDATE medication_administrations
      SET status = 'held', hold_reason = $2, administered_by = $3
      WHERE id = $1
@@ -175,7 +175,7 @@ export async function holdMedication(id, reason, heldBy) {
 export async function getPatientMAR(patientUid, date) {
   const targetDate = date || new Date().toISOString().split('T')[0];
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, prescription_id, medication_name, dose, route,
             scheduled_time, administered_at, administered_by, status,
             hold_reason, refusal_reason, notes, witness_uid, created_at
@@ -218,7 +218,7 @@ export async function getOverdueMedications(wardId) {
 
   query += ' ORDER BY ma.scheduled_time ASC';
 
-  const { rows } = await db.query(query, params);
+  const { rows } = await prisma.$queryRawUnsafe(query, params);
   return rows;
 }
 

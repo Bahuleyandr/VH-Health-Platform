@@ -2,7 +2,7 @@
 
 import crypto from 'crypto';
 import { validationResult } from 'express-validator';
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
 import logger from '../logging/logger.js';
 import * as auditService from '../services/auditService.js';
@@ -116,7 +116,7 @@ export async function uploadBatchFiles(req, res) {
     }
 
     // Log batch completion
-    await db.query(`
+    await prisma.$queryRawUnsafe(`
       INSERT INTO batch_upload_logs (
         batch_id, uploaded_by, total_files, successful_files, failed_files,
         total_processing_time_ms, category, is_hipaa_protected, completed_at
@@ -245,7 +245,7 @@ export async function listFiles(req, res) {
     }
 
     // Main query
-    const files = await db.query(`
+    const files = await prisma.$queryRawUnsafe(`
       SELECT 
         fm.id, fm.file_name, fm.file_type, fm.file_size, fm.original_size,
         fm.category, fm.description, fm.is_private, fm.is_hipaa_protected,
@@ -275,7 +275,7 @@ export async function listFiles(req, res) {
 
     // Count total
     const totalQuery = `SELECT COUNT(*) FROM file_metadata fm ${whereClause}`;
-    const total = await db.query(totalQuery, params.slice(2));
+    const total = await prisma.$queryRawUnsafe(totalQuery, params.slice(2));
 
     // Format dates
     const formattedFiles = files.rows.map(formatFileResponse);
@@ -285,8 +285,8 @@ export async function listFiles(req, res) {
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        total: parseInt(total.rows[0].count),
-        totalPages: Math.ceil(total.rows[0].count / limit)
+        total: parseInt(total[0].count),
+        totalPages: Math.ceil(total[0].count / limit)
       },
       filters: { 
         category, scanStatus, isPrivate, uploadedBy, patientPhone, 

@@ -1,5 +1,5 @@
 // src/services/clinical/news2Service.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import notificationOutbox from '../../utils/notifications/notificationOutbox.js';
@@ -129,7 +129,7 @@ export function getClinicalRisk(score) {
 export async function recordNEWS2(patientUid, vitals, recordedBy) {
   const { totalScore, clinicalRisk, escalationAction } = calculateNEWS2(vitals);
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `INSERT INTO news2_scores
        (patient_uid, respiration_rate, spo2, spo2_scale, supplemental_o2,
         temperature, systolic_bp, heart_rate, consciousness,
@@ -187,7 +187,7 @@ export async function recordNEWS2(patientUid, vitals, recordedBy) {
  * @returns {Object} { scores, trend }
  */
 export async function getPatientNEWS2History(patientUid, limit = 50) {
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, respiration_rate, spo2, spo2_scale, supplemental_o2,
             temperature, systolic_bp, heart_rate, consciousness,
             total_score, clinical_risk, escalation_action, recorded_by, recorded_at

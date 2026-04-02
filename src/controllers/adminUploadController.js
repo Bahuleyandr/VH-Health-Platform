@@ -1,7 +1,7 @@
 // src/controllers/adminUploadController.js - Hospital Admin Upload Controller
 
 import { validationResult } from 'express-validator';
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
 import logger from '../logging/logger.js';
 import * as auditService from '../services/auditService.js';
@@ -42,7 +42,7 @@ export async function getFileStats(req, res) {
     }
 
     // Overall statistics
-    const stats = await db.query(`
+    const stats = await prisma.$queryRawUnsafe(`
       SELECT 
         COUNT(*) as total_files,
         SUM(file_size) as total_size_bytes,
@@ -63,7 +63,7 @@ export async function getFileStats(req, res) {
     `);
 
     // Category breakdown
-    const categoryStats = await db.query(`
+    const categoryStats = await prisma.$queryRawUnsafe(`
       SELECT 
         category,
         COUNT(*) as file_count,
@@ -78,7 +78,7 @@ export async function getFileStats(req, res) {
     `);
 
     // Daily upload trends
-    const dailyUploads = await db.query(`
+    const dailyUploads = await prisma.$queryRawUnsafe(`
       SELECT 
         DATE(uploaded_at) as upload_date,
         COUNT(*) as files_uploaded,
@@ -94,16 +94,16 @@ export async function getFileStats(req, res) {
 
     // Format results
     const formattedStats = {
-      ...stats.rows[0],
-      total_size_mb: (stats.rows[0].total_size_bytes / 1024 / 1024).toFixed(2),
-      total_size_gb: (stats.rows[0].total_size_bytes / 1024 / 1024 / 1024).toFixed(2),
-      avg_file_size_mb: (stats.rows[0].avg_file_size / 1024 / 1024).toFixed(2),
-      total_savings_mb: (stats.rows[0].total_savings_bytes / 1024 / 1024).toFixed(2),
-      hipaa_percentage: stats.rows[0].total_files > 0 
-        ? ((stats.rows[0].hipaa_files / stats.rows[0].total_files) * 100).toFixed(1)
+      ...stats[0],
+      total_size_mb: (stats[0].total_size_bytes / 1024 / 1024).toFixed(2),
+      total_size_gb: (stats[0].total_size_bytes / 1024 / 1024 / 1024).toFixed(2),
+      avg_file_size_mb: (stats[0].avg_file_size / 1024 / 1024).toFixed(2),
+      total_savings_mb: (stats[0].total_savings_bytes / 1024 / 1024).toFixed(2),
+      hipaa_percentage: stats[0].total_files > 0 
+        ? ((stats[0].hipaa_files / stats[0].total_files) * 100).toFixed(1)
         : '0.0',
-      infection_rate: stats.rows[0].total_files > 0
-        ? ((stats.rows[0].infected_files / stats.rows[0].total_files) * 100).toFixed(3)
+      infection_rate: stats[0].total_files > 0
+        ? ((stats[0].infected_files / stats[0].total_files) * 100).toFixed(3)
         : '0.000'
     };
 
@@ -140,7 +140,7 @@ export async function rescanFile(req, res) {
     const { fileId } = req.params;
     const adminUid = req.user?.uid;
 
-    const fileResult = await db.query(
+    const fileResult = await prisma.$queryRawUnsafe(
       'SELECT storage_url, file_name, is_hipaa_protected FROM file_metadata WHERE id = $1',
       [fileId]
     );
@@ -149,10 +149,10 @@ export async function rescanFile(req, res) {
       return error(res, 'Hospital file not found', HTTP_STATUS.NOT_FOUND);
     }
 
-    const file = fileResult.rows[0];
+    const file = fileResult[0];
 
     // Update scan status to pending
-    await db.query(
+    await prisma.$queryRawUnsafe(
       'UPDATE file_metadata SET scan_status = $1, scan_result = NULL, scanned_at = NULL WHERE id = $2',
       ['pending', fileId]
     );
@@ -183,7 +183,7 @@ export async function rescanFile(req, res) {
           resultText = scanResult.error;
         }
 
-        await db.query(`
+        await prisma.$queryRawUnsafe(`
           UPDATE file_metadata SET 
             scan_status = $1, scan_result = $2, scanned_at = NOW(),
             scan_duration_ms = $3
@@ -192,7 +192,7 @@ export async function rescanFile(req, res) {
 
         // Auto-quarantine if infected
         if (status === 'infected') {
-          await db.query(`
+          await prisma.$queryRawUnsafe(`
             UPDATE file_metadata SET 
               is_quarantined = true, quarantined_at = NOW(), 
               quarantine_reason = $1, quarantined_by = $2
@@ -206,7 +206,7 @@ export async function rescanFile(req, res) {
           `Admin rescan completed: ${status}${resultText ? ` (${resultText})` : ''}`);
 
       } catch (scanError) {
-        await db.query(
+        await prisma.$queryRawUnsafe(
           'UPDATE file_metadata SET scan_status = $1, scan_result = $2, scanned_at = NOW() WHERE id = $3',
           ['failed', scanError.message, fileId]
         );
@@ -252,7 +252,7 @@ export async function cleanupExpiredFiles(req, res) {
     }
 
     // Find expired files
-    const expiredFiles = await db.query(`
+    const expiredFiles = await prisma.$queryRawUnsafe(`
       SELECT 
         id, storage_key, file_name, file_size, category, 
         is_hipaa_protected, uploaded_by, retention_date
@@ -290,7 +290,7 @@ export async function cleanupExpiredFiles(req, res) {
         await deleteFileFromR2(file.storage_key);
         
         // Remove from database
-        await db.query('DELETE FROM file_metadata WHERE id = $1', [file.id]);
+        await prisma.$queryRawUnsafe('DELETE FROM file_metadata WHERE id = $1', [file.id]);
 
         // Log deletion
         await auditService.logFileDeletion(
@@ -366,7 +366,7 @@ export async function updateHipaaProtection(req, res) {
     for (const fileId of fileIds) {
       try {
         // Get current file info
-        const fileResult = await db.query(
+        const fileResult = await prisma.$queryRawUnsafe(
           'SELECT file_name, is_hipaa_protected, category FROM file_metadata WHERE id = $1',
           [fileId]
         );
@@ -376,10 +376,10 @@ export async function updateHipaaProtection(req, res) {
           continue;
         }
 
-        const file = fileResult.rows[0];
+        const file = fileResult[0];
 
         // Update HIPAA protection status
-        await db.query(
+        await prisma.$queryRawUnsafe(
           'UPDATE file_metadata SET is_hipaa_protected = $1 WHERE id = $2',
           [setHipaaProtected, fileId]
         );
@@ -436,7 +436,7 @@ export async function updateHipaaProtection(req, res) {
 
 export async function getQuarantinedFiles(req, res) {
   try {
-    const quarantinedFiles = await db.query(`
+    const quarantinedFiles = await prisma.$queryRawUnsafe(`
       SELECT 
         fm.id, fm.file_name, fm.file_type, fm.file_size, fm.storage_key,
         fm.scan_status, fm.scan_result, fm.quarantine_reason, fm.category,
@@ -487,7 +487,7 @@ export async function purgeQuarantinedFiles(req, res) {
     }
 
     // Find quarantined files older than specified days
-    const quarantinedFiles = await db.query(`
+    const quarantinedFiles = await prisma.$queryRawUnsafe(`
       SELECT 
         id, storage_key, file_name, file_size, is_hipaa_protected,
         quarantined_at, scan_result
@@ -508,7 +508,7 @@ export async function purgeQuarantinedFiles(req, res) {
         await deleteFileFromR2(file.storage_key);
         
         // Remove from database
-        await db.query('DELETE FROM file_metadata WHERE id = $1', [file.id]);
+        await prisma.$queryRawUnsafe('DELETE FROM file_metadata WHERE id = $1', [file.id]);
 
         // Log purge
         await auditService.logFileDeletion(

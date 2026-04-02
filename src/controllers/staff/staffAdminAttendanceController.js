@@ -1,5 +1,5 @@
 // src/controllers/staff/staffAdminAttendanceController.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -9,7 +9,7 @@ export const getAttendanceAnalytics = async (req, res) => {
   try {
     const { department, start_date, end_date, group_by = 'day' } = req.query;
     
-    const analytics = await db.query(`
+    const analytics = await prisma.$queryRawUnsafe(`
       SELECT 
         DATE_TRUNC($1, a.check_in_time) as period,
         COUNT(DISTINCT a.staff_id) as total_present,
@@ -39,7 +39,7 @@ export const getAttendanceAnalytics = async (req, res) => {
 // Attendance Anomalies
 export const getAttendanceAnomalies = async (req, res) => {
   try {
-    const anomalies = await db.query(`
+    const anomalies = await prisma.$queryRawUnsafe(`
       WITH anomalies AS (
         SELECT 
           s.id,
@@ -78,7 +78,7 @@ export const getLateArrivals = async (req, res) => {
   try {
     const { date = new Date().toISOString().split('T')[0], department } = req.query;
     
-    const lateArrivals = await db.query(`
+    const lateArrivals = await prisma.$queryRawUnsafe(`
       SELECT 
         s.name,
         s.employee_id,
@@ -110,7 +110,7 @@ export const getEarlyDepartures = async (req, res) => {
   try {
     const { date = new Date().toISOString().split('T')[0], department } = req.query;
     
-    const earlyDepartures = await db.query(`
+    const earlyDepartures = await prisma.$queryRawUnsafe(`
       SELECT 
         s.name,
         s.employee_id,
@@ -142,7 +142,7 @@ export const getAbsentReport = async (req, res) => {
   try {
     const { date = new Date().toISOString().split('T')[0], department } = req.query;
     
-    const absentStaff = await db.query(`
+    const absentStaff = await prisma.$queryRawUnsafe(`
       SELECT 
         s.name,
         s.employee_id,
@@ -185,7 +185,7 @@ export const bulkAttendanceCorrection = async (req, res) => {
     const results = await Promise.all(
       corrections.map(async (correction) => {
         try {
-          await db.query(`
+          await prisma.$queryRawUnsafe(`
             UPDATE staff_attendance
             SET 
               check_in_time = $2,
@@ -219,7 +219,7 @@ export const overrideAttendance = async (req, res) => {
     const { staff_id, date, check_in, check_out, reason } = req.body;
     const overriddenBy = req.user?.uid;
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       INSERT INTO staff_attendance (staff_id, check_in_time, check_out_time, override_reason, overridden_by, created_by)
       VALUES ($1, $2, $3, $4, $5, $5)
       ON CONFLICT (staff_id, check_in_time::date)
@@ -232,7 +232,7 @@ export const overrideAttendance = async (req, res) => {
       RETURNING id, staff_uid, check_in_time, check_out_time, status, created_at
     `, [staff_id, check_in, check_out, reason, overriddenBy]);
 
-    success(res, result.rows[0], 'Attendance override successful');
+    success(res, result[0], 'Attendance override successful');
   } catch (err) {
     logger.error('Override Attendance Error:', err);
     error(res, 'Failed to override attendance', HTTP_STATUS.INTERNAL_SERVER_ERROR);

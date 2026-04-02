@@ -1,5 +1,5 @@
 // src/services/staff/hr/leaveService.js
-import db from '../../../config/database.js';
+import prisma from '../../../lib/prisma.js';
 import logger from '../../../logging/logger.js';
 
 /**
@@ -9,7 +9,7 @@ import logger from '../../../logging/logger.js';
  * @returns {Object} Leave balance and history
  */
 export const getStaffLeaveBalance = async (staffId, year) => {
-  const staffCheck = await db.query(
+  const staffCheck = await prisma.$queryRawUnsafe(
     'SELECT u.name, s.employee_id, s.hire_date FROM users u JOIN staff s ON u.id = s.user_id WHERE u.id = $1',
     [staffId]
   );
@@ -18,10 +18,10 @@ export const getStaffLeaveBalance = async (staffId, year) => {
     return null;
   }
 
-  const staff = staffCheck.rows[0];
+  const staff = staffCheck[0];
 
   // Get leave entitlement and usage
-  const leaveData = await db.query(`
+  const leaveData = await prisma.$queryRawUnsafe(`
     SELECT 
       lt.leave_type,
       lt.annual_entitlement,
@@ -37,7 +37,7 @@ export const getStaffLeaveBalance = async (staffId, year) => {
   `, [staffId, year]);
 
   // Get leave history
-  const leaveHistory = await db.query(`
+  const leaveHistory = await prisma.$queryRawUnsafe(`
     SELECT 
       leave_type,
       start_date,
@@ -117,7 +117,7 @@ export const applyForLeave = async (leaveData) => {
   }
 
   // Check leave balance
-  const balanceCheck = await db.query(`
+  const balanceCheck = await prisma.$queryRawUnsafe(`
     SELECT 
       lt.annual_entitlement,
       COALESCE(SUM(la.days_taken), 0) as days_used,
@@ -131,12 +131,12 @@ export const applyForLeave = async (leaveData) => {
     GROUP BY lt.leave_type, lt.annual_entitlement
   `, [staff_id, start_date, leave_type]);
 
-  if (balanceCheck.rows.length === 0 || balanceCheck.rows[0].days_remaining < daysDifference) {
+  if (balanceCheck.rows.length === 0 || balanceCheck[0].days_remaining < daysDifference) {
     throw new Error('INSUFFICIENT_LEAVE_BALANCE');
   }
 
   // Get staff details
-  const staffInfo = await db.query(
+  const staffInfo = await prisma.$queryRawUnsafe(
     'SELECT u.name, s.employee_id, s.department, s.supervisor_id FROM users u JOIN staff s ON u.id = s.user_id WHERE u.id = $1',
     [staff_id]
   );
@@ -145,10 +145,10 @@ export const applyForLeave = async (leaveData) => {
     throw new Error('STAFF_NOT_FOUND');
   }
 
-  const staff = staffInfo.rows[0];
+  const staff = staffInfo[0];
 
   // Create leave application
-  const applicationResult = await db.query(`
+  const applicationResult = await prisma.$queryRawUnsafe(`
     INSERT INTO leave_applications (
       staff_id, leave_type, start_date, end_date, days_taken,
       reason, emergency_contact, status, applied_by, applied_date,
@@ -162,7 +162,7 @@ export const applyForLeave = async (leaveData) => {
 
   // Create notification for supervisor
   if (staff.supervisor_id) {
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `INSERT INTO notifications (
         user_id, title, body, type, related_id, created_at
       ) VALUES ($1, $2, $3, $4, $5, NOW())`,
@@ -171,7 +171,7 @@ export const applyForLeave = async (leaveData) => {
         'Leave Application Pending Approval',
         `${staff.name} has applied for ${leave_type} from ${startDate.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })} to ${endDate.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}`,
         'leave_application',
-        applicationResult.rows[0].id
+        applicationResult[0].id
       ]
     );
   }
@@ -180,10 +180,10 @@ export const applyForLeave = async (leaveData) => {
 
   return {
     application: {
-      ...applicationResult.rows[0],
+      ...applicationResult[0],
       start_date: startDate.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }),
       end_date: endDate.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }),
-      applied_date: new Date(applicationResult.rows[0].applied_date).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
+      applied_date: new Date(applicationResult[0].applied_date).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
     },
     staffInfo: {
       name: staff.name,
@@ -192,8 +192,8 @@ export const applyForLeave = async (leaveData) => {
     },
     leaveBalance: {
       days_requested: daysDifference,
-      days_remaining_before: balanceCheck.rows[0].days_remaining,
-      days_remaining_after: balanceCheck.rows[0].days_remaining - daysDifference
+      days_remaining_before: balanceCheck[0].days_remaining,
+      days_remaining_after: balanceCheck[0].days_remaining - daysDifference
     }
   };
 };
@@ -205,7 +205,7 @@ export const applyForLeave = async (leaveData) => {
  * @returns {boolean} True if viewing own data
  */
 export const isUserViewingOwnData = async (staffId, userUid) => {
-  const result = await db.query(
+  const result = await prisma.$queryRawUnsafe(
     'SELECT 1 FROM users WHERE id = $1 AND uid = $2',
     [staffId, userUid]
   );
@@ -219,7 +219,7 @@ export const isUserViewingOwnData = async (staffId, userUid) => {
  * @returns {boolean} True if applying for own leave
  */
 export const isUserApplyingOwnLeave = async (staffId, userUid) => {
-  const result = await db.query(
+  const result = await prisma.$queryRawUnsafe(
     'SELECT 1 FROM users WHERE id = $1 AND uid = $2',
     [staffId, userUid]
   );

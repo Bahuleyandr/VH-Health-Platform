@@ -1,7 +1,10 @@
 // src/services/health/healthRecordService.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
+import { createPrismaDb } from '../../lib/prismaCompat.js';
 import { DEFAULT_PAGINATION } from '../../config/healthConfig.js';
 import logger from '../../logging/logger.js';
+
+const db = createPrismaDb(prisma);
 
 export async function getHealthRecords(filters, userRole, userId) {
   try {
@@ -64,7 +67,7 @@ export async function getHealthRecords(filters, userRole, userId) {
     params.push(limit, offset);
     
     const [records, countResult] = await Promise.all([
-      db.query(query, params),
+      prisma.$queryRawUnsafe(query, params),
       getHealthRecordsCount(filters, userRole, userId)
     ]);
     
@@ -124,8 +127,8 @@ async function getHealthRecordsCount(filters, userRole, userId) {
     paramIndex++;
   }
   
-  const result = await db.query(query, params);
-  return parseInt(result.rows[0].count);
+  const result = await prisma.$queryRawUnsafe(query, params);
+  return parseInt(result[0].count);
 }
 
 export async function getHealthRecordById(id, userRole, userId) {
@@ -146,8 +149,8 @@ export async function getHealthRecordById(id, userRole, userId) {
     params.push(userId);
   }
   
-  const result = await db.query(query, params);
-  return result.rows[0];
+  const result = await prisma.$queryRawUnsafe(query, params);
+  return result[0];
 }
 
 export async function createHealthRecord(data, recorderId) {
@@ -162,8 +165,8 @@ export async function createHealthRecord(data, recorderId) {
   
   // Verify patient and recorder exist
   const [patientCheck, recorderCheck] = await Promise.all([
-    db.query('SELECT id, name FROM users WHERE id = $1', [patient_id]),
-    db.query('SELECT id, name FROM users WHERE id = $1', [recorderId])
+    prisma.$queryRawUnsafe('SELECT id, name FROM users WHERE id = $1', [patient_id]),
+    prisma.$queryRawUnsafe('SELECT id, name FROM users WHERE id = $1', [recorderId])
   ]);
   
   if (patientCheck.rows.length === 0) {
@@ -173,7 +176,7 @@ export async function createHealthRecord(data, recorderId) {
     throw new Error('Recorder user not found');
   }
   
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     INSERT INTO health_records (
       patient_id, record_type, recorded_by, vital_signs, 
       measurements, symptoms, notes, recorded_date, created_at
@@ -190,27 +193,27 @@ export async function createHealthRecord(data, recorderId) {
   ]);
   
   return {
-    record: result.rows[0],
-    patient: patientCheck.rows[0],
-    recorder: recorderCheck.rows[0]
+    record: result[0],
+    patient: patientCheck[0],
+    recorder: recorderCheck[0]
   };
 }
 
 export async function updateHealthRecord(id, data, userId, userRole) {
   // Check if record exists and user has permission
-  const recordCheck = await db.query('SELECT recorded_by FROM health_records WHERE id = $1', [id]);
+  const recordCheck = await prisma.$queryRawUnsafe('SELECT recorded_by FROM health_records WHERE id = $1', [id]);
   if (recordCheck.rows.length === 0) {
     throw new Error('Health record not found');
   }
   
   // Only the original recorder or admin can modify
-  if (userRole !== 'ADMIN' && recordCheck.rows[0].recorded_by !== userId) {
+  if (userRole !== 'ADMIN' && recordCheck[0].recorded_by !== userId) {
     throw new Error('Can only update records you created');
   }
   
   const { vital_signs, measurements, symptoms, notes } = data;
   
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     UPDATE health_records SET 
       vital_signs = COALESCE($1, vital_signs),
       measurements = COALESCE($2, measurements),
@@ -227,11 +230,11 @@ export async function updateHealthRecord(id, data, userId, userRole) {
     id
   ]);
   
-  return result.rows[0];
+  return result[0];
 }
 
 export async function checkDoctorPatientAccess(doctorId, patientId) {
-  const result = await db.query(
+  const result = await prisma.$queryRawUnsafe(
     'SELECT 1 FROM appointments WHERE doctor_id = $1 AND patient_id = $2 LIMIT 1',
     [doctorId, patientId]
   );

@@ -1,6 +1,6 @@
 // src/controllers/doctor/adminDoctorController.js
 import { validationResult } from 'express-validator';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { adminDoctorService } from '../../services/doctor/adminDoctorService.js';
@@ -121,7 +121,7 @@ export const adminDoctorController = {
       const { id } = req.params;
 
       // Verify doctor exists
-      const doctorCheck = await db.query(
+      const doctorCheck = await prisma.$queryRawUnsafe(
         'SELECT u.name FROM users u JOIN doctors d ON u.id = d.user_id WHERE u.id = $1 AND u.role = $2',
         [id, 'DOCTOR']
       );
@@ -130,7 +130,7 @@ export const adminDoctorController = {
         return error(res, 'Doctor not found', 404);
       }
 
-      const result = await db.query(`
+      const result = await prisma.$queryRawUnsafe(`
         UPDATE doctors SET
           specialization = COALESCE($1, specialization),
           department = COALESCE($2, department),
@@ -163,8 +163,8 @@ export const adminDoctorController = {
 
       success(res, {
         doctor: {
-          ...result.rows[0],
-          name: doctorCheck.rows[0].name
+          ...result[0],
+          name: doctorCheck[0].name
         }
       }, 'Doctor profile updated successfully');
     } catch (err) {
@@ -241,12 +241,12 @@ export const adminDoctorController = {
         return error(res, 'Doctor name and department are required', HTTP_STATUS.BAD_REQUEST);
       }
       
-      const result = await db.query(
+      const result = await prisma.$queryRawUnsafe(
         `INSERT INTO doctors (name, department, intro, image_url) VALUES ($1, $2, $3, $4) RETURNING id, name, department, intro, image_url, is_active, created_at`,
         [name, department, intro, imageUrl]
       );
       
-      success(res, result.rows[0], 'Doctor saved successfully');
+      success(res, result[0], 'Doctor saved successfully');
     } catch (err) {
       logger.error(err.stack || err.toString());
       error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
@@ -257,17 +257,17 @@ export const adminDoctorController = {
     try {
       const { doctorId } = req.params;
       
-      const deleteResult = await db.query(
+      const deleteResult = await prisma.$queryRawUnsafe(
         'DELETE FROM doctors WHERE id = $1 RETURNING id, name, department, intro, image_url, is_active, created_at',
         [doctorId]
       );
       
-      if (deleteResult.rowCount === 0) {
+      if (deleteResult.length === 0) {
         return error(res, 'Doctor not found or already deleted', HTTP_STATUS.NOT_FOUND);
       }
       
       logger.info(`[adminDoctorRoutes] Doctor deleted: ${doctorId} by ${req.user?.uid}`);
-      success(res, deleteResult.rows[0], 'Doctor deleted successfully');
+      success(res, deleteResult[0], 'Doctor deleted successfully');
     } catch (err) {
       logger.error(err.stack || err.toString());
       error(res, RESPONSE_MESSAGES.DATABASE_ERROR);

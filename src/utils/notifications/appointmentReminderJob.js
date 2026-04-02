@@ -1,4 +1,4 @@
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { sendPushNotification } from './sendPushNotification.js';
 import { NotificationTemplates } from './templates.js';
@@ -21,7 +21,7 @@ export async function sendTimedReminders() {
     const in90m = new Date(now.getTime() + 90 * 60 * 1000);
 
     const [res24h, res1h] = await Promise.all([
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT a.id, a.appointment_time, a.token_number,
                u.name AS patient_name, u.phone AS patient_phone, u.device_token,
                d.name AS doctor_name, doc.department
@@ -33,7 +33,7 @@ export async function sendTimedReminders() {
           AND a.appointment_date BETWEEN $1 AND $2
           AND a.reminder_24h_sent IS NOT TRUE
       `, [in23h, in24h]),
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT a.id, a.appointment_time, a.token_number,
                u.name AS patient_name, u.phone AS patient_phone, u.device_token,
                d.name AS doctor_name
@@ -70,7 +70,7 @@ export async function sendTimedReminders() {
     }
     // Batch update all successfully sent 24h reminders
     if (sentIds24h.length > 0) {
-      await db.query('UPDATE appointments SET reminder_24h_sent = TRUE WHERE id = ANY($1)', [sentIds24h]);
+      await prisma.$queryRawUnsafe('UPDATE appointments SET reminder_24h_sent = TRUE WHERE id = ANY($1)', [sentIds24h]);
       logger.info(`[Reminders] Batch updated ${sentIds24h.length} appointments with 24h reminder sent`);
     }
 
@@ -98,7 +98,7 @@ export async function sendTimedReminders() {
     }
     // Batch update all successfully sent 1h reminders
     if (sentIds1h.length > 0) {
-      await db.query('UPDATE appointments SET reminder_1h_sent = TRUE WHERE id = ANY($1)', [sentIds1h]);
+      await prisma.$queryRawUnsafe('UPDATE appointments SET reminder_1h_sent = TRUE WHERE id = ANY($1)', [sentIds1h]);
       logger.info(`[Reminders] Batch updated ${sentIds1h.length} appointments with 1h reminder sent`);
     }
 
@@ -114,7 +114,7 @@ export async function sendTimedReminders() {
  */
 export async function processPendingScheduledNotifications() {
   try {
-    const pending = await db.query(`
+    const pending = await prisma.$queryRawUnsafe(`
       SELECT sn.*, u.device_token, u.phone, u.name
       FROM scheduled_notifications sn
       JOIN users u ON sn.user_id = u.id
@@ -138,10 +138,10 @@ export async function processPendingScheduledNotifications() {
             userId: String(notif.user_id),
           }).catch(e => logger.warn(`[ScheduledNotif] Push notification failed for notif ${notif.id}:`, e.message));
         }
-        await db.query(`UPDATE scheduled_notifications SET status='sent', sent_at=NOW() WHERE id=$1`, [notif.id]);
+        await prisma.$queryRawUnsafe(`UPDATE scheduled_notifications SET status='sent', sent_at=NOW() WHERE id=$1`, [notif.id]);
       } catch (e) {
         logger.warn(`[ScheduledNotif] Failed for notif ${notif.id}: ${e.message}`);
-        await db.query(`UPDATE scheduled_notifications SET status='failed' WHERE id=$1`, [notif.id]).catch(e => logger.warn(`[ScheduledNotif] Failed to mark notification ${notif.id} as failed:`, e.message));
+        await prisma.$queryRawUnsafe(`UPDATE scheduled_notifications SET status='failed' WHERE id=$1`, [notif.id]).catch(e => logger.warn(`[ScheduledNotif] Failed to mark notification ${notif.id} as failed:`, e.message));
       }
     }
 
@@ -162,7 +162,7 @@ export async function sendAppointmentReminders() {
     const tomorrow = new Date(today);
     tomorrow.setDate(today.getDate() + 1);
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT a.id, a.uid, a.phone, a.appointment_date, a.doctor_id, u.device_token, u.name AS user_name,
               du.name AS doctor_name, dept.name AS department_name
        FROM appointments a
@@ -211,7 +211,7 @@ export async function sendAppointmentReminders() {
         logger.info(`✅ Reminder sent to ${appt.phone}`);
 
         // Store as in-app notification
-        await db.query(
+        await prisma.$queryRawUnsafe(
           `INSERT INTO notifications (phone, title, body, type, created_at, read)
            VALUES ($1, $2, $3, $4, NOW(), false)`,
           [appt.phone, notification.title, notification.body, 'reminder']

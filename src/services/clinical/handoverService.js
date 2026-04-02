@@ -1,5 +1,5 @@
 // src/services/clinical/handoverService.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
@@ -37,7 +37,7 @@ export async function createHandover(data) {
     throw AppError.badRequest(`Invalid shift: ${shift}. Must be one of: ${VALID_SHIFTS.join(', ')}`);
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `INSERT INTO nurse_handovers
        (patient_uid, ward, bed_number, outgoing_nurse, incoming_nurse, shift,
         patient_summary, active_issues, pending_tasks, medications_due,
@@ -70,7 +70,7 @@ export async function createHandover(data) {
  * @returns {Object} Updated handover record
  */
 export async function acknowledgeHandover(id, nurseUid) {
-  const { rows: existing } = await db.query(
+  const { rows: existing } = await prisma.$queryRawUnsafe(
     'SELECT id, acknowledged, incoming_nurse FROM nurse_handovers WHERE id = $1',
     [id]
   );
@@ -83,7 +83,7 @@ export async function acknowledgeHandover(id, nurseUid) {
     throw AppError.conflict('Handover has already been acknowledged');
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `UPDATE nurse_handovers
      SET acknowledged = true,
          acknowledged_at = NOW(),
@@ -103,7 +103,7 @@ export async function acknowledgeHandover(id, nurseUid) {
  * @returns {Array} Pending handover records
  */
 export async function getActiveHandovers(nurseUid) {
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, ward, bed_number, outgoing_nurse, incoming_nurse,
             shift, patient_summary, active_issues, pending_tasks,
             medications_due, special_instructions, acknowledged, created_at
@@ -124,7 +124,7 @@ export async function getActiveHandovers(nurseUid) {
  * @returns {Array} Handover records
  */
 export async function getPatientHandoverHistory(patientUid, limit = 50) {
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, ward, bed_number, outgoing_nurse, incoming_nurse,
             shift, patient_summary, active_issues, pending_tasks,
             medications_due, special_instructions, acknowledged,

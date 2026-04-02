@@ -1,4 +1,4 @@
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 /**
@@ -18,7 +18,7 @@ class NotificationOutbox {
    */
   async queue(notification) {
     try {
-      const result = await db.query(
+      const result = await prisma.$queryRawUnsafe(
         `INSERT INTO notification_outbox
           (type, recipient_id, recipient_phone, title, body, payload, status, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', NOW())
@@ -32,7 +32,7 @@ class NotificationOutbox {
           JSON.stringify(notification.data || {}),
         ]
       );
-      return result.rows[0];
+      return result[0];
     } catch (err) {
       // If outbox table doesn't exist yet, log and continue (graceful degradation)
       logger.warn('Notification outbox queue failed (table may not exist):', err.message);
@@ -45,7 +45,7 @@ class NotificationOutbox {
    */
   async markSent(outboxId) {
     try {
-      await db.query(
+      await prisma.$queryRawUnsafe(
         `UPDATE notification_outbox SET status = 'SENT', sent_at = NOW() WHERE id = $1`,
         [outboxId]
       );
@@ -59,7 +59,7 @@ class NotificationOutbox {
    */
   async markFailed(outboxId, reason) {
     try {
-      await db.query(
+      await prisma.$queryRawUnsafe(
         `UPDATE notification_outbox
          SET status = 'FAILED', failure_reason = $2, retry_count = retry_count + 1, last_attempt_at = NOW()
          WHERE id = $1`,
@@ -77,7 +77,7 @@ class NotificationOutbox {
    */
   async getPendingForRetry(limit = 50) {
     try {
-      const result = await db.query(
+      const result = await prisma.$queryRawUnsafe(
         `SELECT id, type, recipient_id, recipient_phone, title, body, payload, retry_count
          FROM notification_outbox
          WHERE status IN ('PENDING', 'FAILED')

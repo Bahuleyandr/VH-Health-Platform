@@ -1,4 +1,4 @@
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 
 /**
@@ -9,7 +9,7 @@ import logger from '../logging/logger.js';
 export function logPhiAccess({ userId, userRole, patientId, recordType, action = 'VIEW', ip, requestId }) {
   setImmediate(async () => {
     try {
-      await db.query(
+      await prisma.$queryRawUnsafe(
         `INSERT INTO hipaa_access_log (accessed_by, accessed_by_role, patient_id, record_type, action, ip_address, request_id, accessed_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
         [userId, userRole, patientId, recordType, action, ip || null, requestId || null]

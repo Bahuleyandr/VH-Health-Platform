@@ -2,7 +2,7 @@
 
 import express from 'express';
 import { wrapAutoRBAC, wrapRoutes } from '../config/routeWrapper.js';
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 
 // Import controllers
@@ -171,7 +171,7 @@ wrapRoutes(
 router.get('/by-key/:storageKey', async (req, res) => {
   try {
     const { storageKey } = req.params;
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, storage_key, file_name, is_quarantined, scan_status 
        FROM file_metadata WHERE storage_key = $1`,
       [storageKey]
@@ -181,7 +181,7 @@ router.get('/by-key/:storageKey', async (req, res) => {
       return res.status(404).json({ success: false, message: 'File not found' });
     }
     
-    const file = result.rows[0];
+    const file = result[0];
     if (file.is_quarantined || file.scan_status === 'INFECTED') {
       return res.json({ success: true, data: { quarantined: true, storage_url: null } });
     }

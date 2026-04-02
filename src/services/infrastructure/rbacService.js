@@ -1,5 +1,5 @@
 // services/infrastructure/rbacService.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import {
@@ -25,7 +25,7 @@ export class RBACService {
   // Get all available roles with details
   static async getAvailableRoles(userInfo) {
     try {
-      const roleStats = await db.query(`
+      const roleStats = await prisma.$queryRawUnsafe(`
         SELECT role,
                COUNT(*)                                   AS user_count,
                COUNT(CASE WHEN is_active = true THEN 1 END) AS active_count
@@ -92,7 +92,7 @@ export class RBACService {
       const whereClause = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
 
       params.push(parseInt(limit));
-      const result = await db.query(`
+      const result = await prisma.$queryRawUnsafe(`
         SELECT 
           u.role,
           COUNT(*) as user_count,
@@ -199,14 +199,14 @@ export class RBACService {
   static async getRBACAnalytics(days = 30, userInfo) {
     try {
       const [roleDistribution, recentRoleChanges, activeUsersByRole, newRegistrations] = await Promise.all([
-        db.query(`
+        prisma.$queryRawUnsafe(`
           SELECT role,
                  COUNT(*) as count,
                  COUNT(CASE WHEN is_active = true THEN 1 END) as active_count
           FROM users
           GROUP BY role
         `),
-        db.query(`
+        prisma.$queryRawUnsafe(`
           SELECT 
             ura.phone, ura.old_role, ura.new_role, 
             TO_CHAR(ura.changed_at, 'DD-MM-YYYY HH24:MI') as changed_at,
@@ -216,14 +216,14 @@ export class RBACService {
           ORDER BY ura.changed_at DESC
           LIMIT 20
         `).catch(() => ({ rows: [] })),
-        db.query(`
+        prisma.$queryRawUnsafe(`
           SELECT role, COUNT(*) as active_count
           FROM users
           WHERE last_login > NOW() - INTERVAL '7 days'
             AND is_active = true
           GROUP BY role
         `).catch(() => ({ rows: [] })),
-        db.query(`
+        prisma.$queryRawUnsafe(`
           SELECT role,
                  COUNT(*) as new_count,
                  array_agg(TO_CHAR(registered_at, 'DD-MM-YYYY')) as registration_dates
@@ -290,7 +290,7 @@ export class RBACService {
       );
       if (userResult.rows.length === 0) throw new Error('User not found');
 
-      const user = userResult.rows[0];
+      const user = userResult[0];
       const oldRole = user.role;
 
       if (oldRole === targetRole) {
@@ -403,7 +403,7 @@ export class RBACService {
       const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
 
       // Main page
-      const auditLog = await db.query(`
+      const auditLog = await prisma.$queryRawUnsafe(`
         SELECT 
           ura.id, ura.phone, ura.old_role, ura.new_role, 
           ura.changed_by_uid, ura.reason, 
@@ -421,7 +421,7 @@ export class RBACService {
       `, [...vals, parseInt(limit), offset]).catch(() => ({ rows: [] }));
 
       // Count with same WHERE & same param list
-      const total = await db.query(
+      const total = await prisma.$queryRawUnsafe(
         `SELECT COUNT(*) FROM user_role_audit ura ${where}`,
         vals
       ).catch(() => ({ rows: [{ count: 0 }] }));
@@ -431,8 +431,8 @@ export class RBACService {
         pagination: {
           page: parseInt(page),
           limit: parseInt(limit),
-          total: parseInt(total.rows[0].count || 0),
-          totalPages: Math.ceil((parseInt(total.rows[0].count || 0)) / limit)
+          total: parseInt(total[0].count || 0),
+          totalPages: Math.ceil((parseInt(total[0].count || 0)) / limit)
         },
         filters,
         requestedBy: adminInfo.uid
@@ -447,7 +447,7 @@ export class RBACService {
   static async getSecurityAlerts(adminInfo) {
     try {
       const [suspiciousChanges, privilegeEscalations, nonAdminChanges, capacityAlerts] = await Promise.all([
-        db.query(`
+        prisma.$queryRawUnsafe(`
           SELECT 
             phone, COUNT(*) as change_count,
             array_agg(DISTINCT new_role) as roles_assigned,
@@ -461,7 +461,7 @@ export class RBACService {
           ORDER BY change_count DESC
         `).catch(() => ({ rows: [] })),
 
-        db.query(`
+        prisma.$queryRawUnsafe(`
           SELECT 
             ura.phone, ura.old_role, ura.new_role, 
             TO_CHAR(ura.changed_at, 'DD-MM-YYYY HH24:MI') as changed_at,
@@ -473,7 +473,7 @@ export class RBACService {
           ORDER BY ura.changed_at DESC
         `).catch(() => ({ rows: [] })),
 
-        db.query(`
+        prisma.$queryRawUnsafe(`
           SELECT 
             ura.phone, ura.old_role, ura.new_role, 
             TO_CHAR(ura.changed_at, 'DD-MM-YYYY HH24:MI') as changed_at,
@@ -485,7 +485,7 @@ export class RBACService {
           ORDER BY ura.changed_at DESC
         `).catch(() => ({ rows: [] })),
 
-        db.query(`
+        prisma.$queryRawUnsafe(`
           SELECT 
             role, 
             COUNT(*) as current_count,
@@ -561,7 +561,7 @@ export class RBACService {
 
       if (result.rows.length === 0) throw new Error('User not found');
 
-      const user = result.rows[0];
+      const user = result[0];
 
       await client.query(
         `INSERT INTO user_role_audit (
@@ -603,7 +603,7 @@ export class RBACService {
       const roleInfo = ROLE_HIERARCHY[userInfo.role];
       if (!roleInfo) throw new Error('Role information not found');
 
-      const roleHistory = await db.query(
+      const roleHistory = await prisma.$queryRawUnsafe(
         `SELECT old_role, new_role, 
                 TO_CHAR(changed_at, 'DD-MM-YYYY HH24:MI') as changed_at, 
                 reason 
@@ -614,7 +614,7 @@ export class RBACService {
         [userInfo.phone]
       ).catch(() => ({ rows: [] }));
 
-      const roleStats = await db.query(
+      const roleStats = await prisma.$queryRawUnsafe(
         'SELECT COUNT(*) as total_users FROM users WHERE role = $1 AND is_active = true',
         [userInfo.role]
       ).catch(() => ({ rows: [{ total_users: 0 }] }));
@@ -623,7 +623,7 @@ export class RBACService {
         currentRole: userInfo.role,
         roleDetails: {
           ...roleInfo,
-          totalUsersWithRole: parseInt(roleStats.rows[0].total_users || 0)
+          totalUsersWithRole: parseInt(roleStats[0].total_users || 0)
         },
         roleHistory: roleHistory.rows,
         capabilities: {

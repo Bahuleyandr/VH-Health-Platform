@@ -1,5 +1,5 @@
 // src/routes/admin/services/common.js
-import db from '../../../config/database.js';
+import prisma from '../../../lib/prisma.js';
 import logger from '../../../logging/logger.js';
 
 /**
@@ -7,7 +7,7 @@ import logger from '../../../logging/logger.js';
  */
 export async function tableExists(table) {
   try {
-    const { rows } = await db.query(`SELECT to_regclass($1) AS reg`, [`public.${table}`]);
+    const { rows } = await prisma.$queryRawUnsafe(`SELECT to_regclass($1) AS reg`, [`public.${table}`]);
     return Boolean(rows[0]?.reg);
   } catch {
     return false;
@@ -19,7 +19,7 @@ export async function tableExists(table) {
  */
 export async function columnExists(table, column) {
   try {
-    const { rows } = await db.query(
+    const { rows } = await prisma.$queryRawUnsafe(
       `SELECT 1 FROM information_schema.columns
        WHERE table_schema='public' AND table_name=$1 AND column_name=$2`,
       [table, column]
@@ -35,7 +35,7 @@ export async function columnExists(table, column) {
  */
 export async function safeQuery(sql, params = [], label = 'query') {
   try {
-    const r = await db.query(sql, params);
+    const r = await prisma.$queryRawUnsafe(sql, params);
     return r.rows;
   } catch (err) {
     logger.warn(`[admin:${label}] skipped: ${err.message}`);
@@ -48,7 +48,7 @@ export async function safeQuery(sql, params = [], label = 'query') {
  */
 export async function safeScalar(sql, params = [], fallback = 0) {
   try {
-    const { rows } = await db.query(sql, params);
+    const { rows } = await prisma.$queryRawUnsafe(sql, params);
     const v = rows[0] && Object.values(rows[0])[0];
     if (v == null || Number.isNaN(Number(v))) return fallback;
     return Number(v);

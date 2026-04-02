@@ -1,4 +1,4 @@
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
@@ -35,7 +35,7 @@ export const createBooking = async (req, res) => {
     // Calculate estimated cost from catalog
     let estimatedCost = 0;
     if (parsedTests?.length) {
-      const costs = await db.query(
+      const costs = await prisma.$queryRawUnsafe(
         `SELECT id, default_cost, home_collection_surcharge FROM investigation_test_catalog WHERE id = ANY($1)`,
         [parsedTests]
       );
@@ -56,9 +56,9 @@ export const createBooking = async (req, res) => {
       } catch (e) { logger.warn('Slip upload failed:', e.message); }
     }
 
-    const patient = await db.query('SELECT name, phone FROM users WHERE id=$1', [patientId]);
+    const patient = await prisma.$queryRawUnsafe('SELECT name, phone FROM users WHERE id=$1', [patientId]);
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       INSERT INTO investigation_bookings (
         patient_id, patient_phone, patient_name,
         selected_tests, custom_test_names, slip_photo_key, notes,
@@ -69,7 +69,7 @@ export const createBooking = async (req, res) => {
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
       RETURNING id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at
     `, [
-      patientId, patient.rows[0]?.phone, patient.rows[0]?.name,
+      patientId, patient[0]?.phone, patient[0]?.name,
       parsedTests || null, custom_test_names || null, slipPhotoKey, notes || null,
       collection_type || 'home', collection_address || null, collection_landmark || null,
       collection_lat || null, collection_lng || null,
@@ -78,16 +78,16 @@ export const createBooking = async (req, res) => {
     ]);
 
     // Log status
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `INSERT INTO investigation_booking_history (booking_id, to_status, changed_by, changed_by_role, notes)
        VALUES ($1, 'BOOKED', $2, 'patient', 'Patient booked investigation')`,
-      [result.rows[0].id, patientId]
+      [result[0].id, patientId]
     );
 
     // Alert lab staff (fire-and-forget)
     setImmediate(async () => {
       try {
-        const labStaff = await db.query(`
+        const labStaff = await prisma.$queryRawUnsafe(`
           SELECT device_token, name FROM users
           WHERE role IN ('LAB_TECHNICIAN', 'TECHNICIAN', 'NURSE')
             AND device_token IS NOT NULL AND is_active = TRUE LIMIT 20
@@ -97,14 +97,14 @@ export const createBooking = async (req, res) => {
           await sendPushNotification({
             tokens,
             title: '🔬 New Investigation Booking',
-            body: `${patient.rows[0]?.name || 'Patient'} booked: ${parsedTests?.length ? parsedTests.length + ' tests' : custom_test_names || 'Prescription slip'}. ${collection_type === 'home' ? 'Home collection' : 'Walk-in'}`,
-            data: { type: 'investigation_booking', booking_id: String(result.rows[0].id) }
+            body: `${patient[0]?.name || 'Patient'} booked: ${parsedTests?.length ? parsedTests.length + ' tests' : custom_test_names || 'Prescription slip'}. ${collection_type === 'home' ? 'Home collection' : 'Walk-in'}`,
+            data: { type: 'investigation_booking', booking_id: String(result[0].id) }
           }).catch(e => logger.warn('Failed to send new booking push notification:', e.message));
         }
       } catch (e) { logger.warn('Lab alert failed:', e.message); }
     });
 
-    success(res, result.rows[0], `Investigation booked. ${result.rows[0].booking_number}`);
+    success(res, result[0], `Investigation booked. ${result[0].booking_number}`);
   } catch (e) {
     logger.error('createBooking error:', e);
     error(res, 'Failed to create investigation booking', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -115,7 +115,7 @@ export const createBooking = async (req, res) => {
 export const getMyBookings = async (req, res) => {
   try {
     const patientId = req.user?.id;
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT ib.id, ib.investigation_id, ib.patient_id, ib.patient_name, ib.patient_phone,
         ib.test_name, ib.status, ib.scheduled_date, ib.phlebotomist_id, ib.notes,
         ib.created_at, ib.updated_at,
@@ -151,7 +151,7 @@ export const getBookingQueue = async (req, res) => {
     if (from_date) { params.push(from_date); where += ` AND DATE(ib.created_at)>=$${params.length}`; }
     if (to_date) { params.push(to_date); where += ` AND DATE(ib.created_at)<=$${params.length}`; }
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT ib.id, ib.investigation_id, ib.patient_id, ib.patient_name, ib.patient_phone,
         ib.test_name, ib.status, ib.scheduled_date, ib.phlebotomist_id, ib.notes,
         ib.created_at, ib.updated_at,
@@ -192,11 +192,11 @@ export const confirmBooking = async (req, res) => {
     const staffId = req.user?.id;
     const { confirmation_notes, actual_tests, final_cost } = req.body;
 
-    const booking = await db.query('SELECT id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at FROM investigation_bookings WHERE id=$1', [id]);
+    const booking = await prisma.$queryRawUnsafe('SELECT id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at FROM investigation_bookings WHERE id=$1', [id]);
     if (!booking.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
-    if (booking.rows[0].status !== 'BOOKED') return error(res, 'Can only confirm BOOKED bookings', HTTP_STATUS.BAD_REQUEST);
+    if (booking[0].status !== 'BOOKED') return error(res, 'Can only confirm BOOKED bookings', HTTP_STATUS.BAD_REQUEST);
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       UPDATE investigation_bookings SET
         status='CONFIRMED', confirmed_by=$1, confirmed_at=NOW(),
         confirmation_notes=$2, actual_tests=$3, final_cost=COALESCE($4, estimated_cost),
@@ -205,7 +205,7 @@ export const confirmBooking = async (req, res) => {
       WHERE id=$5 RETURNING id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at
     `, [staffId, confirmation_notes, actual_tests, final_cost, id]);
 
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `INSERT INTO investigation_booking_history (booking_id, from_status, to_status, changed_by, changed_by_role, notes) VALUES ($1,'BOOKED','CONFIRMED',$2,'lab_staff',$3)`,
       [id, staffId, confirmation_notes]
     );
@@ -213,23 +213,23 @@ export const confirmBooking = async (req, res) => {
     // Notify patient (fire-and-forget)
     setImmediate(async () => {
       try {
-        const patient = await db.query('SELECT device_token, phone FROM users WHERE id=$1', [booking.rows[0].patient_id]);
-        const tokens = [patient.rows[0]?.device_token].filter(Boolean);
+        const patient = await prisma.$queryRawUnsafe('SELECT device_token, phone FROM users WHERE id=$1', [booking[0].patient_id]);
+        const tokens = [patient[0]?.device_token].filter(Boolean);
         if (tokens.length) {
           await sendPushNotification({
             tokens,
             title: 'Investigation Confirmed ✓',
-            body: `Your investigation booking ${booking.rows[0].booking_number} is confirmed. ${booking.rows[0].collection_type === 'home' ? 'A collector will be dispatched shortly.' : 'Please visit the lab at your preferred time.'}`,
+            body: `Your investigation booking ${booking[0].booking_number} is confirmed. ${booking[0].collection_type === 'home' ? 'A collector will be dispatched shortly.' : 'Please visit the lab at your preferred time.'}`,
             data: { type: 'investigation_confirmed', booking_id: String(id) }
           }).catch(e => logger.warn('Failed to send booking confirmation push notification:', e.message));
         }
-        if (patient.rows[0]?.phone) {
-          await sendSMS(patient.rows[0].phone, `Dear ${booking.rows[0].patient_name}, your investigation ${booking.rows[0].booking_number} is confirmed. ${booking.rows[0].collection_type === 'home' ? 'Collector will be dispatched soon.' : 'Please visit Venkataeswara Hospitals lab.'} Estimated cost: ₹${result.rows[0].final_cost || result.rows[0].estimated_cost || 'TBD'}`).catch(e => logger.warn('Failed to send booking confirmation SMS:', e.message));
+        if (patient[0]?.phone) {
+          await sendSMS(patient[0].phone, `Dear ${booking[0].patient_name}, your investigation ${booking[0].booking_number} is confirmed. ${booking[0].collection_type === 'home' ? 'Collector will be dispatched soon.' : 'Please visit Venkataeswara Hospitals lab.'} Estimated cost: ₹${result[0].final_cost || result[0].estimated_cost || 'TBD'}`).catch(e => logger.warn('Failed to send booking confirmation SMS:', e.message));
         }
       } catch (e) { logger.warn('Confirm notification failed:', e.message); }
     });
 
-    success(res, result.rows[0], 'Booking confirmed');
+    success(res, result[0], 'Booking confirmed');
   } catch (e) {
     logger.error('confirmBooking error:', e);
     error(res, 'Failed to confirm booking', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -243,11 +243,11 @@ export const dispatchCollector = async (req, res) => {
     const staffId = req.user?.id;
     const { assigned_collector, collector_phone, notes: dispatchNotes } = req.body;
 
-    const booking = await db.query('SELECT id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at FROM investigation_bookings WHERE id=$1', [id]);
+    const booking = await prisma.$queryRawUnsafe('SELECT id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at FROM investigation_bookings WHERE id=$1', [id]);
     if (!booking.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
-    if (booking.rows[0].status !== 'CONFIRMED') return error(res, 'Must be CONFIRMED first', HTTP_STATUS.BAD_REQUEST);
+    if (booking[0].status !== 'CONFIRMED') return error(res, 'Must be CONFIRMED first', HTTP_STATUS.BAD_REQUEST);
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       UPDATE investigation_bookings SET
         status='DISPATCHED', assigned_collector=$1, dispatched_at=NOW(),
         collector_phone=$2, sla_collect_target=NOW()+INTERVAL '2 hours',
@@ -255,33 +255,33 @@ export const dispatchCollector = async (req, res) => {
       WHERE id=$3 RETURNING id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at
     `, [assigned_collector || staffId, collector_phone, id]);
 
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `INSERT INTO investigation_booking_history (booking_id, from_status, to_status, changed_by, changed_by_role, notes) VALUES ($1,'CONFIRMED','DISPATCHED',$2,'lab_staff',$3)`,
       [id, staffId, dispatchNotes || 'Collector dispatched']
     );
 
     // Calculate ETA based on collection destination
-    const eta = calculateETA(booking.rows[0].collection_lat, booking.rows[0].collection_lng);
-    await db.query(`UPDATE investigation_bookings SET estimated_collection_mins=$1, collection_distance_km=$2, collection_tracking_active=TRUE WHERE id=$3`,
+    const eta = calculateETA(booking[0].collection_lat, booking[0].collection_lng);
+    await prisma.$queryRawUnsafe(`UPDATE investigation_bookings SET estimated_collection_mins=$1, collection_distance_km=$2, collection_tracking_active=TRUE WHERE id=$3`,
       [eta.estimated_mins, eta.distance_km, id]);
 
     // Notify patient (fire-and-forget)
     setImmediate(async () => {
       try {
-        const patient = await db.query('SELECT device_token FROM users WHERE id=$1', [booking.rows[0].patient_id]);
-        const tokens = [patient.rows[0]?.device_token].filter(Boolean);
+        const patient = await prisma.$queryRawUnsafe('SELECT device_token FROM users WHERE id=$1', [booking[0].patient_id]);
+        const tokens = [patient[0]?.device_token].filter(Boolean);
         if (tokens.length) {
           await sendPushNotification({
             tokens,
             title: 'Collector On The Way 🚗',
-            body: `Sample collector dispatched for ${booking.rows[0].booking_number}. Estimated arrival: ~${eta.estimated_mins} minutes. ${collector_phone ? 'Contact: ' + collector_phone : ''}`,
+            body: `Sample collector dispatched for ${booking[0].booking_number}. Estimated arrival: ~${eta.estimated_mins} minutes. ${collector_phone ? 'Contact: ' + collector_phone : ''}`,
             data: { type: 'collector_dispatched', booking_id: String(id) }
           }).catch(e => logger.warn('Failed to send dispatch push notification:', e.message));
         }
       } catch (e) { logger.warn('Dispatch notification failed:', e.message); }
     });
 
-    success(res, result.rows[0], 'Collector dispatched');
+    success(res, result[0], 'Collector dispatched');
   } catch (e) {
     logger.error('dispatchCollector error:', e);
     error(res, 'Failed to dispatch collector', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -295,7 +295,7 @@ export const markCollected = async (req, res) => {
     const staffId = req.user?.id;
     const { collection_notes } = req.body;
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       UPDATE investigation_bookings SET
         status='COLLECTED', collected_at=NOW(), collected_by=$1,
         collection_notes=$2, collection_tracking_active=FALSE, updated_at=NOW()
@@ -304,12 +304,12 @@ export const markCollected = async (req, res) => {
 
     if (!result.rows.length) return error(res, 'Not found or wrong status', HTTP_STATUS.BAD_REQUEST);
 
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `INSERT INTO investigation_booking_history (booking_id, from_status, to_status, changed_by, changed_by_role, notes) VALUES ($1,$2,'COLLECTED',$3,'lab_staff',$4)`,
       [id, 'DISPATCHED', staffId, collection_notes || 'Samples collected']
     );
 
-    success(res, result.rows[0], 'Samples collected');
+    success(res, result[0], 'Samples collected');
   } catch (e) {
     logger.error('markCollected error:', e);
     error(res, 'Failed to mark samples as collected', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -322,17 +322,17 @@ export const startProcessing = async (req, res) => {
     const { id } = req.params;
     const staffId = req.user?.id;
 
-    const booking = await db.query('SELECT id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at FROM investigation_bookings WHERE id=$1', [id]);
+    const booking = await prisma.$queryRawUnsafe('SELECT id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at FROM investigation_bookings WHERE id=$1', [id]);
     if (!booking.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
 
     // Calculate SLA target based on test turnaround
     let maxTAT = 24;
-    if (booking.rows[0].selected_tests?.length) {
-      const tat = await db.query('SELECT MAX(turnaround_hours) as max_tat FROM investigation_test_catalog WHERE id=ANY($1)', [booking.rows[0].selected_tests]);
-      maxTAT = parseInt(tat.rows[0]?.max_tat) || 24;
+    if (booking[0].selected_tests?.length) {
+      const tat = await prisma.$queryRawUnsafe('SELECT MAX(turnaround_hours) as max_tat FROM investigation_test_catalog WHERE id=ANY($1)', [booking[0].selected_tests]);
+      maxTAT = parseInt(tat[0]?.max_tat) || 24;
     }
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       UPDATE investigation_bookings SET
         status='PROCESSING', processing_started_at=NOW(),
         sla_result_target=NOW()+INTERVAL '1 hour' * $2,
@@ -340,12 +340,12 @@ export const startProcessing = async (req, res) => {
       WHERE id=$1 RETURNING id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at
     `, [id, maxTAT]);
 
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `INSERT INTO investigation_booking_history (booking_id, from_status, to_status, changed_by, changed_by_role) VALUES ($1,'COLLECTED','PROCESSING',$2,'lab_staff')`,
       [id, staffId]
     );
 
-    success(res, result.rows[0], 'Processing started');
+    success(res, result[0], 'Processing started');
   } catch (e) {
     logger.error('startProcessing error:', e);
     error(res, 'Failed to start processing', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -361,7 +361,7 @@ export const uploadResult = async (req, res) => {
 
     if (!req.file) return error(res, 'Result file is required', HTTP_STATUS.BAD_REQUEST);
 
-    const booking = await db.query('SELECT id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at FROM investigation_bookings WHERE id=$1', [id]);
+    const booking = await prisma.$queryRawUnsafe('SELECT id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at FROM investigation_bookings WHERE id=$1', [id]);
     if (!booking.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
 
     // Upload to R2
@@ -373,14 +373,14 @@ export const uploadResult = async (req, res) => {
       await uploadFileToR2(req.file.buffer, fileKey, req.file.mimetype);
     } catch (e) { logger.warn('Result upload failed:', e.message); }
 
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       UPDATE investigation_bookings SET
         status='RESULT_READY', result_uploaded_at=NOW(), result_uploaded_by=$1,
         result_file_key=$2, result_notes=$3, updated_at=NOW()
       WHERE id=$4 RETURNING id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at
     `, [staffId, fileKey, result_notes, id]);
 
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `INSERT INTO investigation_booking_history (booking_id, from_status, to_status, changed_by, changed_by_role, notes) VALUES ($1,'PROCESSING','RESULT_READY',$2,'lab_staff','Result uploaded')`,
       [id, staffId]
     );
@@ -388,23 +388,23 @@ export const uploadResult = async (req, res) => {
     // Notify patient (fire-and-forget)
     setImmediate(async () => {
       try {
-        const patient = await db.query('SELECT device_token, phone FROM users WHERE id=$1', [booking.rows[0].patient_id]);
-        const tokens = [patient.rows[0]?.device_token].filter(Boolean);
+        const patient = await prisma.$queryRawUnsafe('SELECT device_token, phone FROM users WHERE id=$1', [booking[0].patient_id]);
+        const tokens = [patient[0]?.device_token].filter(Boolean);
         if (tokens.length) {
           await sendPushNotification({
             tokens,
             title: 'Investigation Results Ready 🔬',
-            body: `Results for ${booking.rows[0].booking_number} are ready. Tap to view and download.`,
+            body: `Results for ${booking[0].booking_number} are ready. Tap to view and download.`,
             data: { type: 'investigation_result_ready', booking_id: String(id) }
           }).catch(e => logger.warn('Failed to send result ready push notification:', e.message));
         }
-        if (patient.rows[0]?.phone) {
-          await sendSMS(patient.rows[0].phone, `Dear ${booking.rows[0].patient_name}, your investigation results (${booking.rows[0].booking_number}) are ready. Please check your VHHealth app to view/download.`).catch(e => logger.warn('Failed to send result ready SMS:', e.message));
+        if (patient[0]?.phone) {
+          await sendSMS(patient[0].phone, `Dear ${booking[0].patient_name}, your investigation results (${booking[0].booking_number}) are ready. Please check your VHHealth app to view/download.`).catch(e => logger.warn('Failed to send result ready SMS:', e.message));
         }
       } catch (e) { logger.warn('Result notification failed:', e.message); }
     });
 
-    success(res, result.rows[0], 'Result uploaded and patient notified');
+    success(res, result[0], 'Result uploaded and patient notified');
   } catch (e) {
     logger.error('uploadResult error:', e);
     error(res, 'Failed to upload result', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -415,7 +415,7 @@ export const uploadResult = async (req, res) => {
 export const getBookingDetail = async (req, res) => {
   try {
     const { id } = req.params;
-    const booking = await db.query(`
+    const booking = await prisma.$queryRawUnsafe(`
       SELECT ib.id, ib.investigation_id, ib.patient_id, ib.patient_name, ib.patient_phone,
         ib.test_name, ib.status, ib.scheduled_date, ib.phlebotomist_id, ib.notes,
         ib.created_at, ib.updated_at,
@@ -429,9 +429,9 @@ export const getBookingDetail = async (req, res) => {
     `, [id]);
     if (!booking.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
 
-    const history = await db.query('SELECT id, booking_id, status, changed_by, notes, created_at FROM investigation_booking_history WHERE booking_id=$1 ORDER BY created_at', [id]);
+    const history = await prisma.$queryRawUnsafe('SELECT id, booking_id, status, changed_by, notes, created_at FROM investigation_booking_history WHERE booking_id=$1 ORDER BY created_at', [id]);
 
-    const b = booking.rows[0];
+    const b = booking[0];
     if (b.slip_photo_key) b.slip_photo_url = await getSignedFileUrl(b.slip_photo_key, 3600).catch(() => null);
     if (b.result_file_key) b.result_file_url = await getSignedFileUrl(b.result_file_key, 3600).catch(() => null);
 
@@ -450,7 +450,7 @@ export const getBookingSLADashboard = async (req, res) => {
     const to = to_date || new Date().toISOString().split('T')[0];
 
     const [summary, byStatus, slaBreaches, avgTimes] = await Promise.all([
-      db.query(`SELECT COUNT(*) as total,
+      prisma.$queryRawUnsafe(`SELECT COUNT(*) as total,
         COUNT(CASE WHEN status='BOOKED' THEN 1 END) as booked,
         COUNT(CASE WHEN status='CONFIRMED' THEN 1 END) as confirmed,
         COUNT(CASE WHEN status='DISPATCHED' THEN 1 END) as dispatched,
@@ -461,10 +461,10 @@ export const getBookingSLADashboard = async (req, res) => {
         COUNT(CASE WHEN collection_type='walk_in' THEN 1 END) as walk_in,
         SUM(COALESCE(final_cost, estimated_cost, 0)) as total_revenue
         FROM investigation_bookings WHERE DATE(created_at) BETWEEN $1 AND $2`, [from, to]),
-      db.query(`SELECT status, COUNT(*) as count FROM investigation_bookings WHERE DATE(created_at) BETWEEN $1 AND $2 GROUP BY status`, [from, to]),
-      db.query(`SELECT COUNT(*) as count FROM investigation_bookings
+      prisma.$queryRawUnsafe(`SELECT status, COUNT(*) as count FROM investigation_bookings WHERE DATE(created_at) BETWEEN $1 AND $2 GROUP BY status`, [from, to]),
+      prisma.$queryRawUnsafe(`SELECT COUNT(*) as count FROM investigation_bookings
         WHERE status='BOOKED' AND NOW() > sla_confirm_target AND DATE(created_at) BETWEEN $1 AND $2`, [from, to]),
-      db.query(`SELECT
+      prisma.$queryRawUnsafe(`SELECT
         AVG(EXTRACT(EPOCH FROM (confirmed_at - created_at))/60) as avg_confirm_mins,
         AVG(EXTRACT(EPOCH FROM (dispatched_at - confirmed_at))/60) as avg_dispatch_mins,
         AVG(EXTRACT(EPOCH FROM (collected_at - dispatched_at))/60) as avg_collect_mins,
@@ -473,10 +473,10 @@ export const getBookingSLADashboard = async (req, res) => {
     ]);
 
     success(res, {
-      summary: summary.rows[0],
+      summary: summary[0],
       by_status: byStatus.rows,
-      sla_breaches: parseInt(slaBreaches.rows[0]?.count || 0),
-      avg_times: avgTimes.rows[0],
+      sla_breaches: parseInt(slaBreaches[0]?.count || 0),
+      avg_times: avgTimes[0],
       date_range: { from, to }
     }, 'Booking SLA dashboard');
   } catch (e) {

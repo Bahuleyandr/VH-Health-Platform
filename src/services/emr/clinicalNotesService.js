@@ -1,7 +1,10 @@
 // src/services/emr/clinicalNotesService.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
+import { createPrismaDb } from '../../lib/prismaCompat.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+
+const db = createPrismaDb(prisma);
 
 // ===================================================================
 // Clinical Notes Service — SOAP, Progress, Procedure, Discharge, etc.
@@ -64,7 +67,7 @@ export async function createNote(data) {
 
   // If encounter_id is provided, verify it exists
   if (encounter_id) {
-    const { rows: encRows } = await db.query(
+    const { rows: encRows } = await prisma.$queryRawUnsafe(
       `SELECT id FROM admissions WHERE encounter_id = $1`,
       [encounter_id]
     );
@@ -73,7 +76,7 @@ export async function createNote(data) {
     }
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `INSERT INTO clinical_notes
        (encounter_id, patient_uid, author_uid, author_role, note_type, content, version, is_addendum, is_signed, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, 1, false, false, NOW())
@@ -109,7 +112,7 @@ export async function addAddendum(noteId, addendumContent, authorUid, authorRole
   }
 
   // Fetch original note
-  const { rows: original } = await db.query(
+  const { rows: original } = await prisma.$queryRawUnsafe(
     `SELECT id, encounter_id, patient_uid, note_type, version, parent_note_id
      FROM clinical_notes WHERE id = $1`,
     [noteId]
@@ -124,7 +127,7 @@ export async function addAddendum(noteId, addendumContent, authorUid, authorRole
   const rootNoteId = parentNote.parent_note_id || parentNote.id;
 
   // Get the latest version number for this chain
-  const { rows: versionRows } = await db.query(
+  const { rows: versionRows } = await prisma.$queryRawUnsafe(
     `SELECT COALESCE(MAX(version), 0) AS max_version FROM clinical_notes
      WHERE id = $1 OR parent_note_id = $1`,
     [rootNoteId]
@@ -132,7 +135,7 @@ export async function addAddendum(noteId, addendumContent, authorUid, authorRole
 
   const nextVersion = versionRows[0].max_version + 1;
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `INSERT INTO clinical_notes
        (encounter_id, patient_uid, author_uid, author_role, note_type, content,
         version, parent_note_id, is_addendum, is_signed, created_at)
@@ -171,7 +174,7 @@ export async function signNote(noteId, signerUid) {
     throw AppError.badRequest('Signer UID is required');
   }
 
-  const { rows: existing } = await db.query(
+  const { rows: existing } = await prisma.$queryRawUnsafe(
     `SELECT id, is_signed, signed_at FROM clinical_notes WHERE id = $1`,
     [noteId]
   );
@@ -184,7 +187,7 @@ export async function signNote(noteId, signerUid) {
     throw AppError.conflict('Note is already signed and cannot be modified');
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `UPDATE clinical_notes
      SET is_signed = true, signed_at = NOW(), signed_by = $2, updated_at = NOW()
      WHERE id = $1
@@ -244,14 +247,14 @@ export async function getPatientNotes(patientUid, filters = {}) {
   const safeLimit = Math.min(Math.max(1, parseInt(limit, 10)), 100);
 
   // Count total
-  const { rows: countRows } = await db.query(
+  const { rows: countRows } = await prisma.$queryRawUnsafe(
     `SELECT COUNT(*) AS total FROM clinical_notes cn WHERE ${whereClause}`,
     params
   );
   const total = parseInt(countRows[0].total, 10);
 
   // Fetch paginated
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT cn.id, cn.encounter_id, cn.patient_uid, cn.author_uid, cn.author_role,
             cn.note_type, cn.content, cn.version, cn.parent_note_id, cn.is_addendum,
             cn.is_signed, cn.signed_at, cn.signed_by, cn.created_at, cn.updated_at
@@ -283,7 +286,7 @@ export async function getPatientNotes(patientUid, filters = {}) {
  * @returns {Array} Notes sorted by created_at
  */
 export async function getEncounterNotes(encounterId) {
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT cn.id, cn.encounter_id, cn.patient_uid, cn.author_uid, cn.author_role,
             cn.note_type, cn.content, cn.version, cn.parent_note_id, cn.is_addendum,
             cn.is_signed, cn.signed_at, cn.signed_by, cn.created_at, cn.updated_at
@@ -305,7 +308,7 @@ export async function getEncounterNotes(encounterId) {
  * @returns {Object} Note with version_history array
  */
 export async function getNoteDetail(noteId) {
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT cn.id, cn.encounter_id, cn.patient_uid, cn.author_uid, cn.author_role,
             cn.note_type, cn.content, cn.version, cn.parent_note_id, cn.is_addendum,
             cn.is_signed, cn.signed_at, cn.signed_by, cn.created_at, cn.updated_at
@@ -322,7 +325,7 @@ export async function getNoteDetail(noteId) {
 
   // Get version history (all addenda / versions for the same root note)
   const rootId = note.parent_note_id || note.id;
-  const { rows: versions } = await db.query(
+  const { rows: versions } = await prisma.$queryRawUnsafe(
     `SELECT id, author_uid, author_role, content, version, is_addendum,
             is_signed, signed_at, signed_by, created_at
      FROM clinical_notes
@@ -408,7 +411,7 @@ async function getTimelineNotes(patientUid, { dateFrom, dateTo }) {
     idx++;
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, note_type, author_uid, author_role, is_addendum, is_signed, created_at
      FROM clinical_notes
      WHERE ${conditions.join(' AND ')}
@@ -444,7 +447,7 @@ async function getTimelineVitals(patientUid, { dateFrom, dateTo }) {
     idx++;
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, total_score, clinical_risk, recorded_by, recorded_at
      FROM news2_scores
      WHERE ${conditions.join(' AND ')}
@@ -480,7 +483,7 @@ async function getTimelineMAR(patientUid, { dateFrom, dateTo }) {
     idx++;
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, medication_name, dose, route, status, administered_by,
             COALESCE(administered_at, created_at) AS event_time
      FROM medication_administrations
@@ -516,7 +519,7 @@ async function getTimelineInvestigations(patientUid, { dateFrom, dateTo }) {
     idx++;
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, test_name, status, created_at
      FROM investigations
      WHERE ${conditions.join(' AND ')}
@@ -549,7 +552,7 @@ async function getTimelineAdmissions(patientUid, { dateFrom, dateTo }) {
     idx++;
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, encounter_id, status, admission_type, department, ward,
             chief_complaint, admitted_at, discharged_at
      FROM admissions

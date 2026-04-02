@@ -10,7 +10,7 @@
  * - Audit log endpoints themselves (prevent infinite loops)
  */
 
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 
 let pendingAuditLogs = 0;
@@ -203,7 +203,7 @@ export function auditLogMiddleware(req, res, next) {
         const responseTimeMs = Date.now() - startMs;
         const isSuccess     = statusCode < 400;
 
-        await db.query(`
+        await prisma.$queryRawUnsafe(`
           INSERT INTO audit_log
             (user_id, user_name, user_role, ip_address, method, path, module, action,
              query_params, request_summary, status_code, response_time_ms, success, user_agent)

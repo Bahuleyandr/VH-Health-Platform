@@ -2,7 +2,7 @@
 // Generates a Continuity of Care Document (CCD) in XML format following C-CDA R2.1 structure.
 
 import crypto from 'crypto';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 // =============================================================================
@@ -377,7 +377,7 @@ function buildVitalComponent(loincCode, displayName, value, unit) {
 // =============================================================================
 
 async function getPatientData(uid) {
-  const { rows } = await db.readQuery(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT uid, phone, name, gender, email, birthday, address
      FROM users WHERE uid = $1 LIMIT 1`,
     [uid]
@@ -389,7 +389,7 @@ async function getPatientData(uid) {
 }
 
 async function getActiveDiagnoses(uid) {
-  const { rows } = await db.readQuery(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT icd10_code, description, status, severity, diagnosis_type, onset_date, resolved_date
      FROM diagnoses
      WHERE patient_uid = $1 AND status IN ('active', 'chronic', 'recurrent')
@@ -400,7 +400,7 @@ async function getActiveDiagnoses(uid) {
 }
 
 async function getActiveMedications(uid) {
-  const { rows } = await db.readQuery(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT medication_name, dose, route, status, administered_at
      FROM medication_administrations
      WHERE patient_uid = $1
@@ -412,7 +412,7 @@ async function getActiveMedications(uid) {
 }
 
 async function getAllergies(uid) {
-  const { rows } = await db.readQuery(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, allergen, description, name, severity, reaction, recorded_at
      FROM allergies
      WHERE patient_uid = $1
@@ -423,7 +423,7 @@ async function getAllergies(uid) {
 }
 
 async function getRecentVitals(uid) {
-  const { rows } = await db.readQuery(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT heart_rate, systolic_bp, diastolic_bp, temperature, spo2,
             respiratory_rate, blood_glucose, recorded_at
      FROM vitals_chart
@@ -436,7 +436,7 @@ async function getRecentVitals(uid) {
 }
 
 async function getProcedures(uid) {
-  const { rows } = await db.readQuery(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, title, content, procedure_name, performed_at, outcome, complications, created_at
      FROM clinical_notes
      WHERE patient_uid = $1 AND note_type = 'procedure'
@@ -447,7 +447,7 @@ async function getProcedures(uid) {
 }
 
 async function getInvestigations(uid) {
-  const { rows } = await db.readQuery(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, test_name, investigation_type, status, result_summary, conclusion,
             ordered_at, completed_at, created_at
      FROM investigations

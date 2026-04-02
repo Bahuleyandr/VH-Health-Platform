@@ -2,7 +2,7 @@
 // Compliance Audit Log Search — search audit_log with filters, paginated
 
 import { Router } from 'express';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { success, error } from '../../utils/responseHelper.js';
 import logger from '../../logging/logger.js';
 
@@ -74,17 +74,17 @@ router.get('/audit/search', async (req, res, next) => {
     const offset = (sanitizedPage - 1) * sanitizedLimit;
 
     // Count total matching rows
-    const countResult = await db.query(
+    const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) AS total FROM audit_log ${whereClause}`,
       params
     );
-    const total = parseInt(countResult.rows[0].total);
+    const total = parseInt(countResult[0].total);
 
     // Fetch paginated results
     params.push(sanitizedLimit);
     params.push(offset);
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, user_id, user_name, user_role, ip_address, method, path,
               module, action, query_params, request_summary,
               status_code, response_time_ms, success, user_agent, created_at

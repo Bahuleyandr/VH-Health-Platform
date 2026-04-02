@@ -1,10 +1,27 @@
 // src/services/emergencyService.js
-import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 import { RESPONSE_TIMES } from '../config/sosConfig.js';
 import logger from '../logging/logger.js';
 
+
+const query = async (sql, params = []) => {
+  const normalizedSql = sql.trim();
+  const upperSql = normalizedSql.toUpperCase();
+  const usesReturning = /\bRETURNING\b/i.test(normalizedSql);
+  const isReadQuery = upperSql.startsWith('SELECT') || upperSql.startsWith('WITH') || usesReturning;
+
+  if (isReadQuery) {
+    const rows = await prisma.$queryRawUnsafe(normalizedSql, ...params);
+    return { rows, rowCount: Array.isArray(rows) ? rows.length : 0 };
+  }
+
+  const rowCount = await prisma.$executeRawUnsafe(normalizedSql, ...params);
+  return { rows: [], rowCount: Number(rowCount) || 0 };
+};
+
+
 export const getActiveAlerts = async () => {
-  const result = await db.query(`
+  const result = await query(`
     SELECT 
       sa.id, sa.phone, sa.severity, sa.message, sa.emergency_type,
       sa.latitude, sa.longitude, sa.created_at, sa.status,

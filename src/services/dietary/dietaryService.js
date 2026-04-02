@@ -1,6 +1,6 @@
 // src/services/dietary/dietaryService.js
 
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
@@ -27,7 +27,7 @@ class DietaryService {
       throw AppError.badRequest(`Invalid diet_type. Must be one of: ${VALID_DIET_TYPES.join(', ')}`);
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `INSERT INTO diet_orders
         (patient_uid, encounter_id, diet_type, restrictions, allergies, meal_preferences,
          calories_target, special_instructions, status, ordered_by, created_at)
@@ -40,8 +40,8 @@ class DietaryService {
       ]
     );
 
-    logger.info('Diet order created', { orderId: result.rows[0].id, diet_type, patient_uid });
-    return result.rows[0];
+    logger.info('Diet order created', { orderId: result[0].id, diet_type, patient_uid });
+    return result[0];
   }
 
   /**
@@ -51,12 +51,12 @@ class DietaryService {
     const { page = 1, limit = 50 } = filters;
     const offset = (Math.max(1, parseInt(page, 10)) - 1) * parseInt(limit, 10);
 
-    const countResult = await db.query(
+    const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM diet_orders WHERE status = 'active'`
     );
-    const total = parseInt(countResult.rows[0].count, 10);
+    const total = parseInt(countResult[0].count, 10);
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, encounter_id, diet_type, restrictions, allergies,
               meal_preferences, calories_target, special_instructions, status,
               ordered_by, reviewed_by, created_at
@@ -87,7 +87,7 @@ class DietaryService {
       calories_target, special_instructions, status, reviewed_by
     } = data;
 
-    const existing = await db.query(
+    const existing = await prisma.$queryRawUnsafe(
       `SELECT id, status FROM diet_orders WHERE id = $1`,
       [id]
     );
@@ -96,7 +96,7 @@ class DietaryService {
       throw AppError.notFound('Diet order not found');
     }
 
-    if (existing.rows[0].status === 'discontinued') {
+    if (existing[0].status === 'discontinued') {
       throw AppError.badRequest('Cannot update a discontinued diet order');
     }
 
@@ -108,7 +108,7 @@ class DietaryService {
       throw AppError.badRequest(`Invalid diet_type. Must be one of: ${VALID_DIET_TYPES.join(', ')}`);
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `UPDATE diet_orders
        SET diet_type = COALESCE($1, diet_type),
            restrictions = COALESCE($2, restrictions),
@@ -131,7 +131,7 @@ class DietaryService {
     );
 
     logger.info('Diet order updated', { orderId: id });
-    return result.rows[0];
+    return result[0];
   }
 
   /**
@@ -141,13 +141,13 @@ class DietaryService {
     const { page = 1, limit = 20 } = filters;
     const offset = (Math.max(1, parseInt(page, 10)) - 1) * parseInt(limit, 10);
 
-    const countResult = await db.query(
+    const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM diet_orders WHERE patient_uid = $1`,
       [patientUid]
     );
-    const total = parseInt(countResult.rows[0].count, 10);
+    const total = parseInt(countResult[0].count, 10);
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, encounter_id, diet_type, restrictions, allergies,
               meal_preferences, calories_target, special_instructions, status,
               ordered_by, reviewed_by, created_at
@@ -192,16 +192,16 @@ class DietaryService {
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const countResult = await db.query(
+    const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM diet_orders ${whereClause}`,
       params
     );
-    const total = parseInt(countResult.rows[0].count, 10);
+    const total = parseInt(countResult[0].count, 10);
 
     params.push(parseInt(limit, 10));
     params.push(offset);
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, encounter_id, diet_type, restrictions, allergies,
               meal_preferences, calories_target, special_instructions, status,
               ordered_by, reviewed_by, created_at

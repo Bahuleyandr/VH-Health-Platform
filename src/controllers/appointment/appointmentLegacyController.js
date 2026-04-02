@@ -1,4 +1,4 @@
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { combineDateAndTime } from '../../utils/appointment/dateTimeUtils.js';
@@ -11,12 +11,12 @@ export const createLegacyAppointment = async (req, res) => {
     const phone = normalizePhone(req.body.phone || req.body.phoneNumber);
     const { doctor_name, date, time, department } = req.body;
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       'INSERT INTO appointments (phone, doctor_name, date, time) VALUES ($1, $2, $3, $4) RETURNING id, uid, phone, patient_name, doctor_name, date, status, created_at',
       [phone, doctor_name, date, time]
     );
 
-    const appointment = result.rows[0];
+    const appointment = result[0];
     const scheduledAt = combineDateAndTime(appointment.date, appointment.time);
 
     success(res, {
@@ -42,7 +42,7 @@ export const getAppointmentsByPhone = async (req, res) => {
       return error(res, 'Can only view your own appointments', HTTP_STATUS.FORBIDDEN);
     }
     
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT a.*, d.name as doctor_name, dp.department, dp.specialization
       FROM appointments a
       LEFT JOIN users d ON a.doctor_id = d.id
@@ -64,7 +64,7 @@ export const getAppointmentsByUID = async (req, res) => {
   try {
     const { uid } = req.params;
     
-    const result = await db.query(`
+    const result = await prisma.$queryRawUnsafe(`
       SELECT a.*, d.name as doctor_name, dp.department, dp.specialization
       FROM appointments a
       LEFT JOIN users d ON a.doctor_id = d.id

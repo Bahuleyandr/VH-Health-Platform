@@ -1,5 +1,5 @@
 // src/services/department/departmentExportService.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { formatDate } from '../../utils/department/departmentHelpers.js';
 
@@ -7,40 +7,64 @@ class DepartmentExportService {
   async exportDepartmentsToCSV(filters = {}) {
     try {
       const { status = 'all' } = filters;
-      
-      let query = `
-        SELECT d.id, d.name, d.description, d.is_active, d.location,
-               d.contact_number, d.budget, d.created_at, d.updated_at,
-               u.name as head_doctor_name,
-               COUNT(DISTINCT doc.user_id) as doctor_count,
-               COUNT(DISTINCT s.user_id) as staff_count
-        FROM departments d
-        LEFT JOIN users u ON d.head_doctor_id = u.id
-        LEFT JOIN doctors doc ON doc.department = d.name
-        LEFT JOIN staff s ON s.department = d.name AND s.is_active = true
-        WHERE 1=1
-      `;
-      
+
+      let rows;
       if (status === 'active') {
-        query += ' AND d.is_active = true';
+        rows = await prisma.$queryRaw`
+          SELECT d.id, d.name, d.description, d.is_active, d.location,
+                 d.contact_number, d.budget, d.created_at, d.updated_at,
+                 u.name as head_doctor_name,
+                 COUNT(DISTINCT doc.user_id) as doctor_count,
+                 COUNT(DISTINCT s.user_id) as staff_count
+          FROM departments d
+          LEFT JOIN users u ON d.head_doctor_id = u.id
+          LEFT JOIN doctors doc ON doc.department = d.name
+          LEFT JOIN staff s ON s.department = d.name AND s.is_active = true
+          WHERE d.is_active = true
+          GROUP BY d.id, d.name, d.description, d.is_active, d.location,
+                   d.contact_number, d.budget, d.created_at, d.updated_at, u.name
+          ORDER BY d.name
+        `;
       } else if (status === 'inactive') {
-        query += ' AND d.is_active = false';
+        rows = await prisma.$queryRaw`
+          SELECT d.id, d.name, d.description, d.is_active, d.location,
+                 d.contact_number, d.budget, d.created_at, d.updated_at,
+                 u.name as head_doctor_name,
+                 COUNT(DISTINCT doc.user_id) as doctor_count,
+                 COUNT(DISTINCT s.user_id) as staff_count
+          FROM departments d
+          LEFT JOIN users u ON d.head_doctor_id = u.id
+          LEFT JOIN doctors doc ON doc.department = d.name
+          LEFT JOIN staff s ON s.department = d.name AND s.is_active = true
+          WHERE d.is_active = false
+          GROUP BY d.id, d.name, d.description, d.is_active, d.location,
+                   d.contact_number, d.budget, d.created_at, d.updated_at, u.name
+          ORDER BY d.name
+        `;
+      } else {
+        rows = await prisma.$queryRaw`
+          SELECT d.id, d.name, d.description, d.is_active, d.location,
+                 d.contact_number, d.budget, d.created_at, d.updated_at,
+                 u.name as head_doctor_name,
+                 COUNT(DISTINCT doc.user_id) as doctor_count,
+                 COUNT(DISTINCT s.user_id) as staff_count
+          FROM departments d
+          LEFT JOIN users u ON d.head_doctor_id = u.id
+          LEFT JOIN doctors doc ON doc.department = d.name
+          LEFT JOIN staff s ON s.department = d.name AND s.is_active = true
+          GROUP BY d.id, d.name, d.description, d.is_active, d.location,
+                   d.contact_number, d.budget, d.created_at, d.updated_at, u.name
+          ORDER BY d.name
+        `;
       }
-      
-      query += ` GROUP BY d.id, d.name, d.description, d.is_active, d.location,
-                 d.contact_number, d.budget, d.created_at, d.updated_at, u.name
-                 ORDER BY d.name`;
-      
-      const result = await db.query(query);
-      
-      // Format for CSV
+
       const headers = [
-        'ID', 'Name', 'Description', 'Status', 'Location', 
-        'Contact', 'Budget (INR)', 'Head Doctor', 'Total Doctors', 
+        'ID', 'Name', 'Description', 'Status', 'Location',
+        'Contact', 'Budget (INR)', 'Head Doctor', 'Total Doctors',
         'Total Staff', 'Created Date', 'Updated Date'
       ];
-      
-      const rows = result.rows.map(dept => [
+
+      const csvRows = rows.map(dept => [
         dept.id,
         dept.name,
         dept.description,
@@ -54,32 +78,29 @@ class DepartmentExportService {
         formatDate(dept.created_at),
         dept.updated_at ? formatDate(dept.updated_at) : 'N/A'
       ]);
-      
+
       return {
         headers,
-        rows,
-        count: rows.length
+        rows: csvRows,
+        count: csvRows.length
       };
     } catch (error) {
       logger.error('Error exporting departments:', error);
       throw error;
     }
   }
-  
+
   async exportDepartmentReport(departmentId) {
     try {
-      const [deptInfo, stats, financial] = await Promise.all([
-        // Department info
-        db.query(`
+      const [deptInfo, stats, recentActivities] = await Promise.all([
+        prisma.$queryRaw`
           SELECT d.*, u.name as head_doctor_name
           FROM departments d
           LEFT JOIN users u ON d.head_doctor_id = u.id
-          WHERE d.id = $1
-        `, [departmentId]),
-        
-        // Statistics
-        db.query(`
-          SELECT 
+          WHERE d.id = ${departmentId}
+        `,
+        prisma.$queryRaw`
+          SELECT
             COUNT(DISTINCT doc.user_id) as total_doctors,
             COUNT(DISTINCT s.user_id) as total_staff,
             COUNT(DISTINCT a.id) as total_appointments_30d,
@@ -87,35 +108,33 @@ class DepartmentExportService {
           FROM departments d
           LEFT JOIN doctors doc ON doc.department = d.name
           LEFT JOIN staff s ON s.department = d.name AND s.is_active = true
-          LEFT JOIN appointments a ON doc.user_id = a.doctor_id 
+          LEFT JOIN appointments a ON doc.user_id = a.doctor_id
             AND a.appointment_date >= CURRENT_DATE - INTERVAL '30 days'
-          WHERE d.id = $1
+          WHERE d.id = ${departmentId}
           GROUP BY d.id
-        `, [departmentId]),
-        
-        // Recent activities
-        db.query(`
+        `,
+        prisma.$queryRaw`
           SELECT action, created_at, u.name as user_name
           FROM department_audit_log dal
-          JOIN users u ON dal.user_id = u.id
-          WHERE dal.department_id = $1
+          JOIN users u ON dal.user_id::text = u.id::text
+          WHERE dal.department_id = ${departmentId}
           ORDER BY dal.created_at DESC
           LIMIT 10
-        `, [departmentId])
+        `
       ]);
-      
-      if (deptInfo.rows.length === 0) {
+
+      if (deptInfo.length === 0) {
         throw new Error('Department not found');
       }
-      
+
       return {
         department: {
-          ...deptInfo.rows[0],
-          created_at: formatDate(deptInfo.rows[0].created_at),
-          updated_at: deptInfo.rows[0].updated_at ? formatDate(deptInfo.rows[0].updated_at) : null
+          ...deptInfo[0],
+          created_at: formatDate(deptInfo[0].created_at),
+          updated_at: deptInfo[0].updated_at ? formatDate(deptInfo[0].updated_at) : null
         },
-        statistics: stats.rows[0] || {},
-        recent_activities: financial.rows.map(activity => ({
+        statistics: stats[0] || {},
+        recent_activities: recentActivities.map(activity => ({
           ...activity,
           created_at: formatDate(activity.created_at)
         }))

@@ -1,5 +1,5 @@
 // src/services/staff/payrollService.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 // Overtime rate: (basic / 26 working days / 8 hours) * 2 (double rate)
@@ -27,20 +27,20 @@ function calcProfessionalTax(grossMonthly) {
  */
 export async function calculatePayslip(staffUid, month, year) {
   // Get salary config
-  const salaryRes = await db.query(
+  const salaryRes = await prisma.$queryRawUnsafe(
     'SELECT id, staff_uid, basic_salary, hra, special_allowance, total_ctc, is_active, effective_from FROM staff_salary WHERE staff_uid = $1 AND is_active = true',
     [staffUid]
   );
   if (salaryRes.rows.length === 0) {
     throw new Error(`No salary configuration found for staff ${staffUid}`);
   }
-  const sal = salaryRes.rows[0];
+  const sal = salaryRes[0];
 
   // Total working days per month (standard 26 for Indian hospitals)
   const totalWorkingDays = 26;
 
   // Get attendance for this month (staff_attendance uses staff_uid UUID)
-  const attRes = await db.query(`
+  const attRes = await prisma.$queryRawUnsafe(`
     SELECT
       COUNT(*) FILTER (WHERE status IS NOT NULL) as days_present,
       SUM(COALESCE(overtime_hours, 0)) as total_overtime_hours
@@ -50,11 +50,11 @@ export async function calculatePayslip(staffUid, month, year) {
       AND EXTRACT(YEAR FROM date) = $3
   `, [staffUid, month, year]);
 
-  const daysPresent = parseInt(attRes.rows[0]?.days_present || 0);
-  const overtimeHours = parseFloat(attRes.rows[0]?.total_overtime_hours || 0);
+  const daysPresent = parseInt(attRes[0]?.days_present || 0);
+  const overtimeHours = parseFloat(attRes[0]?.total_overtime_hours || 0);
 
   // Get approved leaves this month (leave_applications uses staff_uid UUID)
-  const leaveRes = await db.query(`
+  const leaveRes = await prisma.$queryRawUnsafe(`
     SELECT COALESCE(SUM(
       LEAST(to_date::date, (make_date($3::int, $2::int, 1) + INTERVAL '1 month - 1 day')::date)::date
       - GREATEST(from_date::date, make_date($3::int, $2::int, 1))::date
@@ -67,16 +67,16 @@ export async function calculatePayslip(staffUid, month, year) {
       AND to_date::date >= make_date($3::int, $2::int, 1)
   `, [staffUid, month, year]).catch(() => ({ rows: [{ leave_days: 0 }] }));
 
-  const leaveDays = parseInt(leaveRes.rows[0]?.leave_days || 0);
+  const leaveDays = parseInt(leaveRes[0]?.leave_days || 0);
 
   // Get approved overtime for this month
   // overtime_requests.staff_id is INTEGER - need users.id
-  const userRes = await db.query('SELECT id FROM users WHERE uid = $1', [staffUid]);
-  const userId = userRes.rows[0]?.id;
+  const userRes = await prisma.$queryRawUnsafe('SELECT id FROM users WHERE uid = $1', [staffUid]);
+  const userId = userRes[0]?.id;
 
   let approvedOT = overtimeHours;
   if (userId) {
-    const otRes = await db.query(`
+    const otRes = await prisma.$queryRawUnsafe(`
       SELECT COALESCE(SUM(extra_hours), 0) as approved_overtime
       FROM overtime_requests
       WHERE staff_id = $1
@@ -84,7 +84,7 @@ export async function calculatePayslip(staffUid, month, year) {
         AND EXTRACT(MONTH FROM date::date) = $2
         AND EXTRACT(YEAR FROM date::date) = $3
     `, [userId, month, year]).catch(() => ({ rows: [{ approved_overtime: 0 }] }));
-    approvedOT = parseFloat(otRes.rows[0]?.approved_overtime || overtimeHours);
+    approvedOT = parseFloat(otRes[0]?.approved_overtime || overtimeHours);
   }
 
   // ─── Calculate earnings ──────────────────────────────────────────────────
@@ -102,11 +102,11 @@ export async function calculatePayslip(staffUid, month, year) {
   const overtimePay = Math.round(approvedOT * otRate * 100) / 100;
 
   // ─── FEATURE 4: Check for pending arrears ───────────────────────────────
-  const arrearsRes = await db.query(`
+  const arrearsRes = await prisma.$queryRawUnsafe(`
     SELECT COALESCE(SUM(arrears_amount), 0) as total FROM salary_arrears
     WHERE staff_uid = $1 AND status = 'pending'
   `, [staffUid]).catch(() => ({ rows: [{ total: 0 }] }));
-  const arrearsAmount = parseFloat(arrearsRes.rows[0]?.total || 0);
+  const arrearsAmount = parseFloat(arrearsRes[0]?.total || 0);
 
   const grossSalary = basicEarned + hraEarned + daEarned + specialEarned +
     transportEarned + medicalEarned + overtimePay + arrearsAmount;
@@ -126,7 +126,7 @@ export async function calculatePayslip(staffUid, month, year) {
   const lopDeduction = Math.round(lopDays * lopDailyRate * 100) / 100;
 
   // ─── FEATURE 3: Check for active salary advances to deduct ──────────────
-  const advanceRes = await db.query(`
+  const advanceRes = await prisma.$queryRawUnsafe(`
     SELECT id, staff_uid, amount, deduction_month, deduction_year, status, created_at FROM salary_advances
     WHERE staff_uid = $1
       AND status = 'approved'
@@ -148,7 +148,7 @@ export async function calculatePayslip(staffUid, month, year) {
   const netSalary = Math.round((grossSalary - totalDeductions - totalAdvanceDeduction) * 100) / 100;
 
   // ─── FEATURE 2: Check for salary revision note ──────────────────────────
-  const revisionCheck = await db.query(`
+  const revisionCheck = await prisma.$queryRawUnsafe(`
     SELECT sr.revision_number, sr.revision_type,
            sr.current_basic, sr.proposed_basic,
            sr.bonus_amount, sr.increment_pct, sr.effective_from
@@ -162,7 +162,7 @@ export async function calculatePayslip(staffUid, month, year) {
 
   let revisionNote = null;
   if (revisionCheck.rows.length > 0) {
-    const r = revisionCheck.rows[0];
+    const r = revisionCheck[0];
     if (r.revision_type === 'increment' && r.current_basic && r.proposed_basic) {
       revisionNote = `Increment applied (${r.revision_number}): ₹${Number(r.current_basic).toLocaleString('en-IN')} → ₹${Number(r.proposed_basic).toLocaleString('en-IN')} effective ${new Date(r.effective_from).toLocaleDateString('en-IN')}`;
     } else if (r.revision_type === 'bonus') {
@@ -208,7 +208,7 @@ export async function calculatePayslip(staffUid, month, year) {
  * Save payslip to DB (upsert).
  */
 export async function savePayslip(payrollRunId, data) {
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     INSERT INTO payslips (
       payroll_run_id, staff_uid, month, year,
       total_working_days, days_present, days_absent, days_leave,
@@ -242,7 +242,7 @@ export async function savePayslip(payrollRunId, data) {
     data.advance_deduction || 0, data.lop_days || 0, data.lop_deduction || 0,
     data.net_salary, data.revision_note || null,
   ]);
-  return result.rows[0];
+  return result[0];
 }
 
 /**
@@ -254,7 +254,7 @@ export async function generateAnnualTaxSummary(staffUid, financialYear) {
   const startYear = parseInt(startYearStr);
   const endYear = startYear + 1;
 
-  const payslips = await db.query(`
+  const payslips = await prisma.$queryRawUnsafe(`
     SELECT id, staff_uid, month, year, payroll_run_id, basic_salary, hra, special_allowance, total_earnings, pf_employee, pf_employer, esi, professional_tax, tds, total_deductions, net_salary, status, created_at FROM payslips
     WHERE staff_uid = $1
       AND status IN ('issued','viewed','downloaded')
@@ -342,7 +342,7 @@ export async function generateAnnualTaxSummary(staffUid, financialYear) {
     months_included: payslips.rows.length,
   };
 
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     INSERT INTO annual_tax_summaries (
       staff_uid, financial_year, total_basic, total_hra, total_da,
       total_special_allowance, total_transport_allowance, total_medical_allowance,
@@ -371,20 +371,20 @@ export async function generateAnnualTaxSummary(staffUid, financialYear) {
     summary.taxable_income, summary.tax_payable, summary.months_included,
   ]);
 
-  return result.rows[0];
+  return result[0];
 }
 
 /**
  * FEATURE 4: Calculate arrears when a salary revision is backdated.
  */
 export async function calculateArrears(revisionId) {
-  const revision = await db.query(
+  const revision = await prisma.$queryRawUnsafe(
     "SELECT id, staff_uid, revision_type, old_basic, new_basic, old_ctc, new_ctc, effective_from, status, created_at FROM salary_revisions WHERE id=$1 AND status='applied'",
     [revisionId]
   );
   if (revision.rows.length === 0) throw new Error('Revision not found or not applied');
 
-  const r = revision.rows[0];
+  const r = revision[0];
   if (!r.proposed_basic || !r.current_basic) throw new Error('No basic salary change in this revision');
 
   const effectiveDate = new Date(r.effective_from);
@@ -413,12 +413,12 @@ export async function calculateArrears(revisionId) {
   let totalArrears = 0;
 
   for (const { month, year } of arrearMonths) {
-    const payslip = await db.query(
+    const payslip = await prisma.$queryRawUnsafe(
       'SELECT id, staff_uid, month, year, payroll_run_id, basic_salary, hra, special_allowance, total_earnings, pf_employee, pf_employer, esi, professional_tax, tds, total_deductions, net_salary, status, created_at FROM payslips WHERE staff_uid=$1 AND month=$2 AND year=$3',
       [r.staff_uid, month, year]
     );
     if (payslip.rows.length > 0) {
-      const p = payslip.rows[0];
+      const p = payslip[0];
       const attendanceFactor = p.days_present / (p.total_working_days || 26);
       totalArrears += diffBasic * attendanceFactor;
     } else {
@@ -429,12 +429,12 @@ export async function calculateArrears(revisionId) {
   const fromDate = arrearMonths[0];
   const toDate = arrearMonths[arrearMonths.length - 1];
 
-  const insertResult = await db.query(`
+  const insertResult = await prisma.$queryRawUnsafe(`
     INSERT INTO salary_arrears (staff_uid, revision_id, from_month, from_year, to_month, to_year, arrears_amount)
     VALUES ($1,$2,$3,$4,$5,$6,$7)
     ON CONFLICT DO NOTHING
     RETURNING id, staff_uid, revision_id, from_month, from_year, to_month, to_year, arrears_amount, status, created_at
   `, [r.staff_uid, revisionId, fromDate.month, fromDate.year, toDate.month, toDate.year, Math.round(totalArrears * 100) / 100]);
 
-  return { arrears_amount: Math.round(totalArrears * 100) / 100, months: arrearMonths.length, result: insertResult.rows[0] };
+  return { arrears_amount: Math.round(totalArrears * 100) / 100, months: arrearMonths.length, result: insertResult[0] };
 }

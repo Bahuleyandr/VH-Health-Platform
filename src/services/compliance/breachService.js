@@ -2,7 +2,7 @@
 // HIPAA Data Breach Notification Service
 // Manages breach lifecycle: report → investigate → contain → resolve → notify
 
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
@@ -31,7 +31,7 @@ export async function reportBreach({ severity, description, affectedRecords, aff
     throw AppError.badRequest(`Invalid severity. Must be one of: ${VALID_SEVERITIES.join(', ')}`);
   }
 
-  const result = await db.query(
+  const result = await prisma.$queryRawUnsafe(
     `INSERT INTO data_breaches
       (severity, description, affected_records, affected_patient_uids, discovered_at, reported_by, status, created_at)
      VALUES ($1, $2, $3, $4, NOW(), $5, 'open', NOW())
@@ -46,7 +46,7 @@ export async function reportBreach({ severity, description, affectedRecords, aff
     ]
   );
 
-  const breach = result.rows[0];
+  const breach = result[0];
 
   // Log to audit
   logBreachAudit(reportedBy, 'breach_reported', breach.breach_id, {
@@ -76,7 +76,7 @@ export async function containBreach(breachId, containmentActions, adminId) {
     throw AppError.badRequest('breachId and containmentActions are required');
   }
 
-  const existing = await db.query(
+  const existing = await prisma.$queryRawUnsafe(
     `SELECT id, breach_id, status FROM data_breaches WHERE breach_id = $1`,
     [breachId]
   );
@@ -85,12 +85,12 @@ export async function containBreach(breachId, containmentActions, adminId) {
     throw AppError.notFound('Breach not found');
   }
 
-  const currentStatus = existing.rows[0].status;
+  const currentStatus = existing[0].status;
   if (!VALID_TRANSITIONS[currentStatus]?.includes('contained')) {
     throw AppError.invalidTransition(currentStatus, 'contained', VALID_TRANSITIONS[currentStatus]);
   }
 
-  const result = await db.query(
+  const result = await prisma.$queryRawUnsafe(
     `UPDATE data_breaches
      SET status = 'contained', containment_actions = $1
      WHERE breach_id = $2
@@ -103,7 +103,7 @@ export async function containBreach(breachId, containmentActions, adminId) {
 
   logger.info('Breach contained', { breach_id: breachId, admin_id: adminId });
 
-  return result.rows[0];
+  return result[0];
 }
 
 /**
@@ -114,7 +114,7 @@ export async function resolveBreach(breachId, resolutionNotes, adminId) {
     throw AppError.badRequest('breachId and resolutionNotes are required');
   }
 
-  const existing = await db.query(
+  const existing = await prisma.$queryRawUnsafe(
     `SELECT id, breach_id, status FROM data_breaches WHERE breach_id = $1`,
     [breachId]
   );
@@ -123,12 +123,12 @@ export async function resolveBreach(breachId, resolutionNotes, adminId) {
     throw AppError.notFound('Breach not found');
   }
 
-  const currentStatus = existing.rows[0].status;
+  const currentStatus = existing[0].status;
   if (!VALID_TRANSITIONS[currentStatus]?.includes('resolved')) {
     throw AppError.invalidTransition(currentStatus, 'resolved', VALID_TRANSITIONS[currentStatus]);
   }
 
-  const result = await db.query(
+  const result = await prisma.$queryRawUnsafe(
     `UPDATE data_breaches
      SET status = 'resolved', resolution_notes = $1, resolved_at = NOW()
      WHERE breach_id = $2
@@ -141,7 +141,7 @@ export async function resolveBreach(breachId, resolutionNotes, adminId) {
 
   logger.info('Breach resolved', { breach_id: breachId, admin_id: adminId });
 
-  return result.rows[0];
+  return result[0];
 }
 
 /**
@@ -165,16 +165,16 @@ export async function getBreaches(filters = {}) {
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   const offset = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
 
-  const countResult = await db.query(
+  const countResult = await prisma.$queryRawUnsafe(
     `SELECT COUNT(*) AS total FROM data_breaches ${whereClause}`,
     params
   );
-  const total = parseInt(countResult.rows[0].total);
+  const total = parseInt(countResult[0].total);
 
   params.push(parseInt(limit));
   params.push(offset);
 
-  const result = await db.query(
+  const result = await prisma.$queryRawUnsafe(
     `SELECT id, breach_id, severity, description, affected_records,
             affected_patient_uids, discovered_at, reported_by, status,
             containment_actions, resolution_notes, notification_sent_at,
@@ -201,7 +201,7 @@ export async function getBreaches(filters = {}) {
  * Get a single breach with its timeline of audit actions.
  */
 export async function getBreachTimeline(breachId) {
-  const breachResult = await db.query(
+  const breachResult = await prisma.$queryRawUnsafe(
     `SELECT id, breach_id, severity, description, affected_records,
             affected_patient_uids, discovered_at, reported_by, status,
             containment_actions, resolution_notes, notification_sent_at,
@@ -216,7 +216,7 @@ export async function getBreachTimeline(breachId) {
   }
 
   // Fetch timeline from audit_log for this breach
-  const timelineResult = await db.query(
+  const timelineResult = await prisma.$queryRawUnsafe(
     `SELECT user_id, user_name, user_role, action, request_summary, created_at
      FROM audit_log
      WHERE module = 'compliance'
@@ -226,7 +226,7 @@ export async function getBreachTimeline(breachId) {
   );
 
   return {
-    breach: breachResult.rows[0],
+    breach: breachResult[0],
     timeline: timelineResult.rows,
   };
 }
@@ -239,7 +239,7 @@ export async function getBreachTimeline(breachId) {
 function logBreachAudit(userId, action, breachId, details) {
   setImmediate(async () => {
     try {
-      await db.query(
+      await prisma.$queryRawUnsafe(
         `INSERT INTO audit_log
           (user_id, user_name, user_role, ip_address, method, path, module, action,
            request_summary, status_code, success)
@@ -270,7 +270,7 @@ function logBreachAudit(userId, action, breachId, details) {
  */
 async function notifyAdminsOfBreach(breach) {
   try {
-    const adminsResult = await db.query(
+    const adminsResult = await prisma.$queryRawUnsafe(
       `SELECT uid, name, email FROM users WHERE role IN ('ADMIN', 'SUPER_ADMIN') AND is_active = true`
     );
 
@@ -284,7 +284,7 @@ async function notifyAdminsOfBreach(breach) {
 
     for (const admin of adminsResult.rows) {
       try {
-        await db.query(
+        await prisma.$queryRawUnsafe(
           `INSERT INTO notification_outbox
             (type, recipient_id, recipient_phone, title, body, payload, status, created_at)
            VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', NOW())`,
@@ -311,7 +311,7 @@ async function notifyAdminsOfBreach(breach) {
     }
 
     // Mark notification as sent on the breach
-    await db.query(
+    await prisma.$queryRawUnsafe(
       `UPDATE data_breaches SET notification_sent_at = NOW() WHERE breach_id = $1`,
       [breach.breach_id]
     );

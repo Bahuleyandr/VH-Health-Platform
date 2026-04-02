@@ -3,7 +3,7 @@
 import admin from 'firebase-admin';
 import logger from '../../logging/logger.js';
 import { sendToUser } from '../websocket/wsServer.js';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 
 /**
  * Send a Firebase multicast message with retry logic for transient errors.
@@ -90,17 +90,17 @@ export async function sendPushNotification({ tokens, title, body, data = {}, use
         setImmediate(async () => {
           try {
             // Deactivate invalid tokens in user_devices (fcm_token column)
-            await db.query(
+            await prisma.$queryRawUnsafe(
               `UPDATE user_devices SET fcm_token = NULL WHERE fcm_token = ANY($1)`,
               [invalidTokens]
             );
             // Deactivate invalid tokens in staff_devices (device_token column)
-            await db.query(
+            await prisma.$queryRawUnsafe(
               `UPDATE staff_devices SET is_active = false, device_token = NULL WHERE device_token = ANY($1)`,
               [invalidTokens]
             );
             // Clear invalid tokens from users table (device_token column)
-            await db.query(
+            await prisma.$queryRawUnsafe(
               `UPDATE users SET device_token = NULL WHERE device_token = ANY($1)`,
               [invalidTokens]
             );

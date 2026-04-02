@@ -1,4 +1,4 @@
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
@@ -35,7 +35,7 @@ export const getAuditLogs = async (req, res) => {
     const offsetVal = parseInt(offset);
     params.push(limitVal, offsetVal);
 
-    const logs = await db.query(`
+    const logs = await prisma.$queryRawUnsafe(`
       SELECT al.id, al.user_id, al.user_name, al.user_role, al.ip_address,
              al.method, al.path, al.module, al.action,
              al.status_code, al.response_time_ms, al.success,
@@ -47,14 +47,14 @@ export const getAuditLogs = async (req, res) => {
       LIMIT $${idx} OFFSET $${idx + 1}
     `, params);
 
-    const countResult = await db.query(
+    const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM audit_log al ${where}`,
       params.slice(0, -2)
     );
 
     success(res, {
       logs: logs.rows,
-      total: parseInt(countResult.rows[0].count),
+      total: parseInt(countResult[0].count),
       limit: limitVal,
       offset: offsetVal,
     }, 'Audit logs fetched');
@@ -72,7 +72,7 @@ export const getAuditSummary = async (req, res) => {
     const interval = `${parseInt(hours)} hours`;
 
     const [activity, topUsers, topModules, errors, slowRequests] = await Promise.all([
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT
           COUNT(*) as total_requests,
           COUNT(*) FILTER (WHERE success = false) as failed_requests,
@@ -84,7 +84,7 @@ export const getAuditSummary = async (req, res) => {
         WHERE created_at >= NOW() - $1::INTERVAL
       `, [interval]),
 
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT user_name, user_role, COUNT(*) as action_count,
                COUNT(*) FILTER (WHERE method != 'GET') as writes,
                COUNT(*) FILTER (WHERE success = false) as failures
@@ -95,7 +95,7 @@ export const getAuditSummary = async (req, res) => {
         ORDER BY action_count DESC LIMIT 10
       `, [interval]),
 
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT module, COUNT(*) as count,
                COUNT(*) FILTER (WHERE success = false) as failures
         FROM audit_log
@@ -103,7 +103,7 @@ export const getAuditSummary = async (req, res) => {
         GROUP BY module ORDER BY count DESC
       `, [interval]),
 
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT id, user_name, method, path, status_code, error_message, created_at, response_time_ms
         FROM audit_log
         WHERE success = false
@@ -111,7 +111,7 @@ export const getAuditSummary = async (req, res) => {
         ORDER BY created_at DESC LIMIT 20
       `, [interval]),
 
-      db.query(`
+      prisma.$queryRawUnsafe(`
         SELECT id, user_name, method, path, response_time_ms, created_at
         FROM audit_log
         WHERE response_time_ms > 2000
@@ -122,7 +122,7 @@ export const getAuditSummary = async (req, res) => {
 
     success(res, {
       period_hours: parseInt(hours),
-      activity: activity.rows[0],
+      activity: activity[0],
       top_users: topUsers.rows,
       top_modules: topModules.rows,
       recent_errors: errors.rows,
@@ -141,7 +141,7 @@ export const getUserAuditHistory = async (req, res) => {
     const { userId } = req.params;
     const { limit = 200, days = 30 } = req.query;
 
-    const logs = await db.query(`
+    const logs = await prisma.$queryRawUnsafe(`
       SELECT id, method, path, module, action, status_code, response_time_ms,
              success, request_summary, ip_address, created_at
       FROM audit_log
@@ -151,7 +151,7 @@ export const getUserAuditHistory = async (req, res) => {
       LIMIT $3
     `, [userId, `${parseInt(days)} days`, Math.min(parseInt(limit), 500)]);
 
-    const stats = await db.query(`
+    const stats = await prisma.$queryRawUnsafe(`
       SELECT
         COUNT(*) as total,
         COUNT(*) FILTER (WHERE method != 'GET') as writes,
@@ -165,7 +165,7 @@ export const getUserAuditHistory = async (req, res) => {
     success(res, {
       user_id: userId,
       period_days: parseInt(days),
-      stats: stats.rows[0],
+      stats: stats[0],
       logs: logs.rows,
     }, 'User audit history fetched');
   } catch (err) {
@@ -177,8 +177,8 @@ export const getUserAuditHistory = async (req, res) => {
 // GET /api/v1/admin/audit/modules
 export const getAuditModules = async (req, res) => {
   try {
-    const modules = await db.query(`SELECT DISTINCT module FROM audit_log WHERE module IS NOT NULL ORDER BY module`);
-    const actions = await db.query(`SELECT DISTINCT action FROM audit_log WHERE action IS NOT NULL ORDER BY action`);
+    const modules = await prisma.$queryRawUnsafe(`SELECT DISTINCT module FROM audit_log WHERE module IS NOT NULL ORDER BY module`);
+    const actions = await prisma.$queryRawUnsafe(`SELECT DISTINCT action FROM audit_log WHERE action IS NOT NULL ORDER BY action`);
     success(res, {
       modules: modules.rows.map(r => r.module),
       actions: actions.rows.map(r => r.action),

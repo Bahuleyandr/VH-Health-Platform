@@ -1,5 +1,5 @@
 // src/controllers/logs/logsController.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 
@@ -7,12 +7,12 @@ import { success, error } from '../../utils/responseHelper.js';
 
 async function tableExists(tableName) {
   try {
-    const r = await db.query(
+    const r = await prisma.$queryRawUnsafe(
       `SELECT 1 FROM information_schema.tables
        WHERE table_schema = 'public' AND table_name = $1 LIMIT 1`,
       [tableName]
     );
-    return r.rowCount > 0;
+    return r.length > 0;
   } catch {
     return false;
   }
@@ -62,14 +62,14 @@ export async function getAuditLogs(req, res) {
 
     const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-    const countResult = await db.query(
+    const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*)::int AS total FROM audit_logs ${whereClause}`,
       params
     );
-    const total = countResult.rows[0]?.total ?? 0;
+    const total = countResult[0]?.total ?? 0;
 
     params.push(limit, offset);
-    const dataResult = await db.query(
+    const dataResult = await prisma.$queryRawUnsafe(
       `SELECT id, uid, role, action, ip, metadata,
               COALESCE(timestamp, created_at) AS occurred_at
        FROM audit_logs
@@ -123,7 +123,7 @@ export async function exportAuditLogs(req, res) {
 
     const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, uid, role, action, ip, metadata,
               COALESCE(timestamp, created_at) AS occurred_at
        FROM audit_logs
@@ -133,7 +133,7 @@ export async function exportAuditLogs(req, res) {
       params
     );
 
-    success(res, result.rows, `Audit log export: ${result.rowCount} records`);
+    success(res, result.rows, `Audit log export: ${result.length} records`);
   } catch (err) {
     logger.error('[logs] exportAuditLogs error:', err.stack || err.message);
     error(res, 'Failed to export audit logs', 500);
@@ -160,7 +160,7 @@ async function buildSystemLogs({ limit, offset, start_date, end_date, level }) {
     const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
     try {
-      const r = await db.query(
+      const r = await prisma.$queryRawUnsafe(
         `SELECT id, 'emergency' AS category, 'WARN' AS level,
                 'SOS alert triggered' AS message,
                 jsonb_build_object('status', status, 'location', location) AS metadata,
@@ -182,7 +182,7 @@ async function buildSystemLogs({ limit, offset, start_date, end_date, level }) {
     const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
     try {
-      const r = await db.query(
+      const r = await prisma.$queryRawUnsafe(
         `SELECT id, 'audit' AS category, 'INFO' AS level,
                 action AS message,
                 jsonb_build_object('uid', uid, 'role', role, 'ip', ip) AS metadata,

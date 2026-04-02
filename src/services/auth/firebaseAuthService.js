@@ -1,13 +1,30 @@
 // src/services/auth/firebaseAuthService.js - Firebase Authentication Service
 
 import { AUTH_ACTIONS } from '../../config/authConfig.js';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { OTPService } from '../otpService.js';
 import admin from '../../utils/firebaseAdmin.js';
 import { generateToken } from '../../utils/jwtUtils.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+
+
+const query = async (sql, params = []) => {
+  const normalizedSql = sql.trim();
+  const upperSql = normalizedSql.toUpperCase();
+  const usesReturning = /\bRETURNING\b/i.test(normalizedSql);
+  const isReadQuery = upperSql.startsWith('SELECT') || upperSql.startsWith('WITH') || usesReturning;
+
+  if (isReadQuery) {
+    const rows = await prisma.$queryRawUnsafe(normalizedSql, ...params);
+    return { rows, rowCount: Array.isArray(rows) ? rows.length : 0 };
+  }
+
+  const rowCount = await prisma.$executeRawUnsafe(normalizedSql, ...params);
+  return { rows: [], rowCount: Number(rowCount) || 0 };
+};
+
 
 // Authenticate with Firebase ID token
 export const authenticateWithFirebase = async (idToken, deviceInfo, req) => {
@@ -25,7 +42,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req) => {
   const firebaseUid = decodedToken.uid;
   
   // Check if user exists in our database
-  const userResult = await db.query(
+  const userResult = await query(
     'SELECT id, uid, name, phone, email, role, firebase_uid, gender, email_verified, is_active, last_login FROM users WHERE phone = $1 OR firebase_uid = $2',
     [phone, firebaseUid]
   );
@@ -35,7 +52,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req) => {
   
   if (userResult.rows.length === 0) {
     // Create new user
-    const insertResult = await db.query(
+    const insertResult = await query(
       `INSERT INTO users (
         phone, firebase_uid, role, registered_at, last_login,
         name, email, email_verified
@@ -58,12 +75,12 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req) => {
     
     // Update Firebase UID if missing
     if (!user.firebase_uid) {
-      await db.query(
+      await query(
         'UPDATE users SET firebase_uid = $1, last_login = NOW() WHERE uid = $2',
         [firebaseUid, user.uid]
       );
     } else {
-      await db.query(
+      await query(
         'UPDATE users SET last_login = NOW() WHERE uid = $1',
         [user.uid]
       );
@@ -110,7 +127,7 @@ export const completeUserProfile = async (profileData) => {
   const normalizedPhone = normalizePhone(phone);
   
   // Update user profile
-  const result = await db.query(
+  const result = await query(
     `UPDATE users SET 
       name = $1, gender = $2, email = $3, birthday = $4,
       anniversary = $5, address = $6, emergency_contact = $7,
@@ -170,7 +187,7 @@ export const linkFirebaseAccount = async (phone, idToken, otp) => {
   }
   
   // Check if user exists
-  const userResult = await db.query(
+  const userResult = await query(
     'SELECT id, uid, name, phone, email, role, firebase_uid, is_active FROM users WHERE phone = $1',
     [normalizedPhone]
   );
@@ -184,7 +201,7 @@ export const linkFirebaseAccount = async (phone, idToken, otp) => {
   const user = userResult.rows[0];
   
   // Link Firebase UID to existing user
-  await db.query(
+  await query(
     'UPDATE users SET firebase_uid = $1 WHERE uid = $2',
     [firebaseUid, user.uid]
   );
@@ -224,7 +241,7 @@ export const updateFcmToken = async (phone, fcmToken, deviceId) => {
   const normalizedPhone = normalizePhone(phone);
   
   // Update or insert FCM token
-  await db.query(
+  await query(
     `INSERT INTO user_devices (user_uid, device_id, fcm_token, last_active, created_at)
      SELECT uid, $2, $3, NOW(), NOW() FROM users WHERE phone = $1
      ON CONFLICT (user_uid, device_id)
@@ -253,7 +270,7 @@ export const revokeFirebaseSession = async (firebaseUid) => {
   await admin.auth().revokeRefreshTokens(firebaseUid);
   
   // Log the revocation
-  await db.query(
+  await query(
     `UPDATE users SET firebase_tokens_revoked_at = NOW() 
      WHERE firebase_uid = $1`,
     [firebaseUid]
@@ -272,7 +289,7 @@ export const verifyTokenStatus = async (idToken) => {
   const decodedToken = await admin.auth().verifyIdToken(idToken, true);
   
   // Check if user exists in our system
-  const userResult = await db.query(
+  const userResult = await query(
     'SELECT uid, phone, name, role FROM users WHERE firebase_uid = $1',
     [decodedToken.uid]
   );
@@ -300,7 +317,7 @@ export const getHealthStatus = async () => {
   await admin.auth().listUsers(1);
   
   // Get Firebase auth statistics
-  const stats = await db.query(`
+  const stats = await query(`
     SELECT 
       COUNT(*) FILTER (WHERE firebase_uid IS NOT NULL) as firebase_users,
       COUNT(*) FILTER (WHERE firebase_uid IS NOT NULL AND last_login > NOW() - INTERVAL '24 hours') as active_firebase_users_24h,
@@ -309,7 +326,7 @@ export const getHealthStatus = async () => {
     FROM users
   `);
   
-  const deviceStats = await db.query(`
+  const deviceStats = await query(`
     SELECT 
       platform,
       COUNT(*) as device_count,
@@ -330,7 +347,7 @@ export const getHealthStatus = async () => {
 // Store device information
 const storeDeviceInfo = async (userUid, deviceInfo) => {
   try {
-    await db.query(
+    await query(
       `INSERT INTO user_devices (
         user_uid, device_id, device_name, platform, app_version, 
         fcm_token, last_active, created_at
@@ -359,7 +376,7 @@ const storeDeviceInfo = async (userUid, deviceInfo) => {
 // Log Firebase authentication
 const logFirebaseAuth = async (phone, action, success, failureReason, req) => {
   try {
-    await db.query(
+    await query(
       `INSERT INTO auth_logs (
         phone, action, success, auth_method, ip_address, user_agent, created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
@@ -383,7 +400,7 @@ export const legacyRegisterUser = async (userData) => {
   const normalizedPhone = normalizePhone(phone);
   
   // Check if user already exists
-  const existingUser = await db.query('SELECT id, uid, phone FROM users WHERE phone = $1', [normalizedPhone]);
+  const existingUser = await query('SELECT id, uid, phone FROM users WHERE phone = $1', [normalizedPhone]);
   
   if (existingUser.rows.length > 0) {
     const error = new Error('User already exists');
@@ -392,7 +409,7 @@ export const legacyRegisterUser = async (userData) => {
   }
   
   // Create new user
-  const insertResult = await db.query(
+  const insertResult = await query(
     `INSERT INTO users (
       phone, name, gender, email, birthday, anniversary, address,
       role, registered_at

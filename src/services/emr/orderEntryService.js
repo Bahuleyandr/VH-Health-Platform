@@ -1,10 +1,13 @@
 // src/services/emr/orderEntryService.js
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
+import { createPrismaDb } from '../../lib/prismaCompat.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
 import { scheduleMedications } from '../clinical/marService.js';
 import notificationOutbox from '../../utils/notifications/notificationOutbox.js';
+
+const db = createPrismaDb(prisma);
 
 // ===================================================================
 // Order Entry (CPOE) Service
@@ -21,7 +24,7 @@ async function generateOrderNumber() {
   const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   const prefix = `ORD-${today}-`;
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT order_number FROM clinical_orders
      WHERE order_number LIKE $1
      ORDER BY id DESC LIMIT 1`,
@@ -111,7 +114,7 @@ export async function createOrder(data) {
 
   const orderNumber = await generateOrderNumber();
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `INSERT INTO clinical_orders
        (order_number, encounter_id, patient_uid, order_type, priority, details, status,
         ordered_by, start_date, end_date, notes, created_at)
@@ -206,7 +209,7 @@ export async function verifyOrder(orderId, verifiedBy) {
     throw AppError.badRequest('verifiedBy is required');
   }
 
-  const { rows: existing } = await db.query(
+  const { rows: existing } = await prisma.$queryRawUnsafe(
     `SELECT id, status FROM clinical_orders WHERE id = $1`,
     [orderId]
   );
@@ -219,7 +222,7 @@ export async function verifyOrder(orderId, verifiedBy) {
     throw AppError.badRequest(`Cannot verify order in status '${existing[0].status}'. Order must be in 'ordered' status.`);
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `UPDATE clinical_orders
      SET status = 'verified', verified_by = $2, verified_at = NOW()
      WHERE id = $1
@@ -247,7 +250,7 @@ export async function completeOrder(orderId, completedBy) {
     throw AppError.badRequest('completedBy is required');
   }
 
-  const { rows: existing } = await db.query(
+  const { rows: existing } = await prisma.$queryRawUnsafe(
     `SELECT id, status FROM clinical_orders WHERE id = $1`,
     [orderId]
   );
@@ -261,7 +264,7 @@ export async function completeOrder(orderId, completedBy) {
     throw AppError.badRequest(`Cannot complete order in status '${existing[0].status}'`);
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `UPDATE clinical_orders
      SET status = 'completed', completed_by = $2, completed_at = NOW()
      WHERE id = $1
@@ -291,7 +294,7 @@ export async function cancelOrder(orderId, cancelledBy, reason) {
     throw AppError.badRequest('cancelledBy and reason are required');
   }
 
-  const { rows: existing } = await db.query(
+  const { rows: existing } = await prisma.$queryRawUnsafe(
     `SELECT id, status FROM clinical_orders WHERE id = $1`,
     [orderId]
   );
@@ -304,7 +307,7 @@ export async function cancelOrder(orderId, cancelledBy, reason) {
     throw AppError.badRequest(`Cannot cancel order in status '${existing[0].status}'`);
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `UPDATE clinical_orders
      SET status = 'cancelled', cancelled_by = $2, cancel_reason = $3
      WHERE id = $1
@@ -333,7 +336,7 @@ export async function discontinueOrder(orderId, discontinuedBy, reason) {
     throw AppError.badRequest('discontinuedBy and reason are required');
   }
 
-  const { rows: existing } = await db.query(
+  const { rows: existing } = await prisma.$queryRawUnsafe(
     `SELECT id, status FROM clinical_orders WHERE id = $1`,
     [orderId]
   );
@@ -347,7 +350,7 @@ export async function discontinueOrder(orderId, discontinuedBy, reason) {
     throw AppError.badRequest(`Cannot discontinue order in status '${existing[0].status}'`);
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `UPDATE clinical_orders
      SET status = 'discontinued', cancelled_by = $2, cancel_reason = $3, end_date = NOW()
      WHERE id = $1
@@ -405,13 +408,13 @@ export async function getPatientOrders(patientUid, filters = {}) {
   const safeLimit = Math.min(Math.max(1, parseInt(limit, 10)), 100);
   const offset = (Math.max(1, parseInt(page, 10)) - 1) * safeLimit;
 
-  const { rows: countRows } = await db.query(
+  const { rows: countRows } = await prisma.$queryRawUnsafe(
     `SELECT COUNT(*) AS total FROM clinical_orders co WHERE ${whereClause}`,
     params
   );
   const total = parseInt(countRows[0].total, 10);
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT co.id, co.order_number, co.encounter_id, co.patient_uid, co.order_type,
             co.priority, co.details, co.status, co.ordered_by, co.verified_by, co.verified_at,
             co.completed_by, co.completed_at, co.cancelled_by, co.cancel_reason,
@@ -444,7 +447,7 @@ export async function getPatientOrders(patientUid, filters = {}) {
  * @returns {Array} Orders sorted by created_at
  */
 export async function getEncounterOrders(encounterId) {
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, order_number, encounter_id, patient_uid, order_type, priority, details,
             status, ordered_by, verified_by, verified_at, completed_by, completed_at,
             cancelled_by, cancel_reason, start_date, end_date, notes, created_at
@@ -473,7 +476,7 @@ export async function applyOrderSet(patientUid, encounterId, orderSetId, ordered
     throw AppError.badRequest('patientUid, orderSetId, and orderedBy are required');
   }
 
-  const { rows: setRows } = await db.query(
+  const { rows: setRows } = await prisma.$queryRawUnsafe(
     `SELECT id, name, orders, is_active FROM order_sets WHERE id = $1`,
     [orderSetId]
   );
@@ -541,7 +544,7 @@ export async function getOrderSets(category) {
     paramIdx++;
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `SELECT id, name, description, category, orders, created_by, is_active, created_at
      FROM order_sets
      WHERE ${conditions.join(' AND ')}
@@ -582,7 +585,7 @@ export async function createOrderSet(data) {
     }
   }
 
-  const { rows } = await db.query(
+  const { rows } = await prisma.$queryRawUnsafe(
     `INSERT INTO order_sets (name, description, category, orders, created_by, is_active, created_at)
      VALUES ($1, $2, $3, $4, $5, true, NOW())
      RETURNING id, name, description, category, orders, created_by, is_active, created_at`,

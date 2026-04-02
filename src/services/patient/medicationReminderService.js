@@ -1,4 +1,4 @@
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import AppError from '../../utils/AppError.js';
 
@@ -8,7 +8,7 @@ import AppError from '../../utils/AppError.js';
 export async function createReminder(patientUid, data) {
   const { medication_name, dosage, frequency, reminder_times, start_date, end_date, notes } = data;
 
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     INSERT INTO medication_reminders
       (patient_uid, medication_name, dosage, frequency, reminder_times, start_date, end_date, notes)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -16,14 +16,14 @@ export async function createReminder(patientUid, data) {
               start_date, end_date, is_active, notes, created_at
   `, [patientUid, medication_name, dosage, frequency, reminder_times, start_date, end_date || null, notes || null]);
 
-  return result.rows[0];
+  return result[0];
 }
 
 /**
  * Get all active medication reminders for a patient.
  */
 export async function getActiveReminders(patientUid) {
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     SELECT id, patient_uid, medication_name, dosage, frequency, reminder_times,
            start_date, end_date, is_active, notes, created_at
     FROM medication_reminders
@@ -41,7 +41,7 @@ export async function getActiveReminders(patientUid) {
 export async function updateReminder(id, patientUid, data) {
   const { medication_name, dosage, frequency, reminder_times, start_date, end_date, notes } = data;
 
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     UPDATE medication_reminders
     SET medication_name = COALESCE($3, medication_name),
         dosage = COALESCE($4, dosage),
@@ -59,7 +59,7 @@ export async function updateReminder(id, patientUid, data) {
     throw AppError.notFound('Medication reminder not found');
   }
 
-  return result.rows[0];
+  return result[0];
 }
 
 /**
@@ -67,7 +67,7 @@ export async function updateReminder(id, patientUid, data) {
  * Enforces ownership via patient_uid.
  */
 export async function deactivateReminder(id, patientUid) {
-  const result = await db.query(`
+  const result = await prisma.$queryRawUnsafe(`
     UPDATE medication_reminders
     SET is_active = false
     WHERE id = $1 AND patient_uid = $2
@@ -78,7 +78,7 @@ export async function deactivateReminder(id, patientUid) {
     throw AppError.notFound('Medication reminder not found');
   }
 
-  return result.rows[0];
+  return result[0];
 }
 
 /**
@@ -139,6 +139,6 @@ export async function getDueReminders(patientUid) {
     params = [patientUid, currentTime, endTime];
   }
 
-  const result = await db.query(query, params);
+  const result = await prisma.$queryRawUnsafe(query, params);
   return result.rows;
 }

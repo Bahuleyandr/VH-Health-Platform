@@ -1,6 +1,6 @@
 // src/utils/notifications/notificationDispatcher.js
 
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { sendPushNotification } from './sendPushNotification.js';
 import { sendEmail } from './sendEmailNotification.js';
@@ -23,11 +23,11 @@ export async function dispatch({ userId, title, body, channels = ['push', 'inapp
   // Lookup user info
   let user = null;
   try {
-    const res = await db.query(
+    const res = await prisma.$queryRawUnsafe(
       `SELECT uid, phone, email, name, device_token FROM users WHERE uid = $1 OR phone = $1 LIMIT 1`,
       [userId]
     );
-    user = res.rows[0] || null;
+    user = res[0] || null;
   } catch (err) {
     logger.error(`Notification dispatch: failed to lookup user ${userId} — ${err.message}`);
     return results;
@@ -81,7 +81,7 @@ export async function dispatch({ userId, title, body, channels = ['push', 'inapp
   // In-app notification
   if (channels.includes('inapp')) {
     try {
-      await db.query(
+      await prisma.$queryRawUnsafe(
         `INSERT INTO notifications (phone, title, body, type, created_at, read)
          VALUES ($1, $2, $3, $4, NOW(), false)`,
         [user.phone, title, body, type]

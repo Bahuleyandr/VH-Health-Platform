@@ -1,6 +1,6 @@
 // src/controllers/user/lookupController.js
 import { validationResult } from 'express-validator';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { LookupService } from '../../services/user/lookupService.js';
@@ -189,12 +189,12 @@ export class LookupController {
       }
 
       // Rate limiting for lookup requests to prevent enumeration
-      const recentLookups = await db.query(
+      const recentLookups = await prisma.$queryRawUnsafe(
         'SELECT COUNT(*) FROM audit_logs WHERE uid = $1 AND action = $2 AND created_at > NOW() - INTERVAL \'1 hour\'',
         [requestedBy, 'user-lookup']
       );
 
-      const lookupCount = parseInt(recentLookups.rows[0].count);
+      const lookupCount = parseInt(recentLookups[0].count);
       const maxLookupsPerHour = userRole === 'ADMIN' ? 1000 : userRole === 'DOCTOR' ? 100 : 50;
 
       if (lookupCount >= maxLookupsPerHour) {
@@ -245,7 +245,7 @@ export class LookupController {
       query += ` ORDER BY registered_at DESC LIMIT $${params.length + 1}`;
       params.push(Math.min(parseInt(limit), userRole === 'ADMIN' ? 50 : 20));
 
-      const result = await db.query(query, params);
+      const result = await prisma.$queryRawUnsafe(query, params);
 
       // Additional privacy filtering for non-admin users
       const filteredResults = result.rows.map(user => {
@@ -378,7 +378,7 @@ export class LookupController {
       query += ` ORDER BY u.${sortField} ${order} LIMIT $${params.length + 1}`;
       params.push(Math.min(parseInt(limit), 100));
 
-      const result = await db.query(query, params);
+      const result = await prisma.$queryRawUnsafe(query, params);
 
       await logAudit(req, 'user-advanced-search', {
         criteria: { role, registeredAfter, registeredBefore, lastLoginAfter, ageMin, ageMax, department },
@@ -413,7 +413,7 @@ export class LookupController {
       const { detailed = false } = req.query;
 
       // Basic statistics available to all authorized users
-      const basicStats = await db.query(`
+      const basicStats = await prisma.$queryRawUnsafe(`
         SELECT
           COUNT(*) as total_users,
           COUNT(*) FILTER (WHERE registered_at > NOW() - INTERVAL '30 days') as new_users_30d,
@@ -425,7 +425,7 @@ export class LookupController {
         FROM users
       `);
 
-      const roleDistribution = await db.query(`
+      const roleDistribution = await prisma.$queryRawUnsafe(`
         SELECT role, COUNT(*) as count
         FROM users
         GROUP BY role
@@ -433,7 +433,7 @@ export class LookupController {
       `);
 
       const responseData = {
-        overallStats: basicStats.rows[0],
+        overallStats: basicStats[0],
         roleDistribution: roleDistribution.rows,
         accessLevel: userRole,
         generatedAt: new Date().toISOString(),
@@ -444,7 +444,7 @@ export class LookupController {
       if (detailed === 'true' && userRole === 'ADMIN') {
         const [registrationTrends, loginActivity, ageDistribution, departmentStats] = await Promise.all([
           // Registration trends (last 30 days)
-          db.query(`
+          prisma.$queryRawUnsafe(`
             SELECT DATE(registered_at) as date, COUNT(*) as registrations
             FROM users
             WHERE registered_at > NOW() - INTERVAL '30 days'
@@ -453,7 +453,7 @@ export class LookupController {
           `),
 
           // Login activity analysis
-          db.query(`
+          prisma.$queryRawUnsafe(`
             SELECT
               COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '1 day') as logins_1d,
               COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '7 days') as logins_7d,
@@ -464,7 +464,7 @@ export class LookupController {
           `),
 
           // Age distribution (for patients)
-          db.query(`
+          prisma.$queryRawUnsafe(`
             SELECT
               CASE
                 WHEN DATE_PART('year', AGE(birthday)) < 18 THEN 'Under 18'
@@ -482,7 +482,7 @@ export class LookupController {
           `),
 
           // Department statistics
-          db.query(`
+          prisma.$queryRawUnsafe(`
             SELECT d.department, d.specialization, COUNT(u.uid) as staff_count
             FROM doctors d
             LEFT JOIN users u ON d.user_uid = u.uid
@@ -493,7 +493,7 @@ export class LookupController {
 
         responseData.detailedStats = {
           registrationTrends: registrationTrends.rows,
-          loginActivity: loginActivity.rows[0],
+          loginActivity: loginActivity[0],
           ageDistribution: ageDistribution.rows,
           departmentStats: departmentStats.rows
         };
@@ -533,7 +533,7 @@ export class LookupController {
         params = [normalizePhone(phone)];
       }
 
-      const result = await db.query(query, params);
+      const result = await prisma.$queryRawUnsafe(query, params);
 
       if (result.rows.length === 0) {
         await logAudit(req, 'user-verification-failed', { phone, uid });
@@ -545,7 +545,7 @@ export class LookupController {
         }, 'User not found');
       }
 
-      const user = result.rows[0];
+      const user = result[0];
 
       await logAudit(req, 'user-verification-success', {
         phone,
@@ -585,7 +585,7 @@ export class LookupController {
 
       const { days = 7, limit = 50 } = req.query;
 
-      const recentActivity = await db.query(`
+      const recentActivity = await prisma.$queryRawUnsafe(`
         SELECT
           u.uid, u.phone, u.name, u.role,
           u.last_login,
@@ -682,7 +682,7 @@ export class LookupController {
       query += ` ORDER BY ${sortField} ${order} LIMIT $${params.length + 1}`;
       params.push(Math.min(parseInt(limit), 500));
 
-      const result = await db.query(query, params);
+      const result = await prisma.$queryRawUnsafe(query, params);
 
       await logAudit(req, 'user-bulk-search', {
         criteria,

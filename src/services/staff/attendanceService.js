@@ -1,4 +1,4 @@
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { calculateWorkingHours } from '../../utils/staff/attendanceCalculator.js';
 import { getStaffShift, classifyAttendance, calculateOvertime } from './shiftService.js';
@@ -47,7 +47,7 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
   }
 
   // Verify staff member exists
-  const staffCheck = await db.query(
+  const staffCheck = await prisma.$queryRawUnsafe(
     'SELECT u.id, u.name, s.shift, s.department FROM users u JOIN staff s ON u.id = s.user_id WHERE u.id = $1',
     [staff_id]
   );
@@ -56,11 +56,11 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
     throw new Error('STAFF_NOT_FOUND');
   }
 
-  const staff = staffCheck.rows[0];
+  const staff = staffCheck[0];
 
   // Check if attendance already exists for today
   const today = new Date().toISOString().split('T')[0];
-  const existingAttendance = await db.query(
+  const existingAttendance = await prisma.$queryRawUnsafe(
     'SELECT id FROM staff_attendance WHERE staff_id = $1 AND DATE(check_in_time) = $2',
     [staff_id, today]
   );
@@ -76,7 +76,7 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
   let result;
   if (existingAttendance.rows.length > 0) {
     // Update existing attendance
-    result = await db.query(`
+    result = await prisma.$queryRawUnsafe(`
       UPDATE staff_attendance SET
         check_out_time = COALESCE($1, check_out_time),
         location = COALESCE($2, location),
@@ -97,7 +97,7 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
     ]);
   } else {
     // Create new attendance record
-    result = await db.query(`
+    result = await prisma.$queryRawUnsafe(`
       INSERT INTO staff_attendance (
         staff_id, check_in_time, check_out_time, location,
         notes, break_duration_minutes, attendance_type, marked_by, created_at
@@ -116,7 +116,7 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
   }
 
   // Update staff's last check-in/out times
-  await db.query(`
+  await prisma.$queryRawUnsafe(`
     UPDATE staff SET 
       last_check_in = CASE WHEN $1 IS NOT NULL THEN $1 ELSE last_check_in END,
       last_check_out = CASE WHEN $2 IS NOT NULL THEN $2 ELSE last_check_out END
@@ -125,32 +125,32 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
 
   // Calculate working hours if both times are provided
   let hoursWorked = 0;
-  if (result.rows[0].check_in_time && result.rows[0].check_out_time) {
+  if (result[0].check_in_time && result[0].check_out_time) {
     hoursWorked = calculateWorkingHours(
-      result.rows[0].check_in_time, 
-      result.rows[0].check_out_time,
+      result[0].check_in_time, 
+      result[0].check_out_time,
       break_duration_minutes
     );
   }
 
   // Enrich with shift classification
   const shift = await getStaffShift(staff_id);
-  if (shift && result.rows[0]) {
-    const classification = classifyAttendance(shift, result.rows[0].check_in_time);
-    const overtime = result.rows[0].check_out_time
-      ? calculateOvertime(shift, result.rows[0].check_in_time, result.rows[0].check_out_time)
+  if (shift && result[0]) {
+    const classification = classifyAttendance(shift, result[0].check_in_time);
+    const overtime = result[0].check_out_time
+      ? calculateOvertime(shift, result[0].check_in_time, result[0].check_out_time)
       : 0;
 
     // Update record with classification
-    await db.query(`
+    await prisma.$queryRawUnsafe(`
       UPDATE staff_attendance SET attendance_status=$1, minutes_late=$2, overtime_hours=$3
       WHERE id=$4
-    `, [classification.status, classification.minutesLate, overtime, result.rows[0].id])
+    `, [classification.status, classification.minutesLate, overtime, result[0].id])
       .catch(e => logger.warn('Attendance classification update failed (columns may not exist yet):', e.message));
   }
 
   // Log attendance activity
-  await db.query(
+  await prisma.$queryRawUnsafe(
     `INSERT INTO attendance_logs (
       staff_id, action, marked_by, location, hours_worked, created_at
     ) VALUES ($1, $2, $3, $4, $5, NOW())`,
@@ -167,9 +167,9 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
 
   return {
     attendance: {
-      ...result.rows[0],
-      check_in_time: result.rows[0].check_in_time ? result.rows[0].check_in_time.toLocaleString('en-IN') : null,
-      check_out_time: result.rows[0].check_out_time ? result.rows[0].check_out_time.toLocaleString('en-IN') : null,
+      ...result[0],
+      check_in_time: result[0].check_in_time ? result[0].check_in_time.toLocaleString('en-IN') : null,
+      check_out_time: result[0].check_out_time ? result[0].check_out_time.toLocaleString('en-IN') : null,
       hours_worked: hoursWorked,
       staff_name: staff.name,
       department: staff.department,
@@ -184,7 +184,7 @@ export const getStaffAttendance = async (staffId, filters, userRole, userId) => 
   const { days, start_date, end_date } = filters;
 
   // Verify staff member exists
-  const staffCheck = await db.query(`
+  const staffCheck = await prisma.$queryRawUnsafe(`
     SELECT u.uid, u.name, s.employee_id, s.department
     FROM users u
     JOIN staff s ON u.id = s.user_id
@@ -195,7 +195,7 @@ export const getStaffAttendance = async (staffId, filters, userRole, userId) => 
     throw new Error('STAFF_NOT_FOUND');
   }
 
-  const staff = staffCheck.rows[0];
+  const staff = staffCheck[0];
 
   // Check access permissions
   const canViewAttendance = ['ADMIN', 'HR_STAFF', 'DOCTOR'].includes(userRole) || 
@@ -217,7 +217,7 @@ export const getStaffAttendance = async (staffId, filters, userRole, userId) => 
   }
 
   // Get attendance records
-  const attendanceResult = await db.query(`
+  const attendanceResult = await prisma.$queryRawUnsafe(`
     SELECT 
       DATE(check_in_time) as date,
       check_in_time, check_out_time,

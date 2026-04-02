@@ -1,6 +1,6 @@
 // src/services/referral/referralService.js
 
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
@@ -18,7 +18,7 @@ class ReferralService {
     const yearMonth = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
     const prefix = `REF-${yearMonth}-`;
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT referral_number FROM referrals
        WHERE referral_number LIKE $1
        ORDER BY id DESC LIMIT 1`,
@@ -27,7 +27,7 @@ class ReferralService {
 
     let sequence = 1;
     if (result.rows.length > 0) {
-      const lastNumber = result.rows[0].referral_number;
+      const lastNumber = result[0].referral_number;
       const lastSeq = parseInt(lastNumber.split('-')[2], 10);
       if (!isNaN(lastSeq)) {
         sequence = lastSeq + 1;
@@ -68,7 +68,7 @@ class ReferralService {
 
     const referralNumber = await this._generateReferralNumber();
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `INSERT INTO referrals (
         referral_number, patient_uid, encounter_id, referring_doctor,
         referred_to_doctor, referred_to_department, referral_type,
@@ -86,7 +86,7 @@ class ReferralService {
     );
 
     logger.info(`Referral created: ${referralNumber} from ${referring_doctor} to ${referred_to_department}`);
-    return result.rows[0];
+    return result[0];
   }
 
   /**
@@ -110,13 +110,13 @@ class ReferralService {
 
     const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
-    const countResult = await db.readQuery(
+    const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) AS total FROM referrals ${whereClause}`,
       params
     );
-    const total = parseInt(countResult.rows[0].total, 10);
+    const total = parseInt(countResult[0].total, 10);
 
-    const result = await db.readQuery(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, referral_number, patient_uid, encounter_id,
         referring_doctor, referred_to_doctor, referred_to_department,
         referral_type, reason, urgency, clinical_summary, status,
@@ -161,13 +161,13 @@ class ReferralService {
 
     const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
-    const countResult = await db.readQuery(
+    const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) AS total FROM referrals ${whereClause}`,
       params
     );
-    const total = parseInt(countResult.rows[0].total, 10);
+    const total = parseInt(countResult[0].total, 10);
 
-    const result = await db.readQuery(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, referral_number, patient_uid, encounter_id,
         referring_doctor, referred_to_doctor, referred_to_department,
         referral_type, reason, urgency, clinical_summary, status,
@@ -198,18 +198,18 @@ class ReferralService {
       throw AppError.badRequest('Invalid referral ID');
     }
 
-    const existing = await db.query(
+    const existing = await prisma.$queryRawUnsafe(
       `SELECT id, status FROM referrals WHERE id = $1`,
       [referralId]
     );
     if (existing.rows.length === 0) {
       throw AppError.notFound('Referral not found');
     }
-    if (existing.rows[0].status !== 'pending') {
-      throw AppError.badRequest(`Cannot accept referral with status: ${existing.rows[0].status}`);
+    if (existing[0].status !== 'pending') {
+      throw AppError.badRequest(`Cannot accept referral with status: ${existing[0].status}`);
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `UPDATE referrals SET
         status = 'accepted',
         accepted_by = $1,
@@ -222,7 +222,7 @@ class ReferralService {
     );
 
     logger.info(`Referral ${referralId} accepted by ${acceptedBy}`);
-    return result.rows[0];
+    return result[0];
   }
 
   /**
@@ -234,18 +234,18 @@ class ReferralService {
       throw AppError.badRequest('Invalid referral ID');
     }
 
-    const existing = await db.query(
+    const existing = await prisma.$queryRawUnsafe(
       `SELECT id, status FROM referrals WHERE id = $1`,
       [referralId]
     );
     if (existing.rows.length === 0) {
       throw AppError.notFound('Referral not found');
     }
-    if (!['accepted', 'in_progress'].includes(existing.rows[0].status)) {
-      throw AppError.badRequest(`Cannot complete referral with status: ${existing.rows[0].status}`);
+    if (!['accepted', 'in_progress'].includes(existing[0].status)) {
+      throw AppError.badRequest(`Cannot complete referral with status: ${existing[0].status}`);
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `UPDATE referrals SET
         status = 'completed',
         completed_at = NOW(),
@@ -259,7 +259,7 @@ class ReferralService {
     );
 
     logger.info(`Referral ${referralId} completed`);
-    return result.rows[0];
+    return result[0];
   }
 
   /**
@@ -271,18 +271,18 @@ class ReferralService {
       throw AppError.badRequest('Invalid referral ID');
     }
 
-    const existing = await db.query(
+    const existing = await prisma.$queryRawUnsafe(
       `SELECT id, status FROM referrals WHERE id = $1`,
       [referralId]
     );
     if (existing.rows.length === 0) {
       throw AppError.notFound('Referral not found');
     }
-    if (existing.rows[0].status !== 'pending') {
-      throw AppError.badRequest(`Cannot decline referral with status: ${existing.rows[0].status}`);
+    if (existing[0].status !== 'pending') {
+      throw AppError.badRequest(`Cannot decline referral with status: ${existing[0].status}`);
     }
 
-    const result = await db.query(
+    const result = await prisma.$queryRawUnsafe(
       `UPDATE referrals SET
         status = 'declined',
         response_notes = $1
@@ -294,7 +294,7 @@ class ReferralService {
     );
 
     logger.info(`Referral ${referralId} declined`);
-    return result.rows[0];
+    return result[0];
   }
 
   /**
@@ -304,13 +304,13 @@ class ReferralService {
     const { page = 1, limit = 20 } = filters;
     const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
 
-    const countResult = await db.readQuery(
+    const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) AS total FROM referrals WHERE patient_uid = $1`,
       [patientUid]
     );
-    const total = parseInt(countResult.rows[0].total, 10);
+    const total = parseInt(countResult[0].total, 10);
 
-    const result = await db.readQuery(
+    const result = await prisma.$queryRawUnsafe(
       `SELECT id, referral_number, patient_uid, encounter_id,
         referring_doctor, referred_to_doctor, referred_to_department,
         referral_type, reason, urgency, clinical_summary, status,
