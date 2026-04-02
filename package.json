@@ -94,5 +94,13 @@
     "@rollup/plugin-terser": {
       "serialize-javascript": "^7.0.5"
     }
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Bahuleyandr/VH-Health-Adminportal.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Bahuleyandr/VH-Health-Adminportal/issues"
+  },
+  "homepage": "https://github.com/Bahuleyandr/VH-Health-Adminportal#readme"
 }
