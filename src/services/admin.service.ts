@@ -2,10 +2,12 @@
 import { API_ENDPOINTS, API_BASE_URL, getHeaders } from "@/lib/api-config";
 
 class AdminService {
-  // Return undefined (not null), and be safe on the server.
+  // Token is no longer read from localStorage (XSS risk).
+  // All requests go through /api/proxy which uses the httpOnly cookie.
+  // This method is kept for backward compatibility with getHeaders() calls
+  // but always returns undefined — the proxy injects the real token server-side.
   private getToken(): string | undefined {
-    if (typeof window === "undefined") return undefined;
-    return localStorage.getItem("adminToken") ?? undefined;
+    return undefined;
   }
 
   private buildQuery(path: string, params?: Record<string, unknown>): string {
@@ -19,11 +21,20 @@ class AdminService {
   }
 
   private async request(path: string, init?: RequestInit) {
-    const res = await fetch(`${API_BASE_URL}${path}`, {
+    // Route through /api/proxy which uses the httpOnly cookie for auth
+    // and injects the API key server-side.
+    const proxyPath = path.startsWith("/api/v1/")
+      ? `/api/proxy/${path.slice("/api/v1/".length)}`
+      : `/api/proxy${path}`;
+
+    const res = await fetch(proxyPath, {
       ...init,
+      credentials: "include", // send httpOnly cookie
       headers: {
         ...(init?.headers as Record<string, string> | undefined),
-        ...getHeaders(this.getToken()),
+        "Content-Type":
+          (init?.headers as Record<string, string> | undefined)?.["Content-Type"] ??
+          "application/json",
       },
     });
     return this.handleResponse(res);

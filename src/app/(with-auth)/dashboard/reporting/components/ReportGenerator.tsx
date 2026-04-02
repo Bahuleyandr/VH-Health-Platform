@@ -3,9 +3,6 @@
 
 import { User, Doctor } from "@/lib/types";
 import { useState } from "react";
-import { API_BASE_URL } from "@/lib/api-config";
-import { getAuthToken } from "@/lib/api-client";
-import { getHeaders } from "@/lib/api-config";
 import { FileTextIcon, BarChartIcon } from "@/components/icons";
 
 interface ReportGeneratorProps {
@@ -43,16 +40,12 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
       queryParams.set("report_type", filters.report_type);
 
     try {
-      const token = getAuthToken();
-      if (!token) {
-        throw new Error("Authentication required");
-      }
-
-      // Direct fetch for blob response
+      // Auth is via httpOnly cookie — sent automatically with credentials: "include".
+      // Route through /api/proxy to ensure the backend API key is injected server-side.
       const response = await fetch(
-        `${API_BASE_URL}/api/v1/records/export/${format}?${queryParams.toString()}`,
+        `/api/proxy/records/export/${format}?${queryParams.toString()}`,
         {
-          headers: getHeaders(token),
+          credentials: "include",
         },
       );
 

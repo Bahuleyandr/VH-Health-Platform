@@ -5,3 +5,6 @@ node_modules
 *.md
 tests
 coverage
+reset-password.js
+CODE_AUDIT.md
+CLAUDE.md
