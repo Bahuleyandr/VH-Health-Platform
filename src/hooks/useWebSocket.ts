@@ -2,7 +2,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { getToken } from "@/lib/auth";
 
 type UseWebSocketOptions<T = unknown> = {
   protocols?: string | string[];
@@ -139,17 +138,10 @@ export function useWebSocket<T = unknown>(
       try {
         setConnectionState("connecting");
         
-        // Build WebSocket URL with auth token if needed
-        let wsUrl = url;
-        if (authenticated) {
-          const token = getToken();
-          if (token) {
-            const separator = url.includes('?') ? '&' : '?';
-            wsUrl = `${url}${separator}token=${encodeURIComponent(token)}`;
-          }
-        }
-
-        const ws = new WebSocket(wsUrl, protocolsRef.current);
+        // Auth tokens are in httpOnly cookies — cannot be read by JS.
+        // Authentication is handled server-side via the cookie on the upgrade request.
+        // If the server requires explicit auth message, send it in the onopen handler.
+        const ws = new WebSocket(url, protocolsRef.current);
         wsRef.current = ws;
 
         // Set connection timeout

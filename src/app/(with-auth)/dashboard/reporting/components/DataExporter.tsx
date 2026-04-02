@@ -3,7 +3,6 @@
 
 import { useState, useMemo } from "react";
 import { API_BASE_URL, getHeaders } from "@/lib/api-config";
-import { getAuthToken } from "@/lib/api-client";
 import { DownloadIcon, RefreshIcon } from "@/components/icons";
 
 /* ─── Date preset helpers ─── */
@@ -131,11 +130,9 @@ export function DataExporter() {
     setPreview(null);
 
     try {
-      const token = getAuthToken();
-      if (!token) throw new Error("Authentication required");
-
-      const url = `${API_BASE_URL}${exp.buildUrl(dateRange.from, dateRange.to)}`;
-      const res = await fetch(url, { headers: getHeaders(token) });
+      // Auth is via httpOnly cookie — no need to pass token explicitly.
+      const url = `/api/proxy/${exp.buildUrl(dateRange.from, dateRange.to).replace(/^\/api\/v1\//, '')}`;
+      const res = await fetch(url, { credentials: "include" });
 
       if (!res.ok) {
         const text = await res.text();
