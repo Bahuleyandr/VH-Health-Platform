@@ -376,7 +376,6 @@ class AdminDepartmentService {
   }
 
   async createDepartmentWithValidation(data) {
-    try {
       const {
         name, description, head_doctor_id, contact_number,
         location, budget, is_active = true
@@ -501,7 +500,6 @@ class AdminDepartmentService {
   }
 
   async deactivateDepartmentWithReassignment(id, reason, reassignToDepartment) {
-    try {
       // Get department info
       const deptCheck = await prisma.$queryRaw`
         SELECT name, is_active FROM departments WHERE id = ${id}
@@ -588,7 +586,6 @@ class AdminDepartmentService {
   }
 
   async updateDepartment(id, data) {
-    try {
       const {
         name, description, head_doctor_id, contact_number,
         location, budget, is_active
