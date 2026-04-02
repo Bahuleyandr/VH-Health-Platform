@@ -1,111 +1,110 @@
-import db from '../../config/database.js';
+// src/services/pharmacy/inventoryService.js
+// Migrated from raw pg to Prisma ORM
+
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 export const getLowStockMedications = async (threshold) => {
-  const result = await db.query(`
-    SELECT id, name, generic_name, brand, category, stock_quantity, 
-           price, TO_CHAR(expiry_date, 'DD-MM-YYYY') as expiry_date, manufacturer
-    FROM medications 
-    WHERE stock_quantity <= $1 AND stock_quantity > 0 AND is_active = true
-    ORDER BY stock_quantity ASC, expiry_date ASC
-  `, [threshold]);
+  const medications = await prisma.medications.findMany({
+    where: {
+      is_active: true,
+      stock_quantity: { lte: parseInt(threshold), gt: 0 },
+    },
+    select: {
+      id: true, name: true, generic_name: true, brand: true,
+      category: true, stock_quantity: true, price: true,
+      expiry_date: true, manufacturer: true,
+    },
+    orderBy: [{ stock_quantity: 'asc' }, { expiry_date: 'asc' }],
+  });
 
-  return {
-    medications: result.rows,
-    count: result.rows.length,
-    threshold
-  };
+  return { medications, count: medications.length, threshold };
 };
 
 export const getExpiredMedications = async () => {
-  const result = await db.query(`
-    SELECT id, name, generic_name, brand, category, stock_quantity, 
-           TO_CHAR(expiry_date, 'DD-MM-YYYY') as expiry_date, manufacturer, price
-    FROM medications 
-    WHERE expiry_date < CURRENT_DATE AND is_active = true
-    ORDER BY expiry_date DESC
-  `);
+  const medications = await prisma.medications.findMany({
+    where: {
+      is_active: true,
+      expiry_date: { lt: new Date() },
+    },
+    select: {
+      id: true, name: true, generic_name: true, brand: true,
+      category: true, stock_quantity: true, expiry_date: true,
+      manufacturer: true, price: true,
+    },
+    orderBy: { expiry_date: 'desc' },
+  });
 
-  return {
-    medications: result.rows,
-    count: result.rows.length
-  };
+  return { medications, count: medications.length };
 };
 
 export const getExpiringSoonMedications = async (days) => {
-  const result = await db.query(`
-    SELECT id, name, generic_name, brand, category, stock_quantity, 
-           TO_CHAR(expiry_date, 'DD-MM-YYYY') as expiry_date, manufacturer, price,
-           expiry_date - CURRENT_DATE as days_to_expiry
-    FROM medications 
-    WHERE expiry_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '${days} days'
+  const now = new Date();
+  const future = new Date();
+  future.setDate(future.getDate() + parseInt(days));
+
+  const rows = await prisma.$queryRaw`
+    SELECT id, name, generic_name, brand, category, stock_quantity,
+           TO_CHAR(expiry_date, 'DD-MM-YYYY') AS expiry_date,
+           manufacturer, price,
+           (expiry_date::date - CURRENT_DATE)::int AS days_to_expiry
+    FROM medications
+    WHERE expiry_date BETWEEN CURRENT_DATE AND CURRENT_DATE + (${parseInt(days)} || ' days')::interval
       AND is_active = true
     ORDER BY expiry_date ASC
-  `);
+  `;
 
-  return {
-    medications: result.rows,
-    count: result.rows.length,
-    expiry_window_days: days
-  };
+  return { medications: rows, count: rows.length, expiry_window_days: days };
 };
 
 export const getMedicationCategories = async () => {
-  const result = await db.query(`
-    SELECT category, 
-           COUNT(*) as medication_count,
-           SUM(stock_quantity) as total_stock,
-           ROUND(AVG(price), 2) as average_price
-    FROM medications 
+  const rows = await prisma.$queryRaw`
+    SELECT category,
+           COUNT(*)::int          AS medication_count,
+           SUM(stock_quantity)::int AS total_stock,
+           ROUND(AVG(price)::numeric, 2) AS average_price
+    FROM medications
     WHERE is_active = true
     GROUP BY category
     ORDER BY category
-  `);
+  `;
 
-  return {
-    categories: result.rows,
-    count: result.rows.length
-  };
+  return { categories: rows, count: rows.length };
 };
 
 export const getInventorySummary = async () => {
   const [totalStats, categoryStats, stockStats] = await Promise.all([
-    // Total inventory statistics
-    db.query(`
-      SELECT 
-        COUNT(*) as total_medications,
-        SUM(stock_quantity) as total_stock_items,
-        ROUND(SUM(stock_quantity * price), 2) as total_inventory_value,
-        ROUND(AVG(price), 2) as average_price
-      FROM medications 
+    prisma.$queryRaw`
+      SELECT
+        COUNT(*)::int                              AS total_medications,
+        SUM(stock_quantity)::int                   AS total_stock_items,
+        ROUND(SUM(stock_quantity * price)::numeric, 2) AS total_inventory_value,
+        ROUND(AVG(price)::numeric, 2)              AS average_price
+      FROM medications
       WHERE is_active = true
-    `),
-    
-    // Category breakdown
-    db.query(`
-      SELECT category, COUNT(*) as count
-      FROM medications 
+    `,
+    prisma.$queryRaw`
+      SELECT category, COUNT(*)::int AS count
+      FROM medications
       WHERE is_active = true
       GROUP BY category
       ORDER BY count DESC
-    `),
-    
-    // Stock status
-    db.query(`
-      SELECT 
-        COUNT(CASE WHEN stock_quantity = 0 THEN 1 END) as out_of_stock,
-        COUNT(CASE WHEN stock_quantity > 0 AND stock_quantity <= 10 THEN 1 END) as low_stock,
-        COUNT(CASE WHEN stock_quantity > 10 THEN 1 END) as in_stock,
-        COUNT(CASE WHEN expiry_date < CURRENT_DATE THEN 1 END) as expired,
-        COUNT(CASE WHEN expiry_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days' THEN 1 END) as expiring_soon
-      FROM medications 
+    `,
+    prisma.$queryRaw`
+      SELECT
+        COUNT(CASE WHEN stock_quantity = 0 THEN 1 END)::int                                     AS out_of_stock,
+        COUNT(CASE WHEN stock_quantity > 0 AND stock_quantity <= 10 THEN 1 END)::int             AS low_stock,
+        COUNT(CASE WHEN stock_quantity > 10 THEN 1 END)::int                                    AS in_stock,
+        COUNT(CASE WHEN expiry_date < CURRENT_DATE THEN 1 END)::int                             AS expired,
+        COUNT(CASE WHEN expiry_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days' THEN 1 END)::int AS expiring_soon
+      FROM medications
       WHERE is_active = true
-    `)
+    `,
   ]);
 
   return {
-    totals: totalStats.rows[0],
-    categories: categoryStats.rows,
-    stock_status: stockStats.rows[0]
+    totals: totalStats[0],
+    categories: categoryStats,
+    stock_status: stockStats[0],
   };
 };
