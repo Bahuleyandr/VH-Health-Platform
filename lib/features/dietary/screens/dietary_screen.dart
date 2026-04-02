@@ -108,137 +108,158 @@ class _DietaryScreenState extends State<DietaryScreen> {
 
     final result = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('New Dietary Order'),
-        content: SingleChildScrollView(
-          child: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: patientNameCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Patient Name',
-                    prefixIcon: Icon(Icons.person_outline),
-                  ),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'Required' : null,
+      barrierDismissible: false,
+      builder: (ctx) {
+        var submitting = false;
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            title: const Text('New Dietary Order'),
+            content: SingleChildScrollView(
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      controller: patientNameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Patient Name',
+                        prefixIcon: Icon(Icons.person_outline),
+                      ),
+                      validator: (v) =>
+                          (v == null || v.trim().isEmpty) ? 'Required' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: patientIdCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Patient ID / Bed Number',
+                        prefixIcon: Icon(Icons.badge_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: dietType,
+                      decoration: const InputDecoration(
+                        labelText: 'Diet Type',
+                        prefixIcon: Icon(Icons.restaurant_menu),
+                      ),
+                      items: dietTypes
+                          .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                          .toList(),
+                      onChanged: (v) => dietType = v,
+                      validator: (v) => v == null ? 'Select diet type' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: mealTime,
+                      decoration: const InputDecoration(
+                        labelText: 'Meal Time',
+                        prefixIcon: Icon(Icons.access_time),
+                      ),
+                      items: mealTimes
+                          .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                          .toList(),
+                      onChanged: (v) => mealTime = v,
+                      validator: (v) => v == null ? 'Select meal time' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: restrictionsCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Restrictions / Allergies',
+                        prefixIcon: Icon(Icons.warning_amber_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: notesCtrl,
+                      maxLines: 2,
+                      decoration: const InputDecoration(
+                        labelText: 'Notes',
+                        prefixIcon: Icon(Icons.notes),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: patientIdCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Patient ID / Bed Number',
-                    prefixIcon: Icon(Icons.badge_outlined),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: dietType,
-                  decoration: const InputDecoration(
-                    labelText: 'Diet Type',
-                    prefixIcon: Icon(Icons.restaurant_menu),
-                  ),
-                  items: dietTypes
-                      .map((t) => DropdownMenuItem(value: t, child: Text(t)))
-                      .toList(),
-                  onChanged: (v) => dietType = v,
-                  validator: (v) => v == null ? 'Select diet type' : null,
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: mealTime,
-                  decoration: const InputDecoration(
-                    labelText: 'Meal Time',
-                    prefixIcon: Icon(Icons.access_time),
-                  ),
-                  items: mealTimes
-                      .map((t) => DropdownMenuItem(value: t, child: Text(t)))
-                      .toList(),
-                  onChanged: (v) => mealTime = v,
-                  validator: (v) => v == null ? 'Select meal time' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: restrictionsCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Restrictions / Allergies',
-                    prefixIcon: Icon(Icons.warning_amber_outlined),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: notesCtrl,
-                  maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'Notes',
-                    prefixIcon: Icon(Icons.notes),
-                  ),
-                ),
-              ],
+              ),
             ),
+            actions: [
+              TextButton(
+                onPressed: submitting ? null : () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: submitting
+                    ? null
+                    : () async {
+                        if (!formKey.currentState!.validate()) return;
+                        setDialogState(() => submitting = true);
+                        try {
+                          final response = await ApiClient.post(
+                            '/dietary/orders',
+                            body: {
+                              'patientName': patientNameCtrl.text.trim(),
+                              'patientId': patientIdCtrl.text.trim(),
+                              'dietType': dietType,
+                              'mealTime': mealTime,
+                              'restrictions': restrictionsCtrl.text.trim(),
+                              'notes': notesCtrl.text.trim(),
+                            },
+                          );
+                          if (!ctx.mounted) return;
+                          if (response.success) {
+                            Navigator.pop(ctx, true);
+                          } else {
+                            setDialogState(() => submitting = false);
+                            ScaffoldMessenger.of(ctx).showSnackBar(
+                              SnackBar(
+                                content: Text(response.message ??
+                                    'Failed to create order'),
+                                backgroundColor: AppTheme.errorRed,
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (!ctx.mounted) return;
+                          setDialogState(() => submitting = false);
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            const SnackBar(
+                              content: Text('Could not create order'),
+                              backgroundColor: AppTheme.errorRed,
+                            ),
+                          );
+                        }
+                      },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryTeal,
+                  foregroundColor: Colors.white,
+                ),
+                child: submitting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text('Create'),
+              ),
+            ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (formKey.currentState!.validate()) {
-                Navigator.pop(ctx, true);
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.primaryTeal,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Create'),
-          ),
-        ],
-      ),
+        );
+      },
     );
 
     if (result == true && mounted) {
-      try {
-        final response = await ApiClient.post('/dietary/orders', body: {
-          'patientName': patientNameCtrl.text.trim(),
-          'patientId': patientIdCtrl.text.trim(),
-          'dietType': dietType,
-          'mealTime': mealTime,
-          'restrictions': restrictionsCtrl.text.trim(),
-          'notes': notesCtrl.text.trim(),
-        });
-        if (mounted) {
-          if (response.success) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Dietary order created'),
-                backgroundColor: AppTheme.successGreen,
-              ),
-            );
-            _fetchOrders();
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(response.message ?? 'Failed to create order'),
-                backgroundColor: AppTheme.errorRed,
-              ),
-            );
-          }
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Could not create order'),
-              backgroundColor: AppTheme.errorRed,
-            ),
-          );
-        }
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Dietary order created'),
+          backgroundColor: AppTheme.successGreen,
+        ),
+      );
+      _fetchOrders();
     }
 
     patientNameCtrl.dispose();
@@ -432,7 +453,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    status[0].toUpperCase() + status.substring(1),
+                    status.isNotEmpty ? status[0].toUpperCase() + status.substring(1).toLowerCase() : status,
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,

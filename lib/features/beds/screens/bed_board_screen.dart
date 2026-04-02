@@ -378,7 +378,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(
-              status[0].toUpperCase() + status.substring(1),
+              status.isNotEmpty ? status[0].toUpperCase() + status.substring(1).toLowerCase() : status,
               style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600),
             ),
           ),

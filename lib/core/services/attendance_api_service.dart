@@ -54,7 +54,7 @@ class AttendanceApiService {
     required Map<String, dynamic> location,
   }) async {
     return _post('/staff/attendance', {
-      'staff_id': staffId,
+      'staffId': staffId,
       'action': action,
       'location': location,
     });
