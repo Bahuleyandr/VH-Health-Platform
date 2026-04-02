@@ -2,6 +2,7 @@
 // Dedicated health check endpoints optimized for external monitoring tools
 import express from 'express';
 import prisma from '../../lib/prisma.js';
+import db from '../../config/database.js';
 import logger from '../../logging/logger.js';
 
 const router = express.Router();

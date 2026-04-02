@@ -3,6 +3,7 @@
 // Uses raw pg queries (project convention — Prisma schema is documentation only)
 
 import prisma from '../../lib/prisma.js';
+import db from '../../config/database.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
