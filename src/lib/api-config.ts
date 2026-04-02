@@ -487,11 +487,11 @@ export const PROTECTED_ROUTES: string[] = [
   
   // Other protected routes
   "/api/v1/auth/adminManagement",
-  "/api/v1/pharmacy/admin",
-  "/api/v1/pharmacy/orders",
-  "/api/v1/pharmacy/medications/*",
-  "/api/v1/pharmacy/inventory",
-  "/api/v1/pharmacy/staff",
+  "/api/v1/pharmacy-orders/orders/*",
+  "/api/v1/pharmacy-orders/medications/*",
+  "/api/v1/pharmacy-orders/inventory*",
+  "/api/v1/pharmacy-orders/catalog*",
+  "/api/v1/pharmacy-orders/sla*",
   "/api/v1/investigations/routes",
   "/api/v1/investigations/admin/*",
   "/api/v1/sos/routes",
