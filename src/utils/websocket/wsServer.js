@@ -22,11 +22,15 @@ export function initWebSocket(server) {
   logger.info('🔌 WebSocket server initialized on /ws');
 
   wss.on('connection', (ws, req) => {
-    // Authenticate via Authorization header only (query string tokens are unsafe — they leak in logs/referrers)
-    const token = req.headers.authorization?.replace('Bearer ', '');
+    // Authenticate via Authorization header (preferred) or query string token (browser WebSocket fallback —
+    // browsers cannot set custom headers on WS connections, so query string is the only option).
+    const url = new URL(req.url, 'ws://localhost');
+    const queryToken = url.searchParams.get('token');
+    const headerToken = req.headers.authorization?.replace('Bearer ', '');
+    const token = headerToken || queryToken;
 
     if (!token) {
-      ws.close(4001, 'Authorization header with Bearer token required');
+      ws.close(4001, 'Authorization required: provide Authorization header or ?token= query param');
       return;
     }
 
