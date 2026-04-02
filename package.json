@@ -24,6 +24,7 @@
     "@ducanh2912/next-pwa": "^10.2.9",
     "@headlessui/react": "^2.2.4",
     "@hookform/resolvers": "^5.2.2",
+    "@rollup/plugin-terser": "^1.0.0",
     "@sentry/nextjs": "^10.46.0",
     "@tanstack/react-query": "^5.81.5",
     "@tanstack/react-query-devtools": "^5.95.2",
@@ -41,12 +42,15 @@
     "react-hook-form": "^7.72.0",
     "react-hot-toast": "^2.6.0",
     "recharts": "^3.8.1",
+    "serialize-javascript": "^7.0.5",
     "socket.io-client": "^4.8.3",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "tailwindcss-animate": "^1.0.7",
     "url": "^0.11.4",
     "use-debounce": "^10.1.1",
+    "workbox-build": "^7.4.0",
+    "workbox-webpack-plugin": "^7.4.0",
     "zod": "^3.25.75"
   },
   "devDependencies": {
@@ -83,6 +87,12 @@
   },
   "overrides": {
     "glob": "^10.3.10",
-    "rimraf": "^5.0.5"
+    "rimraf": "^5.0.5",
+    "workbox-build": {
+      "serialize-javascript": ">=7.0.5"
+    },
+    "@rollup/plugin-terser": {
+      "serialize-javascript": "^7.0.5"
+    }
   }
 }
