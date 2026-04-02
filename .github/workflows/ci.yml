@@ -51,7 +51,7 @@ jobs:
         run: npm run swagger:validate
 
       - name: Lint OpenAPI with Spectral
-        run: npx spectral lint swagger.yaml
+        run: npx spectral lint --ruleset @stoplight/spectral-rulesets/dist/oas src/docs/swagger-complete.yaml
 
       - name: Generate Prisma client
         run: npx prisma generate
