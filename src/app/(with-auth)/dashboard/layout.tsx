@@ -48,6 +48,12 @@ const navigation: NavItem[] = [
   { name: 'Payroll & HR Comp', href: '/dashboard/payroll', requiredRole: 'ADMIN' },
   { name: 'Admin Management', href: '/dashboard/admin-management', requiredRole: 'ADMIN', requiredPermissions: ['adminManagement'] },
   { name: 'System Logs', href: '/dashboard/system-logs', requiredPermissions: ['viewAuditLogs'] },
+  { name: 'Feature Flags', href: '/dashboard/feature-flags', requiredRole: 'ADMIN' },
+  { name: 'Compliance', href: '/dashboard/compliance', requiredRole: 'ADMIN' },
+  { name: 'Consent', href: '/dashboard/consent', requiredPermissions: ['userManagement'] },
+  { name: 'Feedback', href: '/dashboard/feedback', requiredPermissions: ['userManagement'] },
+  { name: 'Devices', href: '/dashboard/devices', requiredRole: 'ADMIN' },
+  { name: 'ABDM', href: '/dashboard/abdm', requiredRole: 'ADMIN' },
   { name: 'Settings', href: '/dashboard/settings', requiredRole: 'ADMIN' },
 ];
 
