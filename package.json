@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node --enable-source-maps src/bin/www.js",
     "dev": "nodemon src/bin/www.js",
-    "build:prod": "echo 'No build needed — direct start used.'",
+    "build:prod": "echo 'No build needed \u2014 direct start used.'",
     "build:sentry": "node src/scripts/build-production.js",
     "debug": "node --inspect --enable-source-maps src/app.js",
     "lint": "eslint . --ext .js",
@@ -141,6 +141,6 @@
   },
   "overrides": {
     "lodash": ">=4.17.21",
-    "minimatch": ">=3.0.5"
+    "minimatch": "^3.1.2"
   }
 }
