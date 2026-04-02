@@ -399,13 +399,13 @@ paths:
             schema:
               type: object
               description: 'Request body for swagger'
-  '/api-docs/:id':
+  '/api-docs/{id}':
     get:
       tags:
         - swagger
       summary: 'Get swagger by ID'
       description: 'GET endpoint for swagger service. Security: public'
-      operationId: getApidocs
+      operationId: getApidocs_2
       parameters:
         -
           name: id
@@ -877,13 +877,13 @@ paths:
             schema:
               type: object
               description: 'Request body for admin'
-  '/api/v1/admin/:id':
+  '/api/v1/admin/{id}':
     get:
       tags:
         - admin
       summary: 'Get admin by ID'
       description: 'GET endpoint for admin service. Security: admin only'
-      operationId: getAdmin
+      operationId: getAdmin_2
       parameters:
         -
           name: id
@@ -1113,13 +1113,13 @@ paths:
             schema:
               type: object
               description: 'Request body for adminDepartments'
-  '/api/v1/admin/departments/:id':
+  '/api/v1/admin/departments/{id}':
     get:
       tags:
         - adminDepartments
       summary: 'Get adminDepartments by ID'
       description: 'GET endpoint for adminDepartments service. Security: admin only'
-      operationId: getAdminDepartments
+      operationId: getAdminDepartments_2
       parameters:
         -
           name: id
@@ -1562,13 +1562,13 @@ paths:
             schema:
               type: object
               description: 'Request body for adminDoctors'
-  '/api/v1/admin/doctors/:id':
+  '/api/v1/admin/doctors/{id}':
     get:
       tags:
         - adminDoctors
       summary: 'Get adminDoctors by ID'
       description: 'GET endpoint for adminDoctors service. Security: admin only'
-      operationId: getAdminDoctors
+      operationId: getAdminDoctors_2
       parameters:
         -
           name: id
@@ -3076,13 +3076,13 @@ paths:
             schema:
               type: object
               description: 'Request body for adminNotifications'
-  '/api/v1/admin/notifications/:id':
+  '/api/v1/admin/notifications/{id}':
     get:
       tags:
         - adminNotifications
       summary: 'Get adminNotifications by ID'
       description: 'GET endpoint for adminNotifications service. Security: admin only'
-      operationId: getAdminNotifications
+      operationId: getAdminNotifications_2
       parameters:
         -
           name: id
@@ -3809,13 +3809,13 @@ paths:
             schema:
               type: object
               description: 'Request body for analytics'
-  '/api/v1/analytics/:id':
+  '/api/v1/analytics/{id}':
     get:
       tags:
         - analytics
       summary: 'Get analytics by ID'
       description: 'GET endpoint for analytics service. Security: admin + manager'
-      operationId: getAnalytics
+      operationId: getAnalytics_2
       parameters:
         -
           name: id
@@ -4400,13 +4400,13 @@ paths:
             schema:
               type: object
               description: 'Request body for appointments'
-  '/api/v1/appointments/:id':
+  '/api/v1/appointments/{id}':
     get:
       tags:
         - appointments
       summary: 'Get appointments by ID'
       description: 'GET endpoint for appointments service. Security: multi-role'
-      operationId: getAppointments
+      operationId: getAppointments_2
       parameters:
         -
           name: id
@@ -4707,7 +4707,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/appointments/cancel/:id':
+  '/api/v1/appointments/cancel/{id}':
     get:
       tags:
         - appointments
@@ -4797,7 +4797,7 @@ paths:
             schema:
               type: object
               description: 'Request body for appointments'
-  '/api/v1/appointments/complete/:id':
+  '/api/v1/appointments/complete/{id}':
     get:
       tags:
         - appointments
@@ -4887,7 +4887,7 @@ paths:
             schema:
               type: object
               description: 'Request body for appointments'
-  '/api/v1/appointments/confirm/:id':
+  '/api/v1/appointments/confirm/{id}':
     get:
       tags:
         - appointments
@@ -4977,7 +4977,7 @@ paths:
             schema:
               type: object
               description: 'Request body for appointments'
-  '/api/v1/appointments/no-show/:id':
+  '/api/v1/appointments/no-show/{id}':
     get:
       tags:
         - appointments
@@ -5138,7 +5138,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/appointments/reschedule/:id':
+  '/api/v1/appointments/reschedule/{id}':
     get:
       tags:
         - appointments
@@ -6870,13 +6870,13 @@ paths:
             schema:
               type: object
               description: 'Request body for auth'
-  '/api/v1/auth/otp-dev/:id':
+  '/api/v1/auth/otp-dev/{id}':
     get:
       tags:
         - auth
       summary: 'Get auth by ID'
       description: 'GET endpoint for auth service. Security: public + admin'
-      operationId: getAuthOtpdev
+      operationId: getAuthOtpdev_2
       parameters:
         -
           name: id
@@ -8647,13 +8647,13 @@ paths:
             schema:
               type: object
               description: 'Request body for debug'
-  '/api/v1/debug/:id':
+  '/api/v1/debug/{id}':
     get:
       tags:
         - debug
       summary: 'Get debug by ID'
       description: 'GET endpoint for debug service. Security: admin only'
-      operationId: getDebug
+      operationId: getDebug_2
       parameters:
         -
           name: id
@@ -9309,13 +9309,13 @@ paths:
             schema:
               type: object
               description: 'Request body for departments'
-  '/api/v1/departments/:id':
+  '/api/v1/departments/{id}':
     get:
       tags:
         - departments
       summary: 'Get departments by ID'
       description: 'GET endpoint for departments service. Security: staff + admin'
-      operationId: getDepartments
+      operationId: getDepartments_2
       parameters:
         -
           name: id
@@ -10184,13 +10184,13 @@ paths:
             schema:
               type: object
               description: 'Request body for devices'
-  '/api/v1/devices/:id':
+  '/api/v1/devices/{id}':
     get:
       tags:
         - devices
       summary: 'Get devices by ID'
       description: 'GET endpoint for devices service. Security: user-based'
-      operationId: getDevices
+      operationId: getDevices_2
       parameters:
         -
           name: id
@@ -10846,13 +10846,13 @@ paths:
             schema:
               type: object
               description: 'Request body for doctors'
-  '/api/v1/doctors/:id':
+  '/api/v1/doctors/{id}':
     get:
       tags:
         - doctors
       summary: 'Get doctors by ID'
       description: 'GET endpoint for doctors service. Security: multi-role'
-      operationId: getDoctors
+      operationId: getDoctors_2
       parameters:
         -
           name: id
@@ -11721,13 +11721,13 @@ paths:
             schema:
               type: object
               description: 'Request body for feedback'
-  '/api/v1/feedback/:id':
+  '/api/v1/feedback/{id}':
     get:
       tags:
         - feedback
       summary: 'Get feedback by ID'
       description: 'GET endpoint for feedback service. Security: all users'
-      operationId: getFeedback
+      operationId: getFeedback_2
       parameters:
         -
           name: id
@@ -12512,13 +12512,13 @@ paths:
             schema:
               type: object
               description: 'Request body for healthRecords'
-  '/api/v1/health-records/:id':
+  '/api/v1/health-records/{id}':
     get:
       tags:
         - healthRecords
       summary: 'Get healthRecords by ID'
       description: 'GET endpoint for healthRecords service. Security: hipaa-compliant'
-      operationId: getHealthrecords
+      operationId: getHealthrecords_2
       parameters:
         -
           name: id
@@ -12710,7 +12710,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/health-records/archive/:id':
+  '/api/v1/health-records/archive/{id}':
     get:
       tags:
         - healthRecords
@@ -12871,7 +12871,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/health-records/audit-trail/:id':
+  '/api/v1/health-records/audit-trail/{id}':
     get:
       tags:
         - healthRecords
@@ -13283,7 +13283,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/health-records/copy/:id':
+  '/api/v1/health-records/copy/{id}':
     get:
       tags:
         - healthRecords
@@ -13373,7 +13373,7 @@ paths:
             schema:
               type: object
               description: 'Request body for healthRecords'
-  '/api/v1/health-records/download/:id':
+  '/api/v1/health-records/download/{id}':
     get:
       tags:
         - healthRecords
@@ -13605,13 +13605,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/health-records/folders/:id':
+  '/api/v1/health-records/folders/{id}':
     get:
       tags:
         - healthRecords
       summary: 'Get healthRecords by ID'
       description: 'GET endpoint for healthRecords service. Security: hipaa-compliant'
-      operationId: getHealthrecordsFolders
+      operationId: getHealthrecordsFolders_2
       parameters:
         -
           name: id
@@ -13766,7 +13766,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/health-records/metadata/:id':
+  '/api/v1/health-records/metadata/{id}':
     get:
       tags:
         - healthRecords
@@ -13927,7 +13927,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/health-records/move/:id':
+  '/api/v1/health-records/move/{id}':
     get:
       tags:
         - healthRecords
@@ -14017,7 +14017,7 @@ paths:
             schema:
               type: object
               description: 'Request body for healthRecords'
-  '/api/v1/health-records/permanent-delete/:id':
+  '/api/v1/health-records/permanent-delete/{id}':
     get:
       tags:
         - healthRecords
@@ -14107,7 +14107,7 @@ paths:
             schema:
               type: object
               description: 'Request body for healthRecords'
-  '/api/v1/health-records/permissions/:id':
+  '/api/v1/health-records/permissions/{id}':
     get:
       tags:
         - healthRecords
@@ -14268,7 +14268,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/health-records/restore/:id':
+  '/api/v1/health-records/restore/{id}':
     get:
       tags:
         - healthRecords
@@ -14429,7 +14429,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/health-records/share/:id':
+  '/api/v1/health-records/share/{id}':
     get:
       tags:
         - healthRecords
@@ -14661,13 +14661,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/health-records/tags/:id':
+  '/api/v1/health-records/tags/{id}':
     get:
       tags:
         - healthRecords
       summary: 'Get healthRecords by ID'
       description: 'GET endpoint for healthRecords service. Security: hipaa-compliant'
-      operationId: getHealthrecordsTags
+      operationId: getHealthrecordsTags_2
       parameters:
         -
           name: id
@@ -14822,7 +14822,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/health-records/unarchive/:id':
+  '/api/v1/health-records/unarchive/{id}':
     get:
       tags:
         - healthRecords
@@ -15021,7 +15021,7 @@ paths:
             schema:
               type: object
               description: 'Request body for healthRecords'
-  '/api/v1/health-records/versions/:id':
+  '/api/v1/health-records/versions/{id}':
     get:
       tags:
         - healthRecords
@@ -15111,13 +15111,13 @@ paths:
             schema:
               type: object
               description: 'Request body for healthRecords'
-  '/api/v1/health/:id':
+  '/api/v1/health/{id}':
     get:
       tags:
         - health
       summary: 'Get health by ID'
       description: 'GET endpoint for health service. Security: public + protected'
-      operationId: getHealth
+      operationId: getHealth_2
       parameters:
         -
           name: id
@@ -15914,13 +15914,13 @@ paths:
             schema:
               type: object
               description: 'Request body for investigations'
-  '/api/v1/investigations/:id':
+  '/api/v1/investigations/{id}':
     get:
       tags:
         - investigations
       summary: 'Get investigations by ID'
       description: 'GET endpoint for investigations service. Security: lab + medical'
-      operationId: getInvestigations
+      operationId: getInvestigations_2
       parameters:
         -
           name: id
@@ -16183,7 +16183,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/investigations/approve/:id':
+  '/api/v1/investigations/approve/{id}':
     get:
       tags:
         - investigations
@@ -16486,7 +16486,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/investigations/download-result/:id':
+  '/api/v1/investigations/download-result/{id}':
     get:
       tags:
         - investigations
@@ -16576,7 +16576,7 @@ paths:
             schema:
               type: object
               description: 'Request body for investigations'
-  '/api/v1/investigations/follow-up/:id':
+  '/api/v1/investigations/follow-up/{id}':
     get:
       tags:
         - investigations
@@ -16737,7 +16737,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/investigations/notes/:id':
+  '/api/v1/investigations/notes/{id}':
     get:
       tags:
         - investigations
@@ -16898,13 +16898,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/investigations/packages/:id':
+  '/api/v1/investigations/packages/{id}':
     get:
       tags:
         - investigations
       summary: 'Get investigations by ID'
       description: 'GET endpoint for investigations service. Security: lab + medical'
-      operationId: getInvestigationsPackages
+      operationId: getInvestigationsPackages_2
       parameters:
         -
           name: id
@@ -17059,7 +17059,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/investigations/reject/:id':
+  '/api/v1/investigations/reject/{id}':
     get:
       tags:
         - investigations
@@ -17220,7 +17220,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/investigations/results/:id':
+  '/api/v1/investigations/results/{id}':
     get:
       tags:
         - investigations
@@ -17310,7 +17310,7 @@ paths:
             schema:
               type: object
               description: 'Request body for investigations'
-  '/api/v1/investigations/retest/:id':
+  '/api/v1/investigations/retest/{id}':
     get:
       tags:
         - investigations
@@ -17400,7 +17400,7 @@ paths:
             schema:
               type: object
               description: 'Request body for investigations'
-  '/api/v1/investigations/share-result/:id':
+  '/api/v1/investigations/share-result/{id}':
     get:
       tags:
         - investigations
@@ -17561,13 +17561,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/investigations/tests/:id':
+  '/api/v1/investigations/tests/{id}':
     get:
       tags:
         - investigations
       summary: 'Get investigations by ID'
       description: 'GET endpoint for investigations service. Security: lab + medical'
-      operationId: getInvestigationsTests
+      operationId: getInvestigationsTests_2
       parameters:
         -
           name: id
@@ -17722,7 +17722,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/investigations/upload-result/:id':
+  '/api/v1/investigations/upload-result/{id}':
     get:
       tags:
         - investigations
@@ -17921,13 +17921,13 @@ paths:
             schema:
               type: object
               description: 'Request body for lookup'
-  '/api/v1/lookup/:id':
+  '/api/v1/lookup/{id}':
     get:
       tags:
         - lookup
       summary: 'Get lookup by ID'
       description: 'GET endpoint for lookup service. Security: staff + admin'
-      operationId: getLookup
+      operationId: getLookup_2
       parameters:
         -
           name: id
@@ -18441,13 +18441,13 @@ paths:
             schema:
               type: object
               description: 'Request body for notifications'
-  '/api/v1/notifications/:id':
+  '/api/v1/notifications/{id}':
     get:
       tags:
         - notifications
       summary: 'Get notifications by ID'
       description: 'GET endpoint for notifications service. Security: role-based'
-      operationId: getNotifications
+      operationId: getNotifications_2
       parameters:
         -
           name: id
@@ -18677,7 +18677,7 @@ paths:
             schema:
               type: object
               description: 'Request body for notifications'
-  '/api/v1/notifications/cancel/:id':
+  '/api/v1/notifications/cancel/{id}':
     get:
       tags:
         - notifications
@@ -18980,7 +18980,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/notifications/mark-read/:id':
+  '/api/v1/notifications/mark-read/{id}':
     get:
       tags:
         - notifications
@@ -19141,13 +19141,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/notifications/preferences/:userId':
+  '/api/v1/notifications/preferences/{userId}':
     get:
       tags:
         - notifications
       summary: Preferences
       description: 'GET endpoint for notifications service. Security: role-based'
-      operationId: getNotificationsPreferences
+      operationId: getNotificationsPreferences_2
       parameters:
         -
           name: userId
@@ -19252,13 +19252,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/notifications/schedule/:id':
+  '/api/v1/notifications/schedule/{id}':
     get:
       tags:
         - notifications
       summary: 'Get notifications by ID'
       description: 'GET endpoint for notifications service. Security: role-based'
-      operationId: getNotificationsSchedule
+      operationId: getNotificationsSchedule_2
       parameters:
         -
           name: id
@@ -19451,7 +19451,7 @@ paths:
             schema:
               type: object
               description: 'Request body for notifications'
-  '/api/v1/notifications/subscribe/:topic':
+  '/api/v1/notifications/subscribe/{topic}':
     get:
       tags:
         - notifications
@@ -19562,13 +19562,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/notifications/templates/:id':
+  '/api/v1/notifications/templates/{id}':
     get:
       tags:
         - notifications
       summary: 'Get notifications by ID'
       description: 'GET endpoint for notifications service. Security: role-based'
-      operationId: getNotificationsTemplates
+      operationId: getNotificationsTemplates_2
       parameters:
         -
           name: id
@@ -19865,7 +19865,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/notifications/unsubscribe/:topic':
+  '/api/v1/notifications/unsubscribe/{topic}':
     get:
       tags:
         - notifications
@@ -19905,7 +19905,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/pharmacy/alternatives/:medicineId':
+  '/api/v1/pharmacy/alternatives/{medicineId}':
     get:
       tags:
         - pharmacy
@@ -19945,7 +19945,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/pharmacy/availability/:medicineId':
+  '/api/v1/pharmacy/availability/{medicineId}':
     get:
       tags:
         - pharmacy
@@ -20236,7 +20236,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/pharmacy/cart/remove/:id':
+  '/api/v1/pharmacy/cart/remove/{id}':
     get:
       tags:
         - pharmacy
@@ -20648,7 +20648,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/pharmacy/feedback/:orderId':
+  '/api/v1/pharmacy/feedback/{orderId}':
     get:
       tags:
         - pharmacy
@@ -20901,13 +20901,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/pharmacy/medicines/:id':
+  '/api/v1/pharmacy/medicines/{id}':
     get:
       tags:
         - pharmacy
       summary: 'Get pharmacy by ID'
       description: 'GET endpoint for pharmacy service. Security: pharmacy + medical'
-      operationId: getPharmacyMedicines
+      operationId: getPharmacyMedicines_2
       parameters:
         -
           name: id
@@ -21062,13 +21062,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/pharmacy/orders/:id':
+  '/api/v1/pharmacy/orders/{id}':
     get:
       tags:
         - pharmacy
       summary: 'Get pharmacy by ID'
       description: 'GET endpoint for pharmacy service. Security: pharmacy + medical'
-      operationId: getPharmacyOrders
+      operationId: getPharmacyOrders_2
       parameters:
         -
           name: id
@@ -21152,7 +21152,7 @@ paths:
             schema:
               type: object
               description: 'Request body for pharmacy'
-  '/api/v1/pharmacy/payment/:orderId':
+  '/api/v1/pharmacy/payment/{orderId}':
     get:
       tags:
         - pharmacy
@@ -21263,13 +21263,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/pharmacy/prescriptions/:id':
+  '/api/v1/pharmacy/prescriptions/{id}':
     get:
       tags:
         - pharmacy
       summary: 'Get pharmacy by ID'
       description: 'GET endpoint for pharmacy service. Security: pharmacy + medical'
-      operationId: getPharmacyPrescriptions
+      operationId: getPharmacyPrescriptions_2
       parameters:
         -
           name: id
@@ -21424,13 +21424,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/pharmacy/recurring/:id':
+  '/api/v1/pharmacy/recurring/{id}':
     get:
       tags:
         - pharmacy
       summary: 'Get pharmacy by ID'
       description: 'GET endpoint for pharmacy service. Security: pharmacy + medical'
-      operationId: getPharmacyRecurring
+      operationId: getPharmacyRecurring_2
       parameters:
         -
           name: id
@@ -21514,7 +21514,7 @@ paths:
             schema:
               type: object
               description: 'Request body for pharmacy'
-  '/api/v1/pharmacy/refill/:prescriptionId':
+  '/api/v1/pharmacy/refill/{prescriptionId}':
     get:
       tags:
         - pharmacy
@@ -21625,13 +21625,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/pharmacy/returns/:id':
+  '/api/v1/pharmacy/returns/{id}':
     get:
       tags:
         - pharmacy
       summary: 'Get pharmacy by ID'
       description: 'GET endpoint for pharmacy service. Security: pharmacy + medical'
-      operationId: getPharmacyReturns
+      operationId: getPharmacyReturns_2
       parameters:
         -
           name: id
@@ -21715,7 +21715,7 @@ paths:
             schema:
               type: object
               description: 'Request body for pharmacy'
-  '/api/v1/pharmacy/track/:orderId':
+  '/api/v1/pharmacy/track/{orderId}':
     get:
       tags:
         - pharmacy
@@ -21864,7 +21864,7 @@ paths:
             schema:
               type: object
               description: 'Request body for pharmacy'
-  '/api/v1/pharmacy/verify-prescription/:id':
+  '/api/v1/pharmacy/verify-prescription/{id}':
     get:
       tags:
         - pharmacy
@@ -22735,13 +22735,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/rbac/permissions/:id':
+  '/api/v1/rbac/permissions/{id}':
     get:
       tags:
         - rbac
       summary: 'Get rbac by ID'
       description: 'GET endpoint for rbac service. Security: admin + security'
-      operationId: getRbacPermissions
+      operationId: getRbacPermissions_2
       parameters:
         -
           name: id
@@ -22967,13 +22967,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/rbac/roles/:id':
+  '/api/v1/rbac/roles/{id}':
     get:
       tags:
         - rbac
       summary: 'Get rbac by ID'
       description: 'GET endpoint for rbac service. Security: admin + security'
-      operationId: getRbacRoles
+      operationId: getRbacRoles_2
       parameters:
         -
           name: id
@@ -23057,7 +23057,7 @@ paths:
             schema:
               type: object
               description: 'Request body for rbac'
-  '/api/v1/rbac/roles/:roleId/permissions':
+  '/api/v1/rbac/roles/{roleId}/permissions':
     get:
       tags:
         - rbac
@@ -23097,7 +23097,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/rbac/roles/:roleId/users':
+  '/api/v1/rbac/roles/{roleId}/users':
     get:
       tags:
         - rbac
@@ -23208,7 +23208,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/rbac/users/:userId/permissions':
+  '/api/v1/rbac/users/{userId}/permissions':
     get:
       tags:
         - rbac
@@ -23248,7 +23248,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/rbac/users/:userId/roles':
+  '/api/v1/rbac/users/{userId}/roles':
     get:
       tags:
         - rbac
@@ -23430,7 +23430,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/sos/assign-responder/:alertId':
+  '/api/v1/sos/assign-responder/{alertId}':
     get:
       tags:
         - sos
@@ -23754,13 +23754,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/sos/contacts/:id':
+  '/api/v1/sos/contacts/{id}':
     get:
       tags:
         - sos
       summary: 'Get sos by ID'
       description: 'GET endpoint for sos service. Security: emergency system'
-      operationId: getSosContacts
+      operationId: getSosContacts_2
       parameters:
         -
           name: id
@@ -23915,13 +23915,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/sos/drill/:id':
+  '/api/v1/sos/drill/{id}':
     get:
       tags:
         - sos
       summary: 'Get sos by ID'
       description: 'GET endpoint for sos service. Security: emergency system'
-      operationId: getSosDrill
+      operationId: getSosDrill_2
       parameters:
         -
           name: id
@@ -24147,7 +24147,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/sos/escalate/:alertId':
+  '/api/v1/sos/escalate/{alertId}':
     get:
       tags:
         - sos
@@ -24258,7 +24258,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/sos/false-alarm/:alertId':
+  '/api/v1/sos/false-alarm/{alertId}':
     get:
       tags:
         - sos
@@ -24298,7 +24298,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/sos/feedback/:alertId':
+  '/api/v1/sos/feedback/{alertId}':
     get:
       tags:
         - sos
@@ -24338,7 +24338,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/sos/follow-up/:alertId':
+  '/api/v1/sos/follow-up/{alertId}':
     get:
       tags:
         - sos
@@ -24591,7 +24591,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/sos/incident-report/:alertId':
+  '/api/v1/sos/incident-report/{alertId}':
     get:
       tags:
         - sos
@@ -24844,7 +24844,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/sos/live-tracking/:id':
+  '/api/v1/sos/live-tracking/{id}':
     get:
       tags:
         - sos
@@ -25360,7 +25360,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/sos/resolve/:alertId':
+  '/api/v1/sos/resolve/{alertId}':
     get:
       tags:
         - sos
@@ -26399,13 +26399,13 @@ paths:
             schema:
               type: object
               description: 'Request body for staff'
-  '/api/v1/staff/:id':
+  '/api/v1/staff/{id}':
     get:
       tags:
         - staff
       summary: 'Get staff by ID'
       description: 'GET endpoint for staff service. Security: hr + management'
-      operationId: getStaff
+      operationId: getStaff_2
       parameters:
         -
           name: id
@@ -26668,13 +26668,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/staff/attendance/:id':
+  '/api/v1/staff/attendance/{id}':
     get:
       tags:
         - staff
       summary: 'Get staff by ID'
       description: 'GET endpoint for staff service. Security: hr + management'
-      operationId: getStaffAttendance
+      operationId: getStaffAttendance_2
       parameters:
         -
           name: id
@@ -26971,13 +26971,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/staff/benefits/:id':
+  '/api/v1/staff/benefits/{id}':
     get:
       tags:
         - staff
       summary: 'Get staff by ID'
       description: 'GET endpoint for staff service. Security: hr + management'
-      operationId: getStaffBenefits
+      operationId: getStaffBenefits_2
       parameters:
         -
           name: id
@@ -27132,13 +27132,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/staff/certifications/:id':
+  '/api/v1/staff/certifications/{id}':
     get:
       tags:
         - staff
       summary: 'Get staff by ID'
       description: 'GET endpoint for staff service. Security: hr + management'
-      operationId: getStaffCertifications
+      operationId: getStaffCertifications_2
       parameters:
         -
           name: id
@@ -27293,13 +27293,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/staff/departments/:id':
+  '/api/v1/staff/departments/{id}':
     get:
       tags:
         - staff
       summary: 'Get staff by ID'
       description: 'GET endpoint for staff service. Security: hr + management'
-      operationId: getStaffDepartments
+      operationId: getStaffDepartments_2
       parameters:
         -
           name: id
@@ -27454,13 +27454,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/staff/documents/:id':
+  '/api/v1/staff/documents/{id}':
     get:
       tags:
         - staff
       summary: 'Get staff by ID'
       description: 'GET endpoint for staff service. Security: hr + management'
-      operationId: getStaffDocuments
+      operationId: getStaffDocuments_2
       parameters:
         -
           name: id
@@ -27544,7 +27544,7 @@ paths:
             schema:
               type: object
               description: 'Request body for staff'
-  '/api/v1/staff/emergency-contacts/:id':
+  '/api/v1/staff/emergency-contacts/{id}':
     get:
       tags:
         - staff
@@ -27705,13 +27705,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/staff/leaves/:id':
+  '/api/v1/staff/leaves/{id}':
     get:
       tags:
         - staff
       summary: 'Get staff by ID'
       description: 'GET endpoint for staff service. Security: hr + management'
-      operationId: getStaffLeaves
+      operationId: getStaffLeaves_2
       parameters:
         -
           name: id
@@ -27904,7 +27904,7 @@ paths:
             schema:
               type: object
               description: 'Request body for staff'
-  '/api/v1/staff/leaves/approve/:id':
+  '/api/v1/staff/leaves/approve/{id}':
     get:
       tags:
         - staff
@@ -27994,7 +27994,7 @@ paths:
             schema:
               type: object
               description: 'Request body for staff'
-  '/api/v1/staff/leaves/reject/:id':
+  '/api/v1/staff/leaves/reject/{id}':
     get:
       tags:
         - staff
@@ -28155,13 +28155,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/staff/overtime/:id':
+  '/api/v1/staff/overtime/{id}':
     get:
       tags:
         - staff
       summary: 'Get staff by ID'
       description: 'GET endpoint for staff service. Security: hr + management'
-      operationId: getStaffOvertime
+      operationId: getStaffOvertime_2
       parameters:
         -
           name: id
@@ -28316,13 +28316,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/staff/payroll/:id':
+  '/api/v1/staff/payroll/{id}':
     get:
       tags:
         - staff
       summary: 'Get staff by ID'
       description: 'GET endpoint for staff service. Security: hr + management'
-      operationId: getStaffPayroll
+      operationId: getStaffPayroll_2
       parameters:
         -
           name: id
@@ -28477,13 +28477,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/staff/performance/:id':
+  '/api/v1/staff/performance/{id}':
     get:
       tags:
         - staff
       summary: 'Get staff by ID'
       description: 'GET endpoint for staff service. Security: hr + management'
-      operationId: getStaffPerformance
+      operationId: getStaffPerformance_2
       parameters:
         -
           name: id
@@ -28638,7 +28638,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/staff/profile/:id':
+  '/api/v1/staff/profile/{id}':
     get:
       tags:
         - staff
@@ -28799,13 +28799,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/staff/schedule/:id':
+  '/api/v1/staff/schedule/{id}':
     get:
       tags:
         - staff
       summary: 'Get staff by ID'
       description: 'GET endpoint for staff service. Security: hr + management'
-      operationId: getStaffSchedule
+      operationId: getStaffSchedule_2
       parameters:
         -
           name: id
@@ -28960,13 +28960,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/staff/shifts/:id':
+  '/api/v1/staff/shifts/{id}':
     get:
       tags:
         - staff
       summary: 'Get staff by ID'
       description: 'GET endpoint for staff service. Security: hr + management'
-      operationId: getStaffShifts
+      operationId: getStaffShifts_2
       parameters:
         -
           name: id
@@ -29121,13 +29121,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/staff/training/:id':
+  '/api/v1/staff/training/{id}':
     get:
       tags:
         - staff
       summary: 'Get staff by ID'
       description: 'GET endpoint for staff service. Security: hr + management'
-      operationId: getStaffTraining
+      operationId: getStaffTraining_2
       parameters:
         -
           name: id
@@ -29320,7 +29320,7 @@ paths:
             schema:
               type: object
               description: 'Request body for upload'
-  '/api/v1/upload/archive/:fileId':
+  '/api/v1/upload/archive/{fileId}':
     get:
       tags:
         - upload
@@ -29360,7 +29360,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/cancel/:uploadId':
+  '/api/v1/upload/cancel/{uploadId}':
     get:
       tags:
         - upload
@@ -29471,13 +29471,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/chunk/:uploadId':
+  '/api/v1/upload/chunk/{uploadId}':
     get:
       tags:
         - upload
       summary: Chunk
       description: 'GET endpoint for upload service. Security: role-based'
-      operationId: getUploadChunk
+      operationId: getUploadChunk_2
       parameters:
         -
           name: uploadId
@@ -29653,7 +29653,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/convert/:fileId':
+  '/api/v1/upload/convert/{fileId}':
     get:
       tags:
         - upload
@@ -29693,7 +29693,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/copy/:fileId':
+  '/api/v1/upload/copy/{fileId}':
     get:
       tags:
         - upload
@@ -29733,7 +29733,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/decompress/:fileId':
+  '/api/v1/upload/decompress/{fileId}':
     get:
       tags:
         - upload
@@ -29773,7 +29773,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/decrypt/:fileId':
+  '/api/v1/upload/decrypt/{fileId}':
     get:
       tags:
         - upload
@@ -29813,7 +29813,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/delete/:fileId':
+  '/api/v1/upload/delete/{fileId}':
     get:
       tags:
         - upload
@@ -29853,7 +29853,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/download/:fileId':
+  '/api/v1/upload/download/{fileId}':
     get:
       tags:
         - upload
@@ -29893,7 +29893,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/encrypt/:fileId':
+  '/api/v1/upload/encrypt/{fileId}':
     get:
       tags:
         - upload
@@ -29933,7 +29933,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/extract-text/:fileId':
+  '/api/v1/upload/extract-text/{fileId}':
     get:
       tags:
         - upload
@@ -30044,13 +30044,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/folders/:id':
+  '/api/v1/upload/folders/{id}':
     get:
       tags:
         - upload
       summary: 'Get upload by ID'
       description: 'GET endpoint for upload service. Security: role-based'
-      operationId: getUploadFolders
+      operationId: getUploadFolders_2
       parameters:
         -
           name: id
@@ -30205,7 +30205,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/metadata/:fileId':
+  '/api/v1/upload/metadata/{fileId}':
     get:
       tags:
         - upload
@@ -30245,7 +30245,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/move/:fileId':
+  '/api/v1/upload/move/{fileId}':
     get:
       tags:
         - upload
@@ -30356,7 +30356,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/ocr/:fileId':
+  '/api/v1/upload/ocr/{fileId}':
     get:
       tags:
         - upload
@@ -30467,7 +30467,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/preview/:fileId':
+  '/api/v1/upload/preview/{fileId}':
     get:
       tags:
         - upload
@@ -30507,7 +30507,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/process/:fileId':
+  '/api/v1/upload/process/{fileId}':
     get:
       tags:
         - upload
@@ -30618,7 +30618,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/rename/:fileId':
+  '/api/v1/upload/rename/{fileId}':
     get:
       tags:
         - upload
@@ -30658,7 +30658,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/restore/:fileId':
+  '/api/v1/upload/restore/{fileId}':
     get:
       tags:
         - upload
@@ -30698,7 +30698,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/resume/:uploadId':
+  '/api/v1/upload/resume/{uploadId}':
     get:
       tags:
         - upload
@@ -30738,7 +30738,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/scan/:fileId':
+  '/api/v1/upload/scan/{fileId}':
     get:
       tags:
         - upload
@@ -30778,7 +30778,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/share/:fileId':
+  '/api/v1/upload/share/{fileId}':
     get:
       tags:
         - upload
@@ -30889,7 +30889,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/sign/:fileId':
+  '/api/v1/upload/sign/{fileId}':
     get:
       tags:
         - upload
@@ -31000,7 +31000,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/split/:fileId':
+  '/api/v1/upload/split/{fileId}':
     get:
       tags:
         - upload
@@ -31040,7 +31040,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/status/:uploadId':
+  '/api/v1/upload/status/{uploadId}':
     get:
       tags:
         - upload
@@ -31151,7 +31151,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/tags/:fileId':
+  '/api/v1/upload/tags/{fileId}':
     get:
       tags:
         - upload
@@ -31191,7 +31191,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/thumbnail/:fileId':
+  '/api/v1/upload/thumbnail/{fileId}':
     get:
       tags:
         - upload
@@ -31373,7 +31373,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/verify-signature/:fileId':
+  '/api/v1/upload/verify-signature/{fileId}':
     get:
       tags:
         - upload
@@ -31413,7 +31413,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/upload/watermark/:fileId':
+  '/api/v1/upload/watermark/{fileId}':
     get:
       tags:
         - upload
@@ -31562,13 +31562,13 @@ paths:
             schema:
               type: object
               description: 'Request body for users'
-  '/api/v1/users/:id':
+  '/api/v1/users/{id}':
     get:
       tags:
         - users
       summary: 'Get users by ID'
       description: 'GET endpoint for users service. Security: user + admin'
-      operationId: getUsers
+      operationId: getUsers_2
       parameters:
         -
           name: id
@@ -31689,7 +31689,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/users/activate/:id':
+  '/api/v1/users/activate/{id}':
     get:
       tags:
         - users
@@ -31850,7 +31850,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/users/audit/:id':
+  '/api/v1/users/audit/{id}':
     get:
       tags:
         - users
@@ -32011,13 +32011,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/users/avatar/:id':
+  '/api/v1/users/avatar/{id}':
     get:
       tags:
         - users
       summary: 'Get users by ID'
       description: 'GET endpoint for users service. Security: user + admin'
-      operationId: getUsersAvatar
+      operationId: getUsersAvatar_2
       parameters:
         -
           name: id
@@ -32243,7 +32243,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/users/by-department/:dept':
+  '/api/v1/users/by-department/{dept}':
     get:
       tags:
         - users
@@ -32283,7 +32283,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/users/by-role/:role':
+  '/api/v1/users/by-role/{role}':
     get:
       tags:
         - users
@@ -32394,7 +32394,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/users/data-delete/:id':
+  '/api/v1/users/data-delete/{id}':
     get:
       tags:
         - users
@@ -32484,7 +32484,7 @@ paths:
             schema:
               type: object
               description: 'Request body for users'
-  '/api/v1/users/data-export/:id':
+  '/api/v1/users/data-export/{id}':
     get:
       tags:
         - users
@@ -32574,7 +32574,7 @@ paths:
             schema:
               type: object
               description: 'Request body for users'
-  '/api/v1/users/deactivate/:id':
+  '/api/v1/users/deactivate/{id}':
     get:
       tags:
         - users
@@ -32735,13 +32735,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/users/documents/:id':
+  '/api/v1/users/documents/{id}':
     get:
       tags:
         - users
       summary: 'Get users by ID'
       description: 'GET endpoint for users service. Security: user + admin'
-      operationId: getUsersDocuments
+      operationId: getUsersDocuments_2
       parameters:
         -
           name: id
@@ -32967,13 +32967,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/users/emergency-contacts/:id':
+  '/api/v1/users/emergency-contacts/{id}':
     get:
       tags:
         - users
       summary: 'Get users by ID'
       description: 'GET endpoint for users service. Security: user + admin'
-      operationId: getUsersEmergencycontacts
+      operationId: getUsersEmergencycontacts_2
       parameters:
         -
           name: id
@@ -33128,7 +33128,7 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/users/history/:id':
+  '/api/v1/users/history/{id}':
     get:
       tags:
         - users
@@ -33360,13 +33360,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/users/insurance/:id':
+  '/api/v1/users/insurance/{id}':
     get:
       tags:
         - users
       summary: 'Get users by ID'
       description: 'GET endpoint for users service. Security: user + admin'
-      operationId: getUsersInsurance
+      operationId: getUsersInsurance_2
       parameters:
         -
           name: id
@@ -33521,13 +33521,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/users/medical-info/:id':
+  '/api/v1/users/medical-info/{id}':
     get:
       tags:
         - users
       summary: 'Get users by ID'
       description: 'GET endpoint for users service. Security: user + admin'
-      operationId: getUsersMedicalinfo
+      operationId: getUsersMedicalinfo_2
       parameters:
         -
           name: id
@@ -34108,13 +34108,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/users/preferences/:id':
+  '/api/v1/users/preferences/{id}':
     get:
       tags:
         - users
       summary: 'Get users by ID'
       description: 'GET endpoint for users service. Security: user + admin'
-      operationId: getUsersPreferences
+      operationId: getUsersPreferences_2
       parameters:
         -
           name: id
@@ -34340,13 +34340,13 @@ paths:
           ApiKeyAuth: []
         -
           BearerAuth: []
-  '/api/v1/users/profile/:id':
+  '/api/v1/users/profile/{id}':
     get:
       tags:
         - users
       summary: 'Get users by ID'
       description: 'GET endpoint for users service. Security: user + admin'
-      operationId: getUsersProfile
+      operationId: getUsersProfile_2
       parameters:
         -
           name: id
@@ -35024,13 +35024,13 @@ paths:
             schema:
               type: object
               description: 'Request body for version'
-  '/api/v1/version/:id':
+  '/api/v1/version/{id}':
     get:
       tags:
         - version
       summary: 'Get version by ID'
       description: 'GET endpoint for version service. Security: public + admin'
-      operationId: getVersion
+      operationId: getVersion_2
       parameters:
         -
           name: id
