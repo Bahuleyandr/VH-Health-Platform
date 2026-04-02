@@ -47,6 +47,12 @@ jobs:
 
       - run: npm run lint
 
+      - name: Validate Swagger structure
+        run: npm run swagger:validate
+
+      - name: Lint OpenAPI with Spectral
+        run: npx spectral lint swagger.yaml
+
       - name: Generate Prisma client
         run: npx prisma generate
 
