@@ -1,4 +1,5 @@
 // utils/infrastructure/rbacUtils.js
+import prisma from '../../lib/prisma.js';
 import { 
   ADMIN, PATIENT, NURSING_STAFF, PHARMACY_STAFF, 
   LAB_STAFF, DOCTOR, GENERAL_STAFF, HR_STAFF 

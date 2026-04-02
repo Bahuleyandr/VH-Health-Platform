@@ -430,9 +430,6 @@ class AdminDepartmentService {
         budget: parseFloat(rows[0].budget) || 0,
         created_at: formatDate(rows[0].created_at)
       };
-    } catch (error) {
-      throw error;
-    }
   }
 
   async performBulkOperation(operation, departmentIds, data = {}) {
@@ -588,9 +585,6 @@ class AdminDepartmentService {
           to_department: targetDeptName
         }
       };
-    } catch (error) {
-      throw error;
-    }
   }
 
   async updateDepartment(id, data) {
@@ -665,9 +659,6 @@ class AdminDepartmentService {
         created_at: formatDate(rows[0].created_at),
         updated_at: formatDate(rows[0].updated_at)
       };
-    } catch (error) {
-      throw error;
-    }
   }
 }
 
