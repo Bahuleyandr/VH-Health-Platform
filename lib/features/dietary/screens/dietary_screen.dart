@@ -28,7 +28,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
     });
     try {
       final response = await ApiClient.get('/dietary/orders');
-      if (response.success) {
+      if (response.isSuccess) {
         final data = response.data;
         final list = data is List
             ? data
@@ -53,7 +53,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
         body: {'status': 'served'},
       );
       if (mounted) {
-        if (response.success) {
+        if (response.isSuccess) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Order marked as served'),
@@ -208,7 +208,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
                             },
                           );
                           if (!ctx.mounted) return;
-                          if (response.success) {
+                          if (response.isSuccess) {
                             Navigator.pop(ctx, true);
                           } else {
                             setDialogState(() => submitting = false);

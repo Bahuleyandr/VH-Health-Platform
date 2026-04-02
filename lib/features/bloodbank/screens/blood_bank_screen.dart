@@ -53,7 +53,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
     });
     try {
       final response = await ApiClient.get('/blood-bank/inventory');
-      if (response.success) {
+      if (response.isSuccess) {
         final data = response.data;
         final list = data is List
             ? data
@@ -82,7 +82,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
         'patientName': _patientNameController.text.trim(),
       });
       if (mounted) {
-        if (response.success) {
+        if (response.isSuccess) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Blood request submitted successfully'),

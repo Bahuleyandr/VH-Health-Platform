@@ -32,7 +32,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
     });
     try {
       final response = await ApiClient.get('/bed/wards');
-      if (response.success) {
+      if (response.isSuccess) {
         final data = response.data;
         final list = data is List
             ? data
@@ -57,7 +57,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
     });
     try {
       final response = await ApiClient.get('/bed/ward/$wardId');
-      if (response.success) {
+      if (response.isSuccess) {
         final data = response.data;
         final list = data is List
             ? data
