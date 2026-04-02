@@ -7,7 +7,11 @@ import 'package:url_launcher/url_launcher.dart';
 import '../config/api_config.dart';
 
 /// Emergency contact number for the SOS feature.
-const String kSosEmergencyNumber = '+919841433995';
+/// Override at build time: `--dart-define=VH_SOS_NUMBER=+91XXXXXXXXXX`
+const String kSosEmergencyNumber = String.fromEnvironment(
+  'VH_SOS_NUMBER',
+  defaultValue: '+919841433995',
+);
 
 /// Triggers the SOS flow: sends location to backend and opens the dialer.
 ///
