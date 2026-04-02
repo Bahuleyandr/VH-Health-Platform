@@ -45,11 +45,15 @@ void main() {
       final json = {
         'id': 42,
         'uid': 'appt-uid',
+        'phone': '+919999999999',
         'patient_id': 1,
         'doctor_id': 2,
+        'doctor_name': 'Dr. Test',
         'status': 'CONFIRMED',
         'appointment_date': '2026-04-10',
         'appointment_time': '10:00',
+        'created_at': '2026-01-01T00:00:00Z',
+        'updated_at': '2026-01-01T00:00:00Z',
       };
       final appt = Appointment.fromJson(json);
       expect(appt.id, 42);
@@ -208,6 +212,8 @@ void main() {
         'department': 'Cardiology',
         'specialty': 'Interventional Cardiology',
         'is_available': true,
+        'created_at': '2026-01-01T00:00:00Z',
+        'updated_at': '2026-01-01T00:00:00Z',
       };
       final doc = Doctor.fromJson(json);
       expect(doc.name, 'Dr. Sharma');
@@ -222,9 +228,10 @@ void main() {
         'id': 1,
         'name': 'Paracetamol',
         'dosage': '500mg',
-        'stock': 100,
+        'stock_quantity': 100,
         'price': 25.50,
-        'requires_prescription': true,
+        'prescription_required': true,
+        'created_at': '2026-01-01T00:00:00Z',
       };
       final med = Medication.fromJson(json);
       expect(med.name, 'Paracetamol');
