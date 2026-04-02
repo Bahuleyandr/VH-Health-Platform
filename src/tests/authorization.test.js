@@ -56,9 +56,15 @@ describe('Appointment IDOR Protection', () => {
 
   describe('PUT /api/v1/appointments/:id — update appointment', () => {
     it('should NOT return 200 when updating a non-owned appointment', async () => {
+      // Use a date 1 year from now to avoid validation rejection (past-date check)
+      // so the request reaches IDOR/auth checks.
+      const futureDate = new Date();
+      futureDate.setFullYear(futureDate.getFullYear() + 1);
+      const futureDateStr = futureDate.toISOString().split('T')[0]; // YYYY-MM-DD
+
       const res = await authRequest('put', '/api/v1/appointments/999999', patientBToken)
         .send({
-          appointment_date: '2026-04-01',
+          appointment_date: futureDateStr,
           appointment_time: '10:00',
           reason: 'Checkup'
         });
