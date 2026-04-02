@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node --enable-source-maps src/bin/www.js",
     "dev": "nodemon src/bin/www.js",
-    "build:prod": "echo 'No build needed \u2014 direct start used.'",
+    "build:prod": "echo 'No build needed — direct start used.'",
     "build:sentry": "node src/scripts/build-production.js",
     "debug": "node --inspect --enable-source-maps src/app.js",
     "lint": "eslint . --ext .js",
@@ -92,6 +92,8 @@
     "@stoplight/spectral-cli": "^6.15.0",
     "@stoplight/spectral-core": "^1.21.0",
     "@stoplight/spectral-rulesets": "^1.22.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
     "eslint": "^9.31.0",
     "eslint-config-prettier": "^10.1.5",
     "eslint-plugin-eslint-comments": "^3.2.0",
@@ -103,9 +105,7 @@
     "nodemon": "^3.1.14",
     "prettier": "^3.6.2",
     "prisma": "^6.11.1",
-    "supertest": "^7.2.2",
-    "ajv": "^8.17.1",
-    "ajv-formats": "^3.0.1"
+    "supertest": "^7.2.2"
   },
   "engines": {
     "node": "22.15.0"
@@ -138,5 +138,9 @@
       "^@config/(.*)$": "<rootDir>/src/config/$1",
       "^@scripts/(.*)$": "<rootDir>/src/scripts/$1"
     }
+  },
+  "overrides": {
+    "lodash": ">=4.17.21",
+    "minimatch": ">=3.0.5"
   }
 }
