@@ -1,4 +1,7 @@
-import db from '../../config/database.js';
+// src/services/investigation/bulkService.js
+// Migrated from raw pg to Prisma ORM
+
+import prisma from '../../lib/prisma.js';
 import { INVESTIGATION_STATUS } from '../../config/investigationConfig.js';
 import logger from '../../logging/logger.js';
 
@@ -7,123 +10,75 @@ export const bulkUpdateStatus = async (investigationIds, status, notes, updatedB
     throw new Error('Invalid status');
   }
 
-  const client = await db.getClient();
-  try {
-    await client.query('BEGIN');
+  const rows = await prisma.$queryRaw`
+    UPDATE investigations
+    SET status     = ${status},
+        notes      = COALESCE(${notes ?? null}, notes),
+        updated_at = NOW(),
+        updated_by = ${updatedBy ?? null}
+    WHERE id = ANY(${investigationIds}::int[])
+    RETURNING id, patient_id, doctor_id, test_name, test_code, type, status,
+      priority, notes, updated_at, updated_by
+  `;
 
-    // ✅ More efficient: Update all records in a single query
-    const result = await client.query(`
-      UPDATE investigations 
-      SET status = $1, 
-          notes = COALESCE($2, notes),
-          updated_at = NOW(),
-          updated_by = $3
-      WHERE id = ANY($4)
-      RETURNING id, patient_id, doctor_id, test_name, test_code, type, status, priority, notes, updated_at, updated_by
-    `, [status, notes, updatedBy, investigationIds]);
-
-    await client.query('COMMIT');
-    logger.info(`Bulk updated ${result.rows.length} investigations to status ${status}`);
-    return result.rows;
-
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+  logger.info(`Bulk updated ${rows.length} investigations to status ${status}`);
+  return rows;
 };
 
 export const bulkCancel = async (investigationIds, reason, cancelledBy) => {
-  const client = await db.getClient();
-  try {
-    await client.query('BEGIN');
-    
-    // ✅ More efficient: Update all cancellable records in a single query
-    const result = await client.query(`
-      UPDATE investigations 
-      SET status = 'CANCELLED',
-          cancellation_reason = $1,
-          cancelled_at = NOW(),
-          cancelled_by = $2,
-          updated_at = NOW(),
-          updated_by = $2
-      WHERE id = ANY($3) AND status = 'PENDING'
-      RETURNING id, patient_id, doctor_id, test_name, test_code, type, status, cancellation_reason, cancelled_at, cancelled_by, updated_at, updated_by
-    `, [reason, cancelledBy, investigationIds]);
+  const rows = await prisma.$queryRaw`
+    UPDATE investigations
+    SET status              = 'CANCELLED',
+        cancellation_reason = ${reason ?? null},
+        cancelled_at        = NOW(),
+        cancelled_by        = ${cancelledBy ?? null},
+        updated_at          = NOW(),
+        updated_by          = ${cancelledBy ?? null}
+    WHERE id = ANY(${investigationIds}::int[]) AND status = 'PENDING'
+    RETURNING id, patient_id, doctor_id, test_name, test_code, type, status,
+      cancellation_reason, cancelled_at, cancelled_by, updated_at, updated_by
+  `;
 
-    await client.query('COMMIT');
-    logger.info(`Bulk cancelled ${result.rows.length} investigations`);
-    return result.rows;
-
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+  logger.info(`Bulk cancelled ${rows.length} investigations`);
+  return rows;
 };
 
-/**
- * ✅ ADDED: Bulk assigns investigations to a technician.
- * @returns {Array} - Array of investigation rows that were successfully assigned.
- */
 export const bulkAssignTechnician = async (investigation_ids, technician_id, assignedBy) => {
-  const client = await db.getClient();
   try {
-    await client.query('BEGIN');
-
-    const result = await client.query(`
+    const rows = await prisma.$queryRaw`
       UPDATE investigations
-      SET assigned_technician_id = $1,
-          updated_by = $2,
-          updated_at = NOW()
-      WHERE id = ANY($3)
+      SET assigned_technician_id = ${parseInt(technician_id)},
+          updated_by             = ${assignedBy ?? null},
+          updated_at             = NOW()
+      WHERE id = ANY(${investigation_ids}::int[])
       RETURNING id, assigned_technician_id
-    `, [technician_id, assignedBy, investigation_ids]);
+    `;
 
-    await client.query('COMMIT');
-    logger.info(`Assigned ${result.rows.length} investigations to technician ${technician_id}`);
-    return result.rows;
-
+    logger.info(`Assigned ${rows.length} investigations to technician ${technician_id}`);
+    return rows;
   } catch (err) {
-    await client.query('ROLLBACK');
     logger.error('Bulk assign error:', err);
     throw err;
-  } finally {
-    client.release();
   }
 };
 
-/**
- * ✅ ADDED: Bulk schedules investigations for a specific date and time slot.
- * @returns {Array} - Array of investigation rows that were successfully scheduled.
- */
 export const bulkSchedule = async (investigation_ids, scheduled_date, time_slot, scheduledBy) => {
-  const client = await db.getClient();
   try {
-    await client.query('BEGIN');
-
-    const result = await client.query(`
+    const rows = await prisma.$queryRaw`
       UPDATE investigations
-      SET scheduled_date = $1,
-          time_slot = $2,
-          updated_by = $3,
-          updated_at = NOW(),
-          status = 'SCHEDULED'
-      WHERE id = ANY($4) AND status = 'PENDING'
+      SET scheduled_date = ${scheduled_date}::date,
+          time_slot      = ${time_slot ?? null},
+          updated_by     = ${scheduledBy ?? null},
+          updated_at     = NOW(),
+          status         = 'SCHEDULED'
+      WHERE id = ANY(${investigation_ids}::int[]) AND status = 'PENDING'
       RETURNING id, scheduled_date, time_slot
-    `, [scheduled_date, time_slot, scheduledBy, investigation_ids]);
+    `;
 
-    await client.query('COMMIT');
-    logger.info(`Scheduled ${result.rows.length} investigations for ${scheduled_date}`);
-    return result.rows;
-
+    logger.info(`Scheduled ${rows.length} investigations for ${scheduled_date}`);
+    return rows;
   } catch (err) {
-    await client.query('ROLLBACK');
     logger.error('Bulk schedule error:', err);
     throw err;
-  } finally {
-    client.release();
   }
 };

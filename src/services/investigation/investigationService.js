@@ -1,4 +1,5 @@
-import db from '../../config/database.js';
+import { Prisma } from '@prisma/client';
+import prisma from '../../lib/prisma.js';
 import { 
   INVESTIGATION_STATUS, 
   INVESTIGATION_TYPES, 
@@ -12,75 +13,88 @@ import logger from '../../logging/logger.js';
 export const getInvestigations = async (page, limit, filters, userRole, userId) => {
   const offset = (page - 1) * limit;
   
-  // Build base conditions
-  let baseConditions = '1=1';
-  const params = [];
+  const conditions = [];
+  let patientDbId = null;
   
   // Role-based filtering for patients
   if (userRole === 'PATIENT') {
-    const userResult = await db.query('SELECT id FROM users WHERE uid = $1', [userId]);
-    if (userResult.rows.length === 0) {
+    const users = await prisma.$queryRaw`SELECT id FROM users WHERE uid = ${userId}`;
+    if (users.length === 0) {
       throw new Error('USER_NOT_FOUND');
     }
-    baseConditions = 'i.patient_id = $1';
-    params.push(userResult.rows[0].id);
+    patientDbId = users[0].id;
+    conditions.push(Prisma.sql`i.patient_id = ${patientDbId}`);
   }
   
   // Apply filters
   const { patient_id, doctor_id, type, status, date } = filters;
   
-  if (patient_id && (userRole !== 'PATIENT' || patient_id === params[0])) {
-    baseConditions += ` AND i.patient_id = $${params.length + 1}`;
-    params.push(patient_id);
+  // Only allow patient_id filter for non-PATIENT roles (replicates original behaviour)
+  if (patient_id && userRole !== 'PATIENT') {
+    conditions.push(Prisma.sql`i.patient_id = ${parseInt(patient_id)}`);
   }
   
   if (doctor_id) {
-    baseConditions += ` AND i.doctor_id = $${params.length + 1}`;
-    params.push(doctor_id);
+    conditions.push(Prisma.sql`i.doctor_id = ${parseInt(doctor_id)}`);
   }
   
   if (type) {
-    baseConditions += ` AND i.type = $${params.length + 1}`;
-    params.push(type.toUpperCase());
+    conditions.push(Prisma.sql`i.type = ${type.toUpperCase()}`);
   }
   
   if (status) {
-    baseConditions += ` AND i.status = $${params.length + 1}`;
-    params.push(status.toUpperCase());
+    conditions.push(Prisma.sql`i.status = ${status.toUpperCase()}`);
   }
   
   if (date) {
-    baseConditions += ` AND DATE(i.ordered_date) = $${params.length + 1}`;
-    params.push(date);
+    conditions.push(Prisma.sql`DATE(i.ordered_date) = ${date}::date`);
   }
 
+  const whereClause = conditions.length > 0
+    ? Prisma.join(conditions, ' AND ')
+    : Prisma.sql`1=1`;
+
   // Build query with role-based field selection
-  const query = `
-    SELECT i.id, i.test_name, i.test_code, i.type, i.status, i.priority,
-           i.ordered_date, i.scheduled_date, i.completed_date, 
-           ${userRole === 'PATIENT' ? '' : 'i.results,'} i.normal_range, i.unit, i.notes, i.cost,
-           p.name as patient_name, p.phone as patient_phone, p.id as patient_id,
-           d.name as doctor_name, d.phone as doctor_phone, d.id as doctor_id,
-           dept.specialization, i.created_at, i.updated_at
-    FROM investigations i
-    LEFT JOIN users p ON i.patient_id = p.id
-    LEFT JOIN users d ON i.doctor_id = d.id
-    LEFT JOIN doctors dept ON d.id = dept.user_id
-    WHERE ${baseConditions}
-    ORDER BY i.ordered_date DESC 
-    LIMIT $${params.length + 1} OFFSET $${params.length + 2}
-  `;
-  
-  params.push(limit, offset);
-  const result = await db.query(query, params);
+  const investigations = userRole === 'PATIENT'
+    ? await prisma.$queryRaw`
+        SELECT i.id, i.test_name, i.test_code, i.type, i.status, i.priority,
+               i.ordered_date, i.scheduled_date, i.completed_date, 
+               i.normal_range, i.unit, i.notes, i.cost,
+               p.name as patient_name, p.phone as patient_phone, p.id as patient_id,
+               d.name as doctor_name, d.phone as doctor_phone, d.id as doctor_id,
+               dept.specialization, i.created_at, i.updated_at
+        FROM investigations i
+        LEFT JOIN users p ON i.patient_id = p.id
+        LEFT JOIN users d ON i.doctor_id = d.id
+        LEFT JOIN doctors dept ON d.id = dept.user_id
+        WHERE ${whereClause}
+        ORDER BY i.ordered_date DESC 
+        LIMIT ${limit} OFFSET ${offset}
+      `
+    : await prisma.$queryRaw`
+        SELECT i.id, i.test_name, i.test_code, i.type, i.status, i.priority,
+               i.ordered_date, i.scheduled_date, i.completed_date, 
+               i.results, i.normal_range, i.unit, i.notes, i.cost,
+               p.name as patient_name, p.phone as patient_phone, p.id as patient_id,
+               d.name as doctor_name, d.phone as doctor_phone, d.id as doctor_id,
+               dept.specialization, i.created_at, i.updated_at
+        FROM investigations i
+        LEFT JOIN users p ON i.patient_id = p.id
+        LEFT JOIN users d ON i.doctor_id = d.id
+        LEFT JOIN doctors dept ON d.id = dept.user_id
+        WHERE ${whereClause}
+        ORDER BY i.ordered_date DESC 
+        LIMIT ${limit} OFFSET ${offset}
+      `;
   
   // Get total count
-  const countQuery = `SELECT COUNT(*) FROM investigations i WHERE ${baseConditions}`;
-  const countResult = await db.query(countQuery, params.slice(0, -2));
-  const totalInvestigations = parseInt(countResult.rows[0].count);
+  const [countRow] = await prisma.$queryRaw`
+    SELECT COUNT(*)::int as count FROM investigations i WHERE ${whereClause}
+  `;
+  const totalInvestigations = Number(countRow.count);
   
   return {
-    investigations: result.rows,
+    investigations,
     pagination: {
       page,
       limit,
@@ -95,38 +109,48 @@ export const getInvestigations = async (page, limit, filters, userRole, userId) 
 
 // Get single investigation by ID
 export const getInvestigationById = async (id, userRole, userId) => {
-  let accessCondition = '1=1';
-  const params = [id];
+  let rows;
   
   // Patients can only view their own investigations
   if (userRole === 'PATIENT') {
-    const userResult = await db.query('SELECT id FROM users WHERE uid = $1', [userId]);
-    if (userResult.rows.length === 0) {
+    const users = await prisma.$queryRaw`SELECT id FROM users WHERE uid = ${userId}`;
+    if (users.length === 0) {
       throw new Error('USER_NOT_FOUND');
     }
-    accessCondition = 'i.patient_id = $2';
-    params.push(userResult.rows[0].id);
+    const patientDbId = users[0].id;
+    rows = await prisma.$queryRaw`
+      SELECT i.*, 
+             p.name as patient_name, p.phone as patient_phone, p.email as patient_email,
+             p.birthday, p.gender,
+             d.name as doctor_name, d.phone as doctor_phone, d.email as doctor_email,
+             dept.specialization, dept.department
+      FROM investigations i
+      LEFT JOIN users p ON i.patient_id = p.id
+      LEFT JOIN users d ON i.doctor_id = d.id
+      LEFT JOIN doctors dept ON d.id = dept.user_id
+      WHERE i.id = ${parseInt(id)} AND i.patient_id = ${patientDbId}
+    `;
+  } else {
+    rows = await prisma.$queryRaw`
+      SELECT i.*, 
+             p.name as patient_name, p.phone as patient_phone, p.email as patient_email,
+             p.birthday, p.gender,
+             d.name as doctor_name, d.phone as doctor_phone, d.email as doctor_email,
+             dept.specialization, dept.department
+      FROM investigations i
+      LEFT JOIN users p ON i.patient_id = p.id
+      LEFT JOIN users d ON i.doctor_id = d.id
+      LEFT JOIN doctors dept ON d.id = dept.user_id
+      WHERE i.id = ${parseInt(id)}
+    `;
   }
   
-  const result = await db.query(`
-    SELECT i.*, 
-           p.name as patient_name, p.phone as patient_phone, p.email as patient_email,
-           p.birthday, p.gender,
-           d.name as doctor_name, d.phone as doctor_phone, d.email as doctor_email,
-           dept.specialization, dept.department
-    FROM investigations i
-    LEFT JOIN users p ON i.patient_id = p.id
-    LEFT JOIN users d ON i.doctor_id = d.id
-    LEFT JOIN doctors dept ON d.id = dept.user_id
-    WHERE i.id = $1 AND ${accessCondition}
-  `, params);
-  
-  if (result.rows.length === 0) {
+  if (rows.length === 0) {
     return null;
   }
   
   // Filter sensitive data for patients
-  const investigation = result.rows[0];
+  const investigation = { ...rows[0] };
   if (userRole === 'PATIENT') {
     delete investigation.doctor_phone;
     delete investigation.doctor_email;
@@ -140,52 +164,59 @@ export const getInvestigationById = async (id, userRole, userId) => {
 export const getPatientInvestigations = async (patientId, filters, userRole, userId) => {
   // Access control for patients
   if (userRole === 'PATIENT') {
-    const userResult = await db.query('SELECT id FROM users WHERE uid = $1', [userId]);
-    if (userResult.rows.length === 0 || userResult.rows[0].id !== parseInt(patientId)) {
+    const users = await prisma.$queryRaw`SELECT id FROM users WHERE uid = ${userId}`;
+    if (users.length === 0 || users[0].id !== parseInt(patientId)) {
       return null; // Access denied
     }
   }
   
   const { type, status, limit } = filters;
   
-  let query = `
-    SELECT i.id, i.test_name, i.test_code, i.type, i.status, i.priority,
-           i.ordered_date, i.scheduled_date, i.completed_date, 
-           ${userRole === 'PATIENT' ? '' : 'i.results,'} i.normal_range, i.unit, i.notes,
-           d.name as doctor_name, dept.specialization
-    FROM investigations i
-    LEFT JOIN users d ON i.doctor_id = d.id
-    LEFT JOIN doctors dept ON d.id = dept.user_id
-    WHERE i.patient_id = $1
-  `;
-  const params = [patientId];
+  const conditions = [Prisma.sql`i.patient_id = ${parseInt(patientId)}`];
   
   if (type) {
-    query += ` AND i.type = $${params.length + 1}`;
-    params.push(type.toUpperCase());
+    conditions.push(Prisma.sql`i.type = ${type.toUpperCase()}`);
   }
   
   if (status) {
-    query += ` AND i.status = $${params.length + 1}`;
-    params.push(status.toUpperCase());
+    conditions.push(Prisma.sql`i.status = ${status.toUpperCase()}`);
   }
   
-  query += ` ORDER BY i.ordered_date DESC LIMIT $${params.length + 1}`;
-  params.push(limit);
-  
-  const result = await db.query(query, params);
+  const whereClause = Prisma.join(conditions, ' AND ');
+
+  const investigations = userRole === 'PATIENT'
+    ? await prisma.$queryRaw`
+        SELECT i.id, i.test_name, i.test_code, i.type, i.status, i.priority,
+               i.ordered_date, i.scheduled_date, i.completed_date, 
+               i.normal_range, i.unit, i.notes,
+               d.name as doctor_name, dept.specialization
+        FROM investigations i
+        LEFT JOIN users d ON i.doctor_id = d.id
+        LEFT JOIN doctors dept ON d.id = dept.user_id
+        WHERE ${whereClause}
+        ORDER BY i.ordered_date DESC LIMIT ${parseInt(limit)}
+      `
+    : await prisma.$queryRaw`
+        SELECT i.id, i.test_name, i.test_code, i.type, i.status, i.priority,
+               i.ordered_date, i.scheduled_date, i.completed_date, 
+               i.results, i.normal_range, i.unit, i.notes,
+               d.name as doctor_name, dept.specialization
+        FROM investigations i
+        LEFT JOIN users d ON i.doctor_id = d.id
+        LEFT JOIN doctors dept ON d.id = dept.user_id
+        WHERE ${whereClause}
+        ORDER BY i.ordered_date DESC LIMIT ${parseInt(limit)}
+      `;
   
   // Get patient info
-  const patientInfo = await db.query(
-    `SELECT name, ${userRole === 'ADMIN' ? 'phone, email,' : ''} birthday, gender 
-     FROM users WHERE id = $1`,
-    [patientId]
-  );
+  const patientInfoFields = userRole === 'ADMIN'
+    ? await prisma.$queryRaw`SELECT name, phone, email, birthday, gender FROM users WHERE id = ${parseInt(patientId)}`
+    : await prisma.$queryRaw`SELECT name, birthday, gender FROM users WHERE id = ${parseInt(patientId)}`;
   
   return {
-    investigations: result.rows,
-    count: result.rows.length,
-    patient: patientInfo.rows[0] || null,
+    investigations,
+    count: investigations.length,
+    patient: patientInfoFields[0] || null,
     filters: { type, status }
   };
 };
@@ -194,28 +225,30 @@ export const getPatientInvestigations = async (patientId, filters, userRole, use
 export const getDoctorInvestigations = async (doctorId, filters) => {
   const { date, status } = filters;
   
-  let query = `
+  const conditions = [
+    Prisma.sql`i.doctor_id = ${parseInt(doctorId)}`,
+    Prisma.sql`i.status = ${status.toUpperCase()}`
+  ];
+  
+  if (date) {
+    conditions.push(Prisma.sql`DATE(i.ordered_date) = ${date}::date`);
+  }
+  
+  const whereClause = Prisma.join(conditions, ' AND ');
+  
+  const investigations = await prisma.$queryRaw`
     SELECT i.id, i.test_name, i.test_code, i.type, i.status, i.priority,
            i.ordered_date, i.scheduled_date, i.notes,
            p.name as patient_name, p.phone as patient_phone, p.id as patient_id
     FROM investigations i
     LEFT JOIN users p ON i.patient_id = p.id
-    WHERE i.doctor_id = $1 AND i.status = $2
+    WHERE ${whereClause}
+    ORDER BY i.ordered_date DESC, i.priority DESC
   `;
-  const params = [doctorId, status.toUpperCase()];
-  
-  if (date) {
-    query += ` AND DATE(i.ordered_date) = $${params.length + 1}`;
-    params.push(date);
-  }
-  
-  query += ' ORDER BY i.ordered_date DESC, i.priority DESC';
-  
-  const result = await db.query(query, params);
   
   return {
-    investigations: result.rows,
-    count: result.rows.length,
+    investigations,
+    count: investigations.length,
     doctor_id: doctorId,
     filters: { status, date }
   };
@@ -225,7 +258,19 @@ export const getDoctorInvestigations = async (doctorId, filters) => {
 export const getInvestigationsByType = async (type, filters) => {
   const { status, date } = filters;
   
-  let query = `
+  const conditions = [Prisma.sql`i.type = ${type.toUpperCase()}`];
+  
+  if (status) {
+    conditions.push(Prisma.sql`i.status = ${status.toUpperCase()}`);
+  }
+  
+  if (date) {
+    conditions.push(Prisma.sql`DATE(i.ordered_date) = ${date}::date`);
+  }
+  
+  const whereClause = Prisma.join(conditions, ' AND ');
+  
+  const investigations = await prisma.$queryRaw`
     SELECT i.id, i.test_name, i.test_code, i.status, i.priority,
            i.ordered_date, i.scheduled_date, i.completed_date,
            p.name as patient_name, p.phone as patient_phone,
@@ -233,27 +278,13 @@ export const getInvestigationsByType = async (type, filters) => {
     FROM investigations i
     LEFT JOIN users p ON i.patient_id = p.id
     LEFT JOIN users d ON i.doctor_id = d.id
-    WHERE i.type = $1
+    WHERE ${whereClause}
+    ORDER BY i.ordered_date DESC LIMIT 100
   `;
-  const params = [type.toUpperCase()];
-  
-  if (status) {
-    query += ` AND i.status = $${params.length + 1}`;
-    params.push(status.toUpperCase());
-  }
-  
-  if (date) {
-    query += ` AND DATE(i.ordered_date) = $${params.length + 1}`;
-    params.push(date);
-  }
-  
-  query += ' ORDER BY i.ordered_date DESC LIMIT 100';
-  
-  const result = await db.query(query, params);
   
   return {
-    investigations: result.rows,
-    count: result.rows.length,
+    investigations,
+    count: investigations.length,
     type: type.toUpperCase(),
     filters: { status, date }
   };
@@ -263,7 +294,19 @@ export const getInvestigationsByType = async (type, filters) => {
 export const getPendingInvestigations = async (filters) => {
   const { type, priority } = filters;
   
-  let query = `
+  const conditions = [Prisma.sql`i.status = 'PENDING'`];
+  
+  if (type) {
+    conditions.push(Prisma.sql`i.type = ${type.toUpperCase()}`);
+  }
+  
+  if (priority) {
+    conditions.push(Prisma.sql`i.priority = ${priority.toUpperCase()}`);
+  }
+  
+  const whereClause = Prisma.join(conditions, ' AND ');
+  
+  const investigations = await prisma.$queryRaw`
     SELECT i.id, i.test_name, i.test_code, i.type, i.priority,
            i.ordered_date, i.scheduled_date, i.notes,
            p.name as patient_name, p.phone as patient_phone, p.gender,
@@ -272,27 +315,13 @@ export const getPendingInvestigations = async (filters) => {
     LEFT JOIN users p ON i.patient_id = p.id
     LEFT JOIN users d ON i.doctor_id = d.id
     LEFT JOIN doctors dept ON d.id = dept.user_id
-    WHERE i.status = 'PENDING'
+    WHERE ${whereClause}
+    ORDER BY i.priority DESC, i.ordered_date ASC
   `;
-  const params = [];
-  
-  if (type) {
-    query += ` AND i.type = $${params.length + 1}`;
-    params.push(type.toUpperCase());
-  }
-  
-  if (priority) {
-    query += ` AND i.priority = $${params.length + 1}`;
-    params.push(priority.toUpperCase());
-  }
-  
-  query += ' ORDER BY i.priority DESC, i.ordered_date ASC';
-  
-  const result = await db.query(query, params);
   
   return {
-    investigations: result.rows,
-    count: result.rows.length,
+    investigations,
+    count: investigations.length,
     filters: { type, priority }
   };
 };
@@ -304,42 +333,54 @@ export const updateStatus = async (id, status, notes, userId) => {
     throw new Error('INVALID_STATUS');
   }
   
-  let updateFields = 'status = $1, notes = COALESCE($2, notes), updated_at = NOW(), updated_by = $4';
-  const params = [status.toUpperCase(), notes, id, userId];
+  let rows;
   
   // Set completed_date if status is COMPLETED
   if (status.toUpperCase() === 'COMPLETED') {
-    updateFields = 'status = $1, notes = COALESCE($2, notes), completed_date = NOW(), updated_at = NOW(), updated_by = $4';
+    rows = await prisma.$queryRaw`
+      UPDATE investigations SET 
+        status = ${status.toUpperCase()},
+        notes = COALESCE(${notes ?? null}, notes),
+        completed_date = NOW(),
+        updated_at = NOW(),
+        updated_by = ${userId}
+      WHERE id = ${parseInt(id)}
+      RETURNING id, patient_id, doctor_id, test_name, test_code, type, status, priority, notes, completed_date, updated_at, updated_by
+    `;
+  } else {
+    rows = await prisma.$queryRaw`
+      UPDATE investigations SET 
+        status = ${status.toUpperCase()},
+        notes = COALESCE(${notes ?? null}, notes),
+        updated_at = NOW(),
+        updated_by = ${userId}
+      WHERE id = ${parseInt(id)}
+      RETURNING id, patient_id, doctor_id, test_name, test_code, type, status, priority, notes, completed_date, updated_at, updated_by
+    `;
   }
   
-  const result = await db.query(`
-    UPDATE investigations SET ${updateFields}
-    WHERE id = $3
-    RETURNING id, patient_id, doctor_id, test_name, test_code, type, status, priority, notes, completed_date, updated_at, updated_by
-  `, params);
-  
-  return result.rows.length > 0 ? result.rows[0] : null;
+  return rows.length > 0 ? rows[0] : null;
 };
 
 // Add investigation results
 export const addResults = async (id, resultData, userId) => {
   const { results, interpretation, technician_notes, reviewed_by } = resultData;
   
-  const result = await db.query(`
+  const rows = await prisma.$queryRaw`
     UPDATE investigations SET 
-      results = $1,
-      interpretation = COALESCE($2, interpretation),
-      technician_notes = COALESCE($3, technician_notes),
-      reviewed_by = COALESCE($4, reviewed_by),
+      results = ${results},
+      interpretation = COALESCE(${interpretation ?? null}, interpretation),
+      technician_notes = COALESCE(${technician_notes ?? null}, technician_notes),
+      reviewed_by = COALESCE(${reviewed_by ?? null}, reviewed_by),
       status = 'COMPLETED',
       completed_date = NOW(),
       updated_at = NOW(),
-      updated_by = $6
-    WHERE id = $5
+      updated_by = ${userId}
+    WHERE id = ${parseInt(id)}
     RETURNING id, patient_id, doctor_id, test_name, test_code, type, status, results, interpretation, technician_notes, reviewed_by, completed_date, updated_at, updated_by
-  `, [results, interpretation, technician_notes, reviewed_by, id, userId]);
+  `;
   
-  return result.rows.length > 0 ? result.rows[0] : null;
+  return rows.length > 0 ? rows[0] : null;
 };
 
 // Permission check functions

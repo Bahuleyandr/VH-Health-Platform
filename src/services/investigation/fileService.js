@@ -1,15 +1,16 @@
 // services/investigation/fileService.js
+// Migrated from raw pg to Prisma ORM
+
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads/investigations';
 const ALLOWED_FILE_TYPES = ['.pdf', '.jpg', '.jpeg', '.png', '.doc', '.docx'];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
-// Ensure upload directory exists
 async function ensureUploadDir() {
   try {
     await fs.mkdir(UPLOAD_DIR, { recursive: true });
@@ -20,148 +21,106 @@ async function ensureUploadDir() {
 
 export const uploadInvestigationFile = async (investigationId, file, uploadedBy) => {
   await ensureUploadDir();
-  
-  // Validate file
+
   const fileExt = path.extname(file.originalname).toLowerCase();
   if (!ALLOWED_FILE_TYPES.includes(fileExt)) {
     throw new Error('Invalid file type. Allowed types: ' + ALLOWED_FILE_TYPES.join(', '));
   }
-  
+
   if (file.size > MAX_FILE_SIZE) {
     throw new Error('File size exceeds 10MB limit');
   }
-  
+
   // Check if investigation exists
-  const investigationCheck = await db.query(
-    'SELECT id FROM investigations WHERE id = $1',
-    [investigationId]
-  );
-  
-  if (investigationCheck.rows.length === 0) {
-    throw new Error('Investigation not found');
-  }
-  
-  // Generate unique filename
+  const rows = await prisma.$queryRaw`
+    SELECT id FROM investigations WHERE id = ${parseInt(investigationId)}
+  `;
+  if (rows.length === 0) throw new Error('Investigation not found');
+
   const timestamp = Date.now();
   const randomString = crypto.randomBytes(8).toString('hex');
   const fileName = `inv_${investigationId}_${timestamp}_${randomString}${fileExt}`;
   const filePath = path.join(UPLOAD_DIR, fileName);
-  
+
   try {
-    // Save file to disk
     await fs.writeFile(filePath, file.buffer);
-    
-    // Save file record to database
-    const result = await db.query(`
-      INSERT INTO investigation_files 
-      (investigation_id, file_name, file_path, file_type, file_size, uploaded_by)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id, investigation_id, file_name, file_path, file_type, file_size, uploaded_by, uploaded_at
-    `, [
-      investigationId,
-      file.originalname,
-      filePath,
-      fileExt,
-      file.size,
-      uploadedBy
-    ]);
-    
+
+    const result = await prisma.investigation_files.create({
+      data: {
+        investigation_id: parseInt(investigationId),
+        file_name: file.originalname,
+        file_path: filePath,
+        file_type: fileExt,
+        file_size: BigInt(file.size),
+        uploaded_by: uploadedBy ? uploadedBy : null,
+      },
+    });
+
     logger.info(`File uploaded for investigation ${investigationId}: ${fileName}`);
-    
-    return result.rows[0];
-    
+    return result;
   } catch (err) {
-    // Clean up file if database save fails
-    try {
-      await fs.unlink(filePath);
-    } catch (unlinkErr) {
-      logger.error('Failed to clean up file:', unlinkErr);
-    }
+    try { await fs.unlink(filePath); } catch {}
     throw err;
   }
 };
 
 export const getInvestigationFiles = async (investigationId) => {
-  const result = await db.query(`
-    SELECT id, file_name, file_type, file_size, uploaded_at, uploaded_by
-    FROM investigation_files
-    WHERE investigation_id = $1
-    ORDER BY uploaded_at DESC
-  `, [investigationId]);
-  
-  return result.rows;
+  return prisma.investigation_files.findMany({
+    where: { investigation_id: parseInt(investigationId) },
+    select: {
+      id: true, file_name: true, file_type: true,
+      file_size: true, created_at: true, uploaded_by: true,
+    },
+    orderBy: { created_at: 'desc' },
+  });
 };
 
 export const getFileById = async (fileId) => {
-  const result = await db.query(`
-    SELECT id, investigation_id, file_name, file_url, file_type, file_size, uploaded_by, created_at FROM investigation_files WHERE id = $1
-  `, [fileId]);
-  
-  if (result.rows.length === 0) {
-    return null;
-  }
-  
-  return result.rows[0];
+  return prisma.investigation_files.findUnique({
+    where: { id: parseInt(fileId) },
+    select: {
+      id: true, investigation_id: true, file_name: true,
+      file_path: true, file_type: true, file_size: true,
+      uploaded_by: true, created_at: true,
+    },
+  });
 };
 
 export const deleteFile = async (fileId, deletedBy) => {
-  const client = await db.getClient();
-  
-  try {
-    await client.query('BEGIN');
-    
-    // Get file info
-    const fileResult = await client.query(
-      'SELECT id, investigation_id, file_name, file_url, file_type, file_size, uploaded_by, created_at FROM investigation_files WHERE id = $1',
-      [fileId]
-    );
-    
-    if (fileResult.rows.length === 0) {
-      throw new Error('File not found');
-    }
-    
-    const file = fileResult.rows[0];
-    
-    // Delete from database
-    await client.query(
-      'DELETE FROM investigation_files WHERE id = $1',
-      [fileId]
-    );
-    
-    // Delete physical file
-    await fs.unlink(file.file_path);
-    
-    await client.query('COMMIT');
-    
-    logger.info(`File deleted: ${file.file_name} by ${deletedBy}`);
-    
-    return true;
-    
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
+  const file = await prisma.investigation_files.findUnique({
+    where: { id: parseInt(fileId) },
+    select: {
+      id: true, investigation_id: true, file_name: true,
+      file_path: true, file_type: true, file_size: true,
+      uploaded_by: true, created_at: true,
+    },
+  });
+
+  if (!file) throw new Error('File not found');
+
+  await prisma.investigation_files.delete({ where: { id: parseInt(fileId) } });
+
+  if (file.file_path) {
+    try { await fs.unlink(file.file_path); } catch {}
   }
+
+  logger.info(`File deleted: ${file.file_name} by ${deletedBy}`);
+  return true;
 };
 
 export const getFileStream = async (fileId) => {
   const file = await getFileById(fileId);
-  
-  if (!file) {
-    throw new Error('File not found');
-  }
-  
-  // Check if file exists on disk
+  if (!file) throw new Error('File not found');
+
   try {
     await fs.access(file.file_path);
-  } catch (err) {
+  } catch {
     throw new Error('File not found on disk');
   }
-  
+
   return {
     stream: fs.createReadStream(file.file_path),
     fileName: file.file_name,
-    fileType: file.file_type
+    fileType: file.file_type,
   };
 };
