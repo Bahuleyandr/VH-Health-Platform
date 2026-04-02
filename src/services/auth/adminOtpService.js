@@ -75,17 +75,6 @@ export const getOtpAnalytics = async ({ startDate, endDate, purpose, requestedBy
     generatedBy: requestedBy,
     timestamp: new Date().toISOString()
   };
-  
-  return {
-    activeSessions: rows.map(session => ({
-      ...session,
-      remaining_seconds: Math.max(0, Math.floor(session.remaining_seconds))
-    })),
-    totalActive: rows.length,
-    byPurpose,
-    generatedBy: requestedBy,
-    timestamp: new Date().toISOString()
-  };
 };
 
 // Get OTP logs with filtering
@@ -155,21 +144,6 @@ export const getOtpLogs = async (filters, requestedBy) => {
     filters: { phone, purpose, action, success, startDate, endDate, ipAddress },
     generatedBy: requestedBy
   };
-  const revokedCount = revokedResult.count;
-  
-  // Log the revocation
-  await otpService.logActivity(normalizedPhone, purpose || 'all', 'admin_revoke', true, reason, req);
-  
-  logger.info(`🔐 Admin revoked ${revokedCount} OTP(s) for ${normalizedPhone} - Reason: ${reason}`);
-  
-  return {
-    phone: normalizedPhone,
-    purpose: purpose || 'all',
-    revokedCount,
-    reason,
-    revokedBy: adminUid,
-    timestamp: new Date().toISOString()
-  };
 };
 
 // Cleanup OTP logs
@@ -180,7 +154,7 @@ export const cleanupOtpLogs = async (olderThanDays, adminUid) => {
     [olderThanDays]
   );
   
-  const deletedCount = deleteResult.count;
+  const deletedCount = result.rowCount || 0;
   
   logger.info(`🧹 Admin cleaned up ${deletedCount} OTP logs older than ${olderThanDays} days`);
   
@@ -313,5 +287,86 @@ export const bulkDeleteSessions = async ({ phone, purpose, olderThanHours, reaso
     reason,
     deletedBy: adminUid,
     timestamp: new Date().toISOString()
+  };
+};
+// ── Functions referenced by adminOtpController ────────────────────────────
+
+export const getSecurityAlerts = async (adminUid) => {
+  const [suspicious, failures, ipAnalysis] = await Promise.all([
+    query(`SELECT phone, COUNT(*) as count, MAX(created_at) as last_attempt
+           FROM otp_sessions
+           WHERE success = false AND created_at > NOW() - INTERVAL '24 hours'
+           GROUP BY phone HAVING COUNT(*) >= 5
+           ORDER BY count DESC LIMIT 50`),
+    query(`SELECT phone, purpose, COUNT(*) as failure_count
+           FROM otp_sessions
+           WHERE success = false AND created_at > NOW() - INTERVAL '1 hour'
+           GROUP BY phone, purpose ORDER BY failure_count DESC LIMIT 20`),
+    query(`SELECT ip_address, COUNT(*) as attempt_count, COUNT(DISTINCT phone) as unique_phones
+           FROM otp_sessions
+           WHERE created_at > NOW() - INTERVAL '1 hour'
+           GROUP BY ip_address HAVING COUNT(*) > 10
+           ORDER BY attempt_count DESC LIMIT 20`),
+  ]);
+  return {
+    suspiciousActivity: suspicious.rows || [],
+    failurePatterns: failures.rows || [],
+    ipAnalysis: ipAnalysis.rows || [],
+    generatedAt: new Date().toISOString(),
+    requestedBy: adminUid,
+  };
+};
+
+export const getActiveSessions = async (limit = 100, adminUid) => {
+  const result = await query(
+    `SELECT id, phone, purpose, created_at, expires_at, ip_address
+     FROM otp_sessions
+     WHERE expires_at > NOW() AND used = false
+     ORDER BY created_at DESC LIMIT $1`,
+    [limit],
+  );
+  return {
+    activeSessions: result.rows || [],
+    count: result.rows?.length || 0,
+    requestedBy: adminUid,
+  };
+};
+
+export const getOtpStatusForPhone = async (phone, purpose = 'general') => {
+  const normalizedPhone_ = normalizePhone(phone);
+  const result = await query(
+    `SELECT id, phone, purpose, created_at, expires_at, used, attempts
+     FROM otp_sessions
+     WHERE phone = $1 AND purpose = $2 AND expires_at > NOW() AND used = false
+     ORDER BY created_at DESC LIMIT 1`,
+    [normalizedPhone_, purpose],
+  );
+  const session = result.rows?.[0];
+  return {
+    hasActiveOTP: !!session,
+    phone: normalizedPhone_,
+    purpose,
+    session: session || null,
+  };
+};
+
+export const revokeOtp = async (phone, purpose, reason, adminUid, req) => {
+  const normalizedPhone_ = normalizePhone(phone);
+  const result = await query(
+    `UPDATE otp_sessions
+     SET used = true, updated_at = NOW()
+     WHERE phone = $1 AND purpose = $2 AND used = false AND expires_at > NOW()
+     RETURNING id`,
+    [normalizedPhone_, purpose],
+  );
+  const revokedCount = result.rowCount || 0;
+  logger.info(`🔒 Admin revoked ${revokedCount} OTP sessions for ${normalizedPhone_} (${purpose}) - Reason: ${reason}`);
+  return {
+    phone: normalizedPhone_,
+    purpose,
+    revokedCount,
+    reason,
+    revokedBy: adminUid,
+    timestamp: new Date().toISOString(),
   };
 };

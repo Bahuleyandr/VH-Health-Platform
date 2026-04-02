@@ -1,5 +1,6 @@
 // src/services/doctor/adminDoctorService.js
 import prisma from '../../lib/prisma.js';
+import db from '../../config/database.js';
 import { DOCTOR_CONFIG, DOCTOR_MESSAGES } from '../../config/doctorConfig.js';
 import logger from '../../logging/logger.js';
 

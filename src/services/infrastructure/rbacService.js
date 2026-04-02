@@ -1,5 +1,6 @@
 // services/infrastructure/rbacService.js
 import prisma from '../../lib/prisma.js';
+import db from '../../config/database.js';
 import logger from '../../logging/logger.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import {
