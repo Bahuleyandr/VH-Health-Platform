@@ -1083,6 +1083,83 @@ model devices {
 }
 
 // ===================================================================
+// 💰 BILLING
+// ===================================================================
+
+model invoices {
+  id                Int       @id @default(autoincrement())
+  invoice_number    String    @unique @db.VarChar(30)
+  patient_uid       String    @db.Uuid
+  appointment_id    Int?
+  type              String    @db.VarChar(50)
+  items             Json      @db.JsonB
+  subtotal          Decimal   @db.Decimal(10, 2)
+  tax_amount        Decimal   @default(0) @db.Decimal(10, 2)
+  discount_amount   Decimal   @default(0) @db.Decimal(10, 2)
+  total_amount      Decimal   @db.Decimal(10, 2)
+  paid_amount       Decimal   @default(0) @db.Decimal(10, 2)
+  payment_status    String    @default("pending") @db.VarChar(50)
+  payment_method    String?   @db.VarChar(50)
+  insurance_claim_id Int?
+  notes             String?   @db.Text
+  issued_by         String?   @db.Uuid
+  issued_at         DateTime  @default(now()) @db.Timestamp(6)
+  paid_at           DateTime? @db.Timestamp(6)
+  due_date          DateTime? @db.Date
+  created_at        DateTime  @default(now()) @db.Timestamp(6)
+  updated_at        DateTime  @updatedAt @db.Timestamp(6)
+
+  payment_transactions payment_transactions[]
+
+  @@index([patient_uid])
+  @@index([invoice_number])
+  @@index([payment_status])
+  @@index([type])
+  @@index([issued_at])
+  @@map("invoices")
+}
+
+model payment_transactions {
+  id              Int       @id @default(autoincrement())
+  invoice_id      Int?
+  amount          Decimal   @db.Decimal(10, 2)
+  payment_method  String    @db.VarChar(50)
+  transaction_ref String?   @db.VarChar(255)
+  status          String    @default("completed") @db.VarChar(50)
+  processed_by    String?   @db.Uuid
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
+
+  invoice         invoices? @relation(fields: [invoice_id], references: [id])
+
+  @@index([invoice_id])
+  @@index([created_at])
+  @@map("payment_transactions")
+}
+
+model insurance_claims {
+  id                 Int       @id @default(autoincrement())
+  claim_number       String    @unique @db.VarChar(30)
+  patient_uid        String    @db.Uuid
+  invoice_id         Int?
+  insurance_provider String    @db.VarChar(255)
+  policy_number      String    @db.VarChar(100)
+  claim_amount       Decimal   @db.Decimal(10, 2)
+  approved_amount    Decimal?  @db.Decimal(10, 2)
+  status             String    @default("submitted") @db.VarChar(50)
+  documents          Json?     @db.JsonB
+  submitted_at       DateTime  @default(now()) @db.Timestamp(6)
+  reviewed_at        DateTime? @db.Timestamp(6)
+  rejection_reason   String?   @db.Text
+  created_at         DateTime  @default(now()) @db.Timestamp(6)
+  updated_at         DateTime  @updatedAt @db.Timestamp(6)
+
+  @@index([patient_uid])
+  @@index([status])
+  @@index([submitted_at])
+  @@map("insurance_claims")
+}
+
+// ===================================================================
 // 🏃 STEP CHALLENGE
 // ===================================================================
 

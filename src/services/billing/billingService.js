@@ -1,6 +1,7 @@
 // src/services/billing/billingService.js
+// Migrated from raw pg to Prisma ORM
 
-import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
@@ -19,20 +20,16 @@ class BillingService {
     const yearMonth = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
     const prefix = `INV-${yearMonth}-`;
 
-    const result = await db.query(
-      `SELECT invoice_number FROM invoices
-       WHERE invoice_number LIKE $1
-       ORDER BY id DESC LIMIT 1`,
-      [`${prefix}%`]
-    );
+    const last = await prisma.invoices.findFirst({
+      where: { invoice_number: { startsWith: prefix } },
+      orderBy: { id: 'desc' },
+      select: { invoice_number: true },
+    });
 
     let sequence = 1;
-    if (result.rows.length > 0) {
-      const lastNumber = result.rows[0].invoice_number;
-      const lastSeq = parseInt(lastNumber.split('-')[2], 10);
-      if (!isNaN(lastSeq)) {
-        sequence = lastSeq + 1;
-      }
+    if (last) {
+      const lastSeq = parseInt(last.invoice_number.split('-')[2], 10);
+      if (!isNaN(lastSeq)) sequence = lastSeq + 1;
     }
 
     return `${prefix}${String(sequence).padStart(4, '0')}`;
@@ -46,20 +43,16 @@ class BillingService {
     const yearMonth = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
     const prefix = `CLM-${yearMonth}-`;
 
-    const result = await db.query(
-      `SELECT claim_number FROM insurance_claims
-       WHERE claim_number LIKE $1
-       ORDER BY id DESC LIMIT 1`,
-      [`${prefix}%`]
-    );
+    const last = await prisma.insurance_claims.findFirst({
+      where: { claim_number: { startsWith: prefix } },
+      orderBy: { id: 'desc' },
+      select: { claim_number: true },
+    });
 
     let sequence = 1;
-    if (result.rows.length > 0) {
-      const lastNumber = result.rows[0].claim_number;
-      const lastSeq = parseInt(lastNumber.split('-')[2], 10);
-      if (!isNaN(lastSeq)) {
-        sequence = lastSeq + 1;
-      }
+    if (last) {
+      const lastSeq = parseInt(last.claim_number.split('-')[2], 10);
+      if (!isNaN(lastSeq)) sequence = lastSeq + 1;
     }
 
     return `${prefix}${String(sequence).padStart(4, '0')}`;
@@ -67,20 +60,16 @@ class BillingService {
 
   /**
    * Create a new invoice
-   * @param {Object} data - Invoice data
-   * @returns {Object} Created invoice
    */
   async createInvoice(data) {
     const {
       patient_uid, appointment_id, type, items,
       subtotal, tax_amount = 0, discount_amount = 0, total_amount,
-      payment_method, notes, issued_by, due_date
+      payment_method, notes, issued_by, due_date,
     } = data;
 
-    if (!patient_uid) {
-      throw AppError.badRequest('Patient UID is required');
-    }
-    if (!type || !VALID_INVOICE_TYPES.includes(type)) {
+    if (!patient_uid) throw AppError.badRequest('Patient UID is required');
+    if (!type || !VALID_INVOICE_TYPES.includes(type.toLowerCase())) {
       throw AppError.badRequest(`Invalid invoice type. Must be one of: ${VALID_INVOICE_TYPES.join(', ')}`);
     }
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -92,59 +81,45 @@ class BillingService {
 
     const invoiceNumber = await this._generateInvoiceNumber();
 
-    const result = await db.query(
-      `INSERT INTO invoices (
-        invoice_number, patient_uid, appointment_id, type, items,
-        subtotal, tax_amount, discount_amount, total_amount,
-        payment_method, notes, issued_by, due_date
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-      RETURNING id, invoice_number, patient_uid, appointment_id, type, items,
-        subtotal, tax_amount, discount_amount, total_amount, paid_amount,
-        payment_status, payment_method, notes, issued_by, issued_at, due_date, created_at`,
-      [
-        invoiceNumber, patient_uid, appointment_id || null, type,
-        JSON.stringify(items), subtotal, tax_amount, discount_amount,
-        total_amount, payment_method || null, notes || null,
-        issued_by || null, due_date || null
-      ]
-    );
+    const invoice = await prisma.invoices.create({
+      data: {
+        invoice_number: invoiceNumber,
+        patient_uid,
+        appointment_id: appointment_id || null,
+        type: type.toLowerCase(),
+        items,
+        subtotal,
+        tax_amount,
+        discount_amount,
+        total_amount,
+        payment_method: payment_method ? payment_method.toLowerCase() : null,
+        notes: notes || null,
+        issued_by: issued_by || null,
+        due_date: due_date ? new Date(due_date) : null,
+      },
+    });
 
     logger.info(`Invoice created: ${invoiceNumber} for patient ${patient_uid}`);
-    return result.rows[0];
+    return invoice;
   }
 
   /**
    * Record a payment against an invoice
-   * @param {number} invoiceId - Invoice ID
-   * @param {number} amount - Payment amount
-   * @param {string} method - Payment method
-   * @param {string} processedBy - UID of the person processing payment
-   * @param {string} transactionRef - Optional transaction reference
-   * @returns {Object} Updated invoice and transaction
    */
   async recordPayment(invoiceId, amount, method, processedBy, transactionRef = null) {
-    if (!invoiceId) {
-      throw AppError.badRequest('Invoice ID is required');
-    }
-    if (!amount || amount <= 0) {
-      throw AppError.badRequest('Payment amount must be greater than zero');
-    }
-    if (!method || !VALID_PAYMENT_METHODS.includes(method)) {
+    if (!invoiceId) throw AppError.badRequest('Invoice ID is required');
+    if (!amount || amount <= 0) throw AppError.badRequest('Payment amount must be greater than zero');
+    if (!method || !VALID_PAYMENT_METHODS.includes(method.toLowerCase())) {
       throw AppError.badRequest(`Invalid payment method. Must be one of: ${VALID_PAYMENT_METHODS.join(', ')}`);
     }
 
-    // Fetch invoice
-    const invoiceResult = await db.query(
-      `SELECT id, total_amount, paid_amount, payment_status
-       FROM invoices WHERE id = $1`,
-      [invoiceId]
-    );
+    const invoice = await prisma.invoices.findUnique({
+      where: { id: invoiceId },
+      select: { id: true, total_amount: true, paid_amount: true, payment_status: true },
+    });
 
-    if (invoiceResult.rows.length === 0) {
-      throw AppError.notFound('Invoice not found');
-    }
+    if (!invoice) throw AppError.notFound('Invoice not found');
 
-    const invoice = invoiceResult.rows[0];
     const totalAmount = parseFloat(invoice.total_amount);
     const currentPaid = parseFloat(invoice.paid_amount);
     const newPaid = currentPaid + parseFloat(amount);
@@ -155,7 +130,6 @@ class BillingService {
       );
     }
 
-    // Determine new status
     let newStatus;
     if (newPaid >= totalAmount) {
       newStatus = 'paid';
@@ -167,254 +141,222 @@ class BillingService {
 
     const paidAt = newStatus === 'paid' ? new Date() : null;
 
-    // Record transaction
-    const txnResult = await db.query(
-      `INSERT INTO payment_transactions (invoice_id, amount, payment_method, transaction_ref, processed_by)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, invoice_id, amount, payment_method, transaction_ref, status, processed_by, created_at`,
-      [invoiceId, amount, method, transactionRef, processedBy || null]
-    );
-
-    // Update invoice
-    const updatedInvoice = await db.query(
-      `UPDATE invoices
-       SET paid_amount = $1, payment_status = $2, payment_method = $3, paid_at = $4
-       WHERE id = $5
-       RETURNING id, invoice_number, patient_uid, total_amount, paid_amount,
-         payment_status, payment_method, paid_at`,
-      [newPaid, newStatus, method, paidAt, invoiceId]
-    );
+    // Transaction + invoice update in one batch
+    const [transaction, updatedInvoice] = await prisma.$transaction([
+      prisma.payment_transactions.create({
+        data: {
+          invoice_id: invoiceId,
+          amount,
+          payment_method: method.toLowerCase(),
+          transaction_ref: transactionRef || null,
+          processed_by: processedBy || null,
+        },
+      }),
+      prisma.invoices.update({
+        where: { id: invoiceId },
+        data: {
+          paid_amount: newPaid,
+          payment_status: newStatus,
+          payment_method: method.toLowerCase(),
+          paid_at: paidAt,
+        },
+        select: {
+          id: true, invoice_number: true, patient_uid: true, total_amount: true,
+          paid_amount: true, payment_status: true, payment_method: true, paid_at: true,
+        },
+      }),
+    ]);
 
     logger.info(`Payment of ${amount} recorded for invoice ${invoiceId}, status: ${newStatus}`);
-
-    return {
-      invoice: updatedInvoice.rows[0],
-      transaction: txnResult.rows[0]
-    };
+    return { invoice: updatedInvoice, transaction };
   }
 
   /**
    * Get patient invoices with pagination and filters
-   * @param {string} patientUid - Patient UID
-   * @param {Object} filters - Filters (status, type, page, limit, dateFrom, dateTo)
-   * @returns {Object} Invoices list with pagination meta
    */
   async getPatientInvoices(patientUid, filters = {}) {
-    if (!patientUid) {
-      throw AppError.badRequest('Patient UID is required');
-    }
+    if (!patientUid) throw AppError.badRequest('Patient UID is required');
 
-    const {
-      status, type, page = 1, limit = 20, date_from, date_to
-    } = filters;
+    const { status, type, page = 1, limit = 20, date_from, date_to } = filters;
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
     const offset = (pageNum - 1) * limitNum;
 
-    const conditions = ['i.patient_uid = $1'];
-    const params = [patientUid];
-    let paramIndex = 2;
+    const where = { patient_uid: patientUid };
 
-    if (status && VALID_PAYMENT_STATUSES.includes(status)) {
-      conditions.push(`i.payment_status = $${paramIndex}`);
-      params.push(status);
-      paramIndex++;
-    }
-    if (type && VALID_INVOICE_TYPES.includes(type)) {
-      conditions.push(`i.type = $${paramIndex}`);
-      params.push(type);
-      paramIndex++;
-    }
-    if (date_from) {
-      conditions.push(`i.issued_at >= $${paramIndex}`);
-      params.push(date_from);
-      paramIndex++;
-    }
-    if (date_to) {
-      conditions.push(`i.issued_at <= $${paramIndex}`);
-      params.push(date_to);
-      paramIndex++;
+    if (status && VALID_PAYMENT_STATUSES.includes(status)) where.payment_status = status;
+    if (type && VALID_INVOICE_TYPES.includes(type.toLowerCase())) where.type = type.toLowerCase();
+    if (date_from || date_to) {
+      where.issued_at = {};
+      if (date_from) where.issued_at.gte = new Date(date_from);
+      if (date_to) where.issued_at.lte = new Date(date_to);
     }
 
-    const whereClause = conditions.join(' AND ');
-
-    // Count total
-    const countResult = await db.query(
-      `SELECT COUNT(*) as total FROM invoices i WHERE ${whereClause}`,
-      params
-    );
-    const total = parseInt(countResult.rows[0].total, 10);
-
-    // Fetch page
-    const dataParams = [...params, limitNum, offset];
-    const result = await db.query(
-      `SELECT i.id, i.invoice_number, i.type, i.subtotal, i.tax_amount,
-        i.discount_amount, i.total_amount, i.paid_amount, i.payment_status,
-        i.payment_method, i.issued_at, i.due_date, i.created_at
-       FROM invoices i
-       WHERE ${whereClause}
-       ORDER BY i.created_at DESC
-       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
-      dataParams
-    );
+    const [total, invoices] = await prisma.$transaction([
+      prisma.invoices.count({ where }),
+      prisma.invoices.findMany({
+        where,
+        select: {
+          id: true, invoice_number: true, type: true, subtotal: true,
+          tax_amount: true, discount_amount: true, total_amount: true,
+          paid_amount: true, payment_status: true, payment_method: true,
+          issued_at: true, due_date: true, created_at: true,
+        },
+        orderBy: { created_at: 'desc' },
+        skip: offset,
+        take: limitNum,
+      }),
+    ]);
 
     return {
-      invoices: result.rows,
+      invoices,
       pagination: {
         page: pageNum,
         limit: limitNum,
         total,
-        totalPages: Math.ceil(total / limitNum)
-      }
+        totalPages: Math.ceil(total / limitNum),
+      },
     };
   }
 
   /**
    * Get full invoice detail with payment history
-   * @param {number} invoiceId - Invoice ID
-   * @returns {Object} Invoice with payment transactions
    */
   async getInvoiceDetail(invoiceId) {
-    if (!invoiceId) {
-      throw AppError.badRequest('Invoice ID is required');
-    }
+    if (!invoiceId) throw AppError.badRequest('Invoice ID is required');
 
-    const invoiceResult = await db.query(
-      `SELECT i.id, i.invoice_number, i.patient_uid, i.appointment_id, i.type,
-        i.items, i.subtotal, i.tax_amount, i.discount_amount, i.total_amount,
-        i.paid_amount, i.payment_status, i.payment_method, i.insurance_claim_id,
-        i.notes, i.issued_by, i.issued_at, i.paid_at, i.due_date, i.created_at
-       FROM invoices i
-       WHERE i.id = $1`,
-      [invoiceId]
-    );
+    const invoice = await prisma.invoices.findUnique({
+      where: { id: invoiceId },
+      include: {
+        payment_transactions: {
+          orderBy: { created_at: 'desc' },
+        },
+      },
+    });
 
-    if (invoiceResult.rows.length === 0) {
-      throw AppError.notFound('Invoice not found');
-    }
-
-    const invoice = invoiceResult.rows[0];
-
-    // Fetch payment transactions
-    const txnResult = await db.query(
-      `SELECT id, amount, payment_method, transaction_ref, status, processed_by, created_at
-       FROM payment_transactions
-       WHERE invoice_id = $1
-       ORDER BY created_at DESC`,
-      [invoiceId]
-    );
+    if (!invoice) throw AppError.notFound('Invoice not found');
 
     // Fetch linked insurance claim if any
     let insuranceClaim = null;
     if (invoice.insurance_claim_id) {
-      const claimResult = await db.query(
-        `SELECT id, claim_number, insurance_provider, policy_number, claim_amount,
-          approved_amount, status, submitted_at, reviewed_at
-         FROM insurance_claims WHERE id = $1`,
-        [invoice.insurance_claim_id]
-      );
-      if (claimResult.rows.length > 0) {
-        insuranceClaim = claimResult.rows[0];
-      }
+      insuranceClaim = await prisma.insurance_claims.findUnique({
+        where: { id: invoice.insurance_claim_id },
+        select: {
+          id: true, claim_number: true, insurance_provider: true, policy_number: true,
+          claim_amount: true, approved_amount: true, status: true,
+          submitted_at: true, reviewed_at: true,
+        },
+      });
     }
 
-    return {
-      ...invoice,
-      payment_transactions: txnResult.rows,
-      insurance_claim: insuranceClaim
-    };
+    return { ...invoice, insurance_claim: insuranceClaim };
   }
 
   /**
    * Get revenue statistics for a date range
-   * @param {string} dateFrom - Start date
-   * @param {string} dateTo - End date
-   * @returns {Object} Revenue stats
    */
   async getRevenueStats(dateFrom, dateTo) {
-    if (!dateFrom || !dateTo) {
-      throw AppError.badRequest('dateFrom and dateTo are required');
-    }
+    if (!dateFrom || !dateTo) throw AppError.badRequest('dateFrom and dateTo are required');
 
-    // Revenue by type
-    const byTypeResult = await db.readQuery(
-      `SELECT type,
-        COUNT(*) as invoice_count,
-        SUM(total_amount) as total_billed,
-        SUM(paid_amount) as total_collected,
-        SUM(total_amount - paid_amount) as outstanding
-       FROM invoices
-       WHERE issued_at >= $1 AND issued_at <= $2
-       GROUP BY type
-       ORDER BY total_billed DESC`,
-      [dateFrom, dateTo]
-    );
+    const from = new Date(dateFrom);
+    const to = new Date(dateTo);
 
-    // Revenue by payment method
-    const byMethodResult = await db.readQuery(
-      `SELECT payment_method,
-        COUNT(*) as transaction_count,
-        SUM(amount) as total_amount
-       FROM payment_transactions
-       WHERE created_at >= $1 AND created_at <= $2
-       GROUP BY payment_method
-       ORDER BY total_amount DESC`,
-      [dateFrom, dateTo]
-    );
+    const [byType, summary] = await Promise.all([
+      prisma.invoices.groupBy({
+        by: ['type'],
+        where: { issued_at: { gte: from, lte: to } },
+        _count: { id: true },
+        _sum: { total_amount: true, paid_amount: true },
+        orderBy: { _sum: { total_amount: 'desc' } },
+      }),
+      prisma.invoices.aggregate({
+        where: { issued_at: { gte: from, lte: to } },
+        _count: { id: true },
+        _sum: {
+          total_amount: true,
+          paid_amount: true,
+          discount_amount: true,
+          tax_amount: true,
+        },
+      }),
+    ]);
 
-    // Daily totals
-    const dailyResult = await db.readQuery(
-      `SELECT DATE(issued_at) as date,
-        COUNT(*) as invoice_count,
-        SUM(total_amount) as billed,
-        SUM(paid_amount) as collected
-       FROM invoices
-       WHERE issued_at >= $1 AND issued_at <= $2
-       GROUP BY DATE(issued_at)
-       ORDER BY date`,
-      [dateFrom, dateTo]
-    );
+    const [byMethod, dailyRaw, statusCounts] = await Promise.all([
+      prisma.payment_transactions.groupBy({
+        by: ['payment_method'],
+        where: { created_at: { gte: from, lte: to } },
+        _count: { id: true },
+        _sum: { amount: true },
+        orderBy: { _sum: { amount: 'desc' } },
+      }),
+      // Daily aggregates still use raw SQL for DATE truncation
+      prisma.$queryRaw`
+        SELECT
+          DATE(issued_at) AS date,
+          COUNT(*)::int AS invoice_count,
+          SUM(total_amount) AS billed,
+          SUM(paid_amount) AS collected
+        FROM invoices
+        WHERE issued_at >= ${from} AND issued_at <= ${to}
+        GROUP BY DATE(issued_at)
+        ORDER BY date
+      `,
+      prisma.invoices.groupBy({
+        by: ['payment_status'],
+        where: { issued_at: { gte: from, lte: to } },
+        _count: { id: true },
+      }),
+    ]);
 
-    // Summary totals
-    const summaryResult = await db.readQuery(
-      `SELECT
-        COUNT(*) as total_invoices,
-        SUM(total_amount) as total_billed,
-        SUM(paid_amount) as total_collected,
-        SUM(total_amount - paid_amount) as total_outstanding,
-        SUM(discount_amount) as total_discounts,
-        SUM(tax_amount) as total_taxes,
-        COUNT(*) FILTER (WHERE payment_status = 'paid') as paid_count,
-        COUNT(*) FILTER (WHERE payment_status = 'pending') as pending_count,
-        COUNT(*) FILTER (WHERE payment_status = 'partial') as partial_count
-       FROM invoices
-       WHERE issued_at >= $1 AND issued_at <= $2`,
-      [dateFrom, dateTo]
+    const statusMap = Object.fromEntries(
+      statusCounts.map(s => [s.payment_status, s._count.id])
     );
 
     return {
-      summary: summaryResult.rows[0],
-      by_type: byTypeResult.rows,
-      by_payment_method: byMethodResult.rows,
-      daily_totals: dailyResult.rows
+      summary: {
+        total_invoices: summary._count.id,
+        total_billed: summary._sum.total_amount,
+        total_collected: summary._sum.paid_amount,
+        total_outstanding: (
+          parseFloat(summary._sum.total_amount || 0) -
+          parseFloat(summary._sum.paid_amount || 0)
+        ).toFixed(2),
+        total_discounts: summary._sum.discount_amount,
+        total_taxes: summary._sum.tax_amount,
+        paid_count: statusMap['paid'] || 0,
+        pending_count: statusMap['pending'] || 0,
+        partial_count: statusMap['partial'] || 0,
+      },
+      by_type: byType.map(r => ({
+        type: r.type,
+        invoice_count: r._count.id,
+        total_billed: r._sum.total_amount,
+        total_collected: r._sum.paid_amount,
+        outstanding: (
+          parseFloat(r._sum.total_amount || 0) -
+          parseFloat(r._sum.paid_amount || 0)
+        ).toFixed(2),
+      })),
+      by_payment_method: byMethod.map(r => ({
+        payment_method: r.payment_method,
+        transaction_count: r._count.id,
+        total_amount: r._sum.amount,
+      })),
+      daily_totals: dailyRaw,
     };
   }
 
   /**
    * Submit an insurance claim
-   * @param {Object} data - Claim data
-   * @returns {Object} Created claim
    */
   async submitInsuranceClaim(data) {
     const {
       patient_uid, invoice_id, insurance_provider,
-      policy_number, claim_amount, documents = []
+      policy_number, claim_amount, documents = [],
     } = data;
 
-    if (!patient_uid) {
-      throw AppError.badRequest('Patient UID is required');
-    }
+    if (!patient_uid) throw AppError.badRequest('Patient UID is required');
     if (!insurance_provider || !policy_number) {
       throw AppError.badRequest('Insurance provider and policy number are required');
     }
@@ -422,92 +364,78 @@ class BillingService {
       throw AppError.badRequest('Claim amount must be greater than zero');
     }
 
-    // Validate invoice exists if provided
     if (invoice_id) {
-      const invoiceCheck = await db.query(
-        `SELECT id, patient_uid FROM invoices WHERE id = $1`,
-        [invoice_id]
-      );
-      if (invoiceCheck.rows.length === 0) {
-        throw AppError.notFound('Linked invoice not found');
-      }
-      if (invoiceCheck.rows[0].patient_uid !== patient_uid) {
+      const inv = await prisma.invoices.findUnique({
+        where: { id: invoice_id },
+        select: { id: true, patient_uid: true },
+      });
+      if (!inv) throw AppError.notFound('Linked invoice not found');
+      if (inv.patient_uid !== patient_uid) {
         throw AppError.badRequest('Invoice does not belong to the specified patient');
       }
     }
 
     const claimNumber = await this._generateClaimNumber();
 
-    const result = await db.query(
-      `INSERT INTO insurance_claims (
-        claim_number, patient_uid, invoice_id, insurance_provider,
-        policy_number, claim_amount, documents
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING id, claim_number, patient_uid, invoice_id, insurance_provider,
-        policy_number, claim_amount, approved_amount, status, submitted_at,
-        documents, created_at`,
-      [claimNumber, patient_uid, invoice_id || null, insurance_provider,
-       policy_number, claim_amount, documents]
-    );
+    const claim = await prisma.insurance_claims.create({
+      data: {
+        claim_number: claimNumber,
+        patient_uid,
+        invoice_id: invoice_id || null,
+        insurance_provider,
+        policy_number,
+        claim_amount,
+        documents,
+      },
+    });
 
-    // Link claim to invoice if provided
+    // Link claim to invoice
     if (invoice_id) {
-      await db.query(
-        `UPDATE invoices SET insurance_claim_id = $1 WHERE id = $2`,
-        [result.rows[0].id, invoice_id]
-      );
+      await prisma.invoices.update({
+        where: { id: invoice_id },
+        data: { insurance_claim_id: claim.id },
+      });
     }
 
     logger.info(`Insurance claim created: ${claimNumber} for patient ${patient_uid}`);
-    return result.rows[0];
+    return claim;
   }
 
   /**
    * Update insurance claim status
-   * @param {number} claimId - Claim ID
-   * @param {string} status - New status
-   * @param {number} approvedAmount - Approved amount (for approved/partially_approved)
-   * @param {string} reason - Rejection reason (for rejected)
-   * @returns {Object} Updated claim
    */
   async updateClaimStatus(claimId, status, approvedAmount = null, reason = null) {
-    if (!claimId) {
-      throw AppError.badRequest('Claim ID is required');
-    }
+    if (!claimId) throw AppError.badRequest('Claim ID is required');
     if (!status || !VALID_CLAIM_STATUSES.includes(status)) {
       throw AppError.badRequest(`Invalid status. Must be one of: ${VALID_CLAIM_STATUSES.join(', ')}`);
     }
 
-    const existing = await db.query(
-      `SELECT id, status FROM insurance_claims WHERE id = $1`,
-      [claimId]
-    );
-    if (existing.rows.length === 0) {
-      throw AppError.notFound('Insurance claim not found');
-    }
+    const existing = await prisma.insurance_claims.findUnique({
+      where: { id: claimId },
+      select: { id: true },
+    });
+    if (!existing) throw AppError.notFound('Insurance claim not found');
 
     const reviewedAt = ['approved', 'partially_approved', 'rejected'].includes(status)
       ? new Date()
       : null;
 
-    const result = await db.query(
-      `UPDATE insurance_claims
-       SET status = $1, approved_amount = $2, rejection_reason = $3, reviewed_at = $4
-       WHERE id = $5
-       RETURNING id, claim_number, patient_uid, invoice_id, insurance_provider,
-         policy_number, claim_amount, approved_amount, status, submitted_at,
-         reviewed_at, rejection_reason, documents, created_at`,
-      [status, approvedAmount, reason, reviewedAt, claimId]
-    );
+    const updated = await prisma.insurance_claims.update({
+      where: { id: claimId },
+      data: {
+        status,
+        approved_amount: approvedAmount ?? null,
+        rejection_reason: reason ?? null,
+        reviewed_at: reviewedAt,
+      },
+    });
 
     logger.info(`Insurance claim ${claimId} updated to status: ${status}`);
-    return result.rows[0];
+    return updated;
   }
 
   /**
    * List insurance claims with filters
-   * @param {Object} filters - Filters (patient_uid, status, page, limit)
-   * @returns {Object} Claims list with pagination
    */
   async getInsuranceClaims(filters = {}) {
     const { patient_uid, status, page = 1, limit = 20 } = filters;
@@ -516,50 +444,34 @@ class BillingService {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
     const offset = (pageNum - 1) * limitNum;
 
-    const conditions = [];
-    const params = [];
-    let paramIndex = 1;
+    const where = {};
+    if (patient_uid) where.patient_uid = patient_uid;
+    if (status && VALID_CLAIM_STATUSES.includes(status)) where.status = status;
 
-    if (patient_uid) {
-      conditions.push(`ic.patient_uid = $${paramIndex}`);
-      params.push(patient_uid);
-      paramIndex++;
-    }
-    if (status && VALID_CLAIM_STATUSES.includes(status)) {
-      conditions.push(`ic.status = $${paramIndex}`);
-      params.push(status);
-      paramIndex++;
-    }
-
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-    const countResult = await db.query(
-      `SELECT COUNT(*) as total FROM insurance_claims ic ${whereClause}`,
-      params
-    );
-    const total = parseInt(countResult.rows[0].total, 10);
-
-    const dataParams = [...params, limitNum, offset];
-    const result = await db.query(
-      `SELECT ic.id, ic.claim_number, ic.patient_uid, ic.invoice_id,
-        ic.insurance_provider, ic.policy_number, ic.claim_amount,
-        ic.approved_amount, ic.status, ic.submitted_at, ic.reviewed_at,
-        ic.rejection_reason, ic.created_at
-       FROM insurance_claims ic
-       ${whereClause}
-       ORDER BY ic.created_at DESC
-       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
-      dataParams
-    );
+    const [total, claims] = await prisma.$transaction([
+      prisma.insurance_claims.count({ where }),
+      prisma.insurance_claims.findMany({
+        where,
+        select: {
+          id: true, claim_number: true, patient_uid: true, invoice_id: true,
+          insurance_provider: true, policy_number: true, claim_amount: true,
+          approved_amount: true, status: true, submitted_at: true,
+          reviewed_at: true, rejection_reason: true, created_at: true,
+        },
+        orderBy: { created_at: 'desc' },
+        skip: offset,
+        take: limitNum,
+      }),
+    ]);
 
     return {
-      claims: result.rows,
+      claims,
       pagination: {
         page: pageNum,
         limit: limitNum,
         total,
-        totalPages: Math.ceil(total / limitNum)
-      }
+        totalPages: Math.ceil(total / limitNum),
+      },
     };
   }
 }
