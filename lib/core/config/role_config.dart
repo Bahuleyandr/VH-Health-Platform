@@ -249,6 +249,27 @@ class RoleFeatures {
     route: '/messaging',
     color: Color(0xFF1565C0),
   );
+  static const DashboardFeature _bedBoard = DashboardFeature(
+    id: 'bed_board',
+    title: 'Bed Board',
+    icon: Icons.local_hotel,
+    route: '/beds',
+    color: Color(0xFF0277BD),
+  );
+  static const DashboardFeature _bloodBank = DashboardFeature(
+    id: 'blood_bank',
+    title: 'Blood Bank',
+    icon: Icons.bloodtype,
+    route: '/blood-bank',
+    color: Color(0xFFC62828),
+  );
+  static const DashboardFeature _dietary = DashboardFeature(
+    id: 'dietary',
+    title: 'Dietary',
+    icon: Icons.restaurant_menu,
+    route: '/dietary',
+    color: Color(0xFF00796B),
+  );
 
   /// Returns ordered list of dashboard features for the given role.
   static List<DashboardFeature> getFeaturesForRole(StaffRole role) {
@@ -262,6 +283,8 @@ class RoleFeatures {
           _patientRecords,
           _prescriptions,
           _investigationResults,
+          _bedBoard,
+          _bloodBank,
           _leave,
           _staffDirectory,
           _messaging,
@@ -278,6 +301,9 @@ class RoleFeatures {
           _handover,
           _investigationResults,
           _labBookings,
+          _bedBoard,
+          _bloodBank,
+          _dietary,
           _leave,
           _staffDirectory,
           _messaging,
@@ -307,6 +333,9 @@ class RoleFeatures {
           _investigationsUpload,
           _investigationResults,
           _labBookings,
+          _bedBoard,
+          _bloodBank,
+          _dietary,
           _leave,
           _hrDashboard,
           _staffManagement,

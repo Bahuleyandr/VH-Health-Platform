@@ -51,6 +51,15 @@ import '../../features/nursing/screens/handover_screen.dart';
 // About
 import '../../features/about/screens/about_screen.dart';
 
+// Beds
+import '../../features/beds/screens/bed_board_screen.dart';
+
+// Blood Bank
+import '../../features/bloodbank/screens/blood_bank_screen.dart';
+
+// Dietary
+import '../../features/dietary/screens/dietary_screen.dart';
+
 // EMR
 import '../../features/emr/screens/admission_screen.dart';
 import '../../features/emr/screens/clinical_notes_screen.dart';
@@ -298,6 +307,30 @@ final GoRouter appRouter = GoRouter(
               child: MessagingThreadScreen(otherStaffUid: otherStaffUid),
             );
           },
+        ),
+
+        // Beds
+        GoRoute(
+          path: '/beds',
+          name: 'beds',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: BedBoardScreen()),
+        ),
+
+        // Blood Bank
+        GoRoute(
+          path: '/blood-bank',
+          name: 'blood-bank',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: BloodBankScreen()),
+        ),
+
+        // Dietary
+        GoRoute(
+          path: '/dietary',
+          name: 'dietary',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: DietaryScreen()),
         ),
 
         // EMR
