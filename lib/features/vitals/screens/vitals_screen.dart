@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -388,7 +389,12 @@ class _VitalsHistoryTabState extends State<_VitalsHistoryTab> {
       _error = null;
     });
     try {
-      final patientId = widget.phone;
+      // Resolve patient ID from secure storage (same pattern as HealthSummaryTab).
+      // Falls back to firebase_uid, then phone number as last resort.
+      const storage = FlutterSecureStorage();
+      final patientId = await storage.read(key: 'patient_id') ??
+          await storage.read(key: 'firebase_uid') ??
+          widget.phone;
       final response = await ApiClient.get('/health/patient/$patientId/vitals');
       if (!mounted) return;
       if (response.isSuccess) {

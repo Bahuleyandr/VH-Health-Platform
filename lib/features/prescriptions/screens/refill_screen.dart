@@ -207,8 +207,8 @@ class _RefillScreenState extends State<RefillScreen> {
             return _PrescriptionRefillCard(
               prescription: _prescriptions[index],
               refillStatus: _refillStatus[
-                  _prescriptions[index]['_id'] as String? ??
-                      _prescriptions[index]['id'] as String? ??
+                  (_prescriptions[index]['_id'] as String?) ??
+                      _prescriptions[index]['id']?.toString() ??
                       ''],
               onRequestRefill: () => _requestRefill(_prescriptions[index]),
             );
