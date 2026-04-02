@@ -39,36 +39,33 @@ class StaffApiService {
   static Future<Map<String, dynamic>> markAttendanceWithLocation({
     required String staffId,
     required String action,
-    required double latitude,
-    required double longitude,
-    String? wifiSSID,
-    String? wifiMAC,
+    required Map<String, dynamic> location,
   }) => AttendanceApiService.markAttendanceWithLocation(
-        staffId: staffId, action: action,
-        latitude: latitude, longitude: longitude,
-        wifiSSID: wifiSSID, wifiMAC: wifiMAC);
+        staffId: staffId, action: action, location: location);
 
   static Future<Map<String, dynamic>> getAttendanceCalendar({
-    String? staffId,
-    int? month,
-    int? year,
-  }) => AttendanceApiService.getAttendanceCalendar(staffId: staffId, month: month, year: year);
+    required String staffId,
+    required int year,
+    required int month,
+  }) => AttendanceApiService.getAttendanceCalendar(staffId: staffId, year: year, month: month);
 
   static Future<Map<String, dynamic>> requestRegularization({
     required String staffId,
     required String date,
     required String reason,
-    String? checkIn,
-    String? checkOut,
+    String? checkInTime,
+    String? checkOutTime,
   }) => AttendanceApiService.requestRegularization(
         staffId: staffId, date: date, reason: reason,
-        checkIn: checkIn, checkOut: checkOut);
+        checkInTime: checkInTime, checkOutTime: checkOutTime);
 
   static Future<Map<String, dynamic>> getAttendance(
     String staffId, {
-    String? from,
-    String? to,
-  }) => AttendanceApiService.getAttendance(staffId, from: from, to: to);
+    String? startDate,
+    String? endDate,
+    int page = 1,
+    int limit = 30,
+  }) => AttendanceApiService.getAttendance(staffId, startDate: startDate, endDate: endDate, page: page, limit: limit);
 
   static Future<Map<String, dynamic>> getAttendanceStatus() =>
       AttendanceApiService.getAttendanceStatus();
@@ -86,11 +83,11 @@ class StaffApiService {
     required String startDate,
     required String endDate,
     required String reason,
-    String? substituteId,
+    String? emergencyContact,
   }) => LeaveApiService.applyLeave(
         staffId: staffId, leaveType: leaveType,
         startDate: startDate, endDate: endDate,
-        reason: reason, substituteId: substituteId);
+        reason: reason, emergencyContact: emergencyContact);
 
   static Future<Map<String, dynamic>> applyForLeaveWithReplacement({
     required String staffId,
@@ -112,8 +109,9 @@ class StaffApiService {
 
   static Future<Map<String, dynamic>> respondToReplacement({
     required String requestId,
-    required String response,
-  }) => LeaveApiService.respondToReplacement(requestId: requestId, response: response);
+    required String status,
+    String? message,
+  }) => LeaveApiService.respondToReplacement(requestId: requestId, status: status, message: message);
 
   // ── HrApiService ─────────────────────────────────────────────────────────
   static Future<Map<String, dynamic>> getHRDashboard(String staffId) =>
@@ -126,12 +124,8 @@ class StaffApiService {
       HrApiService.getProfile(identifier);
 
   static Future<Map<String, dynamic>> updateProfile(
-    String staffId, {
-    String? name,
-    String? email,
-    String? phone,
-    String? address,
-  }) => HrApiService.updateProfile(staffId, name: name, email: email, phone: phone, address: address);
+    String staffId, Map<String, dynamic> updates,
+  ) => HrApiService.updateProfile(staffId, updates);
 
   static Future<Map<String, dynamic>> markAllNotificationsRead() =>
       HrApiService.markAllNotificationsRead();
@@ -181,17 +175,15 @@ class StaffApiService {
       PharmacyApiService.markPharmacyPreparing(id);
 
   static Future<Map<String, dynamic>> dispatchPharmacyOrder(
-    int id, {
-    String? deliveryPersonId,
-  }) => PharmacyApiService.dispatchPharmacyOrder(id, deliveryPersonId: deliveryPersonId);
+    int id, Map<String, dynamic> data,
+  ) => PharmacyApiService.dispatchPharmacyOrder(id, data);
 
   static Future<Map<String, dynamic>> markPharmacyDelivered(int id) =>
       PharmacyApiService.markPharmacyDelivered(id);
 
   static Future<Map<String, dynamic>> cancelPharmacyOrder(
-    int id, {
-    String? reason,
-  }) => PharmacyApiService.cancelPharmacyOrder(id, reason: reason);
+    int id, String reason,
+  ) => PharmacyApiService.cancelPharmacyOrder(id, reason);
 
   // ── ScheduleApiService ───────────────────────────────────────────────────
   static Future<Map<String, dynamic>> fetchCampusConfig() =>
@@ -210,37 +202,37 @@ class StaffApiService {
     String appointmentId,
     String status, {
     String? notes,
-    String? doctorId,
   }) => ScheduleApiService.updateAppointmentStatus(
-        appointmentId, status, notes: notes, doctorId: doctorId);
+        appointmentId, status, notes: notes);
 
   // ── Auth/Device (HrApiService) ───────────────────────────────────────────
   static Future<Map<String, dynamic>> setupPin({
-    required String staffId,
+    required String employeeId,
     required String pin,
-  }) => HrApiService.setupPin(staffId: staffId, pin: pin);
+  }) => HrApiService.setupPin(employeeId: employeeId, pin: pin);
 
   static Future<Map<String, dynamic>> toggleBiometric({
-    required String staffId,
     required bool enabled,
-  }) => HrApiService.toggleBiometric(staffId: staffId, enabled: enabled);
+    required String deviceToken,
+  }) => HrApiService.toggleBiometric(enabled: enabled, deviceToken: deviceToken);
 
   static Future<Map<String, dynamic>> quickLogin({
-    required String staffId,
-    required String pin,
-  }) => HrApiService.quickLogin(staffId: staffId, pin: pin);
+    required String employeeId,
+    String? pin,
+    String? biometricToken,
+    String? deviceToken,
+  }) => HrApiService.quickLogin(employeeId: employeeId, pin: pin, biometricToken: biometricToken, deviceToken: deviceToken);
 
   static Future<Map<String, dynamic>> registerTrustedDevice({
-    required String staffId,
-    required String deviceId,
+    required String deviceToken,
     required String deviceName,
+    required String platform,
   }) => HrApiService.registerTrustedDevice(
-        staffId: staffId, deviceId: deviceId, deviceName: deviceName);
+        deviceToken: deviceToken, deviceName: deviceName, platform: platform);
 
   static Future<Map<String, dynamic>> verifyDevice({
-    required String staffId,
-    required String deviceId,
-  }) => HrApiService.verifyDevice(staffId: staffId, deviceId: deviceId);
+    required String deviceToken,
+  }) => HrApiService.verifyDevice(deviceToken: deviceToken);
 
   static Future<Map<String, dynamic>> getAuthProfile() =>
       HrApiService.getAuthProfile();
