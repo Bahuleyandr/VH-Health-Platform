@@ -28,6 +28,10 @@ jobs:
         run: |
           sed -i 's|path: ../vhhealth-core|path: ./vhhealth-core|' pubspec.yaml
 
+      - name: Install vhhealth-core dependencies
+        run: flutter pub get
+        working-directory: vhhealth-core
+
       - run: flutter pub get
 
       - name: Scaffold Android platform (v2 embedding)
