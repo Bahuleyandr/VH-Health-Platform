@@ -59,6 +59,10 @@ import '../../features/emr/screens/orders_screen.dart';
 import '../../features/emr/screens/vitals_chart_screen.dart';
 import '../../features/emr/screens/discharge_summary_screen.dart';
 
+// Messaging
+import '../../features/messaging/screens/messaging_inbox_screen.dart';
+import '../../features/messaging/screens/messaging_thread_screen.dart';
+
 // Shell
 import '../widgets/main_scaffold.dart';
 
@@ -276,6 +280,24 @@ final GoRouter appRouter = GoRouter(
           name: 'about',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: AboutScreen()),
+        ),
+
+        // Messaging
+        GoRoute(
+          path: '/messaging',
+          name: 'messaging',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: MessagingInboxScreen()),
+        ),
+        GoRoute(
+          path: '/messaging/thread/:otherStaffUid',
+          name: 'messaging-thread',
+          pageBuilder: (context, state) {
+            final otherStaffUid = state.pathParameters['otherStaffUid']!;
+            return NoTransitionPage(
+              child: MessagingThreadScreen(otherStaffUid: otherStaffUid),
+            );
+          },
         ),
 
         // EMR

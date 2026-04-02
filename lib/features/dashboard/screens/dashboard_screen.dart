@@ -360,6 +360,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       color: const Color(0xFF00838F),
     ));
 
+    // Messages for all
+    actions.add(_QuickAction(
+      icon: Icons.chat_outlined,
+      label: 'Messages',
+      route: '/messaging',
+      color: const Color(0xFF1565C0),
+    ));
+
     // Role-specific
     if (_role == StaffRole.doctor) {
       actions.add(_QuickAction(

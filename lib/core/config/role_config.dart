@@ -242,6 +242,13 @@ class RoleFeatures {
     route: '/settings',
     color: Color(0xFF546E7A),
   );
+  static const DashboardFeature _messaging = DashboardFeature(
+    id: 'messaging',
+    title: 'Messages',
+    icon: Icons.chat_outlined,
+    route: '/messaging',
+    color: Color(0xFF1565C0),
+  );
 
   /// Returns ordered list of dashboard features for the given role.
   static List<DashboardFeature> getFeaturesForRole(StaffRole role) {
@@ -257,6 +264,7 @@ class RoleFeatures {
           _investigationResults,
           _leave,
           _staffDirectory,
+          _messaging,
           _profile,
           _settings,
         ],
@@ -272,6 +280,7 @@ class RoleFeatures {
           _labBookings,
           _leave,
           _staffDirectory,
+          _messaging,
           _profile,
           _settings,
         ],
@@ -283,6 +292,7 @@ class RoleFeatures {
           _performance,
           _leave,
           _staffDirectory,
+          _messaging,
           _profile,
           _settings,
         ],
@@ -303,6 +313,7 @@ class RoleFeatures {
           _performance,
           _housekeepingTasks,
           _staffDirectory,
+          _messaging,
           _profile,
           _settings,
         ],
@@ -312,6 +323,7 @@ class RoleFeatures {
           _pharmacyOrders,
           _leave,
           _staffDirectory,
+          _messaging,
           _profile,
           _settings,
         ],
@@ -323,6 +335,7 @@ class RoleFeatures {
           _labBookings,
           _leave,
           _staffDirectory,
+          _messaging,
           _profile,
           _settings,
         ],
@@ -334,6 +347,7 @@ class RoleFeatures {
           _housekeepingTasks,
           _leave,
           _staffDirectory,
+          _messaging,
           _profile,
           _settings,
         ],
@@ -367,6 +381,14 @@ class RoleFeatures {
               label: 'Records',
             ),
             route: '/patient-records',
+          ),
+          const BottomNavItem(
+            item: BottomNavigationBarItem(
+              icon: Icon(Icons.chat_outlined),
+              activeIcon: Icon(Icons.chat),
+              label: 'Messages',
+            ),
+            route: '/messaging',
           ),
           const BottomNavItem(
             item: BottomNavigationBarItem(
@@ -404,6 +426,14 @@ class RoleFeatures {
           ),
           const BottomNavItem(
             item: BottomNavigationBarItem(
+              icon: Icon(Icons.chat_outlined),
+              activeIcon: Icon(Icons.chat),
+              label: 'Messages',
+            ),
+            route: '/messaging',
+          ),
+          const BottomNavItem(
+            item: BottomNavigationBarItem(
               icon: Icon(Icons.person_outlined),
               activeIcon: Icon(Icons.person),
               label: 'Profile',
@@ -438,6 +468,14 @@ class RoleFeatures {
           ),
           const BottomNavItem(
             item: BottomNavigationBarItem(
+              icon: Icon(Icons.chat_outlined),
+              activeIcon: Icon(Icons.chat),
+              label: 'Messages',
+            ),
+            route: '/messaging',
+          ),
+          const BottomNavItem(
+            item: BottomNavigationBarItem(
               icon: Icon(Icons.person_outlined),
               activeIcon: Icon(Icons.person),
               label: 'Profile',
@@ -461,6 +499,14 @@ class RoleFeatures {
               label: 'Features',
             ),
             route: '/dashboard',
+          ),
+          const BottomNavItem(
+            item: BottomNavigationBarItem(
+              icon: Icon(Icons.chat_outlined),
+              activeIcon: Icon(Icons.chat),
+              label: 'Messages',
+            ),
+            route: '/messaging',
           ),
           const BottomNavItem(
             item: BottomNavigationBarItem(
@@ -498,6 +544,14 @@ class RoleFeatures {
           ),
           const BottomNavItem(
             item: BottomNavigationBarItem(
+              icon: Icon(Icons.chat_outlined),
+              activeIcon: Icon(Icons.chat),
+              label: 'Messages',
+            ),
+            route: '/messaging',
+          ),
+          const BottomNavItem(
+            item: BottomNavigationBarItem(
               icon: Icon(Icons.person_outlined),
               activeIcon: Icon(Icons.person),
               label: 'Profile',
@@ -524,6 +578,14 @@ class RoleFeatures {
           ),
           const BottomNavItem(
             item: BottomNavigationBarItem(
+              icon: Icon(Icons.chat_outlined),
+              activeIcon: Icon(Icons.chat),
+              label: 'Messages',
+            ),
+            route: '/messaging',
+          ),
+          const BottomNavItem(
+            item: BottomNavigationBarItem(
               icon: Icon(Icons.person_outlined),
               activeIcon: Icon(Icons.person),
               label: 'Profile',
@@ -547,6 +609,14 @@ class RoleFeatures {
               label: 'Tasks',
             ),
             route: '/housekeeping-tasks',
+          ),
+          const BottomNavItem(
+            item: BottomNavigationBarItem(
+              icon: Icon(Icons.chat_outlined),
+              activeIcon: Icon(Icons.chat),
+              label: 'Messages',
+            ),
+            route: '/messaging',
           ),
           const BottomNavItem(
             item: BottomNavigationBarItem(
