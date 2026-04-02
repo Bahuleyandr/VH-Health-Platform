@@ -14,20 +14,23 @@ const DEFAULT_ORIGIN =
   (typeof window !== "undefined" && window.location.origin) ||
   "http://localhost:3000";
 
-// WebSocket endpoints
+// Single WebSocket endpoint — backend uses channel subscriptions after connecting to /ws
+export const WS_ENDPOINT = '/ws';
+
+// Legacy alias — kept for any direct references
 export const WS_ENDPOINTS = {
-  admin: '/ws/admin',
-  notifications: '/ws/notifications',
-  sos: '/ws/emergency',
-  activity: '/ws/activity',
+  admin:         '/ws',
+  notifications: '/ws',
+  sos:           '/ws',
+  activity:      '/ws',
 };
 
 export const API_ENDPOINTS = {
   // Health & System Status
   health: {
-    check: "/api/v1/health-check", // GET
+    check: "/api/v1/health/health-check", // GET
     system: "/api/v1/system/status", // GET
-    appVersion: "/api/v1/app-version", // GET
+    appVersion: "/api/v1/health/app-version", // GET
   },
 
   // Authentication
@@ -296,18 +299,16 @@ export const API_ENDPOINTS = {
   },
 
   // Pharmacy
+  // NOTE: Backend mounts pharmacy at /api/v1/pharmacy-orders (not /pharmacy)
   pharmacy: {
-    categories: "/api/v1/pharmacy/categories/list", // GET
-
-    // Admin/Staff routes
-    adminRoutes: "/api/v1/pharmacy/admin", // GET (protected)
-    orderRoutes: "/api/v1/pharmacy/orders", // GET/POST (protected)
-    medicationRoutes: {
-      staff: "/api/v1/pharmacy/medications/staff", // GET/PUT (protected)
-      admin: "/api/v1/pharmacy/medications/admin", // POST/PUT/DELETE (protected)
+    categories:  "/api/v1/pharmacy-orders/catalog",    // GET
+    orders:      "/api/v1/pharmacy-orders/orders/queue", // GET
+    sla:         "/api/v1/pharmacy-orders/orders/sla",  // GET
+    inventory:   "/api/v1/pharmacy-orders/inventory",  // GET
+    medications: {
+      staff: "/api/v1/pharmacy-orders/medications/staff", // GET/PUT
+      admin: "/api/v1/pharmacy-orders/medications/admin", // POST/PUT/DELETE
     },
-    inventoryRoutes: "/api/v1/pharmacy/inventory", // GET (protected)
-    staffRoutes: "/api/v1/pharmacy/staff", // POST (protected)
   },
 
   // Notifications
@@ -538,14 +539,10 @@ export const requiresAuth = (endpoint: string): boolean =>
     return endpoint === route;
   });
 
-// Helper to build WebSocket URLs
-export const buildWsUrl = (endpoint: string, token?: string): string => {
-  const wsEndpoint = WS_ENDPOINTS[endpoint as keyof typeof WS_ENDPOINTS] || endpoint;
-  const url = `${WS_BASE_URL}${wsEndpoint}`;
-  if (token) {
-    return `${url}?token=${encodeURIComponent(token)}`;
-  }
-  return url;
+// Build the single WebSocket URL (always /ws; auth via ?token= query param)
+export const buildWsUrl = (token?: string): string => {
+  const url = `${WS_BASE_URL}${WS_ENDPOINT}`;
+  return token ? `${url}?token=${encodeURIComponent(token)}` : url;
 };
 
 // Endpoint mapping for legacy compatibility
