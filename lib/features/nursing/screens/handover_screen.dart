@@ -288,7 +288,7 @@ class _HandoverScreenState extends State<HandoverScreen>
             margin: const EdgeInsets.only(bottom: 10),
             child: ListTile(
               leading: CircleAvatar(
-                backgroundColor: urgencyColor.withOpacity(0.1),
+                backgroundColor: urgencyColor.withValues(alpha: 0.1),
                 child: Icon(Icons.swap_horiz, color: urgencyColor),
               ),
               title: Text(

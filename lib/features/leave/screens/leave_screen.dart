@@ -21,6 +21,7 @@ class _LeaveScreenState extends State<LeaveScreen>
   List<dynamic> _myLeaves = [];
   List<dynamic> _replacementRequests = [];
   bool _loading = true;
+  // ignore: unused_field
   String? _error;
 
   // Apply form state

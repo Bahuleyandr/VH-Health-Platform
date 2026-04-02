@@ -149,10 +149,10 @@ class _AddNoteTabState extends State<_AddNoteTab> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0xFF00695C).withOpacity(0.08),
+              color: const Color(0xFF00695C).withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                  color: const Color(0xFF00695C).withOpacity(0.3)),
+                  color: const Color(0xFF00695C).withValues(alpha: 0.3)),
             ),
             child: const Row(
               children: [
@@ -241,10 +241,10 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                             decoration: BoxDecoration(
                               color: selected
                                   ? color
-                                  : color.withOpacity(0.08),
+                                  : color.withValues(alpha: 0.08),
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
-                                  color: color.withOpacity(0.4)),
+                                  color: color.withValues(alpha: 0.4)),
                             ),
                             child: Text(
                               p.toUpperCase(),

@@ -15,6 +15,7 @@ class HousekeepingTasksScreen extends StatefulWidget {
 class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  // ignore: unused_field
   bool _loading = false;
 
   // Placeholder tasks — will be replaced by API data
@@ -112,7 +113,7 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
         children: [
           // API notice
           Container(
-            color: AppTheme.warningAmber.withOpacity(0.08),
+            color: AppTheme.warningAmber.withValues(alpha: 0.08),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: const Row(
               children: [
@@ -284,7 +285,7 @@ class _TaskCard extends StatelessWidget {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
-                              color: statusColor.withOpacity(0.1),
+                              color: statusColor.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
@@ -331,7 +332,7 @@ class _TaskCard extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: AppTheme.primaryBlue.withOpacity(0.08),
+                    color: AppTheme.primaryBlue.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -345,7 +346,7 @@ class _TaskCard extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: priorityColor.withOpacity(0.08),
+                    color: priorityColor.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(

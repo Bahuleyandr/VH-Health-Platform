@@ -90,8 +90,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: signed
-            ? AppTheme.successGreen.withOpacity(0.12)
-            : AppTheme.warningAmber.withOpacity(0.12),
+            ? AppTheme.successGreen.withValues(alpha: 0.12)
+            : AppTheme.warningAmber.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Text(

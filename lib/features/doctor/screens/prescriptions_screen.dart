@@ -1,3 +1,4 @@
+// ignore_for_file: unused_element_parameter
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -579,7 +580,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF00838F).withOpacity(0.08),
+        color: const Color(0xFF00838F).withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
@@ -626,6 +627,7 @@ class _PatientSearchField extends StatefulWidget {
 class _PatientSearchFieldState extends State<_PatientSearchField> {
   final _ctrl = TextEditingController();
   List<dynamic> _results = [];
+  // ignore: unused_field
   bool _searching = false;
 
   Future<void> _search(String query) async {
@@ -843,7 +845,7 @@ class _MedicationCardState extends State<_MedicationCard> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF00838F).withOpacity(0.3)),
+        border: Border.all(color: const Color(0xFF00838F).withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

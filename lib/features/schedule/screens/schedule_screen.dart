@@ -238,7 +238,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 return Card(
                   elevation: isToday ? 3 : 1,
                   color: isToday
-                      ? AppTheme.primaryBlue.withOpacity(0.05)
+                      ? AppTheme.primaryBlue.withValues(alpha: 0.05)
                       : null,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),

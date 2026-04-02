@@ -79,7 +79,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [const Color(0xFF007A64), const Color(0xFF007A64).withOpacity(0.8)],
+                  colors: [const Color(0xFF007A64), const Color(0xFF007A64).withValues(alpha: 0.8)],
                   begin: Alignment.centerLeft,
                   end: Alignment.centerRight,
                 ),
@@ -226,7 +226,7 @@ class _PayslipCard extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF007A64).withOpacity(0.1),
+                      color: const Color(0xFF007A64).withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Icon(Icons.receipt_long, color: Color(0xFF007A64), size: 20),
@@ -383,7 +383,7 @@ class _QuickActionBanner extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [color, color.withOpacity(0.8)],
+            colors: [color, color.withValues(alpha: 0.8)],
             begin: Alignment.centerLeft,
             end: Alignment.centerRight,
           ),

@@ -173,7 +173,7 @@ class _MyQueriesTabState extends State<_MyQueriesTab> {
                                 constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.7),
                                 decoration: BoxDecoration(
                                   color: isStaff
-                                      ? const Color(0xFF007A64).withOpacity(0.1)
+                                      ? const Color(0xFF007A64).withValues(alpha: 0.1)
                                       : Colors.grey.shade100,
                                   borderRadius: BorderRadius.circular(10),
                                 ),

@@ -109,7 +109,6 @@ class StaffScaffold extends StatelessWidget {
           _NavItem('Profile', Icons.person_outlined, Icons.person, '/profile'),
         ];
       case StaffRole.general:
-      default:
         return [
           _NavItem('Home', Icons.dashboard_outlined, Icons.dashboard, '/dashboard'),
           _NavItem('Tasks', Icons.checklist_outlined, Icons.checklist, '/tasks'),

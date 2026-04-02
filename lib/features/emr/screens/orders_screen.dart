@@ -67,23 +67,23 @@ class _OrdersScreenState extends State<OrdersScreen> {
     Color fg;
     switch (status?.toLowerCase()) {
       case 'ordered':
-        bg = AppTheme.primaryBlue.withOpacity(0.12);
+        bg = AppTheme.primaryBlue.withValues(alpha: 0.12);
         fg = AppTheme.primaryBlue;
         break;
       case 'verified':
-        bg = AppTheme.accentCyan.withOpacity(0.12);
+        bg = AppTheme.accentCyan.withValues(alpha: 0.12);
         fg = AppTheme.accentCyan;
         break;
       case 'completed':
-        bg = AppTheme.successGreen.withOpacity(0.12);
+        bg = AppTheme.successGreen.withValues(alpha: 0.12);
         fg = AppTheme.successGreen;
         break;
       case 'cancelled':
-        bg = AppTheme.errorRed.withOpacity(0.12);
+        bg = AppTheme.errorRed.withValues(alpha: 0.12);
         fg = AppTheme.errorRed;
         break;
       default:
-        bg = AppTheme.textSecondary.withOpacity(0.12);
+        bg = AppTheme.textSecondary.withValues(alpha: 0.12);
         fg = AppTheme.textSecondary;
     }
     return Container(
@@ -266,9 +266,9 @@ class _OrdersScreenState extends State<OrdersScreen> {
       padding: const EdgeInsets.only(bottom: 8),
       child: ListTile(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        tileColor: color.withOpacity(0.06),
+        tileColor: color.withValues(alpha: 0.06),
         leading: CircleAvatar(
-          backgroundColor: color.withOpacity(0.15),
+          backgroundColor: color.withValues(alpha: 0.15),
           child: Icon(icon, color: color),
         ),
         title: Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
@@ -696,7 +696,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
             onSelected: (_) {
               setState(() => _filterStatus = statuses[i]);
             },
-            selectedColor: AppTheme.primaryBlue.withOpacity(0.15),
+            selectedColor: AppTheme.primaryBlue.withValues(alpha: 0.15),
             checkmarkColor: AppTheme.primaryBlue,
             labelStyle: TextStyle(
               color: selected ? AppTheme.primaryBlue : AppTheme.textSecondary,
@@ -804,7 +804,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                               CircleAvatar(
                                                 radius: 18,
                                                 backgroundColor:
-                                                    color.withOpacity(0.15),
+                                                    color.withValues(alpha: 0.15),
                                                 child: Icon(
                                                     _orderTypeIcon(type),
                                                     color: color,

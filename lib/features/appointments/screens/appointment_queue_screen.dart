@@ -713,7 +713,7 @@ class _QueueCardState extends State<_QueueCard> {
                     Container(
                       width: 36, height: 36,
                       decoration: BoxDecoration(
-                        color: AppTheme.primaryTeal.withOpacity(0.15),
+                        color: AppTheme.primaryTeal.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       alignment: Alignment.center,
@@ -734,7 +734,7 @@ class _QueueCardState extends State<_QueueCard> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: statusCol.withOpacity(0.12),
+                      color: statusCol.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(status,
@@ -865,7 +865,7 @@ class _PendingCard extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.12),
+                      color: Colors.red.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Text('SLA BREACHED',

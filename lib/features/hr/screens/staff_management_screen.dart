@@ -155,6 +155,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     );
   }
 
+  // ignore: unused_element
   Future<void> _loadDeptSummary(String department) async {
     try {
       final data = await StaffApiService.getDepartmentSummary(department);
@@ -223,7 +224,7 @@ class _StaffCard extends StatelessWidget {
           children: [
             // Avatar
             CircleAvatar(
-              backgroundColor: roleColor.withOpacity(0.15),
+              backgroundColor: roleColor.withValues(alpha: 0.15),
               child: Text(
                 name.isNotEmpty ? name[0].toUpperCase() : '?',
                 style: TextStyle(
@@ -251,8 +252,8 @@ class _StaffCard extends StatelessWidget {
                             horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: isActive
-                              ? AppTheme.successGreen.withOpacity(0.1)
-                              : AppTheme.errorRed.withOpacity(0.1),
+                              ? AppTheme.successGreen.withValues(alpha: 0.1)
+                              : AppTheme.errorRed.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(

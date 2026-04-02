@@ -133,12 +133,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   margin:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                   elevation: item.isRead ? 0 : 1,
-                  color: item.isRead ? null : color.withOpacity(0.04),
+                  color: item.isRead ? null : color.withValues(alpha: 0.04),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                     side: item.isRead
                         ? BorderSide.none
-                        : BorderSide(color: color.withOpacity(0.2)),
+                        : BorderSide(color: color.withValues(alpha: 0.2)),
                   ),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(12),
@@ -151,7 +151,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           // Icon
                           CircleAvatar(
                             radius: 20,
-                            backgroundColor: color.withOpacity(0.1),
+                            backgroundColor: color.withValues(alpha: 0.1),
                             child: Icon(icon, color: color, size: 20),
                           ),
                           const SizedBox(width: 12),
@@ -216,7 +216,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                         padding: const EdgeInsets.symmetric(
                                             horizontal: 8, vertical: 2),
                                         decoration: BoxDecoration(
-                                          color: color.withOpacity(0.1),
+                                          color: color.withValues(alpha: 0.1),
                                           borderRadius:
                                               BorderRadius.circular(10),
                                         ),

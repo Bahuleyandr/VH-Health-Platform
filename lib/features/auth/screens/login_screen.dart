@@ -126,7 +126,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   Text(
                     'Hospital Staff Portal',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.8),
+                      color: Colors.white.withValues(alpha: 0.8),
                       fontSize: 15,
                     ),
                   ),
@@ -298,10 +298,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: AppTheme.errorRed.withOpacity(0.08),
+                              color: AppTheme.errorRed.withValues(alpha: 0.08),
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
-                                  color: AppTheme.errorRed.withOpacity(0.3)),
+                                  color: AppTheme.errorRed.withValues(alpha: 0.3)),
                             ),
                             child: Row(
                               children: [

@@ -196,7 +196,7 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF57F17).withOpacity(0.1),
+                        color: const Color(0xFFF57F17).withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Row(
@@ -400,7 +400,7 @@ class _ReviewListTabState extends State<_ReviewListTab> {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFF57F17).withOpacity(0.1),
+                          color: const Color(0xFFF57F17).withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Row(

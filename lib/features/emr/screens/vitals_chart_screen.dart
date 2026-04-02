@@ -566,7 +566,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
-          color: selected ? color.withOpacity(0.12) : AppTheme.backgroundGrey,
+          color: selected ? color.withValues(alpha: 0.12) : AppTheme.backgroundGrey,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: selected ? color : AppTheme.divider,
@@ -669,7 +669,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
       child: SingleChildScrollView(
         child: DataTable(
           headingRowColor:
-              WidgetStateProperty.all(AppTheme.primaryBlue.withOpacity(0.06)),
+              WidgetStateProperty.all(AppTheme.primaryBlue.withValues(alpha: 0.06)),
           columnSpacing: 16,
           horizontalMargin: 12,
           dataRowMinHeight: 36,
@@ -852,7 +852,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                     backgroundColor: (isIntake
                             ? AppTheme.primaryBlue
                             : AppTheme.warningAmber)
-                        .withOpacity(0.15),
+                        .withValues(alpha: 0.15),
                     child: Icon(
                       isIntake ? Icons.arrow_downward : Icons.arrow_upward,
                       size: 16,
@@ -935,7 +935,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.monitor_heart,
-                size: 80, color: AppTheme.primaryBlue.withOpacity(0.3)),
+                size: 80, color: AppTheme.primaryBlue.withValues(alpha: 0.3)),
             const SizedBox(height: 20),
             Text(
               widget.patientName != null

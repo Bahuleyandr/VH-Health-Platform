@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:vhhealth_core/models/api_response.dart';
 import 'package:vhhealth_staff/core/config/api_config.dart';
 
 /// Centralized HTTP client for all backend API calls.
@@ -112,7 +113,7 @@ class ApiClient {
       ..files.addAll(files);
     final streamed = await req.send().timeout(timeout ?? _uploadTimeout);
     final body = await streamed.stream.bytesToString();
-    final parsed = ApiResponse._parse(streamed.statusCode, body);
+    final parsed = ApiResponse.parse(streamed.statusCode, body);
     _checkUnauthorized(parsed);
     return parsed;
   }
@@ -129,7 +130,7 @@ class ApiClient {
 
   /// Process an HTTP response: parse JSON and check for 401.
   static ApiResponse _processResponse(http.Response response) {
-    final parsed = ApiResponse._fromHttp(response);
+    final parsed = ApiResponse.fromHttp(response);
     _checkUnauthorized(parsed);
     return parsed;
   }
@@ -146,78 +147,5 @@ class ApiClient {
       onSessionExpired
           ?.call(response.message ?? 'Session expired. Please log in again.');
     }
-  }
-}
-
-/// Parsed backend response.
-///
-/// The backend envelope is `{ success, data: {...} }`.
-/// [data] unwraps `body['data']` automatically; [raw] holds the full decoded body.
-class ApiResponse {
-  final int statusCode;
-  final bool isSuccess;
-  final dynamic data;
-  final dynamic raw;
-  final String? message;
-
-  /// Whether this response is a 401 Unauthorized (session expired).
-  bool get isUnauthorized => statusCode == 401;
-
-  const ApiResponse._({
-    required this.statusCode,
-    required this.isSuccess,
-    this.data,
-    this.raw,
-    this.message,
-  });
-
-  factory ApiResponse._fromHttp(http.Response response) {
-    return ApiResponse._parse(response.statusCode, response.body);
-  }
-
-  static ApiResponse _parse(int statusCode, String body) {
-    final isSuccess = statusCode >= 200 && statusCode < 300;
-    dynamic decoded;
-    dynamic data;
-    String? message;
-
-    try {
-      decoded = jsonDecode(body);
-      if (decoded is Map<String, dynamic>) {
-        data = decoded['data'];
-        message = decoded['message']?.toString();
-      } else {
-        data = decoded;
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('ApiClient: failed to parse response body: $e');
-      }
-      decoded = body;
-      data = body;
-    }
-
-    return ApiResponse._(
-      statusCode: statusCode,
-      isSuccess: isSuccess,
-      data: data,
-      raw: decoded,
-      message: message,
-    );
-  }
-
-  /// Extract a list from [data], handling both direct lists and nested keys.
-  List<dynamic> dataAsList([String? key]) {
-    if (key != null && data is Map) {
-      return (data[key] as List?) ?? [];
-    }
-    if (data is List) return data;
-    return [];
-  }
-
-  /// Extract a map from [data].
-  Map<String, dynamic> dataAsMap() {
-    if (data is Map<String, dynamic>) return data;
-    return {};
   }
 }

@@ -167,10 +167,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 10, vertical: 3),
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
+                              color: Colors.white.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(20),
                               border: Border.all(
-                                  color: Colors.white.withOpacity(0.4)),
+                                  color: Colors.white.withValues(alpha: 0.4)),
                             ),
                             child: Text(
                               _role.displayName,
@@ -411,8 +411,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           avatar: Icon(a.icon, size: 18, color: a.color),
           label: Text(a.label),
           onPressed: () => context.go(a.route),
-          backgroundColor: a.color.withOpacity(0.08),
-          side: BorderSide(color: a.color.withOpacity(0.2)),
+          backgroundColor: a.color.withValues(alpha: 0.08),
+          side: BorderSide(color: a.color.withValues(alpha: 0.2)),
         );
       }).toList(),
     );
@@ -579,7 +579,7 @@ class _AttendanceStatusCard extends StatelessWidget {
               color: (isCheckedIn
                       ? AppTheme.successGreen
                       : AppTheme.warningAmber)
-                  .withOpacity(0.3),
+                  .withValues(alpha: 0.3),
               blurRadius: 12,
               offset: const Offset(0, 4),
             ),
@@ -590,7 +590,7 @@ class _AttendanceStatusCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
+                color: Colors.white.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
@@ -661,7 +661,7 @@ class _FeatureButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
           boxShadow: [
             BoxShadow(
-                color: Colors.black.withOpacity(0.06),
+                color: Colors.black.withValues(alpha: 0.06),
                 blurRadius: 8,
                 offset: const Offset(0, 2))
           ],
@@ -672,7 +672,7 @@ class _FeatureButton extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
+                color: color.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(icon, color: color, size: 26),

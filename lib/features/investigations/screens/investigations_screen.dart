@@ -165,10 +165,10 @@ class _UploadTabState extends State<_UploadTab> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: AppTheme.accentCyan.withOpacity(0.08),
+                color: AppTheme.accentCyan.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(8),
                 border:
-                    Border.all(color: AppTheme.accentCyan.withOpacity(0.3)),
+                    Border.all(color: AppTheme.accentCyan.withValues(alpha: 0.3)),
               ),
               child: const Row(
                 children: [
@@ -265,7 +265,7 @@ class _UploadTabState extends State<_UploadTab> {
                 height: 80,
                 width: double.infinity,
                 decoration: BoxDecoration(
-                  color: _file != null ? AppTheme.accentCyan.withOpacity(0.08) : Colors.white,
+                  color: _file != null ? AppTheme.accentCyan.withValues(alpha: 0.08) : Colors.white,
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
                       color: _file != null ? AppTheme.accentCyan : const Color(0xFFB0BEC5),
@@ -464,7 +464,7 @@ class _PendingTabState extends State<_PendingTab> {
                     children: [
                       CircleAvatar(
                         backgroundColor:
-                            AppTheme.warningAmber.withOpacity(0.15),
+                            AppTheme.warningAmber.withValues(alpha: 0.15),
                         child: const Icon(Icons.science_outlined,
                             color: AppTheme.warningAmber, size: 20),
                       ),
@@ -488,7 +488,7 @@ class _PendingTabState extends State<_PendingTab> {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: AppTheme.warningAmber.withOpacity(0.1),
+                          color: AppTheme.warningAmber.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(status.toUpperCase(),
@@ -642,7 +642,7 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
             margin: const EdgeInsets.only(bottom: 10),
             child: ListTile(
               leading: CircleAvatar(
-                backgroundColor: AppTheme.accentCyan.withOpacity(0.1),
+                backgroundColor: AppTheme.accentCyan.withValues(alpha: 0.1),
                 child: const Icon(Icons.biotech,
                     color: AppTheme.accentCyan, size: 20),
               ),
@@ -654,7 +654,7 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.1),
+                        color: statusColor.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(status.toUpperCase(),

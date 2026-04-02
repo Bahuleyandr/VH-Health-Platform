@@ -334,6 +334,7 @@ class _CurrentConsultationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // ignore: unused_local_variable
     final name = appointment['patientName']?.toString() ??
         appointment['patient']?['name']?.toString() ??
         'Unknown';
@@ -341,10 +342,10 @@ class _CurrentConsultationCard extends StatelessWidget {
         appointment['appointmentType']?.toString() ?? '';
 
     return Card(
-      color: AppTheme.primaryBlue.withOpacity(0.05),
+      color: AppTheme.primaryBlue.withValues(alpha: 0.05),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: AppTheme.primaryBlue.withOpacity(0.3)),
+        side: BorderSide(color: AppTheme.primaryBlue.withValues(alpha: 0.3)),
       ),
       child: InkWell(
         onTap: onTap,
@@ -461,7 +462,7 @@ class _QueueCard extends StatelessWidget {
                   height: 32,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: completed ? AppTheme.successGreen.withOpacity(0.1) : AppTheme.warningAmber.withOpacity(0.1),
+                    color: completed ? AppTheme.successGreen.withValues(alpha: 0.1) : AppTheme.warningAmber.withValues(alpha: 0.1),
                     shape: BoxShape.circle,
                   ),
                   child: Text('$position', style: TextStyle(fontWeight: FontWeight.bold, color: completed ? AppTheme.successGreen : AppTheme.warningAmber)),
@@ -609,6 +610,7 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
 
   Widget _buildInfoSection() {
     final patient = _records!['patient'] as Map<String, dynamic>? ?? _records!;
+            // ignore: unused_local_variable
     final name = patient['name']?.toString() ?? widget.patientName;
     final age = patient['age']?.toString() ?? '';
     final gender = patient['gender']?.toString() ?? '';
@@ -707,8 +709,8 @@ class _ActionChip extends StatelessWidget {
       avatar: Icon(icon, color: color, size: 18),
       label: Text(label, style: TextStyle(color: color, fontSize: 13)),
       onPressed: onTap,
-      backgroundColor: color.withOpacity(0.08),
-      side: BorderSide(color: color.withOpacity(0.2)),
+      backgroundColor: color.withValues(alpha: 0.08),
+      side: BorderSide(color: color.withValues(alpha: 0.2)),
     );
   }
 }

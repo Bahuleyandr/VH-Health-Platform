@@ -192,7 +192,7 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
               decoration: BoxDecoration(
                 color: const Color(0xFFE8F5F3),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF007A64).withOpacity(0.4)),
+                border: Border.all(color: const Color(0xFF007A64).withValues(alpha: 0.4)),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,

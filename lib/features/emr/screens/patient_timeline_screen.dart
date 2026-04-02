@@ -166,7 +166,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                 Row(
                   children: [
                     CircleAvatar(
-                      backgroundColor: color.withOpacity(0.15),
+                      backgroundColor: color.withValues(alpha: 0.15),
                       child: Icon(_eventIcon(type), color: color, size: 22),
                     ),
                     const SizedBox(width: 12),
@@ -296,7 +296,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
             onSelected: (_) {
               setState(() => _filterType = type == 'all' ? null : type);
             },
-            selectedColor: AppTheme.primaryBlue.withOpacity(0.15),
+            selectedColor: AppTheme.primaryBlue.withValues(alpha: 0.15),
             checkmarkColor: AppTheme.primaryBlue,
             labelStyle: TextStyle(
               color: selected ? AppTheme.primaryBlue : AppTheme.textSecondary,
@@ -330,7 +330,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                     width: 32,
                     height: 32,
                     decoration: BoxDecoration(
-                      color: color.withOpacity(0.15),
+                      color: color.withValues(alpha: 0.15),
                       shape: BoxShape.circle,
                     ),
                     child: Icon(_eventIcon(type), color: color, size: 16),
@@ -362,7 +362,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
-                                color: color.withOpacity(0.12),
+                                color: color.withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(

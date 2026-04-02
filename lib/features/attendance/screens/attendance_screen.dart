@@ -32,6 +32,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
   Map<String, Map<String, dynamic>> _calendarData = {};
+  // ignore: unused_field
   bool _calendarLoading = false;
 
   // History

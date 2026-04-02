@@ -189,7 +189,7 @@ class _StaffTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: roleColor.withOpacity(0.15),
+          backgroundColor: roleColor.withValues(alpha: 0.15),
           child: Text(
             name.isNotEmpty ? name[0].toUpperCase() : '?',
             style:
@@ -221,8 +221,8 @@ class _StaffTile extends StatelessWidget {
                   const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
                 color: isActive
-                    ? AppTheme.successGreen.withOpacity(0.1)
-                    : AppTheme.errorRed.withOpacity(0.1),
+                    ? AppTheme.successGreen.withValues(alpha: 0.1)
+                    : AppTheme.errorRed.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(

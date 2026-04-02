@@ -78,7 +78,7 @@ class _SosButtonState extends State<SosButton>
           icon: const Icon(Icons.emergency, color: Colors.red),
           tooltip: 'Emergency SOS',
           style: IconButton.styleFrom(
-            backgroundColor: Colors.red.withOpacity(0.15),
+            backgroundColor: Colors.red.withValues(alpha: 0.15),
           ),
         ),
       ),

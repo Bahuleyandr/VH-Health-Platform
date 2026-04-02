@@ -495,7 +495,7 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: AppTheme.errorRed.withOpacity(0.08),
+                color: AppTheme.errorRed.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(

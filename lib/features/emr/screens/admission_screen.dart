@@ -65,19 +65,19 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
     Color fg;
     switch (status?.toLowerCase()) {
       case 'admitted':
-        bg = AppTheme.primaryBlue.withOpacity(0.12);
+        bg = AppTheme.primaryBlue.withValues(alpha: 0.12);
         fg = AppTheme.primaryBlue;
         break;
       case 'discharged':
-        bg = AppTheme.successGreen.withOpacity(0.12);
+        bg = AppTheme.successGreen.withValues(alpha: 0.12);
         fg = AppTheme.successGreen;
         break;
       case 'transferred':
-        bg = AppTheme.warningAmber.withOpacity(0.12);
+        bg = AppTheme.warningAmber.withValues(alpha: 0.12);
         fg = AppTheme.warningAmber;
         break;
       default:
-        bg = AppTheme.textSecondary.withOpacity(0.12);
+        bg = AppTheme.textSecondary.withValues(alpha: 0.12);
         fg = AppTheme.textSecondary;
     }
     return Container(
@@ -384,7 +384,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                               leading: CircleAvatar(
                                 backgroundColor:
                                     _priorityColor(a['priority'] as String?)
-                                        .withOpacity(0.15),
+                                        .withValues(alpha: 0.15),
                                 child: Icon(Icons.local_hospital,
                                     color: _priorityColor(
                                         a['priority'] as String?)),

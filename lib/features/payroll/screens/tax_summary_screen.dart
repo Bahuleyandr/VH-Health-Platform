@@ -90,7 +90,7 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
         children: [
           // FY Selector
           Container(
-            color: const Color(0xFF007A64).withOpacity(0.08),
+            color: const Color(0xFF007A64).withValues(alpha: 0.08),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             child: Row(
               children: [
