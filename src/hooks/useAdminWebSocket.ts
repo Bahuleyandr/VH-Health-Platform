@@ -1,9 +1,12 @@
 // src/hooks/useAdminWebSocket.ts
+import { useCallback } from "react";
 import { useWebSocket } from "./useWebSocket";
 import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
+import { WS_BASE_URL } from "@/lib/api-config";
 
-// Message types
+// ── Message types ────────────────────────────────────────────────────────────
+
 export interface SystemAlertMessage {
   type: "system-alert";
   message: string;
@@ -19,7 +22,7 @@ export interface SosAlertMessage {
 export interface StatsUpdateMessage {
   type: "stats-update";
   module?: string;
-  data?: unknown; // keep flexible
+  data?: unknown;
 }
 
 export interface ActivityMessage {
@@ -35,71 +38,92 @@ export type AdminWebSocketMessage =
   | StatsUpdateMessage
   | ActivityMessage;
 
+// Backend event → normalized AdminWebSocketMessage type mapping
+const EVENT_TYPE_MAP: Record<string, AdminWebSocketMessage["type"]> = {
+  "sos-alert":            "sos-alert",
+  "system-alert":         "system-alert",
+  "stats-update":         "stats-update",
+  "activity":             "activity",
+  // Backend channel names that map to portal message types
+  "appointment-updates":  "stats-update",
+  "queue-updates":        "stats-update",
+};
+
+// Channels the admin portal subscribes to after connecting
+const ADMIN_CHANNELS = ["sos-alert", "system-alert", "stats-update", "activity", "appointment-updates", "queue-updates"];
+
 export function useAdminWebSocket() {
   const queryClient = useQueryClient();
 
-  // Normalize base URL and avoid double slashes
-  const base = (process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:3001").replace(/\/+$/, "");
-  const url = `${base}/admin`;
+  // Backend WS is at /ws (single path, channel-subscription model)
+  const base = WS_BASE_URL.replace(/\/+$/, "");
+  const url = `${base}/ws`;
 
-  // Allow union with string in case your wrapper forwards raw text sometimes
-  const { isConnected, connectionState, send, reconnect } =
-    useWebSocket<AdminWebSocketMessage | string>(url, {
-      authenticated: true,
+  const { isConnected, connectionState, send, sendJson, reconnect } =
+    useWebSocket<unknown>(url, {
+      authenticated: true,    // adds ?token= to URL (browser WS can't set headers)
       autoReconnect: true,
       exponentialBackoff: true,
 
-      onMessage: (data) => {
-        // Be robust to raw JSON strings
-        let msg: unknown = data;
-        if (typeof msg === "string") {
-          try {
-            msg = JSON.parse(msg);
-          } catch {
-            // Not JSON → ignore quietly
-            return;
-          }
+      onOpen: () => {
+        // Subscribe to all admin-relevant channels after connection
+        for (const channel of ADMIN_CHANNELS) {
+          sendJson({ action: "subscribe", channel });
         }
-        if (!msg || typeof msg !== "object" || !("type" in msg)) return;
+      },
 
-        const m = msg as AdminWebSocketMessage;
+      onMessage: (raw) => {
+        let msg: unknown = raw;
+        if (typeof msg === "string") {
+          try { msg = JSON.parse(msg); } catch { return; }
+        }
+        if (!msg || typeof msg !== "object") return;
 
-        switch (m.type) {
+        // Backend envelope: { event: string, data: unknown } or { type: string, ... }
+        const envelope = msg as Record<string, unknown>;
+        const eventName = (envelope.event ?? envelope.type ?? "") as string;
+        const payload   = envelope.data ?? envelope;
+
+        if (!eventName) return;
+
+        // Normalise to portal message type
+        const msgType = EVENT_TYPE_MAP[eventName];
+        if (!msgType) return;
+
+        switch (msgType) {
           case "system-alert": {
-            toast.error(m.message);
+            const message = typeof payload === "object" && payload !== null
+              ? ((payload as Record<string, unknown>).message as string) ?? eventName
+              : String(payload);
+            toast.error(message);
             queryClient.invalidateQueries({ queryKey: ["admin", "alerts"] });
             break;
           }
 
           case "sos-alert": {
-            const s = m as SosAlertMessage;
-            const title = `New SOS Alert: ${s.message ?? ""}`.trim() || "New SOS Alert";
-            const id = s.alertId ?? undefined;
-
-            // Map severity to icon, keep your yellow styling
-            const icon =
-              s.severity === "HIGH" ? "🚨" : s.severity === "MEDIUM" ? "⚠️" : "ℹ️";
-
-            toast(title, {
-              id,
+            const d = (typeof payload === "object" && payload !== null ? payload : {}) as Record<string, unknown>;
+            const message  = (d.message  as string) ?? "New SOS Alert";
+            const severity = (d.severity as string) ?? "HIGH";
+            const alertId  = (d.alertId  as string) ?? undefined;
+            const icon = severity === "HIGH" ? "🚨" : severity === "MEDIUM" ? "⚠️" : "ℹ️";
+            toast(message, {
+              id: alertId,
               icon,
-              style: {
-                background: "#FEF3C7", // amber-100
-                color: "#92400E",      // amber-800
-              },
+              style: { background: "#FEF3C7", color: "#92400E" },
             });
-
             queryClient.invalidateQueries({ queryKey: ["admin", "sos"] });
             break;
           }
 
           case "stats-update": {
-            const s = m as StatsUpdateMessage;
-            // Broad stats refresh
+            const d = (typeof payload === "object" && payload !== null ? payload : {}) as Record<string, unknown>;
             queryClient.invalidateQueries({ queryKey: ["admin", "stats"] });
-            // Narrow module refresh if provided
-            if (s.module) {
-              queryClient.invalidateQueries({ queryKey: ["admin", "stats", s.module] });
+            if (d.module && typeof d.module === "string") {
+              queryClient.invalidateQueries({ queryKey: ["admin", "stats", d.module] });
+            }
+            // Appointment/queue updates also refresh appointment data
+            if (eventName === "appointment-updates" || eventName === "queue-updates") {
+              queryClient.invalidateQueries({ queryKey: ["admin", "appointments"] });
             }
             break;
           }
@@ -111,21 +135,15 @@ export function useAdminWebSocket() {
         }
       },
 
-      onOpen: () => {
-        // console.debug("Admin WebSocket connected");
-      },
-      onClose: () => {
-        // console.debug("Admin WebSocket disconnected");
-      },
-      onError: () => {
-        // console.error("Admin WebSocket error");
-      },
+      onClose: () => { /* silent */ },
+      onError: () => { /* silent */ },
     });
 
-  return {
-    isConnected,
-    connectionState,
-    send,
-    reconnect,
-  };
+  // Convenience: broadcast a message to a channel (admin → backend)
+  const broadcast = useCallback(
+    (channel: string, data: unknown) => sendJson({ action: "publish", channel, data }),
+    [sendJson],
+  );
+
+  return { isConnected, connectionState, send, sendJson, broadcast, reconnect };
 }
