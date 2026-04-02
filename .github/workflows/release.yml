@@ -19,6 +19,10 @@ jobs:
         with:
           channel: stable
           cache: true
+      - name: Install vhhealth-core dependencies
+        run: |
+          cd ../vhhealth-core
+          flutter pub get
       - run: flutter pub get
       - run: flutter build apk --release
       - run: flutter build appbundle --release

@@ -23,6 +23,11 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Install vhhealth-core dependencies
+        run: |
+          cd vhhealth-core
+          flutter pub get
+
       # Override path dependency to point to checked-out core within workspace
       - name: Fix core path for CI
         run: |
