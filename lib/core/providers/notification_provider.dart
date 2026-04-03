@@ -2,10 +2,20 @@
 
 import 'package:flutter/material.dart';
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/providers/websocket_provider.dart';
 
 class NotificationProvider extends ChangeNotifier {
   int _unreadCount = 0;
   int get unreadCount => _unreadCount;
+
+  /// Merge any pending WS-delivered notifications into the unread count.
+  void mergeFromWebSocket(WebSocketProvider wsProv) {
+    final pending = wsProv.wsNotifications;
+    if (pending.isEmpty) return;
+    _unreadCount += pending.length;
+    wsProv.clearNotifications();
+    notifyListeners();
+  }
 
   /// Fetch unread notifications for the given phone number
   Future<void> fetchUnreadCount(String phone) async {

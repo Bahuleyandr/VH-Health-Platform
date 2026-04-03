@@ -37,6 +37,7 @@ dependencies:
   
   # Networking / storage / utilities
   http: ^1.4.0
+  web_socket_channel: ^3.0.1
   encrypt: ^5.0.3
   shared_preferences: ^2.3.2      # Updated from 2.2.2
   path_provider: ^2.1.1

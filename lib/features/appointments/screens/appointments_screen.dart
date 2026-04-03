@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:url_launcher/url_launcher.dart';
+import 'package:vhhealth/core/providers/websocket_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/core/utils/calendar_utils.dart';
@@ -108,10 +110,25 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
     _phoneController.text = _isGuest ? '' : widget.phone;
     _loadPatientId();
     _fetchDepartments();
+
+    // Listen to WS appointment-status-changed events.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<WebSocketProvider>().addListener(_onWsEvent);
+    });
+  }
+
+  void _onWsEvent() {
+    final wsProv = context.read<WebSocketProvider>();
+    final event = wsProv.lastAppointmentEvent;
+    if (event != null) {
+      wsProv.clearAppointmentEvent();
+      _fetchAppointments();
+    }
   }
 
   @override
   void dispose() {
+    context.read<WebSocketProvider>().removeListener(_onWsEvent);
     _tabController.dispose();
     _phoneController.dispose();
     _reasonController.dispose();

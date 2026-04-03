@@ -14,6 +14,7 @@ import 'package:vhhealth/core/providers/theme_provider.dart';
 import 'package:vhhealth/core/providers/language_provider.dart';
 import 'package:vhhealth/core/providers/notification_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
+import 'package:vhhealth/core/providers/websocket_provider.dart';
 
 // App Router
 import 'package:vhhealth/core/navigation/app_router.dart';
@@ -21,6 +22,7 @@ import 'package:vhhealth/core/navigation/app_router.dart';
 // Core Services
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/connectivity_service.dart';
+import 'package:vhhealth/core/services/websocket_service.dart';
 
 // App Utilities
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -43,6 +45,9 @@ Future<void> main() async {
   // Start network connectivity monitoring.
   ConnectivityService.startMonitoring();
 
+  // Connect the WebSocket service for real-time updates.
+  WebSocketService.instance.connect();
+
   // Catch async errors not handled by Flutter framework.
   runZonedGuarded(() {
     runApp(const VHRoot());
@@ -62,6 +67,7 @@ class VHRoot extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => LanguageProvider()),
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
         ChangeNotifierProvider(create: (_) => UserProvider()),
+        ChangeNotifierProvider(create: (_) => WebSocketProvider()..listen()),
       ],
       child: Consumer2<ThemeProvider, LanguageProvider>(
         builder: (context, themeProv, langProv, _) {
