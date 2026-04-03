@@ -270,6 +270,20 @@ class RoleFeatures {
     route: '/dietary',
     color: Color(0xFF00796B),
   );
+  static const DashboardFeature _theatre = DashboardFeature(
+    id: 'theatre',
+    title: 'Operating Theatre',
+    icon: Icons.local_hospital,
+    route: '/theatre',
+    color: Color(0xFF6A1B9A),
+  );
+  static const DashboardFeature _radiology = DashboardFeature(
+    id: 'radiology',
+    title: 'Radiology',
+    icon: Icons.biotech,
+    route: '/radiology',
+    color: Color(0xFF0277BD),
+  );
 
   /// Returns ordered list of dashboard features for the given role.
   static List<DashboardFeature> getFeaturesForRole(StaffRole role) {
@@ -283,6 +297,8 @@ class RoleFeatures {
           _patientRecords,
           _prescriptions,
           _investigationResults,
+          _theatre,
+          _radiology,
           _bedBoard,
           _bloodBank,
           _leave,
@@ -301,6 +317,8 @@ class RoleFeatures {
           _handover,
           _investigationResults,
           _labBookings,
+          _theatre,
+          _radiology,
           _bedBoard,
           _bloodBank,
           _dietary,
@@ -333,6 +351,8 @@ class RoleFeatures {
           _investigationsUpload,
           _investigationResults,
           _labBookings,
+          _theatre,
+          _radiology,
           _bedBoard,
           _bloodBank,
           _dietary,

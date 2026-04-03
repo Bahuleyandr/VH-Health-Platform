@@ -60,6 +60,12 @@ import '../../features/bloodbank/screens/blood_bank_screen.dart';
 // Dietary
 import '../../features/dietary/screens/dietary_screen.dart';
 
+// Theatre
+import '../../features/theatre/screens/theatre_screen.dart';
+
+// Radiology
+import '../../features/radiology/screens/radiology_screen.dart';
+
 // EMR
 import '../../features/emr/screens/admission_screen.dart';
 import '../../features/emr/screens/clinical_notes_screen.dart';
@@ -331,6 +337,22 @@ final GoRouter appRouter = GoRouter(
           name: 'dietary',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: DietaryScreen()),
+        ),
+
+        // Theatre
+        GoRoute(
+          path: '/theatre',
+          name: 'theatre',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: TheatreScreen()),
+        ),
+
+        // Radiology
+        GoRoute(
+          path: '/radiology',
+          name: 'radiology',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: RadiologyScreen()),
         ),
 
         // EMR
