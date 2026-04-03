@@ -113,6 +113,45 @@ export async function createHealthRecord(req, res) {
   }
 }
 
+// UID-based consultations (preferred — no PII in URL)
+export async function getConsultationsByUid(req, res) {
+  try {
+    const { uid } = req.params;
+    const { type, limit = 50, offset = 0 } = req.query;
+    const userRole = req.user?.role;
+    const requestedBy = req.user?.uid || 'anonymous';
+
+    // Patients can only view their own records
+    if (userRole === PATIENT) {
+      if (String(req.user?.uid) !== String(uid)) {
+        return error(res, 'Access denied: Patients can only view their own records', 403);
+      }
+    }
+
+    const records = await recordService.getHealthRecordsByUid(uid, { type, limit, offset });
+
+    const filteredRecords = accessControl.filterRecordsByAccess(
+      records,
+      userRole,
+      { uid }
+    );
+
+    success(res, {
+      records: filteredRecords,
+      count: filteredRecords.length,
+      totalFound: records.length,
+      filters: { type, limit, offset },
+      uid,
+      requestedBy,
+      accessLevel: userRole
+    }, 'Health records fetched successfully');
+
+  } catch (err) {
+    logger.error(`[ConsultationsByUid] ${err.message}`);
+    error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
+  }
+}
+
 // Legacy endpoint
 export async function getConsultationsByPhone(req, res) {
   // Redirect to new endpoint

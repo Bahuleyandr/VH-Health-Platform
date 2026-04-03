@@ -28,6 +28,9 @@ router.get('/health-records/:phone', phoneValidator, patientController.getHealth
 // Create health record
 router.post('/health-records', healthRecordCreateValidator, patientController.createHealthRecord);
 
+// UID-based consultations (preferred — no PII in URL)
+router.get('/consultations/uid/:uid', uidValidator, patientController.getConsultationsByUid);
+
 // Legacy endpoint - consultations
 router.get('/consultations/:phoneNumber', patientController.getConsultationsByPhone);
 
