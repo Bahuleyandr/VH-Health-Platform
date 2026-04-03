@@ -100,14 +100,15 @@ export async function getAllAlerts(limit = 50, offset = 0) {
  * @returns {Promise<Array>} Array of service records or empty.
  */
 export async function getEmergencyServices() {
-  const tables = ['emergency_services', 'sos_services'];
-  for (const table of tables) {
+  // Hardcoded allowlist — never accept table names from user input
+  const ALLOWED_TABLES = new Set(['emergency_services', 'sos_services']);
+  for (const table of ALLOWED_TABLES) {
     if (await tableExists(table)) {
-      const services = await safeQuery(
-        `SELECT * FROM ${table} ORDER BY name`,
-        [],
-        `sos.services.${table}`
-      );
+      // Use explicit column list per table instead of SELECT *
+      const query = table === 'emergency_services'
+        ? `SELECT id, name, phone, type, address, latitude, longitude, created_at FROM emergency_services ORDER BY name`
+        : `SELECT id, name, phone, type, address, latitude, longitude, created_at FROM sos_services ORDER BY name`;
+      const services = await safeQuery(query, [], `sos.services.${table}`);
       return services;
     }
   }
@@ -126,22 +127,19 @@ export async function getPerformanceReport() {
     return { metrics, avgResponseTimeMinutes: null };
   }
 
-  // Try to compute average response time using common resolution columns
+  // Try to compute average response time using common resolution columns.
+  // Column names are from a hardcoded allowlist — safe to use in SQL identifiers.
   let avgResponse = null;
-  const possibleCols = ['resolved_at', 'updated_at', 'responded_at'];
-  for (const col of possibleCols) {
+  const ALLOWED_COLS = new Set(['resolved_at', 'updated_at', 'responded_at']);
+  for (const col of ALLOWED_COLS) {
     if (await columnExists('sos_alerts', col)) {
-      avgResponse = await safeScalar(
-        `
-        SELECT ROUND(
-          AVG(EXTRACT(EPOCH FROM (COALESCE(${col}, NOW()) - created_at)) / 60)
-        )::int AS minutes
-        FROM sos_alerts
-        WHERE COALESCE(${col}, NOW()) > created_at
-        `,
-        [],
-        null
-      );
+      // Build query per known column — avoids string interpolation in SQL
+      const queries = {
+        resolved_at: `SELECT ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(resolved_at, NOW()) - created_at)) / 60))::int AS minutes FROM sos_alerts WHERE COALESCE(resolved_at, NOW()) > created_at`,
+        updated_at: `SELECT ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(updated_at, NOW()) - created_at)) / 60))::int AS minutes FROM sos_alerts WHERE COALESCE(updated_at, NOW()) > created_at`,
+        responded_at: `SELECT ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(responded_at, NOW()) - created_at)) / 60))::int AS minutes FROM sos_alerts WHERE COALESCE(responded_at, NOW()) > created_at`,
+      };
+      avgResponse = await safeScalar(queries[col], [], null);
       break;
     }
   }
