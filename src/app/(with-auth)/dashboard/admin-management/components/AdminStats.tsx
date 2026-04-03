@@ -12,16 +12,9 @@ interface AdminStatsProps {
 }
 
 export function AdminStats({ admins, isLoading, error }: AdminStatsProps) {
-  if (isLoading) {
-    return <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6"><div className="col-span-full p-6 text-center text-muted-foreground">Loading stats...</div></div>;
-  }
-
-  if (error) {
-    return <div className="mb-6 p-4 text-center text-destructive">{error}</div>;
-  }
-
   const { total, active, inactive, superAdmins, recentlyActive } =
     useMemo(() => {
+      if (isLoading || error) return { total: 0, active: 0, inactive: 0, superAdmins: 0, recentlyActive: 0 };
       const now = Date.now();
       const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
 
@@ -45,7 +38,15 @@ export function AdminStats({ admins, isLoading, error }: AdminStatsProps) {
         }
       }
       return { total, active, inactive, superAdmins, recentlyActive };
-    }, [admins]);
+    }, [admins, isLoading, error]);
+
+  if (isLoading) {
+    return <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6"><div className="col-span-full p-6 text-center text-muted-foreground">Loading stats...</div></div>;
+  }
+
+  if (error) {
+    return <div className="mb-6 p-4 text-center text-destructive">{error}</div>;
+  }
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
