@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:uuid/uuid.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 
 /// Device management API calls.
@@ -8,12 +9,13 @@ class DeviceService {
   DeviceService._();
 
   static const _storage = FlutterSecureStorage();
+  static const _uuid = Uuid();
 
-  /// A simple device ID derived from stored value or generated once.
+  /// A unique device ID stored in secure storage. Uses UUID v4.
   static Future<String> _getDeviceId() async {
     var id = await _storage.read(key: 'device_id');
     if (id == null) {
-      id = DateTime.now().millisecondsSinceEpoch.toRadixString(36);
+      id = _uuid.v4();
       await _storage.write(key: 'device_id', value: id);
     }
     return id;

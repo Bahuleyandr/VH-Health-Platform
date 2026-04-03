@@ -13,6 +13,7 @@ import 'firebase_options.dart';
 import 'package:vhhealth/core/providers/theme_provider.dart';
 import 'package:vhhealth/core/providers/language_provider.dart';
 import 'package:vhhealth/core/providers/notification_provider.dart';
+import 'package:vhhealth/core/providers/session_timeout_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/providers/websocket_provider.dart';
 
@@ -72,24 +73,38 @@ class VHRoot extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
         ChangeNotifierProvider(create: (_) => UserProvider()),
         ChangeNotifierProvider(create: (_) => WebSocketProvider()..listen()),
+        ChangeNotifierProvider(
+          create: (_) => SessionTimeoutProvider(
+            timeoutDuration: const Duration(minutes: 30),
+          ),
+          // Don't call startTracking() here — timer should only start
+          // after successful login. The router redirect starts it when
+          // navigating an authenticated user to /home.
+        ),
       ],
       child: Consumer2<ThemeProvider, LanguageProvider>(
         builder: (context, themeProv, langProv, _) {
-          return MaterialApp.router(
-            debugShowCheckedModeBanner: false,
-            title: 'VH Health',
-            themeMode: themeProv.themeMode,
-            theme: themeProv.lightTheme,
-            darkTheme: themeProv.darkTheme,
-            locale: langProv.locale,
-            supportedLocales: AppLocalizations.supportedLocales,
-            localizationsDelegates: const [
-              AppLocalizations.delegate,
-              GlobalMaterialLocalizations.delegate,
-              GlobalWidgetsLocalizations.delegate,
-              GlobalCupertinoLocalizations.delegate,
-            ],
-            routerConfig: AppRouter.router,
+          // Track user activity for idle timeout
+          return Listener(
+            onPointerDown: (_) {
+              context.read<SessionTimeoutProvider>().recordActivity();
+            },
+            child: MaterialApp.router(
+              debugShowCheckedModeBanner: false,
+              title: 'VH Health',
+              themeMode: themeProv.themeMode,
+              theme: themeProv.lightTheme,
+              darkTheme: themeProv.darkTheme,
+              locale: langProv.locale,
+              supportedLocales: AppLocalizations.supportedLocales,
+              localizationsDelegates: const [
+                AppLocalizations.delegate,
+                GlobalMaterialLocalizations.delegate,
+                GlobalWidgetsLocalizations.delegate,
+                GlobalCupertinoLocalizations.delegate,
+              ],
+              routerConfig: AppRouter.router,
+            ),
           );
         },
       ),

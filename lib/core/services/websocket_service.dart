@@ -11,8 +11,8 @@ import 'package:vhhealth/core/config/api_config.dart';
 
 /// Singleton WebSocket service for real-time backend communication.
 ///
-/// Connects to the backend WS server with JWT auth, subscribes to channels,
-/// and exposes a broadcast stream of parsed JSON events.
+/// Connects to the backend WS server with JWT auth sent via the first
+/// message frame (not in the URL) to prevent token leakage in logs.
 class WebSocketService {
   WebSocketService._();
   static final WebSocketService instance = WebSocketService._();
@@ -38,8 +38,7 @@ class WebSocketService {
 
   /// Connect to the WebSocket server.
   ///
-  /// [channels] — channels to subscribe to after connecting.
-  /// Defaults to `['appointment-updates', 'queue-updates']`.
+  /// [channels] - channels to subscribe to after connecting.
   Future<void> connect({
     List<String> channels = const ['appointment-updates', 'queue-updates'],
   }) async {
@@ -48,11 +47,12 @@ class WebSocketService {
 
     final jwt = await _storage.read(key: 'jwt');
     if (jwt == null) {
-      if (kDebugMode) debugPrint('WebSocketService: no JWT — skipping connect');
+      if (kDebugMode) debugPrint('WebSocketService: no JWT - skipping connect');
       return;
     }
 
-    final wsUrl = _buildWsUrl(jwt);
+    // Connect WITHOUT token in URL to prevent leakage in logs/proxies
+    final wsUrl = _buildWsUrl();
 
     try {
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
@@ -60,6 +60,9 @@ class WebSocketService {
       _retryCount = 0;
 
       if (kDebugMode) debugPrint('WebSocketService: connected');
+
+      // Send JWT as first message frame for authentication
+      sendMessage({'action': 'auth', 'token': jwt});
 
       // Subscribe to requested channels.
       for (final ch in _subscribedChannels) {
@@ -72,7 +75,7 @@ class WebSocketService {
         onDone: _onDone,
       );
     } catch (e) {
-      if (kDebugMode) debugPrint('WebSocketService: connect failed — $e');
+      if (kDebugMode) debugPrint('WebSocketService: connect failed - $e');
       _scheduleReconnect();
     }
   }
@@ -99,7 +102,7 @@ class WebSocketService {
   void sendMessage(Map<String, dynamic> message) {
     if (_channel == null) {
       if (kDebugMode) {
-        debugPrint('WebSocketService: cannot send — not connected');
+        debugPrint('WebSocketService: cannot send - not connected');
       }
       return;
     }
@@ -112,13 +115,14 @@ class WebSocketService {
     _controller.close();
   }
 
-  // ── Private helpers ───────────────────────────────────────────────────────
+  // -- Private helpers --
 
-  String _buildWsUrl(String jwt) {
-    // Convert https://api.vhhealth.app/api/v1 → wss://api.vhhealth.app/ws
+  String _buildWsUrl() {
+    // Convert https://api.vhhealth.app/api/v1 -> wss://api.vhhealth.app/ws
+    // Token is sent via first message frame, NOT in URL
     final base = Uri.parse(ApiConfig.baseUrl);
     final scheme = base.scheme == 'https' ? 'wss' : 'ws';
-    return '$scheme://${base.host}/ws?token=$jwt';
+    return '$scheme://${base.host}/ws';
   }
 
   void _onData(dynamic raw) {
@@ -130,14 +134,14 @@ class WebSocketService {
       }
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('WebSocketService: failed to parse message — $e');
+        debugPrint('WebSocketService: failed to parse message - $e');
       }
     }
   }
 
   void _onError(Object error) {
     if (kDebugMode) {
-      debugPrint('WebSocketService: stream error — $error');
+      debugPrint('WebSocketService: stream error - $error');
     }
     _channel = null;
     _scheduleReconnect();
@@ -156,7 +160,7 @@ class WebSocketService {
   void _scheduleReconnect() {
     if (_intentionalDisconnect || _retryCount >= _maxRetries) {
       if (kDebugMode && _retryCount >= _maxRetries) {
-        debugPrint('WebSocketService: max retries reached — giving up');
+        debugPrint('WebSocketService: max retries reached - giving up');
       }
       return;
     }

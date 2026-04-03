@@ -4,7 +4,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:vhhealth/core/offline/api_cache_manager.dart';
 
+/// Manages offline caching of medical record manifests.
+///
+/// Data at rest is encrypted using the same AES-256-GCM pattern as
+/// [ApiCacheManager] to protect PHI stored on the device.
 class RecordCacheManager {
   static Future<String> _getCacheDirPath() async {
     final dir = await getApplicationDocumentsDirectory();
@@ -16,30 +21,27 @@ class RecordCacheManager {
   }
 
   static Future<void> saveManifest(String phone, List<dynamic> data) async {
-    final cachePath = await _getCacheDirPath();
-    final manifestFile = File('$cachePath/${phone}_manifest.json');
-    await manifestFile.writeAsString(jsonEncode(data));
+    try {
+      // Encrypt via ApiCacheManager's shared encryption
+      await ApiCacheManager.save('records_manifest_$phone', data);
+    } catch (e) {
+      debugPrint('RecordCacheManager.saveManifest failed: $e');
+    }
   }
 
   static Future<List<dynamic>?> loadManifest(String phone) async {
     try {
-      final cachePath = await _getCacheDirPath();
-      final manifestFile = File('$cachePath/${phone}_manifest.json');
-      if (await manifestFile.exists()) {
-        final content = await manifestFile.readAsString();
-        return jsonDecode(content);
+      final cached = await ApiCacheManager.load('records_manifest_$phone');
+      if (cached != null && cached.data is List) {
+        return cached.data as List<dynamic>;
       }
     } catch (e) {
-      debugPrint('Load manifest failed: $e');
+      debugPrint('RecordCacheManager.loadManifest failed: $e');
     }
     return null;
   }
 
   static Future<void> clearCache(String phone) async {
-    final cachePath = await _getCacheDirPath();
-    final manifestFile = File('$cachePath/${phone}_manifest.json');
-    if (await manifestFile.exists()) {
-      await manifestFile.delete();
-    }
+    await ApiCacheManager.invalidate('records_manifest_$phone');
   }
 }

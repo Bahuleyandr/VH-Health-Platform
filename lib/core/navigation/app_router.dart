@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth/core/providers/session_timeout_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 
 // Import all your screens
@@ -95,6 +96,19 @@ class AppRouter {
                          location == '/terms' ||
                          location == '/profile-setup';
 
+      // Session idle timeout — force logout if expired
+      try {
+        final sessionProvider = Provider.of<SessionTimeoutProvider>(
+          context,
+          listen: false,
+        );
+        if (sessionProvider.isSessionExpired && !isAuthRoute) {
+          return '/login';
+        }
+      } catch (_) {
+        // Provider may not be available during initial build
+      }
+
       // If not logged in and not on auth route, redirect to login
       if (!isLoggedIn && !isAuthRoute) {
         return '/login';
@@ -102,6 +116,12 @@ class AppRouter {
 
       // If logged in and on login, load user data and redirect to home
       if (isLoggedIn && location == '/login') {
+        // Start idle timer now that we know the user is authenticated
+        try {
+          Provider.of<SessionTimeoutProvider>(context, listen: false)
+              .startTracking();
+        } catch (_) {}
+
         // Load user data from secure storage if not already loaded
         if (_userPhone == null || _userName == null) {
           const storage = FlutterSecureStorage();
@@ -118,6 +138,14 @@ class AppRouter {
           }
         }
         return '/home';
+      }
+
+      // User is logged in and on a protected page — ensure timer is running
+      if (isLoggedIn && !isAuthRoute) {
+        try {
+          final sp = Provider.of<SessionTimeoutProvider>(context, listen: false);
+          if (!sp.isSessionExpired) sp.recordActivity();
+        } catch (_) {}
       }
 
       return null;

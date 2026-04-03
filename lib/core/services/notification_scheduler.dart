@@ -1,15 +1,8 @@
-// ─── Platform Setup Required ─────────────────────────────────────────────────
+// lib/core/services/notification_scheduler.dart
 //
-// Android (AndroidManifest.xml):
-//   <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-//   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-//   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />  (Android 13+)
-//
-// iOS:
-//   No extra setup needed beyond the permission request in initialize().
-//   flutter_local_notifications handles iOS notification permissions via the
-//   DarwinInitializationSettings requestAlertPermission/requestSoundPermission.
-// ─────────────────────────────────────────────────────────────────────────────
+// Platform Setup Required:
+// Android: SCHEDULE_EXACT_ALARM, RECEIVE_BOOT_COMPLETED, POST_NOTIFICATIONS
+// iOS: No extra setup needed.
 
 import 'dart:convert';
 
@@ -28,10 +21,7 @@ class NotificationScheduler {
   static Future<void> initialize() async {
     if (_initialized) return;
 
-    // Initialize timezone data
     tz.initializeTimeZones();
-    // Use UTC as fallback — the device local timezone is set by the OS
-    // and TZDateTime.now(tz.local) will use the correct local zone.
 
     const androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -47,13 +37,11 @@ class NotificationScheduler {
 
     await _plugin.initialize(initSettings);
 
-    // Request permissions on Android 13+
     await _plugin
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
         ?.requestNotificationsPermission();
 
-    // Create Android notification channel
     await _plugin
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
@@ -71,12 +59,9 @@ class NotificationScheduler {
 
   /// Schedule daily notifications for a medication reminder.
   ///
-  /// [id] — unique reminder ID from backend.
-  /// [medicationName] — name of the medication.
-  /// [dosage] — dosage string (e.g. "500mg").
-  /// [reminderTimes] — list of "HH:mm" strings.
-  /// [endDate] — optional end date in "YYYY-MM-DD" format.
-  /// [isActive] — whether the reminder is active.
+  /// SECURITY: Notification body uses generic text to prevent PHI
+  /// exposure on lock screens. Actual medication details are only
+  /// shown when the user opens the app.
   static Future<void> scheduleReminder({
     required int id,
     required String medicationName,
@@ -87,7 +72,6 @@ class NotificationScheduler {
   }) async {
     if (!isActive) return;
 
-    // Skip if endDate is in the past
     if (endDate != null && endDate.isNotEmpty) {
       final end = DateTime.tryParse(endDate);
       if (end != null && end.isBefore(DateTime.now())) return;
@@ -119,7 +103,8 @@ class NotificationScheduler {
         await _plugin.zonedSchedule(
           notificationId,
           'Medication Reminder',
-          'Time to take $medicationName - $dosage',
+          // Generic message to prevent PHI on lock screen
+          'Time for your medication. Open the app for details.',
           scheduledTime,
           notificationDetails,
           androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
@@ -142,8 +127,6 @@ class NotificationScheduler {
   }
 
   /// Cancel all then reschedule active reminders.
-  /// Each map should have: id, medication_name, dosage, reminder_times,
-  /// end_date, is_active (matching the backend JSON shape).
   static Future<void> rescheduleAll(List<Map<String, dynamic>> reminders) async {
     await cancelAll();
     for (final r in reminders) {
@@ -166,7 +149,6 @@ class NotificationScheduler {
     await _plugin.cancelAll();
   }
 
-  /// Get the next occurrence of [hour]:[minute] from now.
   static tz.TZDateTime _nextInstanceOfTime(int hour, int minute) {
     final now = tz.TZDateTime.now(tz.local);
     var scheduled =
