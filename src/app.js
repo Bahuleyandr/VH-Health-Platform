@@ -412,8 +412,8 @@ app.use('/api/v1/messaging', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURS
 app.use('/api/v1/compliance', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, breachRoutes);
 app.use('/api/v1/compliance', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, auditSearchRoutes);
 
-// (Optional but recommended) serve report exports if you use local file URLs
-app.use('/exports', express.static('exports'));
+// Serve report exports — protected behind JWT + admin role to prevent unauthorized access
+app.use('/exports', requireRole('ADMIN', 'SUPER_ADMIN'), express.static('exports'));
 
 // ====================================
 // ERROR HANDLING

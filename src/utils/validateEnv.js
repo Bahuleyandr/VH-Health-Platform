@@ -6,6 +6,7 @@ import logger from '../logging/logger.js';
 // Define the expected environment variables schema
 const envSchema = Joi.object({
   API_KEY: Joi.string().required().label('API_KEY'),
+  JWT_SECRET: Joi.string().min(32).required().label('JWT_SECRET'),
   DATABASE_URL: Joi.string().uri().required().label('DATABASE_URL'),
   ALLOWED_ORIGINS: Joi.string().default('http://localhost:3000').label('ALLOWED_ORIGINS'),
   PORT: Joi.number().default(5000).label('PORT'),
