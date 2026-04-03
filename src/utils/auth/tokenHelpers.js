@@ -95,17 +95,25 @@ export const createTokenResponse = (user, additionalData = {}) => {
   };
 };
 
-// Blacklist token (placeholder for implementation)
+// Blacklist token — delegates to the canonical tokenBlacklist module
 export const blacklistToken = async (token) => {
-  // TODO: Implement token blacklisting with Redis or database
-  logger.info('Token blacklisted:', token.substring(0, 20) + '...');
+  const decoded = decodeToken(token);
+  if (!decoded || !decoded.jti || !decoded.exp) {
+    logger.warn('Cannot blacklist token: missing jti or exp claim');
+    return false;
+  }
+  const { blacklistToken: bl } = await import('../tokenBlacklist.js');
+  await bl(decoded.jti, decoded.exp, 'logout');
+  logger.info('Token blacklisted: jti=' + decoded.jti);
   return true;
 };
 
-// Check if token is blacklisted
+// Check if token is blacklisted — delegates to the canonical tokenBlacklist module
 export const isTokenBlacklisted = async (token) => {
-  // TODO: Implement token blacklist check
-  return false;
+  const decoded = decodeToken(token);
+  if (!decoded || !decoded.jti) return false;
+  const { isTokenBlacklisted: check } = await import('../tokenBlacklist.js');
+  return check(decoded.jti);
 };
 
 // Re-export from jwtUtils for backward compatibility

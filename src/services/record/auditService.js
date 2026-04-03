@@ -5,7 +5,7 @@ import prisma from '../../lib/prisma.js';
 import { AUDIT_ACTIONS } from '../../config/recordConfig.js';
 import logger from '../../logging/logger.js';
 
-export async function logAuditEntry(action, tableName, recordId, userId, userRole, changes) {
+export async function logAuditEntry(action, tableName, recordId, userId, userRole, changes, ipAddress = null) {
   try {
     const metadata = {
       ...changes,
@@ -20,7 +20,7 @@ export async function logAuditEntry(action, tableName, recordId, userId, userRol
         role: userRole || 'SYSTEM',
         action: `${action}_${tableName}`,
         metadata,
-        ip_address: '127.0.0.1',
+        ip_address: ipAddress || null,
       },
     });
   } catch (error) {
