@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/services/notification_scheduler.dart';
 
 // ── Data model ──────────────────────────────────────────────────────────────
 
@@ -92,6 +93,7 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
               list.map((e) => _Reminder.fromJson(e as Map<String, dynamic>)).toList();
           _loading = false;
         });
+        _syncNotifications();
       } else {
         setState(() {
           _error = resp.message ?? 'Failed to load reminders';
@@ -106,6 +108,23 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
           _loading = false;
         });
       }
+    }
+  }
+
+  Future<void> _syncNotifications() async {
+    try {
+      await NotificationScheduler.rescheduleAll(
+        _reminders.map((r) => <String, dynamic>{
+          'id': r.id,
+          'medication_name': r.medicationName,
+          'dosage': r.dosage,
+          'reminder_times': r.reminderTimes,
+          'end_date': r.endDate,
+          'is_active': r.isActive,
+        }).toList(),
+      );
+    } catch (e) {
+      if (kDebugMode) debugPrint('Error syncing notifications: $e');
     }
   }
 
@@ -143,6 +162,7 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
     try {
       final resp = await ApiClient.delete('/reminders/medication/$id');
       if (mounted && resp.isSuccess) {
+        NotificationScheduler.cancelReminder(id);
         _loadReminders();
       }
     } catch (e) {

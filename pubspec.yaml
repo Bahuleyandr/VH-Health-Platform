@@ -52,6 +52,8 @@ dependencies:
   geolocator: ^14.0.1
   add_2_calendar: ^3.0.1
   local_auth: ^2.3.0              # Updated from 2.1.6
+  flutter_local_notifications: ^18.0.1
+  timezone: ^0.10.1
   url_launcher: ^6.3.1            # Updated from 6.2.5
   vector_math: ^2.2.0
   

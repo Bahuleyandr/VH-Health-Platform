@@ -22,6 +22,7 @@ import 'package:vhhealth/core/navigation/app_router.dart';
 // Core Services
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/connectivity_service.dart';
+import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/services/websocket_service.dart';
 
 // App Utilities
@@ -41,6 +42,9 @@ Future<void> main() async {
     AppRouter.clearUserData();
     AppRouter.router.go('/login');
   };
+
+  // Initialize local notification scheduler for medication reminders.
+  await NotificationScheduler.initialize();
 
   // Start network connectivity monitoring.
   ConnectivityService.startMonitoring();
