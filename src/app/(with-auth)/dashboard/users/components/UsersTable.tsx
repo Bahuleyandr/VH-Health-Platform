@@ -13,6 +13,8 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 interface UsersTableProps {
   users: User[];
   onUserUpdated: () => void;
+  isLoading?: boolean;
+  error?: string | null;
 }
 
 // Type guard to safely read optional "role" without using `any`
@@ -26,7 +28,7 @@ function hasRole(u: unknown): u is { role: string } {
 
 type BulkConfirmAction = "delete" | "deactivate" | "activate";
 
-export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
+export function UsersTable({ users, onUserUpdated, isLoading, error }: UsersTableProps) {
   const {
     selectedIds,
     selectedCount,
@@ -134,6 +136,18 @@ export function UsersTable({ users, onUserUpdated }: UsersTableProps) {
   };
 
   const confirmProps = getConfirmProps();
+
+  if (isLoading) {
+    return <div className="p-6 text-center text-muted-foreground">Loading users...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 text-center text-destructive">
+        {error} <button onClick={onUserUpdated} className="ml-2 underline">Retry</button>
+      </div>
+    );
+  }
 
   return (
     <>

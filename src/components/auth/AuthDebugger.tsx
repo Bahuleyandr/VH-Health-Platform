@@ -132,15 +132,7 @@ function DevAuthDebugger() {
                 type="button"
                 onClick={() => {
                   try {
-                    console.log("Auth State (context):", {
-                      user,
-                      loading,
-                      error,
-                    });
-                    console.log("Local Storage:", {
-                      token: localStorage.getItem("adminToken"),
-                      user: localStorage.getItem("adminUser"),
-                    });
+                    // Auth state and localStorage are inspected via refreshLocalCache
                     refreshLocalCache();
                   } catch (e) {
                     console.warn("Unable to inspect localStorage:", e);

@@ -12,12 +12,16 @@ interface DepartmentsTableProps {
   departments: Department[];
   onDepartmentUpdated: () => void;
   onDepartmentDeleted: () => void;
+  isLoading?: boolean;
+  error?: string | null;
 }
 
 export function DepartmentsTable({
   departments,
   onDepartmentUpdated,
   onDepartmentDeleted,
+  isLoading,
+  error,
 }: DepartmentsTableProps) {
   const [editingDepartment, setEditingDepartment] = useState<Department | null>(
     null,
@@ -25,6 +29,18 @@ export function DepartmentsTable({
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingDepartment, setPendingDepartment] = useState<Department | null>(null);
+
+  if (isLoading) {
+    return <div className="p-6 text-center text-muted-foreground">Loading departments...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 text-center text-destructive">
+        {error} <button onClick={onDepartmentUpdated} className="ml-2 underline">Retry</button>
+      </div>
+    );
+  }
 
   const handleDeleteClick = (department: Department) => {
     setPendingDepartment(department);

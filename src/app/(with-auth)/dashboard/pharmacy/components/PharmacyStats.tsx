@@ -28,7 +28,15 @@ function StatCard({
   );
 }
 
-export function PharmacyStats({ analytics }: { analytics: PharmacyAnalytics }) {
+export function PharmacyStats({ analytics, isLoading, error }: { analytics: PharmacyAnalytics; isLoading?: boolean; error?: string | null }) {
+  if (isLoading) {
+    return <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6"><div className="col-span-full p-6 text-center text-muted-foreground">Loading pharmacy stats...</div></div>;
+  }
+
+  if (error) {
+    return <div className="mb-6 p-4 text-center text-destructive">{error}</div>;
+  }
+
   // Calculate average order value - removed unused completedOrders
   const averageOrderValue =
     analytics.total_orders > 0
