@@ -7,8 +7,8 @@ import { success, error } from '../../utils/responseHelper.js';
 export const getStaffList = async (req, res) => {
   try {
     const filters = {
-      page: req.query.page || 1,
-      limit: req.query.limit || 20,
+      page: Math.max(parseInt(req.query.page, 10) || 1, 1),
+      limit: Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100),
       role: req.query.role,
       department: req.query.department,
       shift: req.query.shift,

@@ -511,8 +511,13 @@ export const manualEditPayslip = async (req, res) => {
     const fields = Object.keys(edits).filter(k => allowed.includes(k));
     if (fields.length === 0) return error(res, 'No valid editable fields provided', HTTP_STATUS.BAD_REQUEST);
 
+    // Validate all payroll values are finite numbers (prevents NaN/Infinity injection)
+    const values = fields.map(f => {
+      const v = Number(edits[f]);
+      if (!Number.isFinite(v)) throw new Error(`Invalid numeric value for field: ${f}`);
+      return v;
+    });
     const setClauses = fields.map((f, i) => `${f} = $${i + 2}`).join(', ');
-    const values = fields.map(f => edits[f]);
 
     await prisma.$queryRawUnsafe(`UPDATE payslips SET ${setClauses} WHERE id = $1`, [id, ...values]);
 

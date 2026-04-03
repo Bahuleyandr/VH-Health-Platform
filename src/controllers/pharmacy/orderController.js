@@ -71,6 +71,12 @@ export const getOrdersByUID = async (req, res) => {
     const { uid } = req.params;
     const { status, limit = 50, offset = 0 } = req.query;
     const requestedBy = req.user?.uid || 'anonymous';
+    const userRole = req.user?.role;
+
+    // IDOR protection: patients can only view their own orders
+    if (userRole === 'PATIENT' && String(req.user?.uid) !== String(uid)) {
+      return error(res, 'Access denied: You can only view your own orders', HTTP_STATUS.FORBIDDEN);
+    }
 
     const result = await orderService.getOrdersByUID(uid, {
       status,

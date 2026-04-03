@@ -18,6 +18,18 @@ const validate = (req, res, next) => {
 const router = Router();
 
 /**
+ * IDOR guard: patients can only manage their own consents.
+ * Staff/admin roles are allowed to manage any patient's consents.
+ */
+function enforceConsentOwnership(req, patientUid) {
+  const role = (req.user?.role || '').toUpperCase();
+  if (role === 'PATIENT' && String(req.user?.uid) !== String(patientUid)) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * POST /consent/grant
  * Grant a consent for a patient.
  * Body: { patient_uid, consent_type, notes? }
@@ -28,6 +40,11 @@ router.post('/grant', requiredUUID('patient_uid'), requiredString('consent_type'
 
     if (!patient_uid || !consent_type) {
       return error(res, 'patient_uid and consent_type are required', 400);
+    }
+
+    // IDOR check: patients can only grant their own consents
+    if (!enforceConsentOwnership(req, patient_uid)) {
+      return error(res, 'Access denied: You can only manage your own consents', 403);
     }
 
     const VALID_CONSENT_TYPES = ['data_access', 'treatment', 'research', 'marketing'];
@@ -90,6 +107,11 @@ router.post('/revoke', requiredUUID('patient_uid'), requiredString('consent_type
       return error(res, 'patient_uid and consent_type are required', 400);
     }
 
+    // IDOR check: patients can only revoke their own consents
+    if (!enforceConsentOwnership(req, patient_uid)) {
+      return error(res, 'Access denied: You can only manage your own consents', 403);
+    }
+
     const result = await prisma.$queryRawUnsafe(
       `UPDATE patient_consents
        SET revoked_at = NOW(), granted = false
@@ -138,6 +160,11 @@ router.get('/:patientUid', async (req, res, next) => {
       return error(res, 'Patient UID is required', 400);
     }
 
+    // IDOR check: patients can only view their own consents
+    if (!enforceConsentOwnership(req, patientUid)) {
+      return error(res, 'Access denied: You can only view your own consents', 403);
+    }
+
     const result = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, consent_type, granted, granted_at, revoked_at,
               granted_by, ip_address, notes, created_at
@@ -176,6 +203,11 @@ router.get('/:patientUid/:consentType', async (req, res, next) => {
 
     if (!patientUid || !consentType) {
       return error(res, 'Patient UID and consent type are required', 400);
+    }
+
+    // IDOR check: patients can only check their own consent status
+    if (!enforceConsentOwnership(req, patientUid)) {
+      return error(res, 'Access denied: You can only view your own consents', 403);
     }
 
     const result = await prisma.$queryRawUnsafe(

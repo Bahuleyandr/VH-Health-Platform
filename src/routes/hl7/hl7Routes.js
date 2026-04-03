@@ -44,7 +44,7 @@ router.post(
     } catch (err) {
       logger.error('HL7 parse error', { error: err.message, requestId: req.id });
       res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
-      return res.status(400).send(generateACK('UNKNOWN', 'AR', 'Parse error: ' + err.message));
+      return res.status(400).send(generateACK('UNKNOWN', 'AR', 'Parse error: Invalid HL7 message format'));
     }
 
     if (!parsed.msh) {

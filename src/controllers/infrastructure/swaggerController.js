@@ -28,9 +28,8 @@ export const getSpecJSON = async (req, res) => {
     res.json(specWithMetadata);
   } catch (err) {
     logger.error('[GetSpecJSON]:', err);
-    res.status(500).json({ 
-      error: 'Failed to generate OpenAPI specification',
-      details: err.message 
+    res.status(500).json({
+      error: 'Failed to generate OpenAPI specification'
     });
   }
 };
@@ -50,9 +49,8 @@ export const getSpecYAML = async (req, res) => {
     res.send(yamlString);
   } catch (err) {
     logger.error('[GetSpecYAML]:', err);
-    res.status(500).json({ 
-      error: 'Failed to generate YAML specification',
-      details: err.message 
+    res.status(500).json({
+      error: 'Failed to generate YAML specification'
     });
   }
 };

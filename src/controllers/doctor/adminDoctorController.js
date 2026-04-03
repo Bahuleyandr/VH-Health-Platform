@@ -40,8 +40,8 @@ export const adminDoctorController = {
       }
 
       const filters = {
-        page: parseInt(req.query.page) || 1,
-        limit: parseInt(req.query.limit) || 20,
+        page: Math.max(parseInt(req.query.page) || 1, 1),
+        limit: Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100),
         department: req.query.department,
         specialization: req.query.specialization,
         status: req.query.status,

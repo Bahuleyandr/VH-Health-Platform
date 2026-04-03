@@ -26,6 +26,7 @@ import { patientRateLimiter, genericLimiter, adminRateLimiter, dataExportRateLim
 import validateApiKey from './middleware/validateApiKey.js';
 import apiVersionMiddleware from './middleware/apiVersionMiddleware.js';
 import { selfHealingMiddleware } from './middleware/selfHealingMiddleware.js';
+import { adminIpAllowlist } from './middleware/ipAllowlistMiddleware.js';
 import { prometheusMiddleware } from './middleware/prometheusMiddleware.js';
 
 // ====================================
@@ -75,11 +76,18 @@ import dashboardRoutes from './routes/dashboard/index.js';
 // Config routes (API key only, no JWT)
 import configRoutes from './routes/configRoutes.js';
 
-// GDPR Data Export
+// GDPR Data Export + Erasure
 import dataExportRoutes from './routes/dataExportRoutes.js';
+import gdprRoutes from './routes/gdprRoutes.js';
 
 // HIPAA Consent Management
 import consentRoutes from './routes/consentRoutes.js';
+
+// Session Management (view/revoke active sessions)
+import sessionRoutes from './routes/sessionRoutes.js';
+
+// Admin 2FA (TOTP)
+import totpRoutes from './routes/auth/totpRoutes.js';
 
 // Compliance (Breach Notification + Audit Search)
 import breachRoutes from './routes/compliance/breachRoutes.js';
@@ -328,11 +336,18 @@ app.use('/api/v1/sos', patientRateLimiter, routes.sos);
 app.use('/api/v1/search', searchRoutes);
 app.use('/api/v1/upload', routes.upload);
 
-// GDPR Data Export
+// GDPR Data Export + Erasure
 app.use('/api/v1/data-export', dataExportRateLimiter, dataExportRoutes);
+app.use('/api/v1/gdpr', dataExportRateLimiter, gdprRoutes);
 
-// HIPAA Consent Management (requires JWT)
-app.use('/api/v1/consent', consentRoutes);
+// Session Management (view/revoke active sessions)
+app.use('/api/v1/sessions', sessionRoutes);
+
+// Admin 2FA (TOTP) — some endpoints public (verify), some require auth
+app.use('/api/v1/auth/admin/totp', totpRoutes);
+
+// HIPAA Consent Management (requires JWT + role check; IDOR enforced in route file)
+app.use('/api/v1/consent', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PATIENT'), consentRoutes);
 
 // ABDM patient-facing routes (JWT required — ABHA registration, consent management)
 app.use('/api/v1/abdm', abdmPatientRoutes);
@@ -348,8 +363,8 @@ app.use('/api/v1/beds', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_S
 app.use('/api/v1/beds', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), bedManagementRoutes);
 app.use('/api/v1/wards', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), wardRouter);
 
-// FHIR R4 interoperability
-app.use('/api/v1/fhir', fhirRoutes);
+// FHIR R4 interoperability — restricted to clinical staff (exposes PHI)
+app.use('/api/v1/fhir', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('FHIR_RESOURCE'), fhirRoutes);
 
 // Clinical Document Export & Import
 app.use('/api/v1/documents', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('CLINICAL_DOCUMENT'), documentRoutes);
@@ -375,8 +390,8 @@ app.use('/api/v1/emr', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_ST
 // EMR — Diagnosis & Problem List
 app.use('/api/v1/emr', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('DIAGNOSIS'), diagnosisRoutes);
 
-// Centralized admin namespace
-app.use('/api/v1/admin', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, adminDashboardRoutes);
+// Centralized admin namespace — IP allowlisted when ADMIN_IP_ALLOWLIST is set
+app.use('/api/v1/admin', requireRole('ADMIN', 'SUPER_ADMIN'), adminIpAllowlist, adminRateLimiter, adminDashboardRoutes);
 
 // System settings + status
 app.use('/api/v1/system', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, systemRoutes);
@@ -396,8 +411,8 @@ app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSIN
 // Blood Bank
 app.use('/api/v1/blood-bank', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BLOOD_BANK_STAFF'), phiAccessLogger('BLOOD_BANK'), bloodBankRoutes);
 
-// Billing & Invoicing (route-level role checks for mutations)
-app.use('/api/v1/billing', billingRoutes);
+// Billing & Invoicing (mount-level role gate + route-level checks for mutations)
+app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BILLING_STAFF', 'PATIENT'), billingRoutes);
 
 // Quality & Infection Control (route-level role checks)
 app.use('/api/v1/quality', qualityRoutes);
@@ -412,8 +427,8 @@ app.use('/api/v1/messaging', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURS
 app.use('/api/v1/compliance', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, breachRoutes);
 app.use('/api/v1/compliance', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, auditSearchRoutes);
 
-// (Optional but recommended) serve report exports if you use local file URLs
-app.use('/exports', express.static('exports'));
+// Serve report exports — protected behind JWT + admin role to prevent unauthorized access
+app.use('/exports', requireRole('ADMIN', 'SUPER_ADMIN'), express.static('exports'));
 
 // ====================================
 // ERROR HANDLING
