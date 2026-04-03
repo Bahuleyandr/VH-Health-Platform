@@ -208,7 +208,7 @@ export function auditLogMiddleware(req, res, next) {
             (user_id, user_name, user_role, ip_address, method, path, module, action,
              query_params, request_summary, status_code, response_time_ms, success, user_agent)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-        `, [
+        `,
           userId,
           userName,
           userRole,
@@ -223,7 +223,7 @@ export function auditLogMiddleware(req, res, next) {
           responseTimeMs,
           isSuccess,
           (headers['user-agent'] || '').substring(0, 200),
-        ]);
+        );
       } catch (err) {
         // Fallback: write to audit log file when DB is unavailable
         logger.warn('Audit DB write failed, writing to file fallback:', {

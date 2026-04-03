@@ -41,7 +41,7 @@ export async function blacklistToken(jti, expiresAt, reason = 'logout') {
         INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
         VALUES ($1, to_timestamp($2), $3, NOW())
         ON CONFLICT (jti) DO NOTHING
-      `, [jti, expiresAt, reason]);
+      `, jti, expiresAt, reason);
     } catch (err) {
       logger.warn('Token blacklist DB write failed:', err.message);
     }
@@ -73,9 +73,9 @@ export async function isTokenBlacklisted(jti) {
   try {
     const result = await prisma.$queryRawUnsafe(
       'SELECT 1 FROM invalidated_tokens WHERE jti = $1 AND expires_at > NOW() LIMIT 1',
-      [jti]
+      jti
     );
-    return result.rows.length > 0;
+    return result.length > 0;
   } catch (err) {
     // If both Redis and DB fail, allow the token (fail-open for availability)
     // Security tradeoff: prefer availability over blocking legitimate users
@@ -106,7 +106,7 @@ export async function revokeAllUserTokens(userId) {
         INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
         VALUES ($1, NOW() + INTERVAL '30 days', $2, NOW())
         ON CONFLICT (jti) DO UPDATE SET expires_at = EXCLUDED.expires_at
-      `, [`user:${userId}`, `revoke_all_user_tokens`]);
+      `, `user:${userId}`, 'revoke_all_user_tokens');
     } catch (err) {
       logger.warn('Revoke-all DB write failed:', err.message);
     }
@@ -134,9 +134,9 @@ export async function isUserTokensRevoked(userId, tokenIssuedAt) {
   try {
     const result = await prisma.$queryRawUnsafe(
       `SELECT 1 FROM invalidated_tokens WHERE jti = $1 AND expires_at > NOW() LIMIT 1`,
-      [`user:${userId}`]
+      `user:${userId}`
     );
-    if (result.rows.length > 0) {
+    if (result.length > 0) {
       return true;
     }
   } catch {
@@ -144,4 +144,19 @@ export async function isUserTokensRevoked(userId, tokenIssuedAt) {
   }
 
   return false;
+}
+
+/**
+ * Remove expired entries from the invalidated_tokens table.
+ * Should be called periodically (e.g. daily) to prevent table bloat.
+ */
+export async function cleanupExpiredTokens() {
+  try {
+    const result = await prisma.$queryRawUnsafe(
+      'DELETE FROM invalidated_tokens WHERE expires_at < NOW()'
+    );
+    logger.info('Token blacklist cleanup complete', { deleted: result?.length ?? 0 });
+  } catch (err) {
+    logger.error('Token blacklist cleanup failed:', err.message);
+  }
 }
