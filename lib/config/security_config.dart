@@ -44,9 +44,21 @@ class SecurityConfig {
   /// 2. Add it alongside the old hash — clients will accept both during overlap.
   /// 3. Ship an app update. Deploy new cert on server.
   /// 4. After all users have updated, remove the old hash.
+  /// **PRODUCTION BLOCKER**: Populate before release.
+  ///
+  /// Run the following to obtain the SHA-256 SPKI fingerprint:
+  /// ```bash
+  /// openssl s_client -connect api.vhhealth.app:443 </dev/null 2>/dev/null \
+  ///   | openssl x509 -pubkey -noout \
+  ///   | openssl pkey -pubin -outform DER \
+  ///   | openssl dgst -sha256
+  /// ```
+  /// Add both the current and next (backup) certificate fingerprints for
+  /// seamless rotation.
   static const List<String> pinnedCertFingerprints = [
-    // TODO: Replace with real SHA-256 fingerprint(s) before production release.
-    // Example: 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2',
+    // FIXME(security): Add real SHA-256 SPKI fingerprint(s) before production.
+    // Without these, production builds will throw StateError at startup.
+    // Include at least 2 fingerprints (current + backup CA) for safe rotation.
   ];
 
   /// Call at app startup to verify security configuration is sane.
