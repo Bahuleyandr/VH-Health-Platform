@@ -9,6 +9,7 @@ import 'firebase_options.dart';
 import 'core/navigation/app_router.dart';
 import 'core/providers/notification_provider.dart';
 import 'core/providers/theme_provider.dart';
+import 'core/providers/websocket_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -66,6 +67,7 @@ class VHHealthStaffApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
+        ChangeNotifierProvider(create: (_) => WebSocketProvider()..init()),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {

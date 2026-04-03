@@ -3,7 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
+import '../../../core/providers/websocket_provider.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
@@ -26,6 +28,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
   bool _loadingPending = true;
   String? _queueError;
   String? _pendingError;
+  int _lastSeenUpdateCount = 0;
 
   @override
   void initState() {
@@ -33,6 +36,25 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
     _tabController = TabController(length: 2, vsync: this);
     _loadQueue();
     _loadPending();
+
+    // Listen for WS appointment updates and auto-refresh
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final wsProv = context.read<WebSocketProvider>();
+      _lastSeenUpdateCount = wsProv.appointmentUpdates.length;
+      wsProv.addListener(_onWsUpdate);
+    });
+  }
+
+  void _onWsUpdate() {
+    if (!mounted) return;
+    final wsProv = context.read<WebSocketProvider>();
+    final updates = wsProv.appointmentUpdates;
+    if (updates.length > _lastSeenUpdateCount) {
+      _lastSeenUpdateCount = updates.length;
+      // Auto-refresh both lists when a new appointment update arrives
+      _loadQueue();
+      _loadPending();
+    }
   }
 
   @override

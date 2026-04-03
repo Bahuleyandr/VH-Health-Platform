@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/config/role_config.dart';
+import '../../../core/providers/websocket_provider.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/services/attendance_api_service.dart';
@@ -127,7 +129,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
               pinned: true,
               backgroundColor: AppTheme.primaryBlue,
               foregroundColor: Colors.white,
-              actions: const [SosButton()],
+              actions: [
+                Consumer<WebSocketProvider>(
+                  builder: (context, wsProv, _) {
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          Icon(
+                            Icons.wifi,
+                            color: wsProv.isConnected
+                                ? Colors.greenAccent
+                                : Colors.white38,
+                            size: 20,
+                          ),
+                          if (wsProv.notifications.isNotEmpty)
+                            Positioned(
+                              top: 0,
+                              right: 0,
+                              child: Container(
+                                width: 8,
+                                height: 8,
+                                decoration: const BoxDecoration(
+                                  color: Colors.redAccent,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+                const SosButton(),
+              ],
               flexibleSpace: FlexibleSpaceBar(
                 background: Container(
                   decoration: const BoxDecoration(
@@ -210,6 +246,53 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             onTap: () => context.go('/attendance'),
                           ),
                           const SizedBox(height: 16),
+
+                          // Live WS notification banner
+                          Consumer<WebSocketProvider>(
+                            builder: (context, wsProv, _) {
+                              if (wsProv.notifications.isEmpty) {
+                                return const SizedBox.shrink();
+                              }
+                              return GestureDetector(
+                                onTap: () => context.go('/notifications'),
+                                child: Container(
+                                  margin: const EdgeInsets.only(bottom: 16),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 14, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.primaryBlue
+                                        .withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: AppTheme.primaryBlue
+                                          .withValues(alpha: 0.2),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.notifications_active,
+                                          color: AppTheme.primaryBlue,
+                                          size: 20),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          '${wsProv.notifications.length} new live notification${wsProv.notifications.length == 1 ? '' : 's'}',
+                                          style: const TextStyle(
+                                            color: AppTheme.primaryBlue,
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ),
+                                      const Icon(Icons.chevron_right,
+                                          color: AppTheme.primaryBlue,
+                                          size: 18),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
 
                           // Quick stats row
                           _buildQuickStats(),

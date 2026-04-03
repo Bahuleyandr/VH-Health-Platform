@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../core/providers/notification_provider.dart';
+import '../../../core/providers/websocket_provider.dart';
 import '../../../core/theme/app_theme.dart';
 
 class NotificationsScreen extends StatefulWidget {
@@ -82,13 +83,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ),
         ],
       ),
-      body: Consumer<NotificationProvider>(
-        builder: (context, provider, _) {
+      body: Consumer2<NotificationProvider, WebSocketProvider>(
+        builder: (context, provider, wsProv, _) {
           if (_loading) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (provider.notifications.isEmpty) {
+          // Build combined list: WS live notifications first, then FCM/backend
+          final wsNotifications = wsProv.notifications;
+
+          if (provider.notifications.isEmpty && wsNotifications.isEmpty) {
             return Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -121,9 +125,106 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             onRefresh: _loadNotifications,
             child: ListView.builder(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: provider.notifications.length,
+              itemCount: wsNotifications.length + provider.notifications.length,
               itemBuilder: (context, index) {
-                final item = provider.notifications[index];
+                // WS live notifications come first
+                if (index < wsNotifications.length) {
+                  final wsItem = wsNotifications[index];
+                  final wsTitle = wsItem['title']?.toString() ?? 'Live Update';
+                  final wsBody = wsItem['body']?.toString() ??
+                      wsItem['message']?.toString() ??
+                      '';
+                  final wsType = wsItem['type']?.toString() ?? '';
+                  final icon = _iconForType(wsType);
+                  final color = _colorForType(wsType);
+                  final route = _routeForType(wsType);
+
+                  return Card(
+                    margin: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 4),
+                    elevation: 1,
+                    color: color.withValues(alpha: 0.06),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(color: color.withValues(alpha: 0.3)),
+                    ),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: route != null ? () => context.go(route) : null,
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            CircleAvatar(
+                              radius: 20,
+                              backgroundColor: color.withValues(alpha: 0.15),
+                              child: Icon(icon, color: color, size: 20),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green
+                                              .withValues(alpha: 0.15),
+                                          borderRadius:
+                                              BorderRadius.circular(6),
+                                        ),
+                                        child: const Text(
+                                          'LIVE',
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.green,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          wsTitle,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  if (wsBody.isNotEmpty) ...[
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      wsBody,
+                                      maxLines: 3,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }
+
+                final item = provider
+                    .notifications[index - wsNotifications.length];
                 final type = item.type ?? '';
                 final icon = _iconForType(type);
                 final color = _colorForType(type);
