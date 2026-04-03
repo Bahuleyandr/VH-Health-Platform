@@ -331,8 +331,8 @@ app.use('/api/v1/upload', routes.upload);
 // GDPR Data Export
 app.use('/api/v1/data-export', dataExportRateLimiter, dataExportRoutes);
 
-// HIPAA Consent Management (requires JWT)
-app.use('/api/v1/consent', consentRoutes);
+// HIPAA Consent Management (requires JWT + role check; IDOR enforced in route file)
+app.use('/api/v1/consent', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PATIENT'), consentRoutes);
 
 // ABDM patient-facing routes (JWT required — ABHA registration, consent management)
 app.use('/api/v1/abdm', abdmPatientRoutes);
@@ -348,8 +348,8 @@ app.use('/api/v1/beds', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_S
 app.use('/api/v1/beds', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), bedManagementRoutes);
 app.use('/api/v1/wards', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), wardRouter);
 
-// FHIR R4 interoperability
-app.use('/api/v1/fhir', fhirRoutes);
+// FHIR R4 interoperability — restricted to clinical staff (exposes PHI)
+app.use('/api/v1/fhir', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('FHIR_RESOURCE'), fhirRoutes);
 
 // Clinical Document Export & Import
 app.use('/api/v1/documents', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('CLINICAL_DOCUMENT'), documentRoutes);
@@ -396,8 +396,8 @@ app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSIN
 // Blood Bank
 app.use('/api/v1/blood-bank', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BLOOD_BANK_STAFF'), phiAccessLogger('BLOOD_BANK'), bloodBankRoutes);
 
-// Billing & Invoicing (route-level role checks for mutations)
-app.use('/api/v1/billing', billingRoutes);
+// Billing & Invoicing (mount-level role gate + route-level checks for mutations)
+app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BILLING_STAFF', 'PATIENT'), billingRoutes);
 
 // Quality & Infection Control (route-level role checks)
 app.use('/api/v1/quality', qualityRoutes);

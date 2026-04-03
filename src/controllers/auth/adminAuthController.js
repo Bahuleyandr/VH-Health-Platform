@@ -136,8 +136,8 @@ export const getHealthStatus = async (req, res) => {
 export const getAdminActivityLogs = async (req, res) => {
   try {
     const adminId = Number(req.params.adminId);
-    const page = Number(req.query.page ?? 1);
-    const limit = Number(req.query.limit ?? 50);
+    const page = Math.max(Number(req.query.page ?? 1), 1);
+    const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 100);
 
     const result = await AuthService.getAdminActivityLogs(adminId, { page, limit });
     return success(res, result, 'Activity logs retrieved successfully');
@@ -198,8 +198,8 @@ export const createAdmin = async (req, res) => {
 
 export const listAdmins = async (req, res) => {
   try {
-    const page = Number(req.query.page ?? 1);
-    const limit = Number(req.query.limit ?? 20);
+    const page = Math.max(Number(req.query.page ?? 1), 1);
+    const limit = Math.min(Math.max(Number(req.query.limit ?? 20), 1), 100);
     const result = await AuthService.listAdmins(page, limit);
     return success(res, result, 'Admins retrieved successfully');
   } catch (err) {

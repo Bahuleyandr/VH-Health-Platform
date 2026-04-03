@@ -197,7 +197,8 @@ export const bulkAttendanceCorrection = async (req, res) => {
           
           return { staff_id: correction.staff_id, status: 'success' };
         } catch (err) {
-          return { staff_id: correction.staff_id, status: 'failed', error: err.message };
+          logger.error(`Bulk attendance correction failed for staff ${correction.staff_id}:`, err);
+          return { staff_id: correction.staff_id, status: 'failed', error: 'Failed to process correction' };
         }
       })
     );

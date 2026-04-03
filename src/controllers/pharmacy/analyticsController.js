@@ -18,9 +18,8 @@ export const getAnalytics = async (req, res) => {
   } catch (err) {
     logger.error('Pharmacy Analytics Error:', err);
     res.status(500).json({
-      message: 'Failed to retrieve pharmacy analytics',
-      error: err.message,
-      requestedBy: req.user?.uid
+      success: false,
+      message: 'Failed to retrieve pharmacy analytics'
     });
   }
 };

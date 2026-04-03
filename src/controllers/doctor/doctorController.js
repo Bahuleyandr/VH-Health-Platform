@@ -21,8 +21,8 @@ export const doctorController = {
   getAllDoctors: async (req, res) => {
     try {
       const filters = {
-        page: parseInt(req.query.page) || 1,
-        limit: parseInt(req.query.limit) || 10,
+        page: Math.max(parseInt(req.query.page) || 1, 1),
+        limit: Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 100),
         department: req.query.department,
         available: req.query.available === 'true',
         search: req.query.search
