@@ -153,7 +153,7 @@ class WebSocketService {
   void _scheduleReconnect() {
     if (_intentionalDisconnect || _retryCount >= _maxRetries) {
       if (_retryCount >= _maxRetries) {
-        debugPrint('WebSocket: Max retries ($maxRetries) reached');
+        debugPrint('WebSocket: Max retries ($_maxRetries) reached');
       }
       return;
     }
