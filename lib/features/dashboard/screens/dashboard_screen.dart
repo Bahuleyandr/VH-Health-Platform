@@ -6,6 +6,7 @@ import '../../../core/config/api_config.dart';
 import '../../../core/config/role_config.dart';
 import '../../../core/providers/websocket_provider.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/services/offline_queue.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/services/attendance_api_service.dart';
 import '../../../core/services/hr_api_service.dart';
@@ -30,6 +31,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _appointmentCount = 0;
   List<Map<String, dynamic>> _upcomingAppointments = [];
   List<dynamic> _recentNotifications = [];
+  int _pendingSyncCount = 0;
 
   @override
   void initState() {
@@ -89,6 +91,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         );
       }
+
+      // Check offline queue
+      futures.add(
+        OfflineQueue.getPending().then(
+          (items) => _pendingSyncCount = items.length,
+          onError: (_) {},
+        ),
+      );
 
       await Future.wait(futures);
     } catch (e) {
@@ -246,6 +256,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             onTap: () => context.go('/attendance'),
                           ),
                           const SizedBox(height: 16),
+
+                          // Pending offline sync banner
+                          if (_pendingSyncCount > 0)
+                            Container(
+                              margin: const EdgeInsets.only(bottom: 16),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: AppTheme.warningAmber
+                                    .withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: AppTheme.warningAmber
+                                      .withValues(alpha: 0.4),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.cloud_off,
+                                      color: AppTheme.warningAmber, size: 20),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      '$_pendingSyncCount item${_pendingSyncCount == 1 ? '' : 's'} pending sync',
+                                      style: const TextStyle(
+                                        color: AppTheme.warningAmber,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                  const Icon(Icons.sync,
+                                      color: AppTheme.warningAmber, size: 18),
+                                ],
+                              ),
+                            ),
 
                           // Live WS notification banner
                           Consumer<WebSocketProvider>(

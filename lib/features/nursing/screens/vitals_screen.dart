@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../core/config/api_config.dart';
+import '../../../core/services/connectivity_sync_service.dart';
 import '../../../core/services/medical_api_service.dart';
+import '../../../core/services/offline_queue.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -121,21 +123,50 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
         measurements['weight'] = double.parse(_weightCtrl.text);
       }
 
-      await MedicalApiService.recordVitals(
-        patientId: int.parse(_patientIdCtrl.text.trim()),
-        vitalSigns: vitalSigns.isNotEmpty ? vitalSigns : null,
-        measurements: measurements.isNotEmpty ? measurements : null,
-        notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
-        recordedBy: staffId != null ? int.tryParse(staffId) : null,
-      );
+      final patientId = int.parse(_patientIdCtrl.text.trim());
+      final body = <String, dynamic>{
+        'patient_id': patientId,
+        'record_type': 'VITALS',
+        if (vitalSigns.isNotEmpty) 'vital_signs': vitalSigns,
+        if (measurements.isNotEmpty) 'measurements': measurements,
+        if (_notesCtrl.text.trim().isNotEmpty) 'notes': _notesCtrl.text.trim(),
+        if (staffId != null) 'recorded_by': int.tryParse(staffId),
+      };
+
+      if (!ConnectivitySyncService.instance.isOnline) {
+        await OfflineQueue.enqueue(
+          endpoint: '/health/records',
+          method: 'POST',
+          body: body,
+          contextLabel: 'Vitals for patient $patientId',
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No connection — vitals saved and will sync when online'),
+              backgroundColor: AppTheme.warningAmber,
+            ),
+          );
+        }
+      } else {
+        await MedicalApiService.recordVitals(
+          patientId: patientId,
+          vitalSigns: vitalSigns.isNotEmpty ? vitalSigns : null,
+          measurements: measurements.isNotEmpty ? measurements : null,
+          notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+          recordedBy: staffId != null ? int.tryParse(staffId) : null,
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Vitals recorded successfully'),
+              backgroundColor: AppTheme.successGreen,
+            ),
+          );
+        }
+      }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Vitals recorded successfully'),
-            backgroundColor: AppTheme.successGreen,
-          ),
-        );
         _formKey.currentState!.reset();
         _patientIdCtrl.clear();
         _bpSysCtrl.clear();

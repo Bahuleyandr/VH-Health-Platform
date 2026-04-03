@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../../core/services/connectivity_sync_service.dart';
 import '../../../core/services/medical_api_service.dart';
+import '../../../core/services/offline_queue.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -102,19 +104,41 @@ class _AddNoteTabState extends State<_AddNoteTab> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _submitting = true);
     try {
-      await MedicalApiService.createClinicalNote({
+      final body = {
         'phone': _phoneCtrl.text.trim(),
         'note_type': _noteType!,
         'content': _noteCtrl.text.trim(),
         'priority': _priority,
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Nursing note saved successfully'),
-            backgroundColor: AppTheme.successGreen,
-          ),
+      };
+
+      if (!ConnectivitySyncService.instance.isOnline) {
+        await OfflineQueue.enqueue(
+          endpoint: '/emr/notes',
+          method: 'POST',
+          body: body,
+          contextLabel: 'Nursing note for ${_phoneCtrl.text.trim()}',
         );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Saved offline — will sync when connected'),
+              backgroundColor: AppTheme.warningAmber,
+            ),
+          );
+        }
+      } else {
+        await MedicalApiService.createClinicalNote(body);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Nursing note saved successfully'),
+              backgroundColor: AppTheme.successGreen,
+            ),
+          );
+        }
+      }
+
+      if (mounted) {
         _formKey.currentState!.reset();
         setState(() {
           _noteType = null;

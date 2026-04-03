@@ -10,6 +10,7 @@ import 'core/navigation/app_router.dart';
 import 'core/providers/notification_provider.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/providers/websocket_provider.dart';
+import 'core/services/connectivity_sync_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -49,6 +50,10 @@ void main() async {
       ),
     );
   };
+
+  // Start connectivity monitoring and sync any queued offline writes.
+  ConnectivitySyncService.instance.startListening();
+  ConnectivitySyncService.instance.syncPending();
 
   // Catch async errors not handled by Flutter framework.
   runZonedGuarded(() {
