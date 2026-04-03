@@ -32,6 +32,47 @@ export async function getRecordsByUID(uid) {
   }
 }
 
+export async function getHealthRecordsByUid(uid, filters = {}) {
+  try {
+    const { type, limit = DEFAULT_PAGINATION.DEFAULT_LIMIT, offset = DEFAULT_PAGINATION.DEFAULT_OFFSET } = filters;
+
+    let rows;
+    if (type) {
+      rows = await prisma.$queryRaw`
+        SELECT hr.id, hr.uid, hr.phone, hr.record_type, hr.file_name, hr.file_type,
+               hr.file_key, hr.file_size, hr.privacy_level, hr.created_by,
+               hr.created_at, hr.updated_at,
+               TO_CHAR(hr.created_at, 'DD-MM-YYYY HH24:MI') AS created_at_formatted,
+               u.name AS patient_name, u.uid AS patient_uid
+        FROM health_records hr
+        LEFT JOIN users u ON hr.phone = u.phone
+        WHERE u.uid = ${uid}
+          AND LOWER(hr.file_type) = LOWER(${type})
+        ORDER BY hr.created_at DESC
+        LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}
+      `;
+    } else {
+      rows = await prisma.$queryRaw`
+        SELECT hr.id, hr.uid, hr.phone, hr.record_type, hr.file_name, hr.file_type,
+               hr.file_key, hr.file_size, hr.privacy_level, hr.created_by,
+               hr.created_at, hr.updated_at,
+               TO_CHAR(hr.created_at, 'DD-MM-YYYY HH24:MI') AS created_at_formatted,
+               u.name AS patient_name, u.uid AS patient_uid
+        FROM health_records hr
+        LEFT JOIN users u ON hr.phone = u.phone
+        WHERE u.uid = ${uid}
+        ORDER BY hr.created_at DESC
+        LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}
+      `;
+    }
+
+    return rows;
+  } catch (error) {
+    logger.error(`[RecordService] Error getting health records by UID: ${error.message}`);
+    throw error;
+  }
+}
+
 export async function getHealthRecordsByPhone(phone, filters = {}) {
   try {
     const normalizedPhone = normalizePhone(phone);
