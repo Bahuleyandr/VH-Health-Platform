@@ -42,7 +42,7 @@ router.get('/deep', async (_req, res) => {
     await prisma.$queryRawUnsafe('SELECT 1');
     checks.database = { status: 'ok', latency_ms: Date.now() - start };
   } catch (err) {
-    checks.database = { status: 'error', message: err.message };
+    checks.database = { status: 'error', message: 'Database check failed' };
   }
 
   // Redis — check if ioredis client is available
@@ -55,7 +55,7 @@ router.get('/deep', async (_req, res) => {
       checks.redis = { status: 'not_configured' };
     }
   } catch (err) {
-    checks.redis = { status: 'error', message: err.message };
+    checks.redis = { status: 'error', message: 'Redis check failed' };
   }
 
   // R2 (Cloudflare) — check env vars are present
@@ -67,7 +67,7 @@ router.get('/deep', async (_req, res) => {
     );
     checks.r2 = { status: r2Configured ? 'configured' : 'not_configured' };
   } catch (err) {
-    checks.r2 = { status: 'error', message: err.message };
+    checks.r2 = { status: 'error', message: 'R2 check failed' };
   }
 
   // Firebase — check if admin SDK is initialized
@@ -78,7 +78,7 @@ router.get('/deep', async (_req, res) => {
     );
     checks.firebase = { status: firebaseConfigured ? 'configured' : 'not_configured' };
   } catch (err) {
-    checks.firebase = { status: 'error', message: err.message };
+    checks.firebase = { status: 'error', message: 'Firebase check failed' };
   }
 
   const allOk = Object.values(checks).every(
@@ -105,7 +105,7 @@ router.get('/metrics', async (_req, res) => {
     dbPoolStats = health;
   } catch (err) {
     logger.warn('Failed to get DB pool stats for metrics:', err.message);
-    dbPoolStats = { healthy: false, error: err.message };
+    dbPoolStats = { healthy: false, error: 'Database pool check failed' };
   }
 
   res.status(200).json({

@@ -402,8 +402,8 @@ wrapAutoRBAC(router, 'adminDashboard', {
       '/sos/alerts',
       async (req, res) => {
         try {
-          const limit = Number(req.query.limit ?? 50);
-          const offset = Number(req.query.offset ?? 0);
+          const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 100);
+          const offset = Math.max(Number(req.query.offset ?? 0), 0);
           const data = await getAllAlerts(limit, offset);
           res.json({ success: true, data });
         } catch (error) {
@@ -454,8 +454,8 @@ wrapAutoRBAC(router, 'adminDashboard', {
       '/upload/quarantine',
       async (req, res) => {
         try {
-          const limit = Number(req.query.limit ?? 50);
-          const offset = Number(req.query.offset ?? 0);
+          const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 100);
+          const offset = Math.max(Number(req.query.offset ?? 0), 0);
           const data = await listQuarantinedFiles(limit, offset);
           res.json({ success: true, data });
         } catch (error) {
@@ -468,8 +468,8 @@ wrapAutoRBAC(router, 'adminDashboard', {
       '/upload/hipaa/audit',
       async (req, res) => {
         try {
-          const limit = Number(req.query.limit ?? 50);
-          const offset = Number(req.query.offset ?? 0);
+          const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 100);
+          const offset = Math.max(Number(req.query.offset ?? 0), 0);
           const { start_date: startDate = null, end_date: endDate = null } = req.query;
           const data = await getHipaaAuditReport({ limit, offset, startDate, endDate });
           res.json({ success: true, data });

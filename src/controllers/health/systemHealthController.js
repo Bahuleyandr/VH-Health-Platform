@@ -51,7 +51,6 @@ export async function getSystemStatus(req, res) {
       success: false,
       message: 'System health check failed',
       status: 'unhealthy',
-      error: err.message,
       timestamp: new Date().toISOString()
     });
   }

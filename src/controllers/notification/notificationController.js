@@ -30,7 +30,7 @@ export const notificationController = {
       const result = await notificationService.getNotificationsByPhone(
         req.params.phone,
         req.user,
-        { limit: req.query.limit, offset: req.query.offset }
+        { limit: Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100), offset: Math.max(parseInt(req.query.offset) || 0, 0) }
       );
 
       await logAudit(req, 'notifications-phone-view', { 
