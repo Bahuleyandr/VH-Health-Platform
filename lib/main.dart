@@ -76,7 +76,10 @@ class VHRoot extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => SessionTimeoutProvider(
             timeoutDuration: const Duration(minutes: 30),
-          )..startTracking(),
+          ),
+          // Don't call startTracking() here — timer should only start
+          // after successful login. The router redirect starts it when
+          // navigating an authenticated user to /home.
         ),
       ],
       child: Consumer2<ThemeProvider, LanguageProvider>(
