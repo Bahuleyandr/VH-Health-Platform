@@ -11,14 +11,20 @@ const ENCRYPTED_PREFIX = 'enc:v1:'; // Prefix to identify encrypted values
 
 /**
  * Derive a 256-bit encryption key from the master secret.
- * Uses scrypt for key derivation.
+ * Cached after first call — scryptSync is deliberately CPU-expensive
+ * and must not run on every encrypt/decrypt invocation.
  */
+let _cachedKey = null;
+
 function deriveKey() {
+  if (_cachedKey) return _cachedKey;
+
   const masterKey = process.env.FIELD_ENCRYPTION_KEY || process.env.JWT_SECRET;
   if (!masterKey) {
     throw new Error('FIELD_ENCRYPTION_KEY or JWT_SECRET must be set for field encryption');
   }
-  return crypto.scryptSync(masterKey, 'vh-field-encryption-v1', 32);
+  _cachedKey = crypto.scryptSync(masterKey, 'vh-field-encryption-v1', 32);
+  return _cachedKey;
 }
 
 /**
