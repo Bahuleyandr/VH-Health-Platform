@@ -19,10 +19,16 @@ import type { AdminUser } from "./types";
  * ========================= */
 
 const USER_KEY = "adminUser";
+const CACHE_MAX_AGE_MS = 4 * 60 * 60 * 1000; // 4 hours — matches JWT expiry
+
+interface CachedUser extends AdminUser {
+  _cachedAt?: number;
+}
 
 /**
  * Check if user is authenticated by checking for cached user data.
  * The actual auth check happens server-side via the httpOnly cookie.
+ * Rejects cached data older than CACHE_MAX_AGE_MS to prevent stale state.
  */
 export function getAdminUser(): AdminUser | null {
   if (typeof window === "undefined") return null;
@@ -38,6 +44,17 @@ export function getAdminUser(): AdminUser | null {
       localStorage.removeItem(USER_KEY);
       return null;
     }
+
+    // Check cache staleness
+    const cached = result.data as CachedUser;
+    if (cached._cachedAt) {
+      const age = Date.now() - cached._cachedAt;
+      if (age > CACHE_MAX_AGE_MS) {
+        localStorage.removeItem(USER_KEY);
+        return null;
+      }
+    }
+
     return result.data as AdminUser;
   } catch {
     return null;
@@ -55,6 +72,13 @@ export function isAuthenticated(): boolean {
 export function clearAuthData() {
   if (typeof window === "undefined") return;
   localStorage.removeItem(USER_KEY);
+}
+
+/** Save admin user with cache timestamp */
+function cacheAdminUser(admin: AdminUser) {
+  if (typeof window === "undefined") return;
+  const cached: CachedUser = { ...admin, _cachedAt: Date.now() };
+  localStorage.setItem(USER_KEY, JSON.stringify(cached));
 }
 
 /* =========================
@@ -104,10 +128,8 @@ export async function staffLogin(
     body: JSON.stringify({ token }),
   });
 
-  // Cache user profile (non-sensitive) for UI
-  if (typeof window !== "undefined" && staffUser) {
-    localStorage.setItem(USER_KEY, JSON.stringify(staffUser));
-  }
+  // Cache user profile (non-sensitive) with timestamp for UI
+  if (staffUser) cacheAdminUser(staffUser);
 
   return { token, user: staffUser, success: true };
 }
@@ -135,19 +157,15 @@ export async function adminLogin(
     body: JSON.stringify({ token }),
   });
 
-  // Cache user profile (non-sensitive) for UI
-  if (typeof window !== "undefined" && admin) {
-    localStorage.setItem(USER_KEY, JSON.stringify(admin));
-  }
+  // Cache user profile (non-sensitive) with timestamp for UI
+  if (admin) cacheAdminUser(admin);
 
   return { token, admin, success: true };
 }
 
 export async function getAdminProfile(): Promise<AdminUser> {
   const data = await getJSON<AdminUser>(API_ENDPOINTS.auth.admin.profile);
-  if (typeof window !== "undefined" && data) {
-    localStorage.setItem(USER_KEY, JSON.stringify(data));
-  }
+  if (data) cacheAdminUser(data);
   return data;
 }
 
