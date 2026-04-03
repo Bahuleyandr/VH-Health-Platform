@@ -62,7 +62,9 @@ export function adminIpAllowlist(req, res, next) {
   // Feature disabled — allow all
   if (!allowlist) return next();
 
-  const clientIp = req.ip || req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.connection?.remoteAddress;
+  // Use req.ip which respects Express 'trust proxy' setting (app.set('trust proxy', 1)).
+  // Do NOT read x-forwarded-for directly — clients can spoof it without trust proxy.
+  const clientIp = req.ip;
 
   if (!clientIp) {
     logger.warn('IP allowlist: Could not determine client IP');

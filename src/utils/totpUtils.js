@@ -12,11 +12,23 @@ const IV_LENGTH = 16;
 const TAG_LENGTH = 16;
 
 /**
+ * Cached derived key — scryptSync is deliberately CPU-expensive
+ * and must not run on every encrypt/decrypt call.
+ */
+let _cachedTotpKey = null;
+
+function deriveTotpKey() {
+  if (_cachedTotpKey) return _cachedTotpKey;
+  _cachedTotpKey = crypto.scryptSync(TOTP_ENCRYPTION_KEY, 'vh-totp-salt', 32);
+  return _cachedTotpKey;
+}
+
+/**
  * Encrypt a TOTP secret for database storage.
  * Uses AES-256-GCM authenticated encryption.
  */
 export function encryptSecret(plaintext) {
-  const key = crypto.scryptSync(TOTP_ENCRYPTION_KEY, 'vh-totp-salt', 32);
+  const key = deriveTotpKey();
   const iv = crypto.randomBytes(IV_LENGTH);
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
   let encrypted = cipher.update(plaintext, 'utf8', 'hex');
@@ -30,7 +42,7 @@ export function encryptSecret(plaintext) {
  * Decrypt a TOTP secret from database storage.
  */
 export function decryptSecret(encryptedStr) {
-  const key = crypto.scryptSync(TOTP_ENCRYPTION_KEY, 'vh-totp-salt', 32);
+  const key = deriveTotpKey();
   const [ivHex, tagHex, ciphertext] = encryptedStr.split(':');
   const iv = Buffer.from(ivHex, 'hex');
   const tag = Buffer.from(tagHex, 'hex');
