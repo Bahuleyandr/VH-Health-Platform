@@ -15,20 +15,35 @@ List<Widget> buildSettingsSections(SettingsController c) {
   return [
     _sectionTitle(c.loc.settingsEditProfile.toUpperCase(), c.context),
     _card(
-      ListTile(
-        leading: CircleAvatar(
-          backgroundColor: cs.primaryContainer,
-          child: Icon(Icons.person_outline, color: cs.primary),
-        ),
-        title: Text(c.loc.settingsEditProfile, style: txt.titleMedium),
-        subtitle: Text(c.name, style: txt.bodySmall),
-        trailing: Icon(Icons.arrow_forward_ios, size: 16, color: cs.onSurfaceVariant),
-        onTap: () {
-          c.context.push('/profile-edit', extra: {
-  'phone': c.phone,
-  'name': c.name,
-});
-        },
+      Column(
+        children: [
+          ListTile(
+            leading: CircleAvatar(
+              backgroundColor: cs.primaryContainer,
+              child: Icon(Icons.person_outline, color: cs.primary),
+            ),
+            title: Text(c.loc.settingsEditProfile, style: txt.titleMedium),
+            subtitle: Text(c.name, style: txt.bodySmall),
+            trailing: Icon(Icons.arrow_forward_ios, size: 16, color: cs.onSurfaceVariant),
+            onTap: () {
+              c.context.push('/profile-edit', extra: {
+                'phone': c.phone,
+                'name': c.name,
+              });
+            },
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: CircleAvatar(
+              backgroundColor: const Color(0xFF26A69A).withAlpha(30),
+              child: const Icon(Icons.health_and_safety, color: Color(0xFF26A69A)),
+            ),
+            title: Text('Health ID (ABHA)', style: txt.titleMedium),
+            subtitle: Text('Ayushman Bharat Health Account', style: txt.bodySmall),
+            trailing: Icon(Icons.arrow_forward_ios, size: 16, color: cs.onSurfaceVariant),
+            onTap: () => c.context.push('/abdm'),
+          ),
+        ],
       ),
     ),
     const SizedBox(height: 16),
