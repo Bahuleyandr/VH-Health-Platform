@@ -77,7 +77,10 @@ class VHHealthStaffApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => SessionTimeoutProvider(
             timeoutDuration: const Duration(minutes: 15),
-          )..startTracking(),
+          ),
+          // Don't call startTracking() here — timer should only start
+          // after successful login, not on the login screen.
+          // The login flow should call provider.startTracking().
         ),
       ],
       child: Consumer<ThemeProvider>(

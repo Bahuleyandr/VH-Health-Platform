@@ -114,7 +114,22 @@ final GoRouter appRouter = GoRouter(
     if (!isLoggedIn && !isOnLogin) return '/login';
 
     // Logged in and on login page -> redirect to dashboard
-    if (isLoggedIn && isOnLogin) return '/dashboard';
+    if (isLoggedIn && isOnLogin) {
+      // Start idle timer now that we know the user is authenticated
+      try {
+        Provider.of<SessionTimeoutProvider>(context, listen: false)
+            .startTracking();
+      } catch (_) {}
+      return '/dashboard';
+    }
+
+    // User is logged in and on a protected page — ensure timer is running
+    if (isLoggedIn && !isOnLogin) {
+      try {
+        final sp = Provider.of<SessionTimeoutProvider>(context, listen: false);
+        if (!sp.isSessionExpired) sp.recordActivity();
+      } catch (_) {}
+    }
 
     return null;
   },
