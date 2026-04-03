@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -101,16 +102,12 @@ class _AddNoteTabState extends State<_AddNoteTab> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _submitting = true);
     try {
-      // TODO: Call backend API when endpoint is ready.
-      // Example:
-      // await HrApiService.addNursingNote(
-      //   phone: _phoneCtrl.text.trim(),
-      //   noteType: _noteType!,
-      //   note: _noteCtrl.text.trim(),
-      //   priority: _priority,
-      // );
-
-      await Future.delayed(const Duration(milliseconds: 600));
+      await MedicalApiService.createClinicalNote({
+        'phone': _phoneCtrl.text.trim(),
+        'note_type': _noteType!,
+        'content': _noteCtrl.text.trim(),
+        'priority': _priority,
+      });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

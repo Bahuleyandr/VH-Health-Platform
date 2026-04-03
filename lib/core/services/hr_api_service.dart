@@ -141,7 +141,7 @@ class HrApiService {
 
   // ─── Incident Reports ────────────────────────────────────────────────────
 
-  /// POST /api/v1/staff/hr/incidents/submit — submit an incident report
+  /// POST /staff/hr/incidents/submit — submit an incident report
   static Future<Map<String, dynamic>> submitIncidentReport({
     required String incidentType,
     required String severity,
@@ -155,7 +155,7 @@ class HrApiService {
     String? immediateActionTaken,
     bool isAnonymous = false,
   }) async {
-    return await _post('/api/v1/staff/hr/incidents/submit', {
+    return await _post('/staff/hr/incidents/submit', {
       'incident_type': incidentType,
       'severity': severity,
       'title': title,
@@ -173,18 +173,18 @@ class HrApiService {
 
   /// GET /api/v1/staff/hr/incidents — get my incident reports
   static Future<List<dynamic>> getMyIncidents() async {
-    final result = await _get('/api/v1/staff/hr/incidents');
+    final result = await _get('/staff/hr/incidents');
     return result['data'] as List? ?? result as List? ?? [];
   }
 
   /// GET /api/v1/staff/hr/incidents/:id — get incident detail
   static Future<Map<String, dynamic>> getIncidentDetail(String id) async {
-    return await _get('/api/v1/staff/hr/incidents/$id');
+    return await _get('/staff/hr/incidents/$id');
   }
 
   // ─── Grievances ──────────────────────────────────────────────────────────
 
-  /// POST /api/v1/staff/hr/grievances/submit — submit a grievance
+  /// POST /staff/hr/grievances/submit — submit a grievance
   static Future<Map<String, dynamic>> submitGrievance({
     required String grievanceType,
     required String subject,
@@ -194,7 +194,7 @@ class HrApiService {
     String? incidentDate,
     bool isAnonymous = false,
   }) async {
-    return await _post('/api/v1/staff/hr/grievances/submit', {
+    return await _post('/staff/hr/grievances/submit', {
       'grievance_type': grievanceType,
       'subject': subject,
       'description': description,
@@ -207,25 +207,25 @@ class HrApiService {
 
   /// GET /api/v1/staff/hr/grievances — get my grievances
   static Future<List<dynamic>> getMyGrievances() async {
-    final result = await _get('/api/v1/staff/hr/grievances');
+    final result = await _get('/staff/hr/grievances');
     return result['data'] as List? ?? result as List? ?? [];
   }
 
   /// GET /api/v1/staff/hr/grievances/:id — get grievance detail
   static Future<Map<String, dynamic>> getGrievanceDetail(String id) async {
-    return await _get('/api/v1/staff/hr/grievances/$id');
+    return await _get('/staff/hr/grievances/$id');
   }
 
   // ─── Housekeeping ─────────────────────────────────────────────────────────
 
-  /// GET /api/v1/staff/hr/housekeeping/zones
+  /// GET /staff/hr/housekeeping/zones
   static Future<List<dynamic>> getHousekeepingZones() async {
     final result =
-        await _get('/api/v1/staff/hr/housekeeping/zones');
+        await _get('/staff/hr/housekeeping/zones');
     return result['data'] as List? ?? result as List? ?? [];
   }
 
-  /// POST /api/v1/staff/hr/housekeeping/log
+  /// POST /staff/hr/housekeeping/log
   static Future<Map<String, dynamic>> submitCleaningLog({
     required String cleaningType,
     int? zoneId,
@@ -236,7 +236,7 @@ class HrApiService {
     double? latitude,
     double? longitude,
   }) async {
-    return await _post('/api/v1/staff/hr/housekeeping/log', {
+    return await _post('/staff/hr/housekeeping/log', {
       'cleaning_type': cleaningType,
       if (zoneId != null) 'zone_id': zoneId,
       if (locationText != null) 'location_text': locationText,
@@ -248,14 +248,14 @@ class HrApiService {
     });
   }
 
-  /// GET /api/v1/staff/hr/housekeeping/logs/my
+  /// GET /staff/hr/housekeeping/logs/my
   static Future<List<dynamic>> getMyCleaningLogs() async {
     final result =
-        await _get('/api/v1/staff/hr/housekeeping/logs/my');
+        await _get('/staff/hr/housekeeping/logs/my');
     return result['data'] as List? ?? result as List? ?? [];
   }
 
-  /// POST /api/v1/staff/hr/housekeeping/request
+  /// POST /staff/hr/housekeeping/request
   static Future<Map<String, dynamic>> raiseHousekeepingRequest({
     required String locationText,
     required String requestType,
@@ -267,7 +267,7 @@ class HrApiService {
     double? latitude,
     double? longitude,
   }) async {
-    return await _post('/api/v1/staff/hr/housekeeping/request', {
+    return await _post('/staff/hr/housekeeping/request', {
       'location_text': locationText,
       'request_type': requestType,
       'urgency': urgency,
@@ -280,12 +280,12 @@ class HrApiService {
     });
   }
 
-  /// GET /api/v1/staff/hr/housekeeping/requests/my
+  /// GET /staff/hr/housekeeping/requests/my
   static Future<Map<String, dynamic>> getMyHousekeepingRequests() async {
-    return await _get('/api/v1/staff/hr/housekeeping/requests/my');
+    return await _get('/staff/hr/housekeeping/requests/my');
   }
 
-  /// POST /api/v1/staff/hr/housekeeping/requests/:id/complete
+  /// POST /staff/hr/housekeeping/requests/:id/complete
   static Future<Map<String, dynamic>> completeHousekeepingRequest({
     required String requestId,
     String? completionNotes,
@@ -293,7 +293,7 @@ class HrApiService {
     String? photoUrl,
   }) async {
     return await _post(
-        '/api/v1/staff/hr/housekeeping/requests/$requestId/complete', {
+        '/staff/hr/housekeeping/requests/$requestId/complete', {
       if (completionNotes != null) 'completion_notes': completionNotes,
       if (photoKey != null) 'completion_photo_key': photoKey,
       if (photoUrl != null) 'completion_photo_url': photoUrl,
@@ -302,59 +302,59 @@ class HrApiService {
 
   // ─── Payroll ──────────────────────────────────────────────────────────────
 
-  /// GET /api/v1/staff/hr/payslips?months=N
+  /// GET /staff/hr/payslips?months=N
   static Future<List<dynamic>> getMyPayslips({int months = 3}) async {
     final result = await _get(
-      '/api/v1/staff/hr/payslips',
+      '/staff/hr/payslips',
       query: {'months': months.toString()},
     );
     return result['data'] as List? ?? (result is List ? result as List : []);
   }
 
-  /// GET /api/v1/staff/hr/payslips/:id
+  /// GET /staff/hr/payslips/:id
   static Future<Map<String, dynamic>> getPayslipDetail(String id) async {
-    final result = await _get('/api/v1/staff/hr/payslips/$id');
+    final result = await _get('/staff/hr/payslips/$id');
     return (result['data'] as Map<String, dynamic>?) ?? result;
   }
 
-  /// GET /api/v1/staff/hr/payroll/tax-summary?fy=2025-26
+  /// GET /staff/hr/payroll/tax-summary?fy=2025-26
   static Future<Map<String, dynamic>> getMyTaxSummary({String? fy}) async {
     final query = fy != null ? {'fy': fy} : null;
     final result = await _get(
-      '/api/v1/staff/hr/payroll/tax-summary',
+      '/staff/hr/payroll/tax-summary',
       query: query,
     );
     return (result['data'] as Map<String, dynamic>?) ?? result;
   }
 
-  /// GET /api/v1/staff/hr/payroll/advances
+  /// GET /staff/hr/payroll/advances
   static Future<List<dynamic>> getMyAdvances() async {
-    final result = await _get('/api/v1/staff/hr/payroll/advances');
+    final result = await _get('/staff/hr/payroll/advances');
     return result['data'] as List? ?? (result is List ? result as List : []);
   }
 
-  /// POST /api/v1/staff/hr/payroll/declarations/submit
+  /// POST /staff/hr/payroll/declarations/submit
   static Future<Map<String, dynamic>> submitInvestmentDeclaration(
       Map<String, dynamic> data) async {
     return await _post(
-        '/api/v1/staff/hr/payroll/declarations/submit', data);
+        '/staff/hr/payroll/declarations/submit', data);
   }
 
-  /// GET /api/v1/staff/hr/payroll/declarations
+  /// GET /staff/hr/payroll/declarations
   static Future<List<dynamic>> getMyDeclarations() async {
-    final r = await _get('/api/v1/staff/hr/payroll/declarations');
+    final r = await _get('/staff/hr/payroll/declarations');
     return r['data'] as List? ?? [];
   }
 
-  /// POST /api/v1/staff/hr/payroll/queries/raise
+  /// POST /staff/hr/payroll/queries/raise
   static Future<Map<String, dynamic>> raisePayslipQuery(
       Map<String, dynamic> data) async {
-    return await _post('/api/v1/staff/hr/payroll/queries/raise', data);
+    return await _post('/staff/hr/payroll/queries/raise', data);
   }
 
-  /// GET /api/v1/staff/hr/payroll/queries
+  /// GET /staff/hr/payroll/queries
   static Future<List<dynamic>> getMyPayslipQueries() async {
-    final r = await _get('/api/v1/staff/hr/payroll/queries');
+    final r = await _get('/staff/hr/payroll/queries');
     return r['data'] as List? ?? [];
   }
 
