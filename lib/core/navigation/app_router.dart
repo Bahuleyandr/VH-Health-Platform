@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import 'package:vhhealth_staff/core/config/api_config.dart';
+import 'package:vhhealth_staff/core/providers/session_timeout_provider.dart';
 
 // Splash & Auth
 import '../../features/splash/screens/splash_screen.dart';
@@ -95,11 +97,39 @@ final GoRouter appRouter = GoRouter(
     // Allow splash screen always
     if (isOnSplash) return null;
 
+    // Session idle timeout — force logout if expired
+    try {
+      final sessionProvider = Provider.of<SessionTimeoutProvider>(
+        context,
+        listen: false,
+      );
+      if (sessionProvider.isSessionExpired && !isOnLogin) {
+        return '/login';
+      }
+    } catch (_) {
+      // Provider may not be available during initial build
+    }
+
     // Not logged in and not on login page -> redirect to login
     if (!isLoggedIn && !isOnLogin) return '/login';
 
     // Logged in and on login page -> redirect to dashboard
-    if (isLoggedIn && isOnLogin) return '/dashboard';
+    if (isLoggedIn && isOnLogin) {
+      // Start idle timer now that we know the user is authenticated
+      try {
+        Provider.of<SessionTimeoutProvider>(context, listen: false)
+            .startTracking();
+      } catch (_) {}
+      return '/dashboard';
+    }
+
+    // User is logged in and on a protected page — ensure timer is running
+    if (isLoggedIn && !isOnLogin) {
+      try {
+        final sp = Provider.of<SessionTimeoutProvider>(context, listen: false);
+        if (!sp.isSessionExpired) sp.recordActivity();
+      } catch (_) {}
+    }
 
     return null;
   },

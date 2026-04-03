@@ -9,6 +9,7 @@ import 'firebase_options.dart';
 import 'core/navigation/app_router.dart';
 import 'core/providers/notification_provider.dart';
 import 'core/providers/theme_provider.dart';
+import 'core/providers/session_timeout_provider.dart';
 import 'core/providers/websocket_provider.dart';
 import 'core/services/connectivity_sync_service.dart';
 
@@ -73,16 +74,30 @@ class VHHealthStaffApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
         ChangeNotifierProvider(create: (_) => WebSocketProvider()..init()),
+        ChangeNotifierProvider(
+          create: (_) => SessionTimeoutProvider(
+            timeoutDuration: const Duration(minutes: 15),
+          ),
+          // Don't call startTracking() here — timer should only start
+          // after successful login, not on the login screen.
+          // The login flow should call provider.startTracking().
+        ),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
-          return MaterialApp.router(
-            title: 'VHHealth Staff',
-            debugShowCheckedModeBanner: false,
-            theme: themeProvider.lightTheme,
-            darkTheme: themeProvider.darkTheme,
-            themeMode: themeProvider.themeMode,
-            routerConfig: appRouter,
+          // Wrap in a Listener to detect user interaction for idle timeout
+          return Listener(
+            onPointerDown: (_) {
+              context.read<SessionTimeoutProvider>().recordActivity();
+            },
+            child: MaterialApp.router(
+              title: 'VHHealth Staff',
+              debugShowCheckedModeBanner: false,
+              theme: themeProvider.lightTheme,
+              darkTheme: themeProvider.darkTheme,
+              themeMode: themeProvider.themeMode,
+              routerConfig: appRouter,
+            ),
           );
         },
       ),
