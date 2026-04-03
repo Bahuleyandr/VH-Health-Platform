@@ -12,7 +12,7 @@
     "debug": "node --inspect --enable-source-maps src/app.js",
     "lint": "eslint . --ext .js",
     "lint:fix": "eslint . --ext .js --fix",
-    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test": "node --max-old-space-size=4096 --experimental-vm-modules node_modules/jest/bin/jest.js --maxWorkers=2",
     "start:local": "dotenv -e .env.local -- node src/bin/www.js",
     "start:render": "node src/bin/www.js",
     "start:cluster": "node src/cluster.js",
