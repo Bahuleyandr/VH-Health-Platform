@@ -15,7 +15,7 @@ export function generateTestToken(role = 'ADMIN', overrides = {}) {
   const secret = process.env.JWT_SECRET || 'test-jwt-secret';
   return jwt.sign(
     {
-      uid: 'test-user-uid',
+      uid: '550e8400-e29b-41d4-a716-446655440000',
       id: 1,
       phone: '9876543210',
       role,
