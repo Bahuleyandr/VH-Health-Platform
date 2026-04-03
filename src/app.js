@@ -26,6 +26,7 @@ import { patientRateLimiter, genericLimiter, adminRateLimiter, dataExportRateLim
 import validateApiKey from './middleware/validateApiKey.js';
 import apiVersionMiddleware from './middleware/apiVersionMiddleware.js';
 import { selfHealingMiddleware } from './middleware/selfHealingMiddleware.js';
+import { adminIpAllowlist } from './middleware/ipAllowlistMiddleware.js';
 import { prometheusMiddleware } from './middleware/prometheusMiddleware.js';
 
 // ====================================
@@ -75,11 +76,18 @@ import dashboardRoutes from './routes/dashboard/index.js';
 // Config routes (API key only, no JWT)
 import configRoutes from './routes/configRoutes.js';
 
-// GDPR Data Export
+// GDPR Data Export + Erasure
 import dataExportRoutes from './routes/dataExportRoutes.js';
+import gdprRoutes from './routes/gdprRoutes.js';
 
 // HIPAA Consent Management
 import consentRoutes from './routes/consentRoutes.js';
+
+// Session Management (view/revoke active sessions)
+import sessionRoutes from './routes/sessionRoutes.js';
+
+// Admin 2FA (TOTP)
+import totpRoutes from './routes/auth/totpRoutes.js';
 
 // Compliance (Breach Notification + Audit Search)
 import breachRoutes from './routes/compliance/breachRoutes.js';
@@ -328,8 +336,15 @@ app.use('/api/v1/sos', patientRateLimiter, routes.sos);
 app.use('/api/v1/search', searchRoutes);
 app.use('/api/v1/upload', routes.upload);
 
-// GDPR Data Export
+// GDPR Data Export + Erasure
 app.use('/api/v1/data-export', dataExportRateLimiter, dataExportRoutes);
+app.use('/api/v1/gdpr', dataExportRateLimiter, gdprRoutes);
+
+// Session Management (view/revoke active sessions)
+app.use('/api/v1/sessions', sessionRoutes);
+
+// Admin 2FA (TOTP) — some endpoints public (verify), some require auth
+app.use('/api/v1/auth/admin/totp', totpRoutes);
 
 // HIPAA Consent Management (requires JWT + role check; IDOR enforced in route file)
 app.use('/api/v1/consent', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PATIENT'), consentRoutes);
@@ -375,8 +390,8 @@ app.use('/api/v1/emr', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_ST
 // EMR — Diagnosis & Problem List
 app.use('/api/v1/emr', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('DIAGNOSIS'), diagnosisRoutes);
 
-// Centralized admin namespace
-app.use('/api/v1/admin', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, adminDashboardRoutes);
+// Centralized admin namespace — IP allowlisted when ADMIN_IP_ALLOWLIST is set
+app.use('/api/v1/admin', requireRole('ADMIN', 'SUPER_ADMIN'), adminIpAllowlist, adminRateLimiter, adminDashboardRoutes);
 
 // System settings + status
 app.use('/api/v1/system', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, systemRoutes);

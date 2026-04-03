@@ -27,6 +27,13 @@ const envSchema = Joi.object({
 
   // Monitoring — optional but warn if missing
   SENTRY_DSN: Joi.string().optional().label('SENTRY_DSN'),
+
+  // Encryption — optional but recommended for production
+  FIELD_ENCRYPTION_KEY: Joi.string().min(32).optional().label('FIELD_ENCRYPTION_KEY'),
+  TOTP_ENCRYPTION_KEY: Joi.string().min(32).optional().label('TOTP_ENCRYPTION_KEY'),
+
+  // Admin IP allowlist — optional, comma-separated IPs/CIDRs
+  ADMIN_IP_ALLOWLIST: Joi.string().optional().label('ADMIN_IP_ALLOWLIST'),
 }).unknown(true);
 
 // Validate the current environment variables
@@ -48,6 +55,12 @@ if (!envVars.FIREBASE_PROJECT_ID) {
 }
 if (!envVars.SENTRY_DSN) {
   optionalWarnings.push('SENTRY_DSN is not set — error monitoring is disabled');
+}
+if (!envVars.FIELD_ENCRYPTION_KEY) {
+  optionalWarnings.push('FIELD_ENCRYPTION_KEY is not set — field-level encryption will use JWT_SECRET as fallback (not recommended for production)');
+}
+if (!envVars.TOTP_ENCRYPTION_KEY) {
+  optionalWarnings.push('TOTP_ENCRYPTION_KEY is not set — TOTP secrets will use JWT_SECRET as fallback (not recommended for production)');
 }
 if (optionalWarnings.length > 0) {
   optionalWarnings.forEach(w => logger.warn(`⚠️  ${w}`));
