@@ -7,8 +7,19 @@ class InputSanitizer {
 
   /// Strip HTML tags from input text.
   /// Removes `<script>`, `<img>`, `<iframe>`, and all other HTML tags.
+  /// Handles unclosed tags (e.g., `<img src=x onerror=alert(1)`) and
+  /// strips all content between `<script>` tags.
   static String stripHtml(String input) {
-    return input.replaceAll(RegExp(r'<[^>]*>'), '');
+    // First remove script/style blocks entirely (content + tags)
+    var result = input.replaceAll(
+      RegExp(r'<\s*(script|style)[^>]*>[\s\S]*?<\s*/\s*\1\s*>', caseSensitive: false),
+      '',
+    );
+    // Remove complete tags (with closing >)
+    result = result.replaceAll(RegExp(r'<[^>]*>'), '');
+    // Remove unclosed tags (e.g., `<img src=x onerror=alert(1)` without `>`)
+    result = result.replaceAll(RegExp(r'<[^>]*$'), '');
+    return result;
   }
 
   /// Sanitize free-text input: strip HTML tags and trim whitespace.
