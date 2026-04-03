@@ -23,103 +23,39 @@ export function initWebSocket(server) {
   logger.info('🔌 WebSocket server initialized on /ws');
 
   wss.on('connection', async (ws, req) => {
-    // Accept token from Authorization header (preferred) or ?token= query param
-    // Browsers cannot set custom headers on WebSocket connections, so query param is the fallback.
+    // Accept token from Authorization header, ?token= query param, or first message frame.
+    // Browsers cannot set custom headers on WebSocket connections, so query param
+    // and message-based auth are the two client options.
     const wsUrl = new URL(req.url, 'ws://localhost');
     const queryToken = wsUrl.searchParams.get('token');
     const headerToken = req.headers.authorization?.replace('Bearer ', '');
     const token = headerToken || queryToken;
 
-    if (!token) {
-      ws.close(4001, 'Authorization required: provide Authorization header or ?token= query param');
-      return;
-    }
-
-    let decoded;
-    try {
-      decoded = verifyToken(token);
-    } catch {
-      ws.close(4001, 'Invalid token');
-      return;
-    }
-
-    if (!decoded) {
-      ws.close(4001, 'Invalid token');
-      return;
-    }
-
-    // Check token blacklist (revoked/rotated tokens)
-    if (decoded.jti) {
-      const blacklisted = await isTokenBlacklisted(decoded.jti);
-      if (blacklisted) {
-        ws.close(4001, 'Token has been revoked');
-        return;
-      }
-    }
-
-    const userId = decoded.uid || decoded.id || decoded.sub;
-    if (!userId) {
-      ws.close(4001, 'Invalid token payload');
-      return;
-    }
-
-    // Check if all user tokens were revoked (force-logout)
-    if (decoded.iat) {
-      const revoked = await isUserTokensRevoked(String(userId), decoded.iat);
-      if (revoked) {
-        ws.close(4001, 'All sessions revoked');
-        return;
-      }
-    }
-
-    // Enforce per-user connection limit
-    const existingConnections = clients.get(userId);
-    if (existingConnections && existingConnections.size >= MAX_CONNECTIONS_PER_USER) {
-      ws.close(4029, 'Too many concurrent connections');
-      return;
-    }
-
-    // Register client
-    if (!clients.has(userId)) clients.set(userId, new Set());
-    clients.get(userId).add(ws);
-    socketMeta.set(ws, { userId, channels: new Set() });
-
-    logger.info(`🔌 WS connected: user=${userId}`);
-
-    // Ping/pong heartbeat
-    ws.isAlive = true;
-    ws.on('pong', () => { ws.isAlive = true; });
-
-    ws.on('message', (raw) => {
-      try {
-        const msg = JSON.parse(raw);
-        if (msg.action === 'subscribe' && msg.channel) {
-          socketMeta.get(ws)?.channels.add(msg.channel);
-          ws.send(JSON.stringify({ event: 'subscribed', channel: msg.channel }));
-        } else if (msg.action === 'unsubscribe' && msg.channel) {
-          socketMeta.get(ws)?.channels.delete(msg.channel);
-          ws.send(JSON.stringify({ event: 'unsubscribed', channel: msg.channel }));
+    if (token) {
+      // Immediate auth via header or query param
+      await authenticateAndRegister(ws, token);
+    } else {
+      // No token in URL — wait for auth message as first frame (5s timeout)
+      const authTimeout = setTimeout(() => {
+        if (!socketMeta.has(ws)) {
+          ws.close(4001, 'Authentication timeout: send {"action":"auth","token":"..."} within 5 seconds');
         }
-      } catch {
-        // ignore malformed messages
-      }
-    });
+      }, 5000);
 
-    ws.on('close', () => {
-      const meta = socketMeta.get(ws);
-      if (meta) {
-        clients.get(meta.userId)?.delete(ws);
-        if (clients.get(meta.userId)?.size === 0) clients.delete(meta.userId);
-        socketMeta.delete(ws);
-      }
-    });
-
-    ws.on('error', (err) => {
-      logger.error(`WS error for user=${userId}:`, err.message);
-    });
-
-    // Send welcome
-    ws.send(JSON.stringify({ event: 'connected', userId }));
+      ws.once('message', async (raw) => {
+        clearTimeout(authTimeout);
+        try {
+          const msg = JSON.parse(raw);
+          if (msg.action === 'auth' && msg.token) {
+            await authenticateAndRegister(ws, msg.token);
+          } else {
+            ws.close(4001, 'First message must be {"action":"auth","token":"..."}');
+          }
+        } catch {
+          ws.close(4001, 'Invalid auth message');
+        }
+      });
+    }
   });
 
   // Heartbeat interval to detect dead connections
@@ -132,6 +68,98 @@ export function initWebSocket(server) {
   }, HEARTBEAT_INTERVAL);
 
   wss.on('close', () => clearInterval(interval));
+}
+
+/**
+ * Authenticate a WebSocket connection and register it for messaging.
+ * Shared by both URL-based and message-based auth flows.
+ */
+async function authenticateAndRegister(ws, token) {
+  let decoded;
+  try {
+    decoded = verifyToken(token);
+  } catch {
+    ws.close(4001, 'Invalid token');
+    return;
+  }
+
+  if (!decoded) {
+    ws.close(4001, 'Invalid token');
+    return;
+  }
+
+  // Check token blacklist (revoked/rotated tokens)
+  if (decoded.jti) {
+    const blacklisted = await isTokenBlacklisted(decoded.jti);
+    if (blacklisted) {
+      ws.close(4001, 'Token has been revoked');
+      return;
+    }
+  }
+
+  const userId = decoded.uid || decoded.id || decoded.sub;
+  if (!userId) {
+    ws.close(4001, 'Invalid token payload');
+    return;
+  }
+
+  // Check if all user tokens were revoked (force-logout)
+  if (decoded.iat) {
+    const revoked = await isUserTokensRevoked(String(userId), decoded.iat);
+    if (revoked) {
+      ws.close(4001, 'All sessions revoked');
+      return;
+    }
+  }
+
+  // Enforce per-user connection limit
+  const existingConnections = clients.get(userId);
+  if (existingConnections && existingConnections.size >= MAX_CONNECTIONS_PER_USER) {
+    ws.close(4029, 'Too many concurrent connections');
+    return;
+  }
+
+  // Register client
+  if (!clients.has(userId)) clients.set(userId, new Set());
+  clients.get(userId).add(ws);
+  socketMeta.set(ws, { userId, channels: new Set() });
+
+  logger.info(`🔌 WS connected: user=${userId}`);
+
+  // Ping/pong heartbeat
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+
+  ws.on('message', (raw) => {
+    try {
+      const msg = JSON.parse(raw);
+      if (msg.action === 'subscribe' && msg.channel) {
+        socketMeta.get(ws)?.channels.add(msg.channel);
+        ws.send(JSON.stringify({ event: 'subscribed', channel: msg.channel }));
+      } else if (msg.action === 'unsubscribe' && msg.channel) {
+        socketMeta.get(ws)?.channels.delete(msg.channel);
+        ws.send(JSON.stringify({ event: 'unsubscribed', channel: msg.channel }));
+      }
+    } catch {
+      // ignore malformed messages
+    }
+  });
+
+  ws.on('close', () => {
+    const meta = socketMeta.get(ws);
+    if (meta) {
+      clients.get(meta.userId)?.delete(ws);
+      if (clients.get(meta.userId)?.size === 0) clients.delete(meta.userId);
+      socketMeta.delete(ws);
+    }
+  });
+
+  ws.on('error', (err) => {
+    logger.error(`WS error for user=${userId}:`, err.message);
+  });
+
+  // Send welcome
+  ws.send(JSON.stringify({ event: 'connected', userId }));
 }
 
 /**
