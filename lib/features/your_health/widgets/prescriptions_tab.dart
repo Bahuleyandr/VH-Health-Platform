@@ -1,8 +1,7 @@
 // Prescriptions tab — self-contained widget with its own state and data fetching
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:vhhealth/core/utils/safe_url_launcher.dart';
+import 'package:vhhealth/core/utils/document_opener.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/offline_banner.dart';
@@ -323,8 +322,9 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
             // PDF Download
             if (rx['pdf_url'] != null)
               OutlinedButton.icon(
-                onPressed: () => SafeUrlLauncher.launch(rx['pdf_url'],
-                    mode: LaunchMode.externalApplication),
+                onPressed: () => DocumentOpener.openFromUrl(
+                    context, rx['pdf_url'],
+                    filename: 'prescription.pdf'),
                 icon: const Icon(Icons.picture_as_pdf, size: 18),
                 label: const Text('Download PDF'),
               ),

@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
-import 'package:url_launcher/url_launcher.dart';
 import 'package:vhhealth/core/services/api_client.dart';
-import 'package:vhhealth/core/utils/safe_url_launcher.dart';
+import 'package:vhhealth/core/utils/document_opener.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 
@@ -124,12 +123,11 @@ class _RecordsScreenState extends State<RecordsScreen>
       );
       return;
     }
-    final launched = await SafeUrlLauncher.launch(url, mode: LaunchMode.externalApplication);
-    if (!launched && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open document')),
-      );
-    }
+    await DocumentOpener.openFromUrl(
+      context,
+      url,
+      filename: record.fileName ?? 'document',
+    );
   }
 
   Future<void> _deleteRecord(_RecordItem record) async {
