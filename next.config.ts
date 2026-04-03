@@ -18,6 +18,8 @@ const withPWA = withPWAInit({
   },
 });
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 const nextConfig: NextConfig = {
   output: 'standalone',
   reactStrictMode: true,
@@ -47,6 +49,10 @@ const nextConfig: NextConfig = {
 
   async headers() {
     const allowedOrigin = process.env.NEXT_PUBLIC_ALLOWED_ORIGIN || 'http://localhost:3000';
+    // Only allow unsafe-eval in development (needed for Next.js HMR/dev tools)
+    const scriptSrc = isProduction
+      ? "script-src 'self' 'unsafe-inline'"
+      : "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
     return [
       {
         source: '/api/proxy/:path*',
@@ -74,7 +80,7 @@ const nextConfig: NextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+              scriptSrc,
               "style-src 'self' 'unsafe-inline'",
               `connect-src 'self' ${process.env.NEXT_PUBLIC_API_URL || 'https://api.vhhealth.app'} ${(process.env.NEXT_PUBLIC_API_URL || 'https://api.vhhealth.app').replace('https://', 'wss://')} https://*.sentry.io`,
               "img-src 'self' data: blob:",
@@ -95,7 +101,7 @@ const nextConfig: NextConfig = {
 const configWithPWA =
   process.env.NODE_ENV === 'production' ? withPWA(nextConfig) : nextConfig;
 
-// Wrap with Sentry. telemetry:false silences the “Sending telemetry…” build log.
+// Wrap with Sentry. telemetry:false silences the "Sending telemetry…" build log.
 // The sourcemaps block keeps uploads via the plugin and deletes local *.map after.
 export default withSentryConfig(configWithPWA, {
   org: process.env.SENTRY_ORG,
@@ -112,7 +118,5 @@ export default withSentryConfig(configWithPWA, {
 
   sourcemaps: {
     deleteSourcemapsAfterUpload: true,
-    // optional: you can further customize which assets to upload
-    // assets: ['.next/static/chunks/**'],
   },
 });

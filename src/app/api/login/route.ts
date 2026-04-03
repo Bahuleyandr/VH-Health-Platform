@@ -6,21 +6,39 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "https://api.vhhealth.app";
 
 /**
+ * CSRF Origin validation.
+ * Rejects requests from origins that don't match the allowed origin.
+ */
+function validateOrigin(request: Request): NextResponse | null {
+  const origin = request.headers.get('origin');
+  const allowed = process.env.NEXT_PUBLIC_ALLOWED_ORIGIN || 'http://localhost:3000';
+  // Allow requests with no origin (same-origin, curl, server-side)
+  if (origin && origin !== allowed) {
+    return NextResponse.json(
+      { message: 'Forbidden: Origin not allowed', success: false },
+      { status: 403 },
+    );
+  }
+  return null;
+}
+
+/**
  * Login API route — proxies credentials to the backend and sets the
  * returned token as an httpOnly cookie.
  *
  * SECURITY: This route does NOT accept arbitrary tokens from the client.
  * It forwards login credentials to the backend, and only sets the cookie
- * with the token that the backend returns. This prevents an attacker from
- * crafting a fake JWT and getting it set as an auth cookie.
+ * with the token that the backend returns.
  *
  * Accepts two login flows:
  * 1. Admin login:  { username, password }
  * 2. Staff login:  { employeeId, password }
- * 3. Token-only (from client after backend login): { token } - DEPRECATED
- *    Still supported for backward compatibility but will be removed.
  */
 export async function POST(request: Request) {
+  // CSRF check
+  const csrfError = validateOrigin(request);
+  if (csrfError) return csrfError;
+
   const body = await request.json();
 
   // Flow 1: Admin login (username + password)
@@ -37,12 +55,6 @@ export async function POST(request: Request) {
       `${API_BASE_URL}/api/v1/auth/staff/login`,
       { employeeId: body.employeeId, password: body.password },
     );
-  }
-
-  // Flow 3: Legacy token-set (backward compatibility)
-  // TODO: Remove this once all client code uses flows 1 or 2
-  if (body.token && typeof body.token === "string") {
-    return setTokenCookie(body.token, { success: true });
   }
 
   return NextResponse.json(
@@ -108,7 +120,7 @@ function setTokenCookie(
     secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
     path: "/",
-    maxAge: 60 * 60 * 24, // 1 day
+    maxAge: 60 * 60 * 4, // 4 hours — matches backend admin JWT expiry
   });
 
   return response;

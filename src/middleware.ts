@@ -2,26 +2,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 
-/**
- * JWT verification for Edge runtime using the `jose` library.
- *
- * The JWT_SECRET environment variable must be set to the same secret
- * used by the backend to sign tokens. This enables proper signature
- * verification at the middleware layer.
- *
- * If JWT_SECRET is not set, falls back to structural checks only
- * (expiry + format) with a warning logged at startup.
- */
 const JWT_SECRET = process.env.JWT_SECRET;
 const secretKey = JWT_SECRET
   ? new TextEncoder().encode(JWT_SECRET)
   : null;
 
 if (!secretKey && process.env.NODE_ENV === "production") {
-  console.warn(
-    "⚠️  SECURITY WARNING: JWT_SECRET is not set. " +
-    "Middleware cannot verify JWT signatures. " +
-    "Set JWT_SECRET to enable signature verification.",
+  console.error(
+    "FATAL: JWT_SECRET is not set in production. " +
+    "Middleware will reject all authenticated requests. " +
+    "Set JWT_SECRET to enable JWT signature verification.",
   );
 }
 
@@ -31,15 +21,15 @@ interface TokenResult {
 }
 
 /**
- * Verify JWT with signature validation (when secret is available)
- * or fall back to structural checks.
+ * Verify JWT with signature validation (when secret is available).
+ * In production, fails closed when JWT_SECRET is not configured.
  */
 async function verifyToken(token: string): Promise<TokenResult> {
-  // Try full signature verification first
+  // Full signature verification
   if (secretKey) {
     try {
       const { payload } = await jwtVerify(token, secretKey, {
-        clockTolerance: 30, // 30s clock skew tolerance
+        clockTolerance: 30,
       });
       const role = typeof payload.role === "string" ? payload.role : null;
       return { valid: true, role };
@@ -48,13 +38,18 @@ async function verifyToken(token: string): Promise<TokenResult> {
     }
   }
 
-  // Fallback: structural check only (when secret not configured)
+  // FAIL CLOSED in production: no JWT_SECRET means no auth possible
+  if (process.env.NODE_ENV === "production") {
+    return { valid: false, role: null };
+  }
+
+  // Development fallback: structural check only
   return parseTokenStructure(token);
 }
 
 /**
  * Fallback structural JWT check (no signature verification).
- * Only used when JWT_SECRET is not configured.
+ * ONLY used in development when JWT_SECRET is not configured.
  */
 function parseTokenStructure(token: string): TokenResult {
   try {
