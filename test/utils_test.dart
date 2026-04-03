@@ -28,7 +28,8 @@ void main() {
   group('InputSanitizer', () {
     test('stripHtml removes tags', () {
       expect(InputSanitizer.stripHtml('<b>bold</b>'), 'bold');
-      expect(InputSanitizer.stripHtml('<script>alert("xss")</script>'), 'alert("xss")');
+      // Script content is stripped entirely (not just the tags) to prevent XSS
+      expect(InputSanitizer.stripHtml('<script>alert("xss")</script>'), '');
       expect(InputSanitizer.stripHtml('no tags'), 'no tags');
     });
 
