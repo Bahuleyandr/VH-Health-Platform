@@ -49,6 +49,10 @@
     
     <!-- 📢 Notifications (Required for Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- ⏰ Exact Alarms — required for flutter_local_notifications exactAllowWhileIdle -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- 🔄 Re-schedule notifications after device reboot -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     
     <!-- 🎵 Audio Recording (if needed) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
