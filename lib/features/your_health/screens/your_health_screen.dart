@@ -283,7 +283,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
                       const HospitalDocumentsTab(),
                       MyUploadsTab(key: _myUploadsKey),
                       PrescriptionsTab(phone: widget.phone),
-                      ConsultationsTab(phone: widget.phone),
+                      const ConsultationsTab(),
                       const HealthSummaryTab(),
                     ],
                   ),

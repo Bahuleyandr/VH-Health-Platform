@@ -1,5 +1,6 @@
 // Consultations tab — self-contained widget with its own state and data fetching
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl/intl.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
@@ -7,9 +8,7 @@ import 'package:vhhealth/core/widgets/offline_banner.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 class ConsultationsTab extends StatefulWidget {
-  final String phone;
-
-  const ConsultationsTab({super.key, required this.phone});
+  const ConsultationsTab({super.key});
 
   @override
   State<ConsultationsTab> createState() => _ConsultationsTabState();
@@ -20,15 +19,33 @@ class _ConsultationsTabState extends State<ConsultationsTab> {
   bool _isLoading = true;
   String? _error;
   String? _staleLabel;
+  String? _patientUid;
 
   @override
   void initState() {
     super.initState();
-    _fetchConsultations();
+    _loadPatientUid();
+  }
+
+  Future<void> _loadPatientUid() async {
+    const storage = FlutterSecureStorage();
+    final pid = await storage.read(key: 'patient_id');
+    final uid = await storage.read(key: 'firebase_uid');
+    if (mounted) {
+      setState(() => _patientUid = pid ?? uid);
+      if (_patientUid != null) {
+        _fetchConsultations();
+      } else {
+        setState(() {
+          _isLoading = false;
+          _error = 'Patient ID not available';
+        });
+      }
+    }
   }
 
   Future<void> _fetchConsultations() async {
-    if (!mounted) return;
+    if (_patientUid == null || !mounted) return;
     setState(() {
       _isLoading = true;
       _error = null;
@@ -36,7 +53,7 @@ class _ConsultationsTabState extends State<ConsultationsTab> {
 
     try {
       final result =
-          await ApiClient.cachedGet('/records/consultations/${widget.phone}');
+          await ApiClient.cachedGet('/records/consultations/uid/$_patientUid');
       if (!mounted) return;
       _staleLabel = result.staleLabel;
 
