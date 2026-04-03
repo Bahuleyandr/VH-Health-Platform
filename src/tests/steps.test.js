@@ -1,5 +1,4 @@
-import testClient, { AUTH_TOKEN, API_KEY, generateTestToken } from './testClient.js';
-import { authClient } from './testClient.js';
+import testClient, { AUTH_TOKEN, API_KEY, generateTestToken, authClient } from './testClient.js';
 
 describe('Steps / Gamification API', () => {
 
