@@ -1,7 +1,8 @@
 // src/utils/totpUtils.js
 // TOTP (Time-based One-Time Password) utilities for 2FA
+// Uses otplib v13+ functional API (no `authenticator` export)
 
-import { authenticator } from 'otplib';
+import { generate, verify, generateSecret as libGenerateSecret, generateURI } from 'otplib';
 import QRCode from 'qrcode';
 import crypto from 'crypto';
 
@@ -9,7 +10,6 @@ import crypto from 'crypto';
 const TOTP_ENCRYPTION_KEY = process.env.TOTP_ENCRYPTION_KEY || process.env.JWT_SECRET;
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
-const TAG_LENGTH = 16;
 
 /**
  * Cached derived key — scryptSync is deliberately CPU-expensive
@@ -59,8 +59,12 @@ export function decryptSecret(encryptedStr) {
  * @returns {{ secret: string, encryptedSecret: string, qrCodeDataUrl: string, otpauthUrl: string }}
  */
 export async function generateTotpSetup(username) {
-  const secret = authenticator.generateSecret();
-  const otpauthUrl = authenticator.keyuri(username, 'VHHealth Admin', secret);
+  const secret = libGenerateSecret();
+  const otpauthUrl = await generateURI({
+    label: username,
+    issuer: 'VHHealth Admin',
+    secret,
+  });
   const qrCodeDataUrl = await QRCode.toDataURL(otpauthUrl);
 
   return {
@@ -75,17 +79,18 @@ export async function generateTotpSetup(username) {
  * Verify a TOTP token against an encrypted secret.
  * @param {string} token - 6-digit code from authenticator app.
  * @param {string} encryptedSecret - Encrypted secret from database.
- * @returns {boolean}
+ * @returns {Promise<boolean>}
  */
-export function verifyTotp(token, encryptedSecret) {
+export async function verifyTotp(token, encryptedSecret) {
   const secret = decryptSecret(encryptedSecret);
-  return authenticator.check(token, secret);
+  const result = await verify({ token, secret });
+  return result?.valid === true;
 }
 
 /**
  * Generate backup codes for account recovery.
- * Returns 10 plaintext codes and their bcrypt hashes.
- * @returns {{ plainCodes: string[], hashedCodes: string[] }}
+ * Returns 10 plaintext codes.
+ * @returns {string[]}
  */
 export function generateBackupCodes() {
   const codes = [];

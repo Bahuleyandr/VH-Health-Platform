@@ -87,7 +87,7 @@ router.post('/setup/verify', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, re
       return error(res, '2FA is already enabled', HTTP_STATUS.CONFLICT);
     }
 
-    const isValid = verifyTotp(code, admin.totp_secret);
+    const isValid = await verifyTotp(code, admin.totp_secret);
     if (!isValid) {
       return error(res, 'Invalid verification code. Try again.', HTTP_STATUS.UNAUTHORIZED);
     }
@@ -201,7 +201,7 @@ router.post('/verify', async (req, res) => {
     }
 
     // Try TOTP code first
-    let isValid = verifyTotp(code, admin.totp_secret);
+    let isValid = await verifyTotp(code, admin.totp_secret);
 
     // If TOTP fails, try backup codes
     if (!isValid && admin.totp_backup_codes?.length > 0) {
