@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -58,7 +58,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     });
 
     try {
-      final data = await StaffApiService.getPatientNotes(
+      final data = await MedicalApiService.getPatientNotes(
         widget.patientUid,
         noteType: type,
       );
@@ -250,7 +250,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
 
   Future<void> _signNoteAction(int noteId) async {
     try {
-      await StaffApiService.signNote(noteId);
+      await MedicalApiService.signNote(noteId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -591,7 +591,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     Navigator.of(context).pop();
 
     try {
-      await StaffApiService.createClinicalNote(data);
+      await MedicalApiService.createClinicalNote(data);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

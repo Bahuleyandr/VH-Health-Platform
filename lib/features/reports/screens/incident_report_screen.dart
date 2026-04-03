@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
 
 class IncidentReportScreen extends StatefulWidget {
   const IncidentReportScreen({super.key});
@@ -69,7 +69,7 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
 
     setState(() => _submitting = true);
     try {
-      final result = await StaffApiService.submitIncidentReport(
+      final result = await HrApiService.submitIncidentReport(
         incidentType: _incidentType,
         severity: _severity,
         title: _titleCtrl.text.trim(),

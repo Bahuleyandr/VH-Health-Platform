@@ -103,7 +103,7 @@ class _AddNoteTabState extends State<_AddNoteTab> {
     try {
       // TODO: Call backend API when endpoint is ready.
       // Example:
-      // await StaffApiService.addNursingNote(
+      // await HrApiService.addNursingNote(
       //   phone: _phoneCtrl.text.trim(),
       //   noteType: _noteType!,
       //   note: _noteCtrl.text.trim(),

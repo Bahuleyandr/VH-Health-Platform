@@ -4,7 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/config/api_config.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -114,7 +114,7 @@ class _UploadTabState extends State<_UploadTab> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _submitting = true);
     try {
-      await StaffApiService.uploadInvestigation(
+      await MedicalApiService.uploadInvestigation(
         phone: _phoneCtrl.text.trim(),
         testType: _testType!,
         result:
@@ -364,12 +364,12 @@ class _PendingTabState extends State<_PendingTab> {
       Map<String, dynamic> data;
       if (staffId != null) {
         try {
-          data = await StaffApiService.getDoctorInvestigations(staffId);
+          data = await MedicalApiService.getDoctorInvestigations(staffId);
         } catch (e) {
-          data = await StaffApiService.getPendingInvestigations();
+          data = await MedicalApiService.getPendingInvestigations();
         }
       } else {
-        data = await StaffApiService.getPendingInvestigations();
+        data = await MedicalApiService.getPendingInvestigations();
       }
       final list = data['investigations'] as List? ??
           data['records'] as List? ??
@@ -388,7 +388,7 @@ class _PendingTabState extends State<_PendingTab> {
 
   Future<void> _updateStatus(String id, String status) async {
     try {
-      await StaffApiService.updateInvestigationStatus(id, status);
+      await MedicalApiService.updateInvestigationStatus(id, status);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -573,7 +573,7 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
       _error = null;
     });
     try {
-      final data = await StaffApiService.listInvestigations();
+      final data = await MedicalApiService.listInvestigations();
       final list = data['investigations'] as List? ??
           data['records'] as List? ??
           data['data'] as List? ??

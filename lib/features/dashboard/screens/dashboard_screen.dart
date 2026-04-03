@@ -4,7 +4,9 @@ import 'package:intl/intl.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/config/role_config.dart';
 import '../../../core/services/auth_service.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/schedule_api_service.dart';
+import '../../../core/services/attendance_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/sos_button.dart';
 
@@ -45,9 +47,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final futures = <Future>[];
 
       // Fetch campus geofence config (no-op after first success)
-      futures.add(StaffApiService.fetchCampusConfig());
+      futures.add(ScheduleApiService.fetchCampusConfig());
 
-      futures.add(StaffApiService.getAttendanceStatus().then(
+      futures.add(AttendanceApiService.getAttendanceStatus().then(
         (s) => _attendanceStatus = s,
         onError: (_) {},
       ));
@@ -58,7 +60,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _role.isAdminTier) {
         final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
         futures.add(
-          StaffApiService.getAppointments(
+          ScheduleApiService.getAppointments(
             staffId: _staffId,
             date: today,
             status: 'scheduled',
@@ -79,7 +81,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       // Notifications
       if (_phone != null) {
         futures.add(
-          StaffApiService.getNotifications(_phone!).then(
+          HrApiService.getNotifications(_phone!).then(
             (n) => _recentNotifications = n.take(5).toList(),
             onError: (_) {},
           ),

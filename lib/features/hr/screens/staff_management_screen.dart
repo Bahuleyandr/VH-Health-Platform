@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -38,7 +38,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
       _error = null;
     });
     try {
-      final data = await StaffApiService.getHRDashboard();
+      final data = await HrApiService.getHRDashboard();
       final list = data['staff'] as List? ??
           data['staffList'] as List? ??
           [];
@@ -158,7 +158,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
   // ignore: unused_element
   Future<void> _loadDeptSummary(String department) async {
     try {
-      final data = await StaffApiService.getDepartmentSummary(department);
+      final data = await HrApiService.getDepartmentSummary(department);
       if (mounted) {
         setState(() {
           _deptSummary = data;
@@ -330,7 +330,7 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
     try {
       final id = widget.staff?['_id'] ?? widget.staff?['id'];
       if (id != null) {
-        await StaffApiService.updateProfile(id.toString(), {
+        await HrApiService.updateProfile(id.toString(), {
           'name': _nameCtrl.text.trim(),
           'department': _deptCtrl.text.trim(),
         });

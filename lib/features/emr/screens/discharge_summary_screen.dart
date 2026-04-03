@@ -9,7 +9,7 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/medical_api_service.dart';
 
 class DischargeSummaryScreen extends StatefulWidget {
   final int admissionId;
@@ -58,7 +58,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
   Future<void> _generate() async {
     setState(() { _generating = true; _error = null; });
     try {
-      final result = await StaffApiService.generateDischargeSummary(widget.admissionId);
+      final result = await MedicalApiService.generateDischargeSummary(widget.admissionId);
       final summary = result['discharge_summary'] as Map<String, dynamic>? ?? {};
       _populateControllers(summary);
       setState(() { _summary = summary; _isSigned = false; });
@@ -96,7 +96,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
     setState(() { _saving = true; _error = null; });
     try {
       final edited = _buildSummaryFromControllers();
-      await StaffApiService.saveDischargeSummary(widget.admissionId, edited);
+      await MedicalApiService.saveDischargeSummary(widget.admissionId, edited);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Draft saved'), backgroundColor: Colors.green),
@@ -133,7 +133,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
 
     setState(() { _signing = true; _error = null; });
     try {
-      await StaffApiService.signDischargeSummary(widget.admissionId);
+      await MedicalApiService.signDischargeSummary(widget.admissionId);
       setState(() => _isSigned = true);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -181,7 +181,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
     setState(() => _loading = true);
     try {
       final summary = _buildSummaryFromControllers();
-      await StaffApiService.dischargePatient(widget.admissionId, {
+      await MedicalApiService.dischargePatient(widget.admissionId, {
         'discharge_type': 'home',
         'discharge_summary': summary,
       });

@@ -6,7 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -63,7 +63,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
     _locationTimer?.cancel();
     _locationTimer = null;
     if (_trackingBookingId != null && _sharingLocation) {
-      StaffApiService.stopDeliveryTracking(
+      MedicalApiService.stopDeliveryTracking(
         orderType: 'investigation',
         orderId: _trackingBookingId!,
       ).catchError((_) {});
@@ -82,7 +82,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
           timeLimit: Duration(seconds: 10),
         ),
       );
-      await StaffApiService.updateDeliveryLocation(
+      await MedicalApiService.updateDeliveryLocation(
         orderType: 'investigation',
         orderId: _trackingBookingId!,
         lat: pos.latitude,
@@ -100,7 +100,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
       _error = null;
     });
     try {
-      final result = await StaffApiService.getInvestigationBookingQueue();
+      final result = await MedicalApiService.getInvestigationBookingQueue();
       final data = (result['data'] ?? result);
       setState(() {
         _bookings = data is List ? data : [];
@@ -597,7 +597,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
     if (confirmed != true) return;
 
     try {
-      await StaffApiService.confirmInvestigationBooking(id, {
+      await MedicalApiService.confirmInvestigationBooking(id, {
         if (notesCtrl.text.isNotEmpty) 'confirmation_notes': notesCtrl.text,
         if (actualTestsCtrl.text.isNotEmpty)
           'actual_tests': actualTestsCtrl.text,
@@ -656,7 +656,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
     if (dispatched != true) return;
 
     try {
-      await StaffApiService.dispatchCollector(id, {
+      await MedicalApiService.dispatchCollector(id, {
         if (phoneCtrl.text.isNotEmpty) 'collector_phone': phoneCtrl.text,
         if (notesCtrl.text.isNotEmpty) 'notes': notesCtrl.text,
       });
@@ -670,7 +670,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
 
   Future<void> _markCollected(int id) async {
     try {
-      await StaffApiService.markSamplesCollected(id);
+      await MedicalApiService.markSamplesCollected(id);
       _stopLocationSharing();
       _showSnack('Samples collected');
       _fetchBookings();
@@ -681,7 +681,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
 
   Future<void> _startProcessing(int id) async {
     try {
-      await StaffApiService.startBookingProcessing(id);
+      await MedicalApiService.startBookingProcessing(id);
       _showSnack('Processing started');
       _fetchBookings();
     } catch (e) {
@@ -756,7 +756,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
     if (uploaded != true || pickedFile?.path == null) return;
 
     try {
-      await StaffApiService.uploadBookingResult(
+      await MedicalApiService.uploadBookingResult(
         id,
         pickedFile!.path!,
         notes: notesCtrl.text.isNotEmpty ? notesCtrl.text : null,

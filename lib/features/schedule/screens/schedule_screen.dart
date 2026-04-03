@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/config/api_config.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/attendance_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 
 class ScheduleScreen extends StatefulWidget {
@@ -41,14 +41,14 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       // Try auth attendance history first, fall back to staff attendance
       Map<String, dynamic> result;
       try {
-        result = await StaffApiService.getAttendanceHistory(
+        result = await AttendanceApiService.getAttendanceHistory(
           startDate: startStr,
           endDate: endStr,
           limit: 50,
         );
       } catch (e) {
         final staffId = await ApiConfig.getStaffId();
-        result = await StaffApiService.getAttendance(
+        result = await AttendanceApiService.getAttendance(
           staffId ?? '',
           startDate: startStr,
           endDate: endStr,

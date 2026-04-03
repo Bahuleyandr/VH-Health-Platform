@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
 
 class MyReportsScreen extends StatefulWidget {
   const MyReportsScreen({super.key});
@@ -32,8 +32,8 @@ class _MyReportsScreenState extends State<MyReportsScreen>
     setState(() => _loading = true);
     try {
       final results = await Future.wait([
-        StaffApiService.getMyIncidents().catchError((_) => <dynamic>[]),
-        StaffApiService.getMyGrievances().catchError((_) => <dynamic>[]),
+        HrApiService.getMyIncidents().catchError((_) => <dynamic>[]),
+        HrApiService.getMyGrievances().catchError((_) => <dynamic>[]),
       ]);
       if (mounted) {
         setState(() {

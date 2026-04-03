@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
 
 class PayslipQueryScreen extends StatefulWidget {
   const PayslipQueryScreen({super.key});
@@ -77,7 +77,7 @@ class _MyQueriesTabState extends State<_MyQueriesTab> {
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
     try {
-      final list = await StaffApiService.getMyPayslipQueries();
+      final list = await HrApiService.getMyPayslipQueries();
       if (mounted) setState(() => _queries = list);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
@@ -249,7 +249,7 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
   Future<void> _loadPayslips() async {
     setState(() => _loading = true);
     try {
-      final list = await StaffApiService.getMyPayslips(months: 3);
+      final list = await HrApiService.getMyPayslips(months: 3);
       if (mounted) setState(() => _payslips = list);
     } catch (e) { debugPrint('payslip_query_screen.dart: $e'); } finally {
       if (mounted) setState(() => _loading = false);
@@ -271,7 +271,7 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
     }
     setState(() => _submitting = true);
     try {
-      await StaffApiService.raisePayslipQuery({
+      await HrApiService.raisePayslipQuery({
         'payslip_id': _selectedPayslipId,
         'subject': _subject.text.trim(),
         'description': _description.text.trim(),

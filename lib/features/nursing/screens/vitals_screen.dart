@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/config/api_config.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -121,7 +121,7 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
         measurements['weight'] = double.parse(_weightCtrl.text);
       }
 
-      await StaffApiService.recordVitals(
+      await MedicalApiService.recordVitals(
         patientId: int.parse(_patientIdCtrl.text.trim()),
         vitalSigns: vitalSigns.isNotEmpty ? vitalSigns : null,
         measurements: measurements.isNotEmpty ? measurements : null,
@@ -445,7 +445,7 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
       _trends = null;
     });
     try {
-      final data = await StaffApiService.getPatientVitalTrends(id);
+      final data = await MedicalApiService.getPatientVitalTrends(id);
       if (mounted) setState(() => _trends = data);
     } catch (e) {
       if (mounted) {

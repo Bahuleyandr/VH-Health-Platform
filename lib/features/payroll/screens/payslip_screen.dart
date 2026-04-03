@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
 import 'payslip_detail_screen.dart';
 import 'tax_summary_screen.dart';
 import 'investment_declaration_screen.dart';
@@ -30,7 +30,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
       _error = null;
     });
     try {
-      final list = await StaffApiService.getMyPayslips(months: 3);
+      final list = await HrApiService.getMyPayslips(months: 3);
       if (mounted) setState(() => _payslips = list);
     } catch (e) {
       if (mounted) {

@@ -2,7 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/medical_api_service.dart';
+import '../../../core/services/pharmacy_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -60,7 +61,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
     _locationTimer?.cancel();
     _locationTimer = null;
     if (_trackingOrderId != null && _sharingLocation) {
-      StaffApiService.stopDeliveryTracking(
+      MedicalApiService.stopDeliveryTracking(
         orderType: 'pharmacy',
         orderId: _trackingOrderId!,
       ).catchError((_) {});
@@ -79,7 +80,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
           timeLimit: Duration(seconds: 10),
         ),
       );
-      await StaffApiService.updateDeliveryLocation(
+      await MedicalApiService.updateDeliveryLocation(
         orderType: 'pharmacy',
         orderId: _trackingOrderId!,
         lat: pos.latitude,
@@ -99,7 +100,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
       _error = null;
     });
     try {
-      final orders = await StaffApiService.getPharmacyOrderQueue();
+      final orders = await PharmacyApiService.getPharmacyOrderQueue();
       if (mounted) {
         setState(() {
           _allOrders = orders;
@@ -275,7 +276,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
         .toList();
 
     try {
-      await StaffApiService.confirmPharmacyOrder(order['id'], {
+      await PharmacyApiService.confirmPharmacyOrder(order['id'], {
         'items_list': items,
         'total_cost': double.tryParse(costController.text) ?? 0,
         'confirmation_notes': notesController.text.trim(),
@@ -289,7 +290,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
 
   Future<void> _markPreparing(Map<String, dynamic> order) async {
     try {
-      await StaffApiService.markPharmacyPreparing(order['id']);
+      await PharmacyApiService.markPharmacyPreparing(order['id']);
       _snack('Marked as preparing');
       _loadOrders();
     } catch (e) {
@@ -342,7 +343,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
     if (confirmed != true) return;
 
     try {
-      await StaffApiService.dispatchPharmacyOrder(order['id'], {
+      await PharmacyApiService.dispatchPharmacyOrder(order['id'], {
         'delivery_person': personCtrl.text.trim(),
         'delivery_person_phone': phoneCtrl.text.trim(),
       });
@@ -375,7 +376,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
     if (confirm != true) return;
 
     try {
-      await StaffApiService.markPharmacyDelivered(order['id']);
+      await PharmacyApiService.markPharmacyDelivered(order['id']);
       _stopLocationSharing();
       _snack('Marked as delivered');
       _loadOrders();
@@ -421,7 +422,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
     if (confirm != true) return;
 
     try {
-      await StaffApiService.cancelPharmacyOrder(
+      await PharmacyApiService.cancelPharmacyOrder(
           order['id'], reasonCtrl.text.trim());
       _snack('Order cancelled');
       _loadOrders();

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -36,7 +36,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
       _error = null;
     });
     try {
-      final data = await StaffApiService.getPatientOrders(widget.patientUid);
+      final data = await MedicalApiService.getPatientOrders(widget.patientUid);
       final list = data['orders'];
       setState(() {
         _orders = list is List
@@ -141,7 +141,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
   Future<void> _verifyOrder(int id) async {
     try {
-      await StaffApiService.verifyOrder(id);
+      await MedicalApiService.verifyOrder(id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -165,7 +165,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
   Future<void> _completeOrder(int id) async {
     try {
-      await StaffApiService.completeOrder(id);
+      await MedicalApiService.completeOrder(id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -585,7 +585,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
     try {
       // Run CDS check first
       try {
-        final cdsResult = await StaffApiService.checkOrder(data);
+        final cdsResult = await MedicalApiService.checkOrder(data);
         final alerts = cdsResult['alerts'];
         if (alerts is List && alerts.isNotEmpty && mounted) {
           final proceed = await _showCdsAlerts(alerts);
@@ -595,7 +595,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
         // CDS check failed — proceed with order anyway
       }
 
-      await StaffApiService.createEmrOrder(data);
+      await MedicalApiService.createEmrOrder(data);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

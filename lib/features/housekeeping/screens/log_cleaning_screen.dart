@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
 
 class LogCleaningScreen extends StatefulWidget {
   const LogCleaningScreen({super.key});
@@ -47,7 +47,7 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
   Future<void> _loadZones() async {
     setState(() => _loading = true);
     try {
-      final zones = await StaffApiService.getHousekeepingZones();
+      final zones = await HrApiService.getHousekeepingZones();
       if (mounted) setState(() => _zones = zones);
     } catch (e) {
       debugPrint('log_cleaning_screen.dart: $e'); // non-fatal
@@ -72,7 +72,7 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
     }
     setState(() => _submitting = true);
     try {
-      final result = await StaffApiService.submitCleaningLog(
+      final result = await HrApiService.submitCleaningLog(
         cleaningType: _cleaningType,
         zoneId: _selectedZoneId,
         locationText: _locationCtrl.text.trim().isNotEmpty

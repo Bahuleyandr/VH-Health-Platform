@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -47,7 +47,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
       _error = null;
     });
     try {
-      final data = await StaffApiService.getPatientTimeline(widget.patientUid);
+      final data = await MedicalApiService.getPatientTimeline(widget.patientUid);
       final list = data['events'] ?? data['timeline'];
       setState(() {
         _events = list is List

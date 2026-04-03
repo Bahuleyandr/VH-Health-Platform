@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -30,7 +30,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
       _error = null;
     });
     try {
-      final data = await StaffApiService.getActiveAdmissions(page: _page);
+      final data = await MedicalApiService.getActiveAdmissions(page: _page);
       final list = data['admissions'];
       setState(() {
         _admissions = list is List
@@ -287,7 +287,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
     Navigator.of(context).pop();
 
     try {
-      await StaffApiService.admitPatient({
+      await MedicalApiService.admitPatient({
         'patient_query': patientSearch,
         'chief_complaint': chiefComplaint,
         'provisional_diagnosis': diagnosis,
@@ -449,7 +449,7 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
   Future<void> _loadDetail() async {
     try {
       final data =
-          await StaffApiService.getAdmissionDetail(widget.admissionId);
+          await MedicalApiService.getAdmissionDetail(widget.admissionId);
       setState(() {
         _detail = data;
         _loading = false;

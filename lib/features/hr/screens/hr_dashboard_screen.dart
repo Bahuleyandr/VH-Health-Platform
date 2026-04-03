@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../reports/screens/reports_hub_screen.dart';
@@ -40,11 +40,11 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
     });
     try {
       final data =
-          await StaffApiService.getHRDashboard(timeframe: _timeframe);
+          await HrApiService.getHRDashboard(timeframe: _timeframe);
 
       // Merge attendance analytics for richer data
       try {
-        final analytics = await StaffApiService.getAttendanceAnalytics();
+        final analytics = await HrApiService.getAttendanceAnalytics();
         data['attendanceAnalytics'] = analytics;
       } catch (e) { debugPrint('hr_dashboard_screen.dart: $e'); }
 

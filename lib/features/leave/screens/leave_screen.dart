@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/config/api_config.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/leave_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../attendance/screens/overtime_screen.dart';
@@ -64,13 +65,13 @@ class _LeaveScreenState extends State<LeaveScreen>
       }
 
       final results = await Future.wait([
-        StaffApiService.getLeaveBalance(staffId)
+        LeaveApiService.getLeaveBalance(staffId)
             .catchError((_) => <String, dynamic>{}),
-        StaffApiService.getMyLeaves(staffId)
+        LeaveApiService.getMyLeaves(staffId)
             .catchError((_) => <String, dynamic>{'leaves': []}),
-        StaffApiService.getReplacementRequests()
+        LeaveApiService.getReplacementRequests()
             .catchError((_) => <dynamic>[]),
-        StaffApiService.getStaffList().catchError((_) => <dynamic>[]),
+        HrApiService.getStaffList().catchError((_) => <dynamic>[]),
       ]);
 
       if (mounted) {
@@ -116,7 +117,7 @@ class _LeaveScreenState extends State<LeaveScreen>
     setState(() => _submitting = true);
     try {
       final staffId = await ApiConfig.getStaffId();
-      await StaffApiService.applyForLeaveWithReplacement(
+      await LeaveApiService.applyForLeaveWithReplacement(
         staffId: staffId!,
         leaveType: _leaveType,
         startDate: DateFormat('yyyy-MM-dd').format(_startDate!),
@@ -668,7 +669,7 @@ class _LeaveScreenState extends State<LeaveScreen>
   Future<void> _respondToReplacement(
       String requestId, String status) async {
     try {
-      await StaffApiService.respondToReplacement(
+      await LeaveApiService.respondToReplacement(
           requestId: requestId, status: status);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(

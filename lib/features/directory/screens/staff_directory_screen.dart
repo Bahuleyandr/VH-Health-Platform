@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -37,7 +37,7 @@ class _StaffDirectoryScreenState extends State<StaffDirectoryScreen> {
     });
     try {
       // TODO: Use GET /staff or GET /staff/directory when endpoint is available.
-      final data = await StaffApiService.getHRDashboard();
+      final data = await HrApiService.getHRDashboard();
       final list = data['staff'] as List? ??
           data['staffList'] as List? ??
           [];

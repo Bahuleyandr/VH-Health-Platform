@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/services/auth_service.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -57,7 +57,7 @@ class SettingsScreen extends StatelessWidget {
     if (confirmed == true && context.mounted) {
       try {
         final employeeId = await ApiConfig.getEmployeeId() ?? '';
-        await StaffApiService.setupPin(
+        await HrApiService.setupPin(
             employeeId: employeeId, pin: pinCtrl.text);
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -386,7 +386,7 @@ class _BiometricToggleTileState extends State<_BiometricToggleTile> {
     setState(() => _loading = true);
     try {
       final deviceToken = await AuthService.getDeviceToken() ?? '';
-      await StaffApiService.toggleBiometric(
+      await HrApiService.toggleBiometric(
         enabled: value,
         deviceToken: deviceToken,
       );
@@ -461,7 +461,7 @@ class _ManageDevicesSheetState extends State<_ManageDevicesSheet> {
       _error = null;
     });
     try {
-      final data = await StaffApiService.getRegisteredDevices();
+      final data = await HrApiService.getRegisteredDevices();
       _devices = data['devices'] as List? ?? [];
     } catch (e) {
       _error = e.toString().replaceFirst('Exception: ', '');
@@ -472,7 +472,7 @@ class _ManageDevicesSheetState extends State<_ManageDevicesSheet> {
 
   Future<void> _removeDevice(String deviceId) async {
     try {
-      await StaffApiService.removeRegisteredDevice(deviceId);
+      await HrApiService.removeRegisteredDevice(deviceId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

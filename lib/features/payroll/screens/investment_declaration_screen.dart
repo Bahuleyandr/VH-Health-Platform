@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
 
 class InvestmentDeclarationScreen extends StatefulWidget {
   const InvestmentDeclarationScreen({super.key});
@@ -104,7 +104,7 @@ class _InvestmentDeclarationScreenState
   Future<void> _loadDeclarations() async {
     setState(() { _loading = true; });
     try {
-      final list = await StaffApiService.getMyDeclarations();
+      final list = await HrApiService.getMyDeclarations();
       if (mounted) {
         setState(() { _declarations = list; });
         // Pre-fill if current FY declaration exists
@@ -151,7 +151,7 @@ class _InvestmentDeclarationScreenState
     if (!_formKey.currentState!.validate()) return;
     setState(() => _submitting = true);
     try {
-      await StaffApiService.submitInvestmentDeclaration({
+      await HrApiService.submitInvestmentDeclaration({
         'financial_year': _selectedFY,
         'ppf': _val(_ppf),
         'epf_voluntary': _val(_epfVol),

@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../doctor/screens/prescriptions_screen.dart';
@@ -44,7 +44,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
   Future<void> _loadQueue() async {
     setState(() { _loadingQueue = true; _queueError = null; });
     try {
-      final list = await StaffApiService.getTodayAppointmentQueue();
+      final list = await ScheduleApiService.getTodayAppointmentQueue();
       if (mounted) setState(() => _queue = list);
     } catch (e) {
       if (mounted) setState(() => _queueError = e.toString().replaceFirst('Exception: ', ''));
@@ -56,7 +56,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
   Future<void> _loadPending() async {
     setState(() { _loadingPending = true; _pendingError = null; });
     try {
-      final list = await StaffApiService.getPendingAppointments();
+      final list = await ScheduleApiService.getPendingAppointments();
       if (mounted) setState(() => _pending = list);
     } catch (e) {
       if (mounted) setState(() => _pendingError = e.toString().replaceFirst('Exception: ', ''));
@@ -198,7 +198,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
       data['appointment_time'] = '$h:$m';
     }
     try {
-      await StaffApiService.confirmAppointment(id, data);
+      await ScheduleApiService.confirmAppointment(id, data);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Appointment confirmed ✓'), backgroundColor: Colors.green),
@@ -234,7 +234,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
     );
     if (confirmed != true) return;
     try {
-      await StaffApiService.markNoShow(appt['id']);
+      await ScheduleApiService.markNoShow(appt['id']);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Marked as no-show'), backgroundColor: Colors.grey),
@@ -277,7 +277,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
     );
     if (confirmed != true) return;
     try {
-      await StaffApiService.completeAppointmentStaff(
+      await ScheduleApiService.completeAppointmentStaff(
         appt['id'],
         notes: notesCtrl.text.trim().isEmpty ? null : notesCtrl.text.trim(),
       );
@@ -403,7 +403,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                   onPressed: _pickedFile == null ? null : () async {
                     Navigator.pop(ctx);
                     try {
-                      await StaffApiService.uploadAppointmentDocument(
+                      await ScheduleApiService.uploadAppointmentDocument(
                         appt['id'],
                         _pickedFile!.path,
                         _docType,
@@ -611,7 +611,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                     }
                     setSheet(() => submitting = true);
                     try {
-                      final result = await StaffApiService.registerWalkIn(
+                      final result = await ScheduleApiService.registerWalkIn(
                         patientPhone: phoneCtrl.text.trim(),
                         patientName: nameCtrl.text.trim(),
                         department: deptCtrl.text.trim(),

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/config/api_config.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/attendance_api_service.dart';
 
 class DisputeScreen extends StatefulWidget {
   const DisputeScreen({super.key});
@@ -41,7 +41,7 @@ class _DisputeScreenState extends State<DisputeScreen> with SingleTickerProvider
     try {
       final staffId = await ApiConfig.getStaffId();
       if (staffId != null) {
-        final disputes = await StaffApiService.getMyDisputes(staffId);
+        final disputes = await AttendanceApiService.getMyDisputes(staffId);
         if (mounted) setState(() => _myDisputes = disputes);
       }
     } finally {
@@ -57,7 +57,7 @@ class _DisputeScreenState extends State<DisputeScreen> with SingleTickerProvider
     setState(() => _submitting = true);
     try {
       final staffId = await ApiConfig.getStaffId();
-      await StaffApiService.submitDispute(
+      await AttendanceApiService.submitDispute(
         staffId: staffId!,
         date: DateFormat('yyyy-MM-dd').format(_disputeDate!),
         disputeType: _disputeType,

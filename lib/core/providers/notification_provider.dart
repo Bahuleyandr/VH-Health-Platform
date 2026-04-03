@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import '../config/api_config.dart';
-import '../services/staff_api_service.dart';
+import '../services/hr_api_service.dart';
 
 class NotificationItem {
   final String title;
@@ -80,7 +80,7 @@ class NotificationProvider extends ChangeNotifier {
       }
 
       final platform = Platform.isIOS ? 'ios' : 'android';
-      await StaffApiService.registerDevice(
+      await HrApiService.registerDevice(
         phone: phone,
         fcmToken: token,
         platform: platform,
@@ -111,7 +111,7 @@ class NotificationProvider extends ChangeNotifier {
       final phone = await ApiConfig.getPhone();
       if (phone == null || phone.isEmpty) return;
 
-      final data = await StaffApiService.getNotifications(phone);
+      final data = await HrApiService.getNotifications(phone);
 
       _notifications.clear();
       for (final item in data) {
@@ -139,7 +139,7 @@ class NotificationProvider extends ChangeNotifier {
     try {
       final phone = await ApiConfig.getPhone();
       if (phone != null && phone.isNotEmpty) {
-        await StaffApiService.markAllNotificationsRead(phone);
+        await HrApiService.markAllNotificationsRead(phone);
       }
     } catch (e) {
       debugPrint('❌ Error marking notifications as read: $e');

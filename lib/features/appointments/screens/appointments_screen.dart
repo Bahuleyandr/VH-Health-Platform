@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -32,7 +32,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     });
     try {
       final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      final data = await StaffApiService.getAppointments(
+      final data = await ScheduleApiService.getAppointments(
         date: today,
         status: _selectedStatus == 'all' ? null : _selectedStatus,
       );
@@ -49,7 +49,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 
   Future<void> _updateStatus(String id, String status) async {
     try {
-      await StaffApiService.updateAppointmentStatus(id, status);
+      await ScheduleApiService.updateAppointmentStatus(id, status);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Appointment $status successfully'),

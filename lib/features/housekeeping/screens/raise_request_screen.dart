@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
 
 class RaiseRequestScreen extends StatefulWidget {
   const RaiseRequestScreen({super.key});
@@ -55,7 +55,7 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
   Future<void> _loadZones() async {
     setState(() => _loading = true);
     try {
-      final zones = await StaffApiService.getHousekeepingZones();
+      final zones = await HrApiService.getHousekeepingZones();
       if (mounted) setState(() => _zones = zones);
     } catch (e) {
       debugPrint('raise_request_screen.dart: $e'); // non-fatal
@@ -88,7 +88,7 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
                 as Map;
         zoneName = zone['name'] as String?;
       }
-      final result = await StaffApiService.raiseHousekeepingRequest(
+      final result = await HrApiService.raiseHousekeepingRequest(
         locationText: location.isNotEmpty ? location : zoneName ?? '',
         requestType: _requestType,
         urgency: _urgency,

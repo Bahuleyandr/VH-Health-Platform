@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/config/api_config.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -47,12 +47,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           await ApiConfig.getStaffId();
       if (identifier == null) throw Exception('No identifier found');
 
-      final data = await StaffApiService.getProfile(identifier);
+      final data = await HrApiService.getProfile(identifier);
       final staff = Map<String, dynamic>.from(data['staff'] ?? data);
 
       // Merge auth profile data as supplementary source
       try {
-        final authData = await StaffApiService.getAuthProfile();
+        final authData = await HrApiService.getAuthProfile();
         final authProfile = authData['staff'] ?? authData;
         if (authProfile is Map) {
           authProfile.forEach((k, v) {
@@ -85,7 +85,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final id = _profile?['_id']?.toString() ?? _profile?['id']?.toString();
       if (id == null) throw Exception('Profile ID not found');
 
-      await StaffApiService.updateProfile(id, {
+      await HrApiService.updateProfile(id, {
         if (_phoneCtrl.text.isNotEmpty) 'phone': _phoneCtrl.text.trim(),
         if (_emailCtrl.text.isNotEmpty) 'email': _emailCtrl.text.trim(),
         if (_addressCtrl.text.isNotEmpty) 'address': _addressCtrl.text.trim(),

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/attendance_api_service.dart';
 
 class OvertimeScreen extends StatefulWidget {
   const OvertimeScreen({super.key});
@@ -32,7 +32,7 @@ class _OvertimeScreenState extends State<OvertimeScreen> with SingleTickerProvid
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final list = await StaffApiService.getMyOvertimeRequests();
+      final list = await AttendanceApiService.getMyOvertimeRequests();
       if (mounted) setState(() => _requests = list);
     } catch (e) { debugPrint('overtime_screen.dart: $e'); } finally {
       if (mounted) setState(() => _loading = false);
@@ -46,7 +46,7 @@ class _OvertimeScreenState extends State<OvertimeScreen> with SingleTickerProvid
     }
     setState(() => _submitting = true);
     try {
-      await StaffApiService.requestOvertime(
+      await AttendanceApiService.requestOvertime(
         date: DateFormat('yyyy-MM-dd').format(_date!),
         extraHours: _hours,
         reason: _reason.trim(),

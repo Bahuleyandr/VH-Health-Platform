@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/api_client.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -265,7 +265,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       final vitals = _buildVitals();
       if (vitals != null) body['vitals'] = vitals;
 
-      final result = await StaffApiService.createEPrescription(body,
+      final result = await MedicalApiService.createEPrescription(body,
           photo: _handwrittenPhoto);
       final rxNum =
           result['prescription_number'] ?? result['data']?['prescription_number'] ?? '';

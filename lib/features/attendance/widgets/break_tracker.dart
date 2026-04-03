@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/attendance_api_service.dart';
 
 class BreakTracker extends StatefulWidget {
   final String staffId;
@@ -24,7 +24,7 @@ class _BreakTrackerState extends State<BreakTracker> {
 
   Future<void> _loadBreaks() async {
     try {
-      final data = await StaffApiService.getTodayBreaks(widget.staffId);
+      final data = await AttendanceApiService.getTodayBreaks(widget.staffId);
       if (mounted) {
         setState(() {
           _breaks = data['breaks'] as List? ?? [];
@@ -97,9 +97,9 @@ class _BreakTrackerState extends State<BreakTracker> {
     setState(() => _loading = true);
     try {
       if (_onBreak) {
-        await StaffApiService.endBreak(widget.staffId);
+        await AttendanceApiService.endBreak(widget.staffId);
       } else {
-        await StaffApiService.startBreak(widget.staffId);
+        await AttendanceApiService.startBreak(widget.staffId);
       }
       await _loadBreaks();
     } finally {

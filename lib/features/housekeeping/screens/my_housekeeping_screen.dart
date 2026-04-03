@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:intl/intl.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
 
 class MyHousekeepingScreen extends StatefulWidget {
   const MyHousekeepingScreen({super.key});
@@ -37,7 +37,7 @@ class _MyHousekeepingScreenState extends State<MyHousekeepingScreen>
   Future<void> _loadLogs() async {
     setState(() => _loadingLogs = true);
     try {
-      final logs = await StaffApiService.getMyCleaningLogs();
+      final logs = await HrApiService.getMyCleaningLogs();
       if (mounted) setState(() => _logs = logs);
     } catch (e) {
       debugPrint('my_housekeeping_screen.dart: $e');
@@ -49,7 +49,7 @@ class _MyHousekeepingScreenState extends State<MyHousekeepingScreen>
   Future<void> _loadRequests() async {
     setState(() => _loadingRequests = true);
     try {
-      final data = await StaffApiService.getMyHousekeepingRequests();
+      final data = await HrApiService.getMyHousekeepingRequests();
       if (mounted) {
         setState(() {
           _raisedRequests = data['raised'] as List? ?? [];
@@ -518,7 +518,7 @@ class _RequestCard extends StatelessWidget {
                   : () async {
                       setDialogState(() => submitting = true);
                       try {
-                        await StaffApiService.completeHousekeepingRequest(
+                        await HrApiService.completeHousekeepingRequest(
                           requestId: requestId,
                           completionNotes: notesCtrl.text.trim().isNotEmpty
                               ? notesCtrl.text.trim()

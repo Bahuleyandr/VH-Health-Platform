@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/schedule_api_service.dart';
+import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -48,10 +49,10 @@ class _QueueScreenState extends State<QueueScreen> {
       final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
       // Fetch all relevant statuses
-      final scheduled = await StaffApiService.getAppointments(date: today, status: 'scheduled', limit: 50);
-      final confirmed = await StaffApiService.getAppointments(date: today, status: 'confirmed', limit: 50);
-      final inProgress = await StaffApiService.getAppointments(date: today, status: 'in-progress', limit: 50);
-      final completed = await StaffApiService.getAppointments(date: today, status: 'completed', limit: 50);
+      final scheduled = await ScheduleApiService.getAppointments(date: today, status: 'scheduled', limit: 50);
+      final confirmed = await ScheduleApiService.getAppointments(date: today, status: 'confirmed', limit: 50);
+      final inProgress = await ScheduleApiService.getAppointments(date: today, status: 'in-progress', limit: 50);
+      final completed = await ScheduleApiService.getAppointments(date: today, status: 'completed', limit: 50);
 
       List<Map<String, dynamic>> _extractList(Map<String, dynamic> data) {
         final raw = data['appointments'] as List? ?? data['data'] as List? ?? [];
@@ -108,7 +109,7 @@ class _QueueScreenState extends State<QueueScreen> {
     if (id.isEmpty) return;
 
     try {
-      await StaffApiService.updateAppointmentStatus(id, 'in-progress');
+      await ScheduleApiService.updateAppointmentStatus(id, 'in-progress');
       setState(() => _consultationStart = DateTime.now());
       _load();
     } catch (e) {
@@ -126,7 +127,7 @@ class _QueueScreenState extends State<QueueScreen> {
     if (id.isEmpty) return;
 
     try {
-      await StaffApiService.updateAppointmentStatus(id, 'completed');
+      await ScheduleApiService.updateAppointmentStatus(id, 'completed');
       setState(() {
         _consultationStart = null;
         _elapsed = Duration.zero;
@@ -530,7 +531,7 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
 
   Future<void> _fetchRecords() async {
     try {
-      final data = await StaffApiService.getHealthRecords(widget.phone);
+      final data = await MedicalApiService.getHealthRecords(widget.phone);
       if (mounted) setState(() { _records = data; _loading = false; });
     } catch (e) {
       if (mounted) setState(() { _error = e.toString().replaceFirst('Exception: ', ''); _loading = false; });

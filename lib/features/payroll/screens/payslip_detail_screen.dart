@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
 
 class PayslipDetailScreen extends StatefulWidget {
   final String payslipId;
@@ -35,7 +35,7 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
       _error = null;
     });
     try {
-      final data = await StaffApiService.getPayslipDetail(widget.payslipId);
+      final data = await HrApiService.getPayslipDetail(widget.payslipId);
       if (mounted) setState(() => _payslip = data);
     } catch (e) {
       if (mounted) {

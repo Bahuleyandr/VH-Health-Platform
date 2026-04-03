@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -96,7 +96,7 @@ class _AddReviewTabState extends State<_AddReviewTab> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _submitting = true);
     try {
-      await StaffApiService.createPerformanceReview(
+      await HrApiService.createPerformanceReview(
         staffId: _employeeIdCtrl.text.trim(),
         period: _reviewPeriod,
         overallRating: _overallRating,
@@ -323,7 +323,7 @@ class _ReviewListTabState extends State<_ReviewListTab> {
       _error = null;
     });
     try {
-      final data = await StaffApiService.getPerformanceReport();
+      final data = await HrApiService.getPerformanceReport();
       _reviews = data['reviews'] as List? ??
           data['reports'] as List? ??
           data['data'] as List? ??

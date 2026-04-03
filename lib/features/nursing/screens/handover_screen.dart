@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/config/api_config.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
+import '../../../core/services/medical_api_service.dart';
 
 class HandoverScreen extends StatefulWidget {
   const HandoverScreen({super.key});
@@ -53,7 +54,7 @@ class _HandoverScreenState extends State<HandoverScreen>
       // Fetch recent handover notes via notifications or consultations
       final phone = await ApiConfig.getPhone();
       if (phone != null) {
-        final notifications = await StaffApiService.getNotifications(phone);
+        final notifications = await HrApiService.getNotifications(phone);
         final notes = notifications
             .where((n) {
               final title = (n['title'] ?? '').toString().toLowerCase();
@@ -77,7 +78,7 @@ class _HandoverScreenState extends State<HandoverScreen>
     setState(() => _submitting = true);
     try {
       final phone = await ApiConfig.getPhone() ?? '';
-      await StaffApiService.uploadConsultation(
+      await MedicalApiService.uploadConsultation(
         phone: phone,
         consultationType: 'handover-note',
         notes: _notesController.text,

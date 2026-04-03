@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
 import '../../../core/config/api_config.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/attendance_api_service.dart';
+import '../../../core/services/schedule_api_service.dart';
 import '../../../core/services/location_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
@@ -65,14 +66,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       // Get staff ID first
       _staffId = await ApiConfig.getStaffId();
 
-      final status = await StaffApiService.getAttendanceStatus();
+      final status = await AttendanceApiService.getAttendanceStatus();
       _checkedIn =
           status['isCheckedIn'] == true || status['status'] == 'checked-in';
       _checkInTime = status['checkInTime']?.toString();
 
       // Load shift
       try {
-        final shift = await StaffApiService.getMyShift();
+        final shift = await ScheduleApiService.getMyShift();
         _shift = shift;
       } catch (e) {
         _shift = null;
@@ -80,14 +81,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
       // Load history
       try {
-        final hist = await StaffApiService.getAttendanceHistory();
+        final hist = await AttendanceApiService.getAttendanceHistory();
         _history = hist['records'] as List? ??
             hist['history'] as List? ??
             hist['attendance'] as List? ??
             [];
       } catch (e) {
         if (_staffId != null) {
-          final hist = await StaffApiService.getAttendance(_staffId!);
+          final hist = await AttendanceApiService.getAttendance(_staffId!);
           _history = hist['records'] as List? ?? hist['attendance'] as List? ?? [];
         }
       }
@@ -103,7 +104,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     try {
       final staffId = await ApiConfig.getStaffId();
       if (staffId == null) return;
-      final data = await StaffApiService.getAttendanceCalendar(
+      final data = await AttendanceApiService.getAttendanceCalendar(
         staffId: staffId,
         year: _focusedDay.year,
         month: _focusedDay.month,
@@ -161,7 +162,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     setState(() => _actionLoading = true);
     try {
       final action = _checkedIn ? 'check-out' : 'check-in';
-      await StaffApiService.markAttendanceWithLocation(
+      await AttendanceApiService.markAttendanceWithLocation(
         staffId: staffId,
         action: action,
         location: location,

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -36,7 +36,7 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
       _error = null;
     });
     try {
-      final data = await StaffApiService.getMedicalRecords(limit: 50);
+      final data = await MedicalApiService.getMedicalRecords(limit: 50);
       final list = data['records'] as List? ?? data['data'] as List? ?? [];
       if (mounted) setState(() => _appointments = list);
     } catch (e) {
@@ -55,7 +55,7 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
       _error = null;
     });
     try {
-      final data = await StaffApiService.getHealthRecordsByPhone(phone);
+      final data = await MedicalApiService.getHealthRecordsByPhone(phone);
       final list = data['records'] as List? ?? data['data'] as List? ?? [];
       if (mounted) setState(() => _appointments = list);
     } catch (e) {

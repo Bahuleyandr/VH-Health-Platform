@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
 
 class GrievanceScreen extends StatefulWidget {
   const GrievanceScreen({super.key});
@@ -48,7 +48,7 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _submitting = true);
     try {
-      final result = await StaffApiService.submitGrievance(
+      final result = await HrApiService.submitGrievance(
         grievanceType: _grievanceType,
         subject: _subjectCtrl.text.trim(),
         description: _descCtrl.text.trim(),

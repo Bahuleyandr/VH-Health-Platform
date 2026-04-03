@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../core/services/staff_api_service.dart';
+import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -54,7 +54,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
     try {
       // Load HR trend as a proxy — the backend returns last 24h records
       final data =
-          await StaffApiService.getVitalsTrend(widget.patientUid, 'all');
+          await MedicalApiService.getVitalsTrend(widget.patientUid, 'all');
       final list = data['vitals'] ?? data['records'] ?? data['trend'];
       setState(() {
         _vitalsHistory = list is List
@@ -80,7 +80,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
       final dateStr =
           '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
       final data =
-          await StaffApiService.getIOBalance(widget.patientUid, date: dateStr);
+          await MedicalApiService.getIOBalance(widget.patientUid, date: dateStr);
       setState(() {
         _ioBalance = data;
         _ioLoading = false;
@@ -358,7 +358,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
     }
 
     try {
-      await StaffApiService.recordEmrVitals(data);
+      await MedicalApiService.recordEmrVitals(data);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -599,7 +599,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
     required String description,
   }) async {
     try {
-      await StaffApiService.recordIO({
+      await MedicalApiService.recordIO({
         'patient_uid': widget.patientUid,
         'type': type,
         'category': category,
