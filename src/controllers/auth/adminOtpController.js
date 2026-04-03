@@ -70,8 +70,8 @@ export const getActiveSessions = async (req, res) => {
 export const getOtpLogs = async (req, res) => {
   try {
     const filters = {
-      page: parseInt(req.query.page) || 1,
-      limit: parseInt(req.query.limit) || 100,
+      page: Math.max(parseInt(req.query.page) || 1, 1),
+      limit: Math.min(Math.max(parseInt(req.query.limit) || 100, 1), 100),
       phone: req.query.phone,
       purpose: req.query.purpose,
       action: req.query.action,

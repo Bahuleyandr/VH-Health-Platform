@@ -361,7 +361,7 @@ export const getAllRoutes = async (req, res) => {
     logger.error('[GetAllRoutes]:', err);
     res.status(500).json({
       success: false,
-      error: err.message
+      message: 'Failed to retrieve routes'
     });
   }
 };

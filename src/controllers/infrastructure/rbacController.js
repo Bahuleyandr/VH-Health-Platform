@@ -50,7 +50,7 @@ export const getUsersByRole = async (req, res) => {
     const filters = {
       includeInactive: req.query.includeInactive === 'true',
       role: req.query.role,
-      limit: req.query.limit || 100
+      limit: Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 100)
     };
     
     const userInfo = {

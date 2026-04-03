@@ -148,8 +148,8 @@ export async function getRecentFeedback(req, res) {
     }
 
     const filters = {
-      page: req.query.page,
-      limit: req.query.limit,
+      page: Math.max(parseInt(req.query.page, 10) || 1, 1),
+      limit: Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100),
       category: req.query.category,
       rating: req.query.rating,
       priority: req.query.priority,

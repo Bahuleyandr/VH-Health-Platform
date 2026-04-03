@@ -177,7 +177,8 @@ export const bulkShiftAssignment = async (req, res) => {
           
           return { staff_id: assignment.staff_id, status: 'success' };
         } catch (err) {
-          return { staff_id: assignment.staff_id, status: 'failed', error: err.message };
+          logger.error(`Bulk shift assignment failed for staff ${assignment.staff_id}:`, err);
+          return { staff_id: assignment.staff_id, status: 'failed', error: 'Failed to process assignment' };
         }
       })
     );

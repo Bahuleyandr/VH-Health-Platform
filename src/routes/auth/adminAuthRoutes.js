@@ -16,6 +16,7 @@ import {
   createAdminValidator,
   changeAdminPasswordValidator,
 } from '../../validators/auth/adminAuthValidator.js';
+import { passwordComplexityMiddleware } from '../../validators/passwordValidator.js';
 
 const router = express.Router();
 
@@ -92,7 +93,7 @@ wrapRoutesWithValidation(
   {
     post: [
       // Change password (self)
-      ['/change-password', ...changeAdminPasswordValidator, handleValidation, adminAuthController.changePassword],
+      ['/change-password', ...changeAdminPasswordValidator, handleValidation, passwordComplexityMiddleware, adminAuthController.changePassword],
     ],
     get: [
       // Current admin profile
@@ -113,7 +114,7 @@ wrapAutoRBAC(
   {
     post: [
       // Create another admin
-      ['/create-admin', ...createAdminValidator, handleValidation, adminAuthController.createAdmin],
+      ['/create-admin', ...createAdminValidator, handleValidation, passwordComplexityMiddleware, adminAuthController.createAdmin],
 
       // Deactivate admin
       [

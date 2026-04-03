@@ -21,7 +21,8 @@ export const listR2Files = async (req, res) => {
     const files = await listObjectsV2();
     res.json({ success: true, files });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    logger.error('Admin operation failed:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
@@ -33,7 +34,8 @@ export const cleanupR2Files = async (req, res) => {
     logger.info(`[ADMIN] R2 cleanup triggered by ${uid} from IP ${ip}`);
     res.json({ success: true, message: 'R2 cleanup executed.' });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    logger.error('Admin operation failed:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
@@ -45,7 +47,8 @@ export const migrateR2Archive = (req, res) => {
     logger.info(`[ADMIN] R2 archive migration initiated by ${uid} from IP ${ip}`);
     res.json({ success: true, message: 'R2 archive migration triggered.' });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    logger.error('Admin operation failed:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
@@ -57,7 +60,8 @@ export const backupDatabase = (req, res) => {
     logger.info(`[ADMIN] DB backup started by ${uid} from IP ${ip}`);
     res.json({ success: true, message: 'Database backup triggered.' });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    logger.error('Admin operation failed:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
@@ -69,7 +73,8 @@ export const restoreDatabase = (req, res) => {
     logger.info(`[ADMIN] DB restore initiated by ${uid} from IP ${ip}`);
     res.json({ success: true, message: 'Database restore triggered.' });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    logger.error('Admin operation failed:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
@@ -93,7 +98,8 @@ export const cleanupLogs = (req, res) => {
     logger.info(`[ADMIN] Log cleanup run by ${uid} from IP ${ip}`);
     res.json({ success: true, message: 'Logs cleanup executed.' });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    logger.error('Admin operation failed:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
@@ -105,7 +111,8 @@ export const purgeLogs = (req, res) => {
     logger.info(`[ADMIN] Log purge run by ${uid} from IP ${ip}`);
     res.json({ success: true, message: 'Logs purged.' });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    logger.error('Admin operation failed:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
@@ -117,7 +124,8 @@ export const fixPermissions = (req, res) => {
     logger.info(`[ADMIN] Permissions fix run by ${uid} from IP ${ip}`);
     res.json({ success: true, message: 'Permissions fixed.' });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    logger.error('Admin operation failed:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
@@ -129,7 +137,8 @@ export const validateSwagger = (req, res) => {
     logger.info(`[ADMIN] Swagger validation run by ${uid} from IP ${ip}`);
     res.json({ success: true, message: 'Swagger validation completed.' });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    logger.error('Admin operation failed:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 

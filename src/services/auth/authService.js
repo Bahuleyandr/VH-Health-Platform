@@ -11,6 +11,7 @@ import { normalizePhone } from '../../utils/phoneUtils.js';
 import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
 import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 import { blacklistToken, revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
+import { generateChallengeToken } from '../../utils/totpUtils.js';
 import * as otpService from './otpService.js';
 
 // ✅ Use your real Firebase service
@@ -179,6 +180,7 @@ export class AuthService {
           failed_login_attempts: true,
           last_failed_login: true,
           password_hash: true,
+          totp_enabled: true,
           updated_at: true,
         },
       });
@@ -234,6 +236,42 @@ export class AuthService {
         throw new Error('Invalid credentials');
       }
 
+      // Reset failed attempts on successful password verification
+      await prisma.admins.update({
+        where: { id: admin.id },
+        data: { last_login: new Date(), failed_login_attempts: 0 },
+      });
+
+      // 2FA check: if TOTP is enabled, return a challenge instead of a JWT
+      if (admin.totp_enabled) {
+        const { challengeToken, expiresAt } = generateChallengeToken();
+
+        // Store the challenge in the database
+        try {
+          await prisma.$queryRawUnsafe(
+            `INSERT INTO totp_challenges (admin_id, challenge_token, expires_at, created_at)
+             VALUES ($1, $2, $3, NOW())`,
+            [admin.id, challengeToken, expiresAt]
+          );
+        } catch (challengeErr) {
+          logger.warn('TOTP challenge table may not exist, falling back to direct login:', challengeErr.message);
+          // Fall through to normal login if table doesn't exist yet
+        }
+
+        if (admin.totp_enabled) {
+          logger.info('2FA challenge issued for admin login', { adminId: admin.id });
+          return {
+            requiresTwoFactor: true,
+            challengeToken,
+            expiresAt: expiresAt.toISOString(),
+            admin: {
+              uid: admin.id,
+              username: admin.username,
+            },
+          };
+        }
+      }
+
       const token = generateToken({
         uid: String(admin.id),
         role: String(admin.role).toUpperCase(),
@@ -242,11 +280,6 @@ export class AuthService {
         iss: 'vh-health-backend',
         aud: 'vh-health-admin',
       }, SECURITY_CONFIG.jwt.adminExpiry);
-
-      await prisma.admins.update({
-        where: { id: admin.id },
-        data: { last_login: new Date(), failed_login_attempts: 0 },
-      });
 
       return {
         token,
