@@ -46,7 +46,7 @@ export function getAdminUser(): AdminUser | null {
     }
 
     // Check cache staleness
-    const cached = result.data as CachedUser;
+    const cached = result.data as unknown as CachedUser;
     if (cached._cachedAt) {
       const age = Date.now() - cached._cachedAt;
       if (age > CACHE_MAX_AGE_MS) {
