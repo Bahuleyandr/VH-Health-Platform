@@ -12,9 +12,13 @@ type OrderStatus = PharmacyOrder["status"]; // "COMPLETED" | "CANCELLED" | "PEND
 export function OrdersTable({
   orders: initialOrders,
   onOrderUpdated,
+  isLoading,
+  error,
 }: {
   orders: PharmacyOrder[];
   onOrderUpdated?: () => void;
+  isLoading?: boolean;
+  error?: string | null;
 }) {
   const [orders, setOrders] = useState<PharmacyOrder[]>(initialOrders);
   const [updatingOrderId, setUpdatingOrderId] = useState<number | null>(null);
@@ -24,6 +28,18 @@ export function OrdersTable({
   useEffect(() => {
     setOrders(initialOrders);
   }, [initialOrders]);
+
+  if (isLoading) {
+    return <div className="p-6 text-center text-muted-foreground">Loading orders...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 text-center text-destructive">
+        {error} <button onClick={() => onOrderUpdated?.()} className="ml-2 underline">Retry</button>
+      </div>
+    );
+  }
 
   const getStatusColor = (status: OrderStatus) => {
     switch (status) {

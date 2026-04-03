@@ -3,9 +3,21 @@ import { Notification } from "@/lib/types";
 
 export function NotificationsTable({
   notifications,
+  isLoading,
+  error,
 }: {
   notifications: Notification[];
+  isLoading?: boolean;
+  error?: string | null;
 }) {
+  if (isLoading) {
+    return <div className="p-6 text-center text-muted-foreground">Loading notifications...</div>;
+  }
+
+  if (error) {
+    return <div className="p-6 text-center text-destructive">{error}</div>;
+  }
+
   return (
     <div className="bg-white shadow rounded-lg overflow-x-auto">
       <table className="min-w-full divide-y divide-border">

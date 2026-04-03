@@ -1,7 +1,8 @@
 // lib/config.ts - Configuration file
+import { API_BASE_URL } from "./api-config";
+
 export const config = {
-  apiUrl:
-    process.env.NEXT_PUBLIC_API_URL || "https://api.vhhealth.app",
+  apiUrl: API_BASE_URL,
   appName: process.env.NEXT_PUBLIC_APP_NAME || "Healthcare Admin",
 
   // API endpoints

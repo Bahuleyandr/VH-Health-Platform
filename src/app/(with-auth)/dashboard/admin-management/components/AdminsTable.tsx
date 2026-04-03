@@ -12,11 +12,13 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 interface AdminsTableProps {
   admins: AdminUser[];
   onAdminUpdated?: () => void;
+  isLoading?: boolean;
+  error?: string | null;
 }
 
 type ToggleAction = "deactivate" | "reactivate";
 
-export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
+export function AdminsTable({ admins, onAdminUpdated, isLoading, error }: AdminsTableProps) {
   const [updatingAdminId, setUpdatingAdminId] = useState<number | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingAdmin, setPendingAdmin] = useState<AdminUser | null>(null);
@@ -118,6 +120,18 @@ export function AdminsTable({ admins, onAdminUpdated }: AdminsTableProps) {
   };
 
   const rows = useMemo(() => admins ?? [], [admins]);
+
+  if (isLoading) {
+    return <div className="p-6 text-center text-muted-foreground">Loading administrators...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 text-center text-destructive">
+        {error} <button onClick={() => onAdminUpdated?.()} className="ml-2 underline">Retry</button>
+      </div>
+    );
+  }
 
   return (
     <>

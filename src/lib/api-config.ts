@@ -9,10 +9,11 @@ export const WS_BASE_URL =
   process.env.NEXT_PUBLIC_WS_URL || 
   API_BASE_URL.replace('https://', 'wss://').replace('http://', 'ws://');
 
-// Optional envs (fall back to sensible local defaults)
+// Origin header for API requests — uses browser origin client-side,
+// falls back to the API base URL server-side (never localhost).
 const DEFAULT_ORIGIN =
   (typeof window !== "undefined" && window.location.origin) ||
-  "http://localhost:3000";
+  API_BASE_URL;
 
 // Single WebSocket endpoint — backend uses channel subscriptions after connecting to /ws
 export const WS_ENDPOINT = '/ws';

@@ -10,12 +10,26 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 interface DoctorsTableProps {
   doctors: Doctor[];
   onDoctorDeleted?: () => void;
+  isLoading?: boolean;
+  error?: string | null;
 }
 
-export function DoctorsTable({ doctors, onDoctorDeleted }: DoctorsTableProps) {
+export function DoctorsTable({ doctors, onDoctorDeleted, isLoading, error }: DoctorsTableProps) {
   const [deleting, setDeleting] = useState<number | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingDoctor, setPendingDoctor] = useState<Doctor | null>(null);
+
+  if (isLoading) {
+    return <div className="p-6 text-center text-muted-foreground">Loading doctors...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 text-center text-destructive">
+        {error} <button onClick={() => onDoctorDeleted?.()} className="ml-2 underline">Retry</button>
+      </div>
+    );
+  }
 
   const handleDeleteClick = (doctor: Doctor) => {
     setPendingDoctor(doctor);

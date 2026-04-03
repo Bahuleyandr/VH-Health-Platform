@@ -37,9 +37,21 @@ function formatApptDate(appt: AppointmentRow) {
 
 export function AppointmentsTable({
   appointments,
+  isLoading,
+  error,
 }: {
   appointments: AppointmentRow[];
+  isLoading?: boolean;
+  error?: string | null;
 }) {
+  if (isLoading) {
+    return <div className="p-6 text-center text-muted-foreground">Loading appointments...</div>;
+  }
+
+  if (error) {
+    return <div className="p-6 text-center text-destructive">{error}</div>;
+  }
+
   return (
     <div className="bg-white shadow rounded-lg overflow-x-auto">
       <table className="min-w-full divide-y divide-border">
