@@ -30,7 +30,6 @@ export async function createAdminAction(
   }
 
   try {
-    // Matches createAdminUser({ email, password, role })
     await createAdminUser({ email, password, role });
     revalidatePath("/dashboard/admin-management");
     return { message: "Admin user created successfully.", success: true };
@@ -44,21 +43,21 @@ export async function createAdminAction(
 export async function toggleAdminStatusAction(
   formData: FormData,
 ): Promise<FormState> {
-  const id = Number(formData.get("id"));
+  // Admin PK is UUID (uid), not a numeric id
+  const uid = String(formData.get("id") ?? "").trim();
   const isActive = String(formData.get("is_active")) === "true";
 
-  if (!Number.isFinite(id)) {
-    return { message: "Invalid admin id.", success: false };
+  if (!uid) {
+    return { message: "Invalid admin uid.", success: false };
   }
 
   try {
-    // Our API expects just the numeric id (no object payload)
     if (isActive) {
-      await deactivateAdmin(id);
+      await deactivateAdmin(uid);
       revalidatePath("/dashboard/admin-management");
       return { message: "Admin deactivated.", success: true };
     } else {
-      await reactivateAdmin(id);
+      await reactivateAdmin(uid);
       revalidatePath("/dashboard/admin-management");
       return { message: "Admin reactivated.", success: true };
     }
@@ -73,16 +72,16 @@ export async function updatePermissionsAction(
   _prevState: FormState,
   formData: FormData,
 ): Promise<FormState> {
-  const adminId = Number(formData.get("adminId"));
+  // Admin PK is UUID (uid), not a numeric id
+  const adminUid = String(formData.get("adminId") ?? "").trim();
   const permissions = formData.getAll("permissions").map((p) => String(p));
 
-  if (!Number.isFinite(adminId)) {
-    return { message: "Invalid admin id.", success: false };
+  if (!adminUid) {
+    return { message: "Invalid admin uid.", success: false };
   }
 
   try {
-    // Signature is (id: number, perms: string[])
-    await updateAdminPermissions(adminId, permissions);
+    await updateAdminPermissions(adminUid, permissions);
     revalidatePath("/dashboard/admin-management");
     return { message: "Permissions updated.", success: true };
   } catch (err) {
