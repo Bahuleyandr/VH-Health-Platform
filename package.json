@@ -7,12 +7,12 @@
   "scripts": {
     "start": "node --enable-source-maps src/bin/www.js",
     "dev": "nodemon src/bin/www.js",
-    "build:prod": "echo 'No build needed — direct start used.'",
+    "build:prod": "echo 'No build needed \u2014 direct start used.'",
     "build:sentry": "node src/scripts/build-production.js",
     "debug": "node --inspect --enable-source-maps src/app.js",
     "lint": "eslint . --ext .js",
     "lint:fix": "eslint . --ext .js --fix",
-    "test": "node --max-old-space-size=4096 --expose-gc --experimental-vm-modules node_modules/jest/bin/jest.js --maxWorkers=1 --runInBand",
+    "test": "NODE_OPTIONS=\"--experimental-vm-modules --max-old-space-size=2048\" node_modules/jest/bin/jest.js --runInBand --forceExit",
     "start:local": "dotenv -e .env.local -- node src/bin/www.js",
     "start:render": "node src/bin/www.js",
     "start:cluster": "node src/cluster.js",
@@ -42,7 +42,10 @@
     "db:generate": "prisma generate",
     "load-test:health": "k6 run load-tests/k6/health.js",
     "load-test:auth": "k6 run load-tests/k6/auth.js",
-    "load-test:api": "k6 run load-tests/k6/api.js"
+    "load-test:api": "k6 run load-tests/k6/api.js",
+    "test:watch": "NODE_OPTIONS=\"--experimental-vm-modules --max-old-space-size=2048\" node_modules/jest/bin/jest.js --watch --forceExit",
+    "test:coverage": "NODE_OPTIONS=\"--experimental-vm-modules --max-old-space-size=2048\" node_modules/jest/bin/jest.js --runInBand --coverage --forceExit",
+    "test:suite": "NODE_OPTIONS=\"--experimental-vm-modules --max-old-space-size=2048\" node_modules/jest/bin/jest.js --runInBand --forceExit --testPathPatterns"
   },
   "repository": {
     "type": "git",
@@ -126,10 +129,7 @@
     "testEnvironment": "node",
     "transform": {},
     "setupFiles": [
-      "<rootDir>/src/scripts/testing/jest.setup.js"
-    ],
-    "testMatch": [
-      "<rootDir>/src/tests/**/*.test.js"
+      "<rootDir>/src/scripts/testing/jest.setup.cjs"
     ],
     "moduleNameMapper": {
       "^@utils/(.*)$": "<rootDir>/src/utils/$1",
@@ -141,7 +141,10 @@
       "^@scripts/(.*)$": "<rootDir>/src/scripts/$1"
     },
     "maxWorkers": 1,
-    "workerThreads": false
+    "workerThreads": false,
+    "testPathPatterns": [
+      "<rootDir>/src/tests/**/*.test.js"
+    ]
   },
   "overrides": {
     "lodash": ">=4.17.21",
