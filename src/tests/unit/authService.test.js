@@ -115,6 +115,7 @@ describe('AuthService.getUserByPhone', () => {
 describe('AuthService.adminLogin', () => {
   const validAdmin = {
     id: 1,
+    uid: '550e8400-e29b-41d4-a716-446655440001',
     username: 'admin1',
     email: 'admin1@test.com',
     role: 'ADMIN',
@@ -165,7 +166,7 @@ describe('AuthService.adminLogin', () => {
     // Should have reset the counter first, then updated on successful login
     expect(mockPrisma.admins.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 1 },
+        where: { uid: '550e8400-e29b-41d4-a716-446655440001' },
         data: { failed_login_attempts: 0 },
       })
     );
@@ -180,7 +181,7 @@ describe('AuthService.adminLogin', () => {
     await expect(AuthService.adminLogin('admin1', 'wrong')).rejects.toThrow('Invalid credentials');
 
     expect(mockPrisma.admins.update).toHaveBeenCalledWith({
-      where: { id: 1 },
+      where: { uid: '550e8400-e29b-41d4-a716-446655440001' },
       data: {
         failed_login_attempts: { increment: 1 },
         last_failed_login: expect.any(Date),
@@ -197,14 +198,14 @@ describe('AuthService.adminLogin', () => {
 
     expect(result.token).toBe('mock-jwt-token');
     expect(result.admin).toEqual({
-      uid: 1,
+      uid: '550e8400-e29b-41d4-a716-446655440001',
       username: 'admin1',
       email: 'admin1@test.com',
       role: 'ADMIN',
     });
     // Should reset failed_login_attempts on success
     expect(mockPrisma.admins.update).toHaveBeenCalledWith({
-      where: { id: 1 },
+      where: { uid: '550e8400-e29b-41d4-a716-446655440001' },
       data: { last_login: expect.any(Date), failed_login_attempts: 0 },
     });
   });
