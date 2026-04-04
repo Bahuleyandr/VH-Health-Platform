@@ -10,7 +10,7 @@ const router = express.Router();
 // Debug routes disabled in production — return 404 to avoid exposing system internals
 const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
 if (isProduction) {
-  router.all('*', (req, res) => res.status(404).json({ success: false, message: 'Not found' }));
+  router.all(/(.*)/, (req, res) => res.status(404).json({ success: false, message: 'Not found' }));
 } else {
   // Debug routes with RBAC protection (Admin only) — development/staging only
   wrapAutoRBAC(
