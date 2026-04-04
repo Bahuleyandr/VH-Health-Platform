@@ -22,9 +22,9 @@ const router = Router();
  */
 router.post('/setup', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
-    const adminId = parseInt(req.user?.uid, 10);
+    const adminId = String(req.user?.uid ?? "");
     const admin = await prisma.admins.findUnique({
-      where: { id: adminId },
+      where: { uid: adminId },
       select: { id: true, username: true, totp_enabled: true },
     });
 
@@ -40,7 +40,7 @@ router.post('/setup', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
     );
 
     await prisma.admins.update({
-      where: { id: adminId },
+      where: { uid: adminId },
       data: {
         totp_secret: setup.encryptedSecret,
         totp_backup_codes: hashedCodes,
@@ -68,7 +68,7 @@ router.post('/setup', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
  */
 router.post('/setup/verify', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
-    const adminId = parseInt(req.user?.uid, 10);
+    const adminId = String(req.user?.uid ?? "");
     const { code } = req.body;
 
     if (!code || code.length !== 6) {
@@ -76,7 +76,7 @@ router.post('/setup/verify', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, re
     }
 
     const admin = await prisma.admins.findUnique({
-      where: { id: adminId },
+      where: { uid: adminId },
       select: { id: true, totp_secret: true, totp_enabled: true },
     });
 
@@ -93,7 +93,7 @@ router.post('/setup/verify', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, re
     }
 
     await prisma.admins.update({
-      where: { id: adminId },
+      where: { uid: adminId },
       data: {
         totp_enabled: true,
         totp_enabled_at: new Date(),
@@ -121,13 +121,13 @@ router.post('/setup/verify', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, re
  */
 router.post('/disable', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
-    const adminId = parseInt(req.user?.uid, 10);
+    const adminId = String(req.user?.uid ?? "");
     const { password } = req.body;
 
     if (!password) return error(res, 'Current password is required to disable 2FA', HTTP_STATUS.BAD_REQUEST);
 
     const admin = await prisma.admins.findUnique({
-      where: { id: adminId },
+      where: { uid: adminId },
       select: { id: true, password_hash: true, totp_enabled: true },
     });
 
@@ -138,7 +138,7 @@ router.post('/disable', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, res) =>
     if (!passwordOk) return error(res, 'Invalid password', HTTP_STATUS.UNAUTHORIZED);
 
     await prisma.admins.update({
-      where: { id: adminId },
+      where: { uid: adminId },
       data: {
         totp_enabled: false,
         totp_secret: null,
