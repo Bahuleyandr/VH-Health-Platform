@@ -135,7 +135,7 @@ export function PermissionsMatrix({ admins }: PermissionsMatrixProps) {
     setSaving(true);
     try {
       await putJSON("/api/v1/auth/admin/update-permissions", {
-        adminId: editingAdmin.id,
+        adminId: editingAdmin.uid,
         permissions: editPerms,
       });
       toast.success(`Permissions updated for ${editingAdmin.name}`);
@@ -221,7 +221,7 @@ export function PermissionsMatrix({ admins }: PermissionsMatrixProps) {
                 const isSuperAdmin = admin.role === "SUPER_ADMIN";
                 const perms = Array.isArray(admin.permissions) ? admin.permissions : [];
                 return (
-                  <tr key={admin.id} className="hover:bg-muted">
+                  <tr key={admin.uid} className="hover:bg-muted">
                     <td className="sticky left-0 z-10 whitespace-nowrap px-6 py-4 bg-white">
                       <div className="text-sm font-medium text-foreground">{admin.name}</div>
                       <div className="text-xs text-muted-foreground">{admin.role}</div>

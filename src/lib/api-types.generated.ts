@@ -50,8 +50,14 @@ export interface Admin {
   role: string | null;
   permissions: string[];
   is_active: boolean;
+  status: string;           // 'active' | 'inactive' — mirrors is_active as string
+  failed_login_attempts: number;
+  last_failed_login: string | null;
+  totp_enabled: boolean;
+  password_changed_at: string | null;
   last_login: string | null;
   created_at: string;
+  updated_at: string | null;
   created_by: string | null;
   deactivated_by: string | null;
   deactivated_at: string | null;
