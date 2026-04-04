@@ -307,6 +307,7 @@ model appointments {
   id               Int       @id @default(autoincrement())
   uid              String?   @db.Uuid
   phone            String    @db.VarChar(15)
+  patient_id       Int?      // FK to users.id — used by appointment workflow/admin queries
   doctor_id        Int?
   doctor_name      String    @default("") @db.VarChar(100)
   patient_name     String?   @db.VarChar(255)
@@ -320,6 +321,7 @@ model appointments {
 
   @@index([phone])
   @@index([uid])
+  @@index([patient_id])
   @@index([doctor_id])
   @@index([appointment_date])
   @@index([status])
@@ -670,45 +672,51 @@ model batch_upload_logs {
 // ===================================================================
 
 model staff {
-  id                Int       @id @default(autoincrement())
-  user_id           String?   @db.Uuid
-  employee_id       String?   @db.VarChar(50)
-  position          String?   @db.VarChar(100)
-  department        String?   @db.VarChar(100)
-  shift             String?   @db.VarChar(50)
-  salary            Float?
-  hire_date         DateTime? @db.Date
-  join_date         DateTime? @db.Date
-  supervisor_id     Int?
-  emergency_contact Json?     @db.JsonB
-  skills            String[]
-  certifications    String[]
-  notes             String?   @db.Text
-  is_active         Boolean   @default(true)
-  on_leave          Boolean   @default(false)
-  archived          Boolean   @default(false)
-  updated_by        String?   @db.Uuid
-  created_by        String?   @db.Uuid
-  created_at        DateTime  @default(now()) @db.Timestamp(6)
-  updated_at        DateTime  @updatedAt @db.Timestamp(6)
+  id                 Int       @id @default(autoincrement())
+  user_id            String?   @db.Uuid
+  employee_id        String?   @db.VarChar(50)
+  name               String?   @db.VarChar(255)
+  designation        String?   @db.VarChar(100)
+  position           String?   @db.VarChar(100)
+  department         String?   @db.VarChar(100)
+  shift              String?   @db.VarChar(50)
+  salary             Float?
+  hire_date          DateTime? @db.Date
+  join_date          DateTime? @db.Date
+  supervisor_id      Int?
+  emergency_contact  Json?     @db.JsonB
+  skills             String[]
+  certifications     String[]
+  notes              String?   @db.Text
+  is_active          Boolean   @default(true)
+  on_leave           Boolean   @default(false)
+  archived           Boolean   @default(false)
+  updated_by         String?   @db.Uuid
+  created_by         String?   @db.Uuid
+  created_at         DateTime  @default(now()) @db.Timestamp(6)
+  updated_at         DateTime  @updatedAt @db.Timestamp(6)
+  performance_rating Decimal?  @db.Decimal(3, 1)
+  last_review_date   DateTime? @db.Date
 
   @@index([user_id])
+  @@index([name])
   @@index([department])
   @@index([is_active])
   @@map("staff")
 }
 
 model staff_attendance {
-  id            Int       @id @default(autoincrement())
-  staff_id      Int
-  staff_uid     String?   @db.Uuid
-  type          String?   @db.VarChar(20)
-  location      String?   @db.VarChar(255)
-  ip_address    String?   @db.VarChar(45)
-  device_info   String?   @db.Text
-  check_in_time DateTime? @db.Timestamp(6)
-  timestamp     DateTime  @default(now()) @db.Timestamp(6)
-  created_at    DateTime  @default(now()) @db.Timestamp(6)
+  id             Int       @id @default(autoincrement())
+  staff_id       Int
+  staff_uid      String?   @db.Uuid
+  type           String?   @db.VarChar(20)
+  location       String?   @db.VarChar(255)
+  ip_address     String?   @db.VarChar(45)
+  device_info    String?   @db.Text
+  check_in_time  DateTime? @db.Timestamp(6)
+  check_out_time DateTime? @db.Timestamp(6)
+  timestamp      DateTime  @default(now()) @db.Timestamp(6)
+  created_at     DateTime  @default(now()) @db.Timestamp(6)
 
   @@index([staff_id])
   @@index([staff_uid])
