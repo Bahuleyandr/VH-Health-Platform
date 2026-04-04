@@ -86,10 +86,18 @@ function cacheAdminUser(admin: AdminUser) {
  * ========================= */
 
 interface LoginResponse {
-  token: string;
+  token?: string;
   admin?: AdminUser;
   accessToken?: string;
   staff?: AdminUser;
+  message?: string;
+  success?: boolean;
+  data?: {
+    token?: string;
+    accessToken?: string;
+    admin?: AdminUser;
+    staff?: AdminUser;
+  };
 }
 
 /** Staff login via employee ID + password */
@@ -158,7 +166,9 @@ export async function adminLogin(
     throw new Error(loginResult?.message ?? "Login failed");
   }
 
-  const { token, admin } = loginResult?.data ?? loginResult;
+  const payload = loginResult?.data ?? loginResult;
+  const token = payload?.token ?? payload?.accessToken;
+  const admin = payload?.admin;
 
   if (!token) {
     throw new Error("No token received from server");
@@ -167,7 +177,7 @@ export async function adminLogin(
   // Cache user profile (non-sensitive) with timestamp for UI
   if (admin) cacheAdminUser(admin);
 
-  return { token, admin, success: true };
+  return { token: token!, admin, success: true };
 }
 
 export async function getAdminProfile(): Promise<AdminUser> {
