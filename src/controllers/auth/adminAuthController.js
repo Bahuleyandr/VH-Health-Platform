@@ -135,7 +135,7 @@ export const getHealthStatus = async (req, res) => {
 /* -------------------------- ACTIVITY LOGS ------------------------- */
 export const getAdminActivityLogs = async (req, res) => {
   try {
-    const adminId = Number(req.params.adminId);
+    const adminId = String(req.params.adminId);
     const page = Math.max(Number(req.query.page ?? 1), 1);
     const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 100);
 
@@ -158,7 +158,7 @@ export const updatePermissions = async (req, res) => {
   }
 
   try {
-    const adminId = Number(req.body.adminId);
+    const adminId = String(req.body.adminId);
     const { permissions } = req.body;
     const updatedBy = req.user?.uid;
 
@@ -218,9 +218,9 @@ export const deactivateAdmin = async (req, res) => {
   }
 
   try {
-    const adminId = Number(req.body.adminId);
+    const adminId = String(req.body.adminId);
     const { reason } = req.body;
-    const deactivatedBy = Number(req.user?.uid);
+    const deactivatedBy = req.user?.uid;
 
     if (adminId === deactivatedBy) {
       return error(res, 'Cannot deactivate your own account', HTTP_STATUS.BAD_REQUEST);
@@ -248,8 +248,8 @@ export const reactivateAdmin = async (req, res) => {
   }
 
   try {
-    const adminId = Number(req.body.adminId);
-    const reactivatedBy = Number(req.user?.uid);
+    const adminId = String(req.body.adminId);
+    const reactivatedBy = req.user?.uid;
 
     const result = await AuthService.reactivateAdmin(adminId, reactivatedBy);
     logger.info(`Admin reactivated: ${adminId} by ${reactivatedBy}`);
