@@ -21,7 +21,8 @@ const withPWA = withPWAInit({
 const isProduction = process.env.NODE_ENV === 'production';
 
 const nextConfig: NextConfig = {
-  output: 'standalone',
+  // output: 'standalone' — DO NOT enable on Vercel; use only for self-hosted Docker/Node deployments
+  // output: 'standalone',
   reactStrictMode: true,
 
   // Sets crossorigin="anonymous" on Next scripts
