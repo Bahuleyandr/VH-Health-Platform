@@ -142,20 +142,27 @@ export async function adminLogin(
   admin?: AdminUser;
   success: boolean;
 }> {
-  const result = await apiLoginAdmin(username, password);
-  const loginResult = result as LoginResponse;
-  const { token, admin } = loginResult;
+  // Route through /api/login proxy (server-side) which:
+  // 1. Adds the x-api-key from process.env.API_KEY
+  // 2. Sets the auth_token as an httpOnly cookie
+  // This avoids exposing the API key on the client side.
+  const response = await fetch("/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+
+  const loginResult = await response.json() as LoginResponse;
+
+  if (!response.ok) {
+    throw new Error(loginResult?.message ?? "Login failed");
+  }
+
+  const { token, admin } = loginResult?.data ?? loginResult;
 
   if (!token) {
     throw new Error("No token received from server");
   }
-
-  // Set httpOnly cookie via our login API route
-  await fetch("/api/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token }),
-  });
 
   // Cache user profile (non-sensitive) with timestamp for UI
   if (admin) cacheAdminUser(admin);
