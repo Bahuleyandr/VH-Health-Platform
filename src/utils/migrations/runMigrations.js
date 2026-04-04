@@ -20,8 +20,8 @@ export async function runMigrations() {
     `);
 
     // Get already-run migrations
-    const { rows: executed } = await prisma.$queryRawUnsafe('SELECT name FROM _migrations ORDER BY name');
-    const executedNames = new Set(executed.map(r => r.name));
+    const executed = await prisma.$queryRawUnsafe('SELECT name FROM _migrations ORDER BY name');
+    const executedNames = new Set((Array.isArray(executed) ? executed : executed?.rows ?? []).map(r => r.name));
 
     // Read migration files
     if (!fs.existsSync(MIGRATIONS_DIR)) {

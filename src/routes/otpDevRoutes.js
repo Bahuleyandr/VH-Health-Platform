@@ -301,7 +301,7 @@ if (isDevelopment) {
 
 } else {
   // ✅ Production safety - add stub route that explains why dev routes aren't available
-  router.all('*', (req, res) => {
+  router.all(/(.*)/, (req, res) => {
     res.status(HTTP_STATUS.NOT_FOUND).json({
       success: false,
       message: 'OTP development routes are not available in production environment',
