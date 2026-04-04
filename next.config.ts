@@ -50,10 +50,9 @@ const nextConfig: NextConfig = {
 
   async headers() {
     const allowedOrigin = process.env.NEXT_PUBLIC_ALLOWED_ORIGIN || 'http://localhost:3000';
-    // Only allow unsafe-eval in development (needed for Next.js HMR/dev tools)
-    const scriptSrc = isProduction
-      ? "script-src 'self' 'unsafe-inline'"
-      : "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
+    // unsafe-eval is required in production by Sentry SDK and workbox (PWA service worker)
+    // Removing it causes EvalError in prod. It was mistakenly blocked in prod only.
+    const scriptSrc = "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
     return [
       {
         source: '/api/proxy/:path*',
