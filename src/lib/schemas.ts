@@ -24,6 +24,7 @@ export const AdminRoleEnum = z.enum([
 ]);
 
 export const AdminUserSchema = UserSchema.extend({
+  uid: z.string(), // UUID primary key for admins
   role: AdminRoleEnum,
   permissions: z.array(z.string()),
   last_login: z.string().optional(), // ISO date string (optional for staff tokens)
