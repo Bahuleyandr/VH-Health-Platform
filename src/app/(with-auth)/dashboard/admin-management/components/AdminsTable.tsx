@@ -19,7 +19,7 @@ interface AdminsTableProps {
 type ToggleAction = "deactivate" | "reactivate";
 
 export function AdminsTable({ admins, onAdminUpdated, isLoading, error }: AdminsTableProps) {
-  const [updatingAdminId, setUpdatingAdminId] = useState<number | null>(null);
+  const [updatingAdminId, setUpdatingAdminId] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingAdmin, setPendingAdmin] = useState<AdminUser | null>(null);
   const [pendingAction, setPendingAction] = useState<ToggleAction | null>(null);
@@ -47,17 +47,17 @@ export function AdminsTable({ admins, onAdminUpdated, isLoading, error }: Admins
   const handleConfirmToggle = async () => {
     if (!pendingAdmin || !pendingAction) return;
 
-    setUpdatingAdminId(pendingAdmin.id);
+    setUpdatingAdminId(pendingAdmin.uid);
 
     try {
       const body =
         pendingAction === "deactivate"
           ? {
               action: pendingAction,
-              adminId: pendingAdmin.id,
+              adminId: pendingAdmin.uid,
               reason: "Deactivated via admin portal",
             }
-          : { action: pendingAction, adminId: pendingAdmin.id };
+          : { action: pendingAction, adminId: pendingAdmin.uid };
 
       await putJSON(API_ENDPOINTS.auth.adminManagement, body);
 
@@ -164,11 +164,11 @@ export function AdminsTable({ admins, onAdminUpdated, isLoading, error }: Admins
             <tbody className="bg-white divide-y divide-border">
               {rows.map((admin) => {
                 const loginInfo = formatLastLogin(admin.last_login ?? null);
-                const toggling = updatingAdminId === admin.id;
+                const toggling = updatingAdminId === admin.uid;
                 const toggleAllowed = canToggleFor(admin.is_active);
 
                 return (
-                  <tr key={admin.id} className="hover:bg-muted">
+                  <tr key={admin.uid} className="hover:bg-muted">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="text-sm font-medium text-foreground">
@@ -213,7 +213,7 @@ export function AdminsTable({ admins, onAdminUpdated, isLoading, error }: Admins
                       <div className="flex items-center gap-3">
                         {canEditPermissions ? (
                           <Link
-                            href={`/dashboard/admin-management/edit-permissions/${admin.id}`}
+                            href={`/dashboard/admin-management/edit-permissions/${admin.uid}`}
                             className="text-primary hover:text-primary transition-colors"
                           >
                             Edit Permissions

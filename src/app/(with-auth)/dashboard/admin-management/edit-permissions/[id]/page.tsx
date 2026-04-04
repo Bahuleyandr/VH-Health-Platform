@@ -47,7 +47,7 @@ export default function EditPermissionsPage() {
         API_ENDPOINTS.auth.adminManagement,
       );
       const list = Array.isArray(data) ? data : (data?.admins ?? []);
-      const target = list.find((a) => String(a.id) === adminId);
+      const target = list.find((a) => a.uid === adminId);
 
       if (!target) {
         setError("Administrator not found");
@@ -85,7 +85,7 @@ export default function EditPermissionsPage() {
     try {
       await putJSON(API_ENDPOINTS.auth.adminManagement, {
         action: "updatePermissions",
-        adminId: Number(admin.id),
+        adminId: admin.uid,
         permissions: selectedPermissions,
       });
 
