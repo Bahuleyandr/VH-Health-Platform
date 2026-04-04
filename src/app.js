@@ -278,6 +278,12 @@ app.use('/api/v1/health', genericLimiter, healthRoutes);
 app.use('/api/v1/abdm', abdmCallbackRoutes);
 
 // ====================================
+// PUBLIC HEALTH CHECK (no auth required — for Render/uptime monitors)
+// ====================================
+app.get('/health', (req, res) => res.json({ status: 'ok', service: 'vh-health-backend' }));
+app.get('/api/health', (req, res) => res.json({ status: 'ok', service: 'vh-health-backend' }));
+
+// ====================================
 // API KEY & AUTH MIDDLEWARE
 // Apply to all routes below this point
 // ====================================
