@@ -170,7 +170,7 @@ export async function sendAppointmentReminders() {
        JOIN users du ON a.doctor_id = du.id
        LEFT JOIN doctors doc ON doc.user_id = du.id
        LEFT JOIN departments dept ON doc.department_id = dept.id
-       WHERE a.appointment_date >= $1 AND a.appointment_date < $2
+       WHERE a.appointment_date >= $1::date AND a.appointment_date < $2::date
          AND a.status != 'cancelled' AND u.device_token IS NOT NULL`,
       [today.toISOString(), tomorrow.toISOString()]
     );
