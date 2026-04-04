@@ -1,9 +1,11 @@
 /**
- * AUTO-GENERATED from Prisma schema: vh-health-backend/prisma/schema.prisma
- * Generated on: 2026-03-28
+ * AUTO-GENERATED from live PostgreSQL schema — vh-health-backend
+ * Last regenerated: 2026-04-04
  *
  * These interfaces mirror the backend's database models.
  * Do NOT edit manually — re-generate from the Prisma schema when models change.
+ *
+ * Source of truth: live DB columns + backend prisma/schema.prisma
  */
 
 // ===================================================================
@@ -25,6 +27,14 @@ export interface User {
   is_active: boolean;
   registered_at: string;
   updated_at: string;
+  // Extended columns (added by migrations)
+  pan_number: string | null;
+  abha_number: string | null;
+  abha_address: string | null;
+  status: string | null;
+  device_token: string | null;
+  created_by: string | null;
+  updated_by: string | null;
 }
 
 // ===================================================================
@@ -32,23 +42,22 @@ export interface User {
 // ===================================================================
 
 export interface Admin {
-  id: number;
+  // PK is uid (UUID), NOT a numeric id
+  uid: string;
   username: string;
   email: string | null;
   name: string | null;
   role: string | null;
-  status: string;
   permissions: string[];
-  failed_login_attempts: number;
-  last_failed_login: string | null;
+  is_active: boolean;
   last_login: string | null;
-  password_changed_at: string | null;
   created_at: string;
   created_by: string | null;
-  deactivated_at: string | null;
   deactivated_by: string | null;
+  deactivated_at: string | null;
   deactivation_reason: string | null;
-  updated_at: string | null;
+  reactivated_by: string | null;
+  reactivated_at: string | null;
 }
 
 export interface OtpSession {
@@ -110,16 +119,13 @@ export interface Doctor {
 
 export interface Staff {
   id: number;
-  uid: string;
-  user_id: number | null;
+  user_id: string | null;        // UUID — references users.uid
   employee_id: string | null;
-  name: string | null;
-  phone: string | null;
-  role: string | null;
+  name: string | null;           // Denormalized from users.name
+  designation: string | null;
   position: string | null;
   department: string | null;
   shift: string | null;
-  shift_type: string | null;
   salary: number | null;
   hire_date: string | null;
   join_date: string | null;
@@ -131,13 +137,23 @@ export interface Staff {
   is_active: boolean;
   on_leave: boolean;
   archived: boolean;
-  last_login: string | null;
-  pin_changed_at: string | null;
-  pin_reset_by: string | null;
+  performance_rating: number | null;
+  last_review_date: string | null;
   updated_by: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * StaffWithUser — shape returned by payroll and HR endpoints that JOIN users.
+ * Backend queries return users.uid as 'uid', users.name, users.phone, users.role.
+ * Use this type for payroll/HR list responses, NOT the raw staff table shape.
+ */
+export interface StaffWithUser extends Staff {
+  uid: string;                   // users.uid (from JOIN to users table)
+  phone: string | null;          // users.phone
+  role: string | null;           // users.role
 }
 
 // ===================================================================
@@ -148,6 +164,7 @@ export interface Appointment {
   id: number;
   uid: string | null;
   phone: string;
+  patient_id: number | null;  // FK to users.id
   doctor_id: number | null;
   doctor_name: string;
   patient_name: string | null;
@@ -156,6 +173,19 @@ export interface Appointment {
   status: string;
   reason: string | null;
   notes: string | null;
+  department: string | null;
+  token_number: number | null;
+  confirmed_by: number | null;
+  confirmed_at: string | null;
+  confirmation_notes: string | null;
+  no_show_at: string | null;
+  cancellation_reason: string | null;
+  reschedule_count: number | null;
+  sla_target_at: string | null;
+  first_contact_at: string | null;
+  completed_at: string | null;
+  reminder_24h_sent: boolean | null;
+  reminder_1h_sent: boolean | null;
   created_at: string;
   updated_at: string;
 }
@@ -183,6 +213,7 @@ export interface Investigation {
   id: number;
   uid: string | null;
   phone: string;
+  patient_id: number | null;  // FK to users.id
   test_name: string;
   test_type: string | null;
   status: string;
@@ -193,6 +224,12 @@ export interface Investigation {
   requested_at: string;
   completed_at: string | null;
   updated_at: string;
+  notified: boolean | null;
+  notified_at: string | null;
+  turnaround_target_hours: number | null;
+  result_uploaded_at: string | null;
+  urgent_alert_sent: boolean | null;
+  patient_notified_at: string | null;
 }
 
 // ===================================================================
@@ -203,15 +240,43 @@ export interface PharmacyOrder {
   id: number;
   uid: string | null;
   phone: string;
+  patient_id: number | null;  // FK to users.id
+  patient_name: string | null;
   order_note: string;
   medication: string | null;
   status: string;
   priority: string | null;
   file_key: string | null;
+  prescription_url: string | null;
+  prescription_photo_url: string | null;
+  order_number: string | null;
+  total_amount: number | null;
+  payment_status: string | null;
+  assigned_pharmacist: string | null;
+  token_number: string | null;
+  delivery_type: string | null;
+  delivery_address: string | null;
+  delivery_landmark: string | null;
+  delivery_lat: number | null;
+  delivery_lng: number | null;
+  delivery_phone: string | null;
+  delivery_person: string | null;
+  delivery_person_phone: string | null;
+  estimated_delivery_mins: number | null;
+  delivery_tracking_active: boolean | null;
+  delivery_distance_km: number | null;
   prescribed_by: string | null;
   dispensed_by: string | null;
+  confirmed_by: number | null;
+  confirmed_at: string | null;
+  preparing_at: string | null;
+  dispatched_at: string | null;
+  delivered_at: string | null;
+  cancelled_at: string | null;
+  cancellation_reason: string | null;
   ordered_at: string;
   dispensed_at: string | null;
+  created_at: string | null;
   updated_at: string;
 }
 
@@ -271,6 +336,8 @@ export interface Feedback {
   appointment_id: number | null;
   is_anonymous: boolean;
   status: string;
+  responded_at: string | null;
+  response_status: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -330,3 +397,5 @@ export type FeedbackCategory = "GENERAL" | "DOCTOR" | "DEPARTMENT" | "SERVICE";
 export type FeedbackStatus = "PENDING" | "REVIEWED" | "RESOLVED" | "DISMISSED";
 
 export type PrivacyLevel = "PUBLIC" | "RESTRICTED" | "CONFIDENTIAL";
+
+export type AdminRole = "ADMIN" | "SUPER_ADMIN" | "MANAGER";
