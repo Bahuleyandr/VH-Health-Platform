@@ -119,7 +119,7 @@ wrapAutoRBAC(
       // Deactivate admin
       [
         '/deactivate',
-        body('adminId').isInt({ min: 1 }).withMessage('Invalid admin ID').toInt(),
+        body('adminId').isUUID().withMessage('Invalid admin ID (must be UUID)'),
         body('reason').notEmpty().withMessage('Reason is required'),
         handleValidation,
         adminAuthController.deactivateAdmin,
@@ -128,7 +128,7 @@ wrapAutoRBAC(
       // Reactivate admin
       [
         '/reactivate',
-        body('adminId').isInt({ min: 1 }).withMessage('Invalid admin ID').toInt(),
+        body('adminId').isUUID().withMessage('Invalid admin ID (must be UUID)'),
         handleValidation,
         adminAuthController.reactivateAdmin,
       ],
@@ -148,7 +148,7 @@ wrapAutoRBAC(
       // Activity logs for a specific admin
       [
         '/activity-logs/:adminId',
-        param('adminId').isInt({ min: 1 }).withMessage('Invalid admin ID').toInt(),
+        param('adminId').isUUID().withMessage('Invalid admin ID (must be UUID)'),
         handleValidation,
         adminAuthController.getAdminActivityLogs,
       ],
@@ -157,7 +157,7 @@ wrapAutoRBAC(
       // Update permissions
       [
         '/update-permissions',
-        body('adminId').isInt({ min: 1 }).withMessage('Invalid admin ID').toInt(),
+        body('adminId').isUUID().withMessage('Invalid admin ID (must be UUID)'),
         body('permissions').isArray().withMessage('Permissions must be an array'),
         handleValidation,
         adminAuthController.updatePermissions,

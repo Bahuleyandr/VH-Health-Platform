@@ -172,7 +172,7 @@ export class AuthService {
           ],
         },
         select: {
-          id: true,
+          uid: true,
           username: true,
           email: true,
           role: true,
@@ -202,7 +202,7 @@ export class AuthService {
           if (new Date() < lockoutExpiry) {
             logger.warn(`Admin account locked: ${identity} (${admin.failed_login_attempts} failed attempts)`);
             logSecurityEvent('ACCOUNT_LOCKED', {
-              userId: String(admin.id),
+              userId: admin.uid,
               userName: identity,
               userRole: admin.role,
               reason: `Lockout active: ${admin.failed_login_attempts} failed attempts`,
@@ -212,7 +212,7 @@ export class AuthService {
         }
         // Lockout period has expired, reset the counter
         await prisma.admins.update({
-          where: { id: admin.id },
+          where: { uid: admin.uid },
           data: { failed_login_attempts: 0 },
         });
       }
@@ -220,14 +220,14 @@ export class AuthService {
       const ok = await bcrypt.compare(password, admin.password_hash);
       if (!ok) {
         await prisma.admins.update({
-          where: { id: admin.id },
+          where: { uid: admin.uid },
           data: {
             failed_login_attempts: { increment: 1 },
             last_failed_login: new Date(),
           },
         });
         logSecurityEvent('LOGIN_FAILED', {
-          userId: String(admin.id),
+          userId: admin.uid,
           userName: identity,
           userRole: admin.role,
           reason: 'Invalid password',
@@ -238,7 +238,7 @@ export class AuthService {
 
       // Reset failed attempts on successful password verification
       await prisma.admins.update({
-        where: { id: admin.id },
+        where: { uid: admin.uid },
         data: { last_login: new Date(), failed_login_attempts: 0 },
       });
 
@@ -251,7 +251,7 @@ export class AuthService {
           await prisma.$queryRawUnsafe(
             `INSERT INTO totp_challenges (admin_id, challenge_token, expires_at, created_at)
              VALUES ($1, $2, $3, NOW())`,
-            [admin.id, challengeToken, expiresAt]
+            [admin.uid, challengeToken, expiresAt]
           );
         } catch (challengeErr) {
           logger.warn('TOTP challenge table may not exist, falling back to direct login:', challengeErr.message);
@@ -259,13 +259,13 @@ export class AuthService {
         }
 
         if (admin.totp_enabled) {
-          logger.info('2FA challenge issued for admin login', { adminId: admin.id });
+          logger.info('2FA challenge issued for admin login', { adminId: admin.uid });
           return {
             requiresTwoFactor: true,
             challengeToken,
             expiresAt: expiresAt.toISOString(),
             admin: {
-              uid: admin.id,
+              uid: admin.uid,
               username: admin.username,
             },
           };
@@ -273,10 +273,10 @@ export class AuthService {
       }
 
       const token = generateToken({
-        uid: String(admin.id),
+        uid: admin.uid,
         role: String(admin.role).toUpperCase(),
         email: admin.email ?? undefined,
-        sub: String(admin.id),
+        sub: admin.uid,
         iss: 'vh-health-backend',
         aud: 'vh-health-admin',
       }, SECURITY_CONFIG.jwt.adminExpiry);
@@ -284,7 +284,7 @@ export class AuthService {
       return {
         token,
         admin: {
-          uid: admin.id,
+          uid: admin.uid,
           username: admin.username,
           email: admin.email,
           role: admin.role,
@@ -299,7 +299,7 @@ export class AuthService {
   static async changeAdminPassword(adminId, currentPassword, newPassword) {
     try {
       const admin = await prisma.admins.findUnique({
-        where: { id: parseInt(adminId, 10) },
+        where: { uid: String(adminId) },
         select: { password_hash: true },
       });
       if (!admin) throw new Error('Admin not found');
@@ -310,7 +310,7 @@ export class AuthService {
       const newHash = await bcrypt.hash(newPassword, 10);
 
       await prisma.admins.update({
-        where: { id: parseInt(adminId, 10) },
+        where: { uid: String(adminId) },
         data: { password_hash: newHash, password_changed_at: new Date() },
       });
 
@@ -330,7 +330,7 @@ export class AuthService {
             { email: { equals: identity, mode: 'insensitive' } },
           ],
         },
-        select: { id: true, username: true, email: true },
+        select: { uid: true, username: true, email: true },
       });
       if (!admin) throw new Error('Admin not found');
 
@@ -339,7 +339,7 @@ export class AuthService {
 
       await prisma.password_reset_otps.create({
         data: {
-          user_id: String(admin.id),
+          user_id: admin.uid,
           otp,
           expires_at: expiresAt,
         },
@@ -368,13 +368,13 @@ export class AuthService {
               { email: { equals: identity, mode: 'insensitive' } },
             ],
           },
-          select: { id: true },
+          select: { uid: true },
         });
         if (!admin) throw new Error('Admin not found');
 
         const otpRecord = await tx.password_reset_otps.findFirst({
           where: {
-            user_id: String(admin.id),
+            user_id: admin.uid,
             otp,
             expires_at: { gt: new Date() },
             used: false,
@@ -387,7 +387,7 @@ export class AuthService {
         const newHash = await bcrypt.hash(newPassword, 10);
 
         await tx.admins.update({
-          where: { id: admin.id },
+          where: { uid: admin.uid },
           data: { password_hash: newHash, password_changed_at: new Date() },
         });
 
@@ -506,7 +506,7 @@ export class AuthService {
 
       const existing = await prisma.admins.findFirst({
         where: { username: { equals: username, mode: 'insensitive' } },
-        select: { id: true },
+        select: { uid: true },
       });
       if (existing) throw new Error('Username already exists');
 
@@ -522,10 +522,10 @@ export class AuthService {
           status: 'active',
           created_by: createdBy ?? null,
         },
-        select: { id: true, username: true, email: true, name: true },
+        select: { uid: true, username: true, email: true, name: true },
       });
 
-      return { admin: { uid: newAdmin.id, ...newAdmin } };
+      return { admin: { ...newAdmin } };  // uid is already the PK
     } catch (error) {
       logger.error('Create admin error:', error);
       throw error;
@@ -539,11 +539,14 @@ export class AuthService {
       const [admins, total] = await Promise.all([
         prisma.admins.findMany({
           select: {
-            id: true,
+            uid: true,
             username: true,
             email: true,
             name: true,
+            role: true,
+            permissions: true,
             status: true,
+            is_active: true,
             created_at: true,
             last_login: true,
           },
@@ -555,7 +558,7 @@ export class AuthService {
       ]);
 
       return {
-        admins: admins.map((a) => ({ uid: a.id, ...a })),
+        admins: admins.map((a) => ({ ...a })),  // uid is already the PK
         pagination: {
           page,
           limit,
@@ -572,9 +575,10 @@ export class AuthService {
   static async deactivateAdmin(adminId, reason, deactivatedBy) {
     try {
       const admin = await prisma.admins.updateMany({
-        where: { id: parseInt(adminId, 10), status: 'active' },
+        where: { uid: String(adminId), status: 'active' },
         data: {
           status: 'inactive',
+          is_active: false,
           deactivated_at: new Date(),
           deactivated_by: deactivatedBy ?? null,
           deactivation_reason: reason ?? null,
@@ -585,10 +589,10 @@ export class AuthService {
       }
 
       const updated = await prisma.admins.findUnique({
-        where: { id: parseInt(adminId, 10) },
-        select: { id: true, username: true },
+        where: { uid: String(adminId) },
+        select: { uid: true, username: true },
       });
-      return { message: 'Admin account deactivated', admin: { uid: updated.id, username: updated.username } };
+      return { message: 'Admin account deactivated', admin: { uid: updated.uid, username: updated.username } };
     } catch (error) {
       logger.error('Deactivate admin error:', error);
       throw error;
@@ -598,9 +602,10 @@ export class AuthService {
   static async reactivateAdmin(adminId) {
     try {
       const admin = await prisma.admins.updateMany({
-        where: { id: parseInt(adminId, 10), status: 'inactive' },
+        where: { uid: String(adminId), status: 'inactive' },
         data: {
           status: 'active',
+          is_active: true,
           deactivated_at: null,
           deactivated_by: null,
           deactivation_reason: null,
@@ -611,12 +616,27 @@ export class AuthService {
       }
 
       const updated = await prisma.admins.findUnique({
-        where: { id: parseInt(adminId, 10) },
-        select: { id: true, username: true },
+        where: { uid: String(adminId) },
+        select: { uid: true, username: true },
       });
-      return { message: 'Admin account reactivated', admin: { uid: updated.id, username: updated.username } };
+      return { message: 'Admin account reactivated', admin: { uid: updated.uid, username: updated.username } };
     } catch (error) {
       logger.error('Reactivate admin error:', error);
+      throw error;
+    }
+  }
+
+  static async updateAdminPermissions(adminId, permissions, updatedBy) {
+    try {
+      const updated = await prisma.admins.update({
+        where: { uid: String(adminId) },
+        data: { permissions: permissions ?? [] },
+        select: { uid: true, username: true, permissions: true },
+      });
+      logger.info(`Admin permissions updated: ${adminId} by ${updatedBy}`);
+      return { message: 'Permissions updated', admin: { uid: updated.uid, username: updated.username, permissions: updated.permissions } };
+    } catch (error) {
+      logger.error('Update admin permissions error:', error);
       throw error;
     }
   }
@@ -624,9 +644,9 @@ export class AuthService {
   static async getAdminProfile(adminId) {
     try {
       const admin = await prisma.admins.findUnique({
-        where: { id: parseInt(adminId, 10) },
+        where: { uid: String(adminId) },
         select: {
-          id: true,
+          uid: true,
           username: true,
           email: true,
           name: true,
@@ -641,7 +661,7 @@ export class AuthService {
 
       return {
         admin: {
-          uid: admin.id,
+          uid: admin.uid,
           ...admin,
           created_at: admin.created_at ? formatDateDDMMYYYY(admin.created_at) : null,
           last_login: admin.last_login ? formatDateDDMMYYYY(admin.last_login) : null,
