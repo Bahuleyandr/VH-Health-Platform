@@ -71,7 +71,7 @@ export async function escalateStuckOrders() {
             title: '⚠️ Stuck Orders Alert',
             body: `${stuckAppointments.length} appointments, ${stuckPharmacy.rows.length} pharmacy orders, ${stuckInvestigations.rows.length} lab bookings need attention.`,
             data: { type: 'stuck_orders_alert' },
-            userId: admin.id,
+            userId: admin.uid,
           });
         } catch {
           // Best-effort — don't crash escalation for push failures
