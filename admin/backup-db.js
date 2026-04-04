@@ -47,6 +47,11 @@ export default function backupDb(envFile, label) {
 
   console.log(`🚀 Starting ${label} backup to ${backupFile}...`);
   try {
+    // Check pg_dump is available before attempting
+    try { execSync('which pg_dump', { stdio: 'pipe' }); } catch {
+      console.warn(`⚠️  pg_dump not found on this system — skipping ${label} backup. Use Supabase dashboard or docs/DB-REBUILD-GUIDE.md for backups.`);
+      return;
+    }
     execSync(`pg_dump "${dbUrl}" > "${backupFile}"`, { stdio: 'inherit' });
     console.log(`✅ ${label} backup completed: ${backupFile}`);
     compressFile(backupFile);
