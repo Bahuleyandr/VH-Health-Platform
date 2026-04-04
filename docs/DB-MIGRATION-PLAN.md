@@ -1,7 +1,10 @@
 # VHHealth Database — Production Migration Plan
 > **Purpose:** Move from Raspberry Pi (Docker) to a managed commercial PostgreSQL service  
 > **Drafted:** 2026-04-04  
+> **Last updated:** 2026-04-04  
 > **Status:** Planning — not yet executed
+
+> **Pre-requisite completed:** DB fully validated and all migrations applied (164 tables, 0 errors). Schema dump available at `docs/schema-dump.sql`. Rebuild guide at `docs/DB-REBUILD-GUIDE.md`.
 
 ---
 

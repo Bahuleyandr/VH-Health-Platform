@@ -85,6 +85,7 @@ tokens.txt
 *.sql
 !migrations/*.sql
 !prisma/migrations/**/*.sql
+!docs/*.sql
 *.dump
 *.backup
 db-backup-*
