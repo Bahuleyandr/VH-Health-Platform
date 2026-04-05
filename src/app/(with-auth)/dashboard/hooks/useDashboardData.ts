@@ -96,10 +96,10 @@ export function useDashboardData() {
       ).catch(() => null);
 
       // Infrastructure health (deep system check)
-      const infraData = await get<{ data?: InfraHealthData }>('/api/v1/health/system').catch(() => null);
-      if (infraData?.data) {
-        setInfraHealth(infraData.data);
-      }
+      // Disabled for now: the separate system health endpoint uses different
+      // auth expectations than the admin dashboard flow and only produced
+      // console noise without affecting visible dashboard functionality.
+      setInfraHealth(null);
 
       // Normalize
       const overview = dash?.overview ?? {};
