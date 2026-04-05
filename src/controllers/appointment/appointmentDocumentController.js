@@ -20,8 +20,8 @@ export const uploadAppointmentDocument = async (req, res) => {
       return error(res, 'appointment_id and file are required', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const appt = await prisma.$queryRawUnsafe('SELECT id, patient_id, doctor_id FROM appointments WHERE id=$1', [appointment_id]);
-    if (!appt.rows.length) return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
+    const appt = await prisma.$queryRawUnsafe('SELECT id, patient_id, doctor_id FROM appointments WHERE id=$1', appointment_id);
+    if (!appt.length) return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
     const a = appt[0];
 
     const timestamp = Date.now();
@@ -43,15 +43,15 @@ export const uploadAppointmentDocument = async (req, res) => {
          document_type, file_key, file_url, file_name, file_size, file_mime, notes)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
       RETURNING id, appointment_id, patient_id, doctor_id, uploaded_by, upload_role, document_type, file_key, file_url, file_name, file_size, file_mime, notes, created_at
-    `, [
+    `,
       appointment_id, a.patient_id, a.doctor_id, uploadedById, uploadRole,
       document_type || 'prescription', fileKey, fileUrl,
       req.file.originalname, req.file.size, req.file.mimetype, notes || null,
-    ]);
+    );
 
     // Notify patient if staff upload
     if (uploadRole === 'staff' && a.patient_id) {
-      const patient = await prisma.$queryRawUnsafe('SELECT device_token FROM users WHERE id=$1', [a.patient_id]);
+      const patient = await prisma.$queryRawUnsafe('SELECT device_token FROM users WHERE id=$1', a.patient_id);
       if (patient[0]?.device_token) {
         setImmediate(async () => {
           try {
@@ -86,10 +86,10 @@ export const getAppointmentDocuments = async (req, res) => {
        LEFT JOIN users u ON ad.uploaded_by = u.id
        WHERE ad.appointment_id=$1 AND ad.is_visible_to_patient=TRUE
        ORDER BY ad.created_at DESC`,
-      [appointment_id]
+      appointment_id
     );
 
-    const docs = await Promise.all(result.rows.map(async (doc) => {
+    const docs = await Promise.all(result.map(async (doc) => {
       if (doc.file_key) {
         doc.file_url = await getSignedFileUrl(doc.file_key, 3600).catch(() => null);
       }
@@ -121,14 +121,14 @@ export const getPatientAllRecords = async (req, res) => {
         LEFT JOIN doctors doc ON doc.user_id = a.doctor_id
         WHERE ad.patient_id=$1 AND ad.is_visible_to_patient=TRUE
         ORDER BY ad.created_at DESC
-      `, [patientId]),
+      `, patientId),
       prisma.$queryRawUnsafe(
         `SELECT id, patient_id, document_type, title, file_key, file_url, file_name, file_size, file_mime, source_hospital, record_date, notes, created_at, 'patient_upload' as source FROM patient_records WHERE patient_id=$1 ORDER BY created_at DESC`,
-        [patientId]
+        patientId
       ),
     ]);
 
-    const allDocs = [...apptDocs.rows, ...ownRecords.rows];
+    const allDocs = [...apptDocs, ...ownRecords];
     const withUrls = await Promise.all(allDocs.map(async (doc) => {
       if (doc.file_key) {
         doc.file_url = await getSignedFileUrl(doc.file_key, 3600).catch(() => null);
@@ -177,11 +177,11 @@ export const uploadPatientRecord = async (req, res) => {
         (patient_id, document_type, title, file_key, file_url, file_name, file_size, file_mime, source_hospital, record_date, notes)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
       RETURNING id, patient_id, document_type, title, file_key, file_url, file_name, file_size, file_mime, source_hospital, record_date, notes, created_at
-    `, [
+    `,
       patientId, document_type || 'other', title,
       fileKey, fileUrl, req.file.originalname, req.file.size, req.file.mimetype,
       source_hospital || null, record_date || null, notes || null,
-    ]);
+    );
 
     success(res, result[0], 'Record uploaded');
   } catch (err) {
@@ -197,15 +197,15 @@ export const deletePatientRecord = async (req, res) => {
   try {
     const patientId = req.user?.id;
     const { id } = req.params;
-    const record = await prisma.$queryRawUnsafe('SELECT id, file_key FROM patient_records WHERE id=$1 AND patient_id=$2', [id, patientId]);
-    if (!record.rows.length) return error(res, 'Record not found', HTTP_STATUS.NOT_FOUND);
+    const record = await prisma.$queryRawUnsafe('SELECT id, file_key FROM patient_records WHERE id=$1 AND patient_id=$2', id, patientId);
+    if (!record.length) return error(res, 'Record not found', HTTP_STATUS.NOT_FOUND);
 
     const fileKey = record[0].file_key;
     setImmediate(async () => {
       try { await deleteObject(fileKey); } catch (e) { logger.warn('R2 delete failed:', e.message); }
     });
 
-    await prisma.$queryRawUnsafe('DELETE FROM patient_records WHERE id=$1', [id]);
+    await prisma.$queryRawUnsafe('DELETE FROM patient_records WHERE id=$1', id);
     success(res, { deleted: true }, 'Record deleted');
   } catch (err) {
     logger.error('Delete Patient Record Error:', err);
@@ -240,9 +240,9 @@ export const getAllDocumentsAdmin = async (req, res) => {
       ${where}
       ORDER BY ad.created_at DESC
       LIMIT $${params.length - 1} OFFSET $${params.length}
-    `, params);
+    `, ...params);
 
-    const docs = await Promise.all(result.rows.map(async (doc) => {
+    const docs = await Promise.all(result.map(async (doc) => {
       if (doc.file_key) {
         doc.file_url = await getSignedFileUrl(doc.file_key, 3600).catch(() => null);
       }

@@ -72,13 +72,13 @@ export const confirmAppointment = async (req, res) => {
     await client.query('COMMIT');
 
     // Notify patient via FCM + SMS (fire-and-forget, outside transaction)
-    const patient = await prisma.$queryRawUnsafe('SELECT device_token, name, phone FROM users WHERE id=$1', [a.patient_id]);
+    const patient = await prisma.$queryRawUnsafe('SELECT device_token, name, phone FROM users WHERE id=$1', a.patient_id);
     const patientRow = patient[0];
 
     // Get doctor name and department for SMS
     const doctorRow = await prisma.$queryRawUnsafe(
       'SELECT u.name, doc.department FROM users u LEFT JOIN doctors doc ON doc.user_id = u.id WHERE u.id=$1',
-      [a.doctor_id]
+      a.doctor_id
     );
     const doctorName = doctorRow[0]?.name || 'Doctor';
     const department = doctorRow[0]?.department || a.department || null;
@@ -196,10 +196,10 @@ export const completeAppointment = async (req, res) => {
         await prisma.$queryRawUnsafe(`
           INSERT INTO scheduled_notifications (user_id, type, data, send_at, status)
           VALUES ($1, 'feedback_request', $2, NOW() + INTERVAL '2 hours', 'pending')
-        `, [
+        `,
           a.patient_id,
           JSON.stringify({ appointment_id: id, type: 'appointment_feedback' })
-        ]);
+        );
         logger.info(`[Feedback] Scheduled feedback request for appointment ${id} in 2h`);
       } catch (e) {
         logger.warn('[Feedback] Failed to schedule feedback notification:', e.message);
@@ -248,7 +248,7 @@ export const cancelAppointment = async (req, res) => {
     await client.query('COMMIT');
 
     // Notify patient (fire-and-forget, outside transaction)
-    const patient = await prisma.$queryRawUnsafe('SELECT device_token FROM users WHERE id=$1', [appt[0].patient_id]);
+    const patient = await prisma.$queryRawUnsafe('SELECT device_token FROM users WHERE id=$1', appt[0].patient_id);
     if (patient[0]?.device_token) {
       setImmediate(async () => {
         try {
@@ -298,9 +298,9 @@ export const getTodayQueue = async (req, res) => {
       LEFT JOIN doctors doc ON doc.user_id = a.doctor_id
       ${where}
       ORDER BY a.token_number NULLS LAST, a.appointment_time
-    `, params);
+    `, ...params);
 
-    success(res, result.rows, "Today's queue fetched");
+    success(res, result, "Today's queue fetched");
   } catch (err) {
     logger.error('Get Queue Error:', err);
     error(res, 'Failed to fetch queue', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -331,9 +331,9 @@ export const getPendingAppointments = async (req, res) => {
       LEFT JOIN users d ON a.doctor_id = d.id
       ${where}
       ORDER BY a.sla_target_at NULLS FIRST, a.created_at
-    `, params);
+    `, ...params);
 
-    success(res, result.rows, 'Pending appointments fetched');
+    success(res, result, 'Pending appointments fetched');
   } catch (err) {
     logger.error('Get Pending Error:', err);
     error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -357,9 +357,9 @@ export const getAvailableSlots = async (req, res) => {
        FROM doctors doc
        JOIN users u ON doc.user_id = u.id
        WHERE doc.id = $1 OR doc.user_id = $1`,
-      [doctor_id]
+      doctor_id
     );
-    if (!doctorQuery.rows.length) {
+    if (!doctorQuery.length) {
       return error(res, 'Doctor not found', HTTP_STATUS.NOT_FOUND);
     }
     const doc = doctorQuery[0];
@@ -384,9 +384,9 @@ export const getAvailableSlots = async (req, res) => {
       WHERE doctor_id = $1
         AND DATE(appointment_date) = DATE($2)
         AND status NOT IN ('CANCELLED', 'NO_SHOW')
-    `, [doctorUserId, date]);
+    `, doctorUserId, date);
 
-    const bookedTimes = new Set(booked.rows.map(r => r.appointment_time));
+    const bookedTimes = new Set(booked.map(r => r.appointment_time));
 
     // Generate slots from available_hours JSONB { "Monday": { "start": "09:00", "end": "17:00" } }
     let slots = [];
@@ -532,8 +532,8 @@ export const getAppointmentHistory = async (req, res) => {
       LEFT JOIN users u ON ash.changed_by = u.id
       WHERE ash.appointment_id = $1
       ORDER BY ash.created_at ASC
-    `, [id]);
-    success(res, result.rows, 'History fetched');
+    `, id);
+    success(res, result, 'History fetched');
   } catch (err) {
     error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }

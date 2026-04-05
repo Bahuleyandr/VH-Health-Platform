@@ -245,8 +245,8 @@ export const createPrescription = async (req, res) => {
 
     // Validate appointment if provided
     if (appointment_id) {
-      const apptCheck = await prisma.$queryRawUnsafe('SELECT id FROM appointments WHERE id=$1', [appointment_id]);
-      if (apptCheck.rows.length === 0) {
+      const apptCheck = await prisma.$queryRawUnsafe('SELECT id FROM appointments WHERE id=$1', appointment_id);
+      if (apptCheck.length === 0) {
         return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
       }
     }
@@ -269,29 +269,27 @@ export const createPrescription = async (req, res) => {
          follow_up_date, follow_up_notes, vitals, handwritten_photo_key, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING id, appointment_id, patient_uid, doctor_uid, medications, notes, status, created_at, prescription_number, diagnosis, clinical_notes, vitals, follow_up_date, follow_up_notes, pdf_key, handwritten_photo_key`,
-      [
-        appointment_id || null,
-        patient_id,
-        doctor_id,
-        diagnosis || null,
-        clinical_notes || null,
-        JSON.stringify(medications),
-        follow_up_date || null,
-        follow_up_notes || null,
-        vitals ? JSON.stringify(vitals) : null,
-        handwritten_photo_key,
-        created_by,
-      ]
+      appointment_id || null,
+      patient_id,
+      doctor_id,
+      diagnosis || null,
+      clinical_notes || null,
+      JSON.stringify(medications),
+      follow_up_date || null,
+      follow_up_notes || null,
+      vitals ? JSON.stringify(vitals) : null,
+      handwritten_photo_key,
+      created_by,
     );
 
     const prescription = insertResult[0];
 
     // Fetch patient and doctor info for PDF
     const [patientRes, doctorRes] = await Promise.all([
-      prisma.$queryRawUnsafe('SELECT id, name, phone, gender, birthday FROM users WHERE id=$1', [patient_id]),
+      prisma.$queryRawUnsafe('SELECT id, name, phone, gender, birthday FROM users WHERE id=$1', patient_id),
       prisma.$queryRawUnsafe(`SELECT u.id, u.name, u.phone, d.specialization, d.qualification
                 FROM users u LEFT JOIN doctors d ON d.user_id = u.id
-                WHERE u.id=$1`, [doctor_id]),
+                WHERE u.id=$1`, doctor_id),
     ]);
     const patient = patientRes[0] || {};
     const doctor = doctorRes[0] || {};
@@ -301,7 +299,7 @@ export const createPrescription = async (req, res) => {
       const pdfBuffer = await generatePrescriptionPDF(prescription, patient, doctor);
       const pdfKey = `prescriptions/pdf/${prescription.prescription_number}.pdf`;
       await uploadFileToR2(pdfBuffer, pdfKey, 'application/pdf');
-      await prisma.$queryRawUnsafe('UPDATE e_prescriptions SET pdf_key=$1 WHERE id=$2', [pdfKey, prescription.id]);
+      await prisma.$queryRawUnsafe('UPDATE e_prescriptions SET pdf_key=$1 WHERE id=$2', pdfKey, prescription.id);
       prescription.pdf_key = pdfKey;
     } catch (pdfErr) {
       logger.error('Failed to generate prescription PDF:', pdfErr);
@@ -340,9 +338,9 @@ export const getPrescription = async (req, res) => {
        JOIN users d ON d.id = ep.doctor_id
        LEFT JOIN doctors doc ON doc.user_id = ep.doctor_id
        WHERE ep.id = $1`,
-      [id]
+      id
     );
-    if (result.rows.length === 0) {
+    if (result.length === 0) {
       return error(res, 'Prescription not found', HTTP_STATUS.NOT_FOUND);
     }
 
@@ -379,9 +377,9 @@ export const getPrescriptionByAppointment = async (req, res) => {
        LEFT JOIN doctors doc ON doc.user_id = ep.doctor_id
        WHERE ep.appointment_id = $1
        ORDER BY ep.created_at DESC LIMIT 1`,
-      [appointmentId]
+      appointmentId
     );
-    if (result.rows.length === 0) {
+    if (result.length === 0) {
       return error(res, 'No prescription found for this appointment', HTTP_STATUS.NOT_FOUND);
     }
 
@@ -415,17 +413,17 @@ export const getMyPrescriptions = async (req, res) => {
        LEFT JOIN doctors doc ON doc.user_id = ep.doctor_id
        WHERE ep.patient_id = $1
        ORDER BY ep.created_at DESC`,
-      [userId]
+      userId
     );
 
     // Sign PDF URLs
-    for (const rx of result.rows) {
+    for (const rx of result) {
       if (rx.pdf_key) {
         try { rx.pdf_url = await getSignedFileUrl(rx.pdf_key); } catch (e) { logger.warn('Signed URL generation failed for PDF:', e.message); }
       }
     }
 
-    success(res, result.rows, 'My prescriptions');
+    success(res, result, 'My prescriptions');
   } catch (err) {
     logger.error('Get my prescriptions error:', err);
     error(res, 'Failed to fetch prescriptions', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -473,10 +471,10 @@ export const getAllPrescriptions = async (req, res) => {
        ${where}
        ORDER BY ep.created_at DESC
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
-      params
+      ...params
     );
 
-    success(res, result.rows, 'All prescriptions');
+    success(res, result, 'All prescriptions');
   } catch (err) {
     logger.error('Get all prescriptions error:', err);
     error(res, 'Failed to fetch prescriptions', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -498,9 +496,9 @@ export const orderPharmacyFromPrescription = async (req, res) => {
        FROM e_prescriptions ep
        JOIN users p ON p.id = ep.patient_id
        WHERE ep.id = $1`,
-      [id]
+      id
     );
-    if (rxResult.rows.length === 0) {
+    if (rxResult.length === 0) {
       return error(res, 'Prescription not found', HTTP_STATUS.NOT_FOUND);
     }
     const rx = rxResult[0];
@@ -517,12 +515,12 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     for (const med of medications) {
       let price = 0;
       if (med.catalog_id) {
-        const catRes = await prisma.$queryRawUnsafe('SELECT unit_price FROM pharmacy_catalog WHERE id=$1', [med.catalog_id]);
-        if (catRes.rows.length > 0) price = parseFloat(catRes[0].unit_price);
+        const catRes = await prisma.$queryRawUnsafe('SELECT unit_price FROM pharmacy_catalog WHERE id=$1', med.catalog_id);
+        if (catRes.length > 0) price = parseFloat(catRes[0].unit_price);
       } else {
         // Try matching by name
-        const catRes = await prisma.$queryRawUnsafe('SELECT unit_price FROM pharmacy_catalog WHERE name ILIKE $1 LIMIT 1', [med.name]);
-        if (catRes.rows.length > 0) price = parseFloat(catRes[0].unit_price);
+        const catRes = await prisma.$queryRawUnsafe('SELECT unit_price FROM pharmacy_catalog WHERE name ILIKE $1 LIMIT 1', med.name);
+        if (catRes.length > 0) price = parseFloat(catRes[0].unit_price);
       }
       const qty = med.quantity || 1;
       const lineTotal = price * qty;
@@ -542,17 +540,15 @@ export const orderPharmacyFromPrescription = async (req, res) => {
         (phone, patient_id, patient_name, order_note, delivery_type, delivery_address, delivery_phone, items_list, total_cost, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')
        RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount, created_at, updated_at, order_number, delivery_type`,
-      [
-        phone,
-        rx.patient_id,
-        rx.patient_name,
-        `Auto-order from prescription ${rx.prescription_number}`,
-        delivery_type,
-        delivery_address || null,
-        delivery_phone || phone,
-        JSON.stringify(itemsList),
-        totalCost,
-      ]
+      phone,
+      rx.patient_id,
+      rx.patient_name,
+      `Auto-order from prescription ${rx.prescription_number}`,
+      delivery_type,
+      delivery_address || null,
+      delivery_phone || phone,
+      JSON.stringify(itemsList),
+      totalCost,
     );
     const pharmacyOrder = orderResult[0];
 
@@ -562,7 +558,7 @@ export const orderPharmacyFromPrescription = async (req, res) => {
        SET pharmacy_order_id = $1, pharmacy_opted = TRUE, pharmacy_opt_type = $2,
            status = 'pharmacy_linked', updated_at = NOW()
        WHERE id = $3`,
-      [pharmacyOrder.id, delivery_type, id]
+      pharmacyOrder.id, delivery_type, id
     );
 
     // Notify pharmacy staff
@@ -587,8 +583,8 @@ export const orderPharmacyFromPrescription = async (req, res) => {
 export const downloadPrescriptionPDF = async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await prisma.$queryRawUnsafe('SELECT pdf_key FROM e_prescriptions WHERE id=$1', [id]);
-    if (result.rows.length === 0 || !result[0].pdf_key) {
+    const result = await prisma.$queryRawUnsafe('SELECT pdf_key FROM e_prescriptions WHERE id=$1', id);
+    if (result.length === 0 || !result[0].pdf_key) {
       return error(res, 'PDF not found', HTTP_STATUS.NOT_FOUND);
     }
 
