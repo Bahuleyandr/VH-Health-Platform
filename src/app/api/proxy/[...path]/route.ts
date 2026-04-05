@@ -140,11 +140,16 @@ async function handleProxy(req: NextRequest) {
   }
 
   const upstream = await fetch(targetUrl, init);
+  const body = await upstream.arrayBuffer();
 
   const respHeaders = new Headers(upstream.headers);
   HOP_BY_HOP.forEach((h) => respHeaders.delete(h));
+  // Upstream bodies may already be decompressed by the runtime fetch layer.
+  // Drop encoding/length headers so the browser does not try to decode again.
+  respHeaders.delete("content-encoding");
+  respHeaders.delete("content-length");
 
-  return new NextResponse(upstream.body, {
+  return new NextResponse(body, {
     status: upstream.status,
     headers: respHeaders,
   });
