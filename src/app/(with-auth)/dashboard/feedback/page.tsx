@@ -45,6 +45,9 @@ interface FeedbackStats {
 }
 
 interface FeedbackDashboardPayload {
+  total_feedback?: number;
+  average_rating?: number;
+  responded_count?: number;
   overallStats?: {
     total_feedback?: number;
     average_rating?: number;
@@ -117,7 +120,7 @@ export default function FeedbackPage() {
     queryFn: async () => {
       const res = await fetchAdminAPI<unknown>("/feedback/stats");
       const data = unwrap<FeedbackDashboardPayload>(res);
-      const overall = data?.overallStats ?? data ?? {};
+      const overall = data.overallStats ?? data;
       return {
         total_feedback: Number(overall.total_feedback ?? 0),
         average_rating: Number(overall.average_rating ?? 0),
