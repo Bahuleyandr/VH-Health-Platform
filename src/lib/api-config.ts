@@ -1,13 +1,18 @@
 // src/lib/api-config.ts
 // Complete API endpoint mapping for VH Health Admin Portal
 
-export const API_BASE_URL =
+const SERVER_API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "https://api.vhhealth.app";
+
+// Client-side requests must go through the Next.js proxy so the server can
+// inject the backend API key and auth cookie.
+export const API_BASE_URL =
+  typeof window !== "undefined" ? "/api/proxy" : SERVER_API_BASE_URL;
 
 // WebSocket URL configuration
 export const WS_BASE_URL = 
   process.env.NEXT_PUBLIC_WS_URL || 
-  API_BASE_URL.replace('https://', 'wss://').replace('http://', 'ws://');
+  SERVER_API_BASE_URL.replace('https://', 'wss://').replace('http://', 'ws://');
 
 // Origin header for API requests — uses browser origin client-side,
 // falls back to the API base URL server-side (never localhost).
