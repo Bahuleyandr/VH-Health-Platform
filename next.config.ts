@@ -59,6 +59,8 @@ const nextConfig: NextConfig = {
               `connect-src 'self' ${process.env.NEXT_PUBLIC_API_URL || 'https://api.vhhealth.app'} ${(process.env.NEXT_PUBLIC_API_URL || 'https://api.vhhealth.app').replace('https://', 'wss://')} https://*.sentry.io`,
               "img-src 'self' data: blob:",
               "font-src 'self' data:",
+              "worker-src 'self' blob:",
+              "child-src 'self' blob:",
               "frame-ancestors 'none'",
               "base-uri 'self'",
               "form-action 'self'",
