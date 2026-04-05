@@ -98,7 +98,8 @@ export default function FeedbackPage() {
     queryKey: ["feedback-list"],
     queryFn: async () => {
       const res = await fetchAdminAPI<unknown>("/feedback");
-      return unwrap<FeedbackItem[]>(res);
+      const data = unwrap<{ feedback?: FeedbackItem[] } | FeedbackItem[]>(res);
+      return Array.isArray(data) ? data : data.feedback ?? [];
     },
   });
 
@@ -107,7 +108,16 @@ export default function FeedbackPage() {
     queryKey: ["feedback-stats"],
     queryFn: async () => {
       const res = await fetchAdminAPI<unknown>("/feedback/stats");
-      return unwrap<FeedbackStats>(res);
+      const data = unwrap<any>(res);
+      const overall = data?.overallStats ?? data ?? {};
+      return {
+        total_feedback: Number(overall.total_feedback ?? 0),
+        average_rating: Number(overall.average_rating ?? 0),
+        response_rate:
+          Number(overall.total_feedback ?? 0) > 0
+            ? Math.round((Number(overall.responded_count ?? 0) / Number(overall.total_feedback ?? 1)) * 100)
+            : 0,
+      };
     },
   });
 
