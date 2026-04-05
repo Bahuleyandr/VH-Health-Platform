@@ -28,6 +28,7 @@ const ALLOWED_PATH_PREFIXES = [
   "api/v1/logs/",
   "api/v1/rbac/",
   "api/v1/health-check",
+  "api/v1/health/",
   "api/v1/health-records",
   "api/v1/system/",
   "api/v1/config/",
