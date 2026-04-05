@@ -488,7 +488,8 @@ function PrescriptionsTab() {
       if (filterTo) params.to_date = filterTo;
       const qs = new URLSearchParams(params).toString();
       const res = await fetchAdminAPI(`/prescriptions/all${qs ? `?${qs}` : ""}`);
-      const data = isObj(res) ? (res.data as EPrescription[] ?? []) : [];
+      const raw = Array.isArray(res) ? res : (isObj(res) ? ((res as Record<string,unknown>).prescriptions ?? (res as Record<string,unknown>).data ?? res) : []);
+      const data = Array.isArray(raw) ? (raw as EPrescription[]) : [];
       setPrescriptions(data);
     } catch (e) {
       toast.error("Failed to load prescriptions");
