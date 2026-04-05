@@ -4,123 +4,150 @@ import { DOCTOR_CONFIG, DOCTOR_MESSAGES } from '../../config/doctorConfig.js';
 import logger from '../../logging/logger.js';
 
 export class DoctorService {
+  async getDoctorSchema() {
+    if (this._doctorSchema) {
+      return this._doctorSchema;
+    }
+
+    const rows = await prisma.$queryRaw`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'doctors'
+    `;
+
+    const columns = new Set(rows.map((row) => row.column_name));
+    this._doctorSchema = {
+      specialization: columns.has('specialization')
+        ? 'specialization'
+        : columns.has('specialty')
+          ? 'specialty'
+          : null,
+      bio: columns.has('bio')
+        ? 'bio'
+        : columns.has('intro')
+          ? 'intro'
+          : null,
+      experienceYears: columns.has('experience_years'),
+      consultationFee: columns.has('consultation_fee'),
+      availableDays: columns.has('available_days'),
+      availableHours: columns.has('available_hours'),
+      qualifications: columns.has('qualifications'),
+      education: columns.has('education'),
+      certifications: columns.has('certifications'),
+      isAvailable: columns.has('is_available'),
+      createdAt: columns.has('created_at'),
+      updatedAt: columns.has('updated_at'),
+      department: columns.has('department'),
+    };
+
+    return this._doctorSchema;
+  }
+
+  buildDoctorSelectFields(schema, { detailed = false } = {}) {
+    const fields = [
+      'u.id',
+      'u.uid',
+      'u.phone',
+      'u.name',
+      'u.email',
+      'u.gender',
+      'u.registered_at',
+      schema.specialization
+        ? `d.${schema.specialization} AS specialization`
+        : 'NULL::text AS specialization',
+      schema.department
+        ? 'd.department'
+        : 'NULL::text AS department',
+      schema.experienceYears
+        ? 'd.experience_years'
+        : 'NULL::integer AS experience_years',
+      schema.consultationFee
+        ? 'd.consultation_fee'
+        : 'NULL::numeric AS consultation_fee',
+      schema.availableDays
+        ? 'd.available_days'
+        : 'NULL::text[] AS available_days',
+      schema.availableHours
+        ? 'd.available_hours'
+        : 'NULL::jsonb AS available_hours',
+      schema.isAvailable
+        ? 'd.is_available'
+        : 'NULL::boolean AS is_available',
+      schema.bio
+        ? `d.${schema.bio} AS bio`
+        : 'NULL::text AS bio',
+      schema.education
+        ? 'd.education'
+        : 'NULL::text AS education',
+      schema.qualifications
+        ? 'd.qualifications'
+        : 'NULL::text[] AS qualifications',
+      schema.createdAt
+        ? 'd.created_at AS profile_created'
+        : 'NULL::timestamp AS profile_created',
+    ];
+
+    if (detailed) {
+      fields.push(
+        'u.address',
+        'u.birthday',
+        'u.profile_picture',
+        schema.certifications
+          ? 'd.certifications'
+          : 'NULL::text[] AS certifications',
+        schema.updatedAt
+          ? 'd.updated_at AS profile_updated'
+          : 'NULL::timestamp AS profile_updated',
+      );
+    }
+
+    return fields.join(',\n                 ');
+  }
+
   // Get all doctors with filters
   async getAllDoctors(filters = {}) {
     try {
+      const schema = await this.getDoctorSchema();
       const { page, limit, department, available, search } = filters;
       const pageNum = parseInt(page) || 1;
       const limitNum = parseInt(limit) || DOCTOR_CONFIG.PAGINATION.DEFAULT_LIMIT;
       const offset = (pageNum - 1) * limitNum;
 
-      let rows;
-      // Build parameterized queries for each filter combination
-      if (department && available !== undefined && search) {
-        const dep = department.toUpperCase();
-        const searchPattern = `%${search}%`;
-        rows = await prisma.$queryRaw`
-          SELECT u.id, u.uid, u.phone, u.name, u.email, u.gender, u.registered_at,
-                 d.specialization, d.department, d.experience_years, d.consultation_fee,
-                 d.available_days, d.available_hours, d.is_available, d.bio, d.education,
-                 d.qualifications, d.created_at as profile_created
-          FROM users u
-          LEFT JOIN doctors d ON u.id = d.user_id
-          WHERE u.role = 'DOCTOR'
-            AND UPPER(d.department) = ${dep}
-            AND d.is_available = ${available}
-            AND (u.name ILIKE ${searchPattern} OR d.specialization ILIKE ${searchPattern})
-          ORDER BY u.name LIMIT ${limitNum} OFFSET ${offset}
-        `;
-      } else if (department && available !== undefined) {
-        const dep = department.toUpperCase();
-        rows = await prisma.$queryRaw`
-          SELECT u.id, u.uid, u.phone, u.name, u.email, u.gender, u.registered_at,
-                 d.specialization, d.department, d.experience_years, d.consultation_fee,
-                 d.available_days, d.available_hours, d.is_available, d.bio, d.education,
-                 d.qualifications, d.created_at as profile_created
-          FROM users u
-          LEFT JOIN doctors d ON u.id = d.user_id
-          WHERE u.role = 'DOCTOR'
-            AND UPPER(d.department) = ${dep}
-            AND d.is_available = ${available}
-          ORDER BY u.name LIMIT ${limitNum} OFFSET ${offset}
-        `;
-      } else if (department && search) {
-        const dep = department.toUpperCase();
-        const searchPattern = `%${search}%`;
-        rows = await prisma.$queryRaw`
-          SELECT u.id, u.uid, u.phone, u.name, u.email, u.gender, u.registered_at,
-                 d.specialization, d.department, d.experience_years, d.consultation_fee,
-                 d.available_days, d.available_hours, d.is_available, d.bio, d.education,
-                 d.qualifications, d.created_at as profile_created
-          FROM users u
-          LEFT JOIN doctors d ON u.id = d.user_id
-          WHERE u.role = 'DOCTOR'
-            AND UPPER(d.department) = ${dep}
-            AND (u.name ILIKE ${searchPattern} OR d.specialization ILIKE ${searchPattern})
-          ORDER BY u.name LIMIT ${limitNum} OFFSET ${offset}
-        `;
-      } else if (available !== undefined && search) {
-        const searchPattern = `%${search}%`;
-        rows = await prisma.$queryRaw`
-          SELECT u.id, u.uid, u.phone, u.name, u.email, u.gender, u.registered_at,
-                 d.specialization, d.department, d.experience_years, d.consultation_fee,
-                 d.available_days, d.available_hours, d.is_available, d.bio, d.education,
-                 d.qualifications, d.created_at as profile_created
-          FROM users u
-          LEFT JOIN doctors d ON u.id = d.user_id
-          WHERE u.role = 'DOCTOR'
-            AND d.is_available = ${available}
-            AND (u.name ILIKE ${searchPattern} OR d.specialization ILIKE ${searchPattern})
-          ORDER BY u.name LIMIT ${limitNum} OFFSET ${offset}
-        `;
-      } else if (department) {
-        const dep = department.toUpperCase();
-        rows = await prisma.$queryRaw`
-          SELECT u.id, u.uid, u.phone, u.name, u.email, u.gender, u.registered_at,
-                 d.specialization, d.department, d.experience_years, d.consultation_fee,
-                 d.available_days, d.available_hours, d.is_available, d.bio, d.education,
-                 d.qualifications, d.created_at as profile_created
-          FROM users u
-          LEFT JOIN doctors d ON u.id = d.user_id
-          WHERE u.role = 'DOCTOR' AND UPPER(d.department) = ${dep}
-          ORDER BY u.name LIMIT ${limitNum} OFFSET ${offset}
-        `;
-      } else if (available !== undefined) {
-        rows = await prisma.$queryRaw`
-          SELECT u.id, u.uid, u.phone, u.name, u.email, u.gender, u.registered_at,
-                 d.specialization, d.department, d.experience_years, d.consultation_fee,
-                 d.available_days, d.available_hours, d.is_available, d.bio, d.education,
-                 d.qualifications, d.created_at as profile_created
-          FROM users u
-          LEFT JOIN doctors d ON u.id = d.user_id
-          WHERE u.role = 'DOCTOR' AND d.is_available = ${available}
-          ORDER BY u.name LIMIT ${limitNum} OFFSET ${offset}
-        `;
-      } else if (search) {
-        const searchPattern = `%${search}%`;
-        rows = await prisma.$queryRaw`
-          SELECT u.id, u.uid, u.phone, u.name, u.email, u.gender, u.registered_at,
-                 d.specialization, d.department, d.experience_years, d.consultation_fee,
-                 d.available_days, d.available_hours, d.is_available, d.bio, d.education,
-                 d.qualifications, d.created_at as profile_created
-          FROM users u
-          LEFT JOIN doctors d ON u.id = d.user_id
-          WHERE u.role = 'DOCTOR'
-            AND (u.name ILIKE ${searchPattern} OR d.specialization ILIKE ${searchPattern})
-          ORDER BY u.name LIMIT ${limitNum} OFFSET ${offset}
-        `;
-      } else {
-        rows = await prisma.$queryRaw`
-          SELECT u.id, u.uid, u.phone, u.name, u.email, u.gender, u.registered_at,
-                 d.specialization, d.department, d.experience_years, d.consultation_fee,
-                 d.available_days, d.available_hours, d.is_available, d.bio, d.education,
-                 d.qualifications, d.created_at as profile_created
-          FROM users u
-          LEFT JOIN doctors d ON u.id = d.user_id
-          WHERE u.role = 'DOCTOR'
-          ORDER BY u.name LIMIT ${limitNum} OFFSET ${offset}
-        `;
+      const params = [];
+      const where = [`u.role = 'DOCTOR'`];
+
+      if (department && schema.department) {
+        params.push(department.toUpperCase());
+        where.push(`UPPER(d.department) = $${params.length}`);
       }
+
+      if (available !== undefined && schema.isAvailable) {
+        params.push(available);
+        where.push(`d.is_available = $${params.length}`);
+      }
+
+      if (search) {
+        params.push(`%${search}%`);
+        const searchParam = `$${params.length}`;
+        const searchClauses = [`u.name ILIKE ${searchParam}`];
+        if (schema.specialization) {
+          searchClauses.push(`COALESCE(d.${schema.specialization}, '') ILIKE ${searchParam}`);
+        }
+        where.push(`(${searchClauses.join(' OR ')})`);
+      }
+
+      params.push(limitNum, offset);
+      const rows = await prisma.$queryRawUnsafe(
+        `
+          SELECT ${this.buildDoctorSelectFields(schema)}
+          FROM users u
+          LEFT JOIN doctors d ON u.id = d.user_id
+          WHERE ${where.join(' AND ')}
+          ORDER BY u.name
+          LIMIT $${params.length - 1} OFFSET $${params.length}
+        `,
+        ...params,
+      );
 
       const countResult = await this.countDoctors(filters);
 
@@ -140,65 +167,41 @@ export class DoctorService {
   // Count doctors with filters
   async countDoctors(filters = {}) {
     try {
+      const schema = await this.getDoctorSchema();
       const { department, available, search } = filters;
 
-      let result;
-      if (department && available !== undefined && search) {
-        const dep = department.toUpperCase();
-        const searchPattern = `%${search}%`;
-        result = await prisma.$queryRaw`
-          SELECT COUNT(*) FROM users u LEFT JOIN doctors d ON u.id = d.user_id
-          WHERE u.role = 'DOCTOR'
-            AND UPPER(d.department) = ${dep}
-            AND d.is_available = ${available}
-            AND (u.name ILIKE ${searchPattern} OR d.specialization ILIKE ${searchPattern})
-        `;
-      } else if (department && available !== undefined) {
-        const dep = department.toUpperCase();
-        result = await prisma.$queryRaw`
-          SELECT COUNT(*) FROM users u LEFT JOIN doctors d ON u.id = d.user_id
-          WHERE u.role = 'DOCTOR' AND UPPER(d.department) = ${dep} AND d.is_available = ${available}
-        `;
-      } else if (department && search) {
-        const dep = department.toUpperCase();
-        const searchPattern = `%${search}%`;
-        result = await prisma.$queryRaw`
-          SELECT COUNT(*) FROM users u LEFT JOIN doctors d ON u.id = d.user_id
-          WHERE u.role = 'DOCTOR'
-            AND UPPER(d.department) = ${dep}
-            AND (u.name ILIKE ${searchPattern} OR d.specialization ILIKE ${searchPattern})
-        `;
-      } else if (available !== undefined && search) {
-        const searchPattern = `%${search}%`;
-        result = await prisma.$queryRaw`
-          SELECT COUNT(*) FROM users u LEFT JOIN doctors d ON u.id = d.user_id
-          WHERE u.role = 'DOCTOR'
-            AND d.is_available = ${available}
-            AND (u.name ILIKE ${searchPattern} OR d.specialization ILIKE ${searchPattern})
-        `;
-      } else if (department) {
-        const dep = department.toUpperCase();
-        result = await prisma.$queryRaw`
-          SELECT COUNT(*) FROM users u LEFT JOIN doctors d ON u.id = d.user_id
-          WHERE u.role = 'DOCTOR' AND UPPER(d.department) = ${dep}
-        `;
-      } else if (available !== undefined) {
-        result = await prisma.$queryRaw`
-          SELECT COUNT(*) FROM users u LEFT JOIN doctors d ON u.id = d.user_id
-          WHERE u.role = 'DOCTOR' AND d.is_available = ${available}
-        `;
-      } else if (search) {
-        const searchPattern = `%${search}%`;
-        result = await prisma.$queryRaw`
-          SELECT COUNT(*) FROM users u LEFT JOIN doctors d ON u.id = d.user_id
-          WHERE u.role = 'DOCTOR'
-            AND (u.name ILIKE ${searchPattern} OR d.specialization ILIKE ${searchPattern})
-        `;
-      } else {
-        result = await prisma.$queryRaw`
-          SELECT COUNT(*) FROM users u LEFT JOIN doctors d ON u.id = d.user_id WHERE u.role = 'DOCTOR'
-        `;
+      const params = [];
+      const where = [`u.role = 'DOCTOR'`];
+
+      if (department && schema.department) {
+        params.push(department.toUpperCase());
+        where.push(`UPPER(d.department) = $${params.length}`);
       }
+
+      if (available !== undefined && schema.isAvailable) {
+        params.push(available);
+        where.push(`d.is_available = $${params.length}`);
+      }
+
+      if (search) {
+        params.push(`%${search}%`);
+        const searchParam = `$${params.length}`;
+        const searchClauses = [`u.name ILIKE ${searchParam}`];
+        if (schema.specialization) {
+          searchClauses.push(`COALESCE(d.${schema.specialization}, '') ILIKE ${searchParam}`);
+        }
+        where.push(`(${searchClauses.join(' OR ')})`);
+      }
+
+      const result = await prisma.$queryRawUnsafe(
+        `
+          SELECT COUNT(*)
+          FROM users u
+          LEFT JOIN doctors d ON u.id = d.user_id
+          WHERE ${where.join(' AND ')}
+        `,
+        ...params,
+      );
       return parseInt(result[0].count);
     } catch (error) {
       logger.error('Error counting doctors:', error);
