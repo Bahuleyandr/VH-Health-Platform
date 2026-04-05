@@ -1,24 +1,7 @@
 // next.config.ts
-import withPWAInit from '@ducanh2912/next-pwa';
 import { withSentryConfig } from '@sentry/nextjs';
 import type { NextConfig } from 'next';
 import type { Configuration as WebpackConfig } from 'webpack';
-
-const withPWA = withPWAInit({
-  dest: 'public',
-  disable: process.env.NODE_ENV === 'development',
-  register: true,
-  workboxOptions: {
-    // moved here per newer next-pwa versions
-    skipWaiting: true,
-    clientsClaim: true,
-    // exclude files from precache (replaces old buildExcludes)
-    exclude: [/middleware-manifest\.json$/],
-    // runtimeCaching: [], // add if/when needed
-  },
-});
-
-const isProduction = process.env.NODE_ENV === 'production';
 
 const nextConfig: NextConfig = {
   // output: 'standalone' — DO NOT enable on Vercel; use only for self-hosted Docker/Node deployments
@@ -97,13 +80,9 @@ const nextConfig: NextConfig = {
   },
 };
 
-// Only wrap with PWA in production
-const configWithPWA =
-  process.env.NODE_ENV === 'production' ? withPWA(nextConfig) : nextConfig;
-
-// Wrap with Sentry. telemetry:false silences the "Sending telemetry…" build log.
+// Wrap with Sentry. telemetry:false silences the “Sending telemetry…” build log.
 // The sourcemaps block keeps uploads via the plugin and deletes local *.map after.
-export default withSentryConfig(configWithPWA, {
+export default withSentryConfig(nextConfig, {
   org: process.env.SENTRY_ORG,
   project: process.env.SENTRY_PROJECT,
   authToken: process.env.SENTRY_AUTH_TOKEN,
