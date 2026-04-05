@@ -96,7 +96,7 @@ export function useDashboardData() {
       ).catch(() => null);
 
       // Infrastructure health (deep system check)
-      const infraData = await get<{ data?: InfraHealthData }>('/system/health').catch(() => null);
+      const infraData = await get<{ data?: InfraHealthData }>('/api/v1/health/system').catch(() => null);
       if (infraData?.data) {
         setInfraHealth(infraData.data);
       }
