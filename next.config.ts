@@ -22,15 +22,6 @@ const nextConfig: NextConfig = {
     return config;
   },
 
-  async rewrites() {
-    return [
-      {
-        source: '/api/proxy/:path*',
-        destination: `${process.env.NEXT_PUBLIC_API_URL || 'https://vh-health-backend.onrender.com'}/api/v1/:path*`,
-      },
-    ];
-  },
-
   async headers() {
     const allowedOrigin = process.env.NEXT_PUBLIC_ALLOWED_ORIGIN || 'http://localhost:3000';
     // unsafe-eval is required in production by Sentry SDK and workbox (PWA service worker)
