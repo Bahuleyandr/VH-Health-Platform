@@ -9,19 +9,39 @@ import { success, error } from '../../utils/responseHelper.js';
 export async function getAuditLogs(req, res) {
   try {
     const limit = Math.min(Number(req.query.limit ?? 50), 500);
-    const offset = Number(req.query.offset ?? 0);
+    const page = Math.max(Number(req.query.page ?? 1), 1);
+    const offset = Number.isFinite(Number(req.query.offset))
+      ? Number(req.query.offset)
+      : (page - 1) * limit;
 
-    const result = await prisma.$queryRawUnsafe(
-      `SELECT id, uid, role, action, resource, resource_id, metadata,
-        ip_address, user_agent, created_at
-       FROM audit_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
-      [limit, offset]
-    );
+    let rows = [];
+    let total = 0;
 
-    const countResult = await prisma.$queryRawUnsafe(`SELECT COUNT(*) FROM audit_logs`);
-    const total = parseInt(countResult[0].count, 10);
+    try {
+      rows = await prisma.$queryRawUnsafe(
+        `SELECT id, uid, role, action, resource, resource_id, metadata,
+          ip_address, user_agent, created_at
+         FROM audit_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+        limit,
+        offset,
+      );
 
-    success(res, { logs: result.rows, total, limit, offset }, 'Audit logs fetched');
+      const countResult = await prisma.$queryRawUnsafe(`SELECT COUNT(*)::int AS count FROM audit_logs`);
+      total = parseInt(countResult?.[0]?.count ?? 0, 10);
+    } catch (tableError) {
+      logger.warn('[logs] audit_logs table not found or unreadable; returning empty audit logs');
+    }
+
+    success(res, {
+      logs: Array.isArray(rows) ? rows : [],
+      total,
+      limit,
+      offset,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+    }, 'Audit logs fetched');
   } catch (err) {
     logger.error('[logs] getAuditLogs error:', err.stack || err.message);
     error(res, 'Failed to fetch audit logs', 500);
@@ -35,26 +55,38 @@ export async function getAuditLogs(req, res) {
 export async function getSystemLogs(req, res) {
   try {
     const limit = Math.min(Number(req.query.limit ?? 50), 500);
-    const offset = Number(req.query.offset ?? 0);
+    const page = Math.max(Number(req.query.page ?? 1), 1);
+    const offset = Number.isFinite(Number(req.query.offset))
+      ? Number(req.query.offset)
+      : (page - 1) * limit;
 
     let rows = [];
     let total = 0;
 
     try {
-      const result = await prisma.$queryRawUnsafe(
+      rows = await prisma.$queryRawUnsafe(
         `SELECT id, admin_uid, action, description, details, ip_address, created_at
          FROM admin_activity_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
-        [limit, offset]
+        limit,
+        offset,
       );
       const countResult = await prisma.$queryRawUnsafe(`SELECT COUNT(*) FROM admin_activity_logs`);
-      rows = result.rows;
-      total = parseInt(countResult[0].count, 10);
+      total = parseInt(countResult?.[0]?.count ?? 0, 10);
     } catch {
       // Table does not exist yet — return empty list, not an error
       logger.warn('[logs] admin_activity_logs table not found; returning empty system logs');
     }
 
-    success(res, { logs: rows, total, limit, offset }, 'System logs fetched');
+    success(res, {
+      logs: Array.isArray(rows) ? rows : [],
+      total,
+      limit,
+      offset,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+    }, 'System logs fetched');
   } catch (err) {
     logger.error('[logs] getSystemLogs error:', err.stack || err.message);
     error(res, 'Failed to fetch system logs', 500);
