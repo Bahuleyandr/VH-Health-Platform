@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "https://api.vhhealth.app";
+const SERVER_API_KEY = process.env.BACKEND_API_KEY || process.env.API_KEY || "";
 
 /**
  * CSRF Origin validation.
@@ -72,7 +73,7 @@ async function proxyLogin(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(process.env.API_KEY ? { "x-api-key": process.env.API_KEY } : {}),
+        ...(SERVER_API_KEY ? { "x-api-key": SERVER_API_KEY } : {}),
       },
       body: JSON.stringify(credentials),
     });

@@ -110,8 +110,10 @@ async function handleProxy(req: NextRequest) {
   // Inject the validated token as Authorization header
   headers["Authorization"] = `Bearer ${token}`;
 
-  // Inject API key server-side — never exposed to the client bundle
-  const serverApiKey = process.env.API_KEY ?? "";
+  // Inject API key server-side — never exposed to the client bundle.
+  // Prefer BACKEND_API_KEY as the explicit production key name; keep API_KEY
+  // as a fallback for older environments.
+  const serverApiKey = process.env.BACKEND_API_KEY || process.env.API_KEY || "";
   if (serverApiKey) {
     headers["x-api-key"] = serverApiKey;
   }
