@@ -62,14 +62,16 @@ class SecurityConfig {
   ];
 
   /// Call at app startup to verify security configuration is sane.
-  /// Throws [StateError] in production if certificate pinning is enabled
-  /// but no fingerprints are configured.
+  /// Logs a warning in production if certificate pinning is enabled
+  /// but no fingerprints are configured. Does not throw so the app
+  /// remains usable while fingerprints are being provisioned.
   static void verifyOrWarn() {
     if (isProduction && enableCertPinning && pinnedCertFingerprints.isEmpty) {
-      throw StateError(
-        'SecurityConfig: Certificate pinning is enabled in production but '
-        'pinnedCertFingerprints is empty. Add SHA-256 fingerprints or '
-        'disable pinning.',
+      // ignore: avoid_print
+      print(
+        'WARNING: SecurityConfig: Certificate pinning is enabled in production '
+        'but pinnedCertFingerprints is empty. Pinning will be skipped until '
+        'fingerprints are configured.',
       );
     }
   }
