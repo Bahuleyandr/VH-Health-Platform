@@ -41,7 +41,7 @@ class ScheduleApiService {
 
   /// GET /api/v1/staff/hr/shift — get current staff shift
   static Future<Map<String, dynamic>> getMyShift() async {
-    return _get('/api/v1/staff/hr/shift');
+    return _get('/staff/hr/shift');
   }
 
   // ─── Appointments ───────────────────────────────────────────────────────

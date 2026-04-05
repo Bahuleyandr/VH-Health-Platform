@@ -131,17 +131,17 @@ class AttendanceApiService {
 
   /// POST /api/v1/staff/attendance/:staffId/break/start — start a break
   static Future<Map<String, dynamic>> startBreak(String staffId) async {
-    return _post('/api/v1/staff/attendance/$staffId/break/start', {});
+    return _post('/staff/attendance/$staffId/break/start', {});
   }
 
   /// POST /api/v1/staff/attendance/:staffId/break/end — end a break
   static Future<Map<String, dynamic>> endBreak(String staffId) async {
-    return _post('/api/v1/staff/attendance/$staffId/break/end', {});
+    return _post('/staff/attendance/$staffId/break/end', {});
   }
 
   /// GET /api/v1/staff/attendance/:staffId/break/today — get today's breaks
   static Future<Map<String, dynamic>> getTodayBreaks(String staffId) async {
-    return _get('/api/v1/staff/attendance/$staffId/break/today');
+    return _get('/staff/attendance/$staffId/break/today');
   }
 
   // ─── Attendance Disputes ────────────────────────────────────────────────────
@@ -155,7 +155,7 @@ class AttendanceApiService {
     String? requestedCheckIn,
     String? requestedCheckOut,
   }) async {
-    return _post('/api/v1/staff/attendance/$staffId/dispute', {
+    return _post('/staff/attendance/$staffId/dispute', {
       'date': date,
       'dispute_type': disputeType,
       'description': description,
@@ -168,7 +168,7 @@ class AttendanceApiService {
   /// GET /api/v1/staff/attendance/:staffId/disputes — get my disputes
   static Future<List<dynamic>> getMyDisputes(String staffId) async {
     final result =
-        await _get('/api/v1/staff/attendance/$staffId/disputes');
+        await _get('/staff/attendance/$staffId/disputes');
     return result['data'] as List? ?? result as List? ?? [];
   }
 
@@ -181,7 +181,7 @@ class AttendanceApiService {
     required String reason,
     String type = 'comp_time',
   }) async {
-    return _post('/api/v1/staff/hr/overtime/request', {
+    return _post('/staff/hr/overtime/request', {
       'date': date,
       'extra_hours': extraHours,
       'reason': reason,
@@ -191,7 +191,7 @@ class AttendanceApiService {
 
   /// GET /api/v1/staff/hr/overtime — get my overtime requests
   static Future<List<dynamic>> getMyOvertimeRequests() async {
-    final result = await _get('/api/v1/staff/hr/overtime');
+    final result = await _get('/staff/hr/overtime');
     return result['data'] as List? ?? result as List? ?? [];
   }
 }
