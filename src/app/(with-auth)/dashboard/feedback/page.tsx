@@ -44,6 +44,14 @@ interface FeedbackStats {
   trends?: Array<{ month: string; avg_rating: number; count: number }>;
 }
 
+interface FeedbackDashboardPayload {
+  overallStats?: {
+    total_feedback?: number;
+    average_rating?: number;
+    responded_count?: number;
+  };
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function unwrap<T>(x: unknown): T {
@@ -108,7 +116,7 @@ export default function FeedbackPage() {
     queryKey: ["feedback-stats"],
     queryFn: async () => {
       const res = await fetchAdminAPI<unknown>("/feedback/stats");
-      const data = unwrap<any>(res);
+      const data = unwrap<FeedbackDashboardPayload>(res);
       const overall = data?.overallStats ?? data ?? {};
       return {
         total_feedback: Number(overall.total_feedback ?? 0),
