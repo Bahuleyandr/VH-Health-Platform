@@ -158,6 +158,10 @@ function normalizeAdminEndpoint(endpoint: string): string {
   if (path.startsWith("/admin/users")) return `/users${query}`;
   if (path.startsWith("/admin/doctors")) return `/doctors${query}`;
   if (path.startsWith("/admin/departments")) return `/departments${query}`;
+  if (path === "/feedback") return `/feedback/recent${query || "?page=1&limit=100"}`;
+  if (path === "/feedback/stats") return `/feedback/dashboard${query}`;
+  if (path === "/notifications") return `/notifications/admin/manage${query || "?page=1&limit=50"}`;
+  if (path === "/notifications/stats") return `/notifications/admin/overview${query}`;
   if (path === "/admin/appointments" || path === "/appointments") {
     return `/appointments/list${query}`;
   }

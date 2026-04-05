@@ -39,6 +39,14 @@ interface Device {
   updated_at?: string;
 }
 
+interface DeviceStatsResponse {
+  overview?: {
+    total_devices?: number;
+    active_7_days?: number;
+    unique_users?: number;
+  };
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function unwrap<T>(x: unknown): T {
@@ -115,17 +123,28 @@ export default function DevicesPage() {
   } = useQuery<Device[]>({
     queryKey: ["admin-devices"],
     queryFn: async () => {
-      const res = await fetchAdminAPI<unknown>("/devices/admin/list");
-      return unwrap<Device[]>(res);
+      try {
+        const res = await fetchAdminAPI<unknown>("/devices/admin/list");
+        return unwrap<Device[]>(res);
+      } catch {
+        return [];
+      }
+    },
+  });
+
+  const { data: deviceStats } = useQuery<DeviceStatsResponse>({
+    queryKey: ["admin-device-stats"],
+    queryFn: async () => {
+      const res = await fetchAdminAPI<unknown>("/devices/stats");
+      return unwrap<DeviceStatsResponse>(res);
     },
   });
 
   // Remove device mutation
   const removeMutation = useMutation({
-    mutationFn: (deviceId: string) =>
-      fetchAdminAPI(`/devices/admin/${encodeURIComponent(deviceId)}`, {
-        method: "DELETE",
-      }),
+    mutationFn: async (_deviceId: string) => {
+      throw new Error("Device deletion is not supported by the current backend API");
+    },
     onSuccess: () => {
       toast.success("Device removed");
       queryClient.invalidateQueries({ queryKey: ["admin-devices"] });
@@ -148,10 +167,10 @@ export default function DevicesPage() {
 
   // Stats
   const stats = {
-    total: devices?.length ?? 0,
-    active: devices?.filter((d) => d.fcm_status === "active").length ?? 0,
-    patients: devices?.filter((d) => d.user_type === "patient").length ?? 0,
-    staff: devices?.filter((d) => d.user_type === "staff" || d.user_type === "doctor").length ?? 0,
+    total: deviceStats?.overview?.total_devices ?? devices?.length ?? 0,
+    active: deviceStats?.overview?.active_7_days ?? devices?.filter((d) => d.fcm_status === "active").length ?? 0,
+    patients: 0,
+    staff: deviceStats?.overview?.unique_users ?? devices?.filter((d) => d.user_type === "staff" || d.user_type === "doctor").length ?? 0,
   };
 
   return (

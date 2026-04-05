@@ -16,6 +16,19 @@ interface OverviewStats {
   topDoctors: Array<{ name: string; appointments: number; rating: number }>;
 }
 
+interface AnalyticsDashboardResponse {
+  appointmentAnalytics?: {
+    total_appointments?: number;
+    unique_patients?: number;
+  };
+  pharmacyAnalytics?: {
+    total_revenue?: number;
+  };
+  feedbackAnalytics?: {
+    average_rating?: number;
+  };
+}
+
 export function ReportsOverview() {
   const [stats, setStats] = useState<OverviewStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,20 +45,29 @@ export function ReportsOverview() {
       setLoading(true);
       setError(null);
 
-      const params = new URLSearchParams({
-        date_from: dateRange.from,
-        date_to: dateRange.to,
-      });
+      const days = Math.max(
+        1,
+        Math.round(
+          (new Date(dateRange.to).getTime() - new Date(dateRange.from).getTime()) /
+            (24 * 60 * 60 * 1000),
+        ),
+      );
+      const timeframe = days <= 7 ? "7d" : days <= 30 ? "30d" : days <= 90 ? "90d" : "1y";
 
-      // If your API is namespaced, use `/admin/reports/overview`
-      const data = await fetchAdminAPI<OverviewStats>(
-        `/reports/overview?${params.toString()}`,
-        {
-          method: "GET",
-        },
+      const data = await fetchAdminAPI<AnalyticsDashboardResponse>(
+        `/analytics/dashboard?timeframe=${timeframe}`,
+        { method: "GET" },
       );
 
-      setStats(data);
+      setStats({
+        totalAppointments: Number(data.appointmentAnalytics?.total_appointments ?? 0),
+        totalRevenue: Number(data.pharmacyAnalytics?.total_revenue ?? 0),
+        totalPatients: Number(data.appointmentAnalytics?.unique_patients ?? 0),
+        averageRating: Number(data.feedbackAnalytics?.average_rating ?? 0),
+        appointmentsTrend: [],
+        revenueByDepartment: [],
+        topDoctors: [],
+      });
     } catch (err: unknown) {
       const msg =
         err instanceof Error ? err.message : "Failed to load report data";
