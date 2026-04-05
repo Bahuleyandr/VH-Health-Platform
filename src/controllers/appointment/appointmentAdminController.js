@@ -22,7 +22,7 @@ export const getAppointmentSLADashboard = async (req, res) => {
         COUNT(CASE WHEN status='CANCELLED' THEN 1 END) as cancelled,
         COUNT(CASE WHEN status='NO_SHOW' THEN 1 END) as no_show,
         COUNT(CASE WHEN status='SCHEDULED' AND confirmed_at IS NULL THEN 1 END) as pending_confirmation
-        FROM appointments WHERE DATE(appointment_date) BETWEEN $1 AND $2`, [from, to]),
+        FROM appointments WHERE DATE(appointment_date) BETWEEN $1 AND $2`, from, to),
 
       // SLA metrics
       prisma.$queryRawUnsafe(`SELECT
@@ -34,7 +34,7 @@ export const getAppointmentSLADashboard = async (req, res) => {
 
       // Status breakdown
       prisma.$queryRawUnsafe(`SELECT status, COUNT(*) as count FROM appointments
-        WHERE DATE(appointment_date) BETWEEN $1 AND $2 GROUP BY status ORDER BY count DESC`, [from, to]),
+        WHERE DATE(appointment_date) BETWEEN $1 AND $2 GROUP BY status ORDER BY count DESC`, from, to),
 
       // By department
       prisma.$queryRawUnsafe(`SELECT COALESCE(a.department, doc.department, 'Unknown') as department,
@@ -44,7 +44,7 @@ export const getAppointmentSLADashboard = async (req, res) => {
         COUNT(CASE WHEN a.status='CANCELLED' THEN 1 END) as cancelled
         FROM appointments a LEFT JOIN doctors doc ON doc.user_id=a.doctor_id
         WHERE DATE(a.appointment_date) BETWEEN $1 AND $2
-        GROUP BY COALESCE(a.department, doc.department, 'Unknown') ORDER BY total DESC`, [from, to]),
+        GROUP BY COALESCE(a.department, doc.department, 'Unknown') ORDER BY total DESC`, from, to),
 
       // Pending confirmation (oldest first, limit 20)
       prisma.$queryRawUnsafe(`SELECT a.*, p.name as patient_name, p.phone as patient_phone, d.name as doctor_name,
@@ -60,9 +60,9 @@ export const getAppointmentSLADashboard = async (req, res) => {
     success(res, {
       summary: volumeRes[0],
       sla: slaRes[0],
-      by_status: statusRes.rows,
-      by_department: deptRes.rows,
-      pending_confirmation: pendingRes.rows,
+      by_status: statusRes,
+      by_department: deptRes,
+      pending_confirmation: pendingRes,
       date_range: { from, to },
     }, 'Appointment SLA dashboard fetched');
   } catch (err) {
@@ -98,9 +98,9 @@ export const getStatusAuditTrail = async (req, res) => {
       ${where}
       ORDER BY ash.created_at DESC
       LIMIT $${params.length - 1} OFFSET $${params.length}
-    `, params);
+    `, ...params);
 
-    success(res, result.rows, 'Audit trail fetched');
+    success(res, result, 'Audit trail fetched');
   } catch (err) {
     logger.error('Audit Trail Error:', err);
     error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);

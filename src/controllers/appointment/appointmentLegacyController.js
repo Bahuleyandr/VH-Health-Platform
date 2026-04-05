@@ -13,7 +13,7 @@ export const createLegacyAppointment = async (req, res) => {
 
     const result = await prisma.$queryRawUnsafe(
       'INSERT INTO appointments (phone, doctor_name, date, time) VALUES ($1, $2, $3, $4) RETURNING id, uid, phone, patient_name, doctor_name, date, status, created_at',
-      [phone, doctor_name, date, time]
+      phone, doctor_name, date, time
     );
 
     const appointment = result[0];
@@ -50,9 +50,9 @@ export const getAppointmentsByPhone = async (req, res) => {
       LEFT JOIN users p ON a.patient_id = p.id
       WHERE p.phone = $1 
       ORDER BY a.appointment_date DESC
-    `, [phone]);
-    
-    success(res, result.rows, 'Appointments fetched successfully');
+    `, phone);
+
+    success(res, result, 'Appointments fetched successfully');
   } catch (err) {
     logger.error('Error fetching appointments by phone:', err);
     error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
@@ -71,13 +71,13 @@ export const getAppointmentsByUID = async (req, res) => {
       LEFT JOIN doctors dp ON d.id = dp.user_id
       WHERE a.uid = $1
       ORDER BY a.appointment_date DESC
-    `, [uid]);
-    
-    if (result.rows.length === 0) {
+    `, uid);
+
+    if (result.length === 0) {
       return error(res, 'No appointments found for this UID', HTTP_STATUS.NOT_FOUND);
     }
-    
-    success(res, result.rows, 'Appointments fetched successfully');
+
+    success(res, result, 'Appointments fetched successfully');
   } catch (err) {
     logger.error('Error fetching appointments by UID:', err);
     error(res, RESPONSE_MESSAGES.DATABASE_ERROR);
