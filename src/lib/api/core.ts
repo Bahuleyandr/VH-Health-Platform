@@ -186,7 +186,16 @@ export async function fetchAdminAPI<T = unknown>(
     const msg = `HTTP ${res.status} calling ${method} ${endpoint}`;
     throw new APIError(msg, res.status, await safeReadJson(res));
   }
-  return (await res.json()) as T;
+  const payload = (await res.json()) as APIResponse<T> | T;
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'data' in (payload as APIResponse<T>) &&
+    (payload as APIResponse<T>).data !== undefined
+  ) {
+    return (payload as APIResponse<T>).data as T;
+  }
+  return payload as T;
 }
 
 async function safeReadJson(res: Response) {
