@@ -86,8 +86,15 @@ function withDefaults(u: URL, defaults: Record<string, string>) {
 }
 
 /** Normalize historical/legacy paths to the backend's current routes */
+function getApiBaseForParsing(): string {
+  if (typeof window !== 'undefined' && API_BASE_URL.startsWith('/')) {
+    return `${window.location.origin}${API_BASE_URL}`;
+  }
+  return API_BASE_URL;
+}
+
 function applyAliasesWithQuery(path: string): string {
-  const u = new URL(path, API_BASE_URL);
+  const u = new URL(path, getApiBaseForParsing());
   const { pathname } = u;
 
   // ---- ADMIN STATS (new mappings) ----
@@ -312,15 +319,17 @@ export function installApiFetchGuard(getToken: () => string | undefined) {
       else if (isRequest(input)) raw = input.url;
       else raw = String(input as unknown as string);
 
+      const apiBaseForParsing = getApiBaseForParsing();
+
       // Skip non-API requests (e.g., external URLs, assets)
-      if (isAbsoluteUrl(raw) && !raw.startsWith(API_BASE_URL)) {
+      if (isAbsoluteUrl(raw) && !raw.startsWith(apiBaseForParsing)) {
         // Not our API, pass through unchanged
         return originalFetch(input, init);
       }
 
       // If absolute and points to our API host, strip host to work with path
-      if (isAbsoluteUrl(raw) && raw.startsWith(API_BASE_URL)) {
-        raw = raw.slice(API_BASE_URL.length) || '/';
+      if (isAbsoluteUrl(raw) && raw.startsWith(apiBaseForParsing)) {
+        raw = raw.slice(apiBaseForParsing.length) || '/';
       }
 
       const isRelativeOrSameHost = !isAbsoluteUrl(raw) || raw.startsWith('/');
