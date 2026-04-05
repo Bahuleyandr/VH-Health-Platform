@@ -149,14 +149,33 @@ export function deleteJSON<T = unknown>(endpoint: string, useAuth = true) {
   return requestJSON<T>(endpoint, { method: "DELETE", useAuth });
 }
 
+/** Normalize legacy frontend endpoints to the backend's current routes. */
+function normalizeAdminEndpoint(endpoint: string): string {
+  const [rawPath, rawQuery = ""] = endpoint.split("?", 2);
+  const path = rawPath.startsWith("/api/v1") ? rawPath.slice(7) || "/" : rawPath;
+  const query = rawQuery ? `?${rawQuery}` : "";
+
+  if (path.startsWith("/admin/users")) return `/users${query}`;
+  if (path.startsWith("/admin/doctors")) return `/doctors${query}`;
+  if (path.startsWith("/admin/departments")) return `/departments${query}`;
+  if (path === "/admin/appointments" || path === "/appointments") {
+    return `/appointments/list${query}`;
+  }
+
+  return `${path}${query}`;
+}
+
 /** Back-compat helper used widely across pages */
 export async function fetchAdminAPI<T = unknown>(
   endpoint: string,
   init?: { method?: string; body?: unknown; token?: string },
 ): Promise<T> {
   const { method = "GET", body, token } = init ?? {};
+  const normalizedEndpoint = normalizeAdminEndpoint(endpoint);
   // Ensure /api/v1 prefix — callers pass short paths like "/admin/stats/quick"
-  const prefixedEndpoint = endpoint.startsWith("/api/v1") ? endpoint : `/api/v1${endpoint}`;
+  const prefixedEndpoint = normalizedEndpoint.startsWith("/api/v1")
+    ? normalizedEndpoint
+    : `/api/v1${normalizedEndpoint}`;
   const res = await apiFetch(prefixedEndpoint, {
     method,
     token: token ?? getToken(),
