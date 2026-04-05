@@ -81,10 +81,14 @@ class OtpService {
         await secureStorage.write(key: 'user_phone', value: userPhone);
         await secureStorage.write(key: 'isNewUser', value: isNewUser.toString());
         
-        // Store user ID for appointment booking and other features
+        // Store user ID for appointment booking and other features.
+        // Written under both keys so that screens reading 'patient_id'
+        // (health summary, consultations, vitals) and those reading
+        // 'user_id' (appointments, investigations) both find the value.
         final userId = user?['id'];
         if (userId != null) {
           await secureStorage.write(key: 'user_id', value: userId.toString());
+          await secureStorage.write(key: 'patient_id', value: userId.toString());
         }
         
         if (kDebugMode) {
