@@ -55,7 +55,7 @@ export function ReportsOverview() {
       const timeframe = days <= 7 ? "7d" : days <= 30 ? "30d" : days <= 90 ? "90d" : "1y";
 
       const data = await fetchAdminAPI<AnalyticsDashboardResponse>(
-        `/analytics/dashboard?timeframe=${timeframe}`,
+        `/admin/analytics/dashboard?timeframe=${timeframe}`,
         { method: "GET" },
       );
 
