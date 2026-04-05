@@ -32,9 +32,9 @@ export default [
   // 3. LEGACY plugin configs wrapped in the compatibility tool
   ...compat.extends('plugin:import/recommended'),
 
-  // 4. Global rules for all JavaScript files
+  // 4. Global rules for all JavaScript files (including CJS and MJS)
   {
-    files: ['**/*.js'],
+    files: ['**/*.js', '**/*.cjs', '**/*.mjs'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
@@ -92,7 +92,7 @@ export default [
     },
   },
   {
-    files: ['src/scripts/**/*.js'],
+    files: ['src/scripts/**/*.js', 'src/scripts/**/*.cjs', 'src/scripts/**/*.mjs'],
     rules: {
       'no-console': 'off',
     },
