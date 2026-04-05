@@ -29,8 +29,8 @@ class FeedbackService {
     const averageRating = this.calculateAverageRating(result.rows);
 
     return {
-      feedback: result.rows,
-      totalCount: result.rows.length,
+      feedback: Array.isArray(result) ? result : [],
+      totalCount: Array.isArray(result) ? result.length : 0,
       averageRating
     };
   }
@@ -108,8 +108,8 @@ class FeedbackService {
 
     return {
       overallStats: overallStats[0],
-      categoryBreakdown: categoryStats.rows,
-      dailyTrend: dailyTrend.rows
+      categoryBreakdown: Array.isArray(categoryStats) ? categoryStats : [],
+      dailyTrend: Array.isArray(dailyTrend) ? dailyTrend : []
     };
   }
 
@@ -196,7 +196,7 @@ class FeedbackService {
     );
 
     return {
-      feedback: feedback.rows,
+      feedback: Array.isArray(feedback) ? feedback : [],
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
