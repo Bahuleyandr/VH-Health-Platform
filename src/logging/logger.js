@@ -22,13 +22,17 @@ const logFormat = format.printf(({ timestamp, level, message, ...meta }) => {
   return `[${timestamp}] ${level}: ${message}${metaStr}`;
 });
 
+const isTest = process.env.NODE_ENV === 'test';
+
 // Create Winston logger instance
 const logger = createLogger({
-  level: 'debug',
+  level: isTest ? 'error' : 'debug',
+  silent: isTest,
   format: format.combine(format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }), logFormat),
   transports: [
     // Console logger with color
     new transports.Console({
+      silent: isTest,
       format: format.combine(
         format.colorize(),
         format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
@@ -39,10 +43,12 @@ const logger = createLogger({
     // File-based logs
     new transports.File({
       filename: path.join(logsDir, 'error.log'),
-      level: 'error'
+      level: 'error',
+      silent: isTest
     }),
     new transports.File({
-      filename: path.join(logsDir, 'combined.log')
+      filename: path.join(logsDir, 'combined.log'),
+      silent: isTest
     }),
 
     // Daily rotated .gz compressed logs
@@ -52,7 +58,8 @@ const logger = createLogger({
       datePattern: 'DD-MM-YYYY',
       zippedArchive: true,
       maxSize: '20m',
-      maxFiles: '90d' // retain logs for 90 days
+      maxFiles: '90d', // retain logs for 90 days
+      silent: isTest
     })
   ]
 });
