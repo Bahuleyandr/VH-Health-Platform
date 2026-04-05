@@ -1,4 +1,3 @@
-/* global require, process */
 // jest.setup.cjs — CommonJS setup file, runs before ESM test modules
 // Using .cjs so Jest can load it before --experimental-vm-modules is fully active
 const path = require('path');
