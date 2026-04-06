@@ -67,7 +67,7 @@ export default function MyReplacementsPage() {
     try {
       const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.myWork.replacements.create}`, {
         method: 'POST', headers,
-        body: JSON.stringify(form),
+        body: form,
       });
       if (!res.ok) throw new Error('Failed to create request');
       setSuccessMsg('Replacement request submitted.');

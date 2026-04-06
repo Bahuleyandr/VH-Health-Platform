@@ -62,7 +62,7 @@ export function OrdersTable({
     try {
       await fetchAdminAPI(`/pharmacy/orders/${orderId}`, {
         method: "PUT",
-        body: JSON.stringify({ status: newStatus }),
+        body: { status: newStatus },
       });
 
       // Update local state with the correctly typed status

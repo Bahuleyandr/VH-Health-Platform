@@ -64,9 +64,9 @@ export function CreateDoctorForm({
     }
 
     try {
-      await fetchAdminAPI("/doctors", {
+      await fetchAdminAPI("/doctors/create", {
         method: "POST",
-        body: JSON.stringify(data),
+        body: data,
       });
 
       toast.success("Doctor created successfully");

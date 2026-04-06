@@ -82,10 +82,10 @@ function SettingRow({ setting, onUpdate }: SettingRowProps) {
     try {
       await fetchAdminAPI("/system/settings", {
         method: "PUT",
-        body: JSON.stringify({
+        body: {
           key: setting.setting_key,
           value: value,
-        }),
+        },
       });
 
       setMessage(`Updated successfully`);

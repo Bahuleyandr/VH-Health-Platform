@@ -120,13 +120,13 @@ export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
       // Update profile
       await fetchAdminAPI(`/doctors/${doctor.user_id}/profile`, {
         method: "PUT",
-        body: JSON.stringify(profileData),
+        body: profileData,
       });
 
       // Update availability
       await fetchAdminAPI(`/doctors/${doctor.user_id}/availability`, {
         method: "PUT",
-        body: JSON.stringify(availabilityData),
+        body: availabilityData,
       });
 
       toast.success("Doctor updated successfully");

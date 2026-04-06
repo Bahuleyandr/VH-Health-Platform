@@ -68,12 +68,12 @@ export function NotificationComposer({ onSuccess }: NotificationComposerProps) {
       if (target === "all") {
         await fetchAdminAPI("/notifications/announce", {
           method: "POST",
-          body: JSON.stringify(payload),
+          body: payload,
         });
       } else {
         await fetchAdminAPI("/notifications/targeted", {
           method: "POST",
-          body: JSON.stringify(payload),
+          body: payload,
         });
       }
 

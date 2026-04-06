@@ -72,7 +72,7 @@ export function UsersTable({ users, onUserUpdated, isLoading, error }: UsersTabl
       const promises = selectedIds.map((id) =>
         fetchAdminAPI(`/users/${id}`, {
           method: "PUT",
-          body: JSON.stringify({ is_active: false }),
+          body: { is_active: false },
         }),
       );
       await Promise.all(promises);
@@ -83,7 +83,7 @@ export function UsersTable({ users, onUserUpdated, isLoading, error }: UsersTabl
       const promises = selectedIds.map((id) =>
         fetchAdminAPI(`/users/${id}`, {
           method: "PUT",
-          body: JSON.stringify({ is_active: true }),
+          body: { is_active: true },
         }),
       );
       await Promise.all(promises);
