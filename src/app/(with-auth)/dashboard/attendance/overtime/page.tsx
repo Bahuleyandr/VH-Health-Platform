@@ -6,7 +6,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import toast from 'react-hot-toast';
 import { getPendingOvertimeRequests, approveOvertimeRequest } from '@/lib/api/attendance';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 
 interface OvertimeRequest {
   id: number;
@@ -25,7 +24,7 @@ export default function OvertimePage() {
   const [requests, setRequests] = useState<OvertimeRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedRequest, setSelectedRequest] = useState<OvertimeRequest | null>(null);
-  const [approving, setApproving] = useState(false);
+  const [, setApproving] = useState(false);
   const [action, setAction] = useState<'approved' | 'rejected' | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [stats, setStats] = useState({ pending: 0, totalHours: 0 });
@@ -51,7 +50,6 @@ export default function OvertimePage() {
     };
 
     loadRequests();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleApprove = async () => {
