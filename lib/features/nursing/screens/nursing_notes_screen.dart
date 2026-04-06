@@ -219,7 +219,7 @@ class _AddNoteTabState extends State<_AddNoteTab> {
 
                 // Note type
                 DropdownButtonFormField<String>(
-                  initialValue: _noteType,
+                  value: _noteType,
                   decoration: const InputDecoration(
                     labelText: 'Note Type',
                     prefixIcon: Icon(Icons.category_outlined),

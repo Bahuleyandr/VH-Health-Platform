@@ -952,7 +952,7 @@ class _MedicationCardState extends State<_MedicationCard> {
             const SizedBox(width: 10),
             Expanded(
               child: DropdownButtonFormField<String>(
-                initialValue: med.frequency.isEmpty ? null : med.frequency,
+                value: med.frequency.isEmpty ? null : med.frequency,
                 decoration: const InputDecoration(
                     labelText: 'Frequency', isDense: true),
                 items: widget.frequencies
@@ -986,7 +986,7 @@ class _MedicationCardState extends State<_MedicationCard> {
             const SizedBox(width: 10),
             Expanded(
               child: DropdownButtonFormField<String>(
-                initialValue: med.route,
+                value: med.route,
                 decoration: const InputDecoration(
                     labelText: 'Route', isDense: true),
                 items: widget.routes

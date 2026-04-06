@@ -166,7 +166,7 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
               const Text('Incident Type *', style: TextStyle(fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
-                initialValue: _incidentType,
+                value: _incidentType,
                 decoration: const InputDecoration(border: OutlineInputBorder()),
                 items: _incidentTypes.entries
                     .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))

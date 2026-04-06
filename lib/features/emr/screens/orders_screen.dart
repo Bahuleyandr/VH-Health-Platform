@@ -420,7 +420,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
         ),
         const SizedBox(height: 12),
         DropdownButtonFormField<String>(
-          initialValue: priority,
+          value: priority,
           decoration: const InputDecoration(
             labelText: 'Priority',
             border: OutlineInputBorder(),

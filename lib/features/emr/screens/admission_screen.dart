@@ -206,7 +206,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      initialValue: priority,
+                      value: priority,
                       decoration: const InputDecoration(
                         labelText: 'Priority',
                         border: OutlineInputBorder(),
@@ -226,7 +226,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      initialValue: codeStatus,
+                      value: codeStatus,
                       decoration: const InputDecoration(
                         labelText: 'Code Status',
                         border: OutlineInputBorder(),

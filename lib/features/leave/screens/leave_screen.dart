@@ -289,7 +289,7 @@ class _LeaveScreenState extends State<LeaveScreen>
               style: TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-            initialValue: _leaveType,
+            value: _leaveType,
             decoration: const InputDecoration(border: OutlineInputBorder()),
             items: leaveTypes
                 .map((t) => DropdownMenuItem(

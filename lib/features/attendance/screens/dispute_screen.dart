@@ -138,7 +138,7 @@ class _DisputeScreenState extends State<DisputeScreen> with SingleTickerProvider
           const Text('Issue Type', style: TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-            initialValue: _disputeType,
+            value: _disputeType,
             decoration: const InputDecoration(border: OutlineInputBorder()),
             items: disputeTypes.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))).toList(),
             onChanged: (v) => setState(() => _disputeType = v!),

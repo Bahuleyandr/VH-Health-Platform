@@ -165,7 +165,7 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
               const Text('Grievance Type *', style: TextStyle(fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
-                initialValue: _grievanceType,
+                value: _grievanceType,
                 decoration: const InputDecoration(border: OutlineInputBorder()),
                 items: _types.entries
                     .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))

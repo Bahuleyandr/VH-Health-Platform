@@ -139,7 +139,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      initialValue: dietType,
+                      value: dietType,
                       decoration: const InputDecoration(
                         labelText: 'Diet Type',
                         prefixIcon: Icon(Icons.restaurant_menu),
@@ -152,7 +152,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      initialValue: mealTime,
+                      value: mealTime,
                       decoration: const InputDecoration(
                         labelText: 'Meal Time',
                         prefixIcon: Icon(Icons.access_time),

@@ -315,7 +315,7 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
             const Text('Select Payslip *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
             const SizedBox(height: 6),
             DropdownButtonFormField<int>(
-              initialValue: _selectedPayslipId,
+              value: _selectedPayslipId,
               decoration: InputDecoration(
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                 hintText: 'Choose payslip',
@@ -338,7 +338,7 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
             const Text('Category *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
             const SizedBox(height: 6),
             DropdownButtonFormField<String>(
-              initialValue: _category,
+              value: _category,
               decoration: InputDecoration(
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
