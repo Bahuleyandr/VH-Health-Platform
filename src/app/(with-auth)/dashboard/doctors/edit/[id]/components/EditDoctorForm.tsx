@@ -120,13 +120,13 @@ export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
 
     try {
       // Update profile → /api/v1/doctors/:id/profile
-      await fetchAdminAPI(`/doctors/${doctor.user_id}/profile`, {
+      await fetchAdminAPI(`/admin/doctors/${doctor.user_id}/profile`, {
         method: "PUT",
         body: profileData,
       });
 
       // Update availability → /api/v1/doctors/:id/availability
-      await fetchAdminAPI(`/doctors/${doctor.user_id}/availability`, {
+      await fetchAdminAPI(`/admin/doctors/${doctor.user_id}/availability`, {
         method: "PUT",
         body: availabilityData,
       });
