@@ -48,10 +48,10 @@ export function EditDepartmentModal({
 
       await fetchAdminAPI(`/departments/${department.id}`, {
         method: "PUT",
-        body: JSON.stringify({
+        body: {
           name: formData.name.trim(),
           description: formData.description.trim(),
-        }),
+        },
       });
 
       toast.success("Department updated");
