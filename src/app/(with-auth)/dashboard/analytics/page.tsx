@@ -124,8 +124,39 @@ export default function AnalyticsPage() {
       setGrowth(growthRes?.data ?? []);
       setTrends(trendsRes?.data ?? []);
       setDepartments(deptRes?.data ?? []);
-      setSatisfaction(satRes);
-      setUsage(usageRes);
+      // Normalize satisfaction — backend may return { overallSatisfaction: { average_rating, total_feedback, ... } }
+      const satRaw = satRes as Record<string, unknown> | null;
+      const satInner = (satRaw?.overallSatisfaction ?? satRaw) as Record<string, unknown> | null;
+      setSatisfaction(
+        satInner
+          ? {
+              averageRating: Number(satInner.averageRating ?? satInner.average_rating ?? 0),
+              totalFeedback: Number(satInner.totalFeedback ?? satInner.total_feedback ?? 0),
+              trend: Number(satInner.trend ?? 0),
+              distribution: (satInner.distribution as Record<string, number>) ?? {},
+            }
+          : null
+      );
+
+      // Normalize usage — backend may return { featureUsage, peakUsageHours, deviceStatistics }
+      const usageRaw = usageRes as Record<string, unknown> | null;
+      setUsage(
+        usageRaw
+          ? {
+              totalApiCalls: Number(usageRaw.totalApiCalls ?? usageRaw.total_api_calls ?? 0),
+              activeUsers: Number(usageRaw.activeUsers ?? usageRaw.active_users ?? 0),
+              avgResponseTime: Number(usageRaw.avgResponseTime ?? usageRaw.avg_response_time ?? 0),
+              peakHours: Array.isArray(usageRaw.peakHours)
+                ? (usageRaw.peakHours as string[])
+                : Array.isArray(usageRaw.peakUsageHours)
+                ? (usageRaw.peakUsageHours as Array<{ hour_of_day: number }>)
+                    .sort((a, b) => b.hour_of_day - a.hour_of_day)
+                    .slice(0, 3)
+                    .map(h => `${h.hour_of_day}:00`)
+                : [],
+            }
+          : null
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load analytics");
     } finally {
@@ -287,15 +318,15 @@ export default function AnalyticsPage() {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 16 }}>
               <div>
                 <div style={{ fontSize: 13, color: "var(--text-secondary, #888)" }}>API Calls</div>
-                <div style={{ fontSize: 24, fontWeight: 700 }}>{usage.totalApiCalls.toLocaleString()}</div>
+                <div style={{ fontSize: 24, fontWeight: 700 }}>{(usage.totalApiCalls ?? 0).toLocaleString()}</div>
               </div>
               <div>
                 <div style={{ fontSize: 13, color: "var(--text-secondary, #888)" }}>Active Users</div>
-                <div style={{ fontSize: 24, fontWeight: 700 }}>{usage.activeUsers.toLocaleString()}</div>
+                <div style={{ fontSize: 24, fontWeight: 700 }}>{(usage.activeUsers ?? 0).toLocaleString()}</div>
               </div>
               <div>
                 <div style={{ fontSize: 13, color: "var(--text-secondary, #888)" }}>Avg Response</div>
-                <div style={{ fontSize: 24, fontWeight: 700 }}>{usage.avgResponseTime}ms</div>
+                <div style={{ fontSize: 24, fontWeight: 700 }}>{usage.avgResponseTime ?? 0}ms</div>
               </div>
               <div>
                 <div style={{ fontSize: 13, color: "var(--text-secondary, #888)" }}>Peak Hours</div>
