@@ -198,6 +198,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             await _markAsRead(notif['id']);
                             if (!mounted) return;
                             setState(() => notifications.removeAt(index));
+                            // ignore: use_build_context_synchronously
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(content: Text(loc.notificationMarkedAsRead)),
                             );

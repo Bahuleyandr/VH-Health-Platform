@@ -205,6 +205,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     if (picked != null) {
       _selectedBirthday = picked;
       _birthdayController.text =
+          // ignore: use_build_context_synchronously
           MaterialLocalizations.of(context).formatMediumDate(picked);
       setState(() {});
     }
@@ -301,7 +302,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
                         // ── Gender ──
                         DropdownButtonFormField<String>(
-                          initialValue: _selectedGender,
+                          value: _selectedGender,
                           decoration: InputDecoration(
                             labelText : 'Gender',
                             prefixIcon: Icon(Icons.wc_outlined, color: cs.primary),
@@ -339,7 +340,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
                         // ── Blood Group ──
                         DropdownButtonFormField<String>(
-                          initialValue: _selectedBloodGroup,
+                          value: _selectedBloodGroup,
                           decoration: InputDecoration(
                             labelText : 'Blood Group',
                             prefixIcon: Icon(Icons.bloodtype_outlined, color: cs.primary),

@@ -131,6 +131,7 @@ class AppRouter {
             setUserData(phone, name);
             // Sync to UserProvider if available
             try {
+              // ignore: use_build_context_synchronously
               context.read<UserProvider>().setUser(phone, name);
             } catch (e) {
               debugPrint('AppRouter sync UserProvider failed: $e');

@@ -130,7 +130,7 @@ class ThemeProvider extends ChangeNotifier {
     await _initFuture;
     final prefs = await SharedPreferences.getInstance();
     if (color != null) {
-      await prefs.setInt(_accentColorKey, color.value);
+      await prefs.setInt(_accentColorKey, color.toARGB32());
     } else {
       await prefs.remove(_accentColorKey);
     }

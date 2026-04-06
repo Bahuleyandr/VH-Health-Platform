@@ -334,7 +334,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: DropdownButtonFormField<String>(
-            initialValue: _selectedType,
+            value: _selectedType,
             decoration:
                 InputDecoration(labelText: l10n.yourHealthFilterByType),
             onChanged: _onTypeChanged,

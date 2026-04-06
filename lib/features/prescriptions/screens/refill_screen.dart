@@ -202,7 +202,7 @@ class _RefillScreenState extends State<RefillScreen> {
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: _prescriptions.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          separatorBuilder: (_, _) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
             return _PrescriptionRefillCard(
               prescription: _prescriptions[index],
