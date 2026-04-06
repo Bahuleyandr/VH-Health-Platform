@@ -201,6 +201,9 @@ class DepartmentService {
 
   async updateDepartment(id, data, userId) {
     try {
+      if (!data || typeof data !== 'object') {
+        throw new Error('Invalid request body');
+      }
       const {
         name, description, head_doctor_id, contact_number,
         location, is_active
