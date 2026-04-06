@@ -7,9 +7,9 @@ export const adminDoctorValidators = {
   createDoctor: [
     body('name').notEmpty().trim().withMessage('Name is required'),
     body('phone')
-      .notEmpty()
+      .optional()
       .matches(/^\+?[\d\s-()]+$/)
-      .withMessage('Valid phone number is required'),
+      .withMessage('Valid phone number required'),
     body('email')
       .optional()
       .isEmail()
@@ -26,11 +26,11 @@ export const adminDoctorValidators = {
     body('specialization').notEmpty().withMessage('Specialization is required'),
     body('department')
       .notEmpty()
-      .isIn(DOCTOR_CONFIG.DEPARTMENTS)
-      .withMessage('Valid department is required'),
+      .withMessage('Department is required'),
     body('consultation_fee')
-      .isFloat({ min: DOCTOR_CONFIG.FEE_RANGES.MIN, max: DOCTOR_CONFIG.FEE_RANGES.MAX })
-      .withMessage(`Consultation fee must be between ${DOCTOR_CONFIG.FEE_RANGES.MIN} and ${DOCTOR_CONFIG.FEE_RANGES.MAX}`)
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Consultation fee must be a positive number')
   ],
 
   // Bulk operations

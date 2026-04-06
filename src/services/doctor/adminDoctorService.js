@@ -199,68 +199,42 @@ export class AdminDoctorService {
 
   // Create comprehensive doctor account
   async createDoctorAccount(doctorData) {
-    const client = await db.pool.connect();
-    
     try {
-      await client.query('BEGIN');
-      
-      const { phone } = doctorData;
-      
-      // Check if user already exists
-      const existingUser = await client.query('SELECT id FROM users WHERE phone = $1', [phone]);
-      if (existingUser.length > 0) {
-        throw new Error('User with this phone number already exists');
+      const { name, department, specialization, phone, email, consultation_fee } = doctorData;
+
+      // Check if doctor with same name+department already exists
+      const existing = await prisma.$queryRaw`
+        SELECT id FROM doctors WHERE LOWER(name) = LOWER(${name}) AND LOWER(department) = LOWER(${department})
+      `;
+      if (existing.length > 0) {
+        throw new Error('Doctor with this name already exists in this department');
       }
-      
-      // Create user account
-      const userResult = await client.query(`
-        INSERT INTO users (phone, name, email, gender, address, birthday, role, registered_at)
-        VALUES ($1, $2, $3, $4, $5, TO_DATE($6, 'DD-MM-YYYY'), 'DOCTOR', NOW())
-        RETURNING id, uid, phone, name, email, gender, address, birthday, role, registered_at
-      `, [
-        phone,
-        doctorData.name,
-        doctorData.email,
-        doctorData.gender,
-        doctorData.address,
-        doctorData.birthday
-      ]);
-      
-      const userId = userResult[0].id;
-      
-      // Create doctor profile
-      const doctorResult = await client.query(`
-        INSERT INTO doctors (
-          user_id, specialization, department, experience_years, consultation_fee,
-          available_days, available_hours, bio, education, certifications,
-          is_available, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, NOW())
-        RETURNING id, user_id, specialization, department, experience_years, consultation_fee, available_days, available_hours, bio, education, certifications, is_available, created_at
-      `, [
-        userId,
-        doctorData.specialization,
-        doctorData.department,
-        doctorData.experience_years || 0,
-        doctorData.consultation_fee,
-        doctorData.available_days,
-        doctorData.available_hours,
-        doctorData.bio,
-        doctorData.education,
-        doctorData.certifications
-      ]);
-      
-      await client.query('COMMIT');
-      
+
+      // Insert doctor record using actual table schema
+      const rows = await prisma.$queryRaw`
+        INSERT INTO doctors (name, department, specialty, intro, is_available, is_active, created_at, updated_at)
+        VALUES (
+          ${name},
+          ${department},
+          ${specialization || null},
+          ${doctorData.intro || null},
+          true,
+          true,
+          NOW(),
+          NOW()
+        )
+        RETURNING id, name, department, specialty, intro, image_url, is_available, is_active, created_at
+      `;
+
+      logger.info(`Doctor created: ${name} (${department})`);
+
       return {
-        user: userResult[0],
-        doctor_profile: doctorResult[0]
+        user: { name, phone: phone || null, email: email || null },
+        doctor_profile: rows[0]
       };
     } catch (error) {
-      await client.query('ROLLBACK');
       logger.error('Error creating doctor account:', error);
       throw error;
-    } finally {
-      client.release();
     }
   }
 
