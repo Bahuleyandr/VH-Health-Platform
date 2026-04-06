@@ -205,6 +205,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     if (picked != null) {
       _selectedBirthday = picked;
       _birthdayController.text =
+          // ignore: use_build_context_synchronously
           MaterialLocalizations.of(context).formatMediumDate(picked);
       setState(() {});
     }

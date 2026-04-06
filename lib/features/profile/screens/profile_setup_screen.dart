@@ -110,7 +110,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   await storage.write(key: 'user_name', value: _nameController.text.trim());
   await storage.write(key: 'isNewUser', value: 'false');
   AppRouter.setUserData(widget.phone, _nameController.text.trim());
-  context.go('/home');
+  if (mounted) context.go('/home'); // ignore: use_build_context_synchronously
 }
     if (mounted) setState(() => _isSubmitting = false);
   }

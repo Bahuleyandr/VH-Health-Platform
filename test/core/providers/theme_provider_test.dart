@@ -198,7 +198,7 @@ void main() {
       await provider.setDynamicAccentColor(Colors.blue);
 
       final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getInt('accent_color'), Colors.blue.value);
+      expect(prefs.getInt('accent_color'), Colors.blue.toARGB32());
     });
 
     test('setDynamicAccentColor(null) removes from SharedPreferences', () async {
@@ -308,13 +308,13 @@ void main() {
 
     test('loads persisted accent color on startup', () async {
       SharedPreferences.setMockInitialValues({
-        'accent_color': Colors.orange.value,
+        'accent_color': Colors.orange.toARGB32(),
       });
 
       final provider = ThemeProvider();
       await Future<void>.delayed(Duration.zero);
 
-      expect(provider.dynamicAccentColor, Color(Colors.orange.value));
+      expect(provider.dynamicAccentColor, Color(Colors.orange.toARGB32()));
     });
   });
 }

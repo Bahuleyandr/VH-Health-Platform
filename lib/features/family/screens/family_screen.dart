@@ -224,7 +224,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: _members.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          separatorBuilder: (_, _) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
             return _FamilyMemberCard(
               member: _members[index],
@@ -487,7 +487,7 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
 
             // Relationship
             DropdownButtonFormField<String>(
-              value: _relationship,
+              initialValue: _relationship,
               decoration: const InputDecoration(
                 labelText: 'Relationship',
                 prefixIcon: Icon(Icons.people_outline),

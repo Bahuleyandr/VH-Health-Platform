@@ -2,10 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl/intl.dart';
-import 'package:provider/provider.dart';
-
 import 'package:vhhealth/core/services/api_client.dart';
-import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 
 class VitalsScreen extends StatefulWidget {
@@ -466,7 +463,7 @@ class _VitalsHistoryTabState extends State<_VitalsHistoryTab> {
       child: ListView.separated(
         padding: const EdgeInsets.all(16),
         itemCount: _entries.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        separatorBuilder: (_, _) => const SizedBox(height: 12),
         itemBuilder: (context, index) {
           final entry = _entries[index];
           return _VitalEntryCard(entry: entry);

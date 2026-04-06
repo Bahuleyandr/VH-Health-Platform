@@ -366,7 +366,7 @@ class _MyAbhaTabState extends State<_MyAbhaTab> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: _gender,
+              initialValue: _gender,
               decoration: const InputDecoration(
                 labelText: 'Gender *',
                 prefixIcon: Icon(Icons.wc),

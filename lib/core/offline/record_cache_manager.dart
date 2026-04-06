@@ -1,9 +1,6 @@
 // lib/core/offline/record_cache_manager.dart
 
-import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
 
 /// Manages offline caching of medical record manifests.
@@ -11,15 +8,6 @@ import 'package:vhhealth/core/offline/api_cache_manager.dart';
 /// Data at rest is encrypted using the same AES-256-GCM pattern as
 /// [ApiCacheManager] to protect PHI stored on the device.
 class RecordCacheManager {
-  static Future<String> _getCacheDirPath() async {
-    final dir = await getApplicationDocumentsDirectory();
-    final cacheDir = Directory('${dir.path}/vhhealth/records');
-    if (!await cacheDir.exists()) {
-      await cacheDir.create(recursive: true);
-    }
-    return cacheDir.path;
-  }
-
   static Future<void> saveManifest(String phone, List<dynamic> data) async {
     try {
       // Encrypt via ApiCacheManager's shared encryption

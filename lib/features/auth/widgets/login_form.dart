@@ -143,6 +143,7 @@ if (targetRoute == '/profile-setup') {
       if (kDebugMode) {
         developer.log('❌ Error in OTP success handler: $e', name: 'Auth');
       }
+      if (!mounted) return;
       _showSnackBar(
         "Login completed but navigation failed. Please restart the app.",
         Theme.of(context).colorScheme.error,
