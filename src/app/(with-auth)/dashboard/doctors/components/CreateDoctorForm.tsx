@@ -23,11 +23,13 @@ export function CreateDoctorForm({
     setError("");
 
     const formData = new FormData(e.currentTarget);
+    const selectedDays = formData.getAll("available_days") as string[];
     const data = {
       name: formData.get("name") as string,
       department: formData.get("department") as string,
       specialization: formData.get("specialization") as string,
-      consultation_fee: parseInt(formData.get("consultation_fee") as string) || undefined,
+      consultation_fee: parseFloat(formData.get("consultation_fee") as string) || undefined,
+      available_days: selectedDays.length > 0 ? selectedDays : undefined,
     };
 
     // Basic validation
@@ -137,18 +139,38 @@ export function CreateDoctorForm({
               htmlFor="consultation_fee"
               className="block text-sm font-medium text-foreground mb-1"
             >
-              Consultation Fee (₹) *
+              Consultation Fee (₹)
             </label>
             <input
               type="number"
               id="consultation_fee"
               name="consultation_fee"
-              required
               min="0"
+              step="0.01"
               className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
               disabled={loading}
               placeholder="500"
             />
+          </div>
+
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-foreground mb-2">
+              Available Days
+            </label>
+            <div className="flex flex-wrap gap-3">
+              {["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map((day) => (
+                <label key={day} className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="available_days"
+                    value={day}
+                    disabled={loading}
+                    className="rounded border-input"
+                  />
+                  <span className="text-sm text-foreground">{day.slice(0, 3)}</span>
+                </label>
+              ))}
+            </div>
           </div>
         </div>
       </div>
