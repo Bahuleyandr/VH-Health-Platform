@@ -61,8 +61,8 @@ updateProfile: [
   body('specialization').optional().notEmpty().withMessage('Specialization cannot be empty'),
   body('department')
     .optional()
-    .isIn(DOCTOR_CONFIG.DEPARTMENTS)
-    .withMessage('Valid department is required'),
+    .notEmpty()
+    .withMessage('Department cannot be empty'),
   body('experience_years')
     .optional()
     .isInt({ min: 0, max: 50 })

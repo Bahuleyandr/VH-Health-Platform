@@ -120,42 +120,53 @@ export const adminDoctorController = {
 
       const { id } = req.params;
 
-      // Verify doctor exists
+      // Verify doctor exists — also accepts doctors with no user row (legacy)
       const doctorCheck = await prisma.$queryRawUnsafe(
-        'SELECT u.name FROM users u JOIN doctors d ON u.id = d.user_id WHERE u.id = $1 AND u.role = $2', id, 'DOCTOR');
+        'SELECT d.id, COALESCE(u.name, d.name) as name FROM doctors d LEFT JOIN users u ON u.id = d.user_id WHERE (d.user_id = $1 OR d.id = $1) AND d.is_active = true',
+        parseInt(id)
+      );
 
       if (doctorCheck.length === 0) {
         return error(res, 'Doctor not found', 404);
       }
 
+      const doctorId = doctorCheck[0].id;
+
+      // Update doctors table (use actual column names: specialty not specialization)
       const result = await prisma.$queryRawUnsafe(`
         UPDATE doctors SET
-          specialization = COALESCE($1, specialization),
-          department = COALESCE($2, department),
-          experience_years = COALESCE($3, experience_years),
+          name = COALESCE($1, name),
+          specialty = COALESCE($2, specialty),
+          department = COALESCE($3, department),
           consultation_fee = COALESCE($4, consultation_fee),
           available_days = COALESCE($5, available_days),
-          available_hours = COALESCE($6, available_hours),
-          bio = COALESCE($7, bio),
-          education = COALESCE($8, education),
-          certifications = COALESCE($9, certifications),
-          is_available = COALESCE($10, is_available),
+          available_hours = COALESCE($6::jsonb, available_hours),
+          intro = COALESCE($7, intro),
           updated_at = NOW()
-        WHERE user_id = $11
-        RETURNING id, name, department, intro, image_url, is_active, created_at
+        WHERE id = $8
+        RETURNING id, name, department, specialty, intro, image_url, consultation_fee, available_days, is_available, is_active, created_at
       `, [
-        req.body.specialization,
-        req.body.department,
-        req.body.experience_years,
-        req.body.consultation_fee,
-        req.body.available_days,
-        req.body.available_hours,
-        req.body.bio,
-        req.body.education,
-        req.body.certifications,
-        req.body.is_available,
-        id
+        req.body.name || null,
+        req.body.specialization || null,
+        req.body.department || null,
+        req.body.consultation_fee != null ? parseFloat(req.body.consultation_fee) : null,
+        req.body.available_days || null,
+        req.body.available_hours ? JSON.stringify(req.body.available_hours) : null,
+        req.body.bio || null,
+        doctorId
       ]);
+
+      // Also update users table for name/email/phone if user row exists
+      if (req.body.email || req.body.phone || req.body.name) {
+        await prisma.$queryRawUnsafe(`
+          UPDATE users SET
+            name = COALESCE($1, name),
+            email = COALESCE($2, email),
+            phone = COALESCE($3, phone),
+            updated_at = NOW()
+          WHERE id = (SELECT user_id FROM doctors WHERE id = $4) AND user_id IS NOT NULL
+        `, req.body.name || null, req.body.email || null, req.body.phone || null, doctorId);
+      }
 
       logger.info(`[adminDoctorRoutes] Doctor profile updated: ${id} by ${req.user?.uid}`);
 
