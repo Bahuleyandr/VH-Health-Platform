@@ -217,8 +217,7 @@ export const updateDepartment = async (req, res) => {
       return error(res, DEPARTMENT_MESSAGES.HEAD_DOCTOR_NOT_FOUND, HTTP_STATUS.NOT_FOUND);
     }
     
-    // Include actual error for debugging (remove in prod)
-    error(res, `Failed to update department: ${err.message}`, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(res, 'Failed to update department', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
