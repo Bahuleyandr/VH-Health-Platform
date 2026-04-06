@@ -354,6 +354,7 @@ function LogsTab() {
                           {log.photo_url && (
                             <div>
                               <a href={log.photo_url} target="_blank" rel="noreferrer" className="inline-block">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img src={log.photo_url} alt="Cleaning evidence" className="max-h-40 rounded border" />
                               </a>
                             </div>
@@ -808,6 +809,7 @@ function DetailPanel({
             <div>
               <div className="text-xs font-medium text-gray-500 mb-1">Problem Photo</div>
               <a href={req.photo_url} target="_blank" rel="noreferrer">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={req.photo_url} alt="Problem" className="max-h-48 rounded border w-full object-cover" />
               </a>
             </div>
@@ -822,6 +824,7 @@ function DetailPanel({
                 <div>
                   <div className="text-xs font-medium text-gray-500 mb-1">Completion Photo</div>
                   <a href={req.completion_photo_url} target="_blank" rel="noreferrer">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={req.completion_photo_url} alt="Completion" className="max-h-48 rounded border w-full object-cover" />
                   </a>
                 </div>

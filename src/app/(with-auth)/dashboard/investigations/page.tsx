@@ -689,7 +689,7 @@ function LabBookingsTab() {
       ]);
       setSla(slaData);
       setBookings(Array.isArray(queueData) ? queueData : []);
-    } catch (e) {
+    } catch {
       toast.error("Failed to load lab bookings");
     } finally {
       setLoading(false);
@@ -706,7 +706,7 @@ function LabBookingsTab() {
       await confirmBooking(id, { confirmation_notes: notes || undefined });
       toast.success("Booking confirmed");
       await fetchData();
-    } catch (e) {
+    } catch {
       toast.error("Failed to confirm");
     } finally {
       setActionLoading(null);
@@ -721,7 +721,7 @@ function LabBookingsTab() {
       await dispatchCollectorBooking(id, { collector_phone: phone || undefined });
       toast.success("Collector dispatched");
       await fetchData();
-    } catch (e) {
+    } catch {
       toast.error("Failed to dispatch");
     } finally {
       setActionLoading(null);
@@ -734,7 +734,7 @@ function LabBookingsTab() {
       await markBookingCollected(id);
       toast.success("Samples collected");
       await fetchData();
-    } catch (e) {
+    } catch {
       toast.error("Failed to update");
     } finally {
       setActionLoading(null);
@@ -747,7 +747,7 @@ function LabBookingsTab() {
       await startBookingProcessing(id);
       toast.success("Processing started");
       await fetchData();
-    } catch (e) {
+    } catch {
       toast.error("Failed to update");
     } finally {
       setActionLoading(null);
@@ -767,7 +767,7 @@ function LabBookingsTab() {
         await uploadBookingResult(id, file, notes);
         toast.success("Result uploaded");
         await fetchData();
-      } catch (e) {
+      } catch {
         toast.error("Upload failed");
       } finally {
         setActionLoading(null);

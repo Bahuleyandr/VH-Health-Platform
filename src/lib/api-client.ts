@@ -8,7 +8,6 @@ import { API_BASE_URL, API_ENDPOINTS } from "./api-config";
 import {
   getJSON,
   postJSON,
-  loginAdmin as apiLoginAdmin,
   APIError,
 } from "./api";
 import { StoredAdminUserSchema } from "./schemas";

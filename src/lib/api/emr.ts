@@ -1,5 +1,4 @@
 import { getJSON, postJSON, putJSON } from './core';
-import { API_ENDPOINTS } from '../api-config';
 
 // Types
 export interface Admission {

@@ -142,6 +142,7 @@ export default function DevicesPage() {
 
   // Remove device mutation
   const removeMutation = useMutation({
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     mutationFn: async (_deviceId: string) => {
       throw new Error("Device deletion is not supported by the current backend API");
     },

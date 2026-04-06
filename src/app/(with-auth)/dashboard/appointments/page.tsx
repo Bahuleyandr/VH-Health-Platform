@@ -475,7 +475,7 @@ function PrescriptionsTab() {
   const [prescriptions, setPrescriptions] = useState<EPrescription[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<EPrescription | null>(null);
-  const [filterDoctor, setFilterDoctor] = useState("");
+  const [filterDoctor] = useState("");
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
 
@@ -491,7 +491,7 @@ function PrescriptionsTab() {
       const raw = Array.isArray(res) ? res : (isObj(res) ? ((res as Record<string,unknown>).prescriptions ?? (res as Record<string,unknown>).data ?? res) : []);
       const data = Array.isArray(raw) ? (raw as EPrescription[]) : [];
       setPrescriptions(data);
-    } catch (e) {
+    } catch {
       toast.error("Failed to load prescriptions");
     } finally {
       setLoading(false);
@@ -823,8 +823,6 @@ function DoctorQueueTab() {
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [queue, setQueue] = useState<AppointmentWorkflow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [walked, setWalkedIn] = useState(false);
-
   const load = async () => {
     if (!doctorId) { toast.error("Enter a doctor ID"); return; }
     setLoading(true);
