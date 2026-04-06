@@ -38,7 +38,7 @@ class AboutScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
+                const Text(
                   'Version 1.0.0',
                   style: TextStyle(
                     fontSize: 14,
@@ -65,7 +65,7 @@ class AboutScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Text(
+                  const Text(
                     'A hospital staff management app by VH Health. '
                     'Manage attendance, leave, appointments, and more — '
                     'all from your mobile device.',
@@ -151,19 +151,19 @@ class AboutScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  ListTile(
+                  const ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.email_outlined,
+                    leading: Icon(Icons.email_outlined,
                         color: AppTheme.primaryBlue),
-                    title: const Text('Email'),
-                    subtitle: const Text('support@vhhealth.in'),
+                    title: Text('Email'),
+                    subtitle: Text('support@vhhealth.in'),
                   ),
-                  ListTile(
+                  const ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.language,
+                    leading: Icon(Icons.language,
                         color: AppTheme.primaryBlue),
-                    title: const Text('Website'),
-                    subtitle: const Text('www.vhhealth.in'),
+                    title: Text('Website'),
+                    subtitle: Text('www.vhhealth.in'),
                   ),
                 ],
               ),
@@ -171,7 +171,7 @@ class AboutScreen extends StatelessWidget {
           ),
           const SizedBox(height: 24),
 
-          Center(
+          const Center(
             child: Text(
               '© 2026 VH Health. All rights reserved.',
               style: TextStyle(
@@ -219,7 +219,7 @@ class _FeatureItem extends StatelessWidget {
                 ),
                 Text(
                   description,
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: AppTheme.textSecondary,
                     fontSize: 12,
                   ),

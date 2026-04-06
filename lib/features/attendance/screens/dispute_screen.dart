@@ -138,7 +138,7 @@ class _DisputeScreenState extends State<DisputeScreen> with SingleTickerProvider
           const Text('Issue Type', style: TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-            initialValue: _disputeType,
+            value: _disputeType,
             decoration: const InputDecoration(border: OutlineInputBorder()),
             items: disputeTypes.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))).toList(),
             onChanged: (v) => setState(() => _disputeType = v!),
@@ -199,14 +199,16 @@ class _DisputeScreenState extends State<DisputeScreen> with SingleTickerProvider
 
   Widget _buildMyDisputesTab() {
     if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_myDisputes.isEmpty) return Center(child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(Icons.check_circle_outline, size: 48, color: Colors.grey.shade400),
-        const SizedBox(height: 8),
-        Text('No disputes filed', style: TextStyle(color: Colors.grey.shade600)),
-      ],
-    ));
+    if (_myDisputes.isEmpty) {
+      return Center(child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.check_circle_outline, size: 48, color: Colors.grey.shade400),
+          const SizedBox(height: 8),
+          Text('No disputes filed', style: TextStyle(color: Colors.grey.shade600)),
+        ],
+      ));
+    }
 
     return ListView.builder(
       padding: const EdgeInsets.all(8),

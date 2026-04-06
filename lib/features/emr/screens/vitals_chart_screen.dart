@@ -638,7 +638,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
+            const Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
             const SizedBox(height: 12),
             Text(_vitalsError!, textAlign: TextAlign.center),
             const SizedBox(height: 12),
@@ -763,7 +763,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
+            const Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
             const SizedBox(height: 12),
             Text(_ioError!, textAlign: TextAlign.center),
             const SizedBox(height: 12),

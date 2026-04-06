@@ -102,19 +102,19 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
                       const SizedBox(height: 20),
 
                       // Attendance overview
-                      _SectionTitle('Attendance Overview'),
+                      const _SectionTitle('Attendance Overview'),
                       const SizedBox(height: 10),
                       _buildAttendanceCard(),
                       const SizedBox(height: 20),
 
                       // Leave summary
-                      _SectionTitle('Leave Summary'),
+                      const _SectionTitle('Leave Summary'),
                       const SizedBox(height: 10),
                       _buildLeaveCard(),
                       const SizedBox(height: 20),
 
                       // Quick actions
-                      _SectionTitle('Quick Actions'),
+                      const _SectionTitle('Quick Actions'),
                       const SizedBox(height: 10),
                       _buildQuickActions(context),
                     ],

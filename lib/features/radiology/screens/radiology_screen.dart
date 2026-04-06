@@ -275,13 +275,13 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Icon(Icons.person, size: 14, color: AppTheme.textSecondary),
+                  const Icon(Icons.person, size: 14, color: AppTheme.textSecondary),
                   const SizedBox(width: 4),
                   Text(displayUid,
                       style: const TextStyle(
                           fontSize: 12, color: AppTheme.textSecondary)),
                   const SizedBox(width: 16),
-                  Icon(Icons.accessibility_new,
+                  const Icon(Icons.accessibility_new,
                       size: 14, color: AppTheme.textSecondary),
                   const SizedBox(width: 4),
                   Text(o['body_part']?.toString() ?? '-',
@@ -323,7 +323,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
   }
 
   void _showDetailSheet(Map<String, dynamic> o) {
-    final status = o['status']?.toString()?.toLowerCase();
+    final status = o['status']?.toString().toLowerCase();
     final id = o['id'] as int?;
 
     showModalBottomSheet(

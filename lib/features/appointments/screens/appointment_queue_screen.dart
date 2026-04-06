@@ -264,9 +264,11 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
         _loadQueue();
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
@@ -312,9 +314,11 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
         _promptUploadPrescription(appt);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
@@ -349,10 +353,10 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
   }
 
   void _showUploadDocSheet(Map<String, dynamic> appt) {
-    String _docType = 'prescription';
-    final _docTypes = ['prescription', 'lab_report', 'radiology', 'other'];
+    String docType = 'prescription';
+    final docTypes = ['prescription', 'lab_report', 'radiology', 'other'];
     final notesCtrl = TextEditingController();
-    File? _pickedFile;
+    File? pickedFile;
 
     showModalBottomSheet(
       context: context,
@@ -374,13 +378,13 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                   style: Theme.of(ctx).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                initialValue: _docType,
+                value: docType,
                 decoration: const InputDecoration(labelText: 'Document Type', border: OutlineInputBorder()),
-                items: _docTypes.map((t) => DropdownMenuItem(
+                items: docTypes.map((t) => DropdownMenuItem(
                   value: t,
                   child: Text(t.replaceAll('_', ' ').toUpperCase()),
                 )).toList(),
-                onChanged: (v) => setSheet(() => _docType = v ?? _docType),
+                onChanged: (v) => setSheet(() => docType = v ?? docType),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -393,11 +397,11 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                 Expanded(
                   child: OutlinedButton.icon(
                     icon: const Icon(Icons.attach_file),
-                    label: Text(_pickedFile == null ? 'Pick File' : _pickedFile!.path.split('/').last),
+                    label: Text(pickedFile == null ? 'Pick File' : pickedFile!.path.split('/').last),
                     onPressed: () async {
                       final picker = ImagePicker();
                       final picked = await picker.pickImage(source: ImageSource.gallery);
-                      if (picked != null) setSheet(() => _pickedFile = File(picked.path));
+                      if (picked != null) setSheet(() => pickedFile = File(picked.path));
                     },
                   ),
                 ),
@@ -409,7 +413,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                     onPressed: () async {
                       final picker = ImagePicker();
                       final picked = await picker.pickImage(source: ImageSource.camera);
-                      if (picked != null) setSheet(() => _pickedFile = File(picked.path));
+                      if (picked != null) setSheet(() => pickedFile = File(picked.path));
                     },
                   ),
                 ),
@@ -422,23 +426,27 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                     backgroundColor: AppTheme.primaryTeal,
                     foregroundColor: Colors.white,
                   ),
-                  onPressed: _pickedFile == null ? null : () async {
+                  onPressed: pickedFile == null ? null : () async {
                     Navigator.pop(ctx);
                     try {
                       await ScheduleApiService.uploadAppointmentDocument(
                         appt['id'],
-                        _pickedFile!.path,
-                        _docType,
+                        pickedFile!.path,
+                        docType,
                         notes: notesCtrl.text.trim().isEmpty ? null : notesCtrl.text.trim(),
-                        fileName: _pickedFile!.path.split('/').last,
+                        fileName: pickedFile!.path.split('/').last,
                       );
-                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Document uploaded ✓'), backgroundColor: Colors.green),
-                      );
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Document uploaded ✓'), backgroundColor: Colors.green),
+                        );
+                      }
                     } catch (e) {
-                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red),
-                      );
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red),
+                        );
+                      }
                     }
                   },
                   child: const Text('Upload Document'),
@@ -740,7 +748,7 @@ class _QueueCardState extends State<_QueueCard> {
                       ),
                       alignment: Alignment.center,
                       child: Text('#$tokenNum',
-                          style: TextStyle(color: AppTheme.primaryTeal, fontWeight: FontWeight.bold)),
+                          style: const TextStyle(color: AppTheme.primaryTeal, fontWeight: FontWeight.bold)),
                     ),
                   if (tokenNum != null) const SizedBox(width: 10),
                   Expanded(

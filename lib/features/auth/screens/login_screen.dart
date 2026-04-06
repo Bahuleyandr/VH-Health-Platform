@@ -161,7 +161,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                         ),
                         const SizedBox(height: 4),
-                        Text(
+                        const Text(
                           'Use your employee credentials to access the portal',
                           style: TextStyle(color: AppTheme.textSecondary),
                         ),
@@ -281,7 +281,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             GestureDetector(
                               onTap: () =>
                                   setState(() => _rememberMe = !_rememberMe),
-                              child: Text(
+                              child: const Text(
                                 'Remember Employee ID',
                                 style: TextStyle(
                                   color: AppTheme.textSecondary,
@@ -342,7 +342,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         const SizedBox(height: 32),
 
                         // Footer
-                        Center(
+                        const Center(
                           child: Text(
                             'VHHealth · Staff Access Only',
                             style: TextStyle(

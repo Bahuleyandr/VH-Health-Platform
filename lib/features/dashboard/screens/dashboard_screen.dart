@@ -476,69 +476,69 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final actions = <_QuickAction>[];
 
     // Everyone gets attendance
-    actions.add(_QuickAction(
+    actions.add(const _QuickAction(
       icon: Icons.fingerprint,
       label: 'Check In/Out',
       route: '/attendance',
-      color: const Color(0xFF1565C0),
+      color: Color(0xFF1565C0),
     ));
 
     // Schedule for all
-    actions.add(_QuickAction(
+    actions.add(const _QuickAction(
       icon: Icons.schedule,
       label: 'Shift Schedule',
       route: '/schedule',
-      color: const Color(0xFF00838F),
+      color: Color(0xFF00838F),
     ));
 
     // Messages for all
-    actions.add(_QuickAction(
+    actions.add(const _QuickAction(
       icon: Icons.chat_outlined,
       label: 'Messages',
       route: '/messaging',
-      color: const Color(0xFF1565C0),
+      color: Color(0xFF1565C0),
     ));
 
     // Role-specific
     if (_role == StaffRole.doctor) {
-      actions.add(_QuickAction(
+      actions.add(const _QuickAction(
         icon: Icons.medication_liquid,
         label: 'Prescriptions',
         route: '/prescriptions',
-        color: const Color(0xFF00838F),
+        color: Color(0xFF00838F),
       ));
-      actions.add(_QuickAction(
+      actions.add(const _QuickAction(
         icon: Icons.biotech,
         label: 'Investigations',
         route: '/investigations',
-        color: const Color(0xFF0097A7),
+        color: Color(0xFF0097A7),
       ));
     } else if (_role == StaffRole.nurse) {
-      actions.add(_QuickAction(
+      actions.add(const _QuickAction(
         icon: Icons.monitor_heart,
         label: 'Vitals',
         route: '/vitals',
-        color: const Color(0xFFC62828),
+        color: Color(0xFFC62828),
       ));
-      actions.add(_QuickAction(
+      actions.add(const _QuickAction(
         icon: Icons.swap_horiz,
         label: 'Handover',
         route: '/handover',
-        color: const Color(0xFF00695C),
+        color: Color(0xFF00695C),
       ));
     } else if (_role == StaffRole.pharmacy) {
-      actions.add(_QuickAction(
+      actions.add(const _QuickAction(
         icon: Icons.medication,
         label: 'Pharmacy',
         route: '/pharmacy',
-        color: const Color(0xFFE65100),
+        color: Color(0xFFE65100),
       ));
     } else if (_role == StaffRole.lab) {
-      actions.add(_QuickAction(
+      actions.add(const _QuickAction(
         icon: Icons.upload_file,
         label: 'Upload Results',
         route: '/investigations',
-        color: const Color(0xFF0097A7),
+        color: Color(0xFF0097A7),
       ));
     }
 

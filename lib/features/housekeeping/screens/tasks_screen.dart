@@ -16,7 +16,7 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   // ignore: unused_field
-  bool _loading = false;
+  final bool _loading = false;
 
   // Placeholder tasks — will be replaced by API data
   final List<_Task> _tasks = [
@@ -301,7 +301,7 @@ class _TaskCard extends StatelessWidget {
                       const SizedBox(height: 2),
                       Row(
                         children: [
-                          Icon(Icons.location_on_outlined,
+                          const Icon(Icons.location_on_outlined,
                               size: 12, color: AppTheme.textSecondary),
                           const SizedBox(width: 2),
                           Text(task.location,
@@ -309,7 +309,7 @@ class _TaskCard extends StatelessWidget {
                                   fontSize: 12,
                                   color: AppTheme.textSecondary)),
                           const SizedBox(width: 12),
-                          Icon(Icons.schedule_outlined,
+                          const Icon(Icons.schedule_outlined,
                               size: 12, color: AppTheme.textSecondary),
                           const SizedBox(width: 2),
                           Text(task.dueTime,

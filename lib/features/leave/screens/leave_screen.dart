@@ -289,7 +289,7 @@ class _LeaveScreenState extends State<LeaveScreen>
               style: TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-            initialValue: _leaveType,
+            value: _leaveType,
             decoration: const InputDecoration(border: OutlineInputBorder()),
             items: leaveTypes
                 .map((t) => DropdownMenuItem(
@@ -320,7 +320,7 @@ class _LeaveScreenState extends State<LeaveScreen>
               padding: const EdgeInsets.only(top: 6),
               child: Text(
                 '${_endDate!.difference(_startDate!).inDays + 1} day(s)',
-                style: TextStyle(color: AppTheme.primaryBlue, fontSize: 12),
+                style: const TextStyle(color: AppTheme.primaryBlue, fontSize: 12),
               ),
             ),
           const SizedBox(height: 16),

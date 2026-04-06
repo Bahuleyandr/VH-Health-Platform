@@ -623,7 +623,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
       builder: (ctx) => AlertDialog(
         title: Row(
           children: [
-            Icon(Icons.warning_amber, color: AppTheme.warningAmber),
+            const Icon(Icons.warning_amber, color: AppTheme.warningAmber),
             const SizedBox(width: 8),
             const Text('Clinical Alerts'),
           ],
@@ -743,7 +743,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.error_outline,
+                      const Icon(Icons.error_outline,
                           size: 48, color: AppTheme.errorRed),
                       const SizedBox(height: 12),
                       Text(_error!, textAlign: TextAlign.center),
@@ -766,7 +766,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(Icons.receipt_long,
+                                  const Icon(Icons.receipt_long,
                                       size: 64, color: AppTheme.divider),
                                   const SizedBox(height: 12),
                                   const Text(
@@ -872,7 +872,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                             const SizedBox(height: 4),
                                             Row(
                                               children: [
-                                                Icon(Icons.person_outline,
+                                                const Icon(Icons.person_outline,
                                                     size: 13,
                                                     color: AppTheme
                                                         .textSecondary),

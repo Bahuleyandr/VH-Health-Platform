@@ -206,10 +206,12 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                     prefixIcon: Icon(Icons.phone_outlined),
                   ),
                   validator: (v) {
-                    if (v == null || v.trim().isEmpty)
+                    if (v == null || v.trim().isEmpty) {
                       return 'Phone is required';
-                    if (v.trim().length < 10)
+                    }
+                    if (v.trim().length < 10) {
                       return 'Enter valid phone number';
+                    }
                     return null;
                   },
                 ),
@@ -217,7 +219,7 @@ class _AddNoteTabState extends State<_AddNoteTab> {
 
                 // Note type
                 DropdownButtonFormField<String>(
-                  initialValue: _noteType,
+                  value: _noteType,
                   decoration: const InputDecoration(
                     labelText: 'Note Type',
                     prefixIcon: Icon(Icons.category_outlined),
@@ -297,10 +299,12 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                   ),
                   maxLines: 6,
                   validator: (v) {
-                    if (v == null || v.trim().isEmpty)
+                    if (v == null || v.trim().isEmpty) {
                       return 'Note is required';
-                    if (v.trim().length < 10)
+                    }
+                    if (v.trim().length < 10) {
                       return 'Note is too short';
+                    }
                     return null;
                   },
                 ),

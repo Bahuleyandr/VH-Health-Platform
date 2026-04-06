@@ -121,7 +121,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
+            const Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
             const SizedBox(height: 12),
             Text(error, textAlign: TextAlign.center),
             const SizedBox(height: 12),
@@ -139,10 +139,10 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.note_alt_outlined, size: 64, color: AppTheme.divider),
+            const Icon(Icons.note_alt_outlined, size: 64, color: AppTheme.divider),
             const SizedBox(height: 12),
             Text(
-              'No ${type} notes found',
+              'No $type notes found',
               style: const TextStyle(color: AppTheme.textSecondary),
             ),
           ],
@@ -190,7 +190,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                     const SizedBox(height: 6),
                     Row(
                       children: [
-                        Icon(Icons.person_outline,
+                        const Icon(Icons.person_outline,
                             size: 14, color: AppTheme.textSecondary),
                         const SizedBox(width: 4),
                         Text(
@@ -201,7 +201,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                           ),
                         ),
                         const SizedBox(width: 12),
-                        Icon(Icons.access_time,
+                        const Icon(Icons.access_time,
                             size: 14, color: AppTheme.textSecondary),
                         const SizedBox(width: 4),
                         Text(

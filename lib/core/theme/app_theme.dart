@@ -33,18 +33,18 @@ class AppTheme {
       colorScheme: colorScheme,
       scaffoldBackgroundColor: backgroundGrey,
       fontFamily: 'Roboto',
-      appBarTheme: AppBarTheme(
+      appBarTheme: const AppBarTheme(
         elevation: 0,
         centerTitle: false,
         backgroundColor: primaryBlue,
         foregroundColor: Colors.white,
-        titleTextStyle: const TextStyle(
+        titleTextStyle: TextStyle(
           fontSize: 20,
           fontWeight: FontWeight.w600,
           color: Colors.white,
           letterSpacing: 0.15,
         ),
-        iconTheme: const IconThemeData(color: Colors.white),
+        iconTheme: IconThemeData(color: Colors.white),
       ),
       cardTheme: CardThemeData(
         elevation: 1,
@@ -143,18 +143,18 @@ class AppTheme {
       colorScheme: colorScheme,
       scaffoldBackgroundColor: darkBackground,
       fontFamily: 'Roboto',
-      appBarTheme: AppBarTheme(
+      appBarTheme: const AppBarTheme(
         elevation: 0,
         centerTitle: false,
         backgroundColor: darkSurface,
         foregroundColor: darkTextPrimary,
-        titleTextStyle: const TextStyle(
+        titleTextStyle: TextStyle(
           fontSize: 20,
           fontWeight: FontWeight.w600,
           color: Color(0xFFE0E0E8),
           letterSpacing: 0.15,
         ),
-        iconTheme: const IconThemeData(color: Color(0xFFE0E0E8)),
+        iconTheme: IconThemeData(color: Color(0xFFE0E0E8)),
       ),
       cardTheme: CardThemeData(
         elevation: 1,

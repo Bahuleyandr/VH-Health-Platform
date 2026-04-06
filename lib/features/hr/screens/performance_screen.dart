@@ -157,7 +157,7 @@ class _AddReviewTabState extends State<_AddReviewTab> {
 
                 // Review period
                 DropdownButtonFormField<String>(
-                  initialValue: _reviewPeriod,
+                  value: _reviewPeriod,
                   decoration: const InputDecoration(
                     labelText: 'Review Period',
                     prefixIcon: Icon(Icons.date_range_outlined),

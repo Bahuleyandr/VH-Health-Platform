@@ -268,7 +268,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
+              const Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
               const SizedBox(height: 16),
               Text(
                 'Failed to load conversation',

@@ -102,6 +102,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _loadProfile();
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(e.toString().replaceFirst('Exception: ', '')),
