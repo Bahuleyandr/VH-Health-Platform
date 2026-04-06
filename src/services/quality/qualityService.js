@@ -9,7 +9,6 @@ const VALID_SEVERITIES = ['minor', 'moderate', 'major', 'sentinel'];
 const VALID_INCIDENT_STATUSES = ['reported', 'investigating', 'action_taken', 'resolved', 'closed'];
 const VALID_INFECTION_SITES = ['surgical_site', 'bloodstream', 'urinary', 'respiratory', 'wound', 'other'];
 const VALID_ISOLATION_TYPES = ['contact', 'droplet', 'airborne', 'protective'];
-const VALID_INFECTION_STATUSES = ['active', 'treated', 'resolved', 'deceased'];
 
 class QualityService {
 

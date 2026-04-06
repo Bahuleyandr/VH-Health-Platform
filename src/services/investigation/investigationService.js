@@ -1,8 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { 
-  INVESTIGATION_STATUS, 
-  INVESTIGATION_TYPES, 
-  PRIORITY_LEVELS,
+  INVESTIGATION_STATUS,
   MEDICAL_STAFF_ROLES,
   LAB_STAFF_ROLES 
 } from '../../config/investigationConfig.js';

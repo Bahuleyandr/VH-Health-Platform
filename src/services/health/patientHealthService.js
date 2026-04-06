@@ -1,7 +1,6 @@
 // src/services/health/patientHealthService.js
 import { TREND_PERIODS } from '../../config/healthConfig.js';
 import prisma from '../../lib/prisma.js';
-import { createPrismaDb } from '../../lib/prismaCompat.js';
 import logger from '../../logging/logger.js';
 
 

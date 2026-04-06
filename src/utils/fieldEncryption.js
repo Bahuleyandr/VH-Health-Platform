@@ -36,7 +36,7 @@ function deriveKey() {
  * @returns {string|null} Encrypted string or null.
  */
 export function encryptField(plaintext) {
-  if (plaintext == null || plaintext === '') return plaintext;
+  if (plaintext === null || plaintext === '') return plaintext;
 
   try {
     const key = deriveKey();
@@ -60,7 +60,7 @@ export function encryptField(plaintext) {
  * @returns {string|null} Decrypted plaintext or null.
  */
 export function decryptField(encryptedValue) {
-  if (encryptedValue == null || encryptedValue === '') return encryptedValue;
+  if (encryptedValue === null || encryptedValue === '') return encryptedValue;
 
   // Not encrypted — return as-is for backwards compatibility
   if (!String(encryptedValue).startsWith(ENCRYPTED_PREFIX)) {
@@ -90,7 +90,7 @@ export function decryptField(encryptedValue) {
  * @returns {boolean}
  */
 export function isEncrypted(value) {
-  return value != null && String(value).startsWith(ENCRYPTED_PREFIX);
+  return value !== null && String(value).startsWith(ENCRYPTED_PREFIX);
 }
 
 /**
@@ -105,7 +105,7 @@ export function encryptFields(data, fieldsToEncrypt) {
   if (!data || typeof data !== 'object') return data;
   const result = { ...data };
   for (const field of fieldsToEncrypt) {
-    if (result[field] != null && result[field] !== '' && !isEncrypted(result[field])) {
+    if (result[field] !== null && result[field] !== '' && !isEncrypted(result[field])) {
       result[field] = encryptField(result[field]);
     }
   }
@@ -123,7 +123,7 @@ export function decryptFields(data, fieldsToDecrypt) {
   if (!data || typeof data !== 'object') return data;
   const result = { ...data };
   for (const field of fieldsToDecrypt) {
-    if (result[field] != null && isEncrypted(result[field])) {
+    if (result[field] !== null && isEncrypted(result[field])) {
       result[field] = decryptField(result[field]);
     }
   }
@@ -139,7 +139,7 @@ export function decryptFields(data, fieldsToDecrypt) {
  * @returns {string} Hex-encoded HMAC hash.
  */
 export function searchableHash(plaintext) {
-  if (plaintext == null) return null;
+  if (plaintext === null) return null;
   const key = deriveKey();
   return crypto.createHmac('sha256', key).update(String(plaintext).toLowerCase().trim()).digest('hex');
 }

@@ -1,6 +1,5 @@
 // src/services/emr/clinicalNotesService.js
 import prisma from '../../lib/prisma.js';
-import { createPrismaDb } from '../../lib/prismaCompat.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 

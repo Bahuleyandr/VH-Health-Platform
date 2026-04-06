@@ -3,7 +3,6 @@ import multer from 'multer';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as orderController from '../../controllers/pharmacy/orderController.js';
 import * as pharmacyOrderController from '../../controllers/pharmacy/pharmacyOrderController.js';
-import * as pharmacyController from '../../controllers/pharmacyController.js';
 import { sanitizePharmacyFields } from '../../middleware/sanitizeMiddleware.js';
 import { validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
 import { 

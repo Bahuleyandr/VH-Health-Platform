@@ -190,7 +190,7 @@ export const emailInvestigationReport = async (investigationId, emailOptions, _s
   const pdfBuffer = await generateInvestigationReport(investigationId);
   const investigation = await getInvestigationWithDetails(investigationId);
 
-  const mailOptions = {
+  const _mailOptions = {
     to: emailOptions.email,
     cc: emailOptions.cc,
     subject: `Investigation Report: ${investigation.test_name}`,

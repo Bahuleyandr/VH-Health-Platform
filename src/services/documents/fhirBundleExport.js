@@ -142,7 +142,7 @@ export async function generatePatientBundle(patientUid) {
     ];
 
     for (const vt of vitalTypes) {
-      if (vt.value != null) {
+      if (vt.value !== null) {
         const obs = fhirAdapter.toFhirObservation({
           id: `${v.id}-${vt.type}`,
           patient_uid: patientUid,

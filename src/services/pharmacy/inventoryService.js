@@ -38,8 +38,7 @@ export const getExpiredMedications = async () => {
 };
 
 export const getExpiringSoonMedications = async (days) => {
-  const now = new Date();
-  const future = new Date();
+    const future = new Date();
   future.setDate(future.getDate() + parseInt(days));
 
   const rows = await prisma.$queryRaw`

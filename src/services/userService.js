@@ -4,7 +4,6 @@ import { HOSPITAL_ROLES } from '../config/userConfig.js';
 import prisma from '../lib/prisma.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import * as userUtils from '../utils/userUtils.js';
-import * as auditService from './userAuditService.js';
 
 /**
  * Create or update user profile

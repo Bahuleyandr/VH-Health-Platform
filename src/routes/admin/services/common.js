@@ -50,7 +50,7 @@ export async function safeScalar(sql, params = [], fallback = 0) {
   try {
     const { rows } = await prisma.$queryRawUnsafe(sql, params);
     const v = rows[0] && Object.values(rows[0])[0];
-    if (v == null || Number.isNaN(Number(v))) return fallback;
+    if (v === null || Number.isNaN(Number(v))) return fallback;
     return Number(v);
   } catch (err) {
     logger.warn(`[admin:scalar] ${err.message}`);

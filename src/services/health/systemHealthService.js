@@ -1,7 +1,6 @@
 // src/services/health/systemHealthService.js
 import { REQUIRED_ENV_VARS, SYSTEM_INFO } from '../../config/healthConfig.js';
 import prisma from '../../lib/prisma.js';
-import { createPrismaDb } from '../../lib/prismaCompat.js';
 import logger from '../../logging/logger.js';
 
 

@@ -28,7 +28,7 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
   const alerts = [];
 
   for (const [vitalName, value] of Object.entries(vitals)) {
-    if (value == null || !VITAL_REFERENCE_RANGES[vitalName]) continue;
+    if (value === null || !VITAL_REFERENCE_RANGES[vitalName]) continue;
 
     const range = VITAL_REFERENCE_RANGES[vitalName];
     const numValue = parseFloat(value);

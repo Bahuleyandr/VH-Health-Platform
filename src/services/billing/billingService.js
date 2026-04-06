@@ -75,7 +75,7 @@ class BillingService {
     if (!items || !Array.isArray(items) || items.length === 0) {
       throw AppError.badRequest('At least one line item is required');
     }
-    if (subtotal == null || total_amount == null) {
+    if (subtotal === null || total_amount === null) {
       throw AppError.badRequest('Subtotal and total_amount are required');
     }
 
