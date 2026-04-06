@@ -278,7 +278,7 @@ export async function listFiles(req, res) {
     const total = await prisma.$queryRawUnsafe(totalQuery, params.slice(2));
 
     // Format dates
-    const formattedFiles = files.rows.map(formatFileResponse);
+    const formattedFiles = files.map(formatFileResponse);
 
     success(res, {
       files: formattedFiles,

@@ -122,9 +122,9 @@ export const getAuditDashboard = async (req, res) => {
     success(res, {
       incidents: incidentSummary[0],
       grievances: grievanceSummary[0],
-      sla_breaches: slaBreaches.rows,
-      recent_activity: recentActivity.rows,
-      unassigned: unassigned.rows,
+      sla_breaches: slaBreaches,
+      recent_activity: recentActivity,
+      unassigned: unassigned,
       sla_config: SLA,
     }, 'Audit dashboard fetched');
   } catch (err) {
@@ -160,8 +160,8 @@ export const getReportAuditTrail = async (req, res) => {
          LEFT JOIN users u3 ON sg.resolved_by = u3.id
          WHERE sg.id = $1`;
 
-    const report = await prisma.$queryRawUnsafe(reportQuery, [id]);
-    if (report.rows.length === 0) return error(res, 'Report not found', HTTP_STATUS.NOT_FOUND);
+    const report = await prisma.$queryRawUnsafe(reportQuery, id);
+    if (report.length === 0) return error(res, 'Report not found', HTTP_STATUS.NOT_FOUND);
 
     // All updates including internal (audit view sees everything)
     const trail = await prisma.$queryRawUnsafe(`
@@ -170,7 +170,7 @@ export const getReportAuditTrail = async (req, res) => {
       LEFT JOIN users u ON ru.author_id = u.id
       WHERE ru.report_type = $1 AND ru.report_id = $2
       ORDER BY ru.created_at ASC
-    `, [type, id]);
+    `, type, id);
 
     // SLA calculation
     const reportData = report[0];
@@ -190,14 +190,14 @@ export const getReportAuditTrail = async (req, res) => {
       resolve_threshold_hours: slaThresholds.resolve,
       hours_open: Math.round(hoursOpen * 10) / 10,
       hours_to_resolve: hoursToResolve ? Math.round(hoursToResolve * 10) / 10 : null,
-      acknowledge_breached: hoursOpen > slaThresholds.acknowledge && trail.rows.filter(r => r.author_role !== 'system' && r.author_role !== 'reporter').length === 0,
+      acknowledge_breached: hoursOpen > slaThresholds.acknowledge && trail.filter(r => r.author_role !== 'system' && r.author_role !== 'reporter').length === 0,
       resolve_breached: !resolvedAt && hoursOpen > slaThresholds.resolve,
       resolved_within_sla: resolvedAt ? hoursToResolve <= slaThresholds.resolve : null,
     };
 
     success(res, {
       report: reportData,
-      audit_trail: trail.rows,
+      audit_trail: trail,
       sla: slaStatus,
     }, 'Audit trail fetched');
   } catch (err) {
@@ -304,9 +304,9 @@ export const getAdminActivityReport = async (req, res) => {
 
     success(res, {
       period_days: parseInt(days),
-      admin_activity: adminActivity.rows,
-      neglected_reports: neglected.rows,
-      resolution_stats: resolutionStats.rows,
+      admin_activity: adminActivity,
+      neglected_reports: neglected,
+      resolution_stats: resolutionStats,
     }, 'Admin activity report fetched');
   } catch (err) {
     logger.error('Admin Activity Report Error:', err);
@@ -353,8 +353,8 @@ export const getSLAReport = async (req, res) => {
 
     success(res, {
       period_days: parseInt(days),
-      incident_sla: incidentSLA.rows,
-      grievance_sla: grievanceSLA.rows,
+      incident_sla: incidentSLA,
+      grievance_sla: grievanceSLA,
       sla_thresholds: SLA,
     }, 'SLA report fetched');
   } catch (err) {

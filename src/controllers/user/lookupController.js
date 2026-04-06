@@ -248,7 +248,7 @@ export class LookupController {
       const result = await prisma.$queryRawUnsafe(query, params);
 
       // Additional privacy filtering for non-admin users
-      const filteredResults = result.rows.map(user => {
+      const filteredResults = result.map(user => {
         if (userRole !== 'ADMIN') {
           // Remove sensitive info for non-admin users
           delete user.last_login;
@@ -382,12 +382,12 @@ export class LookupController {
 
       await logAudit(req, 'user-advanced-search', {
         criteria: { role, registeredAfter, registeredBefore, lastLoginAfter, ageMin, ageMax, department },
-        resultsCount: result.rows.length
+        resultsCount: result.length
       });
 
       success(res, {
-        users: result.rows,
-        totalFound: result.rows.length,
+        users: result,
+        totalFound: result.length,
         searchCriteria: { role, registeredAfter, registeredBefore, lastLoginAfter, ageMin, ageMax, department },
         sorting: { field: sortField, order },
         accessLevel: userRole,
@@ -434,7 +434,7 @@ export class LookupController {
 
       const responseData = {
         overallStats: basicStats[0],
-        roleDistribution: roleDistribution.rows,
+        roleDistribution: roleDistribution,
         accessLevel: userRole,
         generatedAt: new Date().toISOString(),
         requestedBy
@@ -492,10 +492,10 @@ export class LookupController {
         ]);
 
         responseData.detailedStats = {
-          registrationTrends: registrationTrends.rows,
+          registrationTrends: registrationTrends,
           loginActivity: loginActivity[0],
-          ageDistribution: ageDistribution.rows,
-          departmentStats: departmentStats.rows
+          ageDistribution: ageDistribution,
+          departmentStats: departmentStats
         };
       }
 
@@ -535,7 +535,7 @@ export class LookupController {
 
       const result = await prisma.$queryRawUnsafe(query, params);
 
-      if (result.rows.length === 0) {
+      if (result.length === 0) {
         await logAudit(req, 'user-verification-failed', { phone, uid });
         return success(res, {
           verified: false,
@@ -603,12 +603,12 @@ export class LookupController {
         LIMIT $1
       `, [Math.min(parseInt(limit), 100), parseInt(days)]);
 
-      await logAudit(req, 'user-activity-report-viewed', { days, recordCount: recentActivity.rows.length });
+      await logAudit(req, 'user-activity-report-viewed', { days, recordCount: recentActivity.length });
 
       success(res, {
-        recentActivity: recentActivity.rows,
+        recentActivity: recentActivity,
         periodDays: parseInt(days),
-        totalRecords: recentActivity.rows.length,
+        totalRecords: recentActivity.length,
         generatedBy: requestedBy,
         generatedAt: new Date().toISOString()
       }, 'Recent user activity retrieved');
@@ -687,12 +687,12 @@ export class LookupController {
       await logAudit(req, 'user-bulk-search', {
         criteria,
         options,
-        resultsCount: result.rows.length
+        resultsCount: result.length
       });
 
       success(res, {
-        users: result.rows,
-        totalFound: result.rows.length,
+        users: result,
+        totalFound: result.length,
         searchCriteria: criteria,
         searchOptions: options,
         executedBy: requestedBy,

@@ -104,11 +104,9 @@ export async function exportAuditLogs(req, res) {
     const result = await prisma.$queryRawUnsafe(
       `SELECT id, uid, role, action, resource, resource_id, metadata,
         ip_address, user_agent, created_at
-       FROM audit_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
-      [limit, offset]
-    );
+       FROM audit_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`, limit, offset);
 
-    const csv = buildCsv(result.rows, [
+    const csv = buildCsv(result, [
       'id', 'uid', 'role', 'action', 'resource', 'resource_id',
       'metadata', 'ip_address', 'user_agent', 'created_at',
     ]);
@@ -135,10 +133,8 @@ export async function exportSystemLogs(req, res) {
     try {
       const result = await prisma.$queryRawUnsafe(
         `SELECT id, admin_uid, action, description, details, ip_address, created_at
-         FROM admin_activity_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
-        [limit, offset]
-      );
-      rows = result.rows;
+         FROM admin_activity_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`, limit, offset);
+      rows = result;
     } catch {
       logger.warn('[logs] admin_activity_logs table not found; exporting empty system logs');
     }

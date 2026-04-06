@@ -13,7 +13,7 @@ import { ADMIN } from '../../utils/roles.js';
 
 async function getDoctorUserId(uid) {
   try {
-    const result = await prisma.$queryRawUnsafe('SELECT id FROM users WHERE uid = $1::uuid', [uid]);
+    const result = await prisma.$queryRawUnsafe('SELECT id FROM users WHERE uid = $1::uuid', uid);
     return result[0]?.id || null;
   } catch (error) {
     logger.error(`[GetDoctorUserId] ${error.message}`);

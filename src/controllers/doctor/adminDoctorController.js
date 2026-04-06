@@ -122,11 +122,9 @@ export const adminDoctorController = {
 
       // Verify doctor exists
       const doctorCheck = await prisma.$queryRawUnsafe(
-        'SELECT u.name FROM users u JOIN doctors d ON u.id = d.user_id WHERE u.id = $1 AND u.role = $2',
-        [id, 'DOCTOR']
-      );
+        'SELECT u.name FROM users u JOIN doctors d ON u.id = d.user_id WHERE u.id = $1 AND u.role = $2', id, 'DOCTOR');
 
-      if (doctorCheck.rows.length === 0) {
+      if (doctorCheck.length === 0) {
         return error(res, 'Doctor not found', 404);
       }
 
@@ -258,9 +256,7 @@ export const adminDoctorController = {
       const { doctorId } = req.params;
       
       const deleteResult = await prisma.$queryRawUnsafe(
-        'DELETE FROM doctors WHERE id = $1 RETURNING id, name, department, intro, image_url, is_active, created_at',
-        [doctorId]
-      );
+        'DELETE FROM doctors WHERE id = $1 RETURNING id, name, department, intro, image_url, is_active, created_at', doctorId);
       
       if (deleteResult.length === 0) {
         return error(res, 'Doctor not found or already deleted', HTTP_STATUS.NOT_FOUND);

@@ -64,8 +64,8 @@ export const generateSummaryReport = async (req, res) => {
     // Validate permissions
     if (userRole === 'PATIENT') {
       // Patients can only generate their own summary reports
-      const userResult = await prisma.$queryRawUnsafe('SELECT id FROM users WHERE uid = $1', [requestedBy]);
-      if (!userResult.rows.length || userResult[0].id !== parseInt(patient_id)) {
+      const userResult = await prisma.$queryRawUnsafe('SELECT id FROM users WHERE uid = $1', requestedBy);
+      if (!userResult.length || userResult[0].id !== parseInt(patient_id)) {
         return error(res, 'Access denied: Cannot generate reports for other patients', 403);
       }
     }

@@ -100,7 +100,7 @@ export const getAttendanceAuditDashboard = async (req, res) => {
       disputes: disputeSummary[0],
       overtime: overtimeSummary[0],
       geofence: geofenceSummary[0],
-      overdue_items: pendingActions.rows,
+      overdue_items: pendingActions,
       sla_config: ATTENDANCE_SLA,
     }, 'Attendance audit dashboard fetched');
   } catch (err) {
@@ -193,20 +193,20 @@ export const getAttendanceHRActivity = async (req, res) => {
     // Build combined per-person summary
     const actorMap = {};
 
-    for (const row of leaveActions.rows) {
+    for (const row of leaveActions) {
       if (!actorMap[row.id]) actorMap[row.id] = { id: row.id, name: row.name, role: row.role, leave: 0, regularization: 0, disputes: 0, overtime: 0, last_action: null };
       actorMap[row.id].leave = parseInt(row.total);
       if (!actorMap[row.id].last_action || row.last_action > actorMap[row.id].last_action) actorMap[row.id].last_action = row.last_action;
     }
-    for (const row of regularizationActions.rows) {
+    for (const row of regularizationActions) {
       if (!actorMap[row.id]) actorMap[row.id] = { id: row.id, name: row.name, role: row.role, leave: 0, regularization: 0, disputes: 0, overtime: 0, last_action: null };
       actorMap[row.id].regularization = parseInt(row.total);
     }
-    for (const row of disputeActions.rows) {
+    for (const row of disputeActions) {
       if (!actorMap[row.id]) actorMap[row.id] = { id: row.id, name: row.name, role: row.role, leave: 0, regularization: 0, disputes: 0, overtime: 0, last_action: null };
       actorMap[row.id].disputes = parseInt(row.total);
     }
-    for (const row of overtimeActions.rows) {
+    for (const row of overtimeActions) {
       if (!actorMap[row.id]) actorMap[row.id] = { id: row.id, name: row.name, role: row.role, leave: 0, regularization: 0, disputes: 0, overtime: 0, last_action: null };
       actorMap[row.id].overtime = parseInt(row.total);
     }
@@ -216,11 +216,11 @@ export const getAttendanceHRActivity = async (req, res) => {
       actors: Object.values(actorMap).sort((a, b) =>
         (b.leave + b.regularization + b.disputes + b.overtime) - (a.leave + a.regularization + a.disputes + a.overtime)
       ),
-      leave_detail: leaveActions.rows,
-      regularization_detail: regularizationActions.rows,
-      dispute_detail: disputeActions.rows,
-      overtime_detail: overtimeActions.rows,
-      bulk_corrections: bulkCorrections.rows,
+      leave_detail: leaveActions,
+      regularization_detail: regularizationActions,
+      dispute_detail: disputeActions,
+      overtime_detail: overtimeActions,
+      bulk_corrections: bulkCorrections,
     }, 'HR activity fetched');
   } catch (err) {
     logger.error('Attendance HR Activity Error:', err);
@@ -268,9 +268,9 @@ export const getGeofenceBreachLog = async (req, res) => {
     `);
 
     success(res, {
-      breaches: breaches.rows,
+      breaches: breaches,
       stats: stats[0],
-      frequent_offenders: frequent.rows,
+      frequent_offenders: frequent,
     }, 'Geofence breach log fetched');
   } catch (err) {
     logger.error('Geofence Breach Log Error:', err);
@@ -293,9 +293,9 @@ export const getLeaveAuditTrail = async (req, res) => {
       LEFT JOIN replacement_requests rr ON rr.leave_request_id = lr.id
       LEFT JOIN users u3 ON rr.replacement_staff_id = u3.id
       WHERE lr.id = $1
-    `, [id]);
+    `, id);
 
-    if (leave.rows.length === 0) return error(res, 'Leave request not found', HTTP_STATUS.NOT_FOUND);
+    if (leave.length === 0) return error(res, 'Leave request not found', HTTP_STATUS.NOT_FOUND);
 
     const hoursToAction = leave[0].updated_at && leave[0].status !== 'pending'
       ? (new Date(leave[0].updated_at).getTime() - new Date(leave[0].created_at).getTime()) / 3600000

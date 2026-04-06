@@ -17,12 +17,12 @@ async function sendUrgentAlert(investigation, patientName) {
          AND device_token IS NOT NULL`
     );
 
-    if (staffResult.rows.length === 0) {
+    if (staffResult.length === 0) {
       logger.info('No staff with device_tokens found for urgent alert');
       return;
     }
 
-    const tokens = staffResult.rows.map(r => r.device_token).filter(Boolean);
+    const tokens = staffResult.map(r => r.device_token).filter(Boolean);
     if (tokens.length === 0) return;
 
     await sendPushNotification({
@@ -33,9 +33,7 @@ async function sendUrgentAlert(investigation, patientName) {
     });
 
     await prisma.$queryRawUnsafe(
-      `UPDATE investigations SET urgent_alert_sent = TRUE WHERE id = $1`,
-      [investigation.id]
-    );
+      `UPDATE investigations SET urgent_alert_sent = TRUE WHERE id = $1`, investigation.id);
 
     logger.info(`⚠️ Urgent alert sent for investigation ${investigation.id} to ${tokens.length} staff`);
   } catch (err) {

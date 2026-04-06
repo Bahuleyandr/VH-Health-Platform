@@ -51,13 +51,11 @@ export async function getPharmacyOrdersByPhone(req, res) {
 
   try {
     const result = await prisma.$queryRawUnsafe(
-      `SELECT id, phone, order_note, file_key, prescription_id, urgent, status, notes, created_at, updated_at FROM pharmacy_orders WHERE phone = $1 ORDER BY created_at DESC`,
-      [phone]
-    );
+      `SELECT id, phone, order_note, file_key, prescription_id, urgent, status, notes, created_at, updated_at FROM pharmacy_orders WHERE phone = $1 ORDER BY created_at DESC`, phone);
     success(
       res,
-      result.rows,
-      result.rows.length ? 'Pharmacy orders fetched' : 'No pharmacy orders found'
+      result,
+      result.length ? 'Pharmacy orders fetched' : 'No pharmacy orders found'
     );
   } catch (err) {
     logger.error(err.stack || err.toString());
@@ -82,15 +80,13 @@ export async function getPharmacyOrdersByUID(req, res) {
     }
 
     const result = await prisma.$queryRawUnsafe(
-      `SELECT id, phone, order_note, file_key, prescription_id, urgent, status, notes, created_at, updated_at FROM pharmacy_orders WHERE phone = $1 ORDER BY created_at DESC`,
-      [phone]
-    );
+      `SELECT id, phone, order_note, file_key, prescription_id, urgent, status, notes, created_at, updated_at FROM pharmacy_orders WHERE phone = $1 ORDER BY created_at DESC`, phone);
 
-    if (result.rows.length === 0) {
+    if (result.length === 0) {
       return error(res, 'No pharmacy orders found for this user', 404);
     }
 
-    return success(res, { pharmacyOrders: result.rows }, 'Pharmacy orders retrieved successfully');
+    return success(res, { pharmacyOrders: result }, 'Pharmacy orders retrieved successfully');
   } catch (err) {
     logger.error('Get Pharmacy Orders By UID Error:', err);
     return error(res, 'Internal server error');

@@ -106,7 +106,7 @@ export const advancedStaffSearch = async (req, res) => {
     const countResult = await prisma.$queryRawUnsafe(countQuery, params.slice(0, -2));
 
     success(res, {
-      staff: result.rows,
+      staff: result,
       pagination: {
         total: parseInt(countResult[0].count),
         page: parseInt(page),
@@ -231,7 +231,7 @@ export const generatePayrollData = async (req, res) => {
     `, department ? [month, year, department] : [month, year]);
 
     success(res, {
-      payrollData: payrollData.rows,
+      payrollData: payrollData,
       month,
       year,
       generatedAt: new Date()
@@ -261,7 +261,7 @@ export const updateStaffStatus = async (req, res) => {
       RETURNING id, employee_id, department, shift, is_active, on_leave, status_reason, updated_by, updated_at
     `, [staffId, is_active, on_leave, reason, updatedBy]);
 
-    if (result.rows.length === 0) {
+    if (result.length === 0) {
       return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
     }
 
@@ -291,7 +291,7 @@ export const archiveStaffMember = async (req, res) => {
       RETURNING id, employee_id
     `, [staffId, archivedBy, reason]);
 
-    if (result.rows.length === 0) {
+    if (result.length === 0) {
       return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
     }
 
@@ -336,13 +336,13 @@ export const purgeOldRecords = async (req, res) => {
     await prisma.$queryRawUnsafe(`
       INSERT INTO audit_logs (action, entity_type, performed_by, details)
       VALUES ('purge', $1, $2, $3)
-    `, [record_type, purgedBy, { deleted_count: result.rows.length, older_than_days }]);
+    `, [record_type, purgedBy, { deleted_count: result.length, older_than_days }]);
 
     success(res, {
-      purged: result.rows.length,
+      purged: result.length,
       record_type,
       older_than_days
-    }, `${result.rows.length} old records purged successfully`);
+    }, `${result.length} old records purged successfully`);
   } catch (err) {
     logger.error('Purge Records Error:', err);
     error(res, 'Failed to purge old records', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -372,7 +372,7 @@ async function exportAttendanceData(department, start_date, end_date) {
 
   // Convert to CSV format
   const headers = ['Employee ID', 'Name', 'Department', 'Date', 'Check In', 'Check Out', 'Hours Worked'];
-  const rows = data.rows.map(row => [
+  const rows = data.map(row => [
     row.employee_id,
     row.name,
     row.department,

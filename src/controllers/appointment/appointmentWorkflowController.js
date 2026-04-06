@@ -23,7 +23,7 @@ export const confirmAppointment = async (req, res) => {
       'SELECT id, patient_id, doctor_id, appointment_date, appointment_time, status, department, phone FROM appointments WHERE id=$1 FOR UPDATE',
       [id]
     );
-    if (!appt.rows.length) {
+    if (!appt.length) {
       await client.query('ROLLBACK');
       return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
     }
@@ -133,7 +133,7 @@ export const markNoShow = async (req, res) => {
     await client.query('BEGIN');
 
     const appt = await client.query('SELECT id, status FROM appointments WHERE id=$1 FOR UPDATE', [id]);
-    if (!appt.rows.length) {
+    if (!appt.length) {
       await client.query('ROLLBACK');
       return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
     }
@@ -173,7 +173,7 @@ export const completeAppointment = async (req, res) => {
     await client.query('BEGIN');
 
     const appt = await client.query('SELECT id, patient_id, status FROM appointments WHERE id=$1 FOR UPDATE', [id]);
-    if (!appt.rows.length) {
+    if (!appt.length) {
       await client.query('ROLLBACK');
       return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
     }
@@ -231,7 +231,7 @@ export const cancelAppointment = async (req, res) => {
     await client.query('BEGIN');
 
     const appt = await client.query('SELECT id, patient_id, status FROM appointments WHERE id=$1 FOR UPDATE', [id]);
-    if (!appt.rows.length) {
+    if (!appt.length) {
       await client.query('ROLLBACK');
       return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
     }
@@ -460,7 +460,7 @@ export const registerWalkIn = async (req, res) => {
         `SELECT id FROM users WHERE phone = $1 OR phone = $2`,
         [patient_phone, patient_phone.replace(/\D/g, '').slice(-10)]
       );
-      if (existing.rows.length > 0) {
+      if (existing.length > 0) {
         patientId = existing[0].id;
       } else {
         const newUser = await client.query(

@@ -38,7 +38,7 @@ export async function getSettings(req, res) {
       );
       if (result.length > 0) {
         const dbSettings = {};
-        for (const row of result.rows) {
+        for (const row of result) {
           try {
             dbSettings[row.key] = JSON.parse(row.value);
           } catch {

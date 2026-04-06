@@ -107,7 +107,7 @@ export async function getFileStats(req, res) {
         : '0.000'
     };
 
-    const formattedDaily = dailyUploads.rows.map(day => ({
+    const formattedDaily = dailyUploads.map(day => ({
       ...day,
       upload_date_formatted: new Date(day.upload_date).toLocaleDateString('en-GB'),
       bytes_uploaded_mb: (day.bytes_uploaded / 1024 / 1024).toFixed(2)
@@ -117,7 +117,7 @@ export async function getFileStats(req, res) {
       timeframe,
       interval,
       overallStats: formattedStats,
-      categoryBreakdown: categoryStats.rows,
+      categoryBreakdown: categoryStats,
       dailyTrend: formattedDaily,
       generatedAt: new Date().toISOString(),
       generatedAtFormatted: new Date().toLocaleDateString('en-GB'),
@@ -141,11 +141,9 @@ export async function rescanFile(req, res) {
     const adminUid = req.user?.uid;
 
     const fileResult = await prisma.$queryRawUnsafe(
-      'SELECT storage_url, file_name, is_hipaa_protected FROM file_metadata WHERE id = $1',
-      [fileId]
-    );
+      'SELECT storage_url, file_name, is_hipaa_protected FROM file_metadata WHERE id = $1', fileId);
 
-    if (fileResult.rows.length === 0) {
+    if (fileResult.length === 0) {
       return error(res, 'Hospital file not found', HTTP_STATUS.NOT_FOUND);
     }
 
@@ -153,9 +151,7 @@ export async function rescanFile(req, res) {
 
     // Update scan status to pending
     await prisma.$queryRawUnsafe(
-      'UPDATE file_metadata SET scan_status = $1, scan_result = NULL, scanned_at = NULL WHERE id = $2',
-      ['pending', fileId]
-    );
+      'UPDATE file_metadata SET scan_status = $1, scan_result = NULL, scanned_at = NULL WHERE id = $2', 'pending', fileId);
 
     // Log admin rescan action
     await auditService.logFileAccess(fileId, 'admin_rescan', adminUid, 
@@ -262,18 +258,18 @@ export async function cleanupExpiredFiles(req, res) {
     `, params);
 
     if (dryRun) {
-      const totalSize = expiredFiles.rows.reduce((sum, f) => sum + f.file_size, 0);
-      const hipaaCount = expiredFiles.rows.filter(f => f.is_hipaa_protected).length;
+      const totalSize = expiredFiles.reduce((sum, f) => sum + f.file_size, 0);
+      const hipaaCount = expiredFiles.filter(f => f.is_hipaa_protected).length;
 
       return success(res, {
         dryRun: true,
-        expiredFiles: expiredFiles.rows.map(formatFileResponse),
+        expiredFiles: expiredFiles.map(formatFileResponse),
         summary: {
-          totalFiles: expiredFiles.rows.length,
+          totalFiles: expiredFiles.length,
           totalSizeBytes: totalSize,
           totalSizeMB: (totalSize / 1024 / 1024).toFixed(2),
           hipaaFiles: hipaaCount,
-          regularFiles: expiredFiles.rows.length - hipaaCount
+          regularFiles: expiredFiles.length - hipaaCount
         },
         requestedBy: adminUid
       }, 'Dry run completed - no files deleted. Review expired files list.');
@@ -284,13 +280,13 @@ export async function cleanupExpiredFiles(req, res) {
     let hipaaDeleted = 0;
     const deletionErrors = [];
 
-    for (const file of expiredFiles.rows) {
+    for (const file of expiredFiles) {
       try {
         // Delete from R2 storage
         await deleteFileFromR2(file.storage_key);
         
         // Remove from database
-        await prisma.$queryRawUnsafe('DELETE FROM file_metadata WHERE id = $1', [file.id]);
+        await prisma.$queryRawUnsafe('DELETE FROM file_metadata WHERE id = $1', file.id);
 
         // Log deletion
         await auditService.logFileDeletion(
@@ -325,10 +321,10 @@ export async function cleanupExpiredFiles(req, res) {
       regularDeleted: deletedCount - hipaaDeleted,
       deletionErrors,
       summary: {
-        successRate: expiredFiles.rows.length > 0 
-          ? `${((deletedCount / expiredFiles.rows.length) * 100).toFixed(1)}%`
+        successRate: expiredFiles.length > 0 
+          ? `${((deletedCount / expiredFiles.length) * 100).toFixed(1)}%`
           : '100%',
-        totalProcessed: expiredFiles.rows.length,
+        totalProcessed: expiredFiles.length,
         successful: deletedCount,
         failed: deletionErrors.length
       },
@@ -367,11 +363,9 @@ export async function updateHipaaProtection(req, res) {
       try {
         // Get current file info
         const fileResult = await prisma.$queryRawUnsafe(
-          'SELECT file_name, is_hipaa_protected, category FROM file_metadata WHERE id = $1',
-          [fileId]
-        );
+          'SELECT file_name, is_hipaa_protected, category FROM file_metadata WHERE id = $1', fileId);
 
-        if (fileResult.rows.length === 0) {
+        if (fileResult.length === 0) {
           errors_list.push({ fileId, error: 'File not found' });
           continue;
         }
@@ -380,9 +374,7 @@ export async function updateHipaaProtection(req, res) {
 
         // Update HIPAA protection status
         await prisma.$queryRawUnsafe(
-          'UPDATE file_metadata SET is_hipaa_protected = $1 WHERE id = $2',
-          [setHipaaProtected, fileId]
-        );
+          'UPDATE file_metadata SET is_hipaa_protected = $1 WHERE id = $2', setHipaaProtected, fileId);
 
         // Log the change
         await auditService.logFileAccess(fileId, 'hipaa_protection_changed', adminUid, ipAddress, 
@@ -448,7 +440,7 @@ export async function getQuarantinedFiles(req, res) {
       ORDER BY fm.quarantined_at DESC NULLS LAST, fm.uploaded_at DESC
     `);
 
-    const formattedFiles = quarantinedFiles.rows.map(formatFileResponse);
+    const formattedFiles = quarantinedFiles.map(formatFileResponse);
 
     success(res, {
       quarantinedFiles: formattedFiles,
@@ -502,13 +494,13 @@ export async function purgeQuarantinedFiles(req, res) {
     let hipaaCount = 0;
     const purgeErrors = [];
 
-    for (const file of quarantinedFiles.rows) {
+    for (const file of quarantinedFiles) {
       try {
         // Delete from R2 storage
         await deleteFileFromR2(file.storage_key);
         
         // Remove from database
-        await prisma.$queryRawUnsafe('DELETE FROM file_metadata WHERE id = $1', [file.id]);
+        await prisma.$queryRawUnsafe('DELETE FROM file_metadata WHERE id = $1', file.id);
 
         // Log purge
         await auditService.logFileDeletion(
@@ -543,7 +535,7 @@ export async function purgeQuarantinedFiles(req, res) {
       purgeErrors,
       criteria: {
         olderThanDays,
-        totalFound: quarantinedFiles.rows.length
+        totalFound: quarantinedFiles.length
       },
       purgedBy: adminUid,
       purgedAt: new Date().toISOString(),

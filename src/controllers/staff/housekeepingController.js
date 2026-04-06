@@ -21,7 +21,7 @@ export const getZones = async (req, res) => {
     const zones = await prisma.$queryRawUnsafe(
       'SELECT id, name, zone_type, is_active, created_at FROM housekeeping_zones WHERE is_active = true ORDER BY zone_type, name'
     );
-    success(res, zones.rows, 'Zones fetched');
+    success(res, zones, 'Zones fetched');
   } catch (err) {
     logger.error('Get Zones Error:', err);
     error(res, 'Failed to fetch zones', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -78,9 +78,9 @@ export const getMyCleaningLogs = async (req, res) => {
       LEFT JOIN housekeeping_zones hz ON hl.zone_id = hz.id
       WHERE hl.staff_id = $1
       ORDER BY hl.logged_at DESC LIMIT $2
-    `, [staffId, parseInt(limit)]);
+    `, staffId, parseInt(limit));
 
-    success(res, logs.rows, 'Cleaning logs fetched');
+    success(res, logs, 'Cleaning logs fetched');
   } catch (err) {
     logger.error('Get My Cleaning Logs Error:', err);
     error(res, 'Failed to fetch logs', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -148,7 +148,7 @@ export const getMyRequests = async (req, res) => {
       LEFT JOIN users u ON hr.assigned_to = u.id
       WHERE hr.requester_id = $1
       ORDER BY hr.created_at DESC LIMIT 30
-    `, [staffId]);
+    `, staffId);
 
     const assigned = await prisma.$queryRawUnsafe(`
       SELECT hr.id, hr.zone_id, hr.assigned_to, hr.task_type, hr.status, hr.notes, hr.completed_at, hr.created_at,
@@ -160,7 +160,7 @@ export const getMyRequests = async (req, res) => {
       ORDER BY hr.urgency DESC, hr.created_at ASC LIMIT 20
     `, [staffId]);
 
-    success(res, { raised: raised.rows, assigned: assigned.rows }, 'Requests fetched');
+    success(res, { raised: raised, assigned: assigned }, 'Requests fetched');
   } catch (err) {
     logger.error('Get My HK Requests Error:', err);
     error(res, 'Failed to fetch requests', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -175,10 +175,8 @@ export const completeRequest = async (req, res) => {
     const { completion_notes, completion_photo_key, completion_photo_url } = req.body;
 
     const reqCheck = await prisma.$queryRawUnsafe(
-      'SELECT id, zone_id, assigned_to, task_type, status, notes, completed_at, created_at FROM housekeeping_requests WHERE id = $1 AND assigned_to = $2',
-      [id, staffId]
-    );
-    if (reqCheck.rows.length === 0) {
+      'SELECT id, zone_id, assigned_to, task_type, status, notes, completed_at, created_at FROM housekeeping_requests WHERE id = $1 AND assigned_to = $2', id, staffId);
+    if (reqCheck.length === 0) {
       return error(res, 'Request not found or not assigned to you', HTTP_STATUS.NOT_FOUND);
     }
 
@@ -245,7 +243,7 @@ export const getAllCleaningLogs = async (req, res) => {
       params.slice(0, -2)
     );
 
-    success(res, { logs: logs.rows, total: parseInt(total[0].count) }, 'Logs fetched');
+    success(res, { logs: logs, total: parseInt(total[0].count) }, 'Logs fetched');
   } catch (err) {
     logger.error('Get All HK Logs Error:', err);
     error(res, 'Failed to fetch logs', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -290,7 +288,7 @@ export const getAllRequests = async (req, res) => {
       params.slice(0, -2)
     );
 
-    success(res, { requests: requests.rows, total: parseInt(total[0].count) }, 'Requests fetched');
+    success(res, { requests: requests, total: parseInt(total[0].count) }, 'Requests fetched');
   } catch (err) {
     logger.error('Get All HK Requests Error:', err);
     error(res, 'Failed to fetch requests', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -314,9 +312,9 @@ export const assignRequest = async (req, res) => {
       RETURNING id, zone_id, assigned_to, task_type, status, notes, completed_at, created_at
     `, [assigned_to, adminId, id]);
 
-    if (result.rows.length === 0) return error(res, 'Request not found or already in progress', HTTP_STATUS.NOT_FOUND);
+    if (result.length === 0) return error(res, 'Request not found or already in progress', HTTP_STATUS.NOT_FOUND);
 
-    const staff = await prisma.$queryRawUnsafe('SELECT name FROM users WHERE id = $1', [assigned_to]);
+    const staff = await prisma.$queryRawUnsafe('SELECT name FROM users WHERE id = $1', assigned_to);
     await prisma.$queryRawUnsafe(`
       INSERT INTO housekeeping_request_updates (request_id, author_id, author_role, message, is_internal)
       VALUES ($1, $2, 'admin', $3, false)
@@ -342,7 +340,7 @@ export const verifyLog = async (req, res) => {
         flag_reason = $3 WHERE id = $4 RETURNING id, staff_id, zone_id, status, verified_by, verified_at, flag_reason, logged_at, created_at
     `, [action, verifierId, flag_reason || null, id]);
 
-    if (result.rows.length === 0) return error(res, 'Log not found', HTTP_STATUS.NOT_FOUND);
+    if (result.length === 0) return error(res, 'Log not found', HTTP_STATUS.NOT_FOUND);
     success(res, result[0], `Log ${action}`);
   } catch (err) {
     logger.error('Verify HK Log Error:', err);
@@ -361,7 +359,7 @@ export const verifyRequest = async (req, res) => {
         updated_at = NOW() WHERE id = $2 AND status = 'completed' RETURNING id, zone_id, assigned_to, task_type, status, notes, completed_at, created_at
     `, [verifierId, id]);
 
-    if (result.rows.length === 0) return error(res, 'Request not found or not yet completed', HTTP_STATUS.NOT_FOUND);
+    if (result.length === 0) return error(res, 'Request not found or not yet completed', HTTP_STATUS.NOT_FOUND);
 
     await prisma.$queryRawUnsafe(`
       INSERT INTO housekeeping_request_updates (request_id, author_id, author_role, message, is_internal)
@@ -432,8 +430,8 @@ export const getHousekeepingStats = async (req, res) => {
       logs: logStats[0],
       requests: requestStats[0],
       sla: slaStats[0],
-      top_staff: topStaff.rows,
-      recent_flags: recentFlags.rows,
+      top_staff: topStaff,
+      recent_flags: recentFlags,
     }, 'Housekeeping stats fetched');
   } catch (err) {
     logger.error('HK Stats Error:', err);
@@ -459,16 +457,16 @@ export const getRequestDetail = async (req, res) => {
       WHERE hr.id = $1 AND (hr.requester_id = $2 OR hr.assigned_to = $2)
     `, [id, staffId]);
 
-    if (req_.rows.length === 0) return error(res, 'Request not found', HTTP_STATUS.NOT_FOUND);
+    if (req_.length === 0) return error(res, 'Request not found', HTTP_STATUS.NOT_FOUND);
 
     const updates = await prisma.$queryRawUnsafe(`
       SELECT ru.*, u.name as author_name FROM housekeeping_request_updates ru
       LEFT JOIN users u ON ru.author_id = u.id
       WHERE ru.request_id = $1 AND ru.is_internal = false
       ORDER BY ru.created_at ASC
-    `, [id]);
+    `, id);
 
-    success(res, { ...req_[0], updates: updates.rows }, 'Request detail fetched');
+    success(res, { ...req_[0], updates: updates }, 'Request detail fetched');
   } catch (err) {
     logger.error('Get HK Request Detail Error:', err);
     error(res, 'Failed to fetch request', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -514,7 +512,7 @@ export const updateZone = async (req, res) => {
     `, [name || null, zone_type || null, floor || null, building || null,
         is_active !== undefined ? is_active : null, id]);
 
-    if (result.rows.length === 0) return error(res, 'Zone not found', HTTP_STATUS.NOT_FOUND);
+    if (result.length === 0) return error(res, 'Zone not found', HTTP_STATUS.NOT_FOUND);
 
     success(res, result[0], 'Zone updated');
   } catch (err) {
@@ -537,8 +535,8 @@ export const adminCreateRequest = async (req, res) => {
     }
 
     // Look up admin's integer users.id from uid
-    const adminUser = await prisma.$queryRawUnsafe('SELECT id FROM users WHERE uid = $1', [adminUid]);
-    if (adminUser.rows.length === 0) return error(res, 'Admin user not found', HTTP_STATUS.NOT_FOUND);
+    const adminUser = await prisma.$queryRawUnsafe('SELECT id FROM users WHERE uid = $1', adminUid);
+    if (adminUser.length === 0) return error(res, 'Admin user not found', HTTP_STATUS.NOT_FOUND);
     const adminId = adminUser[0].id;
 
     const slaMinutes = { urgent: 30, high: 60, normal: 120, low: 240 }[urgency] ?? 120;

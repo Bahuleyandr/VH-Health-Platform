@@ -151,7 +151,7 @@ export const viewRoleAudit = async (req, res) => {
        ORDER BY changed_at DESC
        LIMIT 100`
     );
-    res.json({ success: true, data: result.rows });
+    res.json({ success: true, data: result });
   } catch (err) {
     logger.error('Failed to fetch audit log:', err.stack || err.toString());
     res.status(500).json({ success: false, message: 'Failed to fetch audit log' });
@@ -167,7 +167,7 @@ export const sendTestNotification = async (req, res) => {
   }
 
   try {
-    const result = await prisma.$queryRawUnsafe('SELECT fcm_token FROM devices WHERE phone = $1', [phone]);
+    const result = await prisma.$queryRawUnsafe('SELECT fcm_token FROM devices WHERE phone = $1', phone);
 
     if (result.length === 0) {
       return res.status(404).json({ success: false, message: 'Device not registered.' });
@@ -202,7 +202,7 @@ export const getAuditLogs = async (req, res) => {
        ORDER BY timestamp DESC
        LIMIT 100`
     );
-    res.json({ success: true, logs: result.rows });
+    res.json({ success: true, logs: result });
   } catch (err) {
     logger.error('Audit log fetch error:', err.stack || err.toString());
     res.status(500).json({ success: false, message: 'Unable to fetch audit logs.' });

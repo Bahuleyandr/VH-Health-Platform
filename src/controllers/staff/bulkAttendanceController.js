@@ -37,7 +37,7 @@ export const bulkCorrectAttendance = async (req, res) => {
             [c.staff_id, c.date]
           );
 
-          if (existing.rows.length > 0) {
+          if (existing.length > 0) {
             // Update existing
             const updates = [];
             const vals = [];
