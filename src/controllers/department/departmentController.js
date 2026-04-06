@@ -57,7 +57,7 @@ export const getDepartmentById = async (req, res) => {
 export const addDepartment = async (req, res) => {
   try {
     // Check permissions
-    if (!['ADMIN', 'DOCTOR'].includes(req.user?.role)) {
+    if (!['ADMIN', 'SUPER_ADMIN', 'DOCTOR'].includes(req.user?.role)) {
       return error(res, DEPARTMENT_MESSAGES.INSUFFICIENT_PERMISSIONS, HTTP_STATUS.FORBIDDEN);
     }
     
@@ -84,7 +84,7 @@ export const addDepartment = async (req, res) => {
 export const deleteDepartment = async (req, res) => {
   try {
     // Check permissions
-    if (req.user?.role !== 'ADMIN') {
+    if (!['ADMIN', 'SUPER_ADMIN'].includes(req.user?.role)) {
       return error(res, 'Only administrators can delete departments', HTTP_STATUS.FORBIDDEN);
     }
     
@@ -168,7 +168,7 @@ export const getDepartmentDetails = async (req, res) => {
 export const createDepartment = async (req, res) => {
   try {
     // Check permissions
-    if (!['ADMIN', 'DOCTOR'].includes(req.user?.role)) {
+    if (!['ADMIN', 'SUPER_ADMIN', 'DOCTOR'].includes(req.user?.role)) {
       return error(res, DEPARTMENT_MESSAGES.INSUFFICIENT_PERMISSIONS, HTTP_STATUS.FORBIDDEN);
     }
     
@@ -195,7 +195,7 @@ export const createDepartment = async (req, res) => {
 export const updateDepartment = async (req, res) => {
   try {
     // Check permissions
-    if (!['ADMIN', 'DOCTOR'].includes(req.user?.role)) {
+    if (!['ADMIN', 'SUPER_ADMIN', 'DOCTOR'].includes(req.user?.role)) {
       return error(res, DEPARTMENT_MESSAGES.INSUFFICIENT_PERMISSIONS, HTTP_STATUS.FORBIDDEN);
     }
     
@@ -224,7 +224,7 @@ export const updateDepartment = async (req, res) => {
 export const deactivateDepartment = async (req, res) => {
   try {
     // Check permissions
-    if (req.user?.role !== 'ADMIN') {
+    if (!['ADMIN', 'SUPER_ADMIN'].includes(req.user?.role)) {
       return error(res, 'Only administrators can deactivate departments', HTTP_STATUS.FORBIDDEN);
     }
     
