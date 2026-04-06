@@ -55,8 +55,8 @@ export class AdminDoctorService {
       
       return {
         statistics: doctorStats[0],
-        top_performers: performanceMetrics.rows,
-        department_distribution: departmentDistribution.rows
+        top_performers: performanceMetrics,
+        department_distribution: departmentDistribution
       };
     } catch (error) {
       logger.error('Error fetching doctor overview:', error);
@@ -138,7 +138,7 @@ export class AdminDoctorService {
       ]);
       
       return {
-        doctors: doctors.rows,
+        doctors: doctors,
         pagination: {
           page,
           limit,
@@ -208,7 +208,7 @@ export class AdminDoctorService {
       
       // Check if user already exists
       const existingUser = await client.query('SELECT id FROM users WHERE phone = $1', [phone]);
-      if (existingUser.rows.length > 0) {
+      if (existingUser.length > 0) {
         throw new Error('User with this phone number already exists');
       }
       
@@ -280,7 +280,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
           'UPDATE doctors SET is_available = true, updated_at = NOW() WHERE user_id = ANY($1) RETURNING user_id',
           [doctorIds]
         );
-        results = activateResult.rows;
+        results = activateResult;
         break;
       }
         
@@ -299,7 +299,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
           WHERE doctor_id = ANY($1) AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
         `, [doctorIds]);
         
-        results = deactivateResult.rows;
+        results = deactivateResult;
         break;
       }
         
@@ -311,7 +311,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
           'UPDATE doctors SET consultation_fee = $1, updated_at = NOW() WHERE user_id = ANY($2) RETURNING user_id, consultation_fee',
           [data.consultation_fee, doctorIds]
         );
-        results = feeResult.rows;
+        results = feeResult;
         break;
       }
         
@@ -323,7 +323,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
           'UPDATE doctors SET department = $1, updated_at = NOW() WHERE user_id = ANY($2) RETURNING user_id, department',
           [data.department, doctorIds]
         );
-        results = deptResult.rows;
+        results = deptResult;
         break;
       }
         
@@ -335,7 +335,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
           'UPDATE doctors SET available_days = $1, available_hours = $2, updated_at = NOW() WHERE user_id = ANY($3) RETURNING user_id, available_days, available_hours',
           [data.available_days, data.available_hours, doctorIds]
         );
-        results = scheduleResult.rows;
+        results = scheduleResult;
         break;
       }
     }
@@ -371,7 +371,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
         RETURNING id, user_id, specialization, department, experience_years, consultation_fee, available_days, available_hours, is_available, notes, created_at, updated_at
       `, [is_available, available_days, available_hours, reason, id]);
       
-      if (result.rows.length === 0) {
+      if (result.length === 0) {
         throw new Error(DOCTOR_MESSAGES.NOT_FOUND);
       }
       
@@ -388,7 +388,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
           RETURNING id, appointment_date, appointment_time
         `, [reason, id]);
         
-        affectedAppointments = appointmentResult.rows;
+        affectedAppointments = appointmentResult;
       }
       
       await client.query('COMMIT');
@@ -422,7 +422,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
         [id]
       );
       
-      if (doctorCheck.rows.length === 0) {
+      if (doctorCheck.length === 0) {
         throw new Error(DOCTOR_MESSAGES.NOT_FOUND);
       }
       
@@ -447,7 +447,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
             [transfer_patients_to, 'DOCTOR']
           );
           
-          if (transferDoctor.rows.length === 0) {
+          if (transferDoctor.length === 0) {
             throw new Error('Transfer target doctor not found');
           }
           

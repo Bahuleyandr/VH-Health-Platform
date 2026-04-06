@@ -68,7 +68,7 @@ class DietaryService {
     );
 
     return {
-      orders: result.rows,
+      orders: result,
       pagination: {
         total,
         page: parseInt(page, 10),
@@ -92,7 +92,7 @@ class DietaryService {
       [id]
     );
 
-    if (existing.rows.length === 0) {
+    if (existing.length === 0) {
       throw AppError.notFound('Diet order not found');
     }
 
@@ -159,7 +159,7 @@ class DietaryService {
     );
 
     return {
-      orders: result.rows,
+      orders: result,
       pagination: {
         total,
         page: parseInt(page, 10),
@@ -213,7 +213,7 @@ class DietaryService {
     );
 
     return {
-      orders: result.rows,
+      orders: result,
       pagination: {
         total,
         page: parseInt(page, 10),

@@ -61,7 +61,7 @@ export class DoctorStatsService {
         [doctorId]
       );
       
-      if (doctorCheck.rows.length === 0) {
+      if (doctorCheck.length === 0) {
         throw new Error(DOCTOR_MESSAGES.NOT_FOUND);
       }
       
@@ -106,7 +106,7 @@ export class DoctorStatsService {
       return {
         doctor: doctorCheck[0],
         appointment_statistics: appointmentStats[0],
-        monthly_trends: monthlyTrends.rows,
+        monthly_trends: monthlyTrends,
         patient_feedback: patientFeedback[0]
       };
     } catch (error) {
@@ -151,21 +151,21 @@ export class DoctorStatsService {
       const result = await prisma.$queryRawUnsafe(query, params);
       
       // Calculate workload distribution
-      const workloadDistribution = result.rows.reduce((acc, doctor) => {
+      const workloadDistribution = result.reduce((acc, doctor) => {
         const level = doctor.workload_level;
         acc[level] = (acc[level] || 0) + 1;
         return acc;
       }, {});
       
       return {
-        doctors: result.rows,
+        doctors: result,
         distribution: workloadDistribution,
         summary: {
-          total_doctors: result.rows.length,
+          total_doctors: result.length,
           avg_appointments: Math.round(
-            result.rows.reduce((sum, d) => sum + parseInt(d.total_appointments), 0) / result.rows.length
+            result.reduce((sum, d) => sum + parseInt(d.total_appointments), 0) / result.length
           ),
-          high_workload_doctors: result.rows.filter(d => d.workload_level === 'HIGH').length
+          high_workload_doctors: result.filter(d => d.workload_level === 'HIGH').length
         },
         period_days: days,
         department_filter: department

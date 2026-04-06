@@ -50,7 +50,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req) => {
   let user;
   let isNewUser = false;
   
-  if (userResult.rows.length === 0) {
+  if (userResult.length === 0) {
     // Create new user
     const insertResult = await query(
       `INSERT INTO users (
@@ -141,13 +141,13 @@ export const completeUserProfile = async (profileData) => {
     ]
   );
   
-  if (result.rows.length === 0) {
+  if (result.length === 0) {
     const error = new Error('User not found');
     error.statusCode = HTTP_STATUS.NOT_FOUND;
     throw error;
   }
   
-  const user = result.rows[0];
+  const user = result[0];
   
   logger.info(`👤 Profile completed for user: ${normalizedPhone}`);
   
@@ -192,7 +192,7 @@ export const linkFirebaseAccount = async (phone, idToken, otp) => {
     [normalizedPhone]
   );
   
-  if (userResult.rows.length === 0) {
+  if (userResult.length === 0) {
     const error = new Error('User not found');
     error.statusCode = HTTP_STATUS.NOT_FOUND;
     throw error;
@@ -294,7 +294,7 @@ export const verifyTokenStatus = async (idToken) => {
     [decodedToken.uid]
   );
   
-  const userExists = userResult.rows.length > 0;
+  const userExists = userResult.length > 0;
   
   return {
     valid: true,
@@ -339,7 +339,7 @@ export const getHealthStatus = async () => {
     status: 'healthy',
     firebaseConnection: 'connected',
     statistics: stats.rows[0],
-    deviceStatistics: deviceStats.rows,
+    deviceStatistics: deviceStats,
     timestamp: new Date().toISOString()
   };
 };
@@ -402,7 +402,7 @@ export const legacyRegisterUser = async (userData) => {
   // Check if user already exists
   const existingUser = await query('SELECT id, uid, phone FROM users WHERE phone = $1', [normalizedPhone]);
   
-  if (existingUser.rows.length > 0) {
+  if (existingUser.length > 0) {
     const error = new Error('User already exists');
     error.statusCode = HTTP_STATUS.CONFLICT;
     throw error;

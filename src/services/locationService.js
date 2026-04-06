@@ -28,7 +28,7 @@ export const findNearbyHospitals = async (latitude, longitude, radius) => {
     LIMIT 5
   `, [latitude, longitude]);
 
-  return result.rows.map(hospital => ({
+  return result.map(hospital => ({
     ...hospital,
     distance_km: parseFloat(calculateDistance(
       latitude, longitude, 
@@ -59,7 +59,7 @@ export const findNearbyPharmacies = async (latitude, longitude, radius) => {
     LIMIT 10
   `, [latitude, longitude]);
 
-  return result.rows.map(pharmacy => ({
+  return result.map(pharmacy => ({
     ...pharmacy,
     distance_km: parseFloat(calculateDistance(
       latitude, longitude, 
@@ -88,7 +88,7 @@ export const findNearbyBloodBanks = async (latitude, longitude, radius) => {
     LIMIT 5
   `, [latitude, longitude]);
 
-  return result.rows.map(bloodBank => ({
+  return result.map(bloodBank => ({
     ...bloodBank,
     distance_km: parseFloat(calculateDistance(
       latitude, longitude, 

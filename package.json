@@ -83,14 +83,14 @@
     "otplib": "^13.4.0",
     "pdfkit": "^0.18.0",
     "pg": "^8.20.0",
+    "prisma": "^6.19.2",
     "qrcode": "^1.5.4",
     "sharp": "^0.34.5",
     "swagger-ui-express": "^5.0.1",
     "winston": "^3.19.0",
     "winston-daily-rotate-file": "^5.0.0",
     "ws": "^8.20.0",
-    "yamljs": "^0.3.0",
-    "prisma": "^6.19.2"
+    "yamljs": "^0.3.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",
@@ -100,7 +100,7 @@
     "@stoplight/spectral-rulesets": "^1.22.0",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
-    "eslint": "^9.31.0",
+    "eslint": "^9.39.4",
     "eslint-config-prettier": "^10.1.5",
     "eslint-plugin-eslint-comments": "^3.2.0",
     "eslint-plugin-import": "^2.32.0",

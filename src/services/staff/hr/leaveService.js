@@ -14,7 +14,7 @@ export const getStaffLeaveBalance = async (staffId, year) => {
     [staffId]
   );
 
-  if (staffCheck.rows.length === 0) {
+  if (staffCheck.length === 0) {
     return null;
   }
 
@@ -63,8 +63,8 @@ export const getStaffLeaveBalance = async (staffId, year) => {
       })
     },
     year,
-    leaveBalance: leaveData.rows,
-    leaveHistory: leaveHistory.rows.map(leave => ({
+    leaveBalance: leaveData,
+    leaveHistory: leaveHistory.map(leave => ({
       ...leave,
       start_date: new Date(leave.start_date).toLocaleDateString('en-GB', {
         day: '2-digit',
@@ -83,9 +83,9 @@ export const getStaffLeaveBalance = async (staffId, year) => {
       }) : null
     })),
     summary: {
-      total_entitled: leaveData.rows.reduce((sum, leave) => sum + leave.annual_entitlement, 0),
-      total_used: leaveData.rows.reduce((sum, leave) => sum + parseFloat(leave.days_used), 0),
-      total_remaining: leaveData.rows.reduce((sum, leave) => sum + leave.days_remaining, 0)
+      total_entitled: leaveData.reduce((sum, leave) => sum + leave.annual_entitlement, 0),
+      total_used: leaveData.reduce((sum, leave) => sum + parseFloat(leave.days_used), 0),
+      total_remaining: leaveData.reduce((sum, leave) => sum + leave.days_remaining, 0)
     }
   };
 };
@@ -131,7 +131,7 @@ export const applyForLeave = async (leaveData) => {
     GROUP BY lt.leave_type, lt.annual_entitlement
   `, [staff_id, start_date, leave_type]);
 
-  if (balanceCheck.rows.length === 0 || balanceCheck[0].days_remaining < daysDifference) {
+  if (balanceCheck.length === 0 || balanceCheck[0].days_remaining < daysDifference) {
     throw new Error('INSUFFICIENT_LEAVE_BALANCE');
   }
 
@@ -141,7 +141,7 @@ export const applyForLeave = async (leaveData) => {
     [staff_id]
   );
 
-  if (staffInfo.rows.length === 0) {
+  if (staffInfo.length === 0) {
     throw new Error('STAFF_NOT_FOUND');
   }
 
@@ -209,7 +209,7 @@ export const isUserViewingOwnData = async (staffId, userUid) => {
     'SELECT 1 FROM users WHERE id = $1 AND uid = $2',
     [staffId, userUid]
   );
-  return result.rows.length > 0;
+  return result.length > 0;
 };
 
 /**
@@ -223,5 +223,5 @@ export const isUserApplyingOwnLeave = async (staffId, userUid) => {
     'SELECT 1 FROM users WHERE id = $1 AND uid = $2',
     [staffId, userUid]
   );
-  return result.rows.length > 0;
+  return result.length > 0;
 };

@@ -52,7 +52,7 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
     [staff_id]
   );
 
-  if (staffCheck.rows.length === 0) {
+  if (staffCheck.length === 0) {
     throw new Error('STAFF_NOT_FOUND');
   }
 
@@ -66,7 +66,7 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
   );
 
   // Enforce geofence on check-in (not check-out to avoid getting stuck)
-  if (!check_out_time && existingAttendance.rows.length === 0) {
+  if (!check_out_time && existingAttendance.length === 0) {
     const locationCheck = isWithinCampus(location);
     if (!locationCheck.valid && process.env.ENFORCE_GEOFENCE !== 'false') {
       throw new Error(`OUTSIDE_CAMPUS:${locationCheck.reason}`);
@@ -74,7 +74,7 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
   }
 
   let result;
-  if (existingAttendance.rows.length > 0) {
+  if (existingAttendance.length > 0) {
     // Update existing attendance
     result = await prisma.$queryRawUnsafe(`
       UPDATE staff_attendance SET
@@ -191,7 +191,7 @@ export const getStaffAttendance = async (staffId, filters, userRole, userId) => 
     WHERE u.id = $1
   `, [staffId]);
 
-  if (staffCheck.rows.length === 0) {
+  if (staffCheck.length === 0) {
     throw new Error('STAFF_NOT_FOUND');
   }
 
@@ -230,7 +230,7 @@ export const getStaffAttendance = async (staffId, filters, userRole, userId) => 
   `, dateParams);
 
   // Format attendance records
-  const attendanceRecords = attendanceResult.rows.map(record => ({
+  const attendanceRecords = attendanceResult.map(record => ({
     ...record,
     date: record.date ? new Date(record.date).toLocaleDateString('en-GB', {
       day: '2-digit',

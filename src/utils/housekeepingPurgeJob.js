@@ -39,7 +39,7 @@ export async function purgeHousekeepingPhotos() {
         AND logged_at < NOW() - $1::INTERVAL
     `, [`${RETENTION.verified_log_days} days`]);
 
-    for (const row of expiredVerified.rows) {
+    for (const row of expiredVerified) {
       try {
         await deleteObject(row.photo_key);
         await prisma.$queryRawUnsafe(
@@ -61,7 +61,7 @@ export async function purgeHousekeepingPhotos() {
         AND logged_at < NOW() - $1::INTERVAL
     `, [`${RETENTION.unverified_log_days} days`]);
 
-    for (const row of expiredUnverified.rows) {
+    for (const row of expiredUnverified) {
       try {
         await deleteObject(row.photo_key);
         await prisma.$queryRawUnsafe(
@@ -82,7 +82,7 @@ export async function purgeHousekeepingPhotos() {
         AND created_at < NOW() - $1::INTERVAL
     `, [`${RETENTION.completed_request_days} days`]);
 
-    for (const row of expiredCompleted.rows) {
+    for (const row of expiredCompleted) {
       const keysToDelete = [row.photo_key, row.completion_photo_key].filter(Boolean);
       for (const key of keysToDelete) {
         try {
@@ -111,7 +111,7 @@ export async function purgeHousekeepingPhotos() {
         AND created_at < NOW() - $1::INTERVAL
     `, [`${RETENTION.stale_open_request_days} days`]);
 
-    for (const row of staleOpen.rows) {
+    for (const row of staleOpen) {
       try {
         await deleteObject(row.photo_key);
         await prisma.$queryRawUnsafe(

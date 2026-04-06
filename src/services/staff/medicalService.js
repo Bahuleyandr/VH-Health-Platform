@@ -125,9 +125,9 @@ export const uploadInvestigationResult = async (data) => {
         [phone]
       );
 
-      if (userTokens.rows.length > 0) {
+      if (userTokens.length > 0) {
         await sendPushNotification({
-          tokens: userTokens.rows.map(row => row.fcm_token),
+          tokens: userTokens.map(row => row.fcm_token),
           title: notificationTitle,
           body: notificationBody,
           data: {

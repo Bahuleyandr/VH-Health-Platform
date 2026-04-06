@@ -73,7 +73,7 @@ class BloodBankService {
       [id]
     );
 
-    if (existing.rows.length === 0) {
+    if (existing.length === 0) {
       throw AppError.notFound('Blood request not found');
     }
 
@@ -110,7 +110,7 @@ class BloodBankService {
       [id]
     );
 
-    if (existing.rows.length === 0) {
+    if (existing.length === 0) {
       throw AppError.notFound('Blood request not found');
     }
 
@@ -145,7 +145,7 @@ class BloodBankService {
       [id]
     );
 
-    if (existing.rows.length === 0) {
+    if (existing.length === 0) {
       throw AppError.notFound('Blood request not found');
     }
 
@@ -182,7 +182,7 @@ class BloodBankService {
        ORDER BY blood_group, component`
     );
 
-    return result.rows;
+    return result;
   }
 
   /**
@@ -229,7 +229,7 @@ class BloodBankService {
     );
 
     return {
-      requests: result.rows,
+      requests: result,
       pagination: {
         total,
         page: parseInt(page, 10),

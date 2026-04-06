@@ -92,9 +92,9 @@ export const adminNotificationService = {
       
       return {
         statistics: notificationStats[0],
-        type_distribution: typeDistribution.rows,
-        user_engagement: userEngagement.rows,
-        daily_activity: recentActivity.rows,
+        type_distribution: typeDistribution,
+        user_engagement: userEngagement,
+        daily_activity: recentActivity,
         period_days: days
       };
     } catch (error) {
@@ -140,7 +140,7 @@ export const adminNotificationService = {
       const totalNotifications = parseInt(countResult[0].count);
       
       return {
-        notifications: result.rows.map(n => formatNotificationResponse(n, true)),
+        notifications: result.map(n => formatNotificationResponse(n, true)),
         pagination: {
           page,
           limit,
@@ -171,8 +171,8 @@ export const adminNotificationService = {
       `);
       
       return {
-        templates: result.rows,
-        count: result.rows.length
+        templates: result,
+        count: result.length
       };
     } catch (error) {
       logger.error('Error getting templates:', error.message);
@@ -231,8 +231,8 @@ export const adminNotificationService = {
       
       return {
         overall_metrics: deliveryMetrics[0],
-        failure_analysis: failureAnalysis.rows,
-        engagement_by_role: engagementRates.rows,
+        failure_analysis: failureAnalysis,
+        engagement_by_role: engagementRates,
         period_days: days
       };
     } catch (error) {
@@ -321,12 +321,12 @@ export const adminNotificationService = {
       
       const targetUsers = await query(targetQuery, targetParams);
       
-      if (targetUsers.rows.length === 0) {
+      if (targetUsers.length === 0) {
         throw new Error('No users match the targeting criteria');
       }
       
       // Create notifications for all target users
-      const notifications = targetUsers.rows.map(targetUser => [
+      const notifications = targetUsers.map(targetUser => [
         targetUser.id, title, message, NOTIFICATION_TYPES.ANNOUNCEMENT, priority.toUpperCase(), 
         sender_id || user?.uid, scheduled_for, false, targetUser.phone
       ]);
@@ -344,7 +344,7 @@ export const adminNotificationService = {
         RETURNING id, user_id
       `, flatParams);
       
-      logger.info(`System announcement sent to ${targetUsers.rows.length} users by ${user?.uid}`);
+      logger.info(`System announcement sent to ${targetUsers.length} users by ${user?.uid}`);
       
       return {
         announcement: {
@@ -357,8 +357,8 @@ export const adminNotificationService = {
           }
         },
         delivery: {
-          notifications_created: result.rows.length,
-          target_users: targetUsers.rows.length,
+          notifications_created: result.length,
+          target_users: targetUsers.length,
           scheduled_for
         }
       };
@@ -385,7 +385,7 @@ export const adminNotificationService = {
       if (Object.keys(criteria).length > 0) {
         const targetingQuery = buildUserTargetingQuery(criteria);
         const criteriaUsers = await query(targetingQuery.query, targetingQuery.params);
-        const criteriaUserIds = criteriaUsers.rows.map(u => u.id);
+        const criteriaUserIds = criteriaUsers.map(u => u.id);
         
         // Combine with explicitly provided user_ids
         targetUserIds = [...new Set([...targetUserIds, ...criteriaUserIds])];
@@ -401,12 +401,12 @@ export const adminNotificationService = {
         [targetUserIds]
       );
       
-      if (userCheck.rows.length === 0) {
+      if (userCheck.length === 0) {
         throw new Error('No valid target users found');
       }
       
       // Create notifications
-      const notifications = userCheck.rows.map(targetUser => [
+      const notifications = userCheck.map(targetUser => [
         targetUser.id, title, message, type.toUpperCase(), priority.toUpperCase(),
         sender_id || user?.uid, scheduled_for, false, targetUser.phone
       ]);
@@ -424,7 +424,7 @@ export const adminNotificationService = {
         RETURNING id, user_id
       `, flatParams);
       
-      logger.info(`Targeted notifications sent to ${userCheck.rows.length} users by ${user?.uid}`);
+      logger.info(`Targeted notifications sent to ${userCheck.length} users by ${user?.uid}`);
       
       return {
         notification: {
@@ -435,11 +435,11 @@ export const adminNotificationService = {
         },
         targeting: {
           explicit_user_ids: user_ids.length,
-          criteria_matched: userCheck.rows.length - user_ids.length,
-          total_recipients: userCheck.rows.length
+          criteria_matched: userCheck.length - user_ids.length,
+          total_recipients: userCheck.length
         },
-        recipients: userCheck.rows,
-        notifications_created: result.rows.length
+        recipients: userCheck,
+        notifications_created: result.length
       };
     } catch (error) {
       logger.error('Error sending targeted notifications:', error.message);
@@ -463,7 +463,7 @@ async performBulkOperations(data, user) {
           'UPDATE notifications SET is_read = true, read_at = NOW() WHERE id = ANY($1) RETURNING id, title',
           [notification_ids]
         );
-        results = readResult.rows;
+        results = readResult;
         break;
       }
       
@@ -472,7 +472,7 @@ async performBulkOperations(data, user) {
           'UPDATE notifications SET is_read = false, read_at = NULL WHERE id = ANY($1) RETURNING id, title',
           [notification_ids]
         );
-        results = unreadResult.rows;
+        results = unreadResult;
         break;
       }
       
@@ -481,7 +481,7 @@ async performBulkOperations(data, user) {
           'DELETE FROM notifications WHERE id = ANY($1) RETURNING id, title',
           [notification_ids]
         );
-        results = deleteResult.rows;
+        results = deleteResult;
         break;
       }
       
@@ -493,7 +493,7 @@ async performBulkOperations(data, user) {
           'UPDATE notifications SET priority = $1 WHERE id = ANY($2) RETURNING id, title, priority',
           [operationData.priority.toUpperCase(), notification_ids]
         );
-        results = priorityResult.rows;
+        results = priorityResult;
         break;
       }
       
@@ -570,7 +570,7 @@ async performBulkOperations(data, user) {
         [template_id]
       );
       
-      if (templateResult.rows.length === 0) {
+      if (templateResult.length === 0) {
         throw new Error('Notification template not found');
       }
       
@@ -586,12 +586,12 @@ async performBulkOperations(data, user) {
         [target_users]
       );
       
-      if (userCheck.rows.length === 0) {
+      if (userCheck.length === 0) {
         throw new Error('No valid target users found');
       }
       
       // Create notifications
-      const notifications = userCheck.rows.map(targetUser => [
+      const notifications = userCheck.map(targetUser => [
         targetUser.id, title, message, template.type, template.priority,
         sender_id || user?.uid, scheduled_for, false, targetUser.phone
       ]);
@@ -609,7 +609,7 @@ async performBulkOperations(data, user) {
         RETURNING id, user_id
       `, flatParams);
       
-      logger.info(`Template-based notifications sent to ${userCheck.rows.length} users by ${user?.uid}`);
+      logger.info(`Template-based notifications sent to ${userCheck.length} users by ${user?.uid}`);
       
       return {
         template: {
@@ -621,8 +621,8 @@ async performBulkOperations(data, user) {
           message
         },
         delivery: {
-          notifications_created: result.rows.length,
-          recipients: userCheck.rows
+          notifications_created: result.length,
+          recipients: userCheck
         }
       };
     } catch (error) {
@@ -650,13 +650,13 @@ async performBulkOperations(data, user) {
       
       const result = await query(deleteQuery, queryParams);
       
-      logger.info(`Notification cleanup: ${result.rows.length} notifications deleted (older than ${days} days) by ${user?.uid}`);
+      logger.info(`Notification cleanup: ${result.length} notifications deleted (older than ${days} days) by ${user?.uid}`);
       
       return {
-        notifications_deleted: result.rows.length,
+        notifications_deleted: result.length,
         cutoff_date: new Date(Date.now() - (days * 24 * 60 * 60 * 1000)).toISOString().split('T')[0],
         kept_unread: keep_unread,
-        deleted_notifications: result.rows.slice(0, 10) // Show first 10 as sample
+        deleted_notifications: result.slice(0, 10) // Show first 10 as sample
       };
     } catch (error) {
       logger.error('Error cleaning up notifications:', error.message);

@@ -113,9 +113,9 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         success(res, {
           timeframe,
           overall: overallStats[0],
-          trends: trends.rows,
-          departmentBreakdown: departmentStats.rows,
-          peakHours: peakHours.rows,
+          trends: trends,
+          departmentBreakdown: departmentStats,
+          peakHours: peakHours,
           generatedAt: new Date().toISOString(),
           requestedBy: req.user?.name
         }, 'Appointment analytics retrieved successfully');
@@ -217,7 +217,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         const totalCount = parseInt(countResult[0].count);
 
         success(res, {
-          appointments: appointments.rows,
+          appointments: appointments,
           pagination: {
             page: parseInt(page),
             limit: parseInt(limit),
@@ -279,8 +279,8 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         `, params);
 
         success(res, {
-          conflicts: conflicts.rows,
-          totalConflicts: conflicts.rows.length,
+          conflicts: conflicts,
+          totalConflicts: conflicts.length,
           date,
           doctor_id,
           requestedBy: req.user?.name
@@ -325,10 +325,10 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         `, [threshold]);
 
         success(res, {
-          noShowPatients: noShowPatients.rows,
+          noShowPatients: noShowPatients,
           timeframe,
           threshold,
-          totalPatientsWithNoShows: noShowPatients.rows.length,
+          totalPatientsWithNoShows: noShowPatients.length,
           requestedBy: req.user?.name
         }, 'No-show report generated');
 
@@ -389,7 +389,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         if (format === 'csv') {
           const csv = [
             'ID,Date,Time,Patient,Phone,Doctor,Department,Status,Duration(min),Reason',
-            ...appointments.rows.map(a => 
+            ...appointments.map(a => 
               `${a.id},"${new Date(a.appointment_date).toLocaleDateString()}","${new Date(a.appointment_date).toLocaleTimeString()}","${a.patient_name}","${a.patient_phone}","${a.doctor_name}","${a.department}","${a.status}",${a.consultation_duration_minutes || ''},"${a.reason || ''}"`
             )
           ].join('\n');
@@ -400,8 +400,8 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         }
 
         success(res, {
-          appointments: appointments.rows,
-          count: appointments.rows.length,
+          appointments: appointments,
+          count: appointments.length,
           exportDate: new Date().toISOString(),
           filters: { date_from, date_to, department_id },
           requestedBy: req.user?.name
@@ -465,7 +465,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         success(res, {
           date,
           summary: summary[0],
-          doctorCapacity: capacity.rows,
+          doctorCapacity: capacity,
           department_id,
           requestedBy: req.user?.name
         }, 'Capacity analysis completed');
@@ -504,17 +504,17 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         `, [status, reason || `Status changed to ${status}`, req.user?.uid, ...appointment_ids]);
 
         // Log admin action
-        for (const appointment of result.rows) {
+        for (const appointment of result) {
           logger.info(`Admin ${req.user?.name} bulk updated appointment ${appointment.id} to ${status}`);
         }
 
         success(res, {
-          updatedCount: result.rows.length,
-          updatedAppointments: result.rows,
+          updatedCount: result.length,
+          updatedAppointments: result,
           status,
           reason,
           updatedBy: req.user?.name
-        }, `${result.rows.length} appointments updated successfully`);
+        }, `${result.length} appointments updated successfully`);
 
       } catch (err) {
         logger.error('Bulk Update Error:', err);
@@ -539,7 +539,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
               AND status = 'scheduled'
           `, [doctor_id, appointment_date]);
 
-          if (conflictCheck.rows.length > 0) {
+          if (conflictCheck.length > 0) {
             return error(res, 'Time slot conflict detected. Set ignore_conflicts=true to override', HTTP_STATUS.CONFLICT);
           }
         }
@@ -676,7 +676,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
 
         // In a real implementation, this would trigger SMS/email sending
         // For now, just mark as reminder sent
-        const appointmentIds = appointments.rows.map(a => a.id);
+        const appointmentIds = appointments.map(a => a.id);
         
         if (appointmentIds.length > 0) {
           await prisma.$queryRawUnsafe(
@@ -688,15 +688,15 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         logger.info(`Admin ${req.user?.name} sent ${appointmentIds.length} appointment reminders`);
 
         success(res, {
-          remindersSent: appointments.rows.length,
-          appointments: appointments.rows.map(a => ({
+          remindersSent: appointments.length,
+          appointments: appointments.map(a => ({
             id: a.id,
             patient: a.patient_name,
             doctor: a.doctor_name,
             time: a.appointment_date
           })),
           sentBy: req.user?.name
-        }, `${appointments.rows.length} reminders queued for sending`);
+        }, `${appointments.length} reminders queued for sending`);
 
       } catch (err) {
         logger.error('Send Reminders Error:', err);
@@ -740,15 +740,15 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           appointment_ids
         );
 
-        logger.info(`Admin ${req.user?.name} bulk deleted ${archiveResult.rows.length} appointments`);
+        logger.info(`Admin ${req.user?.name} bulk deleted ${archiveResult.length} appointments`);
 
         success(res, {
-          deletedCount: archiveResult.rows.length,
-          deletedIds: archiveResult.rows.map(r => r.original_id),
+          deletedCount: archiveResult.length,
+          deletedIds: archiveResult.map(r => r.original_id),
           reason,
           deletedBy: req.user?.name,
           archived: true
-        }, `${archiveResult.rows.length} appointments deleted and archived`);
+        }, `${archiveResult.length} appointments deleted and archived`);
 
       } catch (err) {
         logger.error('Bulk Delete Error:', err);

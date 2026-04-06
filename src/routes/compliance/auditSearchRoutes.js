@@ -95,7 +95,7 @@ router.get('/audit/search', async (req, res, next) => {
       params
     );
 
-    return success(res, result.rows, 'Audit logs retrieved', 200, {
+    return success(res, result, 'Audit logs retrieved', 200, {
       page: sanitizedPage,
       limit: sanitizedLimit,
       total,

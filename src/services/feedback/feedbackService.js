@@ -26,7 +26,7 @@ class FeedbackService {
       [phone]
     );
 
-    const averageRating = this.calculateAverageRating(result.rows);
+    const averageRating = this.calculateAverageRating(result);
 
     return {
       feedback: Array.isArray(result) ? result : [],
@@ -259,7 +259,7 @@ class FeedbackService {
         HAVING COUNT(f.id) > 0
         ORDER BY average_rating DESC
       `);
-      departmentPerformance = deptResult.rows;
+      departmentPerformance = deptResult;
     }
 
     // Satisfaction trends - whitelist groupBy to prevent SQL injection
@@ -288,9 +288,9 @@ class FeedbackService {
     `, trendParams);
 
     return {
-      doctorRankings: doctorRankings.rows,
+      doctorRankings: doctorRankings,
       departmentPerformance,
-      satisfactionTrends: satisfactionTrends.rows
+      satisfactionTrends: satisfactionTrends
     };
   }
 
@@ -430,7 +430,7 @@ class FeedbackService {
       [feedbackId]
     );
 
-    if (result.rows.length === 0) {
+    if (result.length === 0) {
       return null;
     }
 

@@ -18,7 +18,7 @@ export async function validatePrescriptionSafety(patientId, medications) {
       `SELECT allergy_name, severity FROM patient_allergies WHERE patient_id = $1 AND is_active = true`,
       [patientId]
     );
-    const allergies = allergyResult.rows;
+    const allergies = allergyResult;
 
     if (allergies.length > 0) {
       for (const med of medications) {
@@ -53,7 +53,7 @@ export async function validatePrescriptionSafety(patientId, medications) {
 
     for (const med of medications) {
       const medName = (med.name || med.medication_name || '').toLowerCase();
-      for (const active of activeMedsResult.rows) {
+      for (const active of activeMedsResult) {
         if ((active.medication_name || '').toLowerCase() === medName) {
           warnings.push({
             type: 'DUPLICATE_MEDICATION',

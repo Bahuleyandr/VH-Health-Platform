@@ -36,7 +36,7 @@ export async function columnExists(table, column) {
 export async function safeQuery(sql, params = [], label = 'query') {
   try {
     const r = await prisma.$queryRawUnsafe(sql, params);
-    return r.rows;
+    return r;
   } catch (err) {
     logger.warn(`[admin:${label}] skipped: ${err.message}`);
     return [];

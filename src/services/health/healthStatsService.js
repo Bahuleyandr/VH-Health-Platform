@@ -39,8 +39,8 @@ export async function getHealthStatistics(days = TREND_PERIODS.WEEK) {
     
     return {
       totals: recordStats[0],
-      by_type: typeStats.rows,
-      daily_activity: dailyActivity.rows
+      by_type: typeStats,
+      daily_activity: dailyActivity
     };
   } catch (error) {
     logger.error(`[HealthStatsService] Error getting health statistics: ${error.message}`);

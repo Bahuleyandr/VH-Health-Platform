@@ -30,7 +30,7 @@ export const updatePharmacyOrderStatus = async (data) => {
     updatedBy, order_id, phone
   ]);
 
-  if (result.rows.length === 0) {
+  if (result.length === 0) {
     throw new Error('ORDER_NOT_FOUND');
   }
 

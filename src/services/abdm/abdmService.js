@@ -36,7 +36,7 @@ class ABDMService {
       `SELECT uid, name, phone FROM users WHERE uid = $1 AND is_active = true LIMIT 1`,
       [patientUid]
     );
-    if (patientResult.rows.length === 0) {
+    if (patientResult.length === 0) {
       throw AppError.notFound('Patient not found', 'PATIENT_NOT_FOUND');
     }
 
@@ -45,7 +45,7 @@ class ABDMService {
       `SELECT uid FROM users WHERE abha_number = $1 AND uid != $2 LIMIT 1`,
       [abhaNumber, patientUid]
     );
-    if (existingAbha.rows.length > 0) {
+    if (existingAbha.length > 0) {
       throw AppError.conflict('This ABHA number is already linked to another patient', 'ABHA_ALREADY_LINKED');
     }
 
@@ -98,7 +98,7 @@ class ABDMService {
       [abhaNumber]
     );
 
-    if (result.rows.length === 0) {
+    if (result.length === 0) {
       throw AppError.notFound('No patient found with this ABHA number', 'ABHA_NOT_FOUND');
     }
 
@@ -138,7 +138,7 @@ class ABDMService {
       [patient.id]
     );
 
-    if (patientResult.rows.length === 0) {
+    if (patientResult.length === 0) {
       logger.warn('ABDM consent request for unknown patient', { abhaNumber: patient.id });
       throw AppError.notFound('Patient not registered at this facility', 'PATIENT_NOT_FOUND');
     }
@@ -150,7 +150,7 @@ class ABDMService {
       `SELECT id FROM abdm_consents WHERE consent_id = $1 LIMIT 1`,
       [consentRequestId]
     );
-    if (existing.rows.length > 0) {
+    if (existing.length > 0) {
       throw AppError.conflict('Consent request already exists', 'DUPLICATE_CONSENT');
     }
 
@@ -362,7 +362,7 @@ class ABDMService {
       [consentId]
     );
 
-    if (consentResult.rows.length === 0) {
+    if (consentResult.length === 0) {
       throw AppError.notFound('Consent not found', 'CONSENT_NOT_FOUND');
     }
 
@@ -441,7 +441,7 @@ class ABDMService {
       [patientUid]
     );
 
-    return result.rows;
+    return result;
   }
 
   /**
@@ -485,7 +485,7 @@ class ABDMService {
              LIMIT 100`,
             dateParams
           );
-          for (const rx of rxResult.rows) {
+          for (const rx of rxResult) {
             entries.push({
               resourceType: 'MedicationRequest',
               hiType: 'Prescription',
@@ -511,7 +511,7 @@ class ABDMService {
              LIMIT 100`,
             dateParams
           );
-          for (const lab of labResult.rows) {
+          for (const lab of labResult) {
             entries.push({
               resourceType: 'DiagnosticReport',
               hiType: 'DiagnosticReport',
@@ -537,7 +537,7 @@ class ABDMService {
              LIMIT 50`,
             dateParams
           );
-          for (const dc of dcResult.rows) {
+          for (const dc of dcResult) {
             entries.push({
               resourceType: 'DocumentReference',
               hiType: 'DischargeSummary',
@@ -562,7 +562,7 @@ class ABDMService {
              LIMIT 100`,
             dateParams
           );
-          for (const op of opResult.rows) {
+          for (const op of opResult) {
             entries.push({
               resourceType: 'Encounter',
               hiType: 'OPConsultation',
@@ -588,7 +588,7 @@ class ABDMService {
                LIMIT 100`,
               dateParams
             );
-            for (const imm of immResult.rows) {
+            for (const imm of immResult) {
               entries.push({
                 resourceType: 'Immunization',
                 hiType: 'ImmunizationRecord',
@@ -647,7 +647,7 @@ class ABDMService {
       [consentId]
     );
 
-    if (result.rows.length === 0) {
+    if (result.length === 0) {
       throw AppError.notFound('Consent not found', 'CONSENT_NOT_FOUND');
     }
 

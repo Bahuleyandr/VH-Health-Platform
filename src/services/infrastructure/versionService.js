@@ -249,11 +249,11 @@ export class VersionService {
       return {
         database: {
           type: 'PostgreSQL',
-          tables: result.rows.map(row => ({
+          tables: result.map(row => ({
             name: row.table_name,
             type: row.table_type
           })),
-          totalTables: result.rows.length
+          totalTables: result.length
         },
         coreEntities: [
           'users', 'appointments', 'health_records', 'investigations',

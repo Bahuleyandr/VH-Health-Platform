@@ -22,7 +22,7 @@ export async function sendInvestigationNotifications() {
        LIMIT 50`
     );
 
-    for (const row of result.rows) {
+    for (const row of result) {
       const message = NotificationTemplates.investigationReady({
         name: row.name || 'Patient',
         testName: row.test_name
@@ -74,8 +74,8 @@ export async function sendInvestigationNotifications() {
       }
     }
 
-    if (result.rows.length > 0) {
-      logger.info(`🔬 Processed ${result.rows.length} investigation notifications`);
+    if (result.length > 0) {
+      logger.info(`🔬 Processed ${result.length} investigation notifications`);
     }
   } catch (err) {
     logger.error('Error during investigation notifications:', err.message || err);

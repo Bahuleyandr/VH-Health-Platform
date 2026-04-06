@@ -55,7 +55,7 @@ export const getHRDashboardData = async (timeframe) => {
       LIMIT 7
     `);
 
-    attendanceTrends = attendanceResult.rows.map(row => ({
+    attendanceTrends = attendanceResult.map(row => ({
       ...row,
       date: new Date(row.date).toLocaleDateString('en-GB', {
         day: '2-digit',
@@ -107,7 +107,7 @@ export const getHRDashboardData = async (timeframe) => {
       LIMIT 10
     `);
 
-    upcomingTasks = tasksResult.rows.map(task => ({
+    upcomingTasks = tasksResult.map(task => ({
       ...task,
       due_date: new Date(task.due_date).toLocaleDateString('en-GB', {
         day: '2-digit',
@@ -127,7 +127,7 @@ export const getHRDashboardData = async (timeframe) => {
       attendance_rate: staffOverview[0].total_staff > 0 ? 
         Math.round((staffOverview[0].currently_checked_in / staffOverview[0].total_staff) * 100) : 0
     },
-    departmentBreakdown: departmentStats.rows.map(dept => ({
+    departmentBreakdown: departmentStats.map(dept => ({
       ...dept,
       avg_salary: dept.avg_salary ? Math.round(dept.avg_salary) : null,
       attendance_rate: dept.active_staff > 0 ? Math.round((dept.present_today / dept.active_staff) * 100) : 0,
@@ -137,7 +137,7 @@ export const getHRDashboardData = async (timeframe) => {
     performanceMetrics,
     upcomingTasks,
     alerts: {
-      low_attendance: departmentStats.rows.filter(d => (d.present_today / d.active_staff) < 0.7).length,
+      low_attendance: departmentStats.filter(d => (d.present_today / d.active_staff) < 0.7).length,
       upcoming_reviews: upcomingTasks.length,
       new_hires_need_onboarding: parseInt(staffOverview[0].new_hires_30_days) || 0
     },

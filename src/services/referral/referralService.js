@@ -26,7 +26,7 @@ class ReferralService {
     );
 
     let sequence = 1;
-    if (result.rows.length > 0) {
+    if (result.length > 0) {
       const lastNumber = result[0].referral_number;
       const lastSeq = parseInt(lastNumber.split('-')[2], 10);
       if (!isNaN(lastSeq)) {
@@ -130,7 +130,7 @@ class ReferralService {
     );
 
     return {
-      referrals: result.rows,
+      referrals: result,
       pagination: {
         page: parseInt(page, 10),
         limit: parseInt(limit, 10),
@@ -179,7 +179,7 @@ class ReferralService {
     );
 
     return {
-      referrals: result.rows,
+      referrals: result,
       pagination: {
         page: parseInt(page, 10),
         limit: parseInt(limit, 10),
@@ -202,7 +202,7 @@ class ReferralService {
       `SELECT id, status FROM referrals WHERE id = $1`,
       [referralId]
     );
-    if (existing.rows.length === 0) {
+    if (existing.length === 0) {
       throw AppError.notFound('Referral not found');
     }
     if (existing[0].status !== 'pending') {
@@ -238,7 +238,7 @@ class ReferralService {
       `SELECT id, status FROM referrals WHERE id = $1`,
       [referralId]
     );
-    if (existing.rows.length === 0) {
+    if (existing.length === 0) {
       throw AppError.notFound('Referral not found');
     }
     if (!['accepted', 'in_progress'].includes(existing[0].status)) {
@@ -275,7 +275,7 @@ class ReferralService {
       `SELECT id, status FROM referrals WHERE id = $1`,
       [referralId]
     );
-    if (existing.rows.length === 0) {
+    if (existing.length === 0) {
       throw AppError.notFound('Referral not found');
     }
     if (existing[0].status !== 'pending') {
@@ -323,7 +323,7 @@ class ReferralService {
     );
 
     return {
-      referrals: result.rows,
+      referrals: result,
       pagination: {
         page: parseInt(page, 10),
         limit: parseInt(limit, 10),

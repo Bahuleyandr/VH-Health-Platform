@@ -97,7 +97,7 @@ export const generatePerformanceReport = async (queryParams) => {
       dateRange: timeframe === 'custom' ? { start_date, end_date } : null,
       generatedAt: new Date().toISOString()
     },
-    staffPerformance: performanceData.rows.map(staff => ({
+    staffPerformance: performanceData.map(staff => ({
       ...staff,
       current_rating: staff.current_rating ? Math.round(staff.current_rating * 10) / 10 : null,
       average_rating: staff.average_rating ? Math.round(staff.average_rating * 10) / 10 : null,
@@ -110,18 +110,18 @@ export const generatePerformanceReport = async (queryParams) => {
         (staff.current_rating > staff.average_rating ? 'improving' : 
          staff.current_rating < staff.average_rating ? 'declining' : 'stable') : 'unknown'
     })),
-    departmentSummary: departmentPerformance.rows.map(dept => ({
+    departmentSummary: departmentPerformance.map(dept => ({
       ...dept,
       avg_current_rating: dept.avg_current_rating ? Math.round(dept.avg_current_rating * 10) / 10 : null,
       avg_review_rating: dept.avg_review_rating ? Math.round(dept.avg_review_rating * 10) / 10 : null
     })),
-    performanceDistribution: performanceDistribution.rows,
+    performanceDistribution: performanceDistribution,
     insights: {
-      totalStaffEvaluated: performanceData.rows.length,
-      averageRating: performanceData.rows.length > 0 ? 
-        Math.round((performanceData.rows.reduce((sum, s) => sum + (s.current_rating || 0), 0) / performanceData.rows.length) * 10) / 10 : 0,
-      highPerformers: performanceData.rows.filter(s => s.current_rating >= 4.0).length,
-      needsAttention: performanceData.rows.filter(s => s.current_rating && s.current_rating < 3.0).length
+      totalStaffEvaluated: performanceData.length,
+      averageRating: performanceData.length > 0 ? 
+        Math.round((performanceData.reduce((sum, s) => sum + (s.current_rating || 0), 0) / performanceData.length) * 10) / 10 : 0,
+      highPerformers: performanceData.filter(s => s.current_rating >= 4.0).length,
+      needsAttention: performanceData.filter(s => s.current_rating && s.current_rating < 3.0).length
     }
   };
 };
@@ -144,7 +144,7 @@ export const createPerformanceReview = async (reviewData) => {
     [staff_id]
   );
 
-  if (staffCheck.rows.length === 0) {
+  if (staffCheck.length === 0) {
     throw new Error('STAFF_NOT_FOUND');
   }
 

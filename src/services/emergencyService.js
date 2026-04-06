@@ -46,7 +46,7 @@ export const getActiveAlerts = async () => {
       sa.created_at ASC
   `);
 
-  return result.rows;
+  return result;
 };
 
 export const calculateDashboardStats = (alerts) => {

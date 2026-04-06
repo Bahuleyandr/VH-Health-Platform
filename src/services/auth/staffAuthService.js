@@ -84,7 +84,7 @@ export class StaffAuthService {
         WHERE s.employee_id = $1
       `, [employeeId]);
 
-      if (result.rows.length === 0) {
+      if (result.length === 0) {
         await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', false, 'Invalid employee ID', 'password', req);
         logSecurityEvent('LOGIN_FAILED', {
           userName: employeeId,
@@ -96,7 +96,7 @@ export class StaffAuthService {
         throw new Error('Invalid employee ID or password');
       }
 
-      const staff = result.rows[0];
+      const staff = result[0];
 
       if (!staff.is_active) {
         await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', false, 'Account deactivated', 'password', req);
@@ -229,7 +229,7 @@ export class StaffAuthService {
           )
       `, [deviceToken]);
 
-      if (deviceResult.rows.length === 0) {
+      if (deviceResult.length === 0) {
         throw new Error('Invalid or expired device token');
       }
 
@@ -339,7 +339,7 @@ export class StaffAuthService {
         WHERE s.session_token = $1 AND s.expires_at > NOW()
       `, [incomingHash]);
 
-      if (sessionResult.rows.length === 0) throw new Error('Invalid or expired session');
+      if (sessionResult.length === 0) throw new Error('Invalid or expired session');
       const session = sessionResult.rows[0];
       if (!session.is_active) throw new Error('Account deactivated');
 
@@ -373,7 +373,7 @@ export class StaffAuthService {
         WHERE s.employee_id = $1
       `, [employeeId]);
 
-      if (result.rows.length === 0) {
+      if (result.length === 0) {
         await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'Invalid employee ID', 'pin', req);
         logSecurityEvent('LOGIN_FAILED', {
           userName: employeeId,
@@ -385,7 +385,7 @@ export class StaffAuthService {
         throw new Error('Invalid employee ID or PIN');
       }
 
-      const staff = result.rows[0];
+      const staff = result[0];
 
       if (!staff.is_active) {
         await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'Account deactivated', 'pin', req);
@@ -453,12 +453,12 @@ export class StaffAuthService {
   static async logoutStaff(staffUid, deviceToken, req) {
     try {
       const userResult = await query('SELECT id FROM users WHERE uid = $1', [staffUid]);
-      if (userResult.rows.length === 0) throw new Error('Staff not found');
+      if (userResult.length === 0) throw new Error('Staff not found');
       const userId = userResult.rows[0].id;
 
       if (deviceToken) {
         const deviceResult = await query('SELECT device_id FROM staff_devices WHERE device_token = $1 AND staff_id = $2', [deviceToken, userId]);
-        if (deviceResult.rows.length > 0) {
+        if (deviceResult.length > 0) {
           await query('DELETE FROM staff_auth_sessions WHERE staff_id = $1 AND device_id = $2', [userId, deviceResult.rows[0].device_id]);
         }
       } else {
@@ -476,7 +476,7 @@ export class StaffAuthService {
   static async listStaffDevices(staffUid) {
     try {
       const userResult = await query('SELECT id FROM users WHERE uid = $1', [staffUid]);
-      if (userResult.rows.length === 0) throw new Error('Staff not found');
+      if (userResult.length === 0) throw new Error('Staff not found');
       const userId = userResult.rows[0].id;
 
       const devices = await query(`
@@ -492,7 +492,7 @@ export class StaffAuthService {
         WHERE staff_id = $1 AND is_active = true
         ORDER BY last_used DESC NULLS LAST
       `, [userId]);
-      return devices.rows;
+      return devices;
     } catch (error) {
       logger.error('List devices error:', error);
       throw error;
@@ -522,8 +522,8 @@ export class StaffAuthService {
         [staffId]
       );
       // ✅ FIX: Uses the logActivity helper for consistency.
-      await this.logActivity(adminUid, 'ADMIN_RESET_PIN', `Reset PIN for staff ${staffId}`, req, { affectedStaffId: staffId, devicesAffected: result.rows.length });
-      return { success: true, message: 'PIN reset successfully', devicesAffected: result.rows.length };
+      await this.logActivity(adminUid, 'ADMIN_RESET_PIN', `Reset PIN for staff ${staffId}`, req, { affectedStaffId: staffId, devicesAffected: result.length });
+      return { success: true, message: 'PIN reset successfully', devicesAffected: result.length };
     } catch (error) {
       logger.error('Admin reset PIN error:', error);
       throw error;
@@ -539,7 +539,7 @@ export class StaffAuthService {
    */
   static async _verifyDeviceOwnership(staffUid, deviceToken) {
     const userResult = await query('SELECT id FROM users WHERE uid = $1', [staffUid]);
-    if (userResult.rows.length === 0) {
+    if (userResult.length === 0) {
       throw new Error('Staff not found');
     }
     const userId = userResult.rows[0].id;
@@ -549,7 +549,7 @@ export class StaffAuthService {
       [deviceToken, userId]
     );
 
-    if (deviceResult.rows.length === 0) {
+    if (deviceResult.length === 0) {
       throw new Error('Device not found or unauthorized');
     }
     return deviceResult.rows[0].id; // Return the internal (auto-incrementing) device ID

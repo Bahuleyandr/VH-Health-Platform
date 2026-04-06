@@ -63,7 +63,7 @@ router.post('/grant', requiredUUID('patient_uid'), requiredString('consent_type'
       [patient_uid, consent_type]
     );
 
-    if (existing.rows.length > 0) {
+    if (existing.length > 0) {
       return error(res, 'Active consent of this type already exists for this patient', 409);
     }
 
@@ -123,7 +123,7 @@ router.post('/revoke', requiredUUID('patient_uid'), requiredString('consent_type
       [patient_uid, consent_type]
     );
 
-    if (result.rows.length === 0) {
+    if (result.length === 0) {
       return error(res, 'No active consent found to revoke', 404);
     }
 
@@ -186,7 +186,7 @@ router.get('/:patientUid', async (req, res, next) => {
       requestId: req.id,
     });
 
-    return success(res, result.rows, 'Patient consents retrieved');
+    return success(res, result, 'Patient consents retrieved');
   } catch (err) {
     logger.error('Failed to get patient consents:', { error: err.message });
     next(err);
@@ -221,7 +221,7 @@ router.get('/:patientUid/:consentType', async (req, res, next) => {
       [patientUid, consentType]
     );
 
-    if (result.rows.length === 0) {
+    if (result.length === 0) {
       return success(res, { has_consent: false, consent: null }, 'No consent record found');
     }
 

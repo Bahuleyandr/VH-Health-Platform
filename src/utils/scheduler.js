@@ -194,7 +194,7 @@ cron.schedule('0 6 1 * *', withJobLock('monthly-payroll', async () => {
     'SELECT id, status FROM payroll_runs WHERE month=$1 AND year=$2',
     [month, year]
   );
-  if (existing.rows.length > 0 && existing[0].status === 'completed') {
+  if (existing.length > 0 && existing[0].status === 'completed') {
     logger.info(`Payroll for ${month}/${year} already completed`);
     return;
   }
@@ -221,7 +221,7 @@ cron.schedule('0 6 1 * *', withJobLock('monthly-payroll', async () => {
 
   let processed = 0;
   let totalGross = 0, totalNet = 0, totalDeductions = 0;
-  for (const staff of staffList.rows) {
+  for (const staff of staffList) {
     try {
       const calc = await calculatePayslip(staff.staff_uid, month, year);
       await savePayslip(runId, calc);

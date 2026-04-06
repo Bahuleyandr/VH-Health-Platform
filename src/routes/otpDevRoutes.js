@@ -54,7 +54,7 @@ if (isDevelopment) {
 
       success(res, {
         summary: stats[0] || {},
-        daily: dailyStats.rows || [],
+        daily: dailyStats || [],
         warning: 'Development statistics only'
       }, 'OTP statistics retrieved');
 
@@ -87,7 +87,7 @@ if (isDevelopment) {
 
       success(res, {
         phone: normalizedPhone,
-        otps: otps.rows.map(otp => ({
+        otps: otps.map(otp => ({
           ...otp,
           otp_code: '***' + otp.otp_code.slice(-3), // Mask for security
           is_expired: new Date(otp.expires_at) <= new Date(),
@@ -258,7 +258,7 @@ if (isDevelopment) {
 
       success(res, {
         phone: normalizedPhone,
-        otps: otps.rows.map(otp => ({
+        otps: otps.map(otp => ({
           ...otp,
           otp_code: '***' + otp.otp_code.slice(-3), // Mask for security
           is_expired: new Date(otp.expires_at) <= new Date(),

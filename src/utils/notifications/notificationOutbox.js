@@ -87,7 +87,7 @@ class NotificationOutbox {
          LIMIT $1`,
         [limit]
       );
-      return result.rows;
+      return result;
     } catch (err) {
       logger.warn('Failed to fetch pending notifications:', err.message);
       return [];

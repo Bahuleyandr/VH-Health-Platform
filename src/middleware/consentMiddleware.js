@@ -66,9 +66,9 @@ export function requireConsent(consentType) {
               req.originalUrl?.split('?')[0] || req.path || '',
               'consent',
               'consent_check',
-              JSON.stringify({ patient_uid: patientUid, consent_type: consentType, consent_found: result.rows.length > 0 }),
-              result.rows.length > 0 ? 200 : 403,
-              result.rows.length > 0,
+              JSON.stringify({ patient_uid: patientUid, consent_type: consentType, consent_found: result.length > 0 }),
+              result.length > 0 ? 200 : 403,
+              result.length > 0,
             ]
           );
         } catch (auditErr) {
@@ -76,7 +76,7 @@ export function requireConsent(consentType) {
         }
       });
 
-      if (result.rows.length === 0) {
+      if (result.length === 0) {
         // Also log as PHI access attempt (denied)
         logPhiAccess({
           userId,

@@ -31,7 +31,7 @@ export async function calculatePayslip(staffUid, month, year) {
     'SELECT id, staff_uid, basic_salary, hra, special_allowance, total_ctc, is_active, effective_from FROM staff_salary WHERE staff_uid = $1 AND is_active = true',
     [staffUid]
   );
-  if (salaryRes.rows.length === 0) {
+  if (salaryRes.length === 0) {
     throw new Error(`No salary configuration found for staff ${staffUid}`);
   }
   const sal = salaryRes[0];
@@ -138,7 +138,7 @@ export async function calculatePayslip(staffUid, month, year) {
 
   let totalAdvanceDeduction = 0;
   const advancesToProcess = [];
-  for (const adv of advanceRes.rows) {
+  for (const adv of advanceRes) {
     const remaining = parseFloat(adv.amount) - parseFloat(adv.total_deducted);
     const deductThis = Math.min(parseFloat(adv.monthly_deduction), remaining);
     totalAdvanceDeduction += deductThis;
@@ -161,7 +161,7 @@ export async function calculatePayslip(staffUid, month, year) {
   `, [staffUid, month, year]).catch(() => ({ rows: [] }));
 
   let revisionNote = null;
-  if (revisionCheck.rows.length > 0) {
+  if (revisionCheck.length > 0) {
     const r = revisionCheck[0];
     if (r.revision_type === 'increment' && r.current_basic && r.proposed_basic) {
       revisionNote = `Increment applied (${r.revision_number}): ₹${Number(r.current_basic).toLocaleString('en-IN')} → ₹${Number(r.proposed_basic).toLocaleString('en-IN')} effective ${new Date(r.effective_from).toLocaleDateString('en-IN')}`;
@@ -265,11 +265,11 @@ export async function generateAnnualTaxSummary(staffUid, financialYear) {
     ORDER BY year, month
   `, [staffUid, startYear, endYear]);
 
-  if (payslips.rows.length === 0) {
+  if (payslips.length === 0) {
     throw new Error('No payslips found for this financial year');
   }
 
-  const totals = payslips.rows.reduce((acc, p) => {
+  const totals = payslips.reduce((acc, p) => {
     acc.basic       += parseFloat(p.basic_earned || 0);
     acc.hra         += parseFloat(p.hra_earned || 0);
     acc.da          += parseFloat(p.da_earned || 0);
@@ -339,7 +339,7 @@ export async function generateAnnualTaxSummary(staffUid, financialYear) {
     total_net: Math.round(totals.net * 100) / 100,
     taxable_income: Math.round(taxableIncome * 100) / 100,
     tax_payable: Math.round(taxPayable * 100) / 100,
-    months_included: payslips.rows.length,
+    months_included: payslips.length,
   };
 
   const result = await prisma.$queryRawUnsafe(`
@@ -382,7 +382,7 @@ export async function calculateArrears(revisionId) {
     "SELECT id, staff_uid, revision_type, old_basic, new_basic, old_ctc, new_ctc, effective_from, status, created_at FROM salary_revisions WHERE id=$1 AND status='applied'",
     [revisionId]
   );
-  if (revision.rows.length === 0) throw new Error('Revision not found or not applied');
+  if (revision.length === 0) throw new Error('Revision not found or not applied');
 
   const r = revision[0];
   if (!r.proposed_basic || !r.current_basic) throw new Error('No basic salary change in this revision');
@@ -417,7 +417,7 @@ export async function calculateArrears(revisionId) {
       'SELECT id, staff_uid, month, year, payroll_run_id, basic_salary, hra, special_allowance, total_earnings, pf_employee, pf_employer, esi, professional_tax, tds, total_deductions, net_salary, status, created_at FROM payslips WHERE staff_uid=$1 AND month=$2 AND year=$3',
       [r.staff_uid, month, year]
     );
-    if (payslip.rows.length > 0) {
+    if (payslip.length > 0) {
       const p = payslip[0];
       const attendanceFactor = p.days_present / (p.total_working_days || 26);
       totalArrears += diffBasic * attendanceFactor;

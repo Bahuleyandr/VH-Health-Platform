@@ -35,7 +35,7 @@ export class RBACService {
       `).catch(() => ({ rows: [] }));
 
       const rolesWithDetails = ALL_ROLES.map(role => {
-        const stats = roleStats.rows.find(r => r.role === role) || { user_count: 0, active_count: 0 };
+        const stats = roleStats.find(r => r.role === role) || { user_count: 0, active_count: 0 };
         const roleData = ROLE_HIERARCHY[role] || {};
         const activeCount = parseInt(stats.active_count) || 0;
 
@@ -127,7 +127,7 @@ export class RBACService {
         LIMIT $${params.length}
       `, params);
 
-      const usersByRole = result.rows.map(row => ({
+      const usersByRole = result.map(row => ({
         role: row.role,
         userCount: parseInt(row.user_count),
         roleDetails: ROLE_HIERARCHY[row.role],
@@ -137,7 +137,7 @@ export class RBACService {
 
       return {
         usersByRole,
-        totalUsers: result.rows.reduce((sum, row) => sum + parseInt(row.user_count), 0),
+        totalUsers: result.reduce((sum, row) => sum + parseInt(row.user_count), 0),
         filters: { includeInactive, role, limit },
         requestedBy: userInfo.uid
       };
@@ -234,7 +234,7 @@ export class RBACService {
         `).catch(() => ({ rows: [] }))
       ]);
 
-      const roleCapacity = roleDistribution.rows.map(row => {
+      const roleCapacity = roleDistribution.map(row => {
         const roleData = ROLE_HIERARCHY[row.role] || {};
         const activeCount = parseInt(row.active_count) || 0;
         const max = roleData.maxUsers ?? null;
@@ -250,11 +250,11 @@ export class RBACService {
       });
 
       return {
-        roleDistribution: roleDistribution.rows,
+        roleDistribution: roleDistribution,
         roleCapacity,
-        recentRoleChanges: recentRoleChanges.rows,
-        activeUsersByRole: activeUsersByRole.rows,
-        newRegistrations: newRegistrations.rows,
+        recentRoleChanges: recentRoleChanges,
+        activeUsersByRole: activeUsersByRole,
+        newRegistrations: newRegistrations,
         analyticsPeriod: `${days} days`,
         generatedAt: formatDateDDMMYYYY(new Date()),
         requestedBy: userInfo.uid
@@ -289,7 +289,7 @@ export class RBACService {
         'SELECT uid, role, name FROM users WHERE phone = $1',
         [normalizedPhone]
       );
-      if (userResult.rows.length === 0) throw new Error('User not found');
+      if (userResult.length === 0) throw new Error('User not found');
 
       const user = userResult[0];
       const oldRole = user.role;
@@ -428,7 +428,7 @@ export class RBACService {
       ).catch(() => ({ rows: [{ count: 0 }] }));
 
       return {
-        auditLog: auditLog.rows,
+        auditLog: auditLog,
         pagination: {
           page: parseInt(page),
           limit: parseInt(limit),
@@ -511,10 +511,10 @@ export class RBACService {
         `).catch(() => ({ rows: [] }))
       ]);
 
-      const totalAlerts = suspiciousChanges.rows.length +
-                          privilegeEscalations.rows.length +
-                          nonAdminChanges.rows.length +
-                          capacityAlerts.rows.length;
+      const totalAlerts = suspiciousChanges.length +
+                          privilegeEscalations.length +
+                          nonAdminChanges.length +
+                          capacityAlerts.length;
 
       let alertLevel = 'low';
       if (totalAlerts > 10) alertLevel = 'high';
@@ -522,10 +522,10 @@ export class RBACService {
 
       return {
         securityAlerts: {
-          suspiciousChanges: suspiciousChanges.rows,
-          privilegeEscalations: privilegeEscalations.rows,
-          nonAdminChanges: nonAdminChanges.rows,
-          capacityAlerts: capacityAlerts.rows
+          suspiciousChanges: suspiciousChanges,
+          privilegeEscalations: privilegeEscalations,
+          nonAdminChanges: nonAdminChanges,
+          capacityAlerts: capacityAlerts
         },
         alertLevel,
         totalAlerts,
@@ -560,7 +560,7 @@ export class RBACService {
         [isActive, adminInfo.uid, reason, normalizedPhone]
       );
 
-      if (result.rows.length === 0) throw new Error('User not found');
+      if (result.length === 0) throw new Error('User not found');
 
       const user = result[0];
 
@@ -626,7 +626,7 @@ export class RBACService {
           ...roleInfo,
           totalUsersWithRole: parseInt(roleStats[0].total_users || 0)
         },
-        roleHistory: roleHistory.rows,
+        roleHistory: roleHistory,
         capabilities: {
           canViewRoles: hasPermission(userInfo.role, 'view_roles') || (roleInfo.level ?? 0) >= 50,
           canManageUsers: (roleInfo.canManageRoles || []).length > 0,

@@ -225,7 +225,7 @@ export const forceSendOtp = async (phone, purpose, reason, bypassLimits, adminUi
     RETURNING id
   `, [normalizedPhone, otp, purpose, expiresAt]);
   
-  const sessionId = result.rows[0].id;
+  const sessionId = result[0].id;
   
   // Log the admin action
   await otpService.logActivity(normalizedPhone, purpose, 'admin_force_send', true, reason, req);
@@ -309,9 +309,9 @@ export const getSecurityAlerts = async (adminUid) => {
            ORDER BY attempt_count DESC LIMIT 20`),
   ]);
   return {
-    suspiciousActivity: suspicious.rows || [],
-    failurePatterns: failures.rows || [],
-    ipAnalysis: ipAnalysis.rows || [],
+    suspiciousActivity: suspicious || [],
+    failurePatterns: failures || [],
+    ipAnalysis: ipAnalysis || [],
     generatedAt: new Date().toISOString(),
     requestedBy: adminUid,
   };
@@ -326,8 +326,8 @@ export const getActiveSessions = async (limit = 100, adminUid) => {
     [limit],
   );
   return {
-    activeSessions: result.rows || [],
-    count: result.rows?.length || 0,
+    activeSessions: result || [],
+    count: result?.length || 0,
     requestedBy: adminUid,
   };
 };
@@ -341,7 +341,7 @@ export const getOtpStatusForPhone = async (phone, purpose = 'general') => {
      ORDER BY created_at DESC LIMIT 1`,
     [normalizedPhone_, purpose],
   );
-  const session = result.rows?.[0];
+  const session = result?.[0];
   return {
     hasActiveOTP: !!session,
     phone: normalizedPhone_,
