@@ -437,23 +437,46 @@ export class DoctorService {
   // Update doctor profile
   async updateDoctorProfile(id, updates) {
     try {
-      const rows = await prisma.$queryRaw`
+      // Use actual column names: specialty (not specialization), intro (not bio)
+      const rows = await prisma.$queryRawUnsafe(`
         UPDATE doctors SET
-          specialization = COALESCE(${updates.specialization}, specialization),
-          department = COALESCE(${updates.department}, department),
-          experience_years = COALESCE(${updates.experience_years}, experience_years),
-          consultation_fee = COALESCE(${updates.consultation_fee}, consultation_fee),
-          bio = COALESCE(${updates.bio}, bio),
-          education = COALESCE(${updates.education}, education),
-          qualifications = COALESCE(${updates.qualifications}, qualifications),
+          name = COALESCE($1, name),
+          specialty = COALESCE($2, specialty),
+          department = COALESCE($3, department),
+          consultation_fee = COALESCE($4, consultation_fee),
+          available_days = COALESCE($5, available_days),
+          available_hours = COALESCE($6::jsonb, available_hours),
+          intro = COALESCE($7, intro),
           updated_at = NOW()
-        WHERE user_id = ${id}
-        RETURNING id, name, department, intro, image_url, is_active, created_at
-      `;
+        WHERE user_id = $8
+        RETURNING id, name, department, specialty, intro, image_url, consultation_fee, available_days, is_available, is_active, created_at
+      `,
+        updates.name || null,
+        updates.specialization || null,
+        updates.department || null,
+        updates.consultation_fee != null ? parseFloat(updates.consultation_fee) : null,
+        updates.available_days || null,
+        updates.available_hours ? JSON.stringify(updates.available_hours) : null,
+        updates.bio || null,
+        parseInt(id)
+      );
 
       if (rows.length === 0) {
         throw new Error(DOCTOR_MESSAGES.NOT_FOUND);
       }
+
+      // Also update users table for name/email/phone
+      if (updates.email || updates.phone || updates.name) {
+        await prisma.$queryRawUnsafe(`
+          UPDATE users SET
+            name = COALESCE($1, name),
+            email = COALESCE($2, email),
+            phone = COALESCE($3, phone),
+            updated_at = NOW()
+          WHERE id = $4
+        `, updates.name || null, updates.email || null, updates.phone || null, parseInt(id));
+      }
+
       return rows[0];
     } catch (error) {
       logger.error('Error updating doctor profile:', error);
