@@ -93,122 +93,42 @@ class AdminDepartmentService {
     try {
       const { status = 'active', search } = filters;
 
-      let rows;
-      if (status === 'active' && search) {
-        rows = await prisma.$queryRaw`
-          SELECT d.id, d.name, d.description, d.is_active, d.location,
-                 d.contact_number, d.created_at, d.updated_at,
-                 u.name as head_doctor_name, u.phone as head_doctor_phone,
-                 COUNT(doc.user_id) as doctor_count,
-                 COUNT(s.user_id) as staff_count,
-                 STRING_AGG(DISTINCT doc_users.name, ', ') as doctor_names
-          FROM departments d
-          LEFT JOIN users u ON d.head_doctor_id = u.id
-          LEFT JOIN doctors doc ON doc.department = d.name
-          LEFT JOIN users doc_users ON doc.user_id = doc_users.id
-          LEFT JOIN staff s ON s.department = d.name AND s.is_active = true
-          WHERE d.is_active = true
-            AND (d.name ILIKE ${'%' + search + '%'} OR d.description ILIKE ${'%' + search + '%'})
-          GROUP BY d.id, d.name, d.description, d.is_active, d.location,
-                   d.contact_number, d.created_at, d.updated_at, u.name, u.phone
-          ORDER BY d.name
-        `;
-      } else if (status === 'inactive' && search) {
-        rows = await prisma.$queryRaw`
-          SELECT d.id, d.name, d.description, d.is_active, d.location,
-                 d.contact_number, d.created_at, d.updated_at,
-                 u.name as head_doctor_name, u.phone as head_doctor_phone,
-                 COUNT(doc.user_id) as doctor_count,
-                 COUNT(s.user_id) as staff_count,
-                 STRING_AGG(DISTINCT doc_users.name, ', ') as doctor_names
-          FROM departments d
-          LEFT JOIN users u ON d.head_doctor_id = u.id
-          LEFT JOIN doctors doc ON doc.department = d.name
-          LEFT JOIN users doc_users ON doc.user_id = doc_users.id
-          LEFT JOIN staff s ON s.department = d.name AND s.is_active = true
-          WHERE d.is_active = false
-            AND (d.name ILIKE ${'%' + search + '%'} OR d.description ILIKE ${'%' + search + '%'})
-          GROUP BY d.id, d.name, d.description, d.is_active, d.location,
-                   d.contact_number, d.created_at, d.updated_at, u.name, u.phone
-          ORDER BY d.name
-        `;
-      } else if (status === 'active') {
-        rows = await prisma.$queryRaw`
-          SELECT d.id, d.name, d.description, d.is_active, d.location,
-                 d.contact_number, d.created_at, d.updated_at,
-                 u.name as head_doctor_name, u.phone as head_doctor_phone,
-                 COUNT(doc.user_id) as doctor_count,
-                 COUNT(s.user_id) as staff_count,
-                 STRING_AGG(DISTINCT doc_users.name, ', ') as doctor_names
-          FROM departments d
-          LEFT JOIN users u ON d.head_doctor_id = u.id
-          LEFT JOIN doctors doc ON doc.department = d.name
-          LEFT JOIN users doc_users ON doc.user_id = doc_users.id
-          LEFT JOIN staff s ON s.department = d.name AND s.is_active = true
-          WHERE d.is_active = true
-          GROUP BY d.id, d.name, d.description, d.is_active, d.location,
-                   d.contact_number, d.created_at, d.updated_at, u.name, u.phone
-          ORDER BY d.name
-        `;
+      // Build WHERE clause dynamically using only real columns
+      const conditions = [];
+      const params = [];
+
+      if (status === 'active') {
+        conditions.push('d.is_active = true');
       } else if (status === 'inactive') {
-        rows = await prisma.$queryRaw`
-          SELECT d.id, d.name, d.description, d.is_active, d.location,
-                 d.contact_number, d.created_at, d.updated_at,
-                 u.name as head_doctor_name, u.phone as head_doctor_phone,
-                 COUNT(doc.user_id) as doctor_count,
-                 COUNT(s.user_id) as staff_count,
-                 STRING_AGG(DISTINCT doc_users.name, ', ') as doctor_names
-          FROM departments d
-          LEFT JOIN users u ON d.head_doctor_id = u.id
-          LEFT JOIN doctors doc ON doc.department = d.name
-          LEFT JOIN users doc_users ON doc.user_id = doc_users.id
-          LEFT JOIN staff s ON s.department = d.name AND s.is_active = true
-          WHERE d.is_active = false
-          GROUP BY d.id, d.name, d.description, d.is_active, d.location,
-                   d.contact_number, d.created_at, d.updated_at, u.name, u.phone
-          ORDER BY d.name
-        `;
-      } else if (search) {
-        rows = await prisma.$queryRaw`
-          SELECT d.id, d.name, d.description, d.is_active, d.location,
-                 d.contact_number, d.created_at, d.updated_at,
-                 u.name as head_doctor_name, u.phone as head_doctor_phone,
-                 COUNT(doc.user_id) as doctor_count,
-                 COUNT(s.user_id) as staff_count,
-                 STRING_AGG(DISTINCT doc_users.name, ', ') as doctor_names
-          FROM departments d
-          LEFT JOIN users u ON d.head_doctor_id = u.id
-          LEFT JOIN doctors doc ON doc.department = d.name
-          LEFT JOIN users doc_users ON doc.user_id = doc_users.id
-          LEFT JOIN staff s ON s.department = d.name AND s.is_active = true
-          WHERE (d.name ILIKE ${'%' + search + '%'} OR d.description ILIKE ${'%' + search + '%'})
-          GROUP BY d.id, d.name, d.description, d.is_active, d.location,
-                   d.contact_number, d.created_at, d.updated_at, u.name, u.phone
-          ORDER BY d.name
-        `;
-      } else {
-        rows = await prisma.$queryRaw`
-          SELECT d.id, d.name, d.description, d.is_active, d.location,
-                 d.contact_number, d.created_at, d.updated_at,
-                 u.name as head_doctor_name, u.phone as head_doctor_phone,
-                 COUNT(doc.user_id) as doctor_count,
-                 COUNT(s.user_id) as staff_count,
-                 STRING_AGG(DISTINCT doc_users.name, ', ') as doctor_names
-          FROM departments d
-          LEFT JOIN users u ON d.head_doctor_id = u.id
-          LEFT JOIN doctors doc ON doc.department = d.name
-          LEFT JOIN users doc_users ON doc.user_id = doc_users.id
-          LEFT JOIN staff s ON s.department = d.name AND s.is_active = true
-          GROUP BY d.id, d.name, d.description, d.is_active, d.location,
-                   d.contact_number, d.created_at, d.updated_at, u.name, u.phone
-          ORDER BY d.name
-        `;
+        conditions.push('d.is_active = false');
       }
+
+      if (search) {
+        params.push(`%${search}%`);
+        conditions.push(`(d.name ILIKE $${params.length} OR d.description ILIKE $${params.length})`);
+      }
+
+      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      const rows = await prisma.$queryRawUnsafe(`
+        SELECT d.id, d.name, d.description, d.is_active,
+               d.created_at, d.updated_at,
+               COUNT(DISTINCT doc.id) as doctor_count,
+               COUNT(DISTINCT s.user_id) as staff_count,
+               STRING_AGG(DISTINCT COALESCE(doc_users.name, doc.name), ', ') as doctor_names
+        FROM departments d
+        LEFT JOIN doctors doc ON doc.department = d.name AND doc.is_active = true
+        LEFT JOIN users doc_users ON doc_users.id = doc.user_id
+        LEFT JOIN staff s ON s.department = d.name AND s.is_active = true
+        ${where}
+        GROUP BY d.id, d.name, d.description, d.is_active, d.created_at, d.updated_at
+        ORDER BY d.name
+      `, ...params);
 
       return rows.map(dept => ({
         ...dept,
-        doctor_count: parseInt(dept.doctor_count),
-        staff_count: parseInt(dept.staff_count),
+        doctor_count: parseInt(dept.doctor_count) || 0,
+        staff_count: parseInt(dept.staff_count) || 0,
         created_at: formatDate(dept.created_at),
         updated_at: dept.updated_at ? formatDate(dept.updated_at) : null
       }));
