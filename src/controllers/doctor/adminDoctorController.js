@@ -145,7 +145,7 @@ export const adminDoctorController = {
           updated_at = NOW()
         WHERE id = $8
         RETURNING id, name, department, specialty, intro, image_url, consultation_fee, available_days, is_available, is_active, created_at
-      `, [
+      `,
         req.body.name || null,
         req.body.specialization || null,
         req.body.department || null,
@@ -154,7 +154,7 @@ export const adminDoctorController = {
         req.body.available_hours ? JSON.stringify(req.body.available_hours) : null,
         req.body.bio || null,
         doctorId
-      ]);
+      );
 
       // Also update users table for name/email/phone if user row exists
       if (req.body.email || req.body.phone || req.body.name) {
