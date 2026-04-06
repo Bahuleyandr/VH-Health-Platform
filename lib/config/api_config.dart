@@ -10,7 +10,6 @@
 /// flutter build apk --dart-define=VH_API_KEY=your-secret-key
 /// ```
 /// This prevents the key from being committed to source control.
-library api_config;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class ApiConfig {
