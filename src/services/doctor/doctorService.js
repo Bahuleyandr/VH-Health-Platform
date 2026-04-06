@@ -47,6 +47,7 @@ export class DoctorService {
   buildDoctorSelectFieldsFromDoctors(schema, { detailed = false } = {}) {
     const fields = [
       'd.id',
+      'COALESCE(u.id, d.user_id) AS user_id',
       'u.uid',
       'u.phone',
       'COALESCE(u.name, d.name) AS name',
