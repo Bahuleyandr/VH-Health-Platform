@@ -39,7 +39,7 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
       const respondersResult = await query(
         "SELECT id, name, phone FROM users WHERE role = 'EMERGENCY_RESPONDER' AND is_active = true"
       );
-      const responders = respondersResult.rows;
+      const responders = respondersResult;
 
       // In a real app, you might also find staff at nearby hospitals
       // For now, we'll just notify the central emergency team.
@@ -87,7 +87,7 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
       // Check access for patients
       if (userRole === 'PATIENT') {
         const userResult = await query('SELECT phone FROM users WHERE uid = $1', [user.uid]);
-        if (userResult.rows.length === 0 || userResult[0].phone !== normalizedPhone) {
+        if (userResult.length === 0 || userResult[0].phone !== normalizedPhone) {
           throw new Error('Access denied: Cannot view other user notifications');
         }
       }
@@ -106,8 +106,8 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
       );
 
       return {
-        notifications: result.rows.map(n => formatNotificationResponse(n, userRole === 'ADMIN')),
-        count: result.rows.length,
+        notifications: result.map(n => formatNotificationResponse(n, userRole === 'ADMIN')),
+        count: result.length,
         total: parseInt(countResult[0].count),
         limit: safeLimit,
         offset: safeOffset
@@ -128,7 +128,7 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
       // Check access for patients
       if (userRole === 'PATIENT') {
         const userResult = await query('SELECT id FROM users WHERE uid = $1', [user.uid]);
-        if (userResult.rows.length === 0 || userResult[0].id !== parseInt(userId)) {
+        if (userResult.length === 0 || userResult[0].id !== parseInt(userId)) {
           throw new Error('Access denied: Cannot view other user notifications');
         }
       }
@@ -171,8 +171,8 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
       );
 
       return {
-        notifications: result.rows.map(n => formatNotificationResponse(n, userRole === 'ADMIN')),
-        count: result.rows.length,
+        notifications: result.map(n => formatNotificationResponse(n, userRole === 'ADMIN')),
+        count: result.length,
         unread_count: parseInt(unreadResult[0]?.unread_count || 0),
         filters
       };
@@ -194,7 +194,7 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
       // Patients can only view their own notifications
       if (userRole === 'PATIENT') {
         const userResult = await query('SELECT id FROM users WHERE uid = $1', [user.uid]);
-        if (userResult.rows.length === 0) {
+        if (userResult.length === 0) {
           throw new Error('User not found');
         }
         accessQuery = ' AND n.user_id = $2';
@@ -211,7 +211,7 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
         WHERE n.id = $1${accessQuery}
       `, params);
 
-      if (result.rows.length === 0) {
+      if (result.length === 0) {
         throw new Error('Notification not found or access denied');
       }
 
@@ -248,7 +248,7 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
       // Patients can only see their own notifications
       if (userRole === 'PATIENT') {
         const userResult = await query('SELECT id FROM users WHERE uid = $1', [user.uid]);
-        if (userResult.rows.length === 0) {
+        if (userResult.length === 0) {
           throw new Error('User not found');
         }
         baseConditions = 'n.user_id = $1';
@@ -288,7 +288,7 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
       const totalNotifications = parseInt(countResult[0].count);
 
       return {
-        notifications: result.rows.map(n => formatNotificationResponse(n, userRole === 'ADMIN')),
+        notifications: result.map(n => formatNotificationResponse(n, userRole === 'ADMIN')),
         pagination: {
           page,
           limit,
@@ -317,7 +317,7 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
       // Patients can only mark their own notifications as read
       if (userRole === 'PATIENT') {
         const userResult = await query('SELECT id FROM users WHERE uid = $1', [user.uid]);
-        if (userResult.rows.length === 0) {
+        if (userResult.length === 0) {
           throw new Error('User not found');
         }
         accessCondition = ' AND user_id = $2';
@@ -332,7 +332,7 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
         RETURNING id, title, is_read, read_at
       `, params);
 
-      if (result.rows.length === 0) {
+      if (result.length === 0) {
         throw new Error('Notification not found or access denied');
       }
 
@@ -354,7 +354,7 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
       // Access control: patients can only mark their own notifications as read
       if (userRole === 'PATIENT') {
         const userResult = await query('SELECT phone FROM users WHERE uid = $1', [user.uid]);
-        if (userResult.rows.length === 0 || userResult[0].phone !== normalizedPhone) {
+        if (userResult.length === 0 || userResult[0].phone !== normalizedPhone) {
           throw new Error('Access denied: Cannot modify other user notifications');
         }
       }
@@ -384,7 +384,7 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
       // Access control: users can only mark their own notifications as read
       if (userRole === 'PATIENT') {
         const userResult = await query('SELECT id FROM users WHERE uid = $1', [user.uid]);
-        if (userResult.rows.length === 0 || userResult[0].id !== parseInt(userId)) {
+        if (userResult.length === 0 || userResult[0].id !== parseInt(userId)) {
           throw new Error('Access denied: Cannot modify other user notifications');
         }
       }
@@ -427,14 +427,14 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
 
       // Verify recipient user exists
       const userCheck = await query('SELECT id, name, phone FROM users WHERE id = $1', [user_id]);
-      if (userCheck.rows.length === 0) {
+      if (userCheck.length === 0) {
         throw new Error('Recipient user not found');
       }
 
       // Verify sender exists if provided
       if (sender_id) {
         const senderCheck = await query('SELECT id FROM users WHERE id = $1', [sender_id]);
-        if (senderCheck.rows.length === 0) {
+        if (senderCheck.length === 0) {
           throw new Error('Sender user not found');
         }
       }
@@ -487,14 +487,14 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
         [user_ids]
       );
 
-      if (userCheck.rows.length !== user_ids.length) {
-        const foundIds = userCheck.rows.map(user => user.id);
+      if (userCheck.length !== user_ids.length) {
+        const foundIds = userCheck.map(user => user.id);
         const missingIds = user_ids.filter(id => !foundIds.includes(parseInt(id)));
         throw new Error(`Some users not found: ${missingIds.join(', ')}`);
       }
 
       // Create notifications for all users
-      const notifications = userCheck.rows.map(recipient => [
+      const notifications = userCheck.map(recipient => [
         recipient.id, title, message, type.toUpperCase(), priority.toUpperCase(), 
         sender_id, user.uid, recipient.phone
       ]);
@@ -513,9 +513,9 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
       `, flatParams);
 
       return {
-        notifications_sent: result.rows.length,
-        notification_ids: result.rows.map(n => n.id),
-        recipients: userCheck.rows.map(u => ({ id: u.id, name: u.name }))
+        notifications_sent: result.length,
+        notification_ids: result.map(n => n.id),
+        recipients: userCheck.map(u => ({ id: u.id, name: u.name }))
       };
     } catch (error) {
       logger.error('Error sending bulk notifications:', error.message);
@@ -578,9 +578,9 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
 
       return {
         totals: totalStats[0],
-        by_type: typeStats.rows,
-        by_priority: priorityStats.rows,
-        daily_activity: recentActivity.rows,
+        by_type: typeStats,
+        by_priority: priorityStats,
+        daily_activity: recentActivity,
         period_days: days
       };
     } catch (error) {
@@ -619,8 +619,8 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
       `);
 
       return {
-        notifications: result.rows.map(n => formatNotificationResponse(n, true)),
-        count: result.rows.length
+        notifications: result.map(n => formatNotificationResponse(n, true)),
+        count: result.length
       };
     } catch (error) {
       logger.error('Error getting scheduled pending notifications:', error.message);
@@ -650,8 +650,8 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
       `);
 
       return {
-        emergency_notifications: result.rows.map(n => formatNotificationResponse(n, true)),
-        count: result.rows.length,
+        emergency_notifications: result.map(n => formatNotificationResponse(n, true)),
+        count: result.length,
         period: 'Last 24 hours'
       };
     } catch (error) {
@@ -677,7 +677,7 @@ async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
         [notificationId]
       );
 
-      if (result.rows.length === 0) {
+      if (result.length === 0) {
         throw new Error('Notification not found');
       }
 

@@ -31,7 +31,7 @@ class QualityService {
     );
 
     let sequence = 1;
-    if (result.rows.length > 0) {
+    if (result.length > 0) {
       const lastNumber = result[0].incident_number;
       const lastSeq = parseInt(lastNumber.split('-')[2], 10);
       if (!isNaN(lastSeq)) {
@@ -132,7 +132,7 @@ class QualityService {
     );
 
     return {
-      incidents: result.rows,
+      incidents: result,
       pagination: {
         page: parseInt(page, 10),
         limit: parseInt(limit, 10),
@@ -156,7 +156,7 @@ class QualityService {
       `SELECT id, status FROM quality_incidents WHERE id = $1`,
       [incidentId]
     );
-    if (existing.rows.length === 0) {
+    if (existing.length === 0) {
       throw AppError.notFound('Incident not found');
     }
 
@@ -230,8 +230,8 @@ class QualityService {
       total_incidents: parseInt(totalResult[0].total, 10),
       open_incidents: parseInt(openResult[0].open_count, 10),
       last_30_days: parseInt(recentResult[0].count, 10),
-      by_type: byTypeResult.rows,
-      by_severity: bySeverityResult.rows,
+      by_type: byTypeResult,
+      by_severity: bySeverityResult,
     };
   }
 
@@ -341,7 +341,7 @@ class QualityService {
     );
 
     return {
-      cases: result.rows,
+      cases: result,
       summary: summaryResult[0],
       pagination: {
         page: parseInt(page, 10),
@@ -376,7 +376,7 @@ class QualityService {
     );
 
     return {
-      alerts: result.rows,
+      alerts: result,
       total_active_cases: parseInt(totalActive[0].total, 10),
       threshold: 3,
       window_days: 14,

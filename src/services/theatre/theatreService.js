@@ -84,7 +84,7 @@ class TheatreService {
       params
     );
 
-    return result.rows;
+    return result;
   }
 
   /**
@@ -100,7 +100,7 @@ class TheatreService {
       [id]
     );
 
-    if (existing.rows.length === 0) {
+    if (existing.length === 0) {
       throw AppError.notFound('OT schedule not found');
     }
 
@@ -130,7 +130,7 @@ class TheatreService {
       [id]
     );
 
-    if (existing.rows.length === 0) {
+    if (existing.length === 0) {
       throw AppError.notFound('OT schedule not found');
     }
 
@@ -165,7 +165,7 @@ class TheatreService {
       [date]
     );
 
-    const bookedRooms = bookedResult.rows.map(r => r.ot_room);
+    const bookedRooms = bookedResult.map(r => r.ot_room);
 
     // Return schedule summary per room for the date
     const scheduleResult = await prisma.$queryRawUnsafe(
@@ -184,7 +184,7 @@ class TheatreService {
     return {
       date,
       booked_rooms: bookedRooms,
-      room_schedules: scheduleResult.rows
+      room_schedules: scheduleResult
     };
   }
 
@@ -197,7 +197,7 @@ class TheatreService {
       [id]
     );
 
-    if (existing.rows.length === 0) {
+    if (existing.length === 0) {
       throw AppError.notFound('OT schedule not found');
     }
 

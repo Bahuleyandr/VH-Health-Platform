@@ -314,8 +314,8 @@ wrapAutoRBAC(
               metric,
               period: groupBy,
               days: parseInt(days),
-              trends: trends.rows,
-              totalDataPoints: trends.rows.length,
+              trends: trends,
+              totalDataPoints: trends.length,
               requestedBy: req.user?.name
             }, 'Trend analysis completed successfully');
 
@@ -386,8 +386,8 @@ wrapAutoRBAC(
 
             success(res, {
               timeframe,
-              departments: departmentStats.rows,
-              totalDepartments: departmentStats.rows.length,
+              departments: departmentStats,
+              totalDepartments: departmentStats.length,
               requestedBy: req.user?.name,
               generatedAt: new Date().toISOString()
             }, 'Department analytics retrieved successfully');
@@ -483,8 +483,8 @@ wrapAutoRBAC(
             success(res, {
               timeframe,
               orderStatistics: orderStats[0],
-              topMedicines: topMedicines.rows,
-              dailyRevenue: revenueByDay.rows,
+              topMedicines: topMedicines,
+              dailyRevenue: revenueByDay,
               requestedBy: req.user?.name,
               generatedAt: new Date().toISOString()
             }, 'Pharmacy analytics retrieved successfully');
@@ -602,8 +602,8 @@ wrapAutoRBAC(
             success(res, {
               timeframe,
               overallSatisfaction: ratingStats[0],
-              departmentRatings: departmentRatings.rows,
-              ratingTrends: timelyRatings.rows,
+              departmentRatings: departmentRatings,
+              ratingTrends: timelyRatings,
               requestedBy: req.user?.name,
               generatedAt: new Date().toISOString()
             }, 'Patient satisfaction analytics retrieved successfully');
@@ -731,9 +731,9 @@ wrapAutoRBAC(
 
             success(res, {
               timeframe,
-              featureUsage: featureUsage.rows,
-              deviceStatistics: deviceStats.rows,
-              peakUsageHours: peakHours.rows,
+              featureUsage: featureUsage,
+              deviceStatistics: deviceStats,
+              peakUsageHours: peakHours,
               requestedBy: req.user?.name,
               generatedAt: new Date().toISOString()
             }, 'System usage analytics retrieved successfully');

@@ -8,7 +8,7 @@ import prisma from '../lib/prisma.js';
  */
 export async function resolvePhoneFromUID(uid) {
   const result = await prisma.$queryRawUnsafe('SELECT phone FROM users WHERE uid = $1', [uid]);
-  return result.rows.length ? result[0].phone : null;
+  return result.length ? result[0].phone : null;
 }
 
 /**
@@ -18,7 +18,7 @@ export async function resolvePhoneFromUID(uid) {
  */
 export async function resolveUIDFromPhone(phone) {
   const result = await prisma.$queryRawUnsafe('SELECT uid FROM users WHERE phone = $1', [phone]);
-  return result.rows.length ? result[0].uid : null;
+  return result.length ? result[0].uid : null;
 }
 
 /**

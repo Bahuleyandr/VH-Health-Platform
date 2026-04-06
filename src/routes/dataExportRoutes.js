@@ -46,13 +46,13 @@ router.get('/my-data', async (req, res) => {
     const exportData = {
       exportDate: new Date().toISOString(),
       profile: user,
-      appointments: appointments.rows,
-      healthRecords: healthRecords.rows,
-      medicalRecords: records.rows,
-      investigations: investigations.rows,
-      pharmacyOrders: pharmacyOrders.rows,
-      feedback: feedback.rows,
-      notifications: notifications.rows,
+      appointments: appointments,
+      healthRecords: healthRecords,
+      medicalRecords: records,
+      investigations: investigations,
+      pharmacyOrders: pharmacyOrders,
+      feedback: feedback,
+      notifications: notifications,
     };
 
     // Audit log

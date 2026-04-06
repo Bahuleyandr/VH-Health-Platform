@@ -112,7 +112,7 @@ const messagingService = {
       );
 
       return {
-        messages: result.rows,
+        messages: result,
         total: countResult[0].total,
         page: safePage,
         limit: safeLimit,
@@ -150,7 +150,7 @@ const messagingService = {
       query += ` ORDER BY created_at ASC`;
 
       const result = await query(query, params);
-      return result.rows;
+      return result;
     } catch (err) {
       logger.error('Error fetching thread:', err.message);
       throw AppError.internal('Failed to fetch conversation thread');
@@ -174,14 +174,14 @@ const messagingService = {
         [messageId, staffUid]
       );
 
-      if (result.rows.length === 0) {
+      if (result.length === 0) {
         // Check if message exists at all
         const exists = await query(
           `SELECT id, recipient_uid, is_read FROM staff_messages WHERE id = $1`,
           [messageId]
         );
 
-        if (exists.rows.length === 0) {
+        if (exists.length === 0) {
           throw AppError.notFound('Message not found');
         }
 
@@ -237,7 +237,7 @@ const messagingService = {
         [patientUid]
       );
 
-      return result.rows;
+      return result;
     } catch (err) {
       logger.error('Error fetching patient discussion:', err.message);
       throw AppError.internal('Failed to fetch patient discussion');

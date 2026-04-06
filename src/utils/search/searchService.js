@@ -28,7 +28,7 @@ export async function searchUsers(query, limit = 20) {
       ORDER BY rank DESC
       LIMIT $2
     `, [tsQuery, limit]);
-    return result.rows.map(r => ({ ...r, type: 'user' }));
+    return result.map(r => ({ ...r, type: 'user' }));
   }
 
   // Fallback: ILIKE for short queries
@@ -38,7 +38,7 @@ export async function searchUsers(query, limit = 20) {
     WHERE name ILIKE $1 OR phone ILIKE $1 OR email ILIKE $1
     LIMIT $2
   `, [`%${query.trim()}%`, limit]);
-  return result.rows.map(r => ({ ...r, type: 'user' }));
+  return result.map(r => ({ ...r, type: 'user' }));
 }
 
 export async function searchDoctors(query, limit = 20) {
@@ -55,7 +55,7 @@ export async function searchDoctors(query, limit = 20) {
       ORDER BY rank DESC
       LIMIT $2
     `, [tsQuery, limit]);
-    return result.rows.map(r => ({ ...r, type: 'doctor' }));
+    return result.map(r => ({ ...r, type: 'doctor' }));
   }
 
   const result = await prisma.$queryRawUnsafe(`
@@ -64,7 +64,7 @@ export async function searchDoctors(query, limit = 20) {
     WHERE name ILIKE $1 OR specialization ILIKE $1 OR qualification ILIKE $1
     LIMIT $2
   `, [`%${query.trim()}%`, limit]);
-  return result.rows.map(r => ({ ...r, type: 'doctor' }));
+  return result.map(r => ({ ...r, type: 'doctor' }));
 }
 
 export async function searchAppointments(query, limit = 20) {
@@ -83,7 +83,7 @@ export async function searchAppointments(query, limit = 20) {
       ORDER BY rank DESC
       LIMIT $2
     `, [tsQuery, limit]);
-    return result.rows.map(r => ({ ...r, type: 'appointment' }));
+    return result.map(r => ({ ...r, type: 'appointment' }));
   }
 
   const result = await prisma.$queryRawUnsafe(`
@@ -92,7 +92,7 @@ export async function searchAppointments(query, limit = 20) {
     WHERE reason ILIKE $1 OR notes ILIKE $1
     LIMIT $2
   `, [`%${query.trim()}%`, limit]);
-  return result.rows.map(r => ({ ...r, type: 'appointment' }));
+  return result.map(r => ({ ...r, type: 'appointment' }));
 }
 
 export async function searchGlobal(query, limit = 50) {

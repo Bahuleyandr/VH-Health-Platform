@@ -17,7 +17,7 @@ export const getOnboardingChecklist = async (staffId) => {
     WHERE u.id = $1
   `, [staffId]);
 
-  if (staffInfo.rows.length === 0) {
+  if (staffInfo.length === 0) {
     return null;
   }
 
@@ -34,7 +34,7 @@ export const getOnboardingChecklist = async (staffId) => {
       ORDER BY priority DESC, due_date ASC
     `, [staffId]);
 
-    onboardingTasks = tasksResult.rows.map(task => ({
+    onboardingTasks = tasksResult.map(task => ({
       ...task,
       completed_date: task.completed_date ? new Date(task.completed_date).toLocaleDateString('en-GB', {
         day: '2-digit',
@@ -114,7 +114,7 @@ export const updateOnboardingTask = async (staffId, taskId, completed, completed
     RETURNING id, staff_id, task_name, description, completed, completed_date, completed_by, updated_at
   `, [completed, completedBy, staffId, taskId]);
 
-  if (result.rows.length === 0) {
+  if (result.length === 0) {
     return null;
   }
 
@@ -135,5 +135,5 @@ export const isUserViewingOwnOnboarding = async (staffId, userUid) => {
     'SELECT 1 FROM users WHERE id = $1 AND uid = $2',
     [staffId, userUid]
   );
-  return result.rows.length > 0;
+  return result.length > 0;
 };

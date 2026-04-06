@@ -75,7 +75,7 @@ export async function getFileAccessLogs(fileId, limit = 10) {
       LIMIT $2
     `, [fileId, limit]);
     
-    return result.rows.map(log => ({
+    return result.map(log => ({
       ...log,
       accessedAt: log.accessed_at?.toISOString(),
       accessedAtFormatted: log.accessed_at?.toLocaleDateString('en-GB')
@@ -150,16 +150,16 @@ export async function getHipaaAuditReport(days = 30) {
     `);
 
     return {
-      accessAudit: accessAudit.rows,
-      modifications: modifications.rows,
-      unauthorizedAttempts: unauthorizedAttempts.rows,
-      userPatterns: userPatterns.rows,
+      accessAudit: accessAudit,
+      modifications: modifications,
+      unauthorizedAttempts: unauthorizedAttempts,
+      userPatterns: userPatterns,
       summary: {
-        totalHipaaAccesses: accessAudit.rows.length,
-        uniqueHipaaFiles: new Set(accessAudit.rows.map(a => a.file_id)).size,
-        uniqueUsers: new Set(accessAudit.rows.map(a => a.user_id)).size,
-        totalModifications: modifications.rows.length,
-        unauthorizedAttemptCount: unauthorizedAttempts.rows.length,
+        totalHipaaAccesses: accessAudit.length,
+        uniqueHipaaFiles: new Set(accessAudit.map(a => a.file_id)).size,
+        uniqueUsers: new Set(accessAudit.map(a => a.user_id)).size,
+        totalModifications: modifications.length,
+        unauthorizedAttemptCount: unauthorizedAttempts.length,
         mostActiveUser: userPatterns[0]?.user_name || 'None'
       }
     };

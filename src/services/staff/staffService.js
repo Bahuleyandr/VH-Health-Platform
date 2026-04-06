@@ -111,7 +111,7 @@ export const getStaffList = async (filters, userRole) => {
   `, [allowedRoles]);
 
   // Format staff data
-  const enhancedStaff = result.rows.map(staff => ({
+  const enhancedStaff = result.map(staff => ({
     ...staff,
     hire_date: staff.hire_date ? new Date(staff.hire_date).toLocaleDateString('en-IN') : null,
     registered_at: staff.registered_at ? new Date(staff.registered_at).toLocaleDateString('en-IN') : null,
@@ -134,8 +134,8 @@ export const getStaffList = async (filters, userRole) => {
     },
     filters: { role, department, shift, active, search, supervisor_id, skill },
     statistics: {
-      departments: departmentStats.rows,
-      roles: roleStats.rows,
+      departments: departmentStats,
+      roles: roleStats,
       totalActive: enhancedStaff.filter(s => s.is_active !== false).length,
       currentlyCheckedIn: enhancedStaff.filter(s => s.current_status === 'checked_in').length
     },
@@ -172,7 +172,7 @@ export const getStaffProfile = async (identifier, userRole, userId, includePriva
     WHERE ${column} = $1 AND u.role = ANY($2)
   `, [identifier, allowedRoles]);
 
-  if (result.rows.length === 0) {
+  if (result.length === 0) {
     throw new Error('NOT_FOUND');
   }
 
@@ -208,7 +208,7 @@ export const getStaffProfile = async (identifier, userRole, userId, includePriva
       LIMIT 7
     `, [staff.id]);
     
-    recentAttendance = attendanceResult.rows.map(record => ({
+    recentAttendance = attendanceResult.map(record => ({
       ...record,
       date: record.date ? new Date(record.date).toLocaleDateString('en-IN') : null,
       check_in_time: record.check_in_time ? new Date(record.check_in_time).toLocaleString('en-IN') : null,
@@ -281,7 +281,7 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
     [user_id]
   );
 
-  if (userCheck.rows.length === 0) {
+  if (userCheck.length === 0) {
     throw new Error('USER_NOT_FOUND');
   }
 
@@ -298,7 +298,7 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
     [user_id]
   );
 
-  if (existingProfile.rows.length > 0) {
+  if (existingProfile.length > 0) {
     throw new Error('PROFILE_EXISTS');
   }
 
@@ -308,7 +308,7 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
     [employee_id]
   );
 
-  if (employeeIdCheck.rows.length > 0) {
+  if (employeeIdCheck.length > 0) {
     throw new Error('EMPLOYEE_ID_EXISTS');
   }
 
@@ -319,7 +319,7 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
       [supervisor_id, 'ADMIN', 'DOCTOR', 'HR_STAFF']
     );
 
-    if (supervisorCheck.rows.length === 0) {
+    if (supervisorCheck.length === 0) {
       throw new Error('INVALID_SUPERVISOR');
     }
   }
@@ -386,7 +386,7 @@ export const updateStaffProfile = async (id, data, updatedBy, updaterName, ipAdd
     [id]
   );
 
-  if (staffCheck.rows.length === 0) {
+  if (staffCheck.length === 0) {
     throw new Error('NOT_FOUND');
   }
 
@@ -399,7 +399,7 @@ export const updateStaffProfile = async (id, data, updatedBy, updaterName, ipAdd
       [supervisor_id, 'ADMIN', 'DOCTOR', 'HR_STAFF']
     );
 
-    if (supervisorCheck.rows.length === 0) {
+    if (supervisorCheck.length === 0) {
       throw new Error('INVALID_SUPERVISOR');
     }
   }
@@ -503,20 +503,20 @@ export const getStaffByDepartment = async (department, shift, includeInactive, u
 
   // Calculate department statistics
   const stats = {
-    total: result.rows.length,
-    active: result.rows.filter(s => s.is_active).length,
-    inactive: result.rows.filter(s => !s.is_active).length,
-    checked_in: result.rows.filter(s => s.current_status === 'checked_in').length,
+    total: result.length,
+    active: result.filter(s => s.is_active).length,
+    inactive: result.filter(s => !s.is_active).length,
+    checked_in: result.filter(s => s.current_status === 'checked_in').length,
     by_shift: {}
   };
 
   // Group by shift
   Object.keys(SHIFT_TYPES).forEach(shiftType => {
-    stats.by_shift[shiftType] = result.rows.filter(s => s.shift === shiftType).length;
+    stats.by_shift[shiftType] = result.filter(s => s.shift === shiftType).length;
   });
 
   // Format response data
-  const formattedStaff = result.rows.map(staff => ({
+  const formattedStaff = result.map(staff => ({
     ...staff,
     last_check_in: staff.last_check_in ? new Date(staff.last_check_in).toLocaleString('en-IN') : null,
     last_check_out: staff.last_check_out ? new Date(staff.last_check_out).toLocaleString('en-IN') : null,
@@ -582,24 +582,24 @@ export const getStaffByShift = async (shift, department, date, userRole) => {
   // Calculate shift statistics
   const shiftDetails = SHIFT_TYPES[shift];
   const stats = {
-    total_scheduled: result.rows.length,
-    present: result.rows.filter(s => s.attendance_status === 'present').length,
-    absent: result.rows.filter(s => s.attendance_status === 'absent').length,
-    checked_in: result.rows.filter(s => s.current_status === 'checked_in').length,
+    total_scheduled: result.length,
+    present: result.filter(s => s.attendance_status === 'present').length,
+    absent: result.filter(s => s.attendance_status === 'absent').length,
+    checked_in: result.filter(s => s.current_status === 'checked_in').length,
     by_department: {}
   };
 
   // Group by department
-  const departments = [...new Set(result.rows.map(s => s.department))];
+  const departments = [...new Set(result.map(s => s.department))];
   departments.forEach(dept => {
     stats.by_department[dept] = {
-      total: result.rows.filter(s => s.department === dept).length,
-      present: result.rows.filter(s => s.department === dept && s.attendance_status === 'present').length
+      total: result.filter(s => s.department === dept).length,
+      present: result.filter(s => s.department === dept && s.attendance_status === 'present').length
     };
   });
 
   // Format response data
-  const formattedStaff = result.rows.map(staff => ({
+  const formattedStaff = result.map(staff => ({
     ...staff,
     last_check_in: staff.last_check_in ? new Date(staff.last_check_in).toLocaleString('en-IN') : null,
     last_check_out: staff.last_check_out ? new Date(staff.last_check_out).toLocaleString('en-IN') : null
@@ -712,9 +712,9 @@ export const getStaffStatistics = async (userRole, timeframe) => {
       staffing_status: operationalEfficiency >= 70 ? 'well_staffed' : 
                       operationalEfficiency >= 50 ? 'adequately_staffed' : 'understaffed'
     },
-    departments: departmentStats.rows,
-    roles: roleStats.rows,
-    shifts: shiftStats.rows.map(shift => ({
+    departments: departmentStats,
+    roles: roleStats,
+    shifts: shiftStats.map(shift => ({
       ...shift,
       shift_details: SHIFT_TYPES[shift.shift] || null,
       attendance_rate: shift.count > 0 ? Math.round((shift.checked_in_count / shift.count) * 100) : 0

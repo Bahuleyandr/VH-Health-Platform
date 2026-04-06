@@ -48,7 +48,7 @@ export async function sendTimedReminders() {
 
     // Send 24h reminders
     const sentIds24h = [];
-    for (const appt of res24h.rows) {
+    for (const appt of res24h) {
       try {
         await sendAppointmentReminderSMS(
           appt.patient_phone, appt.patient_name, appt.doctor_name,
@@ -70,13 +70,13 @@ export async function sendTimedReminders() {
     }
     // Batch update all successfully sent 24h reminders
     if (sentIds24h.length > 0) {
-      await prisma.$queryRawUnsafe('UPDATE appointments SET reminder_24h_sent = TRUE WHERE id = ANY($1)', [sentIds24h]);
+      await prisma.$queryRawUnsafe('UPDATE appointments SET reminder_24h_sent = TRUE WHERE id = ANY($1)', sentIds24h);
       logger.info(`[Reminders] Batch updated ${sentIds24h.length} appointments with 24h reminder sent`);
     }
 
     // Send 1h reminders
     const sentIds1h = [];
-    for (const appt of res1h.rows) {
+    for (const appt of res1h) {
       try {
         await sendAppointmentReminderSMS(
           appt.patient_phone, appt.patient_name, appt.doctor_name,
@@ -98,11 +98,11 @@ export async function sendTimedReminders() {
     }
     // Batch update all successfully sent 1h reminders
     if (sentIds1h.length > 0) {
-      await prisma.$queryRawUnsafe('UPDATE appointments SET reminder_1h_sent = TRUE WHERE id = ANY($1)', [sentIds1h]);
+      await prisma.$queryRawUnsafe('UPDATE appointments SET reminder_1h_sent = TRUE WHERE id = ANY($1)', sentIds1h);
       logger.info(`[Reminders] Batch updated ${sentIds1h.length} appointments with 1h reminder sent`);
     }
 
-    logger.info(`[Reminders] Done: ${res24h.rows.length} 24h + ${res1h.rows.length} 1h reminders sent`);
+    logger.info(`[Reminders] Done: ${res24h.length} 24h + ${res1h.length} 1h reminders sent`);
   } catch (err) {
     logger.error('[Reminders] sendTimedReminders error:', err.message);
   }
@@ -123,7 +123,7 @@ export async function processPendingScheduledNotifications() {
       LIMIT 50
     `);
 
-    for (const notif of pending.rows) {
+    for (const notif of pending) {
       try {
         if (notif.type === 'feedback_request' && notif.device_token) {
           const data = notif.data || {};
@@ -138,15 +138,15 @@ export async function processPendingScheduledNotifications() {
             userId: String(notif.user_id),
           }).catch(e => logger.warn(`[ScheduledNotif] Push notification failed for notif ${notif.id}:`, e.message));
         }
-        await prisma.$queryRawUnsafe(`UPDATE scheduled_notifications SET status='sent', sent_at=NOW() WHERE id=$1`, [notif.id]);
+        await prisma.$queryRawUnsafe(`UPDATE scheduled_notifications SET status='sent', sent_at=NOW() WHERE id=$1`, notif.id);
       } catch (e) {
         logger.warn(`[ScheduledNotif] Failed for notif ${notif.id}: ${e.message}`);
-        await prisma.$queryRawUnsafe(`UPDATE scheduled_notifications SET status='failed' WHERE id=$1`, [notif.id]).catch(e => logger.warn(`[ScheduledNotif] Failed to mark notification ${notif.id} as failed:`, e.message));
+        await prisma.$queryRawUnsafe(`UPDATE scheduled_notifications SET status='failed' WHERE id=$1`, notif.id).catch(e => logger.warn(`[ScheduledNotif] Failed to mark notification ${notif.id} as failed:`, e.message));
       }
     }
 
-    if (pending.rows.length > 0) {
-      logger.info(`[ScheduledNotif] Processed ${pending.rows.length} pending notifications`);
+    if (pending.length > 0) {
+      logger.info(`[ScheduledNotif] Processed ${pending.length} pending notifications`);
     }
   } catch (err) {
     logger.error('[ScheduledNotif] processPendingScheduledNotifications error:', err.message);
@@ -175,7 +175,7 @@ export async function sendAppointmentReminders() {
       [today.toISOString(), tomorrow.toISOString()]
     );
 
-    for (const appt of result.rows) {
+    for (const appt of result) {
       const appointmentDate = new Date(appt.appointment_date);
       const formattedDate = appointmentDate.toLocaleDateString('en-IN', {
         day: '2-digit',

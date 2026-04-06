@@ -208,7 +208,7 @@ export async function getFileMetadata(fileId, userId, userRole) {
     GROUP BY fm.id, u.name, u.phone
   `, [fileId]);
 
-  if (result.rows.length === 0) {
+  if (result.length === 0) {
     return null;
   }
 
@@ -238,7 +238,7 @@ export async function generateDownloadUrl(fileId, userId, userRole, expiresIn = 
     WHERE id = $1
   `, [fileId]);
 
-  if (result.rows.length === 0) {
+  if (result.length === 0) {
     throw new Error('Hospital file not found');
   }
 
@@ -313,7 +313,7 @@ export async function deleteFile(fileId, userId, userRole, reason, permanentDele
     WHERE id = $1
   `, [fileId]);
 
-  if (fileResult.rows.length === 0) {
+  if (fileResult.length === 0) {
     throw new Error('Hospital file not found');
   }
 

@@ -25,7 +25,7 @@ export async function detectSchemaDrift() {
       `SELECT table_name FROM information_schema.tables
        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`
     );
-    const actualTables = new Set(result.rows.map(r => r.table_name));
+    const actualTables = new Set(result.map(r => r.table_name));
 
     const missing = expectedTables.filter(t => !actualTables.has(t));
     const unexpected = [...actualTables].filter(t => !expectedTables.includes(t) && !t.startsWith('_'));

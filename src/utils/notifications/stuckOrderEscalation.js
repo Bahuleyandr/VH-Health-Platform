@@ -44,8 +44,8 @@ export async function escalateStuckOrders() {
 
   const totalStuck =
     stuckAppointments.length +
-    stuckPharmacy.rows.length +
-    stuckInvestigations.rows.length;
+    stuckPharmacy.length +
+    stuckInvestigations.length;
 
   if (totalStuck > 0) {
     // Find admin users with device tokens
@@ -63,13 +63,13 @@ export async function escalateStuckOrders() {
       // Push not available — just log
     }
 
-    for (const admin of admins.rows) {
+    for (const admin of admins) {
       if (sendPushNotification && admin.device_token) {
         try {
           await sendPushNotification({
             tokens: admin.device_token,
             title: '⚠️ Stuck Orders Alert',
-            body: `${stuckAppointments.length} appointments, ${stuckPharmacy.rows.length} pharmacy orders, ${stuckInvestigations.rows.length} lab bookings need attention.`,
+            body: `${stuckAppointments.length} appointments, ${stuckPharmacy.length} pharmacy orders, ${stuckInvestigations.length} lab bookings need attention.`,
             data: { type: 'stuck_orders_alert' },
             userId: admin.uid,
           });
@@ -79,14 +79,14 @@ export async function escalateStuckOrders() {
       }
     }
 
-    logger.warn(`[Escalation] Found ${totalStuck} stuck orders — admins alerted (${stuckAppointments.length} appt, ${stuckPharmacy.rows.length} pharm, ${stuckInvestigations.rows.length} inv)`);
+    logger.warn(`[Escalation] Found ${totalStuck} stuck orders — admins alerted (${stuckAppointments.length} appt, ${stuckPharmacy.length} pharm, ${stuckInvestigations.length} inv)`);
   } else {
     logger.info('[Escalation] No stuck orders found');
   }
 
   return {
     stuckAppointments: stuckAppointments.length,
-    stuckPharmacy: stuckPharmacy.rows.length,
-    stuckInvestigations: stuckInvestigations.rows.length,
+    stuckPharmacy: stuckPharmacy.length,
+    stuckInvestigations: stuckInvestigations.length,
   };
 }

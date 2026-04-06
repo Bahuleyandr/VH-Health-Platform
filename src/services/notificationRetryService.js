@@ -87,11 +87,11 @@ export async function retryFailedNotifications() {
     return;
   }
 
-  if (pending.rows.length === 0) return;
+  if (pending.length === 0) return;
 
-  logger.info(`[RetryService] Processing ${pending.rows.length} failed notifications...`);
+  logger.info(`[RetryService] Processing ${pending.length} failed notifications...`);
 
-  for (const notif of pending.rows) {
+  for (const notif of pending) {
     try {
       if (notif.type === 'push' && notif.device_token) {
         const { sendPushNotification } = await import('../utils/notifications/sendPushNotification.js');

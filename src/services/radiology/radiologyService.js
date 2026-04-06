@@ -91,7 +91,7 @@ class RadiologyService {
     );
 
     return {
-      orders: result.rows,
+      orders: result,
       pagination: {
         total,
         page: parseInt(page, 10),
@@ -117,7 +117,7 @@ class RadiologyService {
       [id]
     );
 
-    if (existing.rows.length === 0) {
+    if (existing.length === 0) {
       throw AppError.notFound('Radiology order not found');
     }
 
@@ -164,7 +164,7 @@ class RadiologyService {
     );
 
     return {
-      orders: result.rows,
+      orders: result,
       pagination: {
         total,
         page: parseInt(page, 10),
@@ -187,7 +187,7 @@ class RadiologyService {
       [id]
     );
 
-    if (result.rows.length === 0) {
+    if (result.length === 0) {
       throw AppError.notFound('Radiology order not found');
     }
 
@@ -203,7 +203,7 @@ class RadiologyService {
       [id]
     );
 
-    if (existing.rows.length === 0) {
+    if (existing.length === 0) {
       throw AppError.notFound('Radiology order not found');
     }
 

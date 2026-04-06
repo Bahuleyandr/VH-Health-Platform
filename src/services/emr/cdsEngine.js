@@ -559,9 +559,9 @@ export async function getProtocolReminders(patientUid, encounterId) {
   ]);
 
   const admission = admissionResult[0] || null;
-  const diagnoses = diagnosisResult.rows;
-  const activeMeds = medicationResult.rows.map((m) => m.medication_name);
-  const recentTests = investigationResult.rows;
+  const diagnoses = diagnosisResult;
+  const activeMeds = medicationResult.map((m) => m.medication_name);
+  const recentTests = investigationResult;
 
   // Build a patient context object for protocol matching
   const patientCtx = {

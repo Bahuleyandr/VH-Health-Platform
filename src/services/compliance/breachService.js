@@ -81,7 +81,7 @@ export async function containBreach(breachId, containmentActions, adminId) {
     [breachId]
   );
 
-  if (existing.rows.length === 0) {
+  if (existing.length === 0) {
     throw AppError.notFound('Breach not found');
   }
 
@@ -119,7 +119,7 @@ export async function resolveBreach(breachId, resolutionNotes, adminId) {
     [breachId]
   );
 
-  if (existing.rows.length === 0) {
+  if (existing.length === 0) {
     throw AppError.notFound('Breach not found');
   }
 
@@ -187,7 +187,7 @@ export async function getBreaches(filters = {}) {
   );
 
   return {
-    breaches: result.rows,
+    breaches: result,
     pagination: {
       page: parseInt(page),
       limit: parseInt(limit),
@@ -211,7 +211,7 @@ export async function getBreachTimeline(breachId) {
     [breachId]
   );
 
-  if (breachResult.rows.length === 0) {
+  if (breachResult.length === 0) {
     throw AppError.notFound('Breach not found');
   }
 
@@ -227,7 +227,7 @@ export async function getBreachTimeline(breachId) {
 
   return {
     breach: breachResult[0],
-    timeline: timelineResult.rows,
+    timeline: timelineResult,
   };
 }
 
@@ -274,7 +274,7 @@ async function notifyAdminsOfBreach(breach) {
       `SELECT uid, name, email FROM users WHERE role IN ('ADMIN', 'SUPER_ADMIN') AND is_active = true`
     );
 
-    if (adminsResult.rows.length === 0) {
+    if (adminsResult.length === 0) {
       logger.warn('No active admin users found for breach notification', { breach_id: breach.breach_id });
       return;
     }
@@ -282,7 +282,7 @@ async function notifyAdminsOfBreach(breach) {
     const title = `URGENT: Data Breach Reported — ${breach.severity.toUpperCase()}`;
     const body = `A ${breach.severity} severity data breach has been reported affecting ${breach.affected_records} records. Breach ID: ${breach.breach_id}`;
 
-    for (const admin of adminsResult.rows) {
+    for (const admin of adminsResult) {
       try {
         await prisma.$queryRawUnsafe(
           `INSERT INTO notification_outbox
@@ -318,7 +318,7 @@ async function notifyAdminsOfBreach(breach) {
 
     logger.info('Breach notifications queued for admins', {
       breach_id: breach.breach_id,
-      admin_count: adminsResult.rows.length,
+      admin_count: adminsResult.length,
     });
   } catch (err) {
     logger.error('Failed to notify admins of breach:', {

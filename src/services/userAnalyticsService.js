@@ -107,10 +107,10 @@ export async function getUserAnalytics(timeframe = '30d', department = null) {
       interval,
       department: department || 'All Departments',
       overallStatistics: overallStats[0],
-      roleDistribution: roleDistribution.rows,
-      departmentBreakdown: departmentStats.rows,
-      registrationTrends: registrationTrends.rows,
-      activityMetrics: activityMetrics.rows
+      roleDistribution: roleDistribution,
+      departmentBreakdown: departmentStats,
+      registrationTrends: registrationTrends,
+      activityMetrics: activityMetrics
     };
   } catch (err) {
     logger.error('Failed to get user analytics:', err);
@@ -203,9 +203,9 @@ export async function getInactiveUsersReport(inactiveDays = 90, role = null, inc
         role,
         includePatients
       },
-      inactiveUsers: inactiveUsers.rows,
-      departmentBreakdown: departmentStats.rows,
-      riskAssessment: riskAssessment.rows
+      inactiveUsers: inactiveUsers,
+      departmentBreakdown: departmentStats,
+      riskAssessment: riskAssessment
     };
   } catch (err) {
     logger.error('Failed to get inactive users report:', err);
@@ -275,11 +275,11 @@ async function generateDepartmentReport(statusFilter, dateFilter) {
 
   return {
     type: 'Department Analysis',
-    departments: deptData.rows,
+    departments: deptData,
     summary: {
-      totalDepartments: deptData.rows.length,
+      totalDepartments: deptData.length,
       largestDepartment: deptData[0]?.department || 'None',
-      smallestDepartment: deptData.rows[deptData.rows.length - 1]?.department || 'None'
+      smallestDepartment: deptData[deptData.length - 1]?.department || 'None'
     }
   };
 }
@@ -303,7 +303,7 @@ async function generateRoleReport(statusFilter, dateFilter) {
 
   return {
     type: 'Role Distribution Analysis',
-    roles: roleData.rows.map(role => ({
+    roles: roleData.map(role => ({
       ...role,
       first_registration_formatted: role.first_registration 
         ? format(new Date(role.first_registration), 'dd-MM-yyyy')
@@ -314,9 +314,9 @@ async function generateRoleReport(statusFilter, dateFilter) {
       role_info: HOSPITAL_ROLES[role.role] || {}
     })),
     summary: {
-      totalRoles: roleData.rows.length,
+      totalRoles: roleData.length,
       mostCommonRole: roleData[0]?.role || 'None',
-      leastCommonRole: roleData.rows[roleData.rows.length - 1]?.role || 'None'
+      leastCommonRole: roleData[roleData.length - 1]?.role || 'None'
     }
   };
 }
@@ -340,7 +340,7 @@ async function generateActivityReport() {
 
   return {
     type: 'User Activity Report (90 days)',
-    activeUsers: activityData.rows.map(user => ({
+    activeUsers: activityData.map(user => ({
       ...user,
       last_login_formatted: user.last_login 
         ? format(new Date(user.last_login), 'dd-MM-yyyy HH:mm')
@@ -352,8 +352,8 @@ async function generateActivityReport() {
     })),
     summary: {
       mostActiveUser: activityData[0]?.name || 'None',
-      averageActionsPerUser: activityData.rows.length > 0
-        ? (activityData.rows.reduce((sum, u) => sum + u.total_actions, 0) / activityData.rows.length).toFixed(1)
+      averageActionsPerUser: activityData.length > 0
+        ? (activityData.reduce((sum, u) => sum + u.total_actions, 0) / activityData.length).toFixed(1)
         : 0
     }
   };
@@ -399,16 +399,16 @@ async function generateComprehensiveReport(statusFilter, dateFilter) {
   return {
     type: 'Comprehensive Hospital User Report',
     overallStatistics: overallStats[0],
-    departmentBreakdown: deptStats.rows,
-    roleDistribution: roleStats.rows,
-    recentRegistrations: recentActivity.rows.map(reg => ({
+    departmentBreakdown: deptStats,
+    roleDistribution: roleStats,
+    recentRegistrations: recentActivity.map(reg => ({
       ...reg,
       date_formatted: format(new Date(reg.date), 'dd-MM-yyyy')
     })),
     insights: {
       largestDepartment: deptStats[0]?.department || 'None',
       mostCommonRole: roleStats[0]?.role || 'None',
-      recentGrowth: recentActivity.rows.reduce((sum, r) => sum + parseInt(r.registrations), 0)
+      recentGrowth: recentActivity.reduce((sum, r) => sum + parseInt(r.registrations), 0)
     }
   };
 }
@@ -431,7 +431,7 @@ export async function getSpecialtyDistribution() {
       ORDER BY specialist_count DESC
     `);
 
-    return result.rows;
+    return result;
   } catch (err) {
     logger.error('Failed to get specialty distribution:', err);
     throw err;

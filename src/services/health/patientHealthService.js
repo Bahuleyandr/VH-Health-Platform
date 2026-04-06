@@ -14,7 +14,7 @@ export async function getPatientSummary(patientId, days = TREND_PERIODS.MONTH) {
       [patientId]
     );
     
-    if (patientInfo.rows.length === 0) {
+    if (patientInfo.length === 0) {
       throw new Error('Patient not found');
     }
     
@@ -61,9 +61,9 @@ export async function getPatientSummary(patientId, days = TREND_PERIODS.MONTH) {
     return {
       patient: patientInfo[0],
       latest_vitals: latestVitals[0] || null,
-      vital_trends: vitalTrends.rows,
-      active_conditions: activeConditions.rows,
-      recent_medications: medications.rows,
+      vital_trends: vitalTrends,
+      active_conditions: activeConditions,
+      recent_medications: medications,
       summary_period_days: days
     };
   } catch (error) {
@@ -83,7 +83,7 @@ export async function getPatientVitalTrends(patientId, days = TREND_PERIODS.MONT
     `, [patientId]);
     
     // Process data to extract specific vital trends
-    const trends = result.rows.map(record => {
+    const trends = result.map(record => {
       let vitalSigns = {};
       let measurements = {};
       
@@ -145,8 +145,8 @@ export async function getPatientAllergies(patientId) {
     ]);
     
     return {
-      allergies: allergies.rows,
-      count: allergies.rows.length,
+      allergies: allergies,
+      count: allergies.length,
       patient: patientInfo[0] || null
     };
   } catch (error) {
@@ -175,8 +175,8 @@ export async function getPatientConditions(patientId, activeOnly = false) {
     const result = await prisma.$queryRawUnsafe(query, params);
     
     return {
-      conditions: result.rows,
-      count: result.rows.length,
+      conditions: result,
+      count: result.length,
       patient_id: patientId,
       active_only: activeOnly
     };

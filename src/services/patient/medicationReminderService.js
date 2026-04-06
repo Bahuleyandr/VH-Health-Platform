@@ -31,7 +31,7 @@ export async function getActiveReminders(patientUid) {
     ORDER BY created_at DESC
   `, [patientUid]);
 
-  return result.rows;
+  return result;
 }
 
 /**
@@ -55,7 +55,7 @@ export async function updateReminder(id, patientUid, data) {
               start_date, end_date, is_active, notes, created_at
   `, [id, patientUid, medication_name, dosage, frequency, reminder_times, start_date, end_date, notes || null]);
 
-  if (result.rows.length === 0) {
+  if (result.length === 0) {
     throw AppError.notFound('Medication reminder not found');
   }
 
@@ -74,7 +74,7 @@ export async function deactivateReminder(id, patientUid) {
     RETURNING id, patient_uid, medication_name, is_active
   `, [id, patientUid]);
 
-  if (result.rows.length === 0) {
+  if (result.length === 0) {
     throw AppError.notFound('Medication reminder not found');
   }
 
@@ -140,5 +140,5 @@ export async function getDueReminders(patientUid) {
   }
 
   const result = await prisma.$queryRawUnsafe(query, params);
-  return result.rows;
+  return result;
 }

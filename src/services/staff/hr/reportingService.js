@@ -90,7 +90,7 @@ const generateAttendanceReport = async (department, start_date, end_date) => {
     ORDER BY date DESC, u.name
   `, queryParams);
 
-  return result.rows.map(row => ({
+  return result.map(row => ({
     ...row,
     date: new Date(row.date).toLocaleDateString('en-GB', {
       day: '2-digit',
@@ -132,7 +132,7 @@ const generatePerformanceReportData = async (department, start_date, end_date) =
     ORDER BY s.department, u.name
   `, queryParams);
 
-  return result.rows.map(row => ({
+  return result.map(row => ({
     ...row,
     performance_rating: row.performance_rating ? 
       Math.round(row.performance_rating * 10) / 10 : 'Not rated',
@@ -182,7 +182,7 @@ const generateLeaveReport = async (department, start_date, end_date) => {
     ORDER BY la.start_date DESC, u.name
   `, queryParams);
 
-  return result.rows.map(row => ({
+  return result.map(row => ({
     ...row,
     start_date: new Date(row.start_date).toLocaleDateString('en-GB', {
       day: '2-digit',
@@ -225,7 +225,7 @@ const generatePayrollReport = async (department, start_date, end_date) => {
     ORDER BY s.department, u.name
   `, queryParams);
 
-  return result.rows.map(row => ({
+  return result.map(row => ({
     name: row.name,
     employee_id: row.employee_id,
     department: row.department,

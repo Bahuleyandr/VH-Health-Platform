@@ -144,14 +144,14 @@ export const getDepartmentStaffSummary = async (department) => {
       high_performers: parseInt(performance.high_performers) || 0,
       needs_improvement: parseInt(performance.needs_improvement) || 0
     },
-    positionBreakdown: positionBreakdown.rows.map(pos => ({
+    positionBreakdown: positionBreakdown.map(pos => ({
       position: pos.position,
       count: parseInt(pos.count),
       avg_salary: pos.avg_salary ? Math.round(pos.avg_salary) : null
     })),
-    shiftBreakdown: shiftBreakdown.rows,
-    experienceDistribution: experienceDistribution.rows,
-    staffList: staffList.rows.map(staff => ({
+    shiftBreakdown: shiftBreakdown,
+    experienceDistribution: experienceDistribution,
+    staffList: staffList.map(staff => ({
       ...staff,
       hire_date: new Date(staff.hire_date).toLocaleDateString('en-GB', {
         day: '2-digit',
@@ -257,7 +257,7 @@ export const getAttendanceAnalytics = async (queryParams) => {
       ORDER BY total_check_ins DESC
     `, start_date && end_date ? [start_date, end_date] : []);
     
-    departmentComparison = deptResult.rows;
+    departmentComparison = deptResult;
   }
 
   // Punctuality analysis
@@ -324,7 +324,7 @@ export const getAttendanceAnalytics = async (queryParams) => {
         Math.round((overviewData.late_arrivals / overviewData.total_check_ins) * 100) : 0,
       overtime_shifts: parseInt(overviewData.overtime_shifts) || 0
     },
-    trends: trendsData.rows.map(trend => ({
+    trends: trendsData.map(trend => ({
       period: trend.period,
       unique_staff: parseInt(trend.unique_staff),
       total_check_ins: parseInt(trend.total_check_ins),
@@ -341,8 +341,8 @@ export const getAttendanceAnalytics = async (queryParams) => {
       punctuality_score: dept.total_check_ins > 0 ?
         Math.round(((dept.total_check_ins - dept.late_arrivals) / dept.total_check_ins) * 100) : 0
     })),
-    punctualityBreakdown: punctualityData.rows,
-    topPerformers: topPerformers.rows.map(performer => ({
+    punctualityBreakdown: punctualityData,
+    topPerformers: topPerformers.map(performer => ({
       ...performer,
       avg_hours: performer.avg_hours ? Math.round(performer.avg_hours * 10) / 10 : 0,
       punctuality_rate: performer.days_present > 0 ?

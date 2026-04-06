@@ -71,7 +71,7 @@ export const verifyDevice = async (deviceToken) => {
     [deviceToken]
   );
   
-  if (result.rows.length === 0) {
+  if (result.length === 0) {
     const error = new Error('Device not found or inactive');
     error.statusCode = HTTP_STATUS.NOT_FOUND;
     throw error;
@@ -101,7 +101,7 @@ export const getTodayAttendance = async (staffId) => {
     [staffId, today]
   );
   
-  if (result.rows.length === 0) {
+  if (result.length === 0) {
     return {
       date: formatDateDDMMYYYY(today),
       status: 'absent',
@@ -151,14 +151,14 @@ export const getAttendanceHistory = async (staffId, { startDate, endDate, page, 
   ]);
   
   // Format dates
-  attendance.rows.forEach(record => {
+  attendance.forEach(record => {
     record.date = formatDateDDMMYYYY(record.check_in_time);
     record.check_in = record.check_in_time ? formatDateDDMMYYYY(record.check_in_time) + ' ' + record.check_in_time.toTimeString().slice(0, 5) : null;
     record.check_out = record.check_out_time ? formatDateDDMMYYYY(record.check_out_time) + ' ' + record.check_out_time.toTimeString().slice(0, 5) : null;
   });
   
   return {
-    attendance: attendance.rows,
+    attendance: attendance,
     pagination: {
       page,
       limit,

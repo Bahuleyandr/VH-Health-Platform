@@ -266,9 +266,9 @@ export class SwaggerService {
         `);
         
         accessStats = {
-          dailyViews: accessResult.rows,
-          totalViews: accessResult.rows.reduce((sum, row) => sum + parseInt(row.views), 0),
-          uniqueVisitors: accessResult.rows.reduce((sum, row) => sum + parseInt(row.unique_visitors), 0)
+          dailyViews: accessResult,
+          totalViews: accessResult.reduce((sum, row) => sum + parseInt(row.views), 0),
+          uniqueVisitors: accessResult.reduce((sum, row) => sum + parseInt(row.unique_visitors), 0)
         };
       } catch (accessError) {
         logger.warn('Documentation access stats unavailable:', accessError.message);

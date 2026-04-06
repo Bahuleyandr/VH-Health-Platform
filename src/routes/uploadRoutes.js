@@ -184,7 +184,7 @@ router.get('/by-key/:storageKey', async (req, res) => {
       [storageKey]
     );
 
-    if (result.rows.length === 0) {
+    if (result.length === 0) {
       return res.status(404).json({ success: false, message: 'File not found' });
     }
 

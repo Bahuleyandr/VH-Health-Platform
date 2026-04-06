@@ -73,7 +73,7 @@ export async function getAllShifts() {
     WHERE is_active = true
     ORDER BY is_preset DESC, start_time ASC
   `);
-  return res.rows;
+  return res;
 }
 
 /**
@@ -83,7 +83,7 @@ export async function getPresetShifts() {
   const res = await prisma.$queryRawUnsafe(`
     SELECT id, name, start_time, end_time, is_active, is_preset, grace_minutes, created_at FROM staff_shifts WHERE is_active = true AND is_preset = true ORDER BY start_time
   `);
-  return res.rows;
+  return res;
 }
 
 /**
@@ -120,7 +120,7 @@ export async function createCustomShift({ name, start_time, end_time, grace_peri
 export async function updateCustomShift(shiftId, updates) {
   // Don't allow editing preset shifts
   const existing = await prisma.$queryRawUnsafe('SELECT is_preset FROM staff_shifts WHERE id = $1', [shiftId]);
-  if (!existing.rows.length) throw new Error('Shift not found');
+  if (!existing.length) throw new Error('Shift not found');
   if (existing[0].is_preset) throw new Error('Preset shifts cannot be edited. Create a custom shift instead.');
 
   const allowed = ['name', 'start_time', 'end_time', 'grace_period_minutes', 'late_threshold_minutes', 'absent_threshold_minutes', 'department'];
@@ -142,7 +142,7 @@ export async function updateCustomShift(shiftId, updates) {
  */
 export async function deactivateShift(shiftId) {
   const existing = await prisma.$queryRawUnsafe('SELECT is_preset FROM staff_shifts WHERE id = $1', [shiftId]);
-  if (!existing.rows.length) throw new Error('Shift not found');
+  if (!existing.length) throw new Error('Shift not found');
   if (existing[0].is_preset) throw new Error('Preset shifts cannot be deleted');
 
   const res = await prisma.$queryRawUnsafe(

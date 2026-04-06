@@ -74,7 +74,7 @@ export async function getHealthRecords(filters, userRole, userId) {
     const totalRecords = countResult;
     
     return {
-      records: records.rows,
+      records: records,
       pagination: {
         page,
         limit,
@@ -169,10 +169,10 @@ export async function createHealthRecord(data, recorderId) {
     prisma.$queryRawUnsafe('SELECT id, name FROM users WHERE id = $1', [recorderId])
   ]);
   
-  if (patientCheck.rows.length === 0) {
+  if (patientCheck.length === 0) {
     throw new Error('Patient not found');
   }
-  if (recorderCheck.rows.length === 0) {
+  if (recorderCheck.length === 0) {
     throw new Error('Recorder user not found');
   }
   
@@ -202,7 +202,7 @@ export async function createHealthRecord(data, recorderId) {
 export async function updateHealthRecord(id, data, userId, userRole) {
   // Check if record exists and user has permission
   const recordCheck = await prisma.$queryRawUnsafe('SELECT recorded_by FROM health_records WHERE id = $1', [id]);
-  if (recordCheck.rows.length === 0) {
+  if (recordCheck.length === 0) {
     throw new Error('Health record not found');
   }
   
@@ -238,5 +238,5 @@ export async function checkDoctorPatientAccess(doctorId, patientId) {
     'SELECT 1 FROM appointments WHERE doctor_id = $1 AND patient_id = $2 LIMIT 1',
     [doctorId, patientId]
   );
-  return result.rows.length > 0;
+  return result.length > 0;
 }

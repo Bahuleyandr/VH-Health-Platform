@@ -96,8 +96,8 @@ export class DebugService {
         responseTimeMs: responseTime,
         serverTime: result[0].server_time,
         postgresVersion: result[0].postgres_version.split(' ')[0],
-        sampleTables: tableCheck.rows,
-        tableCount: tableCheck.rows.length
+        sampleTables: tableCheck,
+        tableCount: tableCheck.length
       };
     } catch (error) {
       logger.error('Database test error:', error);

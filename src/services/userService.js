@@ -45,7 +45,7 @@ export async function createOrUpdateUser(userData, requestingUser) {
 
   let userId, userUid, operation;
 
-  if (existingUser.rows.length > 0) {
+  if (existingUser.length > 0) {
     // Update existing user
     const existing = existingUser[0];
     userId = existing.id;
@@ -154,7 +154,7 @@ export async function getUserByIdentifier(identifier) {
     GROUP BY u.id, ur.role_description, ur.permissions, creator.name, updater.name
   `, [value]);
 
-  if (result.rows.length === 0) {
+  if (result.length === 0) {
     return null;
   }
 
@@ -307,7 +307,7 @@ export async function deactivateUser(identifier, reason, transferDataTo, request
       [transferDataTo]
     );
 
-    if (transferTarget.rows.length === 0) {
+    if (transferTarget.length === 0) {
       throw new Error('Transfer target user not found');
     }
 
@@ -361,7 +361,7 @@ export async function reactivateUser(userId, reason, requestingUser) {
     [userId]
   );
 
-  if (userResult.rows.length === 0) {
+  if (userResult.length === 0) {
     throw new Error('Hospital user not found');
   }
 
@@ -424,7 +424,7 @@ export async function bulkImportUsers(users, options, requestingUser) {
       // Check if user exists
       const existing = await prisma.$queryRawUnsafe('SELECT uid FROM users WHERE phone = $1', [normalizedPhone]);
 
-      if (existing.rows.length > 0) {
+      if (existing.length > 0) {
         errors.push({
           index: i + 1,
           phone: userData.phone,

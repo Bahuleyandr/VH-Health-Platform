@@ -106,7 +106,7 @@ export async function generatePatientBundle(patientUid) {
   });
 
   // Appointments
-  for (const apt of appointmentResult.rows) {
+  for (const apt of appointmentResult) {
     const resource = fhirAdapter.toFhirAppointment(apt);
     if (resource) {
       entries.push({
@@ -118,7 +118,7 @@ export async function generatePatientBundle(patientUid) {
   }
 
   // Conditions (diagnoses)
-  for (const dx of conditionResult.rows) {
+  for (const dx of conditionResult) {
     const resource = fhirAdapter.toFhirCondition(dx);
     if (resource) {
       entries.push({
@@ -130,7 +130,7 @@ export async function generatePatientBundle(patientUid) {
   }
 
   // Observations (vitals) — map each vital reading to individual observations
-  for (const v of observationResult.rows) {
+  for (const v of observationResult) {
     const vitalTypes = [
       { type: 'heart_rate', value: v.heart_rate, unit: '/min' },
       { type: 'systolic', value: v.systolic_bp, unit: 'mmHg' },
@@ -163,7 +163,7 @@ export async function generatePatientBundle(patientUid) {
   }
 
   // MedicationRequests
-  for (const med of medicationResult.rows) {
+  for (const med of medicationResult) {
     const resource = fhirAdapter.toFhirMedicationRequest(med);
     if (resource) {
       entries.push({
@@ -175,7 +175,7 @@ export async function generatePatientBundle(patientUid) {
   }
 
   // DiagnosticReports (investigations)
-  for (const inv of investigationResult.rows) {
+  for (const inv of investigationResult) {
     const resource = fhirAdapter.toFhirDiagnosticReport(inv);
     if (resource) {
       entries.push({
@@ -187,7 +187,7 @@ export async function generatePatientBundle(patientUid) {
   }
 
   // Encounters (admissions)
-  for (const adm of admissionResult.rows) {
+  for (const adm of admissionResult) {
     const resource = fhirAdapter.toFhirEncounter(adm);
     if (resource) {
       entries.push({
@@ -199,7 +199,7 @@ export async function generatePatientBundle(patientUid) {
   }
 
   // AllergyIntolerances
-  for (const allergy of allergyResult.rows) {
+  for (const allergy of allergyResult) {
     const resource = fhirAdapter.toFhirAllergyIntolerance(allergy);
     if (resource) {
       entries.push({
@@ -211,7 +211,7 @@ export async function generatePatientBundle(patientUid) {
   }
 
   // Procedures
-  for (const proc of procedureResult.rows) {
+  for (const proc of procedureResult) {
     const resource = fhirAdapter.toFhirProcedure(proc);
     if (resource) {
       entries.push({

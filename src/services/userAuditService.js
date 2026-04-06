@@ -33,7 +33,7 @@ export async function getUserActivityLogs(userId, limit = 20) {
       LIMIT $2
     `, [userId, limit]);
     
-    return result.rows;
+    return result;
   } catch (err) {
     logger.error('Failed to get user activity logs:', err);
     return [];
@@ -83,7 +83,7 @@ export async function getActivityAudit(filters = {}) {
       LIMIT $${paramIndex}
     `, [...params, limit]);
 
-    return activityLogs.rows;
+    return activityLogs;
   } catch (err) {
     logger.error('Failed to get activity audit:', err);
     throw err;
@@ -109,7 +109,7 @@ export async function getActivitySummary(days = 30) {
       ORDER BY action_count DESC
     `);
 
-    return result.rows;
+    return result;
   } catch (err) {
     logger.error('Failed to get activity summary:', err);
     throw err;
@@ -140,7 +140,7 @@ export async function detectSuspiciousActivity(days = 30) {
       LIMIT 20
     `);
 
-    return result.rows;
+    return result;
   } catch (err) {
     logger.error('Failed to detect suspicious activity:', err);
     throw err;
@@ -179,7 +179,7 @@ export async function getUserAccessHistory(userId, days = 90) {
       ORDER BY access_date DESC
     `, [userId]);
 
-    return result.rows;
+    return result;
   } catch (err) {
     logger.error('Failed to get user access history:', err);
     return [];
@@ -224,7 +224,7 @@ export async function getActionStatsByRole(days = 30) {
 
     // Group by role
     const statsByRole = {};
-    result.rows.forEach(row => {
+    result.forEach(row => {
       if (!statsByRole[row.role]) {
         statsByRole[row.role] = {};
       }
@@ -278,7 +278,7 @@ export async function generateAuditReport(startDate, endDate, options = {}) {
     }
 
     const result = await prisma.$queryRawUnsafe(query, [startDate, endDate]);
-    return result.rows;
+    return result;
   } catch (err) {
     logger.error('Failed to generate audit report:', err);
     throw err;

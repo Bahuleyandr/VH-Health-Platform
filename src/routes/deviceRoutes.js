@@ -68,7 +68,7 @@ wrapAutoRBAC(
             );
 
             // Redact FCM tokens unless admin
-            const devicesData = devices.rows.map(device => ({
+            const devicesData = devices.map(device => ({
               ...device,
               fcm_token: req.user?.role === 'ADMIN' ? device.fcm_token : 
                         (device.fcm_token ? device.fcm_token.substring(0, 10) + '...[REDACTED]' : null)
@@ -76,10 +76,10 @@ wrapAutoRBAC(
 
             success(res, {
               devices: devicesData,
-              totalDevices: devices.rows.length,
-              activeDevices: devices.rows.filter(d => d.status === 'active').length,
-              inactiveDevices: devices.rows.filter(d => d.status === 'inactive').length,
-              dormantDevices: devices.rows.filter(d => d.status === 'dormant').length,
+              totalDevices: devices.length,
+              activeDevices: devices.filter(d => d.status === 'active').length,
+              inactiveDevices: devices.filter(d => d.status === 'inactive').length,
+              dormantDevices: devices.filter(d => d.status === 'dormant').length,
               requestedBy: req.user?.name
             }, 'User devices retrieved successfully');
 
@@ -148,8 +148,8 @@ wrapAutoRBAC(
 
             success(res, {
               overview: deviceStats[0],
-              platformDistribution: platformStats.rows,
-              activityTrend: activityStats.rows,
+              platformDistribution: platformStats,
+              activityTrend: activityStats,
               requestedBy: req.user?.name,
               generatedAt: new Date().toISOString()
             }, 'Device statistics retrieved successfully');
@@ -197,7 +197,7 @@ wrapAutoRBAC(
               [deviceId]
             );
 
-            if (result.rows.length === 0) {
+            if (result.length === 0) {
               return error(res, 'Device not found', HTTP_STATUS.NOT_FOUND);
             }
 
@@ -242,7 +242,7 @@ wrapAutoRBAC(
               [normalizedPhone]
             );
 
-            if (userResult.rows.length === 0) {
+            if (userResult.length === 0) {
               return error(res, 'User not found', HTTP_STATUS.NOT_FOUND);
             }
 
@@ -332,7 +332,7 @@ wrapAutoRBAC(
               additionalData.osVersion
             ]);
 
-            if (result.rows.length === 0) {
+            if (result.length === 0) {
               return error(res, 'Device not found or access denied', HTTP_STATUS.NOT_FOUND);
             }
 
@@ -378,7 +378,7 @@ wrapAutoRBAC(
               [fcmToken, deviceId, normalizedPhone]
             );
 
-            if (result.rows.length === 0) {
+            if (result.length === 0) {
               return error(res, 'Device not found or access denied', HTTP_STATUS.NOT_FOUND);
             }
 
@@ -428,7 +428,7 @@ wrapAutoRBAC(
               [deviceId, normalizedPhone]
             );
 
-            if (result.rows.length === 0) {
+            if (result.length === 0) {
               return error(res, 'Device not found or access denied', HTTP_STATUS.NOT_FOUND);
             }
 
@@ -470,7 +470,7 @@ wrapAutoRBAC(
                RETURNING device_name, platform, last_active`,
             );
 
-            const cleanedDevices = result.rows;
+            const cleanedDevices = result;
             
             logger.info(`🧹 Cleaned up ${cleanedDevices.length} inactive devices (older than ${olderThanDays} days) by ${req.user?.name}`);
 
