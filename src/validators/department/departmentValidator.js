@@ -71,28 +71,10 @@ export const updateDepartmentValidation = [
     }).withMessage(DEPARTMENT_MESSAGES.INVALID_NAME_LENGTH),
   
   body('description')
-    .optional()
+    .optional({ checkFalsy: true })
     .trim()
-    .isLength({ 
-      min: DEPARTMENT_CONFIG.DESCRIPTION_MIN_LENGTH, 
-      max: DEPARTMENT_CONFIG.DESCRIPTION_MAX_LENGTH 
-    }).withMessage(DEPARTMENT_MESSAGES.INVALID_DESCRIPTION_LENGTH),
-  
-  body('head_doctor_id')
-    .optional()
-    .isInt({ min: 1 }).withMessage('Head doctor ID must be a positive integer'),
-  
-  body('contact_number')
-    .optional()
-    .trim()
-    .matches(DEPARTMENT_CONFIG.CONTACT_NUMBER_PATTERN)
-    .withMessage(DEPARTMENT_MESSAGES.INVALID_CONTACT_NUMBER),
-  
-  body('location')
-    .optional()
-    .trim()
-    .isLength({ max: DEPARTMENT_CONFIG.LOCATION_MAX_LENGTH })
-    .withMessage(`Location must not exceed ${DEPARTMENT_CONFIG.LOCATION_MAX_LENGTH} characters`),
+    .isLength({ max: DEPARTMENT_CONFIG.DESCRIPTION_MAX_LENGTH })
+    .withMessage(`Description must not exceed ${DEPARTMENT_CONFIG.DESCRIPTION_MAX_LENGTH} characters`),
   
   body('is_active')
     .optional()
