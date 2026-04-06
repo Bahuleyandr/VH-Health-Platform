@@ -135,11 +135,11 @@ async function handleProxy(req: NextRequest) {
   if (!["GET", "HEAD"].includes(method)) {
     const ct = req.headers.get("content-type") ?? "";
     if (ct.includes("application/json")) {
-      const json = await req.json();
-      init.body = JSON.stringify(json);
-      if (!("Content-Type" in headers)) {
-        headers["Content-Type"] = "application/json";
-      }
+      const text = await req.text();
+      init.body = text;
+      // Ensure content-type is set (normalize to lowercase, no duplicates)
+      delete (headers as Record<string,string>)["content-type"];
+      (headers as Record<string,string>)["content-type"] = "application/json";
     } else if (
       ct.includes("multipart/form-data") ||
       ct.includes("application/x-www-form-urlencoded")
@@ -149,9 +149,6 @@ async function handleProxy(req: NextRequest) {
       init.body = await req.arrayBuffer();
     }
   }
-
-  // Debug: log what we're sending upstream
-  console.log('[proxy]', method, targetUrl, 'body:', typeof init.body === 'string' ? init.body.slice(0, 200) : init.body);
 
   const upstream = await fetch(targetUrl, init);
   const body = await upstream.arrayBuffer();
