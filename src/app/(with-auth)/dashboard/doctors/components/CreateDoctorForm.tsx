@@ -64,7 +64,7 @@ export function CreateDoctorForm({
     }
 
     try {
-      await fetchAdminAPI("/doctors/create", {
+      await fetchAdminAPI("/api/v1/doctors/admin/create", {
         method: "POST",
         body: data,
       });
