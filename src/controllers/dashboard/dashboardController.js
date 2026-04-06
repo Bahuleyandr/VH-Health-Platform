@@ -26,9 +26,7 @@ export async function getPatientDashboard(req, res) {
 
     // --- 1. Get patient name ---
     const userResult = await prisma.$queryRawUnsafe(
-      'SELECT name FROM users WHERE phone = $1',
-      [normalizedPhone]
-    );
+      'SELECT name FROM users WHERE phone = $1', normalizedPhone);
 
     // Allow the request even if the user doesn't exist yet (might be first login)
     const name = userResult[0]?.name || null;

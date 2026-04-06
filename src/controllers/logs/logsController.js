@@ -9,9 +9,7 @@ async function tableExists(tableName) {
   try {
     const r = await prisma.$queryRawUnsafe(
       `SELECT 1 FROM information_schema.tables
-       WHERE table_schema = 'public' AND table_name = $1 LIMIT 1`,
-      [tableName]
-    );
+       WHERE table_schema = 'public' AND table_name = $1 LIMIT 1`, tableName);
     return r.length > 0;
   } catch {
     return false;
@@ -81,7 +79,7 @@ export async function getAuditLogs(req, res) {
 
     success(
       res,
-      { logs: dataResult.rows, total, page, limit, totalPages: Math.ceil(total / limit) },
+      { logs: dataResult, total, page, limit, totalPages: Math.ceil(total / limit) },
       'Audit logs fetched'
     );
   } catch (err) {
@@ -133,7 +131,7 @@ export async function exportAuditLogs(req, res) {
       params
     );
 
-    success(res, result.rows, `Audit log export: ${result.length} records`);
+    success(res, result, `Audit log export: ${result.length} records`);
   } catch (err) {
     logger.error('[logs] exportAuditLogs error:', err.stack || err.message);
     error(res, 'Failed to export audit logs', 500);
@@ -169,7 +167,7 @@ async function buildSystemLogs({ limit, offset, start_date, end_date, level }) {
          ORDER BY created_at DESC LIMIT 500`,
         params
       );
-      logs.push(...r.rows);
+      logs.push(...r);
     } catch { /* table may have different schema */ }
   }
 
@@ -191,7 +189,7 @@ async function buildSystemLogs({ limit, offset, start_date, end_date, level }) {
          ORDER BY created_at DESC LIMIT 500`,
         params
       );
-      logs.push(...r.rows);
+      logs.push(...r);
     } catch { /* schema mismatch */ }
   }
 

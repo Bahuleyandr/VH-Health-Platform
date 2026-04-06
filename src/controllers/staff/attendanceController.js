@@ -86,7 +86,7 @@ export const getAttendanceCalendar = async (req, res) => {
 
     // Build day-by-day map
     const attendanceMap = {};
-    for (const row of attendance.rows) {
+    for (const row of attendance) {
       const dateStr = row.date instanceof Date ? row.date.toISOString().split('T')[0] : String(row.date);
       attendanceMap[dateStr] = {
         status: 'present',
@@ -98,7 +98,7 @@ export const getAttendanceCalendar = async (req, res) => {
     }
     
     // Mark leave days
-    for (const leave of leaves.rows) {
+    for (const leave of leaves) {
       let d = new Date(leave.start_date);
       const end = new Date(leave.end_date);
       while (d <= end) {
@@ -178,17 +178,15 @@ export const startBreak = async (req, res) => {
       [staffId, today]
     );
 
-    if (att.rows.length === 0) {
+    if (att.length === 0) {
       return error(res, 'No active check-in found', HTTP_STATUS.BAD_REQUEST);
     }
 
     // Check no open break exists
     const openBreak = await prisma.$queryRawUnsafe(
-      `SELECT id FROM staff_breaks WHERE staff_id=$1 AND break_end IS NULL`,
-      [staffId]
-    );
+      `SELECT id FROM staff_breaks WHERE staff_id=$1 AND break_end IS NULL`, staffId);
 
-    if (openBreak.rows.length > 0) {
+    if (openBreak.length > 0) {
       return error(res, 'Break already in progress', HTTP_STATUS.BAD_REQUEST);
     }
 
@@ -211,11 +209,9 @@ export const endBreak = async (req, res) => {
     const staffId = req.user?.uid || req.params.id;
 
     const openBreak = await prisma.$queryRawUnsafe(
-      `SELECT id, break_start FROM staff_breaks WHERE staff_id=$1 AND break_end IS NULL`,
-      [staffId]
-    );
+      `SELECT id, break_start FROM staff_breaks WHERE staff_id=$1 AND break_end IS NULL`, staffId);
 
-    if (openBreak.rows.length === 0) {
+    if (openBreak.length === 0) {
       return error(res, 'No active break', HTTP_STATUS.BAD_REQUEST);
     }
 
@@ -249,8 +245,8 @@ export const getTodayBreaks = async (req, res) => {
       ORDER BY b.break_start
     `, [staffId, today]);
 
-    const totalBreakMinutes = breaks.rows.reduce((sum, b) => sum + parseFloat(b.duration_minutes_calc || 0), 0);
-    success(res, { breaks: breaks.rows, totalBreakMinutes: Math.round(totalBreakMinutes) }, 'Breaks fetched');
+    const totalBreakMinutes = breaks.reduce((sum, b) => sum + parseFloat(b.duration_minutes_calc || 0), 0);
+    success(res, { breaks: breaks, totalBreakMinutes: Math.round(totalBreakMinutes) }, 'Breaks fetched');
   } catch (err) {
     logger.error('Get Breaks Error:', err);
     error(res, 'Failed to fetch breaks', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -302,9 +298,9 @@ export const getMyDisputes = async (req, res) => {
       FROM attendance_disputes d
       LEFT JOIN users u ON d.reviewed_by = u.id
       WHERE d.staff_id = $1 ORDER BY d.date DESC LIMIT 30
-    `, [staffId]);
+    `, staffId);
 
-    success(res, disputes.rows, 'Disputes fetched');
+    success(res, disputes, 'Disputes fetched');
   } catch (err) {
     logger.error('Get Disputes Error:', err);
     error(res, 'Failed to fetch disputes', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -325,7 +321,7 @@ export const getPendingDisputes = async (req, res) => {
       WHERE d.status = 'pending' ORDER BY d.date DESC
     `);
 
-    success(res, disputes.rows, 'Pending disputes fetched');
+    success(res, disputes, 'Pending disputes fetched');
   } catch (err) {
     logger.error('Get Pending Disputes Error:', err);
     error(res, 'Failed to fetch disputes', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -345,8 +341,8 @@ export const resolveDispute = async (req, res) => {
       return error(res, 'status must be approved or rejected', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const dispute = await prisma.$queryRawUnsafe('SELECT id, staff_uid, dispute_date, reason, status, resolution, resolved_by, created_at FROM attendance_disputes WHERE id=$1', [id]);
-    if (dispute.rows.length === 0) return error(res, 'Dispute not found', HTTP_STATUS.NOT_FOUND);
+    const dispute = await prisma.$queryRawUnsafe('SELECT id, staff_uid, dispute_date, reason, status, resolution, resolved_by, created_at FROM attendance_disputes WHERE id=$1', id);
+    if (dispute.length === 0) return error(res, 'Dispute not found', HTTP_STATUS.NOT_FOUND);
 
     const d = dispute[0];
 
@@ -358,7 +354,7 @@ export const resolveDispute = async (req, res) => {
           [d.staff_id, d.date]
         );
 
-        if (existingAtt.rows.length > 0) {
+        if (existingAtt.length > 0) {
           const updates = [];
           const vals = [];
           let idx = 1;
@@ -413,7 +409,7 @@ export const getGeofenceBreaches = async (req, res) => {
       ORDER BY gb.occurred_at DESC LIMIT $1
     `, params);
 
-    success(res, breaches.rows, 'Geofence breaches fetched');
+    success(res, breaches, 'Geofence breaches fetched');
   } catch (err) {
     logger.error('Get Breaches Error:', err);
     error(res, 'Failed to fetch breaches', HTTP_STATUS.INTERNAL_SERVER_ERROR);

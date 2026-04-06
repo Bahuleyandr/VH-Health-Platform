@@ -29,7 +29,7 @@ export const getPerformanceAnalytics = async (req, res) => {
     `, department ? [department] : []);
 
     success(res, {
-      analytics: analytics.rows,
+      analytics: analytics,
       timeframe
     }, 'Performance analytics retrieved successfully');
   } catch (err) {
@@ -59,7 +59,7 @@ export const getDepartmentAnalytics = async (req, res) => {
     `);
 
     success(res, {
-      departments: analytics.rows
+      departments: analytics
     }, 'Department analytics retrieved successfully');
   } catch (err) {
     logger.error('Department Analytics Error:', err);
@@ -93,7 +93,7 @@ export const getEfficiencyReport = async (req, res) => {
     `, department ? [start_date, end_date, department] : [start_date, end_date]);
 
     success(res, {
-      efficiency: efficiency.rows,
+      efficiency: efficiency,
       parameters: { department, start_date, end_date }
     }, 'Efficiency report generated successfully');
   } catch (err) {
@@ -134,7 +134,7 @@ export const getOvertimeReport = async (req, res) => {
     `, department ? [month, year, department] : [month, year]);
 
     success(res, {
-      overtime: overtime.rows,
+      overtime: overtime,
       month,
       year
     }, 'Overtime report generated successfully');
@@ -171,7 +171,7 @@ export const getTurnoverReport = async (req, res) => {
     `, [year]);
 
     success(res, {
-      turnover: turnover.rows,
+      turnover: turnover,
       year
     }, 'Turnover report generated successfully');
   } catch (err) {

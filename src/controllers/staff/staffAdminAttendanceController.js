@@ -27,7 +27,7 @@ export const getAttendanceAnalytics = async (req, res) => {
     `, [group_by, start_date, end_date, ...(department ? [department] : [])]);
 
     success(res, {
-      analytics: analytics.rows,
+      analytics: analytics,
       parameters: { department, start_date, end_date, group_by }
     }, 'Attendance analytics retrieved successfully');
   } catch (err) {
@@ -64,8 +64,8 @@ export const getAttendanceAnomalies = async (req, res) => {
     `);
 
     success(res, {
-      anomalies: anomalies.rows,
-      total: anomalies.rows.length
+      anomalies: anomalies,
+      total: anomalies.length
     }, 'Attendance anomalies retrieved successfully');
   } catch (err) {
     logger.error('Attendance Anomalies Error:', err);
@@ -96,8 +96,8 @@ export const getLateArrivals = async (req, res) => {
 
     success(res, {
       date,
-      lateArrivals: lateArrivals.rows,
-      total: lateArrivals.rows.length
+      lateArrivals: lateArrivals,
+      total: lateArrivals.length
     }, 'Late arrivals report retrieved successfully');
   } catch (err) {
     logger.error('Late Arrivals Error:', err);
@@ -128,8 +128,8 @@ export const getEarlyDepartures = async (req, res) => {
 
     success(res, {
       date,
-      earlyDepartures: earlyDepartures.rows,
-      total: earlyDepartures.rows.length
+      earlyDepartures: earlyDepartures,
+      total: earlyDepartures.length
     }, 'Early departures report retrieved successfully');
   } catch (err) {
     logger.error('Early Departures Error:', err);
@@ -167,8 +167,8 @@ export const getAbsentReport = async (req, res) => {
 
     success(res, {
       date,
-      absentStaff: absentStaff.rows,
-      total: absentStaff.rows.length
+      absentStaff: absentStaff,
+      total: absentStaff.length
     }, 'Absent staff report retrieved successfully');
   } catch (err) {
     logger.error('Absent Report Error:', err);

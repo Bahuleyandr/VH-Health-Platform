@@ -38,9 +38,9 @@ export const getMyOvertimeRequests = async (req, res) => {
       FROM overtime_requests o
       LEFT JOIN users u ON o.approved_by = u.id
       WHERE o.staff_id = $1 ORDER BY o.date DESC LIMIT 30
-    `, [staffId]);
+    `, staffId);
 
-    success(res, rows.rows, 'Overtime requests fetched');
+    success(res, rows, 'Overtime requests fetched');
   } catch (err) {
     logger.error('Get Overtime Error:', err);
     error(res, 'Failed to fetch overtime requests', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -66,7 +66,7 @@ export const approveOvertime = async (req, res) => {
       WHERE id=$4 RETURNING id, staff_uid, date, hours, reason, status, approved_by, created_at
     `, [status, approverId, rejection_reason || null, id]);
 
-    if (result.rows.length === 0) {
+    if (result.length === 0) {
       return error(res, 'Request not found', HTTP_STATUS.NOT_FOUND);
     }
 
@@ -90,7 +90,7 @@ export const getPendingOvertimeRequests = async (req, res) => {
       WHERE o.status='pending' ORDER BY o.date DESC
     `);
 
-    success(res, rows.rows, 'Pending overtime requests fetched');
+    success(res, rows, 'Pending overtime requests fetched');
   } catch (err) {
     logger.error('Get Pending Overtime Error:', err);
     error(res, 'Failed to fetch overtime requests', HTTP_STATUS.INTERNAL_SERVER_ERROR);

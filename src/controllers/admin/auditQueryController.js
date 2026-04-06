@@ -53,7 +53,7 @@ export const getAuditLogs = async (req, res) => {
     );
 
     success(res, {
-      logs: logs.rows,
+      logs: logs,
       total: parseInt(countResult[0].count),
       limit: limitVal,
       offset: offsetVal,
@@ -123,10 +123,10 @@ export const getAuditSummary = async (req, res) => {
     success(res, {
       period_hours: parseInt(hours),
       activity: activity[0],
-      top_users: topUsers.rows,
-      top_modules: topModules.rows,
-      recent_errors: errors.rows,
-      slow_requests: slowRequests.rows,
+      top_users: topUsers,
+      top_modules: topModules,
+      recent_errors: errors,
+      slow_requests: slowRequests,
     }, 'Audit summary fetched');
   } catch (err) {
     logger.error('Audit Summary Error:', err);
@@ -166,7 +166,7 @@ export const getUserAuditHistory = async (req, res) => {
       user_id: userId,
       period_days: parseInt(days),
       stats: stats[0],
-      logs: logs.rows,
+      logs: logs,
     }, 'User audit history fetched');
   } catch (err) {
     logger.error('User Audit History Error:', err);
@@ -180,8 +180,8 @@ export const getAuditModules = async (req, res) => {
     const modules = await prisma.$queryRawUnsafe(`SELECT DISTINCT module FROM audit_log WHERE module IS NOT NULL ORDER BY module`);
     const actions = await prisma.$queryRawUnsafe(`SELECT DISTINCT action FROM audit_log WHERE action IS NOT NULL ORDER BY action`);
     success(res, {
-      modules: modules.rows.map(r => r.module),
-      actions: actions.rows.map(r => r.action),
+      modules: modules.map(r => r.module),
+      actions: actions.map(r => r.action),
     }, 'Modules fetched');
   } catch (err) {
     logger.error('Audit Modules Error:', err);

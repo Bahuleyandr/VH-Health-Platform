@@ -83,9 +83,9 @@ export const getFiles = async (req, res) => {
         FROM investigations i
         JOIN users u ON i.patient_id = u.id
         WHERE i.id = $1 AND u.uid = $2
-      `, [id, requestedBy]);
+      `, id, requestedBy);
       
-      if (investigationCheck.rows.length === 0) {
+      if (investigationCheck.length === 0) {
         return error(res, 'Access denied: Cannot view files for other patients', 403);
       }
     }
@@ -123,9 +123,9 @@ export const downloadFile = async (req, res) => {
         FROM investigations i
         JOIN users u ON i.patient_id = u.id
         WHERE i.id = $1 AND u.uid = $2
-      `, [id, requestedBy]);
+      `, id, requestedBy);
       
-      if (investigationCheck.rows.length === 0) {
+      if (investigationCheck.length === 0) {
         return error(res, 'Access denied', 403);
       }
     }

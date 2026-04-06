@@ -57,10 +57,8 @@ export const updateDeliveryLocation = async (req, res) => {
     const existingAssignment = await prisma.$queryRawUnsafe(
       `SELECT DISTINCT delivery_person_id FROM delivery_location_updates
        WHERE order_type = $1 AND order_id = $2 AND delivery_person_id IS NOT NULL
-       ORDER BY delivery_person_id LIMIT 1`,
-      [order_type, order_id]
-    );
-    if (existingAssignment.rows.length > 0 &&
+       ORDER BY delivery_person_id LIMIT 1`, order_type, order_id);
+    if (existingAssignment.length > 0 &&
         String(existingAssignment[0].delivery_person_id) !== String(deliveryPersonId)) {
       // A different delivery person is assigned — only ADMIN can override
       if (req.user?.role !== 'ADMIN') {
@@ -76,16 +74,16 @@ export const updateDeliveryLocation = async (req, res) => {
 
     // Update live location on the order
     if (order_type === 'pharmacy') {
-      const order = await prisma.$queryRawUnsafe('SELECT delivery_lat, delivery_lng FROM pharmacy_orders WHERE id=$1', [order_id]);
-      if (order.rows.length > 0 && order[0].delivery_lat) {
+      const order = await prisma.$queryRawUnsafe('SELECT delivery_lat, delivery_lng FROM pharmacy_orders WHERE id=$1', order_id);
+      if (order.length > 0 && order[0].delivery_lat) {
         const remaining = haversineKm(lat, lng, order[0].delivery_lat, order[0].delivery_lng);
         const eta = estimateMinutes(remaining);
         await prisma.$queryRawUnsafe(`UPDATE pharmacy_orders SET delivery_lat=$1, delivery_lng=$2, estimated_delivery_mins=$3, delivery_distance_km=$4, delivery_tracking_active=TRUE, updated_at=NOW() WHERE id=$5`,
           [lat, lng, eta, Math.round(remaining * 100) / 100, order_id]);
       }
     } else if (order_type === 'investigation') {
-      const booking = await prisma.$queryRawUnsafe('SELECT collection_lat, collection_lng FROM investigation_bookings WHERE id=$1', [order_id]);
-      if (booking.rows.length > 0 && booking[0].collection_lat) {
+      const booking = await prisma.$queryRawUnsafe('SELECT collection_lat, collection_lng FROM investigation_bookings WHERE id=$1', order_id);
+      if (booking.length > 0 && booking[0].collection_lat) {
         const remaining = haversineKm(lat, lng, booking[0].collection_lat, booking[0].collection_lng);
         const eta = estimateMinutes(remaining);
         await prisma.$queryRawUnsafe(`UPDATE investigation_bookings SET collector_lat=$1, collector_lng=$2, estimated_collection_mins=$3, collection_distance_km=$4, collection_tracking_active=TRUE, updated_at=NOW() WHERE id=$5`,
@@ -112,7 +110,7 @@ export const getDeliveryTracking = async (req, res) => {
       const result = await prisma.$queryRawUnsafe(`SELECT id, order_number, status, delivery_lat, delivery_lng,
         estimated_delivery_mins, delivery_distance_km, delivery_tracking_active,
         delivery_person, delivery_person_phone, dispatched_at
-        FROM pharmacy_orders WHERE id=$1`, [order_id]);
+        FROM pharmacy_orders WHERE id=$1`, order_id);
       orderData = result[0];
     } else if (order_type === 'investigation') {
       const result = await prisma.$queryRawUnsafe(`SELECT id, booking_number as order_number, status,
@@ -121,7 +119,7 @@ export const getDeliveryTracking = async (req, res) => {
         collection_distance_km as delivery_distance_km,
         collection_tracking_active as delivery_tracking_active,
         collector_phone as delivery_person_phone, dispatched_at
-        FROM investigation_bookings WHERE id=$1`, [order_id]);
+        FROM investigation_bookings WHERE id=$1`, order_id);
       orderData = result[0];
     }
 
@@ -132,11 +130,11 @@ export const getDeliveryTracking = async (req, res) => {
       SELECT lat, lng, speed, created_at FROM delivery_location_updates
       WHERE order_type=$1 AND order_id=$2
       ORDER BY created_at DESC LIMIT 10
-    `, [order_type, order_id]);
+    `, order_type, order_id);
 
     success(res, {
       ...orderData,
-      location_trail: trail.rows,
+      location_trail: trail,
       hospital_lat: HOSPITAL_LAT,
       hospital_lng: HOSPITAL_LNG,
     }, 'Tracking data');
@@ -153,9 +151,9 @@ export const stopTracking = async (req, res) => {
   try {
     const { order_type, order_id } = req.body;
     if (order_type === 'pharmacy') {
-      await prisma.$queryRawUnsafe('UPDATE pharmacy_orders SET delivery_tracking_active=FALSE WHERE id=$1', [order_id]);
+      await prisma.$queryRawUnsafe('UPDATE pharmacy_orders SET delivery_tracking_active=FALSE WHERE id=$1', order_id);
     } else if (order_type === 'investigation') {
-      await prisma.$queryRawUnsafe('UPDATE investigation_bookings SET collection_tracking_active=FALSE WHERE id=$1', [order_id]);
+      await prisma.$queryRawUnsafe('UPDATE investigation_bookings SET collection_tracking_active=FALSE WHERE id=$1', order_id);
     }
     success(res, { stopped: true }, 'Tracking stopped');
   } catch (err) {

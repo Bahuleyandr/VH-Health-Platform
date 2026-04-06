@@ -58,7 +58,7 @@ export const getStaffAdminDashboard = async (req, res) => {
 
     success(res, {
       overview: dashboardData[0],
-      recentActivity: recentActivity.rows,
+      recentActivity: recentActivity,
       lastUpdated: new Date()
     }, 'Staff admin dashboard loaded successfully');
   } catch (err) {

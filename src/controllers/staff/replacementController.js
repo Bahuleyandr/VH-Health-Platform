@@ -14,10 +14,8 @@ export const requestReplacement = async (req, res) => {
 
     // Verify replacement staff exists
     const staffCheck = await prisma.$queryRawUnsafe(
-      "SELECT id, name FROM users WHERE id = $1 AND role LIKE '%STAFF%'",
-      [replacement_staff_id]
-    );
-    if (staffCheck.rows.length === 0) {
+      "SELECT id, name FROM users WHERE id = $1 AND role LIKE '%STAFF%'", replacement_staff_id);
+    if (staffCheck.length === 0) {
       return error(res, 'Replacement staff member not found', HTTP_STATUS.NOT_FOUND);
     }
 
@@ -45,10 +43,8 @@ export const respondToReplacement = async (req, res) => {
 
     // Verify this person is the designated replacement
     const reqCheck = await prisma.$queryRawUnsafe(
-      'SELECT id, original_staff_id, replacement_staff_id, shift_date, status, reason, created_at FROM replacement_requests WHERE id = $1 AND replacement_staff_id = $2',
-      [id, responderId]
-    );
-    if (reqCheck.rows.length === 0) {
+      'SELECT id, original_staff_id, replacement_staff_id, shift_date, status, reason, created_at FROM replacement_requests WHERE id = $1 AND replacement_staff_id = $2', id, responderId);
+    if (reqCheck.length === 0) {
       return error(res, 'Replacement request not found or not authorized', HTTP_STATUS.NOT_FOUND);
     }
 
@@ -75,8 +71,8 @@ export const getPendingReplacements = async (req, res) => {
       JOIN users u2 ON rr.replacement_staff_id = u2.id
       WHERE rr.replacement_staff_id = $1 AND rr.status = 'pending'
       ORDER BY rr.requested_at DESC
-    `, [staffId]);
-    success(res, rows.rows, 'Pending replacement requests fetched');
+    `, staffId);
+    success(res, rows, 'Pending replacement requests fetched');
   } catch (err) {
     logger.error('Get Pending Replacements Error:', err);
     error(res, 'Failed to fetch replacement requests', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -94,8 +90,8 @@ export const getReplacementHistory = async (req, res) => {
       JOIN users u2 ON rr.replacement_staff_id = u2.id
       WHERE rr.requester_id = $1 OR rr.replacement_staff_id = $1
       ORDER BY rr.requested_at DESC LIMIT 50
-    `, [staffId]);
-    success(res, rows.rows, 'Replacement history fetched');
+    `, staffId);
+    success(res, rows, 'Replacement history fetched');
   } catch (err) {
     logger.error('Get Replacement History Error:', err);
     error(res, 'Failed to fetch replacement history', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -110,7 +106,7 @@ export const hrApproveReplacement = async (req, res) => {
       UPDATE replacement_requests SET status='hr_approved', hr_approved_at=NOW(), hr_approved_by=$1
       WHERE id=$2 AND status='accepted' RETURNING id, original_staff_id, replacement_staff_id, shift_date, status, reason, created_at
     `, [hrId, id]);
-    if (result.rows.length === 0) {
+    if (result.length === 0) {
       return error(res, 'Replacement request not found or not in accepted state', HTTP_STATUS.NOT_FOUND);
     }
     success(res, result[0], 'Replacement HR approved');

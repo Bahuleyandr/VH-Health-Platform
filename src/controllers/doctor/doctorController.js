@@ -315,9 +315,7 @@ export const doctorController = {
       const { doctorId } = req.params;
       
       const deleteResult = await prisma.$queryRawUnsafe(
-        'DELETE FROM doctors WHERE id = $1 RETURNING id, name, department, intro, image_url, is_active, created_at',
-        [doctorId]
-      );
+        'DELETE FROM doctors WHERE id = $1 RETURNING id, name, department, intro, image_url, is_active, created_at', doctorId);
       
       if (deleteResult.length === 0) {
         return error(res, 'Doctor not found or already deleted', HTTP_STATUS.NOT_FOUND);

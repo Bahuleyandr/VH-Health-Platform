@@ -13,7 +13,7 @@ export async function getUserRegistrations(req, res) {
       GROUP BY DATE(registered_at)
       ORDER BY DATE(registered_at) ASC
     `);
-    success(res, result.rows, 'User registrations by day');
+    success(res, result, 'User registrations by day');
   } catch (err) {
     error(res, 'Failed to fetch registration stats');
   }
@@ -49,7 +49,7 @@ export async function getActiveUsers(req, res) {
       ORDER BY appointment_count DESC
       LIMIT 10
     `);
-    success(res, result.rows, 'Most active users');
+    success(res, result, 'Most active users');
   } catch (err) {
     error(res, 'Failed to fetch active user stats');
   }
@@ -69,7 +69,7 @@ export async function getActiveDepartments(req, res) {
       ORDER BY appointment_count DESC
       LIMIT 10
     `);
-    success(res, result.rows, 'Most active departments');
+    success(res, result, 'Most active departments');
   } catch (err) {
     error(res, 'Failed to fetch department stats');
   }

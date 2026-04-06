@@ -26,7 +26,7 @@ export const getLeavePatterns = async (req, res) => {
     `, department ? [year, department] : [year]);
 
     success(res, {
-      patterns: patterns.rows,
+      patterns: patterns,
       year
     }, 'Leave patterns retrieved successfully');
   } catch (err) {
@@ -62,8 +62,8 @@ export const getAllLeaveRequests = async (req, res) => {
     `, department ? [status, department] : [status]);
 
     success(res, {
-      leaveRequests: leaveRequests.rows,
-      total: leaveRequests.rows.length,
+      leaveRequests: leaveRequests,
+      total: leaveRequests.length,
       status
     }, 'Leave requests retrieved successfully');
   } catch (err) {
@@ -90,10 +90,10 @@ export const bulkLeaveApproval = async (req, res) => {
     `, [status, approvedBy, leave_ids]);
 
     success(res, {
-      processed: result.rows.length,
+      processed: result.length,
       action,
       leave_ids
-    }, `${result.rows.length} leave requests ${status}`);
+    }, `${result.length} leave requests ${status}`);
   } catch (err) {
     logger.error('Bulk Leave Approval Error:', err);
     error(res, 'Failed to process leave requests', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -118,7 +118,7 @@ export const approveLeaveRequest = async (req, res) => {
       RETURNING id, staff_uid, leave_type, start_date, end_date, status, approved_by, reason, created_at
     `, [leaveId, approvedBy, comments]);
 
-    if (result.rows.length === 0) {
+    if (result.length === 0) {
       return error(res, 'Leave request not found', HTTP_STATUS.NOT_FOUND);
     }
 

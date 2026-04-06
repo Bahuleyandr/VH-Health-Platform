@@ -23,8 +23,8 @@ export const getPendingReviews = async (req, res) => {
     `);
 
     success(res, {
-      pendingReviews: pendingReviews.rows,
-      total: pendingReviews.rows.length
+      pendingReviews: pendingReviews,
+      total: pendingReviews.length
     }, 'Pending reviews retrieved successfully');
   } catch (err) {
     logger.error('Pending Reviews Error:', err);
@@ -52,7 +52,7 @@ export const getOnboardingStatus = async (req, res) => {
     `);
 
     success(res, {
-      onboardingStatus: onboardingStatus.rows
+      onboardingStatus: onboardingStatus
     }, 'Onboarding status retrieved successfully');
   } catch (err) {
     logger.error('Onboarding Status Error:', err);
@@ -79,7 +79,7 @@ export const approvePerformanceReview = async (req, res) => {
       RETURNING id, staff_id, review_period, status, rating, final_rating, approved_by, approved_at, approver_comments, created_at
     `, [reviewId, approvedBy, comments, final_rating]);
 
-    if (result.rows.length === 0) {
+    if (result.length === 0) {
       return error(res, 'Performance review not found', HTTP_STATUS.NOT_FOUND);
     }
 

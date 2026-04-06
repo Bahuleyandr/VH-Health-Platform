@@ -62,7 +62,7 @@ export const getSystemHealth = async (req, res) => {
       `SELECT status, COUNT(*)::int as count FROM failed_notifications GROUP BY status`
     );
     const counts = {};
-    for (const row of backlog.rows) {
+    for (const row of backlog) {
       counts[row.status] = row.count;
     }
     checks.notification_backlog = {
