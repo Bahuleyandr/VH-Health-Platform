@@ -40,7 +40,7 @@ export async function sendSMS(phone, message) {
         sms: [{ message, to: [intlPhone] }]
       });
 
-      const resp = await fetch('https://api.msg91.com/api/v5/sendotp', {
+      await fetch('https://api.msg91.com/api/v5/sendotp', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

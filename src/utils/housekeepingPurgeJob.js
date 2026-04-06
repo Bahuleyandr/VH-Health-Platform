@@ -24,7 +24,6 @@ const RETENTION = {
 
 export async function purgeHousekeepingPhotos() {
   // Lazy import to avoid circular deps / startup issues
-  const { default: db } = await import('../config/database.js');
 
   logger.info('🧹 Starting housekeeping photo purge...');
   let purged = 0;

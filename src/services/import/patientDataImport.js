@@ -283,7 +283,7 @@ async function importObservation(fhirObservation, importedBy) {
   const value = fhirObservation.valueQuantity?.value ?? fhirObservation.valueString;
   const recordedAt = fhirObservation.effectiveDateTime || new Date().toISOString();
 
-  if (value == null) return;
+  if (value === null) return;
 
   // Map LOINC to vitals_chart columns
   const columnMap = {

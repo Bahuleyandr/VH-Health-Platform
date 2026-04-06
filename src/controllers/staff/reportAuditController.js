@@ -179,7 +179,7 @@ export const getReportAuditTrail = async (req, res) => {
     const hoursOpen = (Date.now() - createdAt.getTime()) / 3600000;
     const hoursToResolve = resolvedAt ? (resolvedAt - createdAt) / 3600000 : null;
 
-    const severityOrPriority = reportData.severity || reportData.priority || 'normal';
+    const _severityOrPriority = reportData.severity || reportData.priority || 'normal';
     const slaKey = type === 'incident' ? reportData.severity : reportData.priority;
     const slaThresholds = type === 'incident'
       ? SLA.incident[slaKey] || SLA.incident.moderate

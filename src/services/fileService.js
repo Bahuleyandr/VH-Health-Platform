@@ -8,8 +8,7 @@ import {
   generateSecureFileKey, 
   optimizeImage, 
   compressPDF, 
-  calculateRetentionDate,
-  formatFileResponse 
+  calculateRetentionDate 
 } from '../utils/fileProcessingUtils.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import { uploadFileToR2, deleteObject, getSignedFileUrl } from '../utils/r2Storage.js';

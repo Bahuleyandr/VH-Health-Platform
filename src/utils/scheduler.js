@@ -108,7 +108,6 @@ cron.schedule('0 9 * * *', withJobLock('investigation-notifications', sendInvest
 // 🗓️ Daily at 03:30 - Purge audit logs older than 90 days
 cron.schedule('30 3 * * *', withJobLock('purge-audit-logs', async () => {
   logger.info('Scheduled Task: Purging audit logs older than 90 days...');
-  const { default: db } = await import('../config/database.js');
   const result = await prisma.$queryRawUnsafe(
     `DELETE FROM audit_log WHERE created_at < NOW() - INTERVAL '90 days'`
   );
@@ -118,7 +117,6 @@ cron.schedule('30 3 * * *', withJobLock('purge-audit-logs', async () => {
 // 🗓️ Daily at 03:35 - Purge expired token blacklist entries
 cron.schedule('35 3 * * *', withJobLock('purge-invalidated-tokens', async () => {
   logger.info('Scheduled Task: Purging expired invalidated tokens...');
-  const { default: db } = await import('../config/database.js');
   const result = await prisma.$queryRawUnsafe(
     `DELETE FROM invalidated_tokens WHERE expires_at < NOW()`
   );
@@ -128,7 +126,6 @@ cron.schedule('35 3 * * *', withJobLock('purge-invalidated-tokens', async () => 
 // 🗓️ Daily at 03:40 - Purge expired OTP sessions
 cron.schedule('40 3 * * *', withJobLock('purge-expired-otps', async () => {
   logger.info('Scheduled Task: Purging expired OTP sessions...');
-  const { default: db } = await import('../config/database.js');
   const result = await prisma.$queryRawUnsafe(
     `DELETE FROM otp_sessions WHERE expires_at < NOW() - INTERVAL '1 day'`
   );
@@ -186,7 +183,6 @@ cron.schedule('0 6 1 * *', withJobLock('monthly-payroll', async () => {
   let year = now.getFullYear();
   if (month === 0) { month = 12; year--; }
 
-  const { default: db } = await import('../config/database.js');
   const { calculatePayslip, savePayslip } = await import('../services/staff/payrollService.js');
 
   // Check if already done
@@ -245,7 +241,6 @@ cron.schedule('0 6 1 * *', withJobLock('monthly-payroll', async () => {
 cron.schedule('0 8 1 12 *', withJobLock('annual-salary-review', async () => {
   logger.info('Scheduled Task: Annual salary review reminder...');
   const year = new Date().getFullYear();
-  const { default: db } = await import('../config/database.js');
   await prisma.$queryRawUnsafe(`
     INSERT INTO annual_review_reminders (staff_uid, review_year, reminder_sent_at)
     SELECT ss.staff_uid, $1, NOW()

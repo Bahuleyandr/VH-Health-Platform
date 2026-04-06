@@ -8,14 +8,6 @@ function getLast10Digits(phone) {
   return digits.slice(-10);
 }
 
-function normalizeValue(val) {
-  if (typeof val === 'string') {
-    const trimmed = val.trim();
-    return trimmed === '' ? null : trimmed;
-  }
-  return val;
-}
-
 function parseFlexibleDate(input) {
   if (!input || typeof input !== 'string') {return null;}
   const formatsToTry = ['dd-MM-yyyy', 'yyyy-MM-dd', 'dd/MM/yyyy'];

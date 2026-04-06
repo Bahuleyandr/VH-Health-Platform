@@ -111,7 +111,7 @@ if (process.env.NODE_ENV === 'development') {
       // ===== SYSTEM UTILITIES =====
       _metadata: ROUTE_METADATA,
       _healthCheck: () => routeHealthService.performHealthCheck(routes),
-      _documentation: () => routeDocumentationService.generateDocumentation(routes),
+      documentation: () => routeDocumentationService.generateDocumentation(routes),
       _stats: () => getRouteLoadingStats(routes),
       _validation: () => validateLoadedRoutes(routes),
       _healthService: routeHealthService,
@@ -185,7 +185,7 @@ export function generateSystemDocumentation(format = 'json') {
 export function getSystemStatistics() {
   const healthCheck = routeHealthService.getLastHealthCheck();
   const documentation = routeDocumentationService.getLastDocumentation();
-  
+    
   return {
     health: healthCheck ? {
       overallHealth: healthCheck.overallHealth,

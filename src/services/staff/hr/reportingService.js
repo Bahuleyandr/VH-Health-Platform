@@ -44,7 +44,7 @@ export const generateStaffReport = async (reportParams) => {
   return {
     report_type,
     department: department || 'All Departments',
-    date_range: { start_date, end_date },
+    date_range: { start_date, end_date: end_date },
     generated_by: generatedBy,
     generated_at: new Date().toISOString(),
     data: reportData
@@ -55,7 +55,7 @@ export const generateStaffReport = async (reportParams) => {
  * Generate attendance report data
  * @private
  */
-const generateAttendanceReport = async (department, start_date, end_date) => {
+const generateAttendanceReport = async (department, start_date, _end_date) => {
   let whereClause = 'WHERE sa.check_in_time IS NOT NULL';
   const queryParams = [];
   
@@ -64,10 +64,10 @@ const generateAttendanceReport = async (department, start_date, end_date) => {
     queryParams.push(department);
   }
   
-  if (start_date && end_date) {
+  if (start_date && _end_date) {
     const paramOffset = queryParams.length;
     whereClause += ` AND DATE(sa.check_in_time) BETWEEN $${paramOffset + 1} AND $${paramOffset + 2}`;
-    queryParams.push(start_date, end_date);
+    queryParams.push(start_date, _end_date);
   }
 
   const result = await prisma.$queryRawUnsafe(`
@@ -108,7 +108,7 @@ const generateAttendanceReport = async (department, start_date, end_date) => {
  * Generate performance report data
  * @private
  */
-const generatePerformanceReportData = async (department, _start_date, end_date) => {
+const generatePerformanceReportData = async (department, _start_date, _end_date) => {
   let whereClause = 'WHERE s.is_active = true';
   const queryParams = [];
   
@@ -148,7 +148,7 @@ const generatePerformanceReportData = async (department, _start_date, end_date) 
  * Generate leave report data
  * @private
  */
-const generateLeaveReport = async (department, start_date, end_date) => {
+const generateLeaveReport = async (department, start_date, _end_date) => {
   let whereClause = 'WHERE la.staff_id IS NOT NULL';
   const queryParams = [];
   
@@ -157,10 +157,10 @@ const generateLeaveReport = async (department, start_date, end_date) => {
     queryParams.push(department);
   }
   
-  if (start_date && end_date) {
+  if (start_date && _end_date) {
     const paramOffset = queryParams.length;
     whereClause += ` AND la.start_date BETWEEN $${paramOffset + 1} AND $${paramOffset + 2}`;
-    queryParams.push(start_date, end_date);
+    queryParams.push(start_date, _end_date);
   }
 
   const result = await prisma.$queryRawUnsafe(`
@@ -170,7 +170,7 @@ const generateLeaveReport = async (department, start_date, end_date) => {
       s.department,
       la.leave_type,
       la.start_date,
-      la.end_date,
+      la._end_date,
       la.days_taken,
       la.status,
       la.reason
@@ -188,7 +188,7 @@ const generateLeaveReport = async (department, start_date, end_date) => {
       month: '2-digit',
       year: 'numeric'
     }),
-    end_date: new Date(row.end_date).toLocaleDateString('en-GB', {
+    end_date: new Date(row._end_date).toLocaleDateString('en-GB', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric'
@@ -200,7 +200,7 @@ const generateLeaveReport = async (department, start_date, end_date) => {
  * Generate payroll report data
  * @private
  */
-const generatePayrollReport = async (department, _start_date, end_date) => {
+const generatePayrollReport = async (department, _start_date, _end_date) => {
   let whereClause = 'WHERE s.is_active = true';
   const queryParams = [];
   

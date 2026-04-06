@@ -10,7 +10,6 @@ import * as replacementController from '../../controllers/staff/replacementContr
 import * as shiftController from '../../controllers/staff/shiftController.js';
 import {
   performanceReviewValidation,
-  onboardingValidation,
   leaveApplicationValidation,
   updateOnboardingTaskValidation,
   exportReportValidation

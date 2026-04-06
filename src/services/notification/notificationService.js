@@ -8,7 +8,7 @@ import {
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { 
-  hasNotificationAccess, 
+   
   buildNotificationQuery,
   formatNotificationResponse 
 } from '../../utils/notification/notificationHelpers.js';

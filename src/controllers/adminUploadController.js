@@ -22,7 +22,7 @@ export async function getFileStats(req, res) {
   }
 
   try {
-    const { timeframe = '30d', detailed = false } = req.query;
+    const { timeframe = '30d', detailed: _detailed = false } = req.query;
     const userRole = req.user?.role;
     const userId = req.user?.uid;
     

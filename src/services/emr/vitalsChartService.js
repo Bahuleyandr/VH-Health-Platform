@@ -1,6 +1,5 @@
 // src/services/emr/vitalsChartService.js
 import prisma from '../../lib/prisma.js';
-import { createPrismaDb } from '../../lib/prismaCompat.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
@@ -115,8 +114,8 @@ export async function recordVitals(data) {
   let news2Result = null;
 
   // Auto-trigger NEWS2 calculation if core vitals are present
-  if (respiratory_rate != null && spo2 != null && temperature != null &&
-      systolic_bp != null && heart_rate != null && consciousness) {
+  if (respiratory_rate !== null && spo2 !== null && temperature !== null &&
+      systolic_bp !== null && heart_rate !== null && consciousness) {
     try {
       news2Result = await news2Service.recordNEWS2(patient_uid, {
         respiration_rate: respiratory_rate,
@@ -135,12 +134,12 @@ export async function recordVitals(data) {
   // Auto-check for vital sign anomalies
   try {
     const vitalsForCheck = {};
-    if (heart_rate != null) vitalsForCheck.heart_rate = heart_rate;
-    if (systolic_bp != null) vitalsForCheck.systolic_bp = systolic_bp;
-    if (diastolic_bp != null) vitalsForCheck.diastolic_bp = diastolic_bp;
-    if (temperature != null) vitalsForCheck.temperature = temperature;
-    if (spo2 != null) vitalsForCheck.oxygen_saturation = spo2;
-    if (respiratory_rate != null) vitalsForCheck.respiratory_rate = respiratory_rate;
+    if (heart_rate !== null) vitalsForCheck.heart_rate = heart_rate;
+    if (systolic_bp !== null) vitalsForCheck.systolic_bp = systolic_bp;
+    if (diastolic_bp !== null) vitalsForCheck.diastolic_bp = diastolic_bp;
+    if (temperature !== null) vitalsForCheck.temperature = temperature;
+    if (spo2 !== null) vitalsForCheck.oxygen_saturation = spo2;
+    if (respiratory_rate !== null) vitalsForCheck.respiratory_rate = respiratory_rate;
 
     if (Object.keys(vitalsForCheck).length > 0) {
       alerts = await checkVitalAnomalies(patient_uid, vitalsForCheck, {

@@ -170,7 +170,7 @@ class DatabaseManager {
 
   async healthCheck() {
     try {
-      const result = await this.query('SELECT 1 as ok');
+      await this.query('SELECT 1 as ok');
       const health = {
         healthy: true,
         writePool: { total: this.pool.totalCount, idle: this.pool.idleCount, waiting: this.pool.waitingCount },

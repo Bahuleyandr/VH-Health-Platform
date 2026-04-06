@@ -3,7 +3,7 @@ import { PRIVACY_LEVELS } from '../../config/recordConfig.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { 
   ADMIN, PATIENT, NURSING_STAFF, PHARMACY_STAFF, 
-  LAB_STAFF, DOCTOR, GENERAL_STAFF 
+  LAB_STAFF, DOCTOR 
 } from '../../utils/roles.js';
 
 export function checkDataAccess(userRole, patientData, recordData) {

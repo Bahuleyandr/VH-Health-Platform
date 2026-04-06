@@ -258,7 +258,8 @@ router.put('/profile', async (req, res) => {
     const phone = req.user?.phone ?? '';
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
 
-    let { displayName, displayColor, dailyGoal, optedIn } = req.body;
+    let { displayName, dailyGoal } = req.body;
+    const { displayColor, optedIn } = req.body;
 
     // Validate displayName
     if (displayName !== undefined) {

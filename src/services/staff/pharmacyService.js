@@ -5,7 +5,7 @@ export const updatePharmacyOrderStatus = async (data) => {
   const { 
     phone, order_id, status, notes, 
     dispensed_medications, pharmacist_notes,
-    dispensed_by, dispensed_at, updatedBy, updatedByName
+    _dispensed_by, dispensed_at, updatedBy, updatedByName
   } = data;
 
   // Update pharmacy order
@@ -20,7 +20,7 @@ export const updatePharmacyOrderStatus = async (data) => {
       updated_by = $7,
       updated_at = NOW()
     WHERE id = $8 AND phone = $9
-    RETURNING id, phone, status, order_note, dispensed_medications, pharmacist_notes, dispensed_by, dispensed_at, updated_by, updated_at, placed_at
+    RETURNING id, phone, status, order_note, dispensed_medications, pharmacist_notes, _dispensed_by, dispensed_at, updated_by, updated_at, placed_at
   `, [
     status, notes, 
     dispensed_medications ? JSON.stringify(dispensed_medications) : null,

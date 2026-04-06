@@ -15,7 +15,7 @@ export async function checkDependencyHealth() {
     }
 
     // Check for known vulnerable patterns
-    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+    const _deps = { ...pkg.dependencies, ...pkg.devDependencies };
 
     // Log startup info
     logger.info('📦 Dependency health check:', {

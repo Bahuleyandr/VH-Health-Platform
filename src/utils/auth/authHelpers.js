@@ -85,7 +85,7 @@ export const isProfileComplete = (user) => {
 
 // Sanitize user object for response
 export const sanitizeUserResponse = (user) => {
-  const { password, ...sanitizedUser } = user;
+  const { password: _password, ...sanitizedUser } = user;
   return sanitizedUser;
 };
 
