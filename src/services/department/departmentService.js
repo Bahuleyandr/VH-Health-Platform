@@ -7,17 +7,13 @@ class DepartmentService {
   async getAllDepartments() {
     try {
       const rows = await prisma.$queryRaw`
-        SELECT d.id, d.name, d.description, d.head_doctor_id, d.contact_number,
-               d.location, d.is_active, d.created_at, d.updated_at,
-               u.name as head_doctor_name, u.phone as head_doctor_phone,
+        SELECT d.id, d.name, d.description, d.is_active, d.created_at, d.updated_at,
                COUNT(doc.user_id) as doctor_count,
                COUNT(doc.user_id) FILTER (WHERE doc.is_available = true) as available_doctors
         FROM departments d
-        LEFT JOIN users u ON d.head_doctor_id = u.id
         LEFT JOIN doctors doc ON doc.department = d.name
         WHERE d.is_active = true
-        GROUP BY d.id, d.name, d.description, d.head_doctor_id, d.contact_number,
-                 d.location, d.is_active, d.created_at, d.updated_at, u.name, u.phone
+        GROUP BY d.id, d.name, d.description, d.is_active, d.created_at, d.updated_at
         ORDER BY d.name
       `;
 
@@ -74,7 +70,7 @@ class DepartmentService {
       const today = getCurrentDay();
 
       const rows = await prisma.$queryRaw`
-        SELECT d.name, d.description, d.location, d.contact_number,
+        SELECT d.name, d.description,
                COUNT(doc.user_id) as available_doctors,
                STRING_AGG(u.name, ', ') as doctor_names,
                STRING_AGG(doc.specialization, ', ') as specializations
@@ -84,7 +80,7 @@ class DepartmentService {
           AND (doc.available_days IS NULL OR doc.available_days LIKE ${'%' + today + '%'})
         LEFT JOIN users u ON doc.user_id = u.id
         WHERE d.is_active = true
-        GROUP BY d.name, d.description, d.location, d.contact_number
+        GROUP BY d.name, d.description
         HAVING COUNT(doc.user_id) > 0
         ORDER BY available_doctors DESC, d.name
       `;
@@ -116,20 +112,14 @@ class DepartmentService {
       if (isNumeric) {
         const id = parseInt(identifier);
         rows = await prisma.$queryRaw`
-          SELECT d.id, d.name, d.code, d.head_uid, d.is_active, d.description, d.floor, d.building, d.created_at, d.updated_at,
-                 u.name as head_doctor_name, u.phone as head_doctor_phone,
-                 u.email as head_doctor_email
+          SELECT d.id, d.name, d.description, d.is_active, d.created_at, d.updated_at
           FROM departments d
-          LEFT JOIN users u ON d.head_doctor_id = u.id
           WHERE d.id = ${id} AND d.is_active = true
         `;
       } else {
         rows = await prisma.$queryRaw`
-          SELECT d.id, d.name, d.code, d.head_uid, d.is_active, d.description, d.floor, d.building, d.created_at, d.updated_at,
-                 u.name as head_doctor_name, u.phone as head_doctor_phone,
-                 u.email as head_doctor_email
+          SELECT d.id, d.name, d.description, d.is_active, d.created_at, d.updated_at
           FROM departments d
-          LEFT JOIN users u ON d.head_doctor_id = u.id
           WHERE LOWER(d.name) = LOWER(${identifier}) AND d.is_active = true
         `;
       }
@@ -192,9 +182,9 @@ class DepartmentService {
       }
 
       const rows = await prisma.$queryRaw`
-        INSERT INTO departments (name, description, head_doctor_id, contact_number, location, is_active, created_at)
-        VALUES (${name}, ${description}, ${head_doctor_id}, ${contact_number}, ${location}, ${is_active}, NOW())
-        RETURNING id, name, code, head_uid, is_active, description, floor, building, created_at, updated_at
+        INSERT INTO departments (name, description, is_active, created_at)
+        VALUES (${name}, ${description || null}, ${is_active}, NOW())
+        RETURNING id, name, description, is_active, created_at, updated_at
       `;
 
       logger.info(`Department created: ${name} by user ID ${userId}`);
@@ -218,7 +208,7 @@ class DepartmentService {
 
       // Check if department exists
       const existing = await prisma.$queryRaw`
-        SELECT id, name, code, head_uid, is_active, description, floor, building, created_at, updated_at
+        SELECT id, name, description, is_active, created_at, updated_at
         FROM departments WHERE id = ${id}
       `;
       if (existing.length === 0) {
@@ -239,13 +229,10 @@ class DepartmentService {
         UPDATE departments SET
           name = COALESCE(${name}, name),
           description = COALESCE(${description}, description),
-          head_doctor_id = COALESCE(${head_doctor_id}, head_doctor_id),
-          contact_number = COALESCE(${contact_number}, contact_number),
-          location = COALESCE(${location}, location),
           is_active = COALESCE(${is_active}, is_active),
           updated_at = NOW()
         WHERE id = ${id}
-        RETURNING id, name, code, head_uid, is_active, description, floor, building, created_at, updated_at
+        RETURNING id, name, description, is_active, created_at, updated_at
       `;
 
       logger.info(`Department updated: ${rows[0].name} by user ID ${userId}`);
@@ -264,7 +251,7 @@ class DepartmentService {
   async deactivateDepartment(id, reason, userId) {
     try {
       const existing = await prisma.$queryRaw`
-        SELECT id, name, code, head_uid, is_active, description, floor, building, created_at, updated_at
+        SELECT id, name, description, is_active, created_at, updated_at
         FROM departments WHERE id = ${id}
       `;
       if (existing.length === 0) {
@@ -288,7 +275,7 @@ class DepartmentService {
           is_active = false,
           updated_at = NOW()
         WHERE id = ${id}
-        RETURNING id, name, code, head_uid, is_active, description, floor, building, created_at, updated_at
+        RETURNING id, name, description, is_active, created_at, updated_at
       `;
 
       logger.info(`Department deactivated: ${rows[0].name} by user ID ${userId} - Reason: ${reason}`);
@@ -307,7 +294,7 @@ class DepartmentService {
   async getDepartmentsWithDoctors() {
     try {
       const rows = await prisma.$queryRaw`
-        SELECT d.id, d.name, d.description, d.location, d.contact_number,
+        SELECT d.id, d.name, d.description,
                COUNT(doc.user_id) as doctor_count,
                json_agg(
                  json_build_object(
@@ -329,7 +316,7 @@ class DepartmentService {
         LEFT JOIN doctors doc ON doc.department_id = d.id
         LEFT JOIN users u ON doc.user_id = u.id
         WHERE d.is_active = true
-        GROUP BY d.id, d.name, d.description, d.location, d.contact_number
+        GROUP BY d.id, d.name, d.description
         ORDER BY d.name
       `;
 
