@@ -12,7 +12,6 @@ import {
   ChevronDown,
   ChevronRight,
   Shield,
-  Zap,
 } from "lucide-react";
 import { getJSON } from "@/lib/api/core";
 

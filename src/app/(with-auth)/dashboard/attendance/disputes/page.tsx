@@ -6,7 +6,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import toast from 'react-hot-toast';
 import { getPendingDisputes, resolveDispute } from '@/lib/api/attendance';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 
 interface Dispute {
   id: number;
@@ -27,8 +26,8 @@ export default function DisputesPage() {
   const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDispute, setSelectedDispute] = useState<Dispute | null>(null);
-  const [resolving, setResolving] = useState(false);
-  const [applyCorrection, setApplyCorrection] = useState(true);
+  const [, setResolving] = useState(false);
+  const [applyCorrection] = useState(true);
   const [reviewerComment, setReviewerComment] = useState('');
   const [resolveAction, setResolveAction] = useState<'approved' | 'rejected' | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -47,7 +46,6 @@ export default function DisputesPage() {
     };
 
     loadDisputes();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleResolve = async () => {

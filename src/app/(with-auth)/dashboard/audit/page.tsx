@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   AlertTriangle, Clock, Users, TrendingUp, Shield,
-  ChevronRight, Activity, CheckCircle, XCircle, Eye
+  Activity, CheckCircle, XCircle, Eye
 } from 'lucide-react';
 import { getAuditDashboard, getAdminActivityReport, getSLAReport, getReportAuditTrail } from '@/lib/api/reports';
 import { Skeleton } from '@/components/ui';
@@ -111,19 +111,6 @@ function severityColor(s: string) {
   return m[s] ?? 'text-gray-600 bg-gray-50 border-gray-200';
 }
 
-function statusDot(status: string) {
-  const m: Record<string, string> = {
-    submitted: 'bg-blue-500',
-    under_review: 'bg-yellow-500',
-    investigating: 'bg-purple-500',
-    acknowledged: 'bg-yellow-500',
-    mediation: 'bg-purple-500',
-    resolved: 'bg-green-500',
-    closed: 'bg-gray-400',
-    escalated: 'bg-red-600',
-  };
-  return m[status] ?? 'bg-gray-400';
-}
 
 function hoursAgo(iso: string) {
   const h = (Date.now() - new Date(iso).getTime()) / 3600000;

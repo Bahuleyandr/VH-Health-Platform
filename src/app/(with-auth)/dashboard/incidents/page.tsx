@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useCallback } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { X, AlertTriangle, RefreshCw } from "lucide-react";
 import { getIncidents, getIncidentStats, updateIncident } from "@/lib/api/reports";
 import { Skeleton } from "@/components/ui/skeleton";
