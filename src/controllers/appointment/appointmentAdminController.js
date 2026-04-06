@@ -13,48 +13,80 @@ export const getAppointmentSLADashboard = async (req, res) => {
     const from = from_date || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const to = to_date || new Date().toISOString().split('T')[0];
 
+    // Detect which optional columns exist in the appointments table
+    const colCheck = await prisma.$queryRawUnsafe(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name='appointments'
+      AND column_name IN ('confirmed_at','sla_target_at','first_contact_at','department','token_number')
+    `);
+    const cols = new Set(colCheck.map(r => r.column_name));
+    const hasConfirmedAt   = cols.has('confirmed_at');
+    const hasSlaTarget     = cols.has('sla_target_at');
+    const hasFirstContact  = cols.has('first_contact_at');
+    const hasDepartment    = cols.has('department');
+
     const [volumeRes, slaRes, statusRes, deptRes, pendingRes] = await Promise.all([
-      // Total volume
+      // Total volume — pending_confirmation only if confirmed_at exists
       prisma.$queryRawUnsafe(`SELECT
         COUNT(*) as total,
         COUNT(CASE WHEN status='CONFIRMED' THEN 1 END) as confirmed,
         COUNT(CASE WHEN status='COMPLETED' THEN 1 END) as completed,
         COUNT(CASE WHEN status='CANCELLED' THEN 1 END) as cancelled,
-        COUNT(CASE WHEN status='NO_SHOW' THEN 1 END) as no_show,
-        COUNT(CASE WHEN status='SCHEDULED' AND confirmed_at IS NULL THEN 1 END) as pending_confirmation
+        COUNT(CASE WHEN status='NO_SHOW' THEN 1 END) as no_show
+        ${hasConfirmedAt ? ", COUNT(CASE WHEN status='SCHEDULED' AND confirmed_at IS NULL THEN 1 END) as pending_confirmation" : ', 0 as pending_confirmation'}
         FROM appointments WHERE DATE(appointment_date) BETWEEN $1 AND $2`, from, to),
 
-      // SLA metrics
-      prisma.$queryRawUnsafe(`SELECT
-        COUNT(*) as total_with_sla,
-        COUNT(CASE WHEN first_contact_at <= sla_target_at THEN 1 END) as within_sla,
-        COUNT(CASE WHEN first_contact_at > sla_target_at THEN 1 END) as breached_sla,
-        ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(first_contact_at, NOW()) - created_at))/60)::numeric, 1) as avg_response_minutes
-        FROM appointments WHERE created_at >= NOW() - INTERVAL '7 days' AND sla_target_at IS NOT NULL`),
+      // SLA metrics — gracefully degrade when SLA columns absent
+      hasSlaTarget && hasFirstContact
+        ? prisma.$queryRawUnsafe(`SELECT
+            COUNT(*) as total_with_sla,
+            COUNT(CASE WHEN first_contact_at <= sla_target_at THEN 1 END) as within_sla,
+            COUNT(CASE WHEN first_contact_at > sla_target_at THEN 1 END) as breached_sla,
+            ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(first_contact_at, NOW()) - created_at))/60)::numeric, 1) as avg_response_minutes
+            FROM appointments WHERE created_at >= NOW() - INTERVAL '7 days' AND sla_target_at IS NOT NULL`)
+        : Promise.resolve([{ total_with_sla: 0, within_sla: 0, breached_sla: 0, avg_response_minutes: null }]),
 
       // Status breakdown
       prisma.$queryRawUnsafe(`SELECT status, COUNT(*) as count FROM appointments
         WHERE DATE(appointment_date) BETWEEN $1 AND $2 GROUP BY status ORDER BY count DESC`, from, to),
 
-      // By department
-      prisma.$queryRawUnsafe(`SELECT COALESCE(a.department, doc.department, 'Unknown') as department,
-        COUNT(*) as total,
-        COUNT(CASE WHEN a.status='COMPLETED' THEN 1 END) as completed,
-        COUNT(CASE WHEN a.status='CONFIRMED' THEN 1 END) as confirmed,
-        COUNT(CASE WHEN a.status='CANCELLED' THEN 1 END) as cancelled
-        FROM appointments a LEFT JOIN doctors doc ON doc.user_id=a.doctor_id
-        WHERE DATE(a.appointment_date) BETWEEN $1 AND $2
-        GROUP BY COALESCE(a.department, doc.department, 'Unknown') ORDER BY total DESC`, from, to),
+      // By department — use doctor table if department col absent
+      hasDepartment
+        ? prisma.$queryRawUnsafe(`SELECT COALESCE(a.department, doc.department, 'Unknown') as department,
+            COUNT(*) as total,
+            COUNT(CASE WHEN a.status='COMPLETED' THEN 1 END) as completed,
+            COUNT(CASE WHEN a.status='CONFIRMED' THEN 1 END) as confirmed,
+            COUNT(CASE WHEN a.status='CANCELLED' THEN 1 END) as cancelled
+            FROM appointments a LEFT JOIN doctors doc ON doc.user_id=a.doctor_id
+            WHERE DATE(a.appointment_date) BETWEEN $1 AND $2
+            GROUP BY COALESCE(a.department, doc.department, 'Unknown') ORDER BY total DESC`, from, to)
+        : prisma.$queryRawUnsafe(`SELECT COALESCE(doc.department, 'Unknown') as department,
+            COUNT(*) as total,
+            COUNT(CASE WHEN a.status='COMPLETED' THEN 1 END) as completed,
+            COUNT(CASE WHEN a.status='CONFIRMED' THEN 1 END) as confirmed,
+            COUNT(CASE WHEN a.status='CANCELLED' THEN 1 END) as cancelled
+            FROM appointments a LEFT JOIN doctors doc ON doc.user_id=a.doctor_id
+            WHERE DATE(a.appointment_date) BETWEEN $1 AND $2
+            GROUP BY COALESCE(doc.department, 'Unknown') ORDER BY total DESC`, from, to),
 
-      // Pending confirmation (oldest first, limit 20)
-      prisma.$queryRawUnsafe(`SELECT a.*, p.name as patient_name, p.phone as patient_phone, d.name as doctor_name,
-        ROUND(EXTRACT(EPOCH FROM (NOW()-a.created_at))/60) as mins_waiting,
-        CASE WHEN a.sla_target_at IS NOT NULL AND NOW() > a.sla_target_at THEN TRUE ELSE FALSE END as sla_breached
-        FROM appointments a
-        LEFT JOIN users p ON a.patient_id=p.id
-        LEFT JOIN users d ON a.doctor_id=d.id
-        WHERE a.status='SCHEDULED' AND a.confirmed_at IS NULL
-        ORDER BY a.created_at ASC LIMIT 20`),
+      // Pending — only filter on confirmed_at if it exists
+      hasConfirmedAt
+        ? prisma.$queryRawUnsafe(`SELECT a.id, a.uid, a.status, a.appointment_date, a.appointment_time, a.created_at,
+            p.name as patient_name, p.phone as patient_phone, d.name as doctor_name,
+            ROUND(EXTRACT(EPOCH FROM (NOW()-a.created_at))/60) as mins_waiting
+            FROM appointments a
+            LEFT JOIN users p ON a.patient_id=p.id
+            LEFT JOIN users d ON a.doctor_id=d.id
+            WHERE a.status='SCHEDULED' AND a.confirmed_at IS NULL
+            ORDER BY a.created_at ASC LIMIT 20`)
+        : prisma.$queryRawUnsafe(`SELECT a.id, a.uid, a.status, a.appointment_date, a.appointment_time, a.created_at,
+            p.name as patient_name, p.phone as patient_phone, d.name as doctor_name,
+            ROUND(EXTRACT(EPOCH FROM (NOW()-a.created_at))/60) as mins_waiting
+            FROM appointments a
+            LEFT JOIN users p ON a.patient_id=p.id
+            LEFT JOIN users d ON a.doctor_id=d.id
+            WHERE a.status='SCHEDULED'
+            ORDER BY a.created_at ASC LIMIT 20`),
     ]);
 
     success(res, {
