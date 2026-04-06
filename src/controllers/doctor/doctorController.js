@@ -24,7 +24,7 @@ export const doctorController = {
         page: Math.max(parseInt(req.query.page) || 1, 1),
         limit: Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 100),
         department: req.query.department,
-        available: req.query.available === 'true',
+        available: req.query.available === undefined ? undefined : req.query.available === 'true',
         search: req.query.search
       };
       
