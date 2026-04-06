@@ -11,3 +11,5 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # Local path dependency — not published to pub.dev, Dependabot can't resolve it
+      - dependency-name: "vhhealth_core"
