@@ -155,9 +155,13 @@ function normalizeAdminEndpoint(endpoint: string): string {
   const path = rawPath.startsWith("/api/v1") ? rawPath.slice(7) || "/" : rawPath;
   const query = rawQuery ? `?${rawQuery}` : "";
 
-  if (path.startsWith("/admin/users")) return `/users${path.slice("/admin/users".length)}${query}`;
-  if (path.startsWith("/admin/doctors")) return `/doctors${path.slice("/admin/doctors".length)}${query}`;
-  if (path.startsWith("/admin/departments")) return `/departments${path.slice("/admin/departments".length)}${query}`;
+  // /admin/users/*, /admin/doctors/*, /admin/departments/* rewrites:
+  // - Exact match (list): /admin/doctors → /doctors
+  // - With sub-path (/admin/doctors/:id/...): keep as /admin/doctors/:id/... → /api/v1/admin/doctors/:id/...
+  if (path === "/admin/users" || path.startsWith("/admin/users?")) return `/users${query}`;
+  if (path === "/admin/doctors" || path.startsWith("/admin/doctors?")) return `/doctors${query}`;
+  if (path === "/admin/departments" || path.startsWith("/admin/departments?")) return `/departments${query}`;
+  // Sub-paths like /admin/doctors/:id/profile pass through as /admin/doctors/:id/profile → /api/v1/admin/doctors/:id/profile
   if (path === "/feedback") return `/feedback/recent${query || "?page=1&limit=100"}`;
   if (path === "/feedback/stats") return `/feedback/dashboard${query}`;
   if (path === "/notifications") return `/notifications/admin/manage${query || "?page=1&limit=50"}`;
