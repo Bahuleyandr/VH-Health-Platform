@@ -89,7 +89,7 @@ export const deleteDepartment = async (req, res) => {
     }
     
     const { departmentId } = req.params;
-    const { reason = 'Deleted by admin' } = req.body;
+    const { reason = 'Deleted by admin' } = req.body ?? {};
     
     const department = await departmentService.deactivateDepartment(
       departmentId, 
@@ -229,7 +229,7 @@ export const deactivateDepartment = async (req, res) => {
     }
     
     const { id } = req.params;
-    const { reason = 'Deactivated by admin' } = req.body;
+    const { reason = 'Deactivated by admin' } = req.body ?? {};
     
     const department = await departmentService.deactivateDepartment(
       id, 
