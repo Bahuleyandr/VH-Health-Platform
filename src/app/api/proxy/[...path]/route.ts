@@ -150,6 +150,9 @@ async function handleProxy(req: NextRequest) {
     }
   }
 
+  // Debug: log what we're sending upstream
+  console.log('[proxy]', method, targetUrl, 'body:', typeof init.body === 'string' ? init.body.slice(0, 200) : init.body);
+
   const upstream = await fetch(targetUrl, init);
   const body = await upstream.arrayBuffer();
 
