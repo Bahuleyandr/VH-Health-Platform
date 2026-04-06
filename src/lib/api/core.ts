@@ -155,9 +155,9 @@ function normalizeAdminEndpoint(endpoint: string): string {
   const path = rawPath.startsWith("/api/v1") ? rawPath.slice(7) || "/" : rawPath;
   const query = rawQuery ? `?${rawQuery}` : "";
 
-  if (path.startsWith("/admin/users")) return `/users${query}`;
-  if (path.startsWith("/admin/doctors")) return `/doctors${query}`;
-  if (path.startsWith("/admin/departments")) return `/departments${query}`;
+  if (path.startsWith("/admin/users")) return `/users${path.slice("/admin/users".length)}${query}`;
+  if (path.startsWith("/admin/doctors")) return `/doctors${path.slice("/admin/doctors".length)}${query}`;
+  if (path.startsWith("/admin/departments")) return `/departments${path.slice("/admin/departments".length)}${query}`;
   if (path === "/feedback") return `/feedback/recent${query || "?page=1&limit=100"}`;
   if (path === "/feedback/stats") return `/feedback/dashboard${query}`;
   if (path === "/notifications") return `/notifications/admin/manage${query || "?page=1&limit=50"}`;
