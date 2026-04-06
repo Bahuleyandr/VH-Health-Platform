@@ -15,28 +15,28 @@ export class AdminDoctorService {
             COUNT(*) as total_doctors,
             COUNT(CASE WHEN d.is_available = true THEN 1 END) as available_doctors,
             COUNT(CASE WHEN d.is_available = false THEN 1 END) as unavailable_doctors,
-            COUNT(CASE WHEN u.registered_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as new_doctors_30d,
+            COUNT(CASE WHEN d.created_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as new_doctors_30d,
             AVG(d.experience_years) as avg_experience,
             AVG(d.consultation_fee) as avg_consultation_fee
-          FROM users u
-          JOIN doctors d ON u.id = d.user_id
-          WHERE u.role = 'DOCTOR'
+          FROM doctors d
+          WHERE d.is_active = true
         `),
         
         // Performance metrics (last 30 days)
         prisma.$queryRawUnsafe(`
-          SELECT u.id, u.name, d.specialization, d.department,
+          SELECT d.id, COALESCE(u.name, d.name) as name,
+                 COALESCE(d.specialty, d.specialization) as specialization, d.department,
                  COUNT(a.id) as total_appointments,
                  COUNT(CASE WHEN a.status = 'COMPLETED' THEN 1 END) as completed_appointments,
                  COUNT(CASE WHEN a.status = 'CANCELLED' THEN 1 END) as cancelled_appointments,
-                 SUM(CASE WHEN a.status = 'COMPLETED' THEN d.consultation_fee ELSE 0 END) as revenue,
+                 SUM(CASE WHEN a.status = 'COMPLETED' THEN COALESCE(d.consultation_fee, 0) ELSE 0 END) as revenue,
                  ROUND(AVG(CASE WHEN a.status = 'COMPLETED' THEN 5 ELSE 0 END), 2) as avg_rating
-          FROM users u
-          JOIN doctors d ON u.id = d.user_id
-          LEFT JOIN appointments a ON u.id = a.doctor_id 
+          FROM doctors d
+          LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'
+          LEFT JOIN appointments a ON a.doctor_id = COALESCE(d.user_id, d.id)
             AND a.appointment_date >= CURRENT_DATE - INTERVAL '30 days'
-          WHERE u.role = 'DOCTOR'
-          GROUP BY u.id, u.name, d.specialization, d.department, d.consultation_fee
+          WHERE d.is_active = true
+          GROUP BY d.id, u.name, d.name, d.specialty, d.specialization, d.department, d.consultation_fee
           ORDER BY total_appointments DESC
           LIMIT 10
         `),
@@ -80,18 +80,26 @@ export class AdminDoctorService {
       
       const offset = (page - 1) * limit;
       
+      // Drive from doctors table so standalone doctors (no user_id) are included
       let query = `
-        SELECT u.id, u.uid, u.name, u.phone, u.email, u.gender, 
-               TO_CHAR(u.registered_at, '${DOCTOR_CONFIG.DATE_FORMAT}') as registered_at,
-               d.specialization, d.department, d.experience_years, d.consultation_fee,
-               d.available_days, d.available_hours, d.is_available, d.bio,
-               d.education, d.certifications,
-               COUNT(a.id) as total_appointments,
-               COUNT(CASE WHEN a.status = 'COMPLETED' AND a.appointment_date >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as recent_appointments
-        FROM users u
-        JOIN doctors d ON u.id = d.user_id
-        LEFT JOIN appointments a ON u.id = a.doctor_id
-        WHERE u.role = 'DOCTOR'
+        SELECT
+          d.id,
+          COALESCE(u.id, d.user_id) as user_id,
+          COALESCE(u.name, d.name) as name,
+          u.phone, u.email, u.gender,
+          TO_CHAR(COALESCE(u.registered_at, d.created_at), 'DD-MM-YYYY') as registered_at,
+          COALESCE(d.specialty, d.specialization) as specialization,
+          d.department,
+          d.experience_years,
+          d.consultation_fee,
+          d.available_days, d.available_hours, d.is_available,
+          d.bio, d.education, d.certifications,
+          COUNT(a.id) as total_appointments,
+          COUNT(CASE WHEN a.status = 'COMPLETED' AND a.appointment_date >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as recent_appointments
+        FROM doctors d
+        LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'
+        LEFT JOIN appointments a ON a.doctor_id = COALESCE(u.id, d.user_id)
+        WHERE d.is_active = true
       `;
       const params = [];
       
@@ -101,8 +109,8 @@ export class AdminDoctorService {
       }
       
       if (specialization) {
-        query += ' AND d.specialization = $' + (params.length + 1);
-        params.push(specialization);
+        query += ` AND (d.specialty ILIKE $${params.length + 1} OR d.specialization ILIKE $${params.length + 1})`;
+        params.push(`%${specialization}%`);
       }
       
       if (status === 'available') {
@@ -122,14 +130,15 @@ export class AdminDoctorService {
       }
       
       if (search) {
-        query += ` AND (u.name ILIKE $${params.length + 1} OR d.specialization ILIKE $${params.length + 1} OR d.department ILIKE $${params.length + 1})`;
+        query += ` AND (COALESCE(u.name, d.name) ILIKE $${params.length + 1} OR d.specialty ILIKE $${params.length + 1} OR d.department ILIKE $${params.length + 1})`;
         params.push(`%${search}%`);
       }
       
-      query += ` GROUP BY u.id, u.uid, u.name, u.phone, u.email, u.gender, u.registered_at,
-                 d.specialization, d.department, d.experience_years, d.consultation_fee,
-                 d.available_days, d.available_hours, d.is_available, d.bio, d.education, d.certifications
-                 ORDER BY u.name LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+      query += ` GROUP BY d.id, u.id, u.name, u.phone, u.email, u.gender, u.registered_at,
+                 d.name, d.specialty, d.specialization, d.department, d.experience_years,
+                 d.consultation_fee, d.available_days, d.available_hours, d.is_available,
+                 d.bio, d.education, d.certifications, d.created_at
+                 ORDER BY COALESCE(u.name, d.name) LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
       params.push(limit, offset);
       
       const [doctors, total] = await Promise.all([
@@ -160,7 +169,7 @@ export class AdminDoctorService {
     try {
       const { department, specialization, status, experience_min, experience_max, search } = filters;
       
-      let query = 'SELECT COUNT(*) FROM users u JOIN doctors d ON u.id = d.user_id WHERE u.role = \'DOCTOR\'';
+      let query = 'SELECT COUNT(*) FROM doctors d LEFT JOIN users u ON u.id = d.user_id AND u.role = \'DOCTOR\' WHERE d.is_active = true';
       const params = [];
       
       if (department) {
@@ -168,8 +177,8 @@ export class AdminDoctorService {
         params.push(department);
       }
       if (specialization) {
-        query += ' AND d.specialization = $' + (params.length + 1);
-        params.push(specialization);
+        query += ` AND (d.specialty ILIKE $${params.length + 1} OR d.specialization ILIKE $${params.length + 1})`;
+        params.push(`%${specialization}%`);
       }
       if (status === 'available') {
         query += ' AND d.is_available = true';
@@ -185,7 +194,7 @@ export class AdminDoctorService {
         params.push(parseInt(experience_max));
       }
       if (search) {
-        query += ` AND (u.name ILIKE $${params.length + 1} OR d.specialization ILIKE $${params.length + 1} OR d.department ILIKE $${params.length + 1})`;
+        query += ` AND (COALESCE(u.name, d.name) ILIKE $${params.length + 1} OR d.specialty ILIKE $${params.length + 1} OR d.department ILIKE $${params.length + 1})`;
         params.push(`%${search}%`);
       }
       
