@@ -100,7 +100,7 @@ export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
       name: formData.get("name") as string,
       department: formData.get("department") as string,
       specialization: formData.get("specialization") as string,
-      consultation_fee: parseInt(formData.get("consultation_fee") as string),
+      consultation_fee: parseFloat(formData.get("consultation_fee") as string) || undefined,
       experience_years: experienceYears,
       bio,
       education,
@@ -108,6 +108,8 @@ export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
         .split(",")
         .map((q) => q.trim())
         .filter(Boolean),
+      email: (formData.get("email") as string) || undefined,
+      phone: (formData.get("phone") as string) || undefined,
     };
 
     const availabilityData = {
@@ -401,32 +403,34 @@ export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label
-              htmlFor="email-readonly"
+              htmlFor="email"
               className="block text-sm font-medium text-foreground mb-1"
             >
               Email Address
             </label>
             <input
               type="email"
-              id="email-readonly"
-              value={doctor.email ?? ""}
-              readOnly
-              className="w-full px-3 py-2 border border-input rounded-md bg-muted text-muted-foreground"
+              id="email"
+              name="email"
+              defaultValue={doctor.email ?? ""}
+              disabled={loading}
+              className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
           <div>
             <label
-              htmlFor="phone-readonly"
+              htmlFor="phone"
               className="block text-sm font-medium text-foreground mb-1"
             >
               Phone Number
             </label>
             <input
               type="tel"
-              id="phone-readonly"
-              value={doctor.phone ?? ""}
-              readOnly
-              className="w-full px-3 py-2 border border-input rounded-md bg-muted text-muted-foreground"
+              id="phone"
+              name="phone"
+              defaultValue={doctor.phone ?? ""}
+              disabled={loading}
+              className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
         </div>
