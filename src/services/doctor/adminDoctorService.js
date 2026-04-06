@@ -25,7 +25,7 @@ export class AdminDoctorService {
         // Performance metrics (last 30 days)
         prisma.$queryRawUnsafe(`
           SELECT d.id, COALESCE(u.name, d.name) as name,
-                 d.specialization as specialization, d.department,
+                 d.specialty as specialization, d.department,
                  COUNT(a.id) as total_appointments,
                  COUNT(CASE WHEN a.status = 'COMPLETED' THEN 1 END) as completed_appointments,
                  COUNT(CASE WHEN a.status = 'CANCELLED' THEN 1 END) as cancelled_appointments,
@@ -36,20 +36,20 @@ export class AdminDoctorService {
           LEFT JOIN appointments a ON a.doctor_id = COALESCE(d.user_id, d.id)
             AND a.appointment_date >= CURRENT_DATE - INTERVAL '30 days'
           WHERE d.is_active = true
-          GROUP BY d.id, u.name, d.name, d.specialization, d.department
+          GROUP BY d.id, u.name, d.name, d.specialty, d.department
           ORDER BY total_appointments DESC
           LIMIT 10
         `),
         
         // Department distribution
         prisma.$queryRawUnsafe(`
-          SELECT d.department, d.specialization as specialization,
+          SELECT d.department, d.specialty as specialization,
                  COUNT(*) as doctor_count,
                  COUNT(CASE WHEN d.is_available = true THEN 1 END) as available_count,
                  0 as avg_fee
           FROM doctors d
           WHERE d.is_active = true
-          GROUP BY d.department, d.specialization
+          GROUP BY d.department, d.specialty
           ORDER BY d.department, doctor_count DESC
         `)
       ]);
@@ -89,7 +89,7 @@ export class AdminDoctorService {
           COALESCE(u.name, d.name) as name,
           u.phone, u.email, u.gender,
           TO_CHAR(COALESCE(u.registered_at, d.created_at), 'DD-MM-YYYY') as registered_at,
-          d.specialization as specialization,
+          d.specialty as specialization,
           d.department,
           NULL::int as experience_years,
           NULL::numeric as consultation_fee,
@@ -110,7 +110,7 @@ export class AdminDoctorService {
       }
       
       if (specialization) {
-        query += ` AND d.specialization ILIKE $${params.length + 1}`;
+        query += ` AND d.specialty ILIKE $${params.length + 1}`;
         params.push(`%${specialization}%`);
       }
       
@@ -121,12 +121,12 @@ export class AdminDoctorService {
       }
       
       if (search) {
-        query += ` AND (COALESCE(u.name, d.name) ILIKE $${params.length + 1} OR d.specialization ILIKE $${params.length + 1} OR d.department ILIKE $${params.length + 1})`;
+        query += ` AND (COALESCE(u.name, d.name) ILIKE $${params.length + 1} OR d.specialty ILIKE $${params.length + 1} OR d.department ILIKE $${params.length + 1})`;
         params.push(`%${search}%`);
       }
       
       query += ` GROUP BY d.id, u.id, u.name, u.phone, u.email, u.gender, u.registered_at,
-                 d.name, d.specialization, d.department, d.is_available, d.created_at
+                 d.name, d.specialty, d.department, d.is_available, d.created_at
                  ORDER BY COALESCE(u.name, d.name) LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
       params.push(limit, offset);
       
@@ -166,7 +166,7 @@ export class AdminDoctorService {
         params.push(department);
       }
       if (specialization) {
-        query += ` AND d.specialization ILIKE $${params.length + 1}`;
+        query += ` AND d.specialty ILIKE $${params.length + 1}`;
         params.push(`%${specialization}%`);
       }
       if (status === 'available') {
@@ -175,7 +175,7 @@ export class AdminDoctorService {
         query += ' AND d.is_available = false';
       }
       if (search) {
-        query += ` AND (COALESCE(u.name, d.name) ILIKE $${params.length + 1} OR d.specialization ILIKE $${params.length + 1} OR d.department ILIKE $${params.length + 1})`;
+        query += ` AND (COALESCE(u.name, d.name) ILIKE $${params.length + 1} OR d.specialty ILIKE $${params.length + 1} OR d.department ILIKE $${params.length + 1})`;
         params.push(`%${search}%`);
       }
       
