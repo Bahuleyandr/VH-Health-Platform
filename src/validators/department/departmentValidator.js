@@ -167,7 +167,7 @@ export const departmentListValidation = [
 export const checkDepartmentPermission = (req, res, next) => {
   const userRole = req.user?.role;
   
-  if (!['ADMIN', 'DOCTOR'].includes(userRole)) {
+  if (!['ADMIN', 'SUPER_ADMIN', 'DOCTOR'].includes(userRole)) {
     return res.status(403).json({
       success: false,
       message: DEPARTMENT_MESSAGES.INSUFFICIENT_PERMISSIONS
@@ -181,7 +181,7 @@ export const checkDepartmentPermission = (req, res, next) => {
 export const checkAdminPermission = (req, res, next) => {
   const userRole = req.user?.role;
   
-  if (userRole !== 'ADMIN') {
+  if (!['ADMIN', 'SUPER_ADMIN'].includes(userRole)) {
     return res.status(403).json({
       success: false,
       message: DEPARTMENT_MESSAGES.INSUFFICIENT_PERMISSIONS
