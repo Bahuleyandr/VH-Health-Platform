@@ -35,12 +35,12 @@ export function SendAnnouncementForm({ onSuccess }: SendAnnouncementFormProps) {
     try {
       await fetchAdminAPI("/notifications/announce", {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           title,
           message: body,
           recipients: ["all"], // You can modify this based on your needs
           priority: "normal",
-        }),
+        },
       });
 
       setMessage("Announcement sent successfully.");

@@ -92,7 +92,7 @@ export default function MyAttendancePage() {
     try {
       await fetch(`${API_BASE_URL}${API_ENDPOINTS.myWork.attendance.regularize}`, {
         method: 'POST', headers,
-        body: JSON.stringify({ date: formDate, reason: formReason }),
+        body: { date: formDate, reason: formReason },
       });
       setSuccessMsg('Regularization request submitted.');
       setShowRegularize(false);
@@ -109,7 +109,7 @@ export default function MyAttendancePage() {
     try {
       await fetch(`${API_BASE_URL}${API_ENDPOINTS.myWork.attendance.dispute}`, {
         method: 'POST', headers,
-        body: JSON.stringify({ date: formDate, reason: formReason }),
+        body: { date: formDate, reason: formReason },
       });
       setSuccessMsg('Dispute raised successfully.');
       setShowDispute(false);
