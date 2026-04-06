@@ -130,18 +130,30 @@ export function EditDepartmentModal({
           </div>
 
           <div>
-            <label
-              htmlFor="dept-description"
-              className="block text-sm font-medium text-foreground mb-1"
-            >
-              Description
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label
+                htmlFor="dept-description"
+                className="block text-sm font-medium text-foreground"
+              >
+                Description
+              </label>
+              <span className={`text-xs ${
+                formData.description.length > 900
+                  ? formData.description.length >= 1000
+                    ? "text-destructive font-medium"
+                    : "text-amber-500"
+                  : "text-muted-foreground"
+              }`}>
+                {formData.description.length} / 1000
+              </span>
+            </div>
             <textarea
               id="dept-description"
               name="description"
               value={formData.description}
               onChange={handleChange}
               rows={3}
+              maxLength={1000}
               className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
               disabled={loading}
             />
