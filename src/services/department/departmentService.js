@@ -209,7 +209,7 @@ class DepartmentService {
       // Check if department exists
       const existing = await prisma.$queryRaw`
         SELECT id, name, description, is_active, created_at, updated_at
-        FROM departments WHERE id = ${id}
+        FROM departments WHERE id = ${id}::int
       `;
       if (existing.length === 0) {
         return null;
@@ -231,7 +231,7 @@ class DepartmentService {
           description = COALESCE(${description}, description),
           is_active = COALESCE(${is_active}, is_active),
           updated_at = NOW()
-        WHERE id = ${id}
+        WHERE id = ${id}::int
         RETURNING id, name, description, is_active, created_at, updated_at
       `;
 
@@ -252,7 +252,7 @@ class DepartmentService {
     try {
       const existing = await prisma.$queryRaw`
         SELECT id, name, description, is_active, created_at, updated_at
-        FROM departments WHERE id = ${id}
+        FROM departments WHERE id = ${id}::int
       `;
       if (existing.length === 0) {
         return null;
@@ -274,7 +274,7 @@ class DepartmentService {
         UPDATE departments SET
           is_active = false,
           updated_at = NOW()
-        WHERE id = ${id}
+        WHERE id = ${id}::int
         RETURNING id, name, description, is_active, created_at, updated_at
       `;
 
