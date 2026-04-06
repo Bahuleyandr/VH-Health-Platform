@@ -2,11 +2,11 @@
 // GDPR data erasure (right to be forgotten) routes.
 
 import { Router } from 'express';
-import logger from '../logging/logger.js';
-import { success, error } from '../utils/responseHelper.js';
 import { HTTP_STATUS } from '../config/responseCodes.js';
+import logger from '../logging/logger.js';
 import { requireRole } from '../middleware/rbacMiddleware.js';
 import { executeErasure, checkLegalHold } from '../services/gdpr/dataErasureService.js';
+import { success, error } from '../utils/responseHelper.js';
 
 const router = Router();
 

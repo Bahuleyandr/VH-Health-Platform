@@ -3,10 +3,10 @@
 
 import { Router } from 'express';
 import { validationResult } from 'express-validator';
-import { requiredUUID, requiredString, requiredNumber, requiredEnum, optionalString, optionalNumber, optionalEnum, paramId } from '../../validators/sharedValidators.js';
+import logger from '../../logging/logger.js';
 import bloodBankService from '../../services/bloodbank/bloodBankService.js';
 import { success, error } from '../../utils/responseHelper.js';
-import logger from '../../logging/logger.js';
+import { requiredUUID, requiredNumber, requiredEnum, paramId } from '../../validators/sharedValidators.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);

@@ -3,10 +3,9 @@ import prisma from '../../lib/prisma.js';
 import { createPrismaDb } from '../../lib/prismaCompat.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import news2Service from '../clinical/news2Service.js';
 import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
+import news2Service from '../clinical/news2Service.js';
 
-const db = createPrismaDb(prisma);
 
 // ===================================================================
 // Vitals Charting Service

@@ -1,6 +1,5 @@
 // src/services/staff/hr/reportingService.js
 import prisma from '../../../lib/prisma.js';
-import logger from '../../../logging/logger.js';
 
 /**
  * Generate staff reports in various formats
@@ -109,7 +108,7 @@ const generateAttendanceReport = async (department, start_date, end_date) => {
  * Generate performance report data
  * @private
  */
-const generatePerformanceReportData = async (department, start_date, end_date) => {
+const generatePerformanceReportData = async (department, _start_date, end_date) => {
   let whereClause = 'WHERE s.is_active = true';
   const queryParams = [];
   
@@ -201,7 +200,7 @@ const generateLeaveReport = async (department, start_date, end_date) => {
  * Generate payroll report data
  * @private
  */
-const generatePayrollReport = async (department, start_date, end_date) => {
+const generatePayrollReport = async (department, _start_date, end_date) => {
   let whereClause = 'WHERE s.is_active = true';
   const queryParams = [];
   

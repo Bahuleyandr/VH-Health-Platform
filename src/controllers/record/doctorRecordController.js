@@ -1,15 +1,14 @@
 // src/controllers/record/doctorRecordController.js
 import { validationResult } from 'express-validator';
-import prisma from '../../lib/prisma.js';
 import { RECORD_MESSAGES, AUDIT_ACTIONS } from '../../config/recordConfig.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import * as accessControl from '../../services/record/accessControlService.js';
 import * as auditService from '../../services/record/auditService.js';
 import * as recordService from '../../services/record/recordService.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
-import { ADMIN } from '../../utils/roles.js';
 
 async function getDoctorUserId(uid) {
   try {

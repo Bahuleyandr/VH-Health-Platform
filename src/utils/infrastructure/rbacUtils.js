@@ -121,7 +121,7 @@ export const canUserManageRole = (userRole, targetRole) => {
 };
 
 // Check if role has capacity
-export const checkRoleCapacity = async (role, db) => {
+export const checkRoleCapacity = async (role, _db) => {
   const roleData = ROLE_HIERARCHY[role];
   if (!roleData.maxUsers) {return { hasCapacity: true, current: 0, max: null };}
   

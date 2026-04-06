@@ -1,9 +1,8 @@
 // src/routes/emr/diagnosisRoutes.js
 import express from 'express';
-import { success, error } from '../../utils/responseHelper.js';
-import logger from '../../logging/logger.js';
-import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import diagnosisService from '../../services/emr/diagnosisService.js';
+import { logPhiAccess } from '../../utils/hipaaAudit.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 const router = express.Router();
 

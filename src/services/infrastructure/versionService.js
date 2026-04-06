@@ -20,7 +20,7 @@ export class VersionService {
       try {
         const packagePath = path.resolve('package.json');
         this.packageInfo = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
-      } catch (err) {
+      } catch (_err) {
         logger.warn('Could not read package.json for version info');
         this.packageInfo = { 
           version: '1.0.0', 
@@ -109,7 +109,7 @@ export class VersionService {
       try {
         await prisma.$queryRawUnsafe('SELECT 1');
         healthStatus.services.database = 'operational';
-      } catch (dbErr) {
+      } catch (_dbErr) {
         healthStatus.services.database = 'degraded';
         healthStatus.status = 'degraded';
       }

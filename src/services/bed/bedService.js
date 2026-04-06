@@ -1,6 +1,5 @@
 // src/services/bed/bedService.js
 import prisma from '../../lib/prisma.js';
-import logger from '../../logging/logger.js';
 
 class BedService {
   // ===== WARD OPERATIONS =====

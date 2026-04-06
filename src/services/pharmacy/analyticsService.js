@@ -2,7 +2,6 @@
 // Migrated from raw pg to Prisma ORM
 
 import prisma from '../../lib/prisma.js';
-import logger from '../../logging/logger.js';
 
 export const getPharmacyAnalytics = async () => {
   const [orderStats, revenueStats, popularMeds] = await Promise.all([

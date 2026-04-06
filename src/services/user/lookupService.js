@@ -1,7 +1,6 @@
 import { Prisma } from '@prisma/client';
-import prisma from '../../lib/prisma.js';
 import { USER_CONFIG } from '../../config/userConfig.js';
-import logger from '../../logging/logger.js';
+import prisma from '../../lib/prisma.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 
 function buildLookupSelect(userRole) {

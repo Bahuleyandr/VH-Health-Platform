@@ -15,7 +15,7 @@ export async function healthCheck(req, res) {
       try {
         await prisma.$queryRawUnsafe('SELECT 1');
         break;
-      } catch (err) {
+      } catch (_err) {
         retries -= 1;
         if (!retries) {throw new Error('Database unreachable');}
         await new Promise(resolve => setTimeout(resolve, 1000)); // 1s delay

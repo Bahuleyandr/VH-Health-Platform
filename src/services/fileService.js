@@ -1,7 +1,7 @@
 // src/services/fileService.js - Hospital File Operations Service
 
-import prisma from '../lib/prisma.js';
 import { HOSPITAL_UPLOAD_CONFIG } from '../config/uploadConfig.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { scanFileWithClamAV } from '../utils/clamavScanHelper.js';
 import { 

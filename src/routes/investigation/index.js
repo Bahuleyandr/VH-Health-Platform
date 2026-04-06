@@ -1,6 +1,6 @@
 import express from 'express';
-import logger from '../../logging/logger.js';
 import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
+import logger from '../../logging/logger.js';
 import { success } from '../../utils/responseHelper.js';
 import adminRoutes from './adminRoutes.js';
 import investigationRoutes from './investigationRoutes.js';

@@ -1,8 +1,8 @@
 // src/services/pharmacy/orderService.js
 // Migrated from raw pg to Prisma ORM
 
-import prisma from '../../lib/prisma.js';
 import { ORDER_STATUS } from '../../config/pharmacyConfig.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 export const createOrder = async (orderData) => {

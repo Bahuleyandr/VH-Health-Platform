@@ -2,12 +2,11 @@
 // ADT (Admission/Discharge/Transfer) routes — mounted at /api/v1/emr
 
 import express from 'express';
-import logger from '../../logging/logger.js';
+import { HTTP_STATUS } from '../../config/responseCodes.js';
 import admissionService from '../../services/emr/admissionService.js';
 import dischargeSummaryGenerator from '../../services/emr/dischargeSummaryGenerator.js';
 import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS } from '../../config/responseCodes.js';
-import { canViewDischargeSummary, canEditDischargeSummary, canSignDischargeSummary } from '../../utils/roleHelpers.js';
+import { canEditDischargeSummary, canSignDischargeSummary } from '../../utils/roleHelpers.js';
 
 const router = express.Router();
 

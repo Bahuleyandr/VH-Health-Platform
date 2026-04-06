@@ -2,10 +2,10 @@
 
 import cron from 'node-cron';
 import path from 'path';
-import prisma from '../lib/prisma.js';
 import backupDb from '../../admin/backup-db.js';
 import { cleanupOldBackups as cleanupBackups } from '../../admin/cleanup-backups.js';
 import purgeArchives from '../../admin/purge-archives.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 
 const runningJobs = new Set();
@@ -31,19 +31,19 @@ function withJobLock(jobName, fn) {
 import purgeLogs from '../scripts/cleanup-logs.js';
 
 // R2 Maintenance Jobs
+import { retryFailedNotifications } from '../services/notificationRetryService.js';
 import { scheduleArchiveMigrationJob } from './archiveMigrationJob.js';
 
 // Notifications
-import { sendAppointmentReminders, sendTimedReminders, processPendingScheduledNotifications } from './notifications/appointmentReminderJob.js';
-import { sendInvestigationNotifications } from './notifications/InvestigationNotificationJob.js';
-import { retryFailedNotifications } from '../services/notificationRetryService.js';
-import { escalateStuckOrders } from './notifications/stuckOrderEscalation.js';
-import { scheduleCleanupJob as scheduleR2CleanupJob, executeCleanup } from './r2CleanupJob.js';
-import { purgeHousekeepingPhotos } from './housekeepingPurgeJob.js';
-import loadSwaggerDocument from './swaggerLoader.js';
 import { verifyLatestBackup } from './backupVerification.js';
 import { runCanaryChecks } from './canaryHealthCheck.js';
+import { purgeHousekeepingPhotos } from './housekeepingPurgeJob.js';
+import { sendAppointmentReminders, sendTimedReminders, processPendingScheduledNotifications } from './notifications/appointmentReminderJob.js';
+import { sendInvestigationNotifications } from './notifications/InvestigationNotificationJob.js';
+import { escalateStuckOrders } from './notifications/stuckOrderEscalation.js';
+import { scheduleCleanupJob as scheduleR2CleanupJob, executeCleanup } from './r2CleanupJob.js';
 import { detectSchemaDrift } from './schemaDriftDetector.js';
+import loadSwaggerDocument from './swaggerLoader.js';
 
 // 🗓️ Daily at 00:00 - Purge old logs
 cron.schedule('0 0 * * *', withJobLock('purge-logs', async () => {

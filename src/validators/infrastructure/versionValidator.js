@@ -1,5 +1,5 @@
 // validators/infrastructure/versionValidator.js
-import { query, body } from 'express-validator';
+import { query } from 'express-validator';
 
 // Metrics query validation
 export const metricsQueryValidator = [

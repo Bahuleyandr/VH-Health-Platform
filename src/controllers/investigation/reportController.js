@@ -1,6 +1,6 @@
 // controllers/investigation/reportController.js
-import prisma from '../../lib/prisma.js'; // <-- ADD THIS LINE
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import prisma from '../../lib/prisma.js'; // <-- ADD THIS LINE
 import logger from '../../logging/logger.js';
 import * as investigationService from '../../services/investigation/investigationService.js';
 import * as reportService from '../../services/investigation/reportService.js';

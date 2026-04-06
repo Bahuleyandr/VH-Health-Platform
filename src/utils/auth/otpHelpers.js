@@ -1,7 +1,6 @@
 // src/utils/auth/otpHelpers.js - OTP Helper Functions
 
 import { OTP_CONFIG } from '../../config/otpConfig.js';
-import logger from '../../logging/logger.js';
 
 // Calculate OTP expiry time
 export const calculateOtpExpiry = () => {

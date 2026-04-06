@@ -12,7 +12,7 @@ import { AppError } from '../utils/AppError.js';
  * - Sends a formatted JSON response.
  * - Includes stack trace in the response only in development mode.
  */
-export const errorHandlerMiddleware = (err, req, res, next) => {
+export const errorHandlerMiddleware = (err, req, res, _next) => {
   // 1. Determine status code from the error object, default to 500
   const statusCode = err.statusCode || 500;
 

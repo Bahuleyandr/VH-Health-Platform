@@ -386,7 +386,7 @@ export class RouteDocumentationService {
     };
   }
 
-  _analyzeDependencies(routeName) {
+  _analyzeDependencies(_routeName) {
     // This could be enhanced to analyze actual dependencies
     const commonDeps = ['express', 'validation', 'database', 'logging'];
     const securityDeps = ['rbac', 'authentication', 'rate-limiting'];

@@ -2,7 +2,6 @@
 // Transforms between HL7v2 messages and VH Health internal data structures.
 
 import { parseHL7, formatHL7Date, generateControlId } from './hl7Parser.js';
-import logger from '../../logging/logger.js';
 
 // =============================================================================
 // OUTBOUND: VH Health data  ->  HL7v2 messages

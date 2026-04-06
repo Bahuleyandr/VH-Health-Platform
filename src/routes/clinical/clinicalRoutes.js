@@ -1,11 +1,10 @@
 // src/routes/clinical/clinicalRoutes.js
 import express from 'express';
 import { validationResult } from 'express-validator';
-import { success, error } from '../../utils/responseHelper.js';
-import logger from '../../logging/logger.js';
-import news2Service from '../../services/clinical/news2Service.js';
-import marService from '../../services/clinical/marService.js';
 import handoverService from '../../services/clinical/handoverService.js';
+import marService from '../../services/clinical/marService.js';
+import news2Service from '../../services/clinical/news2Service.js';
+import { success, error } from '../../utils/responseHelper.js';
 import {
   requiredUUID, requiredString, requiredNumber, optionalString, optionalNumber,
   optionalEnum, paramId,

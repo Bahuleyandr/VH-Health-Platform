@@ -1,7 +1,7 @@
 // src/routes/appointment/index.js
 import express from 'express';
-import logger from '../../logging/logger.js';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
+import logger from '../../logging/logger.js';
 import appointmentAdminRoutes from './appointmentAdminRoutes.js';
 import appointmentCrudRoutes from './appointmentCrudRoutes.js';
 import appointmentLegacyRoutes from './appointmentLegacyRoutes.js';

@@ -4,16 +4,16 @@ import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import logger from '../../logging/logger.js';
 
 // Sub-routers (must remain mounted)
-import auditRoutes from './auditRoutes.js';
-import appointmentAdminRoutes from '../appointment/appointmentAdminRoutes.js';
-import adminDoctorRoutes from '../doctor/adminDoctorRoutes.js';
-import adminDepartmentRoutes from '../department/adminDepartmentRoutes.js';
-import adminUserRoutes from '../user/adminUserRoutes.js';
-import adminNotificationRoutes from '../notification/adminNotificationRoutes.js';
-import adminRecordRoutes from '../record/adminRoutes.js';
-import adminInvestigationRoutes from '../investigation/adminRoutes.js';
-import adminPharmacyRoutes from '../pharmacy/adminRoutes.js';
 import analyticsRoutes from '../analyticsRoutes.js';
+import appointmentAdminRoutes from '../appointment/appointmentAdminRoutes.js';
+import adminDepartmentRoutes from '../department/adminDepartmentRoutes.js';
+import adminDoctorRoutes from '../doctor/adminDoctorRoutes.js';
+import adminInvestigationRoutes from '../investigation/adminRoutes.js';
+import adminNotificationRoutes from '../notification/adminNotificationRoutes.js';
+import adminPharmacyRoutes from '../pharmacy/adminRoutes.js';
+import adminRecordRoutes from '../record/adminRoutes.js';
+import adminUserRoutes from '../user/adminUserRoutes.js';
+import auditRoutes from './auditRoutes.js';
 import featureFlagRoutes from './featureFlagRoutes.js';
 
 // Services (barrel import)

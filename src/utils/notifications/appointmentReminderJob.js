@@ -1,8 +1,8 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { sendAppointmentReminderSMS } from '../../services/smsService.js';
 import { sendPushNotification } from './sendPushNotification.js';
 import { NotificationTemplates } from './templates.js';
-import { sendAppointmentReminderSMS } from '../../services/smsService.js';
 
 /**
  * Hourly 24h/1h SMS+push reminders for upcoming appointments

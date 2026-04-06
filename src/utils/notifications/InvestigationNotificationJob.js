@@ -2,8 +2,8 @@
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { sendPushNotification } from './sendPushNotification.js';
 import { sendSMS } from '../../services/smsService.js';
+import { sendPushNotification } from './sendPushNotification.js';
 import { NotificationTemplates } from './templates.js';
 
 export async function sendInvestigationNotifications() {

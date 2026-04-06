@@ -1,12 +1,12 @@
 // src/controllers/staff/payrollController.js
-import prisma from '../../lib/prisma.js';
 import crypto from 'crypto';
-import logger from '../../logging/logger.js';
-import { success, error } from '../../utils/responseHelper.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import prisma from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
 import { calculatePayslip, savePayslip, generateAnnualTaxSummary, calculateArrears } from '../../services/staff/payrollService.js';
-import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
 import { dispatch } from '../../utils/notifications/notificationDispatcher.js';
+import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 // Try to import PDF generator — graceful fallback
 let generatePayslipPDF = null;
@@ -88,7 +88,7 @@ export const runPayroll = async (req, res) => {
     if (month < 1 || month > 12) return error(res, 'month must be 1-12', HTTP_STATUS.BAD_REQUEST);
 
     // Create or get payroll run
-    let run = await prisma.$queryRawUnsafe(
+    const run = await prisma.$queryRawUnsafe(
       'SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE month=$1 AND year=$2', month, year);
 
     let runId;
@@ -610,7 +610,7 @@ export const getMyTaxSummary = async (req, res) => {
       ? `${now.getFullYear()}-${String(now.getFullYear() + 1).slice(-2)}`
       : `${now.getFullYear() - 1}-${String(now.getFullYear()).slice(-2)}`);
 
-    let summary = await prisma.$queryRawUnsafe(
+    const summary = await prisma.$queryRawUnsafe(
       'SELECT id, staff_uid, financial_year, total_income, total_tds, total_pf, total_esi, created_at FROM annual_tax_summaries WHERE staff_uid=$1 AND financial_year=$2', staffUid, financialYear);
 
     if (summary.length === 0) {
@@ -1070,7 +1070,7 @@ export const getFnFList = async (req, res) => {
        LEFT JOIN staff_salary ss ON ss.staff_uid = f.staff_uid
        ${where} ORDER BY f.created_at DESC`, params);
     success(res, result, 'F&F list fetched');
-  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+  } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 export const approveFnF = async (req, res) => {
@@ -1087,7 +1087,7 @@ export const approveFnF = async (req, res) => {
       update = await prisma.$queryRawUnsafe('UPDATE full_final_settlements SET status=$1,admin_approved_by=$2,admin_approved_at=NOW(),updated_at=NOW() WHERE id=$3 RETURNING id, staff_uid, separation_type, last_working_day, gross_payable, total_deductions, net_payable, status, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, created_at, updated_at', 'admin_approved', uid, id);
     } else return error(res, 'Cannot approve: wrong role or status', HTTP_STATUS.BAD_REQUEST);
     success(res, update[0], 'F&F approved');
-  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+  } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 export const markFnFPaid = async (req, res) => {
@@ -1096,7 +1096,7 @@ export const markFnFPaid = async (req, res) => {
     const result = await prisma.$queryRawUnsafe('UPDATE full_final_settlements SET status=$1,payment_date=$2,payment_reference=$3,updated_at=NOW() WHERE id=$4 AND status=$5 RETURNING id, staff_uid, separation_type, last_working_day, gross_payable, total_deductions, net_payable, status, payment_date, payment_reference, created_at, updated_at', 'paid', payment_date, payment_reference, id, 'admin_approved');
     if (!result.length) return error(res, 'Not found or not admin-approved', HTTP_STATUS.BAD_REQUEST);
     success(res, result[0], 'F&F marked as paid');
-  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+  } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 // Feature 2: Gratuity Status
@@ -1123,7 +1123,7 @@ export const getAllGratuityStatus = async (req, res) => {
       };
     });
     success(res, result, 'Gratuity status fetched');
-  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+  } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 // Feature 3: Investment Declarations
@@ -1159,7 +1159,7 @@ export const getMyDeclarations = async (req, res) => {
   try {
     const result = await prisma.$queryRawUnsafe('SELECT id, staff_uid, financial_year, section_80c, section_80d, hra_exemption, lta, other_deductions, status, created_at, updated_at FROM investment_declarations WHERE staff_uid=$1 ORDER BY financial_year DESC', req.user?.uid);
     success(res, result, 'Declarations fetched');
-  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+  } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 export const getAllDeclarations = async (req, res) => {
@@ -1175,7 +1175,7 @@ export const getAllDeclarations = async (req, res) => {
        LEFT JOIN staff_salary ss ON ss.staff_uid = d.staff_uid
        ${where} ORDER BY u.name`, params);
     success(res, result, 'Declarations fetched');
-  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+  } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 export const approveDeclaration = async (req, res) => {
@@ -1184,7 +1184,7 @@ export const approveDeclaration = async (req, res) => {
       `UPDATE investment_declarations SET status='approved',approved_by=$1,approved_at=NOW(),updated_at=NOW() WHERE id=$2 RETURNING id, staff_uid, financial_year, status, approved_by, approved_at, created_at, updated_at`, req.user?.uid, req.params.id);
     if (!result.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
     success(res, result[0], 'Declaration approved');
-  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+  } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 // Feature 4: Leave Encashment
@@ -1217,7 +1217,7 @@ export const getLeaveEncashments = async (req, res) => {
        LEFT JOIN staff_salary ss ON ss.staff_uid = le.staff_uid
        ${where} ORDER BY le.created_at DESC`, params);
     success(res, result, 'Leave encashments fetched');
-  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+  } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 // Feature 6: Payslip Query System
@@ -1232,7 +1232,7 @@ export const raisePayslipQuery = async (req, res) => {
     const result = await prisma.$queryRawUnsafe(
       `INSERT INTO payslip_queries (payslip_id,staff_uid,subject,description,category) VALUES ($1,$2,$3,$4,$5) RETURNING id, payslip_id, staff_uid, subject, description, category, status, created_at`, payslip_id, staffUid, subject, description, category||'general');
     success(res, result[0], 'Query raised');
-  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+  } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 export const getMyPayslipQueries = async (req, res) => {
@@ -1244,7 +1244,7 @@ export const getMyPayslipQueries = async (req, res) => {
        JOIN payslips p ON pq.payslip_id=p.id
        WHERE pq.staff_uid=$1 ORDER BY pq.created_at DESC`, req.user?.uid);
     success(res, result, 'Queries fetched');
-  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+  } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 export const getAllPayslipQueries = async (req, res) => {
@@ -1262,7 +1262,7 @@ export const getAllPayslipQueries = async (req, res) => {
        LEFT JOIN staff_salary ss ON ss.staff_uid=pq.staff_uid
        ${where} ORDER BY pq.created_at DESC`, params);
     success(res, result, 'All queries fetched');
-  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+  } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 export const replyToPayslipQuery = async (req, res) => {
@@ -1277,7 +1277,7 @@ export const replyToPayslipQuery = async (req, res) => {
     }
     const updated = await prisma.$queryRawUnsafe('SELECT id, payslip_id, staff_uid, query_type, description, status, resolution, resolved_by, created_at, resolved_at FROM payslip_queries WHERE id=$1', id);
     success(res, updated[0], resolve ? 'Query resolved' : 'Reply sent');
-  } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+  } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 // Feature 7: Compliance Calendar
@@ -1405,5 +1405,5 @@ export const getBulkRevisions = async (req, res) => {
     const result=await prisma.$queryRawUnsafe(
       `SELECT b.*,u.name as created_by_name FROM bulk_revision_jobs b LEFT JOIN users u ON b.created_by=u.uid ORDER BY b.created_at DESC`);
     success(res,result,'Bulk revisions fetched');
-  } catch (err) { error(res,'Failed',HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+  } catch (_err) { error(res,'Failed',HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };

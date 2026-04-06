@@ -1,8 +1,8 @@
 // SOS escalation logic
-export const escalateSOS = async (sosData) => {
+export const escalateSOS = async (_sosData) => {
   // Implementation here
 };
 
-export const notifyEmergencyContacts = async (userId, location) => {
+export const notifyEmergencyContacts = async (_userId, location) => {
   // Implementation here
 };

@@ -2,7 +2,6 @@
 // Migrated from raw pg to Prisma ORM
 
 import prisma from '../../lib/prisma.js';
-import logger from '../../logging/logger.js';
 
 export async function estimateWaitTime(doctorId, date) {
   const rows = await prisma.$queryRaw`

@@ -1,6 +1,5 @@
 // src/services/notification/adminNotificationService.js
 
-import prisma from '../../lib/prisma.js';
 import { 
   NOTIFICATION_TYPES, 
   NOTIFICATION_PRIORITIES,
@@ -8,6 +7,7 @@ import {
   VALID_OPERATIONS,
   NOTIFICATION_LIMITS
 } from '../../config/notificationConfig.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { 
   buildNotificationQuery,

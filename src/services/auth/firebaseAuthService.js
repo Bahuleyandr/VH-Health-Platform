@@ -1,13 +1,13 @@
 // src/services/auth/firebaseAuthService.js - Firebase Authentication Service
 
 import { AUTH_ACTIONS } from '../../config/authConfig.js';
-import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { OTPService } from '../otpService.js';
 import admin from '../../utils/firebaseAdmin.js';
 import { generateToken } from '../../utils/jwtUtils.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import { OTPService } from '../otpService.js';
 
 
 const query = async (sql, params = []) => {

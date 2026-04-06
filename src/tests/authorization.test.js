@@ -5,8 +5,8 @@
 // The goal is to verify middleware-level security: auth, RBAC, rate limiting, and
 // that IDOR-protected endpoints never return 200 for cross-user access.
 
-import request from 'supertest';
 import jwt from 'jsonwebtoken';
+import request from 'supertest';
 import app from '../app.js';
 import { generateToken } from '../utils/jwtUtils.js';
 

@@ -2,7 +2,6 @@
 // Migrated from raw pg to Prisma ORM
 
 import prisma from '../../lib/prisma.js';
-import { AUDIT_ACTIONS } from '../../config/recordConfig.js';
 import logger from '../../logging/logger.js';
 
 export async function logAuditEntry(action, tableName, recordId, userId, userRole, changes, ipAddress = null) {

@@ -1,7 +1,6 @@
 // src/controllers/notification/notificationController.js
 
 import { validationResult } from 'express-validator';
-import { NOTIFICATION_TYPES } from '../../config/notificationConfig.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { notificationService } from '../../services/notification/notificationService.js';

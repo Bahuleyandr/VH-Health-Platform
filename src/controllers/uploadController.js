@@ -2,8 +2,8 @@
 
 import crypto from 'crypto';
 import { validationResult } from 'express-validator';
-import prisma from '../lib/prisma.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import * as auditService from '../services/auditService.js';
 import * as fileService from '../services/fileService.js';

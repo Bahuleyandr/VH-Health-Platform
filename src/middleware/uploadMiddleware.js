@@ -1,8 +1,8 @@
 // src/middleware/uploadMiddleware.js - Hospital File Upload Middleware
 
 import multer from 'multer';
-import logger from '../logging/logger.js';
 import { HOSPITAL_UPLOAD_CONFIG, MULTER_CONFIG } from '../config/uploadConfig.js';
+import logger from '../logging/logger.js';
 
 // P1 Security: Magic bytes signatures for server-side MIME validation
 const MAGIC_BYTES = [

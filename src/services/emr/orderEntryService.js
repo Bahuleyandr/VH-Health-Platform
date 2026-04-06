@@ -4,10 +4,9 @@ import { createPrismaDb } from '../../lib/prismaCompat.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
+import notificationOutbox from '../../utils/notifications/notificationOutbox.js'; // eslint-disable-line import/no-named-as-default
 import { scheduleMedications } from '../clinical/marService.js';
-import notificationOutbox from '../../utils/notifications/notificationOutbox.js';
 
-const db = createPrismaDb(prisma);
 
 // ===================================================================
 // Order Entry (CPOE) Service
@@ -15,7 +14,6 @@ const db = createPrismaDb(prisma);
 
 const VALID_ORDER_TYPES = ['medication', 'investigation', 'nursing', 'diet', 'activity', 'consultation'];
 const VALID_PRIORITIES = ['stat', 'urgent', 'routine', 'prn'];
-const VALID_STATUSES = ['ordered', 'verified', 'in_progress', 'completed', 'cancelled', 'discontinued'];
 
 /**
  * Generate a unique order number: ORD-YYYYMMDD-XXXX

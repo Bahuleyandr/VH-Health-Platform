@@ -2,7 +2,6 @@
 
 import prisma from '../lib/prisma.js';
 import { formatDateDDMMYYYY } from '../utils/dateUtils.js'; // Or wherever this function is
-import db from './database.js'; // Or the correct path to your DB config
 import { HTTP_STATUS } from './responseCodes.js'; // Or the correct path
 
 export const AUTH_CONFIG = {

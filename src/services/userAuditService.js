@@ -1,7 +1,6 @@
 // src/services/userAuditService.js - Hospital User Audit Service
 
 import prisma from '../lib/prisma.js';
-import { USER_ACTIONS } from '../config/userConfig.js';
 import logger from '../logging/logger.js';
 
 /**

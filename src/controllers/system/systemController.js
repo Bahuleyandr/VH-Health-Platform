@@ -1,8 +1,8 @@
 // src/controllers/system/systemController.js
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { success, error } from '../../utils/responseHelper.js';
 import * as systemHealthService from '../../services/health/systemHealthService.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 /**
  * In-memory settings store (use DB table if persistent settings are required).
@@ -24,7 +24,7 @@ const DEFAULT_SETTINGS = {
   maxLoginAttempts: 5,
 };
 
-let currentSettings = { ...DEFAULT_SETTINGS };
+const currentSettings = { ...DEFAULT_SETTINGS };
 
 // ────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/system/settings

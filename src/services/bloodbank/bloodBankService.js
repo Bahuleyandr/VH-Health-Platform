@@ -7,7 +7,6 @@ import { AppError } from '../../utils/AppError.js';
 const VALID_BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 const VALID_COMPONENTS = ['whole_blood', 'prbc', 'ffp', 'platelets', 'cryoprecipitate'];
 const VALID_URGENCIES = ['routine', 'urgent', 'emergency'];
-const VALID_STATUSES = ['requested', 'cross_matched', 'issued', 'transfused', 'cancelled'];
 
 class BloodBankService {
 

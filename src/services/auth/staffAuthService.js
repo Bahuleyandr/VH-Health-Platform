@@ -5,12 +5,12 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { AUTH_CONFIG } from '../../config/authConfig.js';
-import prisma from '../../lib/prisma.js';
 import { SECURITY_CONFIG } from '../../config/securityConfig.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { generateToken, verifyToken } from '../../utils/jwtUtils.js';
-import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
 import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
+import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
 
 
 const query = async (sql, params = []) => {

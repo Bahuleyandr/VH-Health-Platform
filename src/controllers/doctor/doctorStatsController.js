@@ -1,6 +1,5 @@
 // src/controllers/doctor/doctorStatsController.js
 import { validationResult } from 'express-validator';
-import { DOCTOR_CONFIG } from '../../config/doctorConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { doctorStatsService } from '../../services/doctor/doctorStatsService.js';

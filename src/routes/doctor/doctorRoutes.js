@@ -1,9 +1,9 @@
 // src/routes/doctor/doctorRoutes.js
 import express from 'express';
 import { validationResult } from 'express-validator';
-import { requiredString } from '../../validators/sharedValidators.js';
 import { doctorController } from '../../controllers/doctor/doctorController.js';
 import { doctorValidators } from '../../validators/doctor/doctorValidator.js';
+import { requiredString } from '../../validators/sharedValidators.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);

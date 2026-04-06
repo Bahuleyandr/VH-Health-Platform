@@ -1,8 +1,8 @@
 // src/routes/health/uptimeRoutes.js
 // Dedicated health check endpoints optimized for external monitoring tools
 import express from 'express';
-import prisma from '../../lib/prisma.js';
 import db from '../../config/database.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 const router = express.Router();
@@ -41,7 +41,7 @@ router.get('/deep', async (_req, res) => {
     const start = Date.now();
     await prisma.$queryRawUnsafe('SELECT 1');
     checks.database = { status: 'ok', latency_ms: Date.now() - start };
-  } catch (err) {
+  } catch (_err) {
     checks.database = { status: 'error', message: 'Database check failed' };
   }
 
@@ -54,7 +54,7 @@ router.get('/deep', async (_req, res) => {
     } else {
       checks.redis = { status: 'not_configured' };
     }
-  } catch (err) {
+  } catch (_err) {
     checks.redis = { status: 'error', message: 'Redis check failed' };
   }
 
@@ -66,7 +66,7 @@ router.get('/deep', async (_req, res) => {
       process.env.R2_ENDPOINT
     );
     checks.r2 = { status: r2Configured ? 'configured' : 'not_configured' };
-  } catch (err) {
+  } catch (_err) {
     checks.r2 = { status: 'error', message: 'R2 check failed' };
   }
 
@@ -77,7 +77,7 @@ router.get('/deep', async (_req, res) => {
       process.env.GOOGLE_APPLICATION_CREDENTIALS
     );
     checks.firebase = { status: firebaseConfigured ? 'configured' : 'not_configured' };
-  } catch (err) {
+  } catch (_err) {
     checks.firebase = { status: 'error', message: 'Firebase check failed' };
   }
 

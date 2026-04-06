@@ -2,10 +2,9 @@
 // Enhanced bed management routes: occupancy, transfers, discharge-to-cleaning workflow
 
 import express from 'express';
-import logger from '../../logging/logger.js';
+import { HTTP_STATUS } from '../../config/responseCodes.js';
 import bedManagementService from '../../services/bed/bedManagementService.js';
 import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS } from '../../config/responseCodes.js';
 
 const router = express.Router();
 

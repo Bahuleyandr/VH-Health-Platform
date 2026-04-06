@@ -1,8 +1,8 @@
 // src/services/sosService.js
 // Migrated from raw pg to Prisma ORM
 
-import prisma from '../lib/prisma.js';
 import { SOS_SEVERITY } from '../config/sosConfig.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import * as locationService from './locationService.js';
 import * as notificationService from './notification/notificationService.js';
@@ -90,7 +90,7 @@ function formatAlertResponse(alert, nearbyServices, severity, isTestAlert) {
   };
 }
 
-export const updateEmergencyContacts = async (phone, contactData) => {
+export const updateEmergencyContacts = async (phone, _contactData) => {
   try {
     const existing = await prisma.users.findFirst({ where: { phone }, select: { id: true } });
     if (!existing) throw new Error('User not found');

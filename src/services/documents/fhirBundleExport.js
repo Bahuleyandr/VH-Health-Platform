@@ -2,9 +2,9 @@
 // Generates a complete FHIR R4 Bundle (type: document) for a patient,
 // aggregating all clinical data into interoperable FHIR resources.
 
-import * as fhirAdapter from '../fhir/fhirAdapter.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import * as fhirAdapter from '../fhir/fhirAdapter.js';
 
 /**
  * Generate a complete FHIR Bundle containing all patient data.

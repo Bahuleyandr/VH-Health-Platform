@@ -1,6 +1,6 @@
-import testClient, { API_KEY } from './testClient.js';
 import request from 'supertest';
 import app from '../app.js';
+import testClient, { API_KEY } from './testClient.js';
 
 describe('OTP API', () => {
   it('should validate request-otp with missing phone', async () => {

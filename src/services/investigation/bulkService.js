@@ -1,8 +1,8 @@
 // src/services/investigation/bulkService.js
 // Migrated from raw pg to Prisma ORM
 
-import prisma from '../../lib/prisma.js';
 import { INVESTIGATION_STATUS } from '../../config/investigationConfig.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 export const bulkUpdateStatus = async (investigationIds, status, notes, updatedBy) => {

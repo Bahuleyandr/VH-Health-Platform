@@ -3,9 +3,9 @@
 
 import express from 'express';
 import logger from '../../logging/logger.js';
-import { success, error } from '../../utils/responseHelper.js';
 import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
+import { success } from '../../utils/responseHelper.js';
 
 const router = express.Router();
 

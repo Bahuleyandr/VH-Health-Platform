@@ -1,6 +1,6 @@
 // src/services/department/adminDepartmentService.js
-import prisma from '../../lib/prisma.js';
 import { Prisma } from '@prisma/client';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { formatDate } from '../../utils/department/departmentHelpers.js';
 import departmentAuditService from './departmentAuditService.js';

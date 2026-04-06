@@ -16,7 +16,7 @@ try {
   });
   logger.info('✅ Swagger validation passed.');
   process.exit(0); // ensures success exit
-} catch (err) {
+} catch (_err) {
   logger.error('❌ Swagger validation failed.');
   process.exit(1); // triggers 500 if run via execSync in API
 }

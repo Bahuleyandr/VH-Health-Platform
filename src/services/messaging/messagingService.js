@@ -3,7 +3,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import notificationOutbox from '../../utils/notifications/notificationOutbox.js';
+import notificationOutbox from '../../utils/notifications/notificationOutbox.js'; // eslint-disable-line import/no-named-as-default
 
 
 const query = async (sql, params = []) => {

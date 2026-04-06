@@ -2,8 +2,8 @@
 // Migrated from raw pg to Prisma ORM
 
 import crypto from 'crypto';
-import prisma from '../lib/prisma.js';
 import { OTP_CONFIG } from '../config/otpConfig.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 
 export class OTPService {

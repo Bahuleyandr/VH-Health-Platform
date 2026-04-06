@@ -1,8 +1,7 @@
 // src/services/clinical/news2Service.js
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { AppError } from '../../utils/AppError.js';
-import notificationOutbox from '../../utils/notifications/notificationOutbox.js';
+import notificationOutbox from '../../utils/notifications/notificationOutbox.js'; // eslint-disable-line import/no-named-as-default
 
 // ===================================================================
 // NEWS2 Scoring — Pure calculation functions + persistence

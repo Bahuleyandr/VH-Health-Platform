@@ -1,5 +1,5 @@
-import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { combineDateAndTime } from '../../utils/appointment/dateTimeUtils.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';

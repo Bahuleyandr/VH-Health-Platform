@@ -1,7 +1,7 @@
 // src/controllers/user/lookupController.js
 import { validationResult } from 'express-validator';
-import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { LookupService } from '../../services/user/lookupService.js';
 import { logAudit } from '../../utils/logAudit.js';

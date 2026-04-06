@@ -1,5 +1,4 @@
 import { Prisma } from '@prisma/client';
-import prisma from '../../lib/prisma.js';
 import { 
   INVESTIGATION_STATUS, 
   INVESTIGATION_TYPES, 
@@ -7,7 +6,7 @@ import {
   MEDICAL_STAFF_ROLES,
   LAB_STAFF_ROLES 
 } from '../../config/investigationConfig.js';
-import logger from '../../logging/logger.js';
+import prisma from '../../lib/prisma.js';
 
 // Get investigations with filtering
 export const getInvestigations = async (page, limit, filters, userRole, userId) => {

@@ -14,7 +14,7 @@ export async function getUserRegistrations(req, res) {
       ORDER BY DATE(registered_at) ASC
     `);
     success(res, result, 'User registrations by day');
-  } catch (err) {
+  } catch (_err) {
     error(res, 'Failed to fetch registration stats');
   }
 }
@@ -32,7 +32,7 @@ export async function getEntityCounts(req, res) {
     const [appointments, records, investigations] = queries.map(r => parseInt(r[0].count, 10));
 
     success(res, { appointments, records, investigations }, 'Entity counts');
-  } catch (err) {
+  } catch (_err) {
     error(res, 'Failed to fetch counts');
   }
 }
@@ -50,7 +50,7 @@ export async function getActiveUsers(req, res) {
       LIMIT 10
     `);
     success(res, result, 'Most active users');
-  } catch (err) {
+  } catch (_err) {
     error(res, 'Failed to fetch active user stats');
   }
 }
@@ -70,7 +70,7 @@ export async function getActiveDepartments(req, res) {
       LIMIT 10
     `);
     success(res, result, 'Most active departments');
-  } catch (err) {
+  } catch (_err) {
     error(res, 'Failed to fetch department stats');
   }
 }

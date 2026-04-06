@@ -1,8 +1,8 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import * as attendanceService from '../../services/staff/attendanceService.js';
 import { success, error } from '../../utils/responseHelper.js';
-import prisma from '../../lib/prisma.js';
 
 export const markAttendance = async (req, res) => {
   try {
@@ -99,7 +99,7 @@ export const getAttendanceCalendar = async (req, res) => {
     
     // Mark leave days
     for (const leave of leaves) {
-      let d = new Date(leave.start_date);
+      const d = new Date(leave.start_date);
       const end = new Date(leave.end_date);
       while (d <= end) {
         const dateStr = d.toISOString().split('T')[0];
@@ -112,7 +112,7 @@ export const getAttendanceCalendar = async (req, res) => {
 
     // Fill remaining working days as absent
     const days = [];
-    let current = new Date(startDate);
+    const current = new Date(startDate);
     const endDt = new Date(endDate);
     while (current <= endDt) {
       const dateStr = current.toISOString().split('T')[0];

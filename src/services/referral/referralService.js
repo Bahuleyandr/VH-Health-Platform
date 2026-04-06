@@ -6,7 +6,6 @@ import { AppError } from '../../utils/AppError.js';
 
 const VALID_REFERRAL_TYPES = ['internal', 'external'];
 const VALID_URGENCIES = ['routine', 'urgent', 'emergency'];
-const VALID_STATUSES = ['pending', 'accepted', 'in_progress', 'completed', 'declined'];
 
 class ReferralService {
 

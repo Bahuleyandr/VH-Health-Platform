@@ -1,7 +1,6 @@
 // src/utils/routeLoader.js
 // Dynamic Route Loading Utilities
 
-import path from 'path';
 import { ROUTE_FILES, ROUTE_METADATA, getCurrentEnvironmentConfig } from '../config/routeConfig.js';
 import logger from '../logging/logger.js';
 

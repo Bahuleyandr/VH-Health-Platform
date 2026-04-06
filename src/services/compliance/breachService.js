@@ -7,7 +7,6 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
 const VALID_SEVERITIES = ['low', 'medium', 'high', 'critical'];
-const VALID_STATUSES = ['open', 'investigating', 'contained', 'resolved', 'notified'];
 
 // Valid status transitions — each key lists the statuses it can move to
 const VALID_TRANSITIONS = {

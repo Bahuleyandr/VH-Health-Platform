@@ -1,10 +1,10 @@
 // src/routes/doctor/adminDoctorRoutes.js
 import express from 'express';
 import { validationResult } from 'express-validator';
-import { requiredString } from '../../validators/sharedValidators.js';
 import { adminDoctorController } from '../../controllers/doctor/adminDoctorController.js';
 import { doctorStatsController } from '../../controllers/doctor/doctorStatsController.js';
 import { adminDoctorValidators } from '../../validators/doctor/adminDoctorValidator.js';
+import { requiredString } from '../../validators/sharedValidators.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);

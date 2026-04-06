@@ -1,7 +1,7 @@
 // src/middleware/jwtMiddleware.js
+import logger from '../logging/logger.js';
 import { verifyToken } from '../utils/jwtUtils.js';
 import { isTokenBlacklisted, isUserTokensRevoked } from '../utils/tokenBlacklist.js';
-import logger from '../logging/logger.js';
 
 /**
  * Normalize role names to what the RBAC layer expects.

@@ -6,7 +6,6 @@ import { AppError } from '../../utils/AppError.js';
 
 const VALID_MODALITIES = ['xray', 'ct', 'mri', 'ultrasound', 'mammography', 'fluoroscopy'];
 const VALID_PRIORITIES = ['routine', 'urgent', 'stat'];
-const VALID_STATUSES = ['ordered', 'scheduled', 'in_progress', 'completed', 'cancelled'];
 
 class RadiologyService {
 
