@@ -187,8 +187,12 @@ export async function fetchAdminAPI<T = unknown>(
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
-    const msg = `HTTP ${res.status} calling ${method} ${endpoint}`;
-    throw new APIError(msg, res.status, await safeReadJson(res));
+    const body = await safeReadJson(res);
+    const msg =
+      (body as { message?: string })?.message ||
+      (body as { error?: string })?.error ||
+      `HTTP ${res.status} calling ${method} ${endpoint}`;
+    throw new APIError(msg, res.status, body);
   }
   const payload = (await res.json()) as APIResponse<T> | T;
   if (
