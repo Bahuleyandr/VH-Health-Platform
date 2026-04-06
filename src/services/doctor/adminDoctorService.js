@@ -201,20 +201,15 @@ export class AdminDoctorService {
       }
 
       // Insert doctor record using actual table schema
-      const rows = await prisma.$queryRaw`
-        INSERT INTO doctors (name, department, specialty, intro, is_available, is_active, created_at, updated_at)
-        VALUES (
-          ${name},
-          ${department},
-          ${specialization || null},
-          ${doctorData.intro || null},
-          true,
-          true,
-          NOW(),
-          NOW()
-        )
-        RETURNING id, name, department, specialty, intro, image_url, is_available, is_active, created_at
-      `;
+      const consultationFee = doctorData.consultation_fee ? parseFloat(doctorData.consultation_fee) : null;
+      const availableDays = doctorData.available_days || null;  // text[]
+      const availableHours = doctorData.available_hours || null; // jsonb
+
+      const rows = await prisma.$queryRawUnsafe(`
+        INSERT INTO doctors (name, department, specialty, intro, consultation_fee, available_days, available_hours, is_available, is_active, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, true, true, NOW(), NOW())
+        RETURNING id, name, department, specialty, intro, image_url, consultation_fee, available_days, available_hours, is_available, is_active, created_at
+      `, name, department, specialization || null, doctorData.intro || null, consultationFee, availableDays, availableHours ? JSON.stringify(availableHours) : null);
 
       logger.info(`Doctor created: ${name} (${department})`);
 
