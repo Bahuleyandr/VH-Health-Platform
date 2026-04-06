@@ -32,9 +32,9 @@ export const getMyPayslips = async (req, res) => {
       WHERE p.staff_uid = $1 AND p.status IN ('issued','viewed','downloaded')
       ORDER BY p.year DESC, p.month DESC
       LIMIT $2
-    `, [staffUid, Math.min(parseInt(months), 24)]);
+    `, staffUid, Math.min(parseInt(months), 24));
 
-    success(res, payslips.rows, 'Payslips fetched');
+    success(res, payslips, 'Payslips fetched');
   } catch (err) {
     logger.error('Get My Payslips Error:', err);
     error(res, 'Failed to fetch payslips', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -54,15 +54,15 @@ export const getPayslipDetail = async (req, res) => {
         p.created_at, p.updated_at
       FROM payslips p
       WHERE p.id = $1 AND p.staff_uid = $2 AND p.status IN ('issued','viewed','downloaded')
-    `, [id, staffUid]);
+    `, id, staffUid);
 
-    if (payslip.rows.length === 0) return error(res, 'Payslip not found', HTTP_STATUS.NOT_FOUND);
+    if (payslip.length === 0) return error(res, 'Payslip not found', HTTP_STATUS.NOT_FOUND);
 
     const p = payslip[0];
 
     // Mark as viewed
     if (p.status === 'issued') {
-      await prisma.$queryRawUnsafe('UPDATE payslips SET status=$1, viewed_at=NOW() WHERE id=$2', ['viewed', id]);
+      await prisma.$queryRawUnsafe('UPDATE payslips SET status=$1, viewed_at=NOW() WHERE id=$2', 'viewed', id);
     }
 
     // Generate signed URL if PDF exists
@@ -89,26 +89,20 @@ export const runPayroll = async (req, res) => {
 
     // Create or get payroll run
     let run = await prisma.$queryRawUnsafe(
-      'SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE month=$1 AND year=$2',
-      [month, year]
-    );
+      'SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE month=$1 AND year=$2', month, year);
 
     let runId;
-    if (run.rows.length === 0) {
+    if (run.length === 0) {
       const newRun = await prisma.$queryRawUnsafe(
         `INSERT INTO payroll_runs (month, year, status, generated_by, generated_at)
-         VALUES ($1,$2,'processing',$3,NOW()) RETURNING id, month, year, status, generated_by, total_gross, total_deductions, total_net, employee_count, created_at, updated_at`,
-        [month, year, adminUid]
-      );
+         VALUES ($1,$2,'processing',$3,NOW()) RETURNING id, month, year, status, generated_by, total_gross, total_deductions, total_net, employee_count, created_at, updated_at`, month, year, adminUid);
       runId = newRun[0].id;
     } else if (run[0].status === 'locked') {
       return error(res, 'Payroll for this month is locked and cannot be rerun', HTTP_STATUS.FORBIDDEN);
     } else {
       runId = run[0].id;
       await prisma.$queryRawUnsafe(
-        `UPDATE payroll_runs SET status='processing', generated_by=$1, generated_at=NOW() WHERE id=$2`,
-        [adminUid, runId]
-      );
+        `UPDATE payroll_runs SET status='processing', generated_by=$1, generated_at=NOW() WHERE id=$2`, adminUid, runId);
     }
 
     // Get all staff with salary config
@@ -124,7 +118,7 @@ export const runPayroll = async (req, res) => {
     let processed = 0, failed = 0;
     let totalGross = 0, totalNet = 0, totalDeductions = 0;
 
-    for (const staff of staffList.rows) {
+    for (const staff of staffList) {
       try {
         const calc = await calculatePayslip(staff.staff_uid, month, year);
         const saved = await savePayslip(runId, calc);
@@ -140,12 +134,12 @@ export const runPayroll = async (req, res) => {
                 fully_cleared_at = CASE WHEN total_deducted + $1 >= amount THEN NOW() ELSE NULL END,
                 updated_at = NOW()
               WHERE id = $2
-            `, [adv.amount, adv.id]);
+            `, adv.amount, adv.id);
 
             await prisma.$queryRawUnsafe(`
               INSERT INTO advance_deductions (advance_id, payslip_id, staff_uid, month, year, amount_deducted, balance_after)
               VALUES ($1,$2,$3,$4,$5,$6,$7)
-            `, [adv.id, saved.id, calc.staff_uid, calc.month, calc.year, adv.amount, adv.balanceAfter]);
+            `, adv.id, saved.id, calc.staff_uid, calc.month, calc.year, adv.amount, adv.balanceAfter);
           }
         }
 
@@ -154,7 +148,7 @@ export const runPayroll = async (req, res) => {
           await prisma.$queryRawUnsafe(`
             UPDATE salary_arrears SET status='paid', paid_in_month=$1, paid_in_year=$2, payslip_id=$3
             WHERE staff_uid=$4 AND status='pending'
-          `, [calc.month, calc.year, saved.id, calc.staff_uid]);
+          `, calc.month, calc.year, saved.id, calc.staff_uid);
         }
 
         // Generate and upload PDF
@@ -164,9 +158,7 @@ export const runPayroll = async (req, res) => {
             const pdfKey = `payroll/${year}/${String(month).padStart(2, '0')}/payslip_${staff.staff_uid}_${year}_${String(month).padStart(2, '0')}.pdf`;
             await uploadFileToR2(pdfBuf, pdfKey, 'application/pdf');
             await prisma.$queryRawUnsafe(
-              'UPDATE payslips SET pdf_key=$1, pdf_generated_at=NOW() WHERE id=$2',
-              [pdfKey, saved.id]
-            );
+              'UPDATE payslips SET pdf_key=$1, pdf_generated_at=NOW() WHERE id=$2', pdfKey, saved.id);
           } catch (pdfErr) {
             logger.warn(`PDF generation failed for staff ${staff.staff_uid}: ${pdfErr.message}`);
           }
@@ -187,7 +179,7 @@ export const runPayroll = async (req, res) => {
       UPDATE payroll_runs SET
         status='completed', total_staff=$1, total_gross=$2, total_net=$3, total_deductions=$4
       WHERE id=$5
-    `, [processed, totalGross.toFixed(2), totalNet.toFixed(2), totalDeductions.toFixed(2), runId]);
+    `, processed, totalGross.toFixed(2), totalNet.toFixed(2), totalDeductions.toFixed(2), runId);
 
     success(res, {
       run_id: runId, processed, failed,
@@ -208,11 +200,9 @@ export const issuePayslips = async (req, res) => {
 
     // Require both HR and Admin signatures before issuing
     const run = await prisma.$queryRawUnsafe(
-      `SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE month=$1 AND year=$2`,
-      [month, year]
-    );
+      `SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE month=$1 AND year=$2`, month, year);
 
-    if (run.rows.length === 0) {
+    if (run.length === 0) {
       return error(res, 'No payroll run found for this month. Run payroll first.', HTTP_STATUS.BAD_REQUEST);
     }
 
@@ -234,18 +224,16 @@ export const issuePayslips = async (req, res) => {
         ss.special_allowance as ss_special, ss.total_ctc, ss.is_active, ss.effective_from
        FROM payslips p
        JOIN staff_salary ss ON ss.staff_uid = p.staff_uid
-       WHERE p.month=$1 AND p.year=$2 AND p.manually_edited=true AND p.pdf_key IS NULL`,
-      [month, year]
-    );
+       WHERE p.month=$1 AND p.year=$2 AND p.manually_edited=true AND p.pdf_key IS NULL`, month, year);
 
-    if (generatePayslipPDF && editedPayslips.rows.length > 0) {
-      for (const p of editedPayslips.rows) {
+    if (generatePayslipPDF && editedPayslips.length > 0) {
+      for (const p of editedPayslips) {
         try {
-          const staffRes = await prisma.$queryRawUnsafe('SELECT uid, name, email, phone, role, department, employee_id FROM users WHERE uid=$1', [p.staff_uid]);
+          const staffRes = await prisma.$queryRawUnsafe('SELECT uid, name, email, phone, role, department, employee_id FROM users WHERE uid=$1', p.staff_uid);
           const pdfBuf = await generatePayslipPDF(p, staffRes[0] || {});
           const pdfKey = `payroll/${year}/${String(month).padStart(2,'0')}/payslip_${p.staff_uid}_${year}_${String(month).padStart(2,'0')}.pdf`;
           await uploadFileToR2(pdfBuf, pdfKey, 'application/pdf');
-          await prisma.$queryRawUnsafe('UPDATE payslips SET pdf_key=$1, pdf_generated_at=NOW() WHERE id=$2', [pdfKey, p.id]);
+          await prisma.$queryRawUnsafe('UPDATE payslips SET pdf_key=$1, pdf_generated_at=NOW() WHERE id=$2', pdfKey, p.id);
         } catch (pdfErr) {
           logger.warn(`PDF regen failed for payslip ${p.id}: ${pdfErr.message}`);
         }
@@ -256,10 +244,10 @@ export const issuePayslips = async (req, res) => {
       UPDATE payslips SET status='issued', issued_at=NOW()
       WHERE month=$1 AND year=$2 AND status='draft'
       RETURNING id
-    `, [month, year]);
+    `, month, year);
 
     // Lock the run
-    await prisma.$queryRawUnsafe(`UPDATE payroll_runs SET status='locked' WHERE month=$1 AND year=$2`, [month, year]);
+    await prisma.$queryRawUnsafe(`UPDATE payroll_runs SET status='locked' WHERE month=$1 AND year=$2`, month, year);
 
     // ─── FEATURE 8: Send notifications to staff ──────────────────────────
     const monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(month)-1];
@@ -269,9 +257,9 @@ export const issuePayslips = async (req, res) => {
           SELECT p.staff_uid, u.name, p.net_salary
           FROM payslips p JOIN users u ON p.staff_uid = u.uid
           WHERE p.month=$1 AND p.year=$2 AND p.status='issued'
-        `, [month, year]);
+        `, month, year);
 
-        for (const staff of issuedStaff.rows) {
+        for (const staff of issuedStaff) {
           try {
             await dispatch({
               userId: staff.staff_uid,
@@ -307,7 +295,7 @@ export const getPayrollRuns = async (req, res) => {
       ORDER BY pr.year DESC, pr.month DESC
       LIMIT 24
     `);
-    success(res, runs.rows, 'Payroll runs fetched');
+    success(res, runs, 'Payroll runs fetched');
   } catch (err) {
     logger.error('Get Payroll Runs Error:', err);
     error(res, 'Failed to fetch payroll runs', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -329,12 +317,12 @@ export const getPayrollRunDetail = async (req, res) => {
       LEFT JOIN staff_salary ss ON ss.staff_uid = u.uid
       WHERE p.payroll_run_id = $1
       ORDER BY u.name
-    `, [runId]);
+    `, runId);
 
-    const run = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id=$1', [runId]);
-    if (run.rows.length === 0) return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
+    const run = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id=$1', runId);
+    if (run.length === 0) return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
 
-    success(res, { run: run[0], payslips: payslips.rows }, 'Payroll run detail fetched');
+    success(res, { run: run[0], payslips: payslips }, 'Payroll run detail fetched');
   } catch (err) {
     logger.error('Get Payroll Run Detail Error:', err);
     error(res, 'Failed to fetch run detail', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -375,7 +363,7 @@ export const getStaffForPayroll = async (req, res) => {
       LIMIT 50
     `, params);
 
-    success(res, staffList.rows, 'Staff fetched');
+    success(res, staffList, 'Staff fetched');
   } catch (err) {
     logger.error('Get Staff For Payroll Error:', err);
     error(res, 'Failed to fetch staff', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -394,13 +382,11 @@ export const getStaffSalaryConfig = async (req, res) => {
       JOIN users u ON ss.staff_uid = u.uid
       LEFT JOIN staff s ON s.user_id = u.id
       WHERE ss.staff_uid = $1
-    `, [staffUid]);
+    `, staffUid);
 
-    if (config.rows.length === 0) {
+    if (config.length === 0) {
       const user = await prisma.$queryRawUnsafe(
-        'SELECT uid, name, role, phone FROM users WHERE uid = $1',
-        [staffUid]
-      );
+        'SELECT uid, name, role, phone FROM users WHERE uid = $1', staffUid);
       return success(res, user[0] ? { ...user[0], no_config: true } : null, 'No salary config found');
     }
 
@@ -434,8 +420,8 @@ export const upsertStaffSalaryConfig = async (req, res) => {
       return error(res, 'basic_salary is required and must be positive', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const userCheck = await prisma.$queryRawUnsafe('SELECT uid, name FROM users WHERE uid = $1', [staffUid]);
-    if (userCheck.rows.length === 0) {
+    const userCheck = await prisma.$queryRawUnsafe('SELECT uid, name FROM users WHERE uid = $1', staffUid);
+    if (userCheck.length === 0) {
       return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
     }
 
@@ -455,15 +441,7 @@ export const upsertStaffSalaryConfig = async (req, res) => {
         bank_account=COALESCE(NULLIF($18,''), staff_salary.bank_account),
         bank_name=$19, bank_ifsc=$20, updated_at=NOW()
       RETURNING id, staff_uid, basic_salary, hra_pct, da_pct, special_allowance, transport_allowance, medical_allowance, pf_employee_pct, esi_applicable, professional_tax, tds_monthly, designation, department, employee_id, date_of_joining, pan_number, pf_uan, bank_account, bank_name, bank_ifsc, created_at, updated_at
-    `, [
-      staffUid, basic_salary,
-      hra_pct ?? 40, da_pct ?? 10,
-      special_allowance ?? 0, transport_allowance ?? 0, medical_allowance ?? 0,
-      pf_employee_pct ?? 12, esi_applicable ?? false, professional_tax ?? 200, tds_monthly ?? 0,
-      designation ?? null, department ?? null, employee_id ?? null, date_of_joining ?? null,
-      pan_number ?? null, pf_uan ?? null,
-      bank_account ?? null, bank_name ?? null, bank_ifsc ?? null,
-    ]);
+    `, staffUid, basic_salary, hra_pct ?? 40, da_pct ?? 10, special_allowance ?? 0, transport_allowance ?? 0, medical_allowance ?? 0, pf_employee_pct ?? 12, esi_applicable ?? false, professional_tax ?? 200, tds_monthly ?? 0, designation ?? null, department ?? null, employee_id ?? null, date_of_joining ?? null, pan_number ?? null, pf_uan ?? null, bank_account ?? null, bank_name ?? null, bank_ifsc ?? null);
 
     const row = result[0];
     if (row.bank_account) row.bank_account = '****' + String(row.bank_account).slice(-4);
@@ -490,9 +468,9 @@ export const manualEditPayslip = async (req, res) => {
       FROM payslips p
       JOIN payroll_runs pr ON p.payroll_run_id = pr.id
       WHERE p.id = $1
-    `, [id]);
+    `, id);
 
-    if (payslip.rows.length === 0) return error(res, 'Payslip not found', HTTP_STATUS.NOT_FOUND);
+    if (payslip.length === 0) return error(res, 'Payslip not found', HTTP_STATUS.NOT_FOUND);
     if (payslip[0].hr_approved_at || payslip[0].admin_approved_at) {
       return error(res, 'Cannot edit a payslip after HR or Admin has signed the payroll run', HTTP_STATUS.FORBIDDEN);
     }
@@ -519,7 +497,7 @@ export const manualEditPayslip = async (req, res) => {
     });
     const setClauses = fields.map((f, i) => `${f} = $${i + 2}`).join(', ');
 
-    await prisma.$queryRawUnsafe(`UPDATE payslips SET ${setClauses} WHERE id = $1`, [id, ...values]);
+    await prisma.$queryRawUnsafe(`UPDATE payslips SET ${setClauses} WHERE id = $1`, id, ...values);
 
     await prisma.$queryRawUnsafe(`
       UPDATE payslips SET
@@ -541,9 +519,9 @@ export const manualEditPayslip = async (req, res) => {
         pdf_key = NULL,
         pdf_generated_at = NULL
       WHERE id = $3
-    `, [edit_reason, editorUid, id]);
+    `, edit_reason, editorUid, id);
 
-    const updated = await prisma.$queryRawUnsafe('SELECT id, staff_uid, month, year, payroll_run_id, basic_salary, hra, special_allowance, total_earnings, pf_employee, pf_employer, esi, professional_tax, tds, total_deductions, net_salary, status, pdf_url, created_at, updated_at FROM payslips WHERE id = $1', [id]);
+    const updated = await prisma.$queryRawUnsafe('SELECT id, staff_uid, month, year, payroll_run_id, basic_salary, hra, special_allowance, total_earnings, pf_employee, pf_employer, esi, professional_tax, tds, total_deductions, net_salary, status, pdf_url, created_at, updated_at FROM payslips WHERE id = $1', id);
     success(res, updated[0], 'Payslip updated — PDF will regenerate on issue');
   } catch (err) {
     logger.error('Manual Edit Payslip Error:', err);
@@ -558,8 +536,8 @@ export const hrSignPayrollRun = async (req, res) => {
     const hrUid = req.user?.uid;
     const { comment } = req.body;
 
-    const run = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', [runId]);
-    if (run.rows.length === 0) return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
+    const run = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', runId);
+    if (run.length === 0) return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
     if (run[0].status !== 'completed') {
       return error(res, 'Payroll run must be in completed state before signing', HTTP_STATUS.BAD_REQUEST);
     }
@@ -571,9 +549,9 @@ export const hrSignPayrollRun = async (req, res) => {
       UPDATE payroll_runs SET
         hr_approved_by = $1, hr_approved_at = NOW(), hr_comment = $2
       WHERE id = $3
-    `, [hrUid, comment || null, runId]);
+    `, hrUid, comment || null, runId);
 
-    const updated = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', [runId]);
+    const updated = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', runId);
     success(res, updated[0], 'HR signature applied — awaiting Admin countersign before payslips can be issued');
   } catch (err) {
     logger.error('HR Sign Payroll Run Error:', err);
@@ -588,8 +566,8 @@ export const adminSignPayrollRun = async (req, res) => {
     const adminUid = req.user?.uid;
     const { comment } = req.body;
 
-    const run = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', [runId]);
-    if (run.rows.length === 0) return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
+    const run = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', runId);
+    if (run.length === 0) return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
     if (!run[0].hr_approved_at) {
       return error(res, 'HR must sign before Admin countersign', HTTP_STATUS.BAD_REQUEST);
     }
@@ -610,9 +588,9 @@ export const adminSignPayrollRun = async (req, res) => {
         admin_approved_by = $1, admin_approved_at = NOW(), admin_comment = $2,
         approval_hash = $3, status = 'approved'
       WHERE id = $4
-    `, [adminUid, comment || null, hash, runId]);
+    `, adminUid, comment || null, hash, runId);
 
-    const updated = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', [runId]);
+    const updated = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', runId);
     success(res, updated[0], 'Admin countersign complete — payslips can now be issued to staff');
   } catch (err) {
     logger.error('Admin Sign Payroll Run Error:', err);
@@ -633,11 +611,9 @@ export const getMyTaxSummary = async (req, res) => {
       : `${now.getFullYear() - 1}-${String(now.getFullYear()).slice(-2)}`);
 
     let summary = await prisma.$queryRawUnsafe(
-      'SELECT id, staff_uid, financial_year, total_income, total_tds, total_pf, total_esi, created_at FROM annual_tax_summaries WHERE staff_uid=$1 AND financial_year=$2',
-      [staffUid, financialYear]
-    );
+      'SELECT id, staff_uid, financial_year, total_income, total_tds, total_pf, total_esi, created_at FROM annual_tax_summaries WHERE staff_uid=$1 AND financial_year=$2', staffUid, financialYear);
 
-    if (summary.rows.length === 0) {
+    if (summary.length === 0) {
       const generated = await generateAnnualTaxSummary(staffUid, financialYear);
       return success(res, generated, 'Annual tax summary generated');
     }
@@ -664,7 +640,7 @@ export const generateAllTaxSummaries = async (req, res) => {
     );
     let generated = 0, failed = 0;
 
-    for (const s of staffList.rows) {
+    for (const s of staffList) {
       try {
         await generateAnnualTaxSummary(s.staff_uid, financial_year);
         generated++;
@@ -700,12 +676,7 @@ export const createAdvance = async (req, res) => {
         monthly_deduction, months_remaining, deduction_start_month, deduction_start_year, notes)
       VALUES ($1,$2,$3,$4,NOW(),'approved',$5,$6,$7,$8,$9)
       RETURNING id, staff_uid, amount, reason, approved_by, approved_at, status, monthly_deduction, months_remaining, total_deducted, deduction_start_month, deduction_start_year, notes, created_at
-    `, [
-      staff_uid, amount, reason, adminUid, monthly_deduction, months_remaining,
-      deduction_start_month || new Date().getMonth() + 1,
-      deduction_start_year || new Date().getFullYear(),
-      notes || null,
-    ]);
+    `, staff_uid, amount, reason, adminUid, monthly_deduction, months_remaining, deduction_start_month || new Date().getMonth() + 1, deduction_start_year || new Date().getFullYear(), notes || null);
 
     success(res, result[0], `Advance of ₹${amount} approved. ${months_remaining} monthly deductions of ₹${monthly_deduction}`);
   } catch (err) {
@@ -724,8 +695,8 @@ export const getMyAdvances = async (req, res) => {
       FROM salary_advances sa
       LEFT JOIN users u ON sa.approved_by = u.uid
       WHERE sa.staff_uid = $1 ORDER BY sa.created_at DESC
-    `, [staffUid]);
-    success(res, advances.rows, 'Advances fetched');
+    `, staffUid);
+    success(res, advances, 'Advances fetched');
   } catch (err) {
     logger.error('Get My Advances Error:', err);
     error(res, 'Failed to fetch advances', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -748,7 +719,7 @@ export const getAllAdvances = async (req, res) => {
       FROM salary_advances sa JOIN users u ON sa.staff_uid = u.uid
       ${where} ORDER BY sa.created_at DESC
     `, params);
-    success(res, advances.rows, 'Advances fetched');
+    success(res, advances, 'Advances fetched');
   } catch (err) {
     logger.error('Get All Advances Error:', err);
     error(res, 'Failed to fetch advances', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -797,9 +768,9 @@ export const exportPayrollSummary = async (req, res) => {
       LEFT JOIN staff_salary ss ON ss.staff_uid = p.staff_uid
       WHERE p.month = $1 AND p.year = $2
       ORDER BY u.name
-    `, [month, year]);
+    `, month, year);
 
-    if (payslips.rows.length === 0) return error(res, 'No payslips found', HTTP_STATUS.NOT_FOUND);
+    if (payslips.length === 0) return error(res, 'No payslips found', HTTP_STATUS.NOT_FOUND);
 
     const headers = [
       'Employee Name','Employee ID','Designation','Department','Bank Account','IFSC',
@@ -810,7 +781,7 @@ export const exportPayrollSummary = async (req, res) => {
     ];
 
     const csvRows = [headers.join(',')];
-    for (const r of payslips.rows) {
+    for (const r of payslips) {
       const row = [
         `"${r.employee_name || ''}"`,
         `"${r.employee_id || ''}"`,
@@ -829,7 +800,7 @@ export const exportPayrollSummary = async (req, res) => {
       csvRows.push(row.join(','));
     }
 
-    const totals = payslips.rows.reduce((acc, r) => {
+    const totals = payslips.reduce((acc, r) => {
       acc.gross += parseFloat(r.gross_salary || 0);
       acc.pf += parseFloat(r.pf_employee || 0);
       acc.tds += parseFloat(r.tds || 0);
@@ -866,12 +837,12 @@ export const exportPFRegister = async (req, res) => {
         AND p.pf_employee > 0
         AND p.status IN ('issued','viewed','downloaded')
       ORDER BY u.name
-    `, [month, year]);
+    `, month, year);
 
     const headers = '#,UAN,Member Name,Gross Wages,EPF Wages,EPS Wages,EDLI Wages,EPF Contribution,EPS Contribution,EPF EPS Diff,NCP Days,Refund of Advances';
     const rows = [headers];
 
-    payslips.rows.forEach((r, i) => {
+    payslips.forEach((r, i) => {
       const epfWages = Math.min(parseFloat(r.basic_earned), 15000);
       const epsWages = Math.min(parseFloat(r.basic_earned), 15000);
       const epfContrib = Math.round(epfWages * 0.12 * 100) / 100;
@@ -919,12 +890,12 @@ export const exportESIRegister = async (req, res) => {
         AND p.esi_employee > 0
         AND p.status IN ('issued','viewed','downloaded')
       ORDER BY u.name
-    `, [month, year]);
+    `, month, year);
 
     const headers = 'Sr No,Employee Name,Employee Code,Gross Wages,Employee ESI (0.75%),Employer ESI (3.25%),Total ESI';
     const rows = [headers];
 
-    payslips.rows.forEach((r, i) => {
+    payslips.forEach((r, i) => {
       const total = parseFloat(r.esi_employee) + parseFloat(r.esi_employer);
       rows.push(`${i+1},"${r.name}","${r.employee_id || ''}",${parseFloat(r.gross_salary).toFixed(2)},${parseFloat(r.esi_employee).toFixed(2)},${parseFloat(r.esi_employer).toFixed(2)},${total.toFixed(2)}`);
     });
@@ -998,7 +969,7 @@ export const getPayrollComparison = async (req, res) => {
 
     // Group by staff
     const staffMap = {};
-    for (const p of payslips.rows) {
+    for (const p of payslips) {
       if (!staffMap[p.staff_uid]) {
         staffMap[p.staff_uid] = {
           staff_uid: p.staff_uid,
@@ -1044,7 +1015,7 @@ export const getPayrollComparison = async (req, res) => {
       month_range: months,
       staff: staffList,
       total_staff: staffList.length,
-      total_payslips: payslips.rows.length,
+      total_payslips: payslips.length,
     }, 'Payroll comparison fetched');
   } catch (err) {
     logger.error('Get Payroll Comparison Error:', err);
@@ -1059,8 +1030,8 @@ export const createFnF = async (req, res) => {
   try {
     const { staff_uid, separation_type, last_working_day, notice_shortfall_days, bonus_payable, other_deductions, other_deductions_reason, notes } = req.body;
     if (!staff_uid || !separation_type || !last_working_day) return error(res, 'staff_uid, separation_type, last_working_day required', HTTP_STATUS.BAD_REQUEST);
-    const staffData = await prisma.$queryRawUnsafe(`SELECT u.*, ss.basic_salary, ss.notice_period_days, ss.date_of_joining FROM users u LEFT JOIN staff_salary ss ON ss.staff_uid = u.uid WHERE u.uid = $1`, [staff_uid]);
-    if (!staffData.rows.length) return error(res, 'Staff not found', HTTP_STATUS.NOT_FOUND);
+    const staffData = await prisma.$queryRawUnsafe(`SELECT u.*, ss.basic_salary, ss.notice_period_days, ss.date_of_joining FROM users u LEFT JOIN staff_salary ss ON ss.staff_uid = u.uid WHERE u.uid = $1`, staff_uid);
+    if (!staffData.length) return error(res, 'Staff not found', HTTP_STATUS.NOT_FOUND);
     const s = staffData[0];
     const lastDay = new Date(last_working_day);
     const joinDate = s.date_of_joining ? new Date(s.date_of_joining) : null;
@@ -1081,8 +1052,7 @@ export const createFnF = async (req, res) => {
     const netPayable = grossPayable - totalDedns;
     const result = await prisma.$queryRawUnsafe(
       `INSERT INTO full_final_settlements (staff_uid,separation_type,last_working_day,last_month_days_worked,last_month_basic,last_month_allowances,notice_period_days,notice_shortfall_days,notice_recovery_amount,years_of_service,gratuity_eligible,gratuity_amount,bonus_payable,other_deductions,other_deductions_reason,gross_payable,total_deductions,net_payable,notes,created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id, staff_uid, separation_type, last_working_day, last_month_days_worked, last_month_basic, last_month_allowances, notice_period_days, notice_shortfall_days, notice_recovery_amount, years_of_service, gratuity_eligible, gratuity_amount, bonus_payable, other_deductions, other_deductions_reason, gross_payable, total_deductions, net_payable, status, notes, created_at`,
-      [staff_uid,separation_type,last_working_day,daysWorked,lastMonthBasic,lastMonthAllowances,s.notice_period_days||30,shortfall,noticeRecovery,Math.round(yearsOfService*100)/100,gratuityEligible,gratuityAmount,parseFloat(bonus_payable)||0,parseFloat(other_deductions)||0,other_deductions_reason||null,grossPayable,totalDedns,netPayable,notes||null,req.user?.uid]);
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id, staff_uid, separation_type, last_working_day, last_month_days_worked, last_month_basic, last_month_allowances, notice_period_days, notice_shortfall_days, notice_recovery_amount, years_of_service, gratuity_eligible, gratuity_amount, bonus_payable, other_deductions, other_deductions_reason, gross_payable, total_deductions, net_payable, status, notes, created_at`, staff_uid, separation_type, last_working_day, daysWorked, lastMonthBasic, lastMonthAllowances, s.notice_period_days||30, shortfall, noticeRecovery, Math.round(yearsOfService*100)/100, gratuityEligible, gratuityAmount, parseFloat(bonus_payable)||0, parseFloat(other_deductions)||0, other_deductions_reason||null, grossPayable, totalDedns, netPayable, notes||null, req.user?.uid);
     success(res, result[0], `F&F calculated. Net payable: ₹${netPayable}`);
   } catch (err) { logger.error('CreateFnF:', err); error(res, 'Failed to create settlement', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
@@ -1099,7 +1069,7 @@ export const getFnFList = async (req, res) => {
        JOIN users u ON f.staff_uid = u.uid
        LEFT JOIN staff_salary ss ON ss.staff_uid = f.staff_uid
        ${where} ORDER BY f.created_at DESC`, params);
-    success(res, result.rows, 'F&F list fetched');
+    success(res, result, 'F&F list fetched');
   } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
@@ -1107,14 +1077,14 @@ export const approveFnF = async (req, res) => {
   try {
     const { id } = req.params;
     const role = req.user?.role; const uid = req.user?.uid;
-    const fnf = await prisma.$queryRawUnsafe('SELECT id, staff_uid, settlement_date, last_working_day, total_dues, total_deductions, net_payable, status, approved_by, created_at, updated_at FROM full_final_settlements WHERE id=$1', [id]);
-    if (!fnf.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
+    const fnf = await prisma.$queryRawUnsafe('SELECT id, staff_uid, settlement_date, last_working_day, total_dues, total_deductions, net_payable, status, approved_by, created_at, updated_at FROM full_final_settlements WHERE id=$1', id);
+    if (!fnf.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
     const f = fnf[0];
     let update;
     if (role === 'HR' && f.status === 'draft') {
-      update = await prisma.$queryRawUnsafe('UPDATE full_final_settlements SET status=$1,hr_approved_by=$2,hr_approved_at=NOW(),updated_at=NOW() WHERE id=$3 RETURNING id, staff_uid, separation_type, last_working_day, gross_payable, total_deductions, net_payable, status, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, created_at, updated_at', ['hr_approved', uid, id]);
+      update = await prisma.$queryRawUnsafe('UPDATE full_final_settlements SET status=$1,hr_approved_by=$2,hr_approved_at=NOW(),updated_at=NOW() WHERE id=$3 RETURNING id, staff_uid, separation_type, last_working_day, gross_payable, total_deductions, net_payable, status, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, created_at, updated_at', 'hr_approved', uid, id);
     } else if (role === 'ADMIN' && f.status === 'hr_approved') {
-      update = await prisma.$queryRawUnsafe('UPDATE full_final_settlements SET status=$1,admin_approved_by=$2,admin_approved_at=NOW(),updated_at=NOW() WHERE id=$3 RETURNING id, staff_uid, separation_type, last_working_day, gross_payable, total_deductions, net_payable, status, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, created_at, updated_at', ['admin_approved', uid, id]);
+      update = await prisma.$queryRawUnsafe('UPDATE full_final_settlements SET status=$1,admin_approved_by=$2,admin_approved_at=NOW(),updated_at=NOW() WHERE id=$3 RETURNING id, staff_uid, separation_type, last_working_day, gross_payable, total_deductions, net_payable, status, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, created_at, updated_at', 'admin_approved', uid, id);
     } else return error(res, 'Cannot approve: wrong role or status', HTTP_STATUS.BAD_REQUEST);
     success(res, update[0], 'F&F approved');
   } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
@@ -1123,8 +1093,8 @@ export const approveFnF = async (req, res) => {
 export const markFnFPaid = async (req, res) => {
   try {
     const { id } = req.params; const { payment_date, payment_reference } = req.body;
-    const result = await prisma.$queryRawUnsafe('UPDATE full_final_settlements SET status=$1,payment_date=$2,payment_reference=$3,updated_at=NOW() WHERE id=$4 AND status=$5 RETURNING id, staff_uid, separation_type, last_working_day, gross_payable, total_deductions, net_payable, status, payment_date, payment_reference, created_at, updated_at', ['paid', payment_date, payment_reference, id, 'admin_approved']);
-    if (!result.rows.length) return error(res, 'Not found or not admin-approved', HTTP_STATUS.BAD_REQUEST);
+    const result = await prisma.$queryRawUnsafe('UPDATE full_final_settlements SET status=$1,payment_date=$2,payment_reference=$3,updated_at=NOW() WHERE id=$4 AND status=$5 RETURNING id, staff_uid, separation_type, last_working_day, gross_payable, total_deductions, net_payable, status, payment_date, payment_reference, created_at, updated_at', 'paid', payment_date, payment_reference, id, 'admin_approved');
+    if (!result.length) return error(res, 'Not found or not admin-approved', HTTP_STATUS.BAD_REQUEST);
     success(res, result[0], 'F&F marked as paid');
   } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
@@ -1138,7 +1108,7 @@ export const getAllGratuityStatus = async (req, res) => {
        FROM users u LEFT JOIN staff_salary ss ON ss.staff_uid = u.uid
        WHERE u.is_active=true AND ss.date_of_joining IS NOT NULL ORDER BY ss.date_of_joining`);
     const now = new Date();
-    const result = staff.rows.map(s => {
+    const result = staff.map(s => {
       const joinDate = new Date(s.date_of_joining);
       const yos = (now - joinDate) / (365.25*24*60*60*1000);
       const eligible = yos >= 5;
@@ -1180,16 +1150,15 @@ export const upsertDeclaration = async (req, res) => {
          status=CASE WHEN investment_declarations.status='locked' THEN 'locked' ELSE 'submitted' END,
          submitted_at=CASE WHEN investment_declarations.status='locked' THEN investment_declarations.submitted_at ELSE NOW() END,
          updated_at=NOW()
-       RETURNING id, staff_uid, financial_year, ppf, epf_voluntary, elss, lic_premium, nsc, home_loan_principal, tuition_fees, other_80c, health_insurance_self, health_insurance_parents, education_loan_interest, rent_paid_monthly, rent_receipt_provided, home_loan_interest, nps_contribution, notes, status, submitted_at, created_at, updated_at`,
-      [staffUid,financial_year,ppf,epf_voluntary,elss,lic_premium,nsc,home_loan_principal,tuition_fees,other_80c,health_insurance_self,health_insurance_parents,education_loan_interest,rent_paid_monthly,rent_receipt_provided,home_loan_interest,nps_contribution,notes||null]);
+       RETURNING id, staff_uid, financial_year, ppf, epf_voluntary, elss, lic_premium, nsc, home_loan_principal, tuition_fees, other_80c, health_insurance_self, health_insurance_parents, education_loan_interest, rent_paid_monthly, rent_receipt_provided, home_loan_interest, nps_contribution, notes, status, submitted_at, created_at, updated_at`, staffUid, financial_year, ppf, epf_voluntary, elss, lic_premium, nsc, home_loan_principal, tuition_fees, other_80c, health_insurance_self, health_insurance_parents, education_loan_interest, rent_paid_monthly, rent_receipt_provided, home_loan_interest, nps_contribution, notes||null);
     success(res, result[0], 'Declaration saved');
   } catch (err) { logger.error('UpsertDeclaration:', err); error(res, 'Failed to save declaration', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 export const getMyDeclarations = async (req, res) => {
   try {
-    const result = await prisma.$queryRawUnsafe('SELECT id, staff_uid, financial_year, section_80c, section_80d, hra_exemption, lta, other_deductions, status, created_at, updated_at FROM investment_declarations WHERE staff_uid=$1 ORDER BY financial_year DESC', [req.user?.uid]);
-    success(res, result.rows, 'Declarations fetched');
+    const result = await prisma.$queryRawUnsafe('SELECT id, staff_uid, financial_year, section_80c, section_80d, hra_exemption, lta, other_deductions, status, created_at, updated_at FROM investment_declarations WHERE staff_uid=$1 ORDER BY financial_year DESC', req.user?.uid);
+    success(res, result, 'Declarations fetched');
   } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
@@ -1205,16 +1174,15 @@ export const getAllDeclarations = async (req, res) => {
        JOIN users u ON d.staff_uid = u.uid
        LEFT JOIN staff_salary ss ON ss.staff_uid = d.staff_uid
        ${where} ORDER BY u.name`, params);
-    success(res, result.rows, 'Declarations fetched');
+    success(res, result, 'Declarations fetched');
   } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 export const approveDeclaration = async (req, res) => {
   try {
     const result = await prisma.$queryRawUnsafe(
-      `UPDATE investment_declarations SET status='approved',approved_by=$1,approved_at=NOW(),updated_at=NOW() WHERE id=$2 RETURNING id, staff_uid, financial_year, status, approved_by, approved_at, created_at, updated_at`,
-      [req.user?.uid, req.params.id]);
-    if (!result.rows.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
+      `UPDATE investment_declarations SET status='approved',approved_by=$1,approved_at=NOW(),updated_at=NOW() WHERE id=$2 RETURNING id, staff_uid, financial_year, status, approved_by, approved_at, created_at, updated_at`, req.user?.uid, req.params.id);
+    if (!result.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
     success(res, result[0], 'Declaration approved');
   } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
@@ -1225,14 +1193,13 @@ export const calculateLeaveEncashment = async (req, res) => {
   try {
     const { staff_uid, leave_days, encashment_type, financial_year } = req.body;
     if (!staff_uid || !leave_days || !encashment_type) return error(res, 'staff_uid, leave_days, encashment_type required', HTTP_STATUS.BAD_REQUEST);
-    const staffData = await prisma.$queryRawUnsafe('SELECT ss.basic_salary FROM staff_salary ss WHERE ss.staff_uid=$1', [staff_uid]);
-    if (!staffData.rows.length || !staffData[0].basic_salary) return error(res, 'Salary config not found', HTTP_STATUS.BAD_REQUEST);
+    const staffData = await prisma.$queryRawUnsafe('SELECT ss.basic_salary FROM staff_salary ss WHERE ss.staff_uid=$1', staff_uid);
+    if (!staffData.length || !staffData[0].basic_salary) return error(res, 'Salary config not found', HTTP_STATUS.BAD_REQUEST);
     const dailyRate = parseFloat(staffData[0].basic_salary) / 26;
     const amount = Math.round(dailyRate * parseInt(leave_days) * 100) / 100;
     const result = await prisma.$queryRawUnsafe(
       `INSERT INTO leave_encashments (staff_uid,encashment_type,leave_days,daily_rate,amount,financial_year,approved_by,approved_at,status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),'approved') RETURNING id, staff_uid, encashment_type, leave_days, daily_rate, amount, financial_year, approved_by, approved_at, status, created_at`,
-      [staff_uid, encashment_type, leave_days, dailyRate, amount, financial_year||null, req.user?.uid]);
+       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),'approved') RETURNING id, staff_uid, encashment_type, leave_days, daily_rate, amount, financial_year, approved_by, approved_at, status, created_at`, staff_uid, encashment_type, leave_days, dailyRate, amount, financial_year||null, req.user?.uid);
     success(res, result[0], `${leave_days} days × ₹${dailyRate.toFixed(2)}/day = ₹${amount}`);
   } catch (err) { logger.error('LeaveEncashment:', err); error(res, 'Failed to process leave encashment', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
@@ -1249,7 +1216,7 @@ export const getLeaveEncashments = async (req, res) => {
        JOIN users u ON le.staff_uid = u.uid
        LEFT JOIN staff_salary ss ON ss.staff_uid = le.staff_uid
        ${where} ORDER BY le.created_at DESC`, params);
-    success(res, result.rows, 'Leave encashments fetched');
+    success(res, result, 'Leave encashments fetched');
   } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
@@ -1260,11 +1227,10 @@ export const raisePayslipQuery = async (req, res) => {
     const staffUid = req.user?.uid;
     const { payslip_id, subject, description, category } = req.body;
     if (!payslip_id || !subject || !description) return error(res, 'payslip_id, subject, description required', HTTP_STATUS.BAD_REQUEST);
-    const payslip = await prisma.$queryRawUnsafe('SELECT id, staff_uid, month, year, payroll_run_id, basic_salary, hra, special_allowance, total_earnings, pf_employee, pf_employer, esi, professional_tax, tds, total_deductions, net_salary, status, pdf_url, created_at, updated_at FROM payslips WHERE id=$1 AND staff_uid=$2', [payslip_id, staffUid]);
-    if (!payslip.rows.length) return error(res, 'Payslip not found', HTTP_STATUS.NOT_FOUND);
+    const payslip = await prisma.$queryRawUnsafe('SELECT id, staff_uid, month, year, payroll_run_id, basic_salary, hra, special_allowance, total_earnings, pf_employee, pf_employer, esi, professional_tax, tds, total_deductions, net_salary, status, pdf_url, created_at, updated_at FROM payslips WHERE id=$1 AND staff_uid=$2', payslip_id, staffUid);
+    if (!payslip.length) return error(res, 'Payslip not found', HTTP_STATUS.NOT_FOUND);
     const result = await prisma.$queryRawUnsafe(
-      `INSERT INTO payslip_queries (payslip_id,staff_uid,subject,description,category) VALUES ($1,$2,$3,$4,$5) RETURNING id, payslip_id, staff_uid, subject, description, category, status, created_at`,
-      [payslip_id, staffUid, subject, description, category||'general']);
+      `INSERT INTO payslip_queries (payslip_id,staff_uid,subject,description,category) VALUES ($1,$2,$3,$4,$5) RETURNING id, payslip_id, staff_uid, subject, description, category, status, created_at`, payslip_id, staffUid, subject, description, category||'general');
     success(res, result[0], 'Query raised');
   } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
@@ -1276,9 +1242,8 @@ export const getMyPayslipQueries = async (req, res) => {
          (SELECT json_agg(r ORDER BY r.created_at) FROM payslip_query_replies r WHERE r.query_id=pq.id) as replies
        FROM payslip_queries pq
        JOIN payslips p ON pq.payslip_id=p.id
-       WHERE pq.staff_uid=$1 ORDER BY pq.created_at DESC`,
-      [req.user?.uid]);
-    success(res, result.rows, 'Queries fetched');
+       WHERE pq.staff_uid=$1 ORDER BY pq.created_at DESC`, req.user?.uid);
+    success(res, result, 'Queries fetched');
   } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
@@ -1296,7 +1261,7 @@ export const getAllPayslipQueries = async (req, res) => {
        JOIN users u ON pq.staff_uid=u.uid
        LEFT JOIN staff_salary ss ON ss.staff_uid=pq.staff_uid
        ${where} ORDER BY pq.created_at DESC`, params);
-    success(res, result.rows, 'All queries fetched');
+    success(res, result, 'All queries fetched');
   } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
@@ -1304,15 +1269,13 @@ export const replyToPayslipQuery = async (req, res) => {
   try {
     const { id } = req.params; const { message, resolve } = req.body;
     if (!message) return error(res, 'message required', HTTP_STATUS.BAD_REQUEST);
-    await prisma.$queryRawUnsafe('INSERT INTO payslip_query_replies (query_id,author_uid,author_role,message) VALUES ($1,$2,$3,$4)',
-      [id, req.user?.uid, req.user?.role, message]);
+    await prisma.$queryRawUnsafe('INSERT INTO payslip_query_replies (query_id,author_uid,author_role,message) VALUES ($1,$2,$3,$4)', id, req.user?.uid, req.user?.role, message);
     if (resolve) {
-      await prisma.$queryRawUnsafe(`UPDATE payslip_queries SET status='resolved',resolved_by=$1,resolved_at=NOW(),resolution_note=$2,updated_at=NOW() WHERE id=$3`,
-        [req.user?.uid, message, id]);
+      await prisma.$queryRawUnsafe(`UPDATE payslip_queries SET status='resolved',resolved_by=$1,resolved_at=NOW(),resolution_note=$2,updated_at=NOW() WHERE id=$3`, req.user?.uid, message, id);
     } else {
-      await prisma.$queryRawUnsafe(`UPDATE payslip_queries SET status='in_review',updated_at=NOW() WHERE id=$1 AND status='open'`, [id]);
+      await prisma.$queryRawUnsafe(`UPDATE payslip_queries SET status='in_review',updated_at=NOW() WHERE id=$1 AND status='open'`, id);
     }
-    const updated = await prisma.$queryRawUnsafe('SELECT id, payslip_id, staff_uid, query_type, description, status, resolution, resolved_by, created_at, resolved_at FROM payslip_queries WHERE id=$1', [id]);
+    const updated = await prisma.$queryRawUnsafe('SELECT id, payslip_id, staff_uid, query_type, description, status, resolution, resolved_by, created_at, resolved_at FROM payslip_queries WHERE id=$1', id);
     success(res, updated[0], resolve ? 'Query resolved' : 'Reply sent');
   } catch (err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
@@ -1332,9 +1295,8 @@ export const getComplianceCalendar = async (req, res) => {
     ];
     const activeTds = tdsQuarterDue.find(q=>q.months.includes(month));
     const ecrs = await prisma.$queryRawUnsafe(
-      `SELECT month,year FROM payroll_runs WHERE status IN ('approved','locked') AND year=$1`, [year]
-    ).catch(()=>({rows:[]}));
-    const ecrGenerated = ecrs.rows.map(r=>`${r.year}-${String(r.month).padStart(2,'0')}`);
+      `SELECT month,year FROM payroll_runs WHERE status IN ('approved','locked') AND year=$1`, year).catch(() => []);
+    const ecrGenerated = ecrs.map(r=>`${r.year}-${String(r.month).padStart(2,'0')}`);
     const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const deadlines = [
       {
@@ -1392,8 +1354,7 @@ export const createBulkRevision = async (req, res) => {
     if (staffCount===0) return error(res,`No active staff found for ${target_type}=${target_value}`,HTTP_STATUS.BAD_REQUEST);
     const job=await prisma.$queryRawUnsafe(
       `INSERT INTO bulk_revision_jobs (description,revision_type,target_type,target_value,increment_type,increment_value,bonus_amount,effective_from,staff_count,status,created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'draft',$10) RETURNING id, description, revision_type, target_type, target_value, increment_type, increment_value, bonus_amount, effective_from, staff_count, status, created_by, created_at`,
-      [description,revision_type,target_type,target_value,increment_type,increment_value,bonus_amount,effective_from,staffCount,req.user?.uid]);
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'draft',$10) RETURNING id, description, revision_type, target_type, target_value, increment_type, increment_value, bonus_amount, effective_from, staff_count, status, created_by, created_at`, description, revision_type, target_type, target_value, increment_type, increment_value, bonus_amount, effective_from, staffCount, req.user?.uid);
     success(res,job[0],`Bulk revision draft created. Will affect ${staffCount} staff.`);
   } catch (err) { logger.error('CreateBulkRev:', err); error(res,'Failed to create bulk revision',HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
@@ -1401,11 +1362,11 @@ export const createBulkRevision = async (req, res) => {
 export const approveBulkRevision = async (req, res) => {
   try {
     const { id } = req.params; const adminUid=req.user?.uid;
-    const job=await prisma.$queryRawUnsafe('SELECT id, status, total, processed, failed, started_at, completed_at, created_by, created_at FROM bulk_revision_jobs WHERE id=$1',[id]);
-    if (!job.rows.length) return error(res,'Not found',HTTP_STATUS.NOT_FOUND);
+    const job=await prisma.$queryRawUnsafe('SELECT id, status, total, processed, failed, started_at, completed_at, created_by, created_at FROM bulk_revision_jobs WHERE id=$1', id);
+    if (!job.length) return error(res,'Not found',HTTP_STATUS.NOT_FOUND);
     const j=job[0];
     if (j.status!=='draft') return error(res,'Already processed',HTTP_STATUS.BAD_REQUEST);
-    await prisma.$queryRawUnsafe(`UPDATE bulk_revision_jobs SET status='approved',approved_by=$1,approved_at=NOW() WHERE id=$2`,[adminUid,id]);
+    await prisma.$queryRawUnsafe(`UPDATE bulk_revision_jobs SET status='approved',approved_by=$1,approved_at=NOW() WHERE id=$2`, adminUid, id);
     setImmediate(async()=>{
       try {
         let staffQuery=`SELECT u.uid,ss.basic_salary FROM users u JOIN staff_salary ss ON ss.staff_uid=u.uid WHERE u.is_active=true`;
@@ -1415,7 +1376,7 @@ export const approveBulkRevision = async (req, res) => {
         else if (j.target_type==='designation'){staffQuery+=` AND ss.designation=$1`;params.push(j.target_value);}
         const staffList=await prisma.$queryRawUnsafe(staffQuery,params);
         let processed=0;
-        for (const s of staffList.rows) {
+        for (const s of staffList) {
           try {
             let proposed_basic=parseFloat(s.basic_salary);
             if (j.revision_type==='increment') {
@@ -1425,19 +1386,15 @@ export const approveBulkRevision = async (req, res) => {
             }
             await prisma.$queryRawUnsafe(
               `INSERT INTO salary_revisions (staff_uid,revision_number,revision_type,current_basic,proposed_basic,bonus_amount,effective_from,reason,status,hr_approved_by,hr_approved_at,admin_approved_by,admin_approved_at,applied_at)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'applied',$9,NOW(),$9,NOW(),NOW())`,
-              [s.uid,`BULK-${id}-${s.uid.toString().slice(0,6)}`,j.revision_type,s.basic_salary,
-               j.revision_type==='increment'?Math.round(proposed_basic*100)/100:s.basic_salary,
-               j.bonus_amount||0,j.effective_from,j.description,adminUid]);
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'applied',$9,NOW(),$9,NOW(),NOW())`, s.uid, `BULK-${id}-${s.uid.toString().slice(0,6)}`, j.revision_type, s.basic_salary, j.revision_type==='increment'?Math.round(proposed_basic*100)/100:s.basic_salary, j.bonus_amount||0, j.effective_from, j.description, adminUid);
             if (j.revision_type==='increment') {
-              await prisma.$queryRawUnsafe('UPDATE staff_salary SET basic_salary=$1,updated_at=NOW() WHERE staff_uid=$2',
-                [Math.round(proposed_basic*100)/100,s.uid]);
+              await prisma.$queryRawUnsafe('UPDATE staff_salary SET basic_salary=$1,updated_at=NOW() WHERE staff_uid=$2', Math.round(proposed_basic*100)/100, s.uid);
             }
             processed++;
           } catch(e){ logger.warn(`Bulk rev failed ${s.uid}: ${e.message}`); }
         }
-        await prisma.$queryRawUnsafe(`UPDATE bulk_revision_jobs SET status='completed',processed_count=$1,completed_at=NOW() WHERE id=$2`,[processed,id]);
-      } catch(e){ await prisma.$queryRawUnsafe(`UPDATE bulk_revision_jobs SET status='failed',error_log=$1 WHERE id=$2`,[e.message,id]); }
+        await prisma.$queryRawUnsafe(`UPDATE bulk_revision_jobs SET status='completed',processed_count=$1,completed_at=NOW() WHERE id=$2`, processed, id);
+      } catch(e){ await prisma.$queryRawUnsafe(`UPDATE bulk_revision_jobs SET status='failed',error_log=$1 WHERE id=$2`, e.message, id); }
     });
     success(res,{id,status:'processing',staff_count:j.staff_count},'Bulk revision approved and processing');
   } catch (err) { logger.error('ApproveBulkRev:', err); error(res,'Failed to approve bulk revision',HTTP_STATUS.INTERNAL_SERVER_ERROR); }
@@ -1447,6 +1404,6 @@ export const getBulkRevisions = async (req, res) => {
   try {
     const result=await prisma.$queryRawUnsafe(
       `SELECT b.*,u.name as created_by_name FROM bulk_revision_jobs b LEFT JOIN users u ON b.created_by=u.uid ORDER BY b.created_at DESC`);
-    success(res,result.rows,'Bulk revisions fetched');
+    success(res,result,'Bulk revisions fetched');
   } catch (err) { error(res,'Failed',HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
