@@ -182,8 +182,8 @@ class DepartmentService {
       }
 
       const rows = await prisma.$queryRaw`
-        INSERT INTO departments (name, description, is_active, created_at)
-        VALUES (${name}, ${description || null}, ${is_active}, NOW())
+        INSERT INTO departments (name, description, is_active, created_at, updated_at)
+        VALUES (${name}, ${description || null}, ${is_active}, NOW(), NOW())
         RETURNING id, name, description, is_active, created_at, updated_at
       `;
 
