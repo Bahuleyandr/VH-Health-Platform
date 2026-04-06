@@ -269,7 +269,7 @@ class _RecordsScreenState extends State<RecordsScreen>
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  initialValue: docType,
+                  value: docType,
                   decoration: const InputDecoration(labelText: 'Document Type', border: OutlineInputBorder()),
                   items: docTypes.map((t) => DropdownMenuItem(
                     value: t.$1,

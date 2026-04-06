@@ -472,7 +472,7 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
 
             // Frequency
             DropdownButtonFormField<String>(
-              initialValue: _frequency,
+              value: _frequency,
               decoration: const InputDecoration(
                 labelText: 'Frequency',
                 border: OutlineInputBorder(),
