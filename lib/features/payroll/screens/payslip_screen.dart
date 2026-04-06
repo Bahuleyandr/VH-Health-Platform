@@ -84,11 +84,11 @@ class _PayslipScreenState extends State<PayslipScreen> {
                   end: Alignment.centerRight,
                 ),
               ),
-              child: Row(
+              child: const Row(
                 children: [
-                  const Icon(Icons.summarize_outlined, color: Colors.white, size: 20),
-                  const SizedBox(width: 10),
-                  const Expanded(
+                  Icon(Icons.summarize_outlined, color: Colors.white, size: 20),
+                  SizedBox(width: 10),
+                  Expanded(
                     child: Text(
                       'Annual Tax Summary (Form 16)',
                       style: TextStyle(
@@ -98,7 +98,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
                       ),
                     ),
                   ),
-                  const Icon(Icons.chevron_right, color: Colors.white70, size: 20),
+                  Icon(Icons.chevron_right, color: Colors.white70, size: 20),
                 ],
               ),
             ),

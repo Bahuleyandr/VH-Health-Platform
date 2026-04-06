@@ -54,12 +54,12 @@ class _QueueScreenState extends State<QueueScreen> {
       final inProgress = await ScheduleApiService.getAppointments(date: today, status: 'in-progress', limit: 50);
       final completed = await ScheduleApiService.getAppointments(date: today, status: 'completed', limit: 50);
 
-      List<Map<String, dynamic>> _extractList(Map<String, dynamic> data) {
+      List<Map<String, dynamic>> extractList(Map<String, dynamic> data) {
         final raw = data['appointments'] as List? ?? data['data'] as List? ?? [];
         return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
       }
 
-      final waitingList = [..._extractList(scheduled), ..._extractList(confirmed)];
+      final waitingList = [...extractList(scheduled), ...extractList(confirmed)];
       // Sort by time
       waitingList.sort((a, b) {
         final aTime = a['dateTime']?.toString() ?? a['date']?.toString() ?? '';
@@ -67,8 +67,8 @@ class _QueueScreenState extends State<QueueScreen> {
         return aTime.compareTo(bTime);
       });
 
-      final inProgressList = _extractList(inProgress);
-      final completedList = _extractList(completed);
+      final inProgressList = extractList(inProgress);
+      final completedList = extractList(completed);
       completedList.sort((a, b) {
         final aTime = a['dateTime']?.toString() ?? a['date']?.toString() ?? '';
         final bTime = b['dateTime']?.toString() ?? b['date']?.toString() ?? '';
@@ -217,7 +217,7 @@ class _QueueScreenState extends State<QueueScreen> {
                     children: [
                       // Current consultation
                       if (_current != null) ...[
-                        _SectionHeader('In Consultation', AppTheme.primaryBlue),
+                        const _SectionHeader('In Consultation', AppTheme.primaryBlue),
                         _CurrentConsultationCard(
                           appointment: _current!,
                           elapsed: _elapsed,
@@ -525,8 +525,11 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
   @override
   void initState() {
     super.initState();
-    if (widget.phone.isNotEmpty) _fetchRecords();
-    else setState(() { _loading = false; _error = 'No phone number available'; });
+    if (widget.phone.isNotEmpty) {
+      _fetchRecords();
+    } else {
+      setState(() { _loading = false; _error = 'No phone number available'; });
+    }
   }
 
   Future<void> _fetchRecords() async {

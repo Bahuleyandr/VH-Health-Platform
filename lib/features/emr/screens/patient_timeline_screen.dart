@@ -408,7 +408,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                           const SizedBox(height: 6),
                           Row(
                             children: [
-                              Icon(Icons.person_outline,
+                              const Icon(Icons.person_outline,
                                   size: 13, color: AppTheme.textSecondary),
                               const SizedBox(width: 4),
                               Text(
@@ -448,7 +448,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.error_outline,
+                      const Icon(Icons.error_outline,
                           size: 48, color: AppTheme.errorRed),
                       const SizedBox(height: 12),
                       Text(_error!, textAlign: TextAlign.center),
@@ -471,7 +471,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(Icons.timeline,
+                                  const Icon(Icons.timeline,
                                       size: 64, color: AppTheme.divider),
                                   const SizedBox(height: 12),
                                   const Text(

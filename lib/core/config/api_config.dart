@@ -1,8 +1,8 @@
-/// Staff-specific API configuration.
-///
-/// Re-exports core's [ApiConfig] for baseUrl, apiKey, jsonHeaders, etc.
-/// Adds staff-specific JWT and credential storage using separate keys
-/// so staff and patient tokens never collide.
+// Staff-specific API configuration.
+//
+// Re-exports core's [ApiConfig] for baseUrl, apiKey, jsonHeaders, etc.
+// Adds staff-specific JWT and credential storage using separate keys
+// so staff and patient tokens never collide.
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vhhealth_core/config/api_config.dart' as core;
 

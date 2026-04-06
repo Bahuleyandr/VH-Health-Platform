@@ -140,7 +140,7 @@ class SettingsScreen extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         children: [
           // App section
-          _SectionHeader(title: 'Appearance'),
+          const _SectionHeader(title: 'Appearance'),
           _SettingsCard(
             children: [
               ListTile(
@@ -185,7 +185,7 @@ class SettingsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
 
-          _SectionHeader(title: 'Notifications'),
+          const _SectionHeader(title: 'Notifications'),
           _SettingsCard(
             children: [
               _SettingsTile(
@@ -213,7 +213,7 @@ class SettingsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
 
-          _SectionHeader(title: 'Security'),
+          const _SectionHeader(title: 'Security'),
           _SettingsCard(
             children: [
               _SettingsTile(
@@ -239,7 +239,7 @@ class SettingsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
 
-          _SectionHeader(title: 'Quick Links'),
+          const _SectionHeader(title: 'Quick Links'),
           _SettingsCard(
             children: [
               _SettingsTile(
@@ -272,7 +272,7 @@ class SettingsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
 
-          _SectionHeader(title: 'About'),
+          const _SectionHeader(title: 'About'),
           _SettingsCard(
             children: [
               _SettingsTile(

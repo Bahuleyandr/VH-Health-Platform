@@ -260,10 +260,10 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                 const SizedBox(height: 20),
 
                 // Blood Pressure
-                _SectionHeader(
+                const _SectionHeader(
                   icon: Icons.favorite,
                   label: 'Blood Pressure',
-                  color: const Color(0xFFC62828),
+                  color: Color(0xFFC62828),
                 ),
                 const SizedBox(height: 10),
                 Row(
@@ -311,10 +311,10 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                 const SizedBox(height: 20),
 
                 // Temperature
-                _SectionHeader(
+                const _SectionHeader(
                   icon: Icons.thermostat,
                   label: 'Temperature',
-                  color: const Color(0xFFE65100),
+                  color: Color(0xFFE65100),
                 ),
                 const SizedBox(height: 10),
                 TextFormField(
@@ -336,10 +336,10 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                 const SizedBox(height: 20),
 
                 // Pulse & SpO2
-                _SectionHeader(
+                const _SectionHeader(
                   icon: Icons.speed,
                   label: 'Pulse & Oxygen Saturation',
-                  color: const Color(0xFF0097A7),
+                  color: Color(0xFF0097A7),
                 ),
                 const SizedBox(height: 10),
                 Row(
@@ -386,10 +386,10 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                 const SizedBox(height: 20),
 
                 // Weight
-                _SectionHeader(
+                const _SectionHeader(
                   icon: Icons.monitor_weight,
                   label: 'Weight',
-                  color: const Color(0xFF2E7D32),
+                  color: Color(0xFF2E7D32),
                 ),
                 const SizedBox(height: 10),
                 TextFormField(

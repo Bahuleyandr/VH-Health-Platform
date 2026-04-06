@@ -50,6 +50,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   Future<void> _updateStatus(String id, String status) async {
     try {
       await ScheduleApiService.updateAppointmentStatus(id, status);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Appointment $status successfully'),
@@ -58,6 +59,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       );
       _load();
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(e.toString().replaceFirst('Exception: ', '')),

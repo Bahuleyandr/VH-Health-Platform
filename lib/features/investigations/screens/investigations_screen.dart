@@ -250,6 +250,7 @@ class _UploadTabState extends State<_UploadTab> {
                     const maxSizeBytes = 10 * 1024 * 1024; // 10 MB
                     if (sizeBytes > maxSizeBytes) {
                       if (mounted) {
+                        // ignore: use_build_context_synchronously
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('File too large. Maximum size is 10 MB.'),
@@ -266,6 +267,7 @@ class _UploadTabState extends State<_UploadTab> {
                   }
                 } catch (e) {
                   if (mounted) {
+                    // ignore: use_build_context_synchronously
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Failed to pick file'),

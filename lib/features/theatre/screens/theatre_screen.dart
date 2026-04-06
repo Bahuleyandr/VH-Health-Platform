@@ -250,7 +250,7 @@ class _TheatreScreenState extends State<TheatreScreen>
   }
 
   void _showDetailSheet(Map<String, dynamic> s) {
-    final status = s['status']?.toString()?.toLowerCase();
+    final status = s['status']?.toString().toLowerCase();
     final id = s['id'] as int?;
 
     showModalBottomSheet(

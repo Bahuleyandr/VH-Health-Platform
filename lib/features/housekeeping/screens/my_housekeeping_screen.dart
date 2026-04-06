@@ -492,9 +492,9 @@ class _RequestCard extends StatelessWidget {
                             child: Image.file(photo!,
                                 fit: BoxFit.cover,
                                 width: double.infinity))
-                        : Column(
+                        : const Column(
                             mainAxisAlignment: MainAxisAlignment.center,
-                            children: const [
+                            children: [
                               Icon(Icons.camera_alt_outlined,
                                   color: Colors.grey),
                               Text('Add completion photo',

@@ -16,7 +16,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
   List<Map<String, dynamic>> _admissions = [];
   bool _loading = true;
   String? _error;
-  int _page = 1;
+  final int _page = 1;
 
   @override
   void initState() {
@@ -206,7 +206,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: priority,
+                      initialValue: priority,
                       decoration: const InputDecoration(
                         labelText: 'Priority',
                         border: OutlineInputBorder(),
@@ -226,7 +226,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: codeStatus,
+                      initialValue: codeStatus,
                       decoration: const InputDecoration(
                         labelText: 'Code Status',
                         border: OutlineInputBorder(),
@@ -345,7 +345,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.error_outline,
+                      const Icon(Icons.error_outline,
                           size: 48, color: AppTheme.errorRed),
                       const SizedBox(height: 12),
                       Text(_error!, textAlign: TextAlign.center),

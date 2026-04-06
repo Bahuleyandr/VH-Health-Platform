@@ -320,7 +320,7 @@ class _LeaveScreenState extends State<LeaveScreen>
               padding: const EdgeInsets.only(top: 6),
               child: Text(
                 '${_endDate!.difference(_startDate!).inDays + 1} day(s)',
-                style: TextStyle(color: AppTheme.primaryBlue, fontSize: 12),
+                style: const TextStyle(color: AppTheme.primaryBlue, fontSize: 12),
               ),
             ),
           const SizedBox(height: 16),

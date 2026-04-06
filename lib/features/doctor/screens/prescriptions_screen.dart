@@ -207,20 +207,27 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
 
   Map<String, dynamic>? _buildVitals() {
     final v = <String, dynamic>{};
-    if (_bpSysCtrl.text.isNotEmpty)
+    if (_bpSysCtrl.text.isNotEmpty) {
       v['bp_systolic'] = int.tryParse(_bpSysCtrl.text);
-    if (_bpDiaCtrl.text.isNotEmpty)
+    }
+    if (_bpDiaCtrl.text.isNotEmpty) {
       v['bp_diastolic'] = int.tryParse(_bpDiaCtrl.text);
-    if (_pulseCtrl.text.isNotEmpty)
+    }
+    if (_pulseCtrl.text.isNotEmpty) {
       v['pulse'] = int.tryParse(_pulseCtrl.text);
-    if (_tempCtrl.text.isNotEmpty)
+    }
+    if (_tempCtrl.text.isNotEmpty) {
       v['temperature'] = double.tryParse(_tempCtrl.text);
-    if (_spo2Ctrl.text.isNotEmpty)
+    }
+    if (_spo2Ctrl.text.isNotEmpty) {
       v['spo2'] = int.tryParse(_spo2Ctrl.text);
-    if (_weightCtrl.text.isNotEmpty)
+    }
+    if (_weightCtrl.text.isNotEmpty) {
       v['weight'] = double.tryParse(_weightCtrl.text);
-    if (_bsCtrl.text.isNotEmpty)
+    }
+    if (_bsCtrl.text.isNotEmpty) {
       v['blood_sugar'] = int.tryParse(_bsCtrl.text);
+    }
     return v.isEmpty ? null : v;
   }
 
@@ -895,10 +902,10 @@ class _MedicationCardState extends State<_MedicationCard> {
                 border: Border.all(color: Colors.grey.shade300),
                 borderRadius: BorderRadius.circular(6),
                 boxShadow: [
-                  BoxShadow(
+                  const BoxShadow(
                       color: Colors.black12,
                       blurRadius: 4,
-                      offset: const Offset(0, 2))
+                      offset: Offset(0, 2))
                 ],
               ),
               child: ListView.builder(
@@ -1102,7 +1109,7 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.medication_liquid_outlined,
+            const Icon(Icons.medication_liquid_outlined,
                 size: 56, color: AppTheme.textSecondary),
             const SizedBox(height: 16),
             const Text('No prescriptions yet',
