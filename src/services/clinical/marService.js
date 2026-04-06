@@ -7,7 +7,6 @@ import { AppError } from '../../utils/AppError.js';
 // Medication Administration Record (MAR) Service
 // ===================================================================
 
-const VALID_STATUSES = ['scheduled', 'administered', 'missed', 'held', 'refused'];
 const VALID_ROUTES = ['oral', 'iv', 'im', 'sc', 'topical', 'inhaled'];
 
 /**

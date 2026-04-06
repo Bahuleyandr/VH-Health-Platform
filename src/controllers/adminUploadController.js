@@ -1,8 +1,8 @@
 // src/controllers/adminUploadController.js - Hospital Admin Upload Controller
 
 import { validationResult } from 'express-validator';
-import prisma from '../lib/prisma.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import * as auditService from '../services/auditService.js';
 import { scanFileWithClamAV } from '../utils/clamavScanHelper.js';

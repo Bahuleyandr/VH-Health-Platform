@@ -1,6 +1,5 @@
 // src/services/staff/hr/onboardingService.js
 import prisma from '../../../lib/prisma.js';
-import logger from '../../../logging/logger.js';
 
 /**
  * Get onboarding checklist for a staff member
@@ -47,7 +46,7 @@ export const getOnboardingChecklist = async (staffId) => {
         year: 'numeric'
       }) : null
     }));
-  } catch (tasksError) {
+  } catch (_tasksError) {
     // Provide default onboarding checklist if table doesn't exist
     onboardingTasks = [
       { task_name: 'Complete employment paperwork', description: 'Fill out tax forms, emergency contacts, etc.', completed: false, priority: 'high' },

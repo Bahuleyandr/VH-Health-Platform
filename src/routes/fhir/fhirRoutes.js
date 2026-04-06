@@ -4,8 +4,6 @@
 
 import express from 'express';
 import prisma from '../../lib/prisma.js';
-import logger from '../../logging/logger.js';
-import { AppError } from '../../utils/AppError.js';
 import {
   toFhirPatient,
   toFhirAppointment,
@@ -19,6 +17,7 @@ import {
   toFhirDocumentReference,
   toFhirServiceRequest,
 } from '../../services/fhir/fhirAdapter.js';
+import { AppError } from '../../utils/AppError.js';
 
 const router = express.Router();
 

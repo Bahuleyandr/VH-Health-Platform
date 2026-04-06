@@ -1,11 +1,11 @@
 // src/services/investigation/orderService.js
 // Migrated from raw pg to Prisma ORM
 
-import prisma from '../../lib/prisma.js';
 import {
   INVESTIGATION_TYPES,
   PRIORITY_LEVELS
 } from '../../config/investigationConfig.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 export const createInvestigationOrder = async (orderData) => {

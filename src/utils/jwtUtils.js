@@ -19,7 +19,7 @@ if (!process.env.JWT_SECRET) {
         logger.info(`✅ Successfully loaded JWT_SECRET from ${envFile}`);
         break;
       }
-    } catch (e) {
+    } catch (_e) {
       // Continue to next file
     }
   }
@@ -31,14 +31,14 @@ if (!process.env.JWT_SECRET) {
       if (process.env.JWT_SECRET) {
         logger.info('✅ Loaded JWT_SECRET from default .env');
       }
-    } catch (e) {
+    } catch (_e) {
       // Continue
     }
   }
 }
 
 // Get the JWT_SECRET after attempting to load it
-let JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 // If still no JWT_SECRET, crash on startup — never use a hardcoded fallback

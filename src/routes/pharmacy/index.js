@@ -1,11 +1,11 @@
 import express from 'express';
-import logger from '../../logging/logger.js';
 import { wrapRoutesWithValidation, wrapAutoRBAC } from '../../config/routeWrapper.js';
+import * as pharmacyOrderController from '../../controllers/pharmacy/pharmacyOrderController.js';
+import logger from '../../logging/logger.js';
 import adminRoutes from './adminRoutes.js';
 import inventoryRoutes from './inventoryRoutes.js';
 import medicationRoutes from './medicationRoutes.js';
 import orderRoutes from './orderRoutes.js';
-import * as pharmacyOrderController from '../../controllers/pharmacy/pharmacyOrderController.js';
 
 const router = express.Router();
 

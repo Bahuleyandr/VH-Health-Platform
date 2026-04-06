@@ -1,6 +1,6 @@
 // src/services/staff/hr/dashboardService.js
-import prisma from '../../../lib/prisma.js';
 import { STAFF_ROLES } from '../../../config/staffConfig.js';
+import prisma from '../../../lib/prisma.js';
 import logger from '../../../logging/logger.js';
 
 /**
@@ -9,7 +9,7 @@ import logger from '../../../logging/logger.js';
  * @param {string} timeframe - Time period for data aggregation
  * @returns {Object} Dashboard data with multiple sections
  */
-export const getHRDashboardData = async (timeframe) => {
+export const getHRDashboardData = async (_timeframe) => {
   // Staff overview statistics
   const staffOverview = await prisma.$queryRawUnsafe(`
     SELECT 

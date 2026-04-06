@@ -1,6 +1,6 @@
-import prisma from '../../lib/prisma.js';
 import { PAGINATION, INVESTIGATION_STATUS } from '../../config/investigationConfig.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import * as investigationService from '../../services/investigation/investigationService.js';
 import { logAudit } from '../../utils/logAudit.js';

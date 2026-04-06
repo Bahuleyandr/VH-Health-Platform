@@ -1,7 +1,7 @@
+import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS } from '../../config/responseCodes.js';
 
 const VALID_INCIDENT_TYPES = ['patient_fall','medication_error','needle_stick','equipment_failure','near_miss','infection','fire_safety','patient_aggression','security_breach','other'];
 const VALID_SEVERITIES = ['low','moderate','severe','sentinel'];

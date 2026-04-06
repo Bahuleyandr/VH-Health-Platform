@@ -1,8 +1,8 @@
 // src/routes/appointment/appointmentAdminRoutes.js
 import express from 'express';
-import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';

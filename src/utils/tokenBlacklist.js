@@ -8,8 +8,8 @@
  * DB table: `invalidated_tokens` as persistent fallback when Redis is unavailable.
  */
 
-import { cacheGet, cacheSet, isRedisConnected } from '../lib/redis.js';
 import prisma from '../lib/prisma.js';
+import { cacheGet, cacheSet, isRedisConnected } from '../lib/redis.js';
 import logger from '../logging/logger.js';
 
 const BLACKLIST_PREFIX = 'blacklist:';

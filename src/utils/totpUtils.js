@@ -2,9 +2,9 @@
 // TOTP (Time-based One-Time Password) utilities for 2FA
 // Uses otplib v13+ functional API (no `authenticator` export)
 
-import { generate, verify, generateSecret as libGenerateSecret, generateURI } from 'otplib';
-import QRCode from 'qrcode';
 import crypto from 'crypto';
+import { verify, generateSecret as libGenerateSecret, generateURI } from 'otplib';
+import QRCode from 'qrcode';
 
 // Encryption key for TOTP secrets at rest (separate from JWT_SECRET)
 const TOTP_ENCRYPTION_KEY = process.env.TOTP_ENCRYPTION_KEY || process.env.JWT_SECRET;

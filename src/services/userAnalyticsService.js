@@ -1,8 +1,8 @@
 // src/services/userAnalyticsService.js - Hospital User Analytics Service
 
 import { format } from 'date-fns';
-import prisma from '../lib/prisma.js';
 import { HOSPITAL_ROLES, REPORT_TYPES } from '../config/userConfig.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 
 /**
@@ -216,7 +216,7 @@ export async function getInactiveUsersReport(inactiveDays = 90, role = null, inc
 /**
  * Generate comprehensive report
  */
-export async function generateReport(reportType, filters = {}, options = {}) {
+export async function generateReport(reportType, _filters = {}, options = {}) {
   const { includeInactive = false, dateRange } = options;
   
   const statusFilter = includeInactive ? '' : "AND status = 'active'";

@@ -1,11 +1,11 @@
 // src/services/notification/notificationService.js
 
-import prisma from '../../lib/prisma.js';
 import { 
   NOTIFICATION_TYPES, 
   NOTIFICATION_PRIORITIES,
   NOTIFICATION_LIMITS 
 } from '../../config/notificationConfig.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { 
   hasNotificationAccess, 
@@ -33,7 +33,7 @@ const query = async (sql, params = []) => {
 
 // Keep the original service object
 const notificationService = {
-async notifyEmergencyTeam(alertData, nearbyHospitals = []) {
+async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
     try {
       // 1. Find all emergency responders
       const respondersResult = await query(

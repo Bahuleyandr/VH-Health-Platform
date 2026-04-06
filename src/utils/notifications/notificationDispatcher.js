@@ -2,8 +2,8 @@
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { sendPushNotification } from './sendPushNotification.js';
 import { sendEmail } from './sendEmailNotification.js';
+import { sendPushNotification } from './sendPushNotification.js';
 
 /**
  * Unified notification dispatcher.

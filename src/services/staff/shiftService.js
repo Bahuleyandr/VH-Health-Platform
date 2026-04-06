@@ -1,5 +1,4 @@
 import prisma from '../../lib/prisma.js';
-import logger from '../../logging/logger.js';
 
 /**
  * Get staff's current shift assignment
@@ -54,7 +53,7 @@ export function calculateOvertime(shift, checkInTime, checkOutTime) {
   const shiftDate = checkIn.toISOString().split('T')[0];
   
   const [eh, em] = shift.end_time.split(':').map(Number);
-  let shiftEnd = new Date(`${shiftDate}T${String(eh).padStart(2,'0')}:${String(em).padStart(2,'0')}:00`);
+  const shiftEnd = new Date(`${shiftDate}T${String(eh).padStart(2,'0')}:${String(em).padStart(2,'0')}:00`);
   
   // Night shift: end is next day if end time < start time
   if (shiftEnd < checkIn) shiftEnd.setDate(shiftEnd.getDate() + 1);

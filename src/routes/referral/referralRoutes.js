@@ -3,11 +3,11 @@
 
 import { Router } from 'express';
 import { validationResult } from 'express-validator';
-import { requiredUUID, requiredString, paramId } from '../../validators/sharedValidators.js';
+import logger from '../../logging/logger.js';
 import referralService from '../../services/referral/referralService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isDoctor, isAdmin, isClinical } from '../../utils/roleHelpers.js';
-import logger from '../../logging/logger.js';
+import { requiredUUID, requiredString, paramId } from '../../validators/sharedValidators.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);

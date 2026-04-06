@@ -1,9 +1,9 @@
 // src/routes/deviceRoutes.js - COMPLETE PRODUCTION VERSION WITH RBAC
 import express from 'express';
-import prisma from '../lib/prisma.js';
 import { HTTP_STATUS } from '../config/responseCodes.js';
 import { wrapAutoRBAC } from '../config/routeWrapper.js';
 import { registerDevice } from '../controllers/deviceController.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import jwtMiddleware from '../middleware/jwtMiddleware.js';
 import validateApiKey from '../middleware/validateApiKey.js';

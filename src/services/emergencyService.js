@@ -1,7 +1,5 @@
 // src/services/emergencyService.js
 import prisma from '../lib/prisma.js';
-import { RESPONSE_TIMES } from '../config/sosConfig.js';
-import logger from '../logging/logger.js';
 
 
 const query = async (sql, params = []) => {

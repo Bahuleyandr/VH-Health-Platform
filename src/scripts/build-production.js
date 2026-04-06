@@ -20,7 +20,7 @@ try {
 
   console.log('\n✅ Sentry release created successfully!');
 
-} catch (error) {
+} catch (_error) {
   console.error('\n❌ Failed to create Sentry release.');
   console.error('   Please ensure SENTRY_AUTH_TOKEN, SENTRY_ORG, and SENTRY_PROJECT environment variables are set correctly in Render.');
   process.exit(1);

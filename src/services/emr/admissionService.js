@@ -4,10 +4,8 @@ import prisma from '../../lib/prisma.js';
 import { createPrismaDb } from '../../lib/prismaCompat.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import bedManagementService from '../bed/bedManagementService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 
-const db = createPrismaDb(prisma);
 
 // ===================================================================
 // Valid status transitions for state-machine enforcement

@@ -1,12 +1,11 @@
 // src/services/abdm/abdmService.js
 // ABDM Business Logic — ABHA registration, consent management, health data exchange
 
+import { ABDM_CONFIG } from '../../config/abdmConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { ABDM_CONFIG } from '../../config/abdmConfig.js';
 import abdmGateway from './abdmGateway.js';
-import crypto from 'crypto';
 
 class ABDMService {
 

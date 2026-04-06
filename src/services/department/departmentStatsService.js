@@ -1,7 +1,6 @@
 // src/services/department/departmentStatsService.js
-import prisma from '../../lib/prisma.js';
 import { Prisma } from '@prisma/client';
-import { DEPARTMENT_CONFIG } from '../../config/departmentConfig.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { formatDate } from '../../utils/department/departmentHelpers.js';
 

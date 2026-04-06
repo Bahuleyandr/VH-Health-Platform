@@ -1,7 +1,7 @@
 import express from 'express';
 import { validationResult } from 'express-validator';
-import { requiredString, paramId } from '../../validators/sharedValidators.js';
 import * as reminderController from '../../controllers/patient/medicationReminderController.js';
+import { requiredString, paramId } from '../../validators/sharedValidators.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);

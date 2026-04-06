@@ -2,7 +2,6 @@
 // Migrated from raw pg to Prisma ORM
 
 import prisma from '../../lib/prisma.js';
-import logger from '../../logging/logger.js';
 import { formatDateDDMMYYYY } from '../../utils/investigation/investigationHelpers.js';
 
 export const getInvestigationStats = async (days) => {

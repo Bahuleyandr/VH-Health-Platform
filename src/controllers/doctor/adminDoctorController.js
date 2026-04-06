@@ -1,7 +1,7 @@
 // src/controllers/doctor/adminDoctorController.js
 import { validationResult } from 'express-validator';
-import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { adminDoctorService } from '../../services/doctor/adminDoctorService.js';
 import { success, error } from '../../utils/responseHelper.js';

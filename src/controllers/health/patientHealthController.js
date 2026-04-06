@@ -1,5 +1,5 @@
 // src/controllers/health/patientHealthController.js
-import { HEALTH_MESSAGES, MEDICAL_ROLES } from '../../config/healthConfig.js';
+import { HEALTH_MESSAGES } from '../../config/healthConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import * as healthRecordService from '../../services/health/healthRecordService.js';

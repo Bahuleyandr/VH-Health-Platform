@@ -1,7 +1,7 @@
 import request from 'supertest';
 import app from '../app.js';
-import { API_KEY, generateTestToken, authClient } from './testClient.js';
 import { RATE_LIMIT_PROFILES } from '../config/rateLimitProfiles.js';
+import { API_KEY, generateTestToken, authClient } from './testClient.js';
 
 describe('Rate Limiting', () => {
   it('rate limit profile has a finite max (not Infinity)', () => {

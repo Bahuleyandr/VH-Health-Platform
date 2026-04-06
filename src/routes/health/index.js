@@ -1,7 +1,7 @@
 // src/routes/health/index.js
 import express from 'express';
-import logger from '../../logging/logger.js';
 import { wrapRoutes, wrapAutoRBAC } from '../../config/routeWrapper.js';
+import logger from '../../logging/logger.js';
 import protectedRoutes from './protectedRoutes.js';
 import publicRoutes from './publicRoutes.js';
 import uptimeRoutes from './uptimeRoutes.js';

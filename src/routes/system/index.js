@@ -1,8 +1,8 @@
 // src/routes/system/index.js
 import express from 'express';
 import { validationResult, body } from 'express-validator';
-import * as systemController from '../../controllers/system/systemController.js';
 import * as healthController from '../../controllers/system/healthController.js';
+import * as systemController from '../../controllers/system/systemController.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);

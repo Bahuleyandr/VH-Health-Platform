@@ -2,7 +2,6 @@
 // Comprehensive system health monitor — admin-only deep health check
 
 import prisma from '../../lib/prisma.js';
-import logger from '../../logging/logger.js';
 import { success } from '../../utils/responseHelper.js';
 
 /**
@@ -70,7 +69,7 @@ export const getSystemHealth = async (req, res) => {
       sent: counts.sent || 0,
       failed_permanent: counts.failed_permanent || 0,
     };
-  } catch (e) {
+  } catch (_e) {
     checks.notification_backlog = { status: 'unknown', note: 'Table may not exist' };
   }
 

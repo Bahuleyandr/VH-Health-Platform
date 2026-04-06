@@ -1,10 +1,10 @@
 // src/controllers/appointment/appointmentWorkflowController.js
+import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS } from '../../config/responseCodes.js';
-import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { sendAppointmentConfirmationSMS } from '../../services/smsService.js';
+import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 /**
  * Staff confirms an appointment — assigns token, sets confirmed_at, notifies patient
@@ -389,7 +389,7 @@ export const getAvailableSlots = async (req, res) => {
     const bookedTimes = new Set(booked.map(r => r.appointment_time));
 
     // Generate slots from available_hours JSONB { "Monday": { "start": "09:00", "end": "17:00" } }
-    let slots = [];
+    const slots = [];
     if (doc.available_hours && doc.available_hours[dayName]) {
       const hours = doc.available_hours[dayName];
       const start = hours.start || '09:00';
@@ -534,7 +534,7 @@ export const getAppointmentHistory = async (req, res) => {
       ORDER BY ash.created_at ASC
     `, id);
     success(res, result, 'History fetched');
-  } catch (err) {
+  } catch (_err) {
     error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };

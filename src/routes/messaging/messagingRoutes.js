@@ -2,12 +2,10 @@
 
 import express from 'express';
 import { validationResult } from 'express-validator';
-import { requiredString, paramId } from '../../validators/sharedValidators.js';
+import { sanitizeBody } from '../../middleware/sanitizeMiddleware.js';
 import messagingService from '../../services/messaging/messagingService.js';
 import { success, error } from '../../utils/responseHelper.js';
-import { sanitizeBody } from '../../middleware/sanitizeMiddleware.js';
-import { isStaff } from '../../utils/roleHelpers.js';
-import logger from '../../logging/logger.js';
+import { requiredString, paramId } from '../../validators/sharedValidators.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);

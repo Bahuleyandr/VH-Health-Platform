@@ -1,9 +1,9 @@
 // src/controllers/staff/salaryRevisionController.js
-import prisma from '../../lib/prisma.js';
 import crypto from 'crypto';
+import { HTTP_STATUS } from '../../config/responseCodes.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS } from '../../config/responseCodes.js';
 
 function computeRevisionHash(revision) {
   const data = [

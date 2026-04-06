@@ -1,6 +1,6 @@
 // src/controllers/record/patientRecordController.js
 import { validationResult } from 'express-validator';
-import { RECORD_MESSAGES, AUDIT_ACTIONS } from '../../config/recordConfig.js';
+import { AUDIT_ACTIONS } from '../../config/recordConfig.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import * as accessControl from '../../services/record/accessControlService.js';

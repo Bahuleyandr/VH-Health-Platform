@@ -115,7 +115,7 @@ export class AppointmentService {
     }
   }
 
-  async updateAppointmentStatus(id, status, notes = null, updatedBy = null) {
+  async updateAppointmentStatus(id, status, notes = null, _updatedBy = null) {
     try {
       const rows = await prisma.$queryRaw`
         UPDATE appointments SET

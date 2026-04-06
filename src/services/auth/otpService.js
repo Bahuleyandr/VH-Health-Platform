@@ -5,9 +5,9 @@
 
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
-import prisma from '../../lib/prisma.js';
 import { OTP_CONFIG, OTP_ERRORS } from '../../config/otpConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 

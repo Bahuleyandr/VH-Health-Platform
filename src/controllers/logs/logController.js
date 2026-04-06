@@ -28,7 +28,7 @@ export async function getAuditLogs(req, res) {
 
       const countResult = await prisma.$queryRawUnsafe(`SELECT COUNT(*)::int AS count FROM audit_logs`);
       total = parseInt(countResult?.[0]?.count ?? 0, 10);
-    } catch (tableError) {
+    } catch (_tableError) {
       logger.warn('[logs] audit_logs table not found or unreadable; returning empty audit logs');
     }
 

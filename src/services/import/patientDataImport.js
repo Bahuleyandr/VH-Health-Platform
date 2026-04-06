@@ -3,8 +3,8 @@
 // Includes deduplication to avoid creating duplicate records on re-import.
 
 import prisma from '../../lib/prisma.js';
-import { fromFhirPatient } from '../fhir/fhirAdapter.js';
 import logger from '../../logging/logger.js';
+import { fromFhirPatient } from '../fhir/fhirAdapter.js';
 
 // =============================================================================
 // FHIR BUNDLE IMPORT
@@ -135,7 +135,7 @@ export async function importCCDA(xmlString, importedBy) {
 // FHIR RESOURCE IMPORTERS (with deduplication)
 // =============================================================================
 
-async function importPatient(fhirPatient, importedBy) {
+async function importPatient(fhirPatient, _importedBy) {
   const patient = fromFhirPatient(fhirPatient);
   if (!patient || !patient.phone) {
     throw new Error('Patient must have a phone number');
@@ -433,7 +433,7 @@ function isStructuralDisplayName(name) {
 // C-CDA RESOURCE IMPORTERS
 // =============================================================================
 
-async function importPatientFromCCDA(patientData, importedBy) {
+async function importPatientFromCCDA(patientData, _importedBy) {
   if (!patientData.phone) {
     logger.warn('C-CDA patient has no phone number, skipping patient import');
     return;
@@ -496,7 +496,7 @@ async function importMedicationFromCCDA(med, patientUid, importedBy) {
   );
 }
 
-async function importAllergyFromCCDA(allergy, patientUid, importedBy) {
+async function importAllergyFromCCDA(allergy, patientUid, _importedBy) {
   if (!patientUid || !allergy.displayName) return;
 
   // Dedup

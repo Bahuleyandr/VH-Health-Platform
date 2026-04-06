@@ -12,7 +12,7 @@ export const sourceMapConfig = {
     hookRequire: true,
     
     // Custom retrieval for production (if using external service)
-    retrieveSourceMap: process.env.SOURCE_MAP_URL ? (source) => {
+    retrieveSourceMap: process.env.SOURCE_MAP_URL ? (_source) => {
       // Implement custom source map retrieval
       // e.g., from S3, CDN, or error tracking service
       return null;

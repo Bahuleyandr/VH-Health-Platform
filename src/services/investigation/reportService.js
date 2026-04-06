@@ -170,7 +170,7 @@ export const exportInvestigationsToExcel = async (filters) => {
   return workbook.xlsx.writeBuffer();
 };
 
-export const generateStatisticsReport = async ({ period, year }) => {
+export const generateStatisticsReport = async ({ _period, year }) => {
   const rows = await prisma.$queryRaw`
     SELECT to_char(ordered_date, 'YYYY-MM') AS month, type, COUNT(*)::int AS count
     FROM investigations
@@ -186,7 +186,7 @@ export const generateStatisticsReport = async ({ period, year }) => {
   }, {});
 };
 
-export const emailInvestigationReport = async (investigationId, emailOptions, sentBy) => {
+export const emailInvestigationReport = async (investigationId, emailOptions, _sentBy) => {
   const pdfBuffer = await generateInvestigationReport(investigationId);
   const investigation = await getInvestigationWithDetails(investigationId);
 

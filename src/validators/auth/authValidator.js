@@ -1,6 +1,6 @@
 // src/validators/auth/authValidator.js - Authentication Validators
 
-import { body, query, param } from 'express-validator';
+import { body, query } from 'express-validator';
 
 // Phone validators
 export const phoneValidator = [

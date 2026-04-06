@@ -1,6 +1,6 @@
 // src/validators/record/recordValidators.js
 import { body, query, param } from 'express-validator';
-import { VALID_RECORD_TYPES, PRIVACY_LEVELS } from '../../config/recordConfig.js';
+import { VALID_RECORD_TYPES } from '../../config/recordConfig.js';
 
 export const recordCreateValidator = [
   body('patient_id')

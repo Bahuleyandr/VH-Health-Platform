@@ -8,9 +8,9 @@
 
 import crypto from 'crypto';
 import sharp from 'sharp';
+import { HOSPITAL_UPLOAD_CONFIG } from '../config/uploadConfig.js';
 import logger from '../logging/logger.js';
 import { uploadFileToR2 } from './r2Storage.js';
-import { HOSPITAL_UPLOAD_CONFIG } from '../config/uploadConfig.js';
 
 const MAX_WIDTH  = HOSPITAL_UPLOAD_CONFIG.operationalImageMaxWidth  || 1280;
 const MAX_HEIGHT = HOSPITAL_UPLOAD_CONFIG.operationalImageMaxHeight || 1280;

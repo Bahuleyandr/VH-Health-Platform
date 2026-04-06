@@ -48,11 +48,11 @@ export {
 } from './staffAdminOperationsController.js';
 
 // Default export for legacy consumers
-import { getStaffAdminDashboard } from './staffAdminDashboardController.js';
-import { getAttendanceAnalytics, getAttendanceAnomalies, getLateArrivals, getEarlyDepartures, getAbsentReport, bulkAttendanceCorrection, overrideAttendance, syncBiometricData } from './staffAdminAttendanceController.js';
-import { getLeavePatterns, getAllLeaveRequests, bulkLeaveApproval, approveLeaveRequest, overrideLeaveBalance } from './staffAdminLeaveController.js';
 import { getPerformanceAnalytics, getDepartmentAnalytics, getEfficiencyReport, getOvertimeReport, getTurnoverReport } from './staffAdminAnalyticsController.js';
+import { getAttendanceAnalytics, getAttendanceAnomalies, getLateArrivals, getEarlyDepartures, getAbsentReport, bulkAttendanceCorrection, overrideAttendance, syncBiometricData } from './staffAdminAttendanceController.js';
+import { getStaffAdminDashboard } from './staffAdminDashboardController.js';
 import { getPendingReviews, getOnboardingStatus, approvePerformanceReview } from './staffAdminHRController.js';
+import { getLeavePatterns, getAllLeaveRequests, bulkLeaveApproval, approveLeaveRequest, overrideLeaveBalance } from './staffAdminLeaveController.js';
 import { advancedStaffSearch, exportStaffData, bulkShiftAssignment, generatePayrollData, updateStaffStatus, archiveStaffMember, purgeOldRecords } from './staffAdminOperationsController.js';
 
 export default {

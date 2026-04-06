@@ -2,7 +2,6 @@
 // Simple pipe-delimited HL7v2 parser — no external dependencies needed.
 // HL7v2 messages are CR-delimited segments with pipe-separated fields.
 
-import logger from '../../logging/logger.js';
 
 // =============================================================================
 // PARSE HL7v2

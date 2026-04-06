@@ -1,8 +1,8 @@
 // src/routes/record/index.js
 import express from 'express';
-import logger from '../../logging/logger.js';
 import { VALID_RECORD_TYPES } from '../../config/recordConfig.js';
 import { wrapAutoRBAC, wrapRoutesWithValidation } from '../../config/routeWrapper.js';
+import logger from '../../logging/logger.js';
 import adminRoutes from './adminRoutes.js';
 import doctorRoutes from './doctorRoutes.js';
 import medicalStaffRoutes from './medicalStaffRoutes.js';

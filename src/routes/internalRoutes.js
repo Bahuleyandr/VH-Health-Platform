@@ -18,7 +18,7 @@ router.get('/docs', (req, res) => {
   try {
     const docs = generateSystemDocumentation('json');
     res.status(200).json(docs);
-  } catch (err) {
+  } catch (_err) {
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });

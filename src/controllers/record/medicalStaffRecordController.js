@@ -20,7 +20,6 @@ export async function getMedicalRecords(req, res) {
       date_to: req.query.date_to
     };
 
-    const privacyFilter = accessControl.getPrivacyFilterForRole(userRole);
     const result = await recordService.getMedicalRecords(filters, userRole);
 
     success(res, {
@@ -79,7 +78,6 @@ export async function getPatientRecords(req, res) {
     const userRole = req.user?.role;
     const requestedBy = req.user?.uid || 'anonymous';
     
-    const privacyFilter = accessControl.getPrivacyFilterForRole(userRole);
     const filters = {
       patient_id,
       record_type,
@@ -114,7 +112,6 @@ export async function getDoctorRecords(req, res) {
     const userRole = req.user?.role;
     const requestedBy = req.user?.uid || 'anonymous';
     
-    const privacyFilter = accessControl.getPrivacyFilterForRole(userRole);
     const filters = {
       doctor_id,
       limit

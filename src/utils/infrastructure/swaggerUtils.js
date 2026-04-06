@@ -93,7 +93,7 @@ export const analyzeSwaggerDocument = (swaggerDocument) => {
   let documentedEndpoints = 0;
   let deprecatedEndpoints = 0;
   
-  Object.entries(paths).forEach(([path, pathObj]) => {
+  Object.entries(paths).forEach(([_path, pathObj]) => {
     Object.entries(pathObj).forEach(([method, operation]) => {
       if (['get', 'post', 'put', 'patch', 'delete'].includes(method)) {
         // Count by method

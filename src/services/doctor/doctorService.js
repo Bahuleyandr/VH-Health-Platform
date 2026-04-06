@@ -1,6 +1,6 @@
 // src/services/doctor/doctorService.js
-import prisma from '../../lib/prisma.js';
 import { DOCTOR_CONFIG, DOCTOR_MESSAGES } from '../../config/doctorConfig.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 export class DoctorService {

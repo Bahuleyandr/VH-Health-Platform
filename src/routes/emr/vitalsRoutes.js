@@ -1,9 +1,8 @@
 // src/routes/emr/vitalsRoutes.js
 import express from 'express';
-import { success, error } from '../../utils/responseHelper.js';
-import logger from '../../logging/logger.js';
-import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import vitalsChartService from '../../services/emr/vitalsChartService.js';
+import { logPhiAccess } from '../../utils/hipaaAudit.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 const router = express.Router();
 

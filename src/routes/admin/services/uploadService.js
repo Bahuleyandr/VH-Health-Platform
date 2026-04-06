@@ -1,11 +1,11 @@
 // src/routes/admin/services/uploadService.js
+import logger from '../../../logging/logger.js';
 import {
   tableExists,
   columnExists,
   safeQuery,
   safeScalar,
 } from './common.js';
-import logger from '../../../logging/logger.js';
 
 /* -----------------------------------------------------------------------------
    Helpers to adapt to different schemas

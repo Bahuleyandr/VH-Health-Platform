@@ -2,12 +2,12 @@
 // E-Prescription system — structured prescription entry, PDF generation, auto-pharmacy order
 
 import PDFDocument from 'pdfkit';
-import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { success, error } from '../../utils/responseHelper.js';
-import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
 import { dispatch } from '../../utils/notifications/notificationDispatcher.js';
+import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 // ─── Frequency label map ─────────────────────────────────────────────────────
 const FREQ_LABELS = {
@@ -488,7 +488,6 @@ export const orderPharmacyFromPrescription = async (req, res) => {
   try {
     const { id } = req.params;
     const { delivery_type = 'delivery', delivery_address, delivery_phone } = req.body;
-    const userId = req.user?.id || req.user?.userId;
 
     // Fetch prescription
     const rxResult = await prisma.$queryRawUnsafe(

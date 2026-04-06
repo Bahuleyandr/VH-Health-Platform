@@ -1,6 +1,5 @@
 // src/services/staff/hr/departmentService.js
 import prisma from '../../../lib/prisma.js';
-import logger from '../../../logging/logger.js';
 
 /**
  * Get comprehensive department staff summary

@@ -1,8 +1,8 @@
 // src/controllers/appointment/appointmentAdminController.js
+import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS } from '../../config/responseCodes.js';
 
 /**
  * Appointment SLA & workflow dashboard for admin

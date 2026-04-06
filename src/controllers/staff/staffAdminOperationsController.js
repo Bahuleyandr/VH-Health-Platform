@@ -1,6 +1,6 @@
 // src/controllers/staff/staffAdminOperationsController.js
-import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 
@@ -385,17 +385,17 @@ async function exportAttendanceData(department, start_date, end_date) {
   return [headers, ...rows].map(row => row.join(',')).join('\n');
 }
 
-async function exportPerformanceData(department, start_date, end_date) {
+async function exportPerformanceData(_department, start_date, end_date) {
   // Similar implementation for performance data
   return 'Performance data export not yet implemented';
 }
 
-async function exportLeaveData(department, start_date, end_date) {
+async function exportLeaveData(_department, start_date, end_date) {
   // Similar implementation for leave data
   return 'Leave data export not yet implemented';
 }
 
-async function exportPayrollData(department, start_date, end_date) {
+async function exportPayrollData(_department, start_date, end_date) {
   // Similar implementation for payroll data
   return 'Payroll data export not yet implemented';
 }

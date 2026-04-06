@@ -9,9 +9,9 @@
  */
 
 import { cacheGet, cacheSet, isRedisConnected } from '../lib/redis.js';
+import logger from '../logging/logger.js';
 import { logSecurityEvent } from './securityAuditLogger.js';
 import { sendSecurityWebhook } from './securityWebhook.js';
-import logger from '../logging/logger.js';
 
 const WINDOW_SECONDS = 15 * 60; // 15-minute tracking window
 const CREDENTIAL_STUFFING_THRESHOLD = 10; // Failed attempts across 10+ different accounts from same IP

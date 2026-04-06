@@ -1,21 +1,21 @@
 // src/services/auth/authService.js
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
-import prisma from '../../lib/prisma.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { SECURITY_CONFIG } from '../../config/securityConfig.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import { generateToken, verifyToken } from '../../utils/jwtUtils.js';
+import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
-import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 import { blacklistToken, revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
 import { generateChallengeToken } from '../../utils/totpUtils.js';
+import * as firebaseAuthService from './firebaseAuthService.js';
 import * as otpService from './otpService.js';
 
 // ✅ Use your real Firebase service
-import * as firebaseAuthService from './firebaseAuthService.js';
 
 export class AuthService {
   /* ======================= Firebase (pass-through) ======================= */
@@ -711,7 +711,7 @@ export class AuthService {
     }
   }
 
-  static async logout(token, req) {
+  static async logout(token, _req) {
     try {
       const decoded = verifyToken(token);
       if (decoded) {
@@ -760,11 +760,11 @@ export class AuthService {
     }
   }
 
-  static async legacyLogin(phone, req) {
+  static async legacyLogin(phone, _req) {
     return this.directOtpLogin(phone);
   }
 
-  static async legacyRegister(phone, req) {
+  static async legacyRegister(phone, _req) {
     try {
       const normalizedPhone = normalizePhone(phone);
 

@@ -1,10 +1,9 @@
 // src/services/health/healthRecordService.js
+import { DEFAULT_PAGINATION } from '../../config/healthConfig.js';
 import prisma from '../../lib/prisma.js';
 import { createPrismaDb } from '../../lib/prismaCompat.js';
-import { DEFAULT_PAGINATION } from '../../config/healthConfig.js';
 import logger from '../../logging/logger.js';
 
-const db = createPrismaDb(prisma);
 
 export async function getHealthRecords(filters, userRole, userId) {
   try {

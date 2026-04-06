@@ -4,7 +4,6 @@ import { createPrismaDb } from '../../lib/prismaCompat.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
-const db = createPrismaDb(prisma);
 
 // ===================================================================
 // Diagnosis & Problem List Service

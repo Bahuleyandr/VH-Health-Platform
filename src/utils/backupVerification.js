@@ -2,8 +2,8 @@
 
 import fs from 'fs';
 import path from 'path';
-import zlib from 'zlib';
 import { fileURLToPath } from 'url';
+import zlib from 'zlib';
 import logger from '../logging/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);

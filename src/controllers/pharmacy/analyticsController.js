@@ -1,7 +1,6 @@
-import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import * as analyticsService from '../../services/pharmacy/analyticsService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success } from '../../utils/responseHelper.js';
 
 // Get pharmacy analytics
 export const getAnalytics = async (req, res) => {

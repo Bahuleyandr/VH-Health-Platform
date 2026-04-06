@@ -1,4 +1,4 @@
-import { body, param, query, validationResult } from 'express-validator';
+import { body, param, validationResult } from 'express-validator';
 import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
 // import { isValidTimeSlot } from '../../utils/appointment/dateTimeUtils.js';
 

@@ -4,7 +4,6 @@ import { createPrismaDb } from '../../lib/prismaCompat.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
-const db = createPrismaDb(prisma);
 
 // ===================================================================
 // Clinical Decision Support (CDS) Engine
@@ -66,7 +65,7 @@ const CRITICAL_LAB_RANGES = {
  * @param {Object} patientContext - Optional pre-fetched patient data
  * @returns {{ safe: boolean, alerts: Array<{type, severity, title, description, canOverride}> }}
  */
-export async function checkOrder(order, patientContext = {}) {
+export async function checkOrder(order, _patientContext = {}) {
   if (!order || !order.type || !order.patient_uid) {
     throw AppError.badRequest('Order must include type and patient_uid');
   }

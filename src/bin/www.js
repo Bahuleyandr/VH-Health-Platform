@@ -8,14 +8,14 @@ dotenv.config();
 
 import http from 'http';
 import app from '../app.js';
-import logger from '../logging/logger.js';
-import { runAllScheduledTasksNow } from '../utils/scheduler.js';
-import { initWebSocket } from '../utils/websocket/wsServer.js';
-import { runMigrations } from '../utils/migrations/runMigrations.js';
-import { startDbHealthMonitor } from '../utils/dbHealthMonitor.js';
 import { initRedis, disconnectRedis } from '../lib/redis.js';
-import { checkSchemaHealth } from '../utils/schemaHealthCheck.js';
+import logger from '../logging/logger.js';
+import { startDbHealthMonitor } from '../utils/dbHealthMonitor.js';
 import { checkDependencyHealth } from '../utils/dependencyChecker.js';
+import { runMigrations } from '../utils/migrations/runMigrations.js';
+import { runAllScheduledTasksNow } from '../utils/scheduler.js';
+import { checkSchemaHealth } from '../utils/schemaHealthCheck.js';
+import { initWebSocket } from '../utils/websocket/wsServer.js';
 
 
 
@@ -115,7 +115,7 @@ function gracefulShutdown(signal) {
       const { default: prisma } = await import('../lib/prisma.js');
       await prisma.$disconnect();
       logger.info('Prisma client disconnected.');
-    } catch (err) {
+    } catch (_err) {
       // Prisma may not be initialized yet — safe to ignore
     }
     process.exit(0);

@@ -1,8 +1,8 @@
 // src/services/auth/adminOtpService.js - Admin OTP Service
 
 import crypto from 'crypto';
-import prisma from '../../lib/prisma.js';
 import { OTP_CONFIG } from '../../config/otpConfig.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import * as otpService from './otpService.js';
@@ -350,7 +350,7 @@ export const getOtpStatusForPhone = async (phone, purpose = 'general') => {
   };
 };
 
-export const revokeOtp = async (phone, purpose, reason, adminUid, req) => {
+export const revokeOtp = async (phone, purpose, reason, adminUid, _req) => {
   const normalizedPhone_ = normalizePhone(phone);
   const result = await query(
     `UPDATE otp_sessions

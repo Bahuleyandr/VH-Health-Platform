@@ -3,10 +3,10 @@
 
 import { Router } from 'express';
 import { validationResult } from 'express-validator';
-import { requiredString, requiredEnum, paramId } from '../../validators/sharedValidators.js';
+import logger from '../../logging/logger.js';
 import breachService from '../../services/compliance/breachService.js';
 import { success, error } from '../../utils/responseHelper.js';
-import logger from '../../logging/logger.js';
+import { requiredString, requiredEnum, paramId } from '../../validators/sharedValidators.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);

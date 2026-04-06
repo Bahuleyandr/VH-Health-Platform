@@ -1,17 +1,17 @@
 // src/routes/auth/totpRoutes.js
 // TOTP Two-Factor Authentication routes for admin accounts.
 
-import { Router } from 'express';
 import bcrypt from 'bcrypt';
+import { Router } from 'express';
+import { HTTP_STATUS } from '../../config/responseCodes.js';
+import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { success, error } from '../../utils/responseHelper.js';
-import { HTTP_STATUS } from '../../config/responseCodes.js';
-import { generateTotpSetup, verifyTotp, generateBackupCodes, generateChallengeToken } from '../../utils/totpUtils.js';
-import { generateToken } from '../../utils/jwtUtils.js';
-import { SECURITY_CONFIG } from '../../config/securityConfig.js';
-import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
+import { generateToken } from '../../utils/jwtUtils.js';
+import { success, error } from '../../utils/responseHelper.js';
+import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
+import { generateTotpSetup, verifyTotp, generateBackupCodes } from '../../utils/totpUtils.js';
 
 const router = Router();
 

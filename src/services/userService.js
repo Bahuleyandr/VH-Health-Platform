@@ -1,9 +1,7 @@
 // src/services/userService.js - Hospital User Operations Service
 
-import crypto from 'crypto';
+import { HOSPITAL_ROLES } from '../config/userConfig.js';
 import prisma from '../lib/prisma.js';
-import { HOSPITAL_ROLES, USER_STATUS } from '../config/userConfig.js';
-import logger from '../logging/logger.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import * as userUtils from '../utils/userUtils.js';
 import * as auditService from './userAuditService.js';

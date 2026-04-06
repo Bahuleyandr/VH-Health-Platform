@@ -1,9 +1,9 @@
 import express from 'express';
 import { validationResult } from 'express-validator';
-import { requiredString, paramId } from '../../validators/sharedValidators.js';
+import logger from '../../logging/logger.js';
 import { getFlags, setFlag, deleteFlag } from '../../services/featureFlags/featureFlagService.js';
 import { success, error } from '../../utils/responseHelper.js';
-import logger from '../../logging/logger.js';
+import { requiredString, paramId } from '../../validators/sharedValidators.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);

@@ -12,29 +12,39 @@ import swaggerUi from 'swagger-ui-express';
 
 // Logging and middleware imports
 import logger from './logging/logger.js';
+import apiVersionMiddleware from './middleware/apiVersionMiddleware.js';
 import { attachUserContext } from './middleware/attachUserContext.js';
+import { auditLogMiddleware } from './middleware/auditLog.js';
 import corsMiddleware, { corsErrorHandler } from './middleware/corsMiddleware.js';
 import { errorHandlerMiddleware } from './middleware/errorHandlerMiddleware.js';
-import jwtAuth from './middleware/jwtMiddleware.js';
-import { phiAccessLogger } from './middleware/phiAccessMiddleware.js';
-import { requireRole } from './middleware/rbacMiddleware.js';
-import loggingMiddleware from './middleware/loggingMiddleware.js';
-import requestIdMiddleware from './middleware/requestIdMiddleware.js';
-import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
-import { auditLogMiddleware } from './middleware/auditLog.js';
-import { patientRateLimiter, genericLimiter, adminRateLimiter, dataExportRateLimiter, dashboardRateLimiter } from './middleware/rateLimitMiddleware.js';
-import validateApiKey from './middleware/validateApiKey.js';
-import apiVersionMiddleware from './middleware/apiVersionMiddleware.js';
-import { selfHealingMiddleware } from './middleware/selfHealingMiddleware.js';
 import { adminIpAllowlist } from './middleware/ipAllowlistMiddleware.js';
+import jwtAuth from './middleware/jwtMiddleware.js';
+import loggingMiddleware from './middleware/loggingMiddleware.js';
+import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
+import { phiAccessLogger } from './middleware/phiAccessMiddleware.js';
 import { prometheusMiddleware } from './middleware/prometheusMiddleware.js';
+import { patientRateLimiter, genericLimiter, adminRateLimiter, dataExportRateLimiter, dashboardRateLimiter } from './middleware/rateLimitMiddleware.js';
+import { requireRole } from './middleware/rbacMiddleware.js';
+import requestIdMiddleware from './middleware/requestIdMiddleware.js';
+import { selfHealingMiddleware } from './middleware/selfHealingMiddleware.js';
+import validateApiKey from './middleware/validateApiKey.js';
 
 // ====================================
 // ROUTE IMPORTS - Organized by category
 // ====================================
 
 // Public / mixed modules
+import { callbackRouter as abdmCallbackRoutes, patientRouter as abdmPatientRoutes } from './routes/abdm/abdmRoutes.js';
+import adminDashboardRoutes from './routes/admin/index.js';
 import appointmentRoutes from './routes/appointment/index.js';
+import totpRoutes from './routes/auth/totpRoutes.js';
+import bedManagementRoutes from './routes/bed/bedManagementRoutes.js';
+import { bedRouter, wardRouter } from './routes/bed/bedRoutes.js';
+import auditSearchRoutes from './routes/compliance/auditSearchRoutes.js';
+import breachRoutes from './routes/compliance/breachRoutes.js';
+import configRoutes from './routes/configRoutes.js';
+import dashboardRoutes from './routes/dashboard/index.js';
+import deliveryRoutes from './routes/delivery/index.js';
 import departmentRoutes from './routes/department/index.js';
 import deviceRoutes from './routes/deviceRoutes.js';
 import doctorRoutes from './routes/doctor/index.js';
@@ -42,8 +52,8 @@ import healthRoutes from './routes/health/index.js';
 import routes from './routes/index.js';
 import infrastructureRoutes from './routes/infrastructure/index.js';
 import internalRoutes from './routes/internalRoutes.js';
-import deliveryRoutes from './routes/delivery/index.js';
 import investigationRoutes from './routes/investigation/index.js';
+import logRoutes from './routes/logs/index.js';
 import notificationRoutes from './routes/notification/index.js';
 import pharmacyRoutes from './routes/pharmacy/index.js';
 import prescriptionRoutes from './routes/prescription/index.js';
@@ -51,8 +61,6 @@ import recordRoutes from './routes/record/index.js';
 import searchRoutes from './routes/searchRoutes.js';
 import staffRoutes from './routes/staff/index.js';
 import userRoutes from './routes/user/index.js';
-import { bedRouter, wardRouter } from './routes/bed/bedRoutes.js';
-import bedManagementRoutes from './routes/bed/bedManagementRoutes.js';
 
 // FHIR interoperability
 import fhirRoutes from './routes/fhir/fhirRoutes.js';
@@ -64,17 +72,13 @@ import documentRoutes from './routes/documents/documentRoutes.js';
 import hl7Routes from './routes/hl7/hl7Routes.js';
 
 // Admin (centralized under /api/v1/admin)
-import adminDashboardRoutes from './routes/admin/index.js';
 
 // System settings and logs (admin portal: /api/v1/system/* and /api/v1/logs/*)
 import systemRoutes from './routes/system/index.js';
-import logRoutes from './routes/logs/index.js';
 
 // Patient dashboard (API key only, no JWT)
-import dashboardRoutes from './routes/dashboard/index.js';
 
 // Config routes (API key only, no JWT)
-import configRoutes from './routes/configRoutes.js';
 
 // GDPR Data Export + Erasure
 import dataExportRoutes from './routes/dataExportRoutes.js';
@@ -87,14 +91,10 @@ import consentRoutes from './routes/consentRoutes.js';
 import sessionRoutes from './routes/sessionRoutes.js';
 
 // Admin 2FA (TOTP)
-import totpRoutes from './routes/auth/totpRoutes.js';
 
 // Compliance (Breach Notification + Audit Search)
-import breachRoutes from './routes/compliance/breachRoutes.js';
-import auditSearchRoutes from './routes/compliance/auditSearchRoutes.js';
 
 // ABDM (Ayushman Bharat Digital Mission) Integration
-import { callbackRouter as abdmCallbackRoutes, patientRouter as abdmPatientRoutes } from './routes/abdm/abdmRoutes.js';
 
 // Billing & Invoicing
 import billingRoutes from './routes/billing/billingRoutes.js';

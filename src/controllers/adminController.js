@@ -2,7 +2,6 @@ import { execSync } from 'child_process';
 import admin from 'firebase-admin';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { executeCleanup } from '../utils/r2CleanupJob.js';

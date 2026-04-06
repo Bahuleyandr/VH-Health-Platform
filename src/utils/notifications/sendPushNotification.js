@@ -1,9 +1,9 @@
 // src\utils\notifications\sendPushNotification.js"
 
 import admin from 'firebase-admin';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { sendToUser } from '../websocket/wsServer.js';
-import prisma from '../../lib/prisma.js';
 
 /**
  * Send a Firebase multicast message with retry logic for transient errors.

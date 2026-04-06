@@ -12,7 +12,6 @@
 // The generated summary is ALWAYS a draft. It must be reviewed, edited, and
 // signed by a doctor before it becomes the official discharge summary.
 
-const db = createPrismaDb(prisma);
 
 import prisma from '../../lib/prisma.js';
 import { createPrismaDb } from '../../lib/prismaCompat.js';

@@ -3,13 +3,13 @@
 
 import express from 'express';
 import { validationResult } from 'express-validator';
-import prisma from '../lib/prisma.js';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
+import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { OTPService } from '../services/otpService.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import { success, error } from '../utils/responseHelper.js';
-import { phoneValidator, otpValidator, phoneOtpValidator } from '../validators/otpValidators.js';
+import { phoneValidator, phoneOtpValidator } from '../validators/otpValidators.js';
 
 const router = express.Router();
 

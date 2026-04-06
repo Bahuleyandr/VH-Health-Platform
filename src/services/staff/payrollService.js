@@ -1,6 +1,5 @@
 // src/services/staff/payrollService.js
 import prisma from '../../lib/prisma.js';
-import logger from '../../logging/logger.js';
 
 // Overtime rate: (basic / 26 working days / 8 hours) * 2 (double rate)
 function calcOvertimeRate(basicMonthly) {
@@ -397,7 +396,7 @@ export async function calculateArrears(revisionId) {
 
   // Months where old salary was paid but new salary should have applied
   const arrearMonths = [];
-  let d = new Date(effectiveDate);
+  const d = new Date(effectiveDate);
   d.setDate(1);
   const appliedMonth = new Date(r.applied_at || now);
   appliedMonth.setDate(1);

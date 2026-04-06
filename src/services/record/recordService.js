@@ -2,10 +2,9 @@
 // Migrated from raw pg to Prisma ORM
 
 import { Prisma } from '@prisma/client';
-import prisma from '../../lib/prisma.js';
 import { DEFAULT_PAGINATION } from '../../config/recordConfig.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { getPrivacyFilterForRole } from './accessControlService.js';
 
@@ -115,7 +114,7 @@ export async function getHealthRecordsByPhone(phone, filters = {}) {
   }
 }
 
-export async function createHealthRecord(data, createdBy, createdByRole) {
+export async function createHealthRecord(data, createdBy, _createdByRole) {
   try {
     const { phone, file_key, file_name, file_type, privacy_level = 'RESTRICTED', notes } = data;
     const createdByUuid = createdBy && isValidUUID(createdBy) ? createdBy : null;
@@ -138,7 +137,7 @@ export async function createHealthRecord(data, createdBy, createdByRole) {
   }
 }
 
-export async function getMedicalRecords(filters = {}, userRole) {
+export async function getMedicalRecords(filters = {}, _userRole) {
   try {
     const {
       page = 1, limit = DEFAULT_PAGINATION.DEFAULT_LIMIT,
@@ -282,7 +281,7 @@ export async function updateMedicalRecord(id, data, updatedBy) {
   }
 }
 
-export async function softDeleteRecord(id, deletedBy, reason) {
+export async function softDeleteRecord(id, deletedBy, _reason) {
   try {
     const rows = await prisma.$queryRaw`
       UPDATE medical_records
@@ -314,7 +313,6 @@ export async function getPatientInfo(patientId) {
 
 export async function searchMedicalRecords(searchTerm, userRole, limit = 50) {
   try {
-    const privacyFilter = getPrivacyFilterForRole(userRole);
     // privacyFilter is a raw SQL string fragment — keep as $queryRaw
     const rows = await prisma.$queryRaw`
       SELECT mr.id, mr.record_type, mr.title, mr.description, mr.diagnosis,
@@ -343,7 +341,7 @@ export async function searchMedicalRecords(searchTerm, userRole, limit = 50) {
   }
 }
 
-export async function getPatientSummary(patientId, privacyFilter = '') {
+export async function getPatientSummary(patientId, _privacyFilter = '') {
   try {
     // privacyFilter is a raw SQL string appended to query — use $queryRaw
     const rows = await prisma.$queryRaw`

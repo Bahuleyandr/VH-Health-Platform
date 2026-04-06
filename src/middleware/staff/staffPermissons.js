@@ -1,4 +1,3 @@
-import { STAFF_ROLES } from '../../config/staffConfig.js';
 
 export const requireHRPermission = (req, res, next) => {
   const userRole = req.user?.role;

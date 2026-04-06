@@ -1,12 +1,12 @@
 import express from 'express';
 import multer from 'multer';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
-import { sanitizeInvestigationFields } from '../../middleware/sanitizeMiddleware.js';
-import { validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
+import * as bookingController from '../../controllers/investigation/bookingController.js';
 import * as investigationController from '../../controllers/investigation/investigationController.js';
 import * as orderController from '../../controllers/investigation/orderController.js';
 import * as uploadController from '../../controllers/investigation/uploadController.js';
-import * as bookingController from '../../controllers/investigation/bookingController.js';
+import { sanitizeInvestigationFields } from '../../middleware/sanitizeMiddleware.js';
+import { validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
 import { 
   investigationRequestValidator,
   idValidator,

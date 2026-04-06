@@ -3,11 +3,11 @@
 
 import { Router } from 'express';
 import { validationResult } from 'express-validator';
-import { requiredUUID, requiredString } from '../validators/sharedValidators.js';
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
-import { success, error } from '../utils/responseHelper.js';
 import { logPhiAccess } from '../utils/hipaaAudit.js';
+import { success, error } from '../utils/responseHelper.js';
+import { requiredUUID, requiredString } from '../validators/sharedValidators.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);

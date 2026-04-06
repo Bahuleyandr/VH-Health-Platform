@@ -2,10 +2,10 @@
 // Active session management routes — view and revoke sessions.
 
 import { Router } from 'express';
-import logger from '../logging/logger.js';
-import { success, error } from '../utils/responseHelper.js';
 import { HTTP_STATUS } from '../config/responseCodes.js';
+import logger from '../logging/logger.js';
 import { listActiveSessions, revokeSession, revokeAllOtherSessions } from '../services/sessionManagementService.js';
+import { success, error } from '../utils/responseHelper.js';
 
 const router = Router();
 

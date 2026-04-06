@@ -5,12 +5,11 @@
 //   - patientRouter:  JWT-protected endpoints for patient consent management
 
 import { Router } from 'express';
-import abdmService from '../../services/abdm/abdmService.js';
 import { ABDM_CONFIG } from '../../config/abdmConfig.js';
+import logger from '../../logging/logger.js';
+import abdmService from '../../services/abdm/abdmService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
-import logger from '../../logging/logger.js';
-import crypto from 'crypto';
 
 // ====================================
 // CALLBACK ROUTER — Public (no JWT)

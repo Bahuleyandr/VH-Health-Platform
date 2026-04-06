@@ -8,7 +8,7 @@ export function parseVitalSigns(vitalSignsData) {
     return typeof vitalSignsData === 'string' 
       ? JSON.parse(vitalSignsData) 
       : vitalSignsData;
-  } catch (error) {
+  } catch (_error) {
     return {};
   }
 }
@@ -20,7 +20,7 @@ export function parseMeasurements(measurementsData) {
     return typeof measurementsData === 'string' 
       ? JSON.parse(measurementsData) 
       : measurementsData;
-  } catch (error) {
+  } catch (_error) {
     return {};
   }
 }

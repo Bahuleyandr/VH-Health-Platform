@@ -4,7 +4,7 @@
 import express from 'express';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { AppError } from '../../utils/AppError.js';
+import jwtAuth from '../../middleware/jwtMiddleware.js';
 import { parseHL7, generateACK } from '../../services/hl7/hl7Parser.js';
 import {
   admissionToADT,
@@ -14,7 +14,7 @@ import {
   parseADTToAdmission,
   parseORMToOrder,
 } from '../../services/hl7/hl7Transformer.js';
-import jwtAuth from '../../middleware/jwtMiddleware.js';
+import { AppError } from '../../utils/AppError.js';
 
 const router = express.Router();
 

@@ -2,7 +2,6 @@
 // HL7 FHIR R4 interoperability adapter
 // Transforms VH Health internal data to/from FHIR R4 JSON resources
 
-import logger from '../../logging/logger.js';
 
 /**
  * Map VH Health gender values to FHIR administrative-gender codes.

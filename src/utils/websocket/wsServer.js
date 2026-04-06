@@ -1,9 +1,9 @@
 // src/utils/websocket/wsServer.js
 
 import { WebSocketServer } from 'ws';
+import logger from '../../logging/logger.js';
 import { verifyToken } from '../jwtUtils.js';
 import { isTokenBlacklisted, isUserTokensRevoked } from '../tokenBlacklist.js';
-import logger from '../../logging/logger.js';
 
 /** @type {Map<string, Set<import('ws').WebSocket>>} userId → Set of sockets */
 const clients = new Map();

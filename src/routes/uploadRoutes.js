@@ -2,12 +2,12 @@
 
 import express from 'express';
 import { wrapAutoRBAC, wrapRoutes } from '../config/routeWrapper.js';
+import * as adminController from '../controllers/adminUploadController.js';
+import * as uploadController from '../controllers/uploadController.js';
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 
 // Import controllers
-import * as adminController from '../controllers/adminUploadController.js';
-import * as uploadController from '../controllers/uploadController.js';
 
 // Import middleware
 import {

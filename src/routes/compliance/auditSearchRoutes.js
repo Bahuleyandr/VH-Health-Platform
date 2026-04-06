@@ -3,8 +3,8 @@
 
 import { Router } from 'express';
 import prisma from '../../lib/prisma.js';
-import { success, error } from '../../utils/responseHelper.js';
 import logger from '../../logging/logger.js';
+import { success } from '../../utils/responseHelper.js';
 
 const router = Router();
 

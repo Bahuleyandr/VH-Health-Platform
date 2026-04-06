@@ -19,7 +19,7 @@ let fixCount = 0;
 const operationIdMap = new Map();
 
 // Helper to generate unique operationId
-function generateOperationId(path, method, tag) {
+function generateOperationId(path, method, _tag) {
   const parts = path.split('/').filter(p => p && !p.startsWith(':') && !p.startsWith('{'));
   const resource = parts[parts.length - 1] || parts[parts.length - 2] || 'resource';
   

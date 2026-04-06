@@ -3,8 +3,8 @@
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { success, error } from '../../utils/responseHelper.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 /**
  * GET /api/v1/dashboard?phone=<phone>

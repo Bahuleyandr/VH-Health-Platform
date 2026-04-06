@@ -1,11 +1,11 @@
 // src/routes/admin/services/sosService.js
+import logger from '../../../logging/logger.js';
 import {
   tableExists,
   columnExists,
   safeQuery,
   safeScalar,
 } from './common.js';
-import logger from '../../../logging/logger.js';
 
 /**
  * Returns aggregated SOS alert metrics:

@@ -68,13 +68,7 @@ export default [
       'curly': ['warn', 'all'],
       'no-duplicate-imports': 'error',
       'no-implicit-globals': 'error', // 'no-empty-catch' was removed from here.
-      'import/order': [
-        'warn',
-        {
-          groups: [['builtin', 'external'], 'internal', 'parent', 'sibling', 'index'],
-          alphabetize: { order: 'asc', caseInsensitive: true },
-        },
-      ],
+      'import/order': 'off',
     },
   },
 

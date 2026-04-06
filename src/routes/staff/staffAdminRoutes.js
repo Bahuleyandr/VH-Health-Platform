@@ -1,19 +1,19 @@
 // src/routes/staff/staffAdminRoutes.js
 import express from 'express';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
-import * as staffAdminController from '../../controllers/staff/staffAdminController.js';
-import * as housekeepingController from '../../controllers/staff/housekeepingController.js';
-import * as replacementController from '../../controllers/staff/replacementController.js';
-import * as attendanceController from '../../controllers/staff/attendanceController.js';
-import * as overtimeController from '../../controllers/staff/overtimeController.js';
-import * as shiftController from '../../controllers/staff/shiftController.js';
-import * as bulkController from '../../controllers/staff/bulkAttendanceController.js';
-import * as incidentController from '../../controllers/staff/incidentController.js';
-import * as grievanceController from '../../controllers/staff/grievanceController.js';
-import * as reportAuditController from '../../controllers/staff/reportAuditController.js';
 import * as attendanceAuditController from '../../controllers/staff/attendanceAuditController.js';
+import * as attendanceController from '../../controllers/staff/attendanceController.js';
+import * as bulkController from '../../controllers/staff/bulkAttendanceController.js';
+import * as grievanceController from '../../controllers/staff/grievanceController.js';
+import * as housekeepingController from '../../controllers/staff/housekeepingController.js';
+import * as incidentController from '../../controllers/staff/incidentController.js';
+import * as overtimeController from '../../controllers/staff/overtimeController.js';
 import * as payrollController from '../../controllers/staff/payrollController.js';
+import * as replacementController from '../../controllers/staff/replacementController.js';
+import * as reportAuditController from '../../controllers/staff/reportAuditController.js';
 import * as salaryRevisionController from '../../controllers/staff/salaryRevisionController.js';
+import * as shiftController from '../../controllers/staff/shiftController.js';
+import * as staffAdminController from '../../controllers/staff/staffAdminController.js';
 
 const router = express.Router();
 
