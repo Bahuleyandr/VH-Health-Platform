@@ -136,6 +136,7 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
             type="password"
             id="password"
             name="password"
+            autoComplete="new-password"
             required
             minLength={8}
             className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
