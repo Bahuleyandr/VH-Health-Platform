@@ -25,30 +25,31 @@ export class AdminDoctorService {
         // Performance metrics (last 30 days)
         prisma.$queryRawUnsafe(`
           SELECT d.id, COALESCE(u.name, d.name) as name,
-                 COALESCE(d.specialty, d.specialization) as specialization, d.department,
+                 d.specialty as specialization, d.department,
                  COUNT(a.id) as total_appointments,
                  COUNT(CASE WHEN a.status = 'COMPLETED' THEN 1 END) as completed_appointments,
                  COUNT(CASE WHEN a.status = 'CANCELLED' THEN 1 END) as cancelled_appointments,
-                 SUM(CASE WHEN a.status = 'COMPLETED' THEN COALESCE(d.consultation_fee, 0) ELSE 0 END) as revenue,
-                 ROUND(AVG(CASE WHEN a.status = 'COMPLETED' THEN 5 ELSE 0 END), 2) as avg_rating
+                 0 as revenue,
+                 0 as avg_rating
           FROM doctors d
           LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'
           LEFT JOIN appointments a ON a.doctor_id = COALESCE(d.user_id, d.id)
             AND a.appointment_date >= CURRENT_DATE - INTERVAL '30 days'
           WHERE d.is_active = true
-          GROUP BY d.id, u.name, d.name, d.specialty, d.specialization, d.department, d.consultation_fee
+          GROUP BY d.id, u.name, d.name, d.specialty, d.department
           ORDER BY total_appointments DESC
           LIMIT 10
         `),
         
         // Department distribution
         prisma.$queryRawUnsafe(`
-          SELECT d.department, d.specialization,
+          SELECT d.department, d.specialty as specialization,
                  COUNT(*) as doctor_count,
                  COUNT(CASE WHEN d.is_available = true THEN 1 END) as available_count,
-                 AVG(d.consultation_fee) as avg_fee
+                 0 as avg_fee
           FROM doctors d
-          GROUP BY d.department, d.specialization
+          WHERE d.is_active = true
+          GROUP BY d.department, d.specialty
           ORDER BY d.department, doctor_count DESC
         `)
       ]);
@@ -88,12 +89,12 @@ export class AdminDoctorService {
           COALESCE(u.name, d.name) as name,
           u.phone, u.email, u.gender,
           TO_CHAR(COALESCE(u.registered_at, d.created_at), 'DD-MM-YYYY') as registered_at,
-          COALESCE(d.specialty, d.specialization) as specialization,
+          d.specialty as specialization,
           d.department,
-          d.experience_years,
-          d.consultation_fee,
-          d.available_days, d.available_hours, d.is_available,
-          d.bio, d.education, d.certifications,
+          NULL::int as experience_years,
+          NULL::numeric as consultation_fee,
+          NULL as available_days, NULL as available_hours, d.is_available,
+          NULL as bio, NULL as education, NULL as certifications,
           COUNT(a.id) as total_appointments,
           COUNT(CASE WHEN a.status = 'COMPLETED' AND a.appointment_date >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as recent_appointments
         FROM doctors d
@@ -109,7 +110,7 @@ export class AdminDoctorService {
       }
       
       if (specialization) {
-        query += ` AND (d.specialty ILIKE $${params.length + 1} OR d.specialization ILIKE $${params.length + 1})`;
+        query += ` AND d.specialty ILIKE $${params.length + 1}`;
         params.push(`%${specialization}%`);
       }
       
@@ -119,25 +120,13 @@ export class AdminDoctorService {
         query += ' AND d.is_available = false';
       }
       
-      if (experience_min) {
-        query += ' AND d.experience_years >= $' + (params.length + 1);
-        params.push(parseInt(experience_min));
-      }
-      
-      if (experience_max) {
-        query += ' AND d.experience_years <= $' + (params.length + 1);
-        params.push(parseInt(experience_max));
-      }
-      
       if (search) {
         query += ` AND (COALESCE(u.name, d.name) ILIKE $${params.length + 1} OR d.specialty ILIKE $${params.length + 1} OR d.department ILIKE $${params.length + 1})`;
         params.push(`%${search}%`);
       }
       
       query += ` GROUP BY d.id, u.id, u.name, u.phone, u.email, u.gender, u.registered_at,
-                 d.name, d.specialty, d.specialization, d.department, d.experience_years,
-                 d.consultation_fee, d.available_days, d.available_hours, d.is_available,
-                 d.bio, d.education, d.certifications, d.created_at
+                 d.name, d.specialty, d.department, d.is_available, d.created_at
                  ORDER BY COALESCE(u.name, d.name) LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
       params.push(limit, offset);
       
@@ -177,21 +166,13 @@ export class AdminDoctorService {
         params.push(department);
       }
       if (specialization) {
-        query += ` AND (d.specialty ILIKE $${params.length + 1} OR d.specialization ILIKE $${params.length + 1})`;
+        query += ` AND d.specialty ILIKE $${params.length + 1}`;
         params.push(`%${specialization}%`);
       }
       if (status === 'available') {
         query += ' AND d.is_available = true';
       } else if (status === 'unavailable') {
         query += ' AND d.is_available = false';
-      }
-      if (experience_min) {
-        query += ' AND d.experience_years >= $' + (params.length + 1);
-        params.push(parseInt(experience_min));
-      }
-      if (experience_max) {
-        query += ' AND d.experience_years <= $' + (params.length + 1);
-        params.push(parseInt(experience_max));
       }
       if (search) {
         query += ` AND (COALESCE(u.name, d.name) ILIKE $${params.length + 1} OR d.specialty ILIKE $${params.length + 1} OR d.department ILIKE $${params.length + 1})`;
@@ -346,15 +327,12 @@ async performBulkOperation(operation, doctorIds, data = {}) {
       const result = await client.query(`
         UPDATE doctors SET 
           is_available = $1,
-          available_days = COALESCE($2, available_days),
-          available_hours = COALESCE($3, available_hours),
-          notes = COALESCE($4, notes),
           updated_at = NOW()
-        WHERE user_id = $5
-        RETURNING id, user_id, specialization, department, experience_years, consultation_fee, available_days, available_hours, is_available, notes, created_at, updated_at
-      `, [is_available, available_days, available_hours, reason, id]);
+        WHERE user_id = $2
+        RETURNING id, user_id, specialty as specialization, department, is_available, created_at, updated_at
+      `, [is_available, id]);
       
-      if (result.length === 0) {
+      if (result.rows.length === 0) {
         throw new Error(DOCTOR_MESSAGES.NOT_FOUND);
       }
       
@@ -371,13 +349,13 @@ async performBulkOperation(operation, doctorIds, data = {}) {
           RETURNING id, appointment_date, appointment_time
         `, [reason, id]);
         
-        affectedAppointments = appointmentResult;
+        affectedAppointments = appointmentResult.rows;
       }
       
       await client.query('COMMIT');
       
       return {
-        doctor: result[0],
+        doctor: result.rows[0],
         affected_appointments: affectedAppointments.length,
         cancelled_appointments: affectedAppointments
       };
@@ -405,7 +383,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
         [id]
       );
       
-      if (doctorCheck.length === 0) {
+      if (doctorCheck.rows.length === 0) {
         throw new Error(DOCTOR_MESSAGES.NOT_FOUND);
       }
       
@@ -415,7 +393,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
         [id, 'SCHEDULED']
       );
       
-      const futureCount = parseInt(futureAppointments[0].count);
+      const futureCount = parseInt(futureAppointments.rows[0].count);
       
       if (futureCount > 0 && !transfer_patients_to) {
         throw new Error(`Doctor has ${futureCount} future appointments. Provide transfer_patients_to doctor ID or cancel appointments first`);
@@ -430,7 +408,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
             [transfer_patients_to, 'DOCTOR']
           );
           
-          if (transferDoctor.length === 0) {
+          if (transferDoctor.rows.length === 0) {
             throw new Error('Transfer target doctor not found');
           }
           
@@ -461,7 +439,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
       await client.query('COMMIT');
       
       return {
-        doctor: doctorCheck[0],
+        doctor: doctorCheck.rows[0],
         appointments_handled: {
           future_appointments: futureCount,
           action: transfer_patients_to ? 'transferred' : 'cancelled',
