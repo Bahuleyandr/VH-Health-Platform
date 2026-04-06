@@ -43,6 +43,68 @@ export class DoctorService {
     return this._doctorSchema;
   }
 
+  // Variant that drives from doctors table (handles doctors with no user_id)
+  buildDoctorSelectFieldsFromDoctors(schema, { detailed = false } = {}) {
+    const fields = [
+      'd.id',
+      'u.uid',
+      'u.phone',
+      'COALESCE(u.name, d.name) AS name',
+      'u.email',
+      'u.gender',
+      'u.registered_at',
+      schema.specialization
+        ? `d.${schema.specialization} AS specialization`
+        : 'NULL::text AS specialization',
+      schema.department
+        ? 'd.department'
+        : 'NULL::text AS department',
+      schema.experienceYears
+        ? 'd.experience_years'
+        : 'NULL::integer AS experience_years',
+      schema.consultationFee
+        ? 'd.consultation_fee'
+        : 'NULL::numeric AS consultation_fee',
+      schema.availableDays
+        ? 'd.available_days'
+        : 'NULL::text[] AS available_days',
+      schema.availableHours
+        ? 'd.available_hours'
+        : 'NULL::jsonb AS available_hours',
+      schema.isAvailable
+        ? 'd.is_available'
+        : 'NULL::boolean AS is_available',
+      schema.bio
+        ? `d.${schema.bio} AS bio`
+        : 'NULL::text AS bio',
+      schema.education
+        ? 'd.education'
+        : 'NULL::text AS education',
+      schema.qualifications
+        ? 'd.qualifications'
+        : 'NULL::text[] AS qualifications',
+      schema.createdAt
+        ? 'd.created_at AS profile_created'
+        : 'NULL::timestamp AS profile_created',
+    ];
+
+    if (detailed) {
+      fields.push(
+        'u.address',
+        'u.birthday',
+        'u.profile_picture',
+        schema.certifications
+          ? 'd.certifications'
+          : 'NULL::text[] AS certifications',
+        schema.updatedAt
+          ? 'd.updated_at AS profile_updated'
+          : 'NULL::timestamp AS profile_updated',
+      );
+    }
+
+    return fields.join(',\n                 ');
+  }
+
   buildDoctorSelectFields(schema, { detailed = false } = {}) {
     const fields = [
       'u.id',
@@ -114,7 +176,7 @@ export class DoctorService {
       const offset = (pageNum - 1) * limitNum;
 
       const params = [];
-      const where = [`u.role = 'DOCTOR'`];
+      const where = [`d.is_active = true`];
 
       if (department && schema.department) {
         params.push(department.toUpperCase());
@@ -129,7 +191,7 @@ export class DoctorService {
       if (search) {
         params.push(`%${search}%`);
         const searchParam = `$${params.length}`;
-        const searchClauses = [`u.name ILIKE ${searchParam}`];
+        const searchClauses = [`COALESCE(u.name, d.name) ILIKE ${searchParam}`];
         if (schema.specialization) {
           searchClauses.push(`COALESCE(d.${schema.specialization}, '') ILIKE ${searchParam}`);
         }
@@ -139,11 +201,11 @@ export class DoctorService {
       params.push(limitNum, offset);
       const rows = await prisma.$queryRawUnsafe(
         `
-          SELECT ${this.buildDoctorSelectFields(schema)}
-          FROM users u
-          LEFT JOIN doctors d ON u.id = d.user_id
+          SELECT ${this.buildDoctorSelectFieldsFromDoctors(schema)}
+          FROM doctors d
+          LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'
           WHERE ${where.join(' AND ')}
-          ORDER BY u.name
+          ORDER BY COALESCE(u.name, d.name)
           LIMIT $${params.length - 1} OFFSET $${params.length}
         `,
         ...params,
@@ -171,7 +233,7 @@ export class DoctorService {
       const { department, available, search } = filters;
 
       const params = [];
-      const where = [`u.role = 'DOCTOR'`];
+      const where = [`d.is_active = true`];
 
       if (department && schema.department) {
         params.push(department.toUpperCase());
@@ -186,7 +248,7 @@ export class DoctorService {
       if (search) {
         params.push(`%${search}%`);
         const searchParam = `$${params.length}`;
-        const searchClauses = [`u.name ILIKE ${searchParam}`];
+        const searchClauses = [`COALESCE(u.name, d.name) ILIKE ${searchParam}`];
         if (schema.specialization) {
           searchClauses.push(`COALESCE(d.${schema.specialization}, '') ILIKE ${searchParam}`);
         }
@@ -195,14 +257,14 @@ export class DoctorService {
 
       const result = await prisma.$queryRawUnsafe(
         `
-          SELECT COUNT(*)
-          FROM users u
-          LEFT JOIN doctors d ON u.id = d.user_id
+          SELECT COUNT(*)::int as count
+          FROM doctors d
+          LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'
           WHERE ${where.join(' AND ')}
         `,
         ...params,
       );
-      return parseInt(result[0].count);
+      return result[0].count;
     } catch (error) {
       logger.error('Error counting doctors:', error);
       throw error;
