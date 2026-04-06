@@ -10,7 +10,6 @@ import {
   Eye,
   TrendingUp,
   BarChart3,
-  Filter,
 } from "lucide-react";
 import { fetchAdminAPI } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";

@@ -2,7 +2,6 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { API_BASE_URL, getHeaders } from "@/lib/api-config";
 import { DownloadIcon, RefreshIcon } from "@/components/icons";
 
 /* ─── Date preset helpers ─── */

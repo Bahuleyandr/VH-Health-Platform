@@ -102,7 +102,7 @@ async function proxyLogin(
     }
 
     return setTokenCookie(token, data);
-  } catch (err) {
+  } catch {
     return NextResponse.json(
       { message: "Login service unavailable", success: false },
       { status: 502 },

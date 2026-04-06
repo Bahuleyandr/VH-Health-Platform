@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState } from "react";
 import ComplianceTab, { LeaveEncashmentCalculator } from "./ComplianceTab";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "react-hot-toast";
@@ -11,7 +11,6 @@ import {
   issuePayslips,
   hrSignPayrollRun,
   adminSignPayrollRun,
-  manualEditPayslip,
   getStaffForPayroll,
   getStaffSalaryConfig,
   upsertSalaryConfig,
