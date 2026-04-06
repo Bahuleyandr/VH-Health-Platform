@@ -26,8 +26,8 @@ export const createDepartmentValidation = [
     }).withMessage(DEPARTMENT_MESSAGES.INVALID_NAME_LENGTH),
   
   body('description')
+    .optional({ checkFalsy: true })
     .trim()
-    .notEmpty().withMessage(DEPARTMENT_MESSAGES.DESCRIPTION_REQUIRED)
     .isLength({ 
       min: DEPARTMENT_CONFIG.DESCRIPTION_MIN_LENGTH, 
       max: DEPARTMENT_CONFIG.DESCRIPTION_MAX_LENGTH 
