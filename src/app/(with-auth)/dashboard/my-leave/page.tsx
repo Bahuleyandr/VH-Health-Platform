@@ -89,7 +89,7 @@ export default function MyLeavePage() {
     try {
       const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.myWork.leave.apply}`, {
         method: 'POST', headers,
-        body: form,
+        body: JSON.stringify(form),
       });
       if (!res.ok) throw new Error('Failed to apply for leave');
       setSuccessMsg('Leave application submitted.');
