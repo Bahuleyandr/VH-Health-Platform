@@ -159,12 +159,13 @@ export const adminDoctorController = {
       // Also update users table for name/email/phone if user row exists
       if (req.body.email || req.body.phone || req.body.name) {
         await prisma.$queryRawUnsafe(`
-          UPDATE users SET
-            name = COALESCE($1, name),
-            email = COALESCE($2, email),
-            phone = COALESCE($3, phone),
+          UPDATE users u SET
+            name = COALESCE($1, u.name),
+            email = COALESCE($2, u.email),
+            phone = COALESCE($3, u.phone),
             updated_at = NOW()
-          WHERE id = (SELECT user_id FROM doctors WHERE id = $4) AND user_id IS NOT NULL
+          FROM doctors d
+          WHERE u.id = d.user_id AND d.id = $4 AND d.user_id IS NOT NULL
         `, req.body.name || null, req.body.email || null, req.body.phone || null, doctorId);
       }
 
