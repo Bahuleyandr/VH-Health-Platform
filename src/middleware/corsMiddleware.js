@@ -21,7 +21,6 @@ const buildOriginMatchers = () => {
   const defaultExact = [
     'https://api.vhhealth.app',
     'https://vh-health-backend.onrender.com',
-    'https://admin.vhhealth.app',
     'https://dashboard.vhhealth.app',
   ];
 
