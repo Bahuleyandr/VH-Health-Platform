@@ -616,6 +616,7 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
   // ─── Today's stats card ───────────────────────────────────────────────────
 
   Widget _buildTodayCard() {
+    final theme = Theme.of(context);
     final today = _todayRow;
     final steps = today?.steps ?? 0;
     final dist = today?.distanceMeters ?? 0.0;
@@ -636,13 +637,13 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
                 Column(
                   children: [
                     Text('$steps', style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF4CAF50))),
-                    const Text('steps', style: TextStyle(color: Colors.grey)),
+                    Text('steps', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
                   ],
                 ),
                 Column(
                   children: [
                     Text(_distKm(dist), style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF2196F3))),
-                    const Text('distance', style: TextStyle(color: Colors.grey)),
+                    Text('distance', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
                   ],
                 ),
               ],
@@ -650,7 +651,7 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
             const SizedBox(height: 12),
             LinearProgressIndicator(
               value: pct,
-              backgroundColor: Colors.grey[200],
+              backgroundColor: theme.colorScheme.outlineVariant,
               color: pct >= 1.0 ? Colors.green : const Color(0xFF4CAF50),
               minHeight: 8,
               borderRadius: BorderRadius.circular(4),
@@ -658,7 +659,7 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
             const SizedBox(height: 4),
             Text(
               pct >= 1.0 ? '🎉 Daily goal reached!' : '${(pct * 100).toStringAsFixed(0)}% of $goal-step goal',
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
+              style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -738,6 +739,7 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
   // ─── History section ──────────────────────────────────────────────────────
 
   Widget _buildHistorySection() {
+    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -746,7 +748,7 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
         TabBar(
           controller: _historyTabController,
           labelColor: const Color(0xFF4CAF50),
-          unselectedLabelColor: Colors.grey,
+          unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
           indicatorColor: const Color(0xFF4CAF50),
           tabs: const [
             Tab(text: 'Daily'),
@@ -838,9 +840,9 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey[200]!),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
       ),
       child: Row(
         children: [
@@ -933,10 +935,10 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: entry.isMe ? const Color(0xFFE8F5E9) : Colors.white,
+        color: entry.isMe ? const Color(0xFFE8F5E9) : Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: entry.isMe ? const Color(0xFF4CAF50) : Colors.grey[200]!,
+          color: entry.isMe ? const Color(0xFF4CAF50) : Theme.of(context).colorScheme.outlineVariant,
           width: entry.isMe ? 2 : 1,
         ),
       ),
@@ -993,14 +995,14 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
         const Text('Your Rewards 🏆', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         const SizedBox(height: 8),
         ...(_rewards.map((r) => Card(
-          color: r.isApplied ? Colors.grey[100] : const Color(0xFFFFF9C4),
+          color: r.isApplied ? Theme.of(context).colorScheme.surfaceContainerLow : const Color(0xFFFFF9C4),
           child: ListTile(
             leading: const Icon(Icons.emoji_events, color: Colors.amber),
             title: Text(
               r.displayText,
               style: TextStyle(
                 fontSize: 14,
-                color: r.isApplied ? Colors.grey : Colors.black87,
+                color: r.isApplied ? Theme.of(context).colorScheme.onSurfaceVariant : Theme.of(context).colorScheme.onSurface,
                 decoration: r.isApplied ? TextDecoration.lineThrough : null,
               ),
             ),

@@ -386,18 +386,19 @@ class _RecordsScreenState extends State<RecordsScreen>
   }
 
   Widget _buildHospitalRecords() {
+    final theme = Theme.of(context);
     if (_hospitalRecords.isEmpty) {
-      return const Center(
+      return Center(
         child: Padding(
-          padding: EdgeInsets.all(32),
+          padding: const EdgeInsets.all(32),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.local_hospital_outlined, size: 64, color: Colors.grey),
-              SizedBox(height: 12),
+              Icon(Icons.local_hospital_outlined, size: 64, color: theme.colorScheme.onSurfaceVariant),
+              const SizedBox(height: 12),
               Text(
                 'Your prescriptions and reports from visits will appear here',
-                style: TextStyle(color: Colors.grey),
+                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -419,6 +420,7 @@ class _RecordsScreenState extends State<RecordsScreen>
   }
 
   Widget _buildMyUploads() {
+    final theme = Theme.of(context);
     if (_myUploads.isEmpty) {
       return Center(
         child: Padding(
@@ -426,11 +428,11 @@ class _RecordsScreenState extends State<RecordsScreen>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.folder_open, size: 64, color: Colors.grey),
+              Icon(Icons.folder_open, size: 64, color: theme.colorScheme.onSurfaceVariant),
               const SizedBox(height: 12),
-              const Text(
+              Text(
                 'Upload your previous prescriptions and reports to keep them in one place',
-                style: TextStyle(color: Colors.grey),
+                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 20),
@@ -547,12 +549,12 @@ class _RecordCard extends StatelessWidget {
                     if (record.doctorName != null)
                       Text(
                         '${record.doctorName}${record.department != null ? ' • ${record.department}' : ''}',
-                        style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
+                        style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                         maxLines: 1, overflow: TextOverflow.ellipsis,
                       ),
                     if (record.sourceHospital != null)
                       Text(record.sourceHospital!,
-                          style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
+                          style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                           maxLines: 1, overflow: TextOverflow.ellipsis),
                     const SizedBox(height: 4),
                     Row(
@@ -571,11 +573,11 @@ class _RecordCard extends StatelessWidget {
                         if (record.appointmentDate != null) ...[
                           const SizedBox(width: 8),
                           Text(record.appointmentDate!,
-                              style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey[500])),
+                              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
                         ] else if (record.createdAt != null) ...[
                           const SizedBox(width: 8),
                           Text(record.createdAt!,
-                              style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey[500])),
+                              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
                         ],
                       ],
                     ),
@@ -586,7 +588,7 @@ class _RecordCard extends StatelessWidget {
               Icon(
                 record.fileUrl != null ? Icons.open_in_new : Icons.lock,
                 size: 18,
-                color: record.fileUrl != null ? typeColor : Colors.grey,
+                color: record.fileUrl != null ? typeColor : theme.colorScheme.onSurfaceVariant,
               ),
             ],
           ),
