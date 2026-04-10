@@ -179,6 +179,11 @@ final response = await ApiClient.multipart('/upload',
 | `/departments` | DepartmentsScreen | No |
 | `/about-us` | AboutUsScreen | No |
 | `/calendar` | CalendarScreen | No |
+| `/steps` | StepChallengeScreen | No |
+| `/vitals` | VitalsScreen | No |
+| `/refill` | RefillScreen | No |
+| `/family` | FamilyScreen | No |
+| `/abdm` | AbdmScreen | No |
 | `/records` → `/health` | Redirect | — |
 | `/your-health` → `/health` | Redirect | — |
 | `/dashboard` → `/home` | Redirect | — |
@@ -244,16 +249,39 @@ final response = await ApiClient.multipart('/upload',
 | Quick rating | `/feedback/quick-rating` | POST |
 | **SOS** | | |
 | Trigger SOS | `/sos/` | POST |
-| Emergency contact | `/sos/emergency-contact` | GET |
-| Cancel alert | `/sos/cancel/:alertId` | PATCH |
+| Get emergency contact | `/sos/emergency-contact` | GET |
+| Update emergency contact | `/sos/emergency-contact` | POST |
+| Cancel alert | `/sos/cancel/:alertId` | POST |
 | My alerts | `/sos/my-alerts` | GET |
 | Nearby services | `/sos/nearby-services?lat=&lng=` | GET |
 | Medical info | `/sos/medical-info` | GET |
+| **Vitals** | | |
+| Record vitals | `/health/patient/vitals` | POST |
+| Vitals history | `/health/patient/:patientId/vitals` | GET |
+| **Prescriptions (Refill)** | | |
+| Request refill | `/prescriptions/:id/refill` | POST |
+| **Family Members** | | |
+| List members | `/users/family-members` | GET |
+| Add member | `/users/family-members` | POST |
+| Remove member | `/users/family-members/:id` | DELETE |
+| **Steps Challenge** | | |
+| Step profile | `/steps/profile` | GET |
+| Update profile | `/steps/profile` | PUT |
+| Start session | `/steps/session/start` | POST |
+| Stop session | `/steps/session/stop` | POST |
+| Step history | `/steps/history` | GET |
+| Leaderboard | `/steps/leaderboard` | GET |
+| Rewards | `/steps/rewards` | GET |
+| **Medication Reminders** | | |
+| List reminders | `/reminders/medication` | GET |
+| Create reminder | `/reminders/medication` | POST |
+| Update reminder | `/reminders/medication/:id` | PUT |
+| Delete reminder | `/reminders/medication/:id` | DELETE |
 | **Devices** | | |
 | Register device | `/devices/register` | POST |
 | My devices | `/devices/my-devices` | GET |
 | Heartbeat | `/devices/heartbeat` | POST |
-| Update token | `/devices/update-token` | PATCH |
+| Update token | `/devices/update-token` | POST |
 | Unregister | `/devices/unregister` | DELETE |
 
 ## CI/CD
