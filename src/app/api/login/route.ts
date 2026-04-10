@@ -15,10 +15,23 @@ function validateOrigin(request: Request): NextResponse | null {
   const allowed = process.env.NEXT_PUBLIC_ALLOWED_ORIGIN || 'http://localhost:3000';
   // Allow requests with no origin (same-origin, curl, server-side)
   if (origin && origin !== allowed) {
-    return NextResponse.json(
-      { message: 'Forbidden: Origin not allowed', success: false },
-      { status: 403 },
-    );
+    // Also allow any *.vhhealth.app origin in addition to exact match
+    const allowedHosts = allowed.split(',').map((s: string) => s.trim());
+    const originHost = new URL(origin).origin;
+    const isAllowed = allowedHosts.some((h: string) => {
+      if (h === origin) return true;
+      // Wildcard: *.vhhealth.app matches any subdomain
+      if (h.startsWith('https://') && h.endsWith('.vhhealth.app')) {
+        return originHost === h;
+      }
+      return false;
+    });
+    if (!isAllowed) {
+      return NextResponse.json(
+        { message: 'Forbidden: Origin not allowed', success: false },
+        { status: 403 },
+      );
+    }
   }
   return null;
 }
