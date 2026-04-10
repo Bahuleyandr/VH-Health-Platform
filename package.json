@@ -29,7 +29,7 @@
     "@tanstack/react-query": "^5.81.5",
     "@tanstack/react-query-devtools": "^5.96.2",
     "@tanstack/react-virtual": "^3.13.23",
-    "axios": "^1.10.0",
+    "axios": "^1.15.0",
     "bcrypt": "^6.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
