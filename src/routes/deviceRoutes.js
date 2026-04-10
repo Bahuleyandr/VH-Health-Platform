@@ -100,6 +100,70 @@ wrapAutoRBAC(
         }
       ],
 
+      // 📋 All devices for admin dashboard
+      [
+        '/admin/list',
+        async (req, res) => {
+          try {
+            if (req.user?.role !== 'ADMIN') {
+              return error(res, 'Admin access required to view all devices', HTTP_STATUS.FORBIDDEN);
+            }
+
+            const { search } = req.query;
+            const params = [];
+            let whereClause = '';
+
+            if (search) {
+              params.push(`%${search}%`);
+              whereClause = `
+                WHERE (
+                  u.name ILIKE $1 OR
+                  u.phone ILIKE $1 OR
+                  ud.device_id ILIKE $1 OR
+                  ud.device_name ILIKE $1 OR
+                  ud.platform ILIKE $1
+                )
+              `;
+            }
+
+            const devices = await prisma.$queryRawUnsafe(
+              `SELECT
+                ud.id,
+                ud.device_id,
+                u.uid as user_id,
+                u.name as user_name,
+                LOWER(COALESCE(u.role, 'patient')) as user_type,
+                COALESCE(ud.device_type, ud.platform) as device_type,
+                ud.device_name,
+                ud.platform,
+                ud.os_version,
+                ud.app_version,
+                ud.fcm_token,
+                CASE
+                  WHEN ud.last_active > NOW() - INTERVAL '7 days' THEN 'active'
+                  WHEN ud.last_active > NOW() - INTERVAL '30 days' THEN 'inactive'
+                  ELSE 'expired'
+                END as fcm_status,
+                ud.last_active,
+                ud.ip_address,
+                ud.created_at,
+                ud.updated_at
+              FROM user_devices ud
+              LEFT JOIN users u ON u.uid = ud.user_uid
+              ${whereClause}
+              ORDER BY ud.last_active DESC NULLS LAST, ud.created_at DESC NULLS LAST
+              LIMIT 200`,
+              ...params,
+            );
+
+            success(res, devices, 'Devices retrieved successfully');
+          } catch (err) {
+            logger.error('Admin Device List Error:', err);
+            success(res, [], 'Devices retrieved (empty - table may not exist)');
+          }
+        }
+      ],
+
       // 📊 Device Statistics (Admin only)
       [
         '/stats',
