@@ -169,7 +169,8 @@ class FeedbackService {
       paramIndex++;
     }
 
-    const feedback = await prisma.$queryRawUnsafe(`
+    const feedback = await prisma.$queryRawUnsafe(
+      `
       SELECT
         f.id, f.phone, f.rating, f.comment, f.category, f.created_at,
         f.anonymous, f.improvement_suggestions, f.response_status,
@@ -188,11 +189,13 @@ class FeedbackService {
       ${whereClause}
       ORDER BY f.created_at DESC
       LIMIT $1 OFFSET $2
-    `, params);
+    `,
+      ...params,
+    );
 
     const total = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM feedback f ${whereClause}`,
-      params.slice(2)
+      ...params.slice(2)
     );
 
     return {
@@ -241,7 +244,7 @@ class FeedbackService {
       ORDER BY average_rating DESC, feedback_count DESC
     `;
 
-    const doctorRankings = await prisma.$queryRawUnsafe(doctorQuery, doctorParams);
+    const doctorRankings = await prisma.$queryRawUnsafe(doctorQuery, ...doctorParams);
 
     // Department performance (admin/nurse only)
     let departmentPerformance = [];
@@ -274,7 +277,8 @@ class FeedbackService {
     }
 
     // Safety: `safeGroupBy` is whitelisted above, so interpolation is safe
-    const satisfactionTrends = await prisma.$queryRawUnsafe(`
+    const satisfactionTrends = await prisma.$queryRawUnsafe(
+      `
       SELECT
         DATE_TRUNC('${safeGroupBy}', created_at) as period,
         ROUND(AVG(rating), 2) as avg_rating,
@@ -285,7 +289,9 @@ class FeedbackService {
       ${trendDoctorFilter}
       GROUP BY DATE_TRUNC('${safeGroupBy}', created_at)
       ORDER BY period DESC
-    `, trendParams);
+    `,
+      ...trendParams,
+    );
 
     return {
       doctorRankings: doctorRankings,
@@ -311,7 +317,8 @@ class FeedbackService {
       queryParams.push(startDate, endDate);
     }
 
-    const result = await prisma.$queryRawUnsafe(`
+    const result = await prisma.$queryRawUnsafe(
+      `
       SELECT
         COUNT(*) as total_feedback,
         ROUND(AVG(rating), 2) as overall_rating,
@@ -324,7 +331,9 @@ class FeedbackService {
         COUNT(*) FILTER (WHERE response_status = 'responded') as responded_count
       FROM feedback
       ${dateFilter}
-    `, queryParams);
+    `,
+      ...queryParams,
+    );
 
     return result[0];
   }
@@ -347,11 +356,16 @@ class FeedbackService {
         anonymous, improvement_suggestions, created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
       RETURNING id, uid, phone, type, comment, rating, status, created_at, updated_at`,
-      [
-        phone, userUid, rating, comment, category,
-        appointment_id, doctor_id, department_id,
-        anonymous, improvement_suggestions
-      ]
+      phone,
+      userUid,
+      rating,
+      comment,
+      category,
+      appointment_id,
+      doctor_id,
+      department_id,
+      anonymous,
+      improvement_suggestions,
     );
 
     const feedback = result[0];
@@ -363,13 +377,11 @@ class FeedbackService {
           `INSERT INTO notifications (
             recipient_role, title, body, type, priority, created_at
           ) VALUES ($1, $2, $3, $4, $5, NOW())`,
-          [
-            'ADMIN',
-            'Critical Feedback Alert',
-            `Poor rating (${rating}/5) received from patient. Category: ${category}`,
-            'feedback_alert',
-            'high'
-          ]
+          'ADMIN',
+          'Critical Feedback Alert',
+          `Poor rating (${rating}/5) received from patient. Category: ${category}`,
+          'feedback_alert',
+          'high',
         );
       } catch (notifErr) {
         logger.warn('Failed to send critical feedback notification:', notifErr.message);
@@ -391,7 +403,10 @@ class FeedbackService {
         phone, rating, category, appointment_id, created_at
       ) VALUES ($1, $2, $3, $4, NOW())
       RETURNING id, rating, created_at`,
-      [phone, rating, category, appointment_id]
+      phone,
+      rating,
+      category,
+      appointment_id,
     );
 
     return result[0];
@@ -408,13 +423,16 @@ class FeedbackService {
         feedback_id, responder_uid, response_text, created_at
       ) VALUES ($1, $2, $3, NOW())
       RETURNING id, uid, phone, type, comment, rating, status, created_at, updated_at`,
-      [feedbackId, staffUid, response]
+      feedbackId,
+      staffUid,
+      response,
     );
 
     // Mark feedback as responded
     await prisma.$queryRawUnsafe(
       'UPDATE feedback SET responded_at = NOW(), response_status = $1 WHERE id = $2',
-      ['responded', feedbackId]
+      'responded',
+      feedbackId,
     );
 
     return result[0];
@@ -427,7 +445,7 @@ class FeedbackService {
   async deleteFeedback(feedbackId, adminUid, reason) {
     const result = await prisma.$queryRawUnsafe(
       'DELETE FROM feedback WHERE id = $1 RETURNING id, uid, phone, type, comment, rating, status, created_at, updated_at',
-      [feedbackId]
+      feedbackId,
     );
 
     if (result.length === 0) {
@@ -440,7 +458,11 @@ class FeedbackService {
         `INSERT INTO admin_actions (
           admin_uid, action_type, target_type, target_id, reason, created_at
         ) VALUES ($1, $2, $3, $4, $5, NOW())`,
-        [adminUid, 'delete', 'feedback', feedbackId, reason]
+        adminUid,
+        'delete',
+        'feedback',
+        feedbackId,
+        reason,
       );
     } catch (logErr) {
       logger.warn('Failed to log admin action:', logErr.message);
@@ -455,7 +477,7 @@ class FeedbackService {
   async getUserByPhone(phone) {
     const result = await prisma.$queryRawUnsafe(
       'SELECT uid, name FROM users WHERE phone = $1',
-      [phone]
+      phone,
     );
     return result[0] || null;
   }
@@ -466,7 +488,7 @@ class FeedbackService {
   async getFeedbackById(feedbackId) {
     const result = await prisma.$queryRawUnsafe(
       'SELECT id, phone, rating, doctor_id FROM feedback WHERE id = $1',
-      [feedbackId]
+      feedbackId,
     );
     return result[0] || null;
   }
@@ -478,7 +500,10 @@ class FeedbackService {
   async submitSimpleFeedback(phone, rating, comment, question) {
     const result = await prisma.$queryRawUnsafe(
       'INSERT INTO feedback (phone, rating, comment, question) VALUES ($1, $2, $3, $4) RETURNING id, phone, rating, comment, question, created_at',
-      [phone, rating || null, comment || null, question || null]
+      phone,
+      rating || null,
+      comment || null,
+      question || null,
     );
     return result[0];
   }
