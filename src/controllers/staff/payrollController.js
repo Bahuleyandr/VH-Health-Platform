@@ -349,7 +349,8 @@ export const getStaffForPayroll = async (req, res) => {
     }
 
     const where = `WHERE ${conditions.join(' AND ')}`;
-    const staffList = await prisma.$queryRawUnsafe(`
+    const staffList = await prisma.$queryRawUnsafe(
+      `
       SELECT u.uid, u.name, u.role, u.phone,
              COALESCE(s.department, ss.department) as department,
              COALESCE(s.employee_id, ss.employee_id) as employee_id,
@@ -361,7 +362,9 @@ export const getStaffForPayroll = async (req, res) => {
       ${where}
       ORDER BY u.name
       LIMIT 50
-    `, params);
+    `,
+      ...params,
+    );
 
     success(res, staffList, 'Staff fetched');
   } catch (err) {
@@ -965,7 +968,7 @@ export const getPayrollComparison = async (req, res) => {
 
     query += ` ORDER BY p.staff_uid, p.year, p.month`;
 
-    const payslips = await prisma.$queryRawUnsafe(query, params);
+    const payslips = await prisma.$queryRawUnsafe(query, ...params);
 
     // Group by staff
     const staffMap = {};
@@ -1349,7 +1352,7 @@ export const createBulkRevision = async (req, res) => {
     if (target_type==='department') { countQuery+=` AND u.department=$1`; params.push(target_value); }
     else if (target_type==='role') { countQuery+=` AND u.role=$1`; params.push(target_value); }
     else if (target_type==='designation') { countQuery+=` AND ss.designation=$1`; params.push(target_value); }
-    const countResult=await prisma.$queryRawUnsafe(countQuery,params);
+    const countResult=await prisma.$queryRawUnsafe(countQuery,...params);
     const staffCount=parseInt(countResult[0].cnt);
     if (staffCount===0) return error(res,`No active staff found for ${target_type}=${target_value}`,HTTP_STATUS.BAD_REQUEST);
     const job=await prisma.$queryRawUnsafe(
@@ -1374,7 +1377,7 @@ export const approveBulkRevision = async (req, res) => {
         if (j.target_type==='department'){staffQuery+=` AND u.department=$1`;params.push(j.target_value);}
         else if (j.target_type==='role'){staffQuery+=` AND u.role=$1`;params.push(j.target_value);}
         else if (j.target_type==='designation'){staffQuery+=` AND ss.designation=$1`;params.push(j.target_value);}
-        const staffList=await prisma.$queryRawUnsafe(staffQuery,params);
+        const staffList=await prisma.$queryRawUnsafe(staffQuery,...params);
         let processed=0;
         for (const s of staffList) {
           try {
