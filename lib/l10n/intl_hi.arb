@@ -549,5 +549,33 @@
   "notification": "सूचना",
   "@notification": { "description": "जब सूचना शीर्षक गुम हो तो फॉलबैक शीर्षक" },
 "downloadPermissionDenied": "फ़ाइलें डाउनलोड करने के लिए संग्रहण अनुमति आवश्यक है।",
-"@downloadPermissionDenied": { "description": "जब उपयोगकर्ता संग्रहण अनुमति से इनकार करता है तो दिखाया जाता है" }
+"@downloadPermissionDenied": { "description": "जब उपयोगकर्ता संग्रहण अनुमति से इनकार करता है तो दिखाया जाता है" },
+
+  "vitalsTitle": "महत्वपूर्ण संकेत",
+  "vitalsLogTab": "रिकॉर्ड करें",
+  "vitalsHistoryTab": "इतिहास",
+  "vitalsLogHeading": "अपने दैनिक महत्वपूर्ण संकेत दर्ज करें",
+  "vitalsRecordButton": "रिकॉर्ड करें",
+  "vitalsRecordedSuccess": "महत्वपूर्ण संकेत सफलतापूर्वक रिकॉर्ड किए गए",
+  "vitalsNoHistory": "अभी तक कोई रिकॉर्ड नहीं",
+
+  "familyTitle": "परिवार के सदस्य",
+  "familyAddMember": "परिवार का सदस्य जोड़ें",
+  "familyNoMembers": "अभी तक कोई परिवार का सदस्य नहीं",
+  "familyFullName": "पूरा नाम",
+  "familyPhone": "फोन नंबर",
+  "familyRelationship": "रिश्ता",
+
+  "refillTitle": "प्रिस्क्रिप्शन रिफिल",
+  "refillRequestButton": "रिफिल अनुरोध करें",
+  "refillNoActive": "कोई सक्रिय प्रिस्क्रिप्शन नहीं",
+
+  "stepsTitle": "कदम चुनौती",
+  "stepsStartWalk": "चलना शुरू करें",
+  "stepsStopWalk": "चलना बंद करें",
+
+  "updateAvailableTitle": "अपडेट उपलब्ध",
+  "updateAvailableBody": "VH Health का नया संस्करण उपलब्ध है। कृपया बेहतर अनुभव के लिए अपडेट करें।",
+  "updateNow": "अभी अपडेट करें",
+  "updateLater": "बाद में"
 }

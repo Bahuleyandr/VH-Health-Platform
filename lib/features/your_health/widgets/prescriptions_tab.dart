@@ -182,6 +182,7 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
 
   void _showPrescriptionDetail(Map<String, dynamic> rx) {
     final meds = rx['medications'] as List? ?? [];
+    final theme = Theme.of(context);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -200,7 +201,7 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                      color: Colors.grey[300],
+                      color: theme.colorScheme.outlineVariant,
                       borderRadius: BorderRadius.circular(2))),
             ),
             const SizedBox(height: 16),
@@ -210,13 +211,13 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
             const SizedBox(height: 4),
             Text(
                 'Dr. ${rx['doctor_name'] ?? ''} • ${rx['doctor_specialization'] ?? ''}',
-                style: TextStyle(color: Colors.grey[600])),
+                style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
             if (rx['created_at'] != null)
               Text(
                   DateFormat('dd MMM yyyy, hh:mm a')
                       .format(DateTime.parse(rx['created_at']).toLocal()),
                   style:
-                      TextStyle(fontSize: 12, color: Colors.grey[500])),
+                      TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
             const SizedBox(height: 16),
             if (rx['diagnosis'] != null &&
                 rx['diagnosis'].toString().isNotEmpty) ...[
@@ -237,9 +238,9 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                 margin: const EdgeInsets.only(bottom: 8),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.grey[50],
+                  color: theme.colorScheme.surfaceContainerLow,
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.grey.shade200),
+                  border: Border.all(color: theme.colorScheme.outlineVariant),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -273,7 +274,7 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                     Text(
                         '${m['dosage'] ?? ''} • ${m['frequency'] ?? ''} • ${m['duration'] ?? ''} • ${m['route'] ?? 'Oral'}',
                         style: TextStyle(
-                            fontSize: 12, color: Colors.grey[600])),
+                            fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
                     if (m['instructions'] != null &&
                         m['instructions'].toString().isNotEmpty)
                       Padding(
@@ -305,7 +306,7 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                   padding: const EdgeInsets.only(top: 4, left: 22),
                   child: Text(rx['follow_up_notes'],
                       style: TextStyle(
-                          fontSize: 12, color: Colors.grey[600])),
+                          fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
                 ),
             ],
             if (rx['clinical_notes'] != null &&
@@ -376,6 +377,7 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
 
   void _showOrderMedicinesSheet(Map<String, dynamic> rx) {
     final meds = rx['medications'] as List? ?? [];
+    final theme = Theme.of(context);
     String deliveryType = 'delivery';
     final addressCtrl = TextEditingController();
     final phoneCtrl = TextEditingController(text: widget.phone);
@@ -406,7 +408,7 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                 Text(
                     'From prescription ${rx['prescription_number']}',
                     style: TextStyle(
-                        color: Colors.grey[600], fontSize: 13)),
+                        color: theme.colorScheme.onSurfaceVariant, fontSize: 13)),
                 const SizedBox(height: 16),
 
                 // Medicine list
@@ -423,7 +425,7 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                                       const TextStyle(fontSize: 13))),
                           Text('x${m['quantity'] ?? 1}',
                               style: TextStyle(
-                                  color: Colors.grey[600],
+                                  color: theme.colorScheme.onSurfaceVariant,
                                   fontSize: 12)),
                         ],
                       ),

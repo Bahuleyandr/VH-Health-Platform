@@ -993,5 +993,110 @@
   "investigationsDownloadReport": "Download Report",
   "investigationsDownloadFailed": "Failed to download report",
   "investigationsFiles": "Files",
-  "profileIncomplete": "Please complete your profile to continue"
+  "profileIncomplete": "Please complete your profile to continue",
+
+  "vitalsTitle": "Vitals",
+  "vitalsLogTab": "Log Vitals",
+  "vitalsHistoryTab": "History",
+  "vitalsLogHeading": "Log Your Daily Vitals",
+  "vitalsLogSubheading": "Fill in any vitals you want to record today.",
+  "vitalsBloodPressure": "Blood Pressure",
+  "vitalsSystolic": "Systolic",
+  "vitalsDiastolic": "Diastolic",
+  "vitalsHeartRate": "Heart Rate",
+  "vitalsTemperature": "Temperature",
+  "vitalsBloodSugar": "Blood Sugar",
+  "vitalsWeight": "Weight",
+  "vitalsSpO2": "SpO2",
+  "vitalsRecordButton": "Record Vitals",
+  "vitalsSubmitting": "Submitting...",
+  "vitalsRecordedSuccess": "Vitals recorded successfully",
+  "vitalsRecordFailed": "Failed to record vitals",
+  "vitalsAtLeastOne": "Please enter at least one vital sign",
+  "vitalsNoHistory": "No vitals recorded yet",
+  "vitalsNoHistoryHint": "Log your vitals using the Log Vitals tab.",
+  "vitalsHistoryFailed": "Failed to load vitals history",
+
+  "familyTitle": "Family Members",
+  "familyYourFamily": "Your Family",
+  "familyManageHint": "Manage family members linked to your account.",
+  "familyNoMembers": "No family members yet",
+  "familyNoMembersHint": "Add family members to manage shared care.",
+  "familyAddMember": "Add Family Member",
+  "familyFullName": "Full Name",
+  "familyPhone": "Phone Number",
+  "familyRelationship": "Relationship",
+  "familyDateOfBirth": "Date of Birth (optional)",
+  "familyAdding": "Adding...",
+  "familyAddedSuccess": "Family member added successfully",
+  "familyAddFailed": "Failed to add family member",
+  "familyRemoveTitle": "Remove Family Member",
+  "familyRemoveConfirm": "Are you sure you want to remove {name}?",
+  "@familyRemoveConfirm": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "familyRemoved": "{name} removed from family members",
+  "@familyRemoved": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "familyRemoveFailed": "Failed to remove member",
+
+  "refillTitle": "Prescription Refills",
+  "refillActivePrescriptions": "Active Prescriptions",
+  "refillHint": "Tap \"Request Refill\" to ask your doctor for a renewal.",
+  "refillNoActive": "No active prescriptions",
+  "refillNoActiveHint": "Your prescriptions from consultations will appear here.",
+  "refillRequestButton": "Request Refill",
+  "refillRequesting": "Requesting...",
+  "refillRetry": "Retry Refill Request",
+  "refillConfirmTitle": "Request Refill",
+  "refillConfirmBody": "Request a refill for {medication}?",
+  "@refillConfirmBody": {
+    "placeholders": {
+      "medication": { "type": "String" }
+    }
+  },
+  "refillRequested": "Refill requested for {medication}",
+  "@refillRequested": {
+    "placeholders": {
+      "medication": { "type": "String" }
+    }
+  },
+  "refillRequestFailed": "Failed to request refill",
+  "refillStatusActive": "ACTIVE",
+  "refillStatusExpired": "EXPIRED",
+
+  "stepsTitle": "Step Challenge",
+  "stepsProfile": "Profile",
+  "stepsHistory": "History",
+  "stepsLeaderboard": "Leaderboard",
+  "stepsRewards": "Rewards",
+  "stepsStartWalk": "Start Walk",
+  "stepsStopWalk": "Stop Walk",
+  "stepsSessionStarted": "Walk session started",
+  "stepsSessionStopped": "Walk done!",
+  "stepsNoHistory": "No walk sessions yet",
+  "stepsNoHistoryHint": "Start a walk to begin tracking your steps.",
+
+  "abdmTitle": "ABDM (Ayushman Bharat)",
+  "abdmRegister": "Register ABHA",
+  "abdmVerify": "Verify ABHA",
+  "abdmConsents": "Consents",
+  "abdmNoConsents": "No consent requests",
+
+  "medicationRemindersTitle": "Medication Reminders",
+  "medicationReminderAdd": "Add Reminder",
+  "medicationReminderName": "Medication Name",
+  "medicationReminderDosage": "Dosage",
+  "medicationReminderFrequency": "Frequency",
+  "medicationReminderNoReminders": "No medication reminders set",
+
+  "updateAvailableTitle": "Update Available",
+  "updateAvailableBody": "A new version of VH Health is available. Please update for the best experience.",
+  "updateNow": "Update Now",
+  "updateLater": "Later"
 }

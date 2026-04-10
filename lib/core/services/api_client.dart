@@ -27,7 +27,7 @@ class ApiClient {
 
   // ── Convenience HTTP methods ───────────────────────────────────────────────
 
-  /// Authenticated GET request. Returns parsed response body.
+  /// Authenticated GET request with single retry on timeout.
   static Future<ApiResponse> get(
     String path, {
     Map<String, String>? queryParameters,
@@ -35,10 +35,21 @@ class ApiClient {
   }) async {
     final uri = _buildUri(path, queryParameters);
     final headers = await ApiConfig.authenticatedAuthHeaders();
-    final response = await http
-        .get(uri, headers: headers)
-        .timeout(timeout ?? _defaultTimeout);
-    return _processResponse(response);
+    final effectiveTimeout = timeout ?? _defaultTimeout;
+
+    try {
+      final response = await http
+          .get(uri, headers: headers)
+          .timeout(effectiveTimeout);
+      return _processResponse(response);
+    } on TimeoutException {
+      // Single retry with extended timeout
+      if (kDebugMode) debugPrint('ApiClient.get: timeout on $path — retrying');
+      final response = await http
+          .get(uri, headers: headers)
+          .timeout(effectiveTimeout + const Duration(seconds: 5));
+      return _processResponse(response);
+    }
   }
 
   /// Cache-first GET: returns cached data immediately (if available),
