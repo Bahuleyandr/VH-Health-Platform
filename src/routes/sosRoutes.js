@@ -16,6 +16,7 @@ wrapAutoRBAC(router, 'sosRoutes', {
     ['/cancel/:alertId', sosValidators.cancelAlert, sosController.cancelAlert]
   ],
   get: [
+    ['/emergency-contact', sosController.getEmergencyContact],
     ['/my-alerts', sosValidators.getMyAlerts, sosController.getMyAlerts],
     ['/nearby-services', sosValidators.getNearbyServices, sosController.getNearbyServices],
     ['/medical-info', sosController.getMedicalInfo]

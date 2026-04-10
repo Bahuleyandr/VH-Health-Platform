@@ -58,7 +58,8 @@ wrapAutoRBAC(router, 'ePrescriptionDetailRoutes', {
     ['/:id', [], ePrescriptionController.getPrescription]
   ],
   post: [
-    ['/:id/order-pharmacy', [], ePrescriptionController.orderPharmacyFromPrescription]
+    ['/:id/order-pharmacy', [], ePrescriptionController.orderPharmacyFromPrescription],
+    ['/:id/refill', [], ePrescriptionController.orderPharmacyFromPrescription]
   ]
 });
 
