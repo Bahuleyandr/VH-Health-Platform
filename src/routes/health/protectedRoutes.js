@@ -61,8 +61,18 @@ router.get('/patient/:patient_id/conditions',
   patientHealthController.getPatientConditions
 );
 
+// Patient self-reported vitals
+router.post('/patient/vitals',
+  patientHealthController.recordPatientVitals
+);
+
+router.get('/patient/:patient_id/vitals',
+  patientIdValidator,
+  patientHealthController.getPatientVitals
+);
+
 // Statistics routes
-router.get('/stats/overview', 
+router.get('/stats/overview',
   healthStatsController.getHealthStatistics
 );
 

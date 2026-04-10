@@ -90,6 +90,31 @@ function formatAlertResponse(alert, nearbyServices, severity, isTestAlert) {
   };
 }
 
+export const getEmergencyContacts = async (phone) => {
+  try {
+    const rows = await prisma.$queryRaw`
+      SELECT emergency_contact, name, phone, allergies
+      FROM users
+      WHERE phone = ${phone}
+      LIMIT 1
+    `;
+
+    if (rows.length === 0) {
+      return { emergencyContact: null };
+    }
+
+    return {
+      emergencyContact: rows[0].emergency_contact,
+      patientName: rows[0].name,
+      phone: rows[0].phone,
+      allergies: rows[0].allergies,
+    };
+  } catch (err) {
+    logger.error('Error fetching emergency contacts:', err);
+    throw err;
+  }
+};
+
 export const updateEmergencyContacts = async (phone, _contactData) => {
   try {
     const existing = await prisma.users.findFirst({ where: { phone }, select: { id: true } });

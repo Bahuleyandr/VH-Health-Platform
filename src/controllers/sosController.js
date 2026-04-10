@@ -63,6 +63,21 @@ export const updateEmergencyContact = async (req, res) => {
     error(res, 'Failed to update emergency contact information', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
+export const getEmergencyContact = async (req, res) => {
+  try {
+    const phone = normalizePhone(req.user?.phone);
+    if (!phone) {
+      return error(res, 'Phone number required', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const result = await sosService.getEmergencyContacts(phone);
+    success(res, result, 'Emergency contact retrieved successfully');
+  } catch (err) {
+    logger.error('Get Emergency Contact Error:', err);
+    error(res, 'Failed to retrieve emergency contact', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
 export const cancelAlert = async (req, res) => {
   return res.status(501).json({ success: false, message: 'Not implemented' });
 };
