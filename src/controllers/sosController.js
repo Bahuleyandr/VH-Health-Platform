@@ -79,19 +79,67 @@ export const getEmergencyContact = async (req, res) => {
 };
 
 export const cancelAlert = async (req, res) => {
-  return res.status(501).json({ success: false, message: 'Not implemented' });
+  try {
+    const { alertId } = req.params;
+    const uid = req.user?.uid;
+    if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+
+    const result = await sosService.cancelAlert(alertId, uid);
+    success(res, result, 'SOS alert cancelled');
+  } catch (err) {
+    logger.error('Cancel Alert Error:', err);
+    if (err.message === 'Alert not found or already resolved') {
+      return error(res, err.message, HTTP_STATUS.NOT_FOUND);
+    }
+    error(res, 'Failed to cancel alert', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
 };
 
 export const getMyAlerts = async (req, res) => {
-  return res.status(501).json({ success: false, message: 'Not implemented' });
+  try {
+    const uid = req.user?.uid;
+    if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+
+    const alerts = await sosService.getMyAlerts(uid, { limit, offset });
+    success(res, { alerts }, 'Alerts retrieved');
+  } catch (err) {
+    logger.error('Get My Alerts Error:', err);
+    error(res, 'Failed to retrieve alerts', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
 };
 
 export const getNearbyServices = async (req, res) => {
-  return res.status(501).json({ success: false, message: 'Not implemented' });
+  try {
+    const latitude = parseFloat(req.query.latitude);
+    const longitude = parseFloat(req.query.longitude);
+
+    if (isNaN(latitude) || isNaN(longitude)) {
+      return error(res, 'Latitude and longitude are required', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const services = await sosService.getNearbyServices(latitude, longitude);
+    success(res, { services }, 'Nearby services retrieved');
+  } catch (err) {
+    logger.error('Nearby Services Error:', err);
+    error(res, 'Failed to retrieve nearby services', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
 };
 
 export const getMedicalInfo = async (req, res) => {
-  return res.status(501).json({ success: false, message: 'Not implemented' });
+  try {
+    const uid = req.user?.uid;
+    if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+
+    const info = await sosService.getMedicalInfo(uid);
+    if (!info) return error(res, 'User not found', HTTP_STATUS.NOT_FOUND);
+    success(res, info, 'Medical info retrieved');
+  } catch (err) {
+    logger.error('Medical Info Error:', err);
+    error(res, 'Failed to retrieve medical info', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
 };
 
 export const getResponderDashboard = async (req, res) => {

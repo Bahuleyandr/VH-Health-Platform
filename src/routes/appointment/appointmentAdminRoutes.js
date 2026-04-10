@@ -132,8 +132,14 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         const {
           patient_name, patient_phone, doctor_name, department,
           status, date_from, date_to, include_cancelled = false,
-          page = 1, limit = 50, sort_by = 'appointment_date', order = 'DESC'
+          page = 1, limit = 50, sort_by: rawSortBy = 'appointment_date', order: rawOrder = 'DESC'
         } = req.query;
+
+        // Whitelist sort columns to prevent SQL injection
+        const ALLOWED_SORT = ['appointment_date', 'created_at', 'status', 'patient_name', 'doctor_name'];
+        const ALLOWED_ORDER = ['ASC', 'DESC'];
+        const sort_by = ALLOWED_SORT.includes(rawSortBy) ? rawSortBy : 'appointment_date';
+        const order = ALLOWED_ORDER.includes(String(rawOrder).toUpperCase()) ? String(rawOrder).toUpperCase() : 'DESC';
 
         const whereConditions = [];
         const params = [];
