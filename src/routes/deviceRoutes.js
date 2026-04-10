@@ -528,10 +528,14 @@ wrapAutoRBAC(
               return error(res, 'Admin access required for device cleanup', HTTP_STATUS.FORBIDDEN);
             }
 
+            // Validate and clamp to safe integer range
+            const days = Math.max(1, Math.min(parseInt(olderThanDays, 10) || 90, 3650));
+
             const result = await prisma.$queryRawUnsafe(
-              `DELETE FROM user_devices 
-               WHERE last_active < NOW() - INTERVAL '${olderThanDays} days'
+              `DELETE FROM user_devices
+               WHERE last_active < NOW() - make_interval(days => $1)
                RETURNING device_name, platform, last_active`,
+              days,
             );
 
             const cleanedDevices = result;
