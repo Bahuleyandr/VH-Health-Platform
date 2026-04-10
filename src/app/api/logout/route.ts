@@ -4,11 +4,22 @@ export async function POST(request: Request) {
   // CSRF Origin validation
   const origin = request.headers.get('origin');
   const allowed = process.env.NEXT_PUBLIC_ALLOWED_ORIGIN || 'http://localhost:3000';
-  if (origin && origin !== allowed) {
-    return NextResponse.json(
-      { message: 'Forbidden: Origin not allowed', success: false },
-      { status: 403 },
-    );
+  if (origin) {
+    const allowedHosts = allowed.split(',').map((s: string) => s.trim());
+    const originHost = new URL(origin).origin;
+    const isAllowed = allowedHosts.some((h: string) => {
+      if (h === origin) return true;
+      if (h.startsWith('https://') && h.endsWith('.vhhealth.app')) {
+        return originHost === h;
+      }
+      return false;
+    });
+    if (!isAllowed) {
+      return NextResponse.json(
+        { message: 'Forbidden: Origin not allowed', success: false },
+        { status: 403 },
+      );
+    }
   }
 
   const response = NextResponse.json({ success: true });
