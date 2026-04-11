@@ -1,0 +1,67 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Retry",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "confirm": "Confirm",
+    "search": "Search",
+    "noResults": "No results found",
+    "actions": "Actions",
+    "status": "Status",
+    "active": "Active",
+    "inactive": "Inactive",
+    "createdAt": "Created At",
+    "updatedAt": "Updated At"
+  },
+  "auth": {
+    "login": "Login",
+    "logout": "Logout",
+    "username": "Username",
+    "password": "Password",
+    "loginFailed": "Login failed. Please check your credentials.",
+    "sessionExpired": "Your session has expired. Please log in again.",
+    "idleTimeout": "You were logged out due to inactivity."
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "users": "Users",
+    "doctors": "Doctors",
+    "departments": "Departments",
+    "appointments": "Appointments",
+    "pharmacy": "Pharmacy",
+    "reporting": "Reporting",
+    "analytics": "Analytics",
+    "staffRoster": "Staff Roster",
+    "attendance": "Attendance",
+    "leaveApprovals": "Leave Approvals",
+    "notifications": "Notifications",
+    "payroll": "Payroll & HR",
+    "adminManagement": "Admin Management",
+    "systemLogs": "System Logs",
+    "settings": "Settings"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "totalPatients": "Total Patients",
+    "totalDoctors": "Total Doctors",
+    "todayAppointments": "Today's Appointments",
+    "activeAlerts": "Active Alerts",
+    "recentActivity": "Recent Activity",
+    "systemHealth": "System Health"
+  },
+  "users": {
+    "title": "User Management",
+    "addUser": "Add User",
+    "editUser": "Edit User",
+    "deactivate": "Deactivate",
+    "reactivate": "Reactivate",
+    "bulkImport": "Bulk Import",
+    "name": "Name",
+    "phone": "Phone",
+    "role": "Role",
+    "email": "Email"
+  }
+}
