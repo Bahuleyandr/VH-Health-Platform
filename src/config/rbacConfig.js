@@ -35,7 +35,7 @@ export default {
   notificationRoutes: [PATIENT, GENERAL_STAFF, ADMIN, DOCTOR, NURSING_STAFF],
   pharmacyRoutes: [PHARMACY_STAFF, DOCTOR, ADMIN],
   // If you use a separate key for /pharmacy-orders in wrappers:
-  pharmacyOrdersRoutes: [PHARMACY_STAFF, DOCTOR, ADMIN],
+  pharmacyOrdersRoutes: [PATIENT, PHARMACY_STAFF, DOCTOR, ADMIN],
   // Pharmacy lifecycle — patient can place + view own orders
   pharmacyPatientOrderRoutes: [PATIENT, PHARMACY_STAFF, DOCTOR, ADMIN],
   // Pharmacy staff/admin lifecycle actions
@@ -45,9 +45,9 @@ export default {
 
   recordRoutes: [ADMIN, GENERAL_STAFF, DOCTOR, NURSING_STAFF],
   // ✅ Fix: use NURSING_STAFF constant instead of string 'NURSE'
-  healthRecordsRoutes: [ADMIN, DOCTOR, NURSING_STAFF],
+  healthRecordsRoutes: [PATIENT, ADMIN, DOCTOR, NURSING_STAFF],
 
-  investigationRoutes: [LAB_STAFF, NURSING_STAFF, DOCTOR, ADMIN],
+  investigationRoutes: [PATIENT, LAB_STAFF, NURSING_STAFF, DOCTOR, ADMIN],
   medicalStaffRoutes: [DOCTOR, NURSING_STAFF, LAB_STAFF, ADMIN],
 
   // Mixed/utility

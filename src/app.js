@@ -28,6 +28,7 @@ import { requireRole } from './middleware/rbacMiddleware.js';
 import requestIdMiddleware from './middleware/requestIdMiddleware.js';
 import { selfHealingMiddleware } from './middleware/selfHealingMiddleware.js';
 import validateApiKey from './middleware/validateApiKey.js';
+import { publicCache, privateCache } from './middleware/cacheControlMiddleware.js';
 
 // ====================================
 // ROUTE IMPORTS - Organized by category
@@ -321,12 +322,12 @@ app.use('/api/v1/users', patientRateLimiter, userRoutes);
 // Healthcare services - Modularized
 app.use('/api/v1/appointments', patientRateLimiter, phiAccessLogger('APPOINTMENT'), appointmentRoutes);
 app.use('/api/v1/records', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS', 'PATIENT'), phiAccessLogger('MEDICAL_RECORD'), recordRoutes);
-app.use('/api/v1/investigations', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('INVESTIGATION'), investigationRoutes);
-app.use('/api/v1/pharmacy-orders', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF'), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
+app.use('/api/v1/investigations', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF', 'MEDICAL_RECORDS', 'PATIENT'), phiAccessLogger('INVESTIGATION'), investigationRoutes);
+app.use('/api/v1/pharmacy-orders', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'PATIENT'), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
 app.use('/api/v1/prescriptions', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'PATIENT'), phiAccessLogger('PRESCRIPTION'), prescriptionRoutes);
-app.use('/api/v1/delivery', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'PHARMACY_STAFF', 'DELIVERY_STAFF'), deliveryRoutes);
-app.use('/api/v1/departments', departmentRoutes);
-app.use('/api/v1/doctors', doctorRoutes);
+app.use('/api/v1/delivery', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'PHARMACY_STAFF', 'DELIVERY_STAFF', 'PATIENT'), deliveryRoutes);
+app.use('/api/v1/departments', publicCache(300), departmentRoutes);
+app.use('/api/v1/doctors', publicCache(300), doctorRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
 
 // Patient reminders (medication) — JWT via global jwtAuth above

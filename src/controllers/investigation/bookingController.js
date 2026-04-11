@@ -115,6 +115,9 @@ export const createBooking = async (req, res) => {
 export const getMyBookings = async (req, res) => {
   try {
     const patientId = req.user?.id;
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
+    const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+
     const result = await prisma.$queryRawUnsafe(`
       SELECT ib.id, ib.investigation_id, ib.patient_id, ib.patient_name, ib.patient_phone,
         ib.test_name, ib.status, ib.scheduled_date, ib.phlebotomist_id, ib.notes,
@@ -123,7 +126,8 @@ export const getMyBookings = async (req, res) => {
       FROM investigation_bookings ib
       WHERE ib.patient_id = $1
       ORDER BY ib.created_at DESC
-    `, [patientId]);
+      LIMIT $2 OFFSET $3
+    `, [patientId, limit, offset]);
 
     const bookings = await Promise.all(result.map(async b => {
       if (b.slip_photo_key) b.slip_photo_url = await getSignedFileUrl(b.slip_photo_key, 3600).catch(() => null);
@@ -131,7 +135,7 @@ export const getMyBookings = async (req, res) => {
       return b;
     }));
 
-    success(res, bookings, 'My bookings fetched');
+    success(res, bookings, 'My bookings fetched', HTTP_STATUS.OK, { limit, offset });
   } catch (e) {
     logger.error('getMyBookings error:', e);
     error(res, 'Failed to fetch bookings', HTTP_STATUS.INTERNAL_SERVER_ERROR);

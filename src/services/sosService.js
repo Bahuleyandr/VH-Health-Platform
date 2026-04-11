@@ -90,16 +90,44 @@ function formatAlertResponse(alert, nearbyServices, severity, isTestAlert) {
   };
 }
 
-export const updateEmergencyContacts = async (phone, _contactData) => {
+export const getEmergencyContacts = async (phone) => {
+  try {
+    const rows = await prisma.$queryRaw`
+      SELECT emergency_contact, name, phone, allergies
+      FROM users
+      WHERE phone = ${phone}
+      LIMIT 1
+    `;
+
+    if (rows.length === 0) {
+      return { emergencyContact: null };
+    }
+
+    return {
+      emergencyContact: rows[0].emergency_contact,
+      patientName: rows[0].name,
+      phone: rows[0].phone,
+      allergies: rows[0].allergies,
+    };
+  } catch (err) {
+    logger.error('Error fetching emergency contacts:', err);
+    throw err;
+  }
+};
+
+export const updateEmergencyContacts = async (phone, contactData) => {
   try {
     const existing = await prisma.users.findFirst({ where: { phone }, select: { id: true } });
     if (!existing) throw new Error('User not found');
 
+    const contactValue = contactData.emergency_contact || contactData.emergencyContact || null;
+
     const rows = await prisma.$queryRaw`
       UPDATE users
-      SET updated_at = NOW()
+      SET emergency_contact = ${contactValue},
+          updated_at = NOW()
       WHERE phone = ${phone}
-      RETURNING phone
+      RETURNING phone, emergency_contact
     `;
 
     if (rows.length === 0) throw new Error('Failed to update emergency contacts');
@@ -110,4 +138,49 @@ export const updateEmergencyContacts = async (phone, _contactData) => {
     logger.error('Error updating emergency contacts:', error);
     throw error;
   }
+};
+
+export const cancelAlert = async (alertId, uid) => {
+  const rows = await prisma.$queryRaw`
+    UPDATE sos_alerts
+    SET status = 'CANCELLED', resolved_at = NOW(), updated_at = NOW()
+    WHERE id = ${parseInt(alertId, 10)}
+      AND (uid = ${uid}::uuid OR phone IN (SELECT phone FROM users WHERE uid = ${uid}::uuid))
+      AND status = 'ACTIVE'
+    RETURNING id, status
+  `;
+  if (rows.length === 0) throw new Error('Alert not found or already resolved');
+  return rows[0];
+};
+
+export const getMyAlerts = async (uid, { limit = 20, offset = 0 } = {}) => {
+  const rows = await prisma.$queryRaw`
+    SELECT id, phone, latitude, longitude, alert_type AS "alertType",
+           severity, status, message, raised_at AS "raisedAt",
+           resolved_at AS "resolvedAt"
+    FROM sos_alerts
+    WHERE uid = ${uid}::uuid
+    ORDER BY raised_at DESC
+    LIMIT ${limit} OFFSET ${offset}
+  `;
+  return rows;
+};
+
+export const getNearbyServices = async (latitude, longitude) => {
+  try {
+    return await locationService.findNearbyEmergencyServices(latitude, longitude);
+  } catch (err) {
+    logger.error('Error fetching nearby services:', err);
+    return { hospitals: [], police_stations: [], ambulances: [] };
+  }
+};
+
+export const getMedicalInfo = async (uid) => {
+  const rows = await prisma.$queryRaw`
+    SELECT name, phone, allergies, emergency_contact AS "emergencyContact",
+           gender, birthday AS "dateOfBirth", blood_group AS "bloodGroup"
+    FROM users WHERE uid = ${uid}::uuid LIMIT 1
+  `;
+  if (rows.length === 0) return null;
+  return rows[0];
 };

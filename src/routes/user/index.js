@@ -2,10 +2,14 @@
 import express from 'express';
 import { wrapAutoRBAC, wrapRoutes } from '../../config/routeWrapper.js';
 import adminUserRoutes from './adminUserRoutes.js';
+import familyRoutes from './familyRoutes.js';
 import lookupRoutes from './lookupRoutes.js';
 import userRoutes from './userRoutes.js';
 
 const router = express.Router();
+
+// Family member routes (static path — must come before /:identifier)
+router.use('/family-members', familyRoutes);
 
 // Regular user routes - accessible based on RBAC
 wrapAutoRBAC(router, 'userRoutes', {
