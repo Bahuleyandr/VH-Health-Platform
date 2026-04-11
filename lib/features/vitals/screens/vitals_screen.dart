@@ -485,7 +485,7 @@ class _VitalEntryCard extends StatelessWidget {
     try {
       final dt = DateTime.parse(dateStr);
       formattedDate = DateFormat('MMM dd, yyyy - hh:mm a').format(dt);
-    } catch (_) {}
+    } catch (e) { debugPrint('Vitals date parse: $e'); }
 
     final bp = entry['bloodPressure'] as Map<String, dynamic>?;
     final items = <_VitalItem>[];

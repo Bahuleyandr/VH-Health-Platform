@@ -120,7 +120,7 @@ class AppRouter {
         try {
           Provider.of<SessionTimeoutProvider>(context, listen: false)
               .startTracking();
-        } catch (_) {}
+        } catch (e) { debugPrint('Router: $e'); }
 
         // Load user data from secure storage if not already loaded
         if (_userPhone == null || _userName == null) {
@@ -146,7 +146,7 @@ class AppRouter {
         try {
           final sp = Provider.of<SessionTimeoutProvider>(context, listen: false);
           if (!sp.isSessionExpired) sp.recordActivity();
-        } catch (_) {}
+        } catch (e) { debugPrint('Router: $e'); }
       }
 
       return null;

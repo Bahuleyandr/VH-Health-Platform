@@ -398,7 +398,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           cachedName = results[2] ?? widget.name;
         });
       }
-    } catch (_) {}
+    } catch (e) { debugPrint('Dashboard error: $e'); }
   }
 
   Future<void> _maybeFetchFromBackend() async {
@@ -407,7 +407,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (!mounted || fetched == 'true') return;
       await Future.delayed(const Duration(seconds: 1));
       if (mounted) _fetchAndStoreDashboard();
-    } catch (_) {}
+    } catch (e) { debugPrint('Dashboard error: $e'); }
   }
 
   Future<void> _fetchAndStoreDashboard() async {
@@ -457,7 +457,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }
         });
       }
-    } catch (_) {}
+    } catch (e) { debugPrint('Dashboard error: $e'); }
   }
 
   void _openFeature(BuildContext context, String routeName) {
@@ -951,7 +951,7 @@ class _AppointmentCard extends StatelessWidget {
       try { d = DateFormat('dd/MM/yyyy').parse(date); } catch (_) {}
       d ??= DateTime.tryParse(date);
       if (d != null) return DateFormat('dd/MM/yyyy').format(d);
-    } catch (_) {}
+    } catch (e) { debugPrint('Dashboard error: $e'); }
     return date;
   }
 
@@ -968,7 +968,7 @@ class _AppointmentCard extends StatelessWidget {
         if (diff == 1) return 'Tomorrow';
         if (diff > 0) return 'In $diff days';
       }
-    } catch (_) {}
+    } catch (e) { debugPrint('Dashboard error: $e'); }
     return '';
   }
 }

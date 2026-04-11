@@ -44,8 +44,10 @@ class _LoginFormState extends State<LoginForm> {
 
   void _continueAsGuest() {
     if (_isLoading) return;
-    AppRouter.setUserData('guest', 'Guest');
-context.go('/home');
+    // Guest mode navigates to About Us (public info only).
+    // Do NOT set user data — guest has no JWT and cannot call
+    // authenticated endpoints.
+    context.go('/about-us');
   }
 
   Future<void> _triggerSOS() async {
@@ -129,14 +131,14 @@ context.go('/home');
 
       if (mounted) {
         // Store user data before navigation
-final phoneNumber = user.phoneNumber ?? '';
-AppRouter.setUserData(phoneNumber, 'User'); // Name will be set later in profile setup
+        final phoneNumber = user.phoneNumber ?? '';
+        AppRouter.setUserData(phoneNumber, 'User');
 
-if (targetRoute == '/profile-setup') {
-  context.go('/profile-setup', extra: phoneNumber);
-} else {
-  context.go('/home');
-}
+        if (targetRoute == '/profile-setup') {
+          context.go('/profile-setup', extra: phoneNumber);
+        } else {
+          context.go('/home');
+        }
       }
 
     } catch (e) {

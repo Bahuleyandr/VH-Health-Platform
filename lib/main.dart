@@ -25,6 +25,7 @@ import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/connectivity_service.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/services/websocket_service.dart';
+import 'package:vhhealth/core/offline/mutation_queue.dart';
 
 // App Utilities
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -49,6 +50,11 @@ Future<void> main() async {
 
   // Start network connectivity monitoring.
   ConnectivityService.startMonitoring();
+
+  // Auto-replay queued mutations when connectivity is restored.
+  ConnectivityService.onChange.listen((online) {
+    if (online) MutationQueue.replayQueue();
+  });
 
   // Connect the WebSocket service for real-time updates.
   WebSocketService.instance.connect();
