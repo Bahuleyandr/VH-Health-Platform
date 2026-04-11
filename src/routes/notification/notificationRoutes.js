@@ -2,6 +2,7 @@
 
 import express from 'express';
 import { notificationController } from '../../controllers/notification/notificationController.js';
+import logger from '../../logging/logger.js';
 import {
   notificationValidator,
   bulkNotificationValidator,
@@ -41,15 +42,26 @@ router.patch('/my/mark-all-read', (req, res, next) => {
   next();
 }, notificationController.markAllAsReadByPhone);
 
-// User notification routes (patients can only access their own)
-router.get('/:phone', phoneParamValidator, notificationController.getByPhone);
+// DEPRECATED: Use GET /my instead. PII in URL is a security risk.
+// These routes will be removed in a future release.
+router.get('/:phone', phoneParamValidator, (req, res, next) => {
+  logger.warn(`DEPRECATED: GET /notifications/${req.params.phone} — migrate to GET /notifications/my`);
+  res.set('Deprecation', 'true');
+  res.set('Sunset', '2026-07-01');
+  next();
+}, notificationController.getByPhone);
 router.get('/user/:user_id', [...userIdParamValidator, ...queryValidator], notificationController.getByUserId);
 router.get('/detail/:id', idParamValidator, notificationController.getById);
 router.get('/list', queryValidator, notificationController.getList);
 
 // Mark notifications as read
 router.patch('/:id/read', idParamValidator, notificationController.markAsRead);
-router.patch('/:phone/mark-all-read', phoneParamValidator, notificationController.markAllAsReadByPhone);
+router.patch('/:phone/mark-all-read', phoneParamValidator, (req, res, next) => {
+  logger.warn(`DEPRECATED: PATCH /notifications/${req.params.phone}/mark-all-read — migrate to PATCH /notifications/my/mark-all-read`);
+  res.set('Deprecation', 'true');
+  res.set('Sunset', '2026-07-01');
+  next();
+}, notificationController.markAllAsReadByPhone);
 router.patch('/user/:user_id/read-all', userIdParamValidator, notificationController.markAllAsReadByUserId);
 
 // Medical staff & admin routes

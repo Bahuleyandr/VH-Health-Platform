@@ -903,6 +903,25 @@ model notification_delivery_log {
   @@map("notification_delivery_log")
 }
 
+model notification_outbox {
+  id              Int       @id @default(autoincrement())
+  type            String
+  recipient_id    String?
+  recipient_phone String?
+  title           String
+  body            String
+  payload         Json?
+  status          String    @default("PENDING")
+  retry_count     Int       @default(0)
+  failure_reason  String?
+  last_attempt_at DateTime?
+  sent_at         DateTime?
+  created_at      DateTime  @default(now())
+
+  @@index([status, retry_count])
+  @@index([created_at])
+}
+
 // ===================================================================
 // 📍 LOCATION SERVICES
 // ===================================================================
