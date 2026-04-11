@@ -9,6 +9,7 @@
  *   SECURITY_WEBHOOKS_ENABLED — Set to 'true' to enable (default: disabled)
  */
 
+import crypto from 'crypto';
 import logger from '../logging/logger.js';
 
 const WEBHOOK_URL = process.env.SECURITY_WEBHOOK_URL;
@@ -58,10 +59,19 @@ export function sendSecurityWebhook(eventType, details = {}) {
   // Fire-and-forget
   setImmediate(async () => {
     try {
+      const body = JSON.stringify(payload);
+      const headers = { 'Content-Type': 'application/json' };
+
+      const webhookSecret = process.env.SECURITY_WEBHOOK_SECRET;
+      if (webhookSecret) {
+        const signature = crypto.createHmac('sha256', webhookSecret).update(body).digest('hex');
+        headers['X-Webhook-Signature'] = `sha256=${signature}`;
+      }
+
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        headers,
+        body,
         signal: AbortSignal.timeout(5000),
       });
       if (!response.ok) {
