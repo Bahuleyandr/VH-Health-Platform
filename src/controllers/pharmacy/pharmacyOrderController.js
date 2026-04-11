@@ -96,15 +96,19 @@ export const placeOrder = async (req, res) => {
 export const getMyOrders = async (req, res) => {
   try {
     const patientId = req.user?.id;
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
+    const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+
     const result = await prisma.$queryRawUnsafe(
       `SELECT id, uid, patient_id, patient_name, patient_phone, prescription_url,
         status, order_note, delivery_type, delivery_address, delivery_landmark,
         total_amount, payment_status, assigned_pharmacist, token_number,
         created_at, updated_at, dispatched_at, delivered_at
-       FROM pharmacy_orders WHERE patient_id=$1 ORDER BY created_at DESC`, patientId);
+       FROM pharmacy_orders WHERE patient_id=$1
+       ORDER BY created_at DESC LIMIT $2 OFFSET $3`, patientId, limit, offset);
 
     const orders = await Promise.all(result.map(attachSignedUrl));
-    success(res, orders, 'My orders');
+    success(res, orders, 'My orders', HTTP_STATUS.OK, { limit, offset });
   } catch (err) {
     logger.error('Get my pharmacy orders error:', err);
     error(res, 'Failed to fetch orders', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -169,6 +173,15 @@ export const confirmOrder = async (req, res) => {
     const { id } = req.params;
     const staffId = req.user?.id;
     const { confirmation_notes, items_list, total_cost } = req.body;
+
+    // Validate items_list if provided
+    if (items_list !== undefined) {
+      if (!Array.isArray(items_list)) return error(res, 'items_list must be an array', HTTP_STATUS.BAD_REQUEST);
+      if (items_list.length > 100) return error(res, 'items_list exceeds maximum of 100 items', HTTP_STATUS.BAD_REQUEST);
+      for (const item of items_list) {
+        if (typeof item !== 'object' || item === null) return error(res, 'Each item must be an object', HTTP_STATUS.BAD_REQUEST);
+      }
+    }
 
     const order = await prisma.$queryRawUnsafe('SELECT id, uid, patient_id, patient_name, patient_phone, prescription_url, status, order_note, delivery_type, delivery_address, total_amount, payment_status, assigned_pharmacist, token_number, created_at, updated_at, dispatched_at, delivered_at FROM pharmacy_orders WHERE id=$1', id);
     if (!order.length) return error(res, 'Order not found', HTTP_STATUS.NOT_FOUND);
