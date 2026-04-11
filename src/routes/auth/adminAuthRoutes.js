@@ -72,8 +72,8 @@ wrapRoutesWithValidation(
       // Request password reset (send OTP)
       ['/forgot-password', otpRateLimiter, ...forgotPasswordValidator, handleValidation, adminAuthController.forgotPassword],
 
-      // Reset password with OTP
-      ['/reset-password', ...resetPasswordValidator, handleValidation, adminAuthController.resetPassword],
+      // Reset password with OTP — rate limited to prevent brute-forcing the code
+      ['/reset-password', otpRateLimiter, ...resetPasswordValidator, handleValidation, adminAuthController.resetPassword],
     ],
     get: [['/health', adminAuthController.getHealthStatus]],
   },
