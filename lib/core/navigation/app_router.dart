@@ -33,6 +33,7 @@ import 'package:vhhealth/features/prescriptions/screens/refill_screen.dart';
 import 'package:vhhealth/features/family/screens/family_screen.dart';
 import 'package:vhhealth/features/medications/screens/medication_reminders_screen.dart';
 import 'package:vhhealth/features/abdm/screens/abdm_screen.dart';
+import 'package:vhhealth/features/gamification/screens/health_points_screen.dart';
 import 'package:vhhealth/core/widgets/main_scaffold_go_router.dart';
 
 class AppRouter {
@@ -328,6 +329,10 @@ class AppRouter {
       GoRoute(
         path: '/abdm',
         builder: (context, state) => const AbdmScreen(),
+      ),
+      GoRoute(
+        path: '/health-points',
+        builder: (context, state) => const HealthPointsScreen(),
       ),
       GoRoute(
         path: '/records',

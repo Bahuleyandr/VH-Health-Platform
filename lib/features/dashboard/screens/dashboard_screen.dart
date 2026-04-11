@@ -22,6 +22,8 @@ import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/widgets/logout_button.dart';
 import 'package:vhhealth/core/theme/theme_colors.dart';
+import 'package:vhhealth/features/dashboard/widgets/next_visit_progress_widget.dart';
+import 'package:vhhealth/features/dashboard/widgets/health_points_widget.dart';
 
 class DashboardScreen extends StatefulWidget {
   final String name;
@@ -65,6 +67,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Map<String, dynamic>? _activePharmacyOrder;
   Map<String, dynamic>? _activeInvestigationBooking;
   Map<String, dynamic>? _recentPrescription;
+
+  // Gamification data
+  Map<String, dynamic>? _nextAppointmentDetail;
+  Map<String, dynamic>? _healthPoints;
 
   // Features list
   late final List<FeatureIconData> _features;
@@ -381,6 +387,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         description: 'Manage family members linked to your account',
         onTap: (ctx) => _openFeature(ctx, '/family'),
       ),
+      FeatureIconData(
+        icon: Icons.emoji_events,
+        label: 'Health Points',
+        color: const Color(0xFFFFD54F),
+        onTap: (ctx) => _openFeature(ctx, '/health-points'),
+      ),
     ];
   }
 
@@ -424,12 +436,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final name = data['name'] ?? widget.name;
         final last = data['lastAppointment'];
         final next = data['nextAppointment'];
+        final nextDetail = data['nextAppointmentDetail'] as Map<String, dynamic>?;
+        final healthPts = data['healthPoints'] as Map<String, dynamic>?;
 
         setState(() {
           _staleLabel = result.staleLabel;
           cachedName = name;
           lastAppointment = last;
           nextAppointment = next;
+          _nextAppointmentDetail = nextDetail;
+          _healthPoints = healthPts;
         });
 
         // Persist to secure storage
@@ -448,11 +464,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
             final freshName = freshData['name'] ?? widget.name;
             final freshLast = freshData['lastAppointment'];
             final freshNext = freshData['nextAppointment'];
+            final nextDetail = freshData['nextAppointmentDetail'] as Map<String, dynamic>?;
+            final healthPts = freshData['healthPoints'] as Map<String, dynamic>?;
             setState(() {
               _staleLabel = null;
               cachedName = freshName;
               lastAppointment = freshLast;
               nextAppointment = freshNext;
+              _nextAppointmentDetail = nextDetail;
+              _healthPoints = healthPts;
             });
           }
         });
@@ -527,6 +547,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   statusLabel: _statusLabel(_appointmentStatus),
                   statusColor: _statusColor(_appointmentStatus),
                   statusIcon: _statusIcon(_appointmentStatus),
+                ),
+
+              // Gamification widgets
+              if (!isGuest && _nextAppointmentDetail != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: NextVisitProgressWidget(
+                    detail: _nextAppointmentDetail,
+                    onTap: () => _openFeature(context, '/appointments'),
+                    onSchedule: () => _openFeature(context, '/appointments'),
+                  ),
+                ),
+              if (!isGuest && _healthPoints != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: HealthPointsWidget(
+                    data: _healthPoints,
+                    onTap: () => _openFeature(context, '/health-points'),
+                  ),
                 ),
 
               // Smart contextual widgets
