@@ -1,7 +1,7 @@
 // src/components/AdvancedFilter.tsx
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useDebouncedCallback } from 'use-debounce';
 import { SearchIcon, FilterIcon, CalendarIcon, CloseIcon } from '@/components/icons';
 import { cn } from '@/lib/utils';
