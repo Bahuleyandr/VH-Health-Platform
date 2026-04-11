@@ -56,23 +56,40 @@ class SecurityConfig {
   /// Add both the current and next (backup) certificate fingerprints for
   /// seamless rotation.
   static const List<String> pinnedCertFingerprints = [
-    // FIXME(security): Add real SHA-256 SPKI fingerprint(s) before production.
-    // Without these, production builds will throw StateError at startup.
-    // Include at least 2 fingerprints (current + backup CA) for safe rotation.
+    // ⚠️  PRODUCTION BLOCKER — populate before any release build.
+    //
+    // How to obtain fingerprints:
+    //   openssl s_client -connect api.vhhealth.app:443 </dev/null 2>/dev/null \
+    //     | openssl x509 -pubkey -noout \
+    //     | openssl pkey -pubin -outform DER \
+    //     | openssl dgst -sha256
+    //
+    // Add at least 2 hashes (current cert + backup/next CA) for safe rotation.
+    // Example (replace with real values):
+    //   'sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+    //   'sha256/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=',
   ];
 
   /// Call at app startup to verify security configuration is sane.
-  /// Logs a warning in production if certificate pinning is enabled
-  /// but no fingerprints are configured. Does not throw so the app
-  /// remains usable while fingerprints are being provisioned.
+  ///
+  /// In production builds, **throws** [StateError] if certificate pinning
+  /// is enabled but no fingerprints are configured — this intentionally
+  /// blocks launch until the team populates [pinnedCertFingerprints].
+  ///
+  /// In non-production builds, logs a warning and continues.
   static void verifyOrWarn() {
-    if (isProduction && enableCertPinning && pinnedCertFingerprints.isEmpty) {
+    if (enableCertPinning && pinnedCertFingerprints.isEmpty) {
+      const msg =
+          'SecurityConfig: Certificate pinning is enabled but '
+          'pinnedCertFingerprints is empty. '
+          'Populate the list before shipping a production build.';
+
+      if (isProduction) {
+        throw StateError(msg);
+      }
+
       // ignore: avoid_print
-      print(
-        'WARNING: SecurityConfig: Certificate pinning is enabled in production '
-        'but pinnedCertFingerprints is empty. Pinning will be skipped until '
-        'fingerprints are configured.',
-      );
+      print('WARNING: $msg Pinning will be skipped in this build.');
     }
   }
 }
