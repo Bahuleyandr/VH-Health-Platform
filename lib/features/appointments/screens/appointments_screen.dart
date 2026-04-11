@@ -783,14 +783,14 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
                           ? const Color(0xFF00796B)
                           : available
                               ? const Color(0xFFE0F2F1)
-                              : Colors.grey.shade200,
+                              : theme.colorScheme.surfaceContainerLow,
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
                         color: isSelected
                             ? const Color(0xFF00796B)
                             : available
                                 ? const Color(0xFF80CBC4)
-                                : Colors.grey.shade300,
+                                : theme.colorScheme.outlineVariant,
                       ),
                     ),
                     child: Text(
@@ -802,7 +802,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
                             ? Colors.white
                             : available
                                 ? const Color(0xFF00796B)
-                                : Colors.grey.shade400,
+                                : theme.colorScheme.onSurfaceVariant,
                         decoration: available ? null : TextDecoration.lineThrough,
                       ),
                     ),
@@ -860,6 +860,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
   // ── Appointments tab ───────────────────────────────────────────────────────
 
   Widget _buildAppointmentsTab() {
+    final theme = Theme.of(context);
     if (_loadingAppointments) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -881,10 +882,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.event_busy, size: 64, color: Colors.grey[400]),
+            Icon(Icons.event_busy, size: 64, color: theme.colorScheme.onSurfaceVariant),
             const SizedBox(height: 16),
             Text('No appointments yet',
-                style: TextStyle(fontSize: 16, color: Colors.grey[600])),
+                style: TextStyle(fontSize: 16, color: theme.colorScheme.onSurfaceVariant)),
             const SizedBox(height: 8),
             TextButton.icon(
               onPressed: () => _tabController.animateTo(0),
@@ -972,15 +973,15 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
             if (appt.department.isNotEmpty)
               Text(appt.department,
                   style: theme.textTheme.bodySmall
-                      ?.copyWith(color: Colors.grey[600])),
+                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
             const SizedBox(height: 4),
             Row(
               children: [
-                Icon(Icons.calendar_today, size: 14, color: Colors.grey[600]),
+                Icon(Icons.calendar_today, size: 14, color: theme.colorScheme.onSurfaceVariant),
                 const SizedBox(width: 4),
                 Text(appt.date, style: theme.textTheme.bodySmall),
                 const SizedBox(width: 16),
-                Icon(Icons.access_time, size: 14, color: Colors.grey[600]),
+                Icon(Icons.access_time, size: 14, color: theme.colorScheme.onSurfaceVariant),
                 const SizedBox(width: 4),
                 Text(appt.time, style: theme.textTheme.bodySmall),
               ],
@@ -1009,7 +1010,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
               const SizedBox(height: 4),
               Text('Note: ${appt.confirmationNotes}',
                   style: theme.textTheme.bodySmall
-                      ?.copyWith(color: Colors.grey[600])),
+                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
             ],
             if (appt.status == 'completed') ...[
               const SizedBox(height: 8),

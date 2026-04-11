@@ -548,5 +548,32 @@
   "notification": "அறிவிப்பு",
   "@notification": { "description": "அறிவிப்பு தலைப்பு இல்லாதபோது மாற்று தலைப்பு" },
 "downloadPermissionDenied": "கோப்புகளைப் பதிவிறக்க சேமிப்பக அனுமதி தேவை.",
-"@downloadPermissionDenied": { "description": "பயனர் சேமிப்பக அனுமதியை மறுக்கும்போது காட்டப்படும்" }
+"@downloadPermissionDenied": { "description": "பயனர் சேமிப்பக அனுமதியை மறுக்கும்போது காட்டப்படும்" },
+
+  "vitalsTitle": "உடல் அறிகுறிகள்",
+  "vitalsLogTab": "பதிவு செய்",
+  "vitalsHistoryTab": "வரலாறு",
+  "vitalsRecordButton": "பதிவு செய்",
+  "vitalsRecordedSuccess": "உடல் அறிகுறிகள் வெற்றிகரமாக பதிவு செய்யப்பட்டன",
+  "vitalsNoHistory": "இதுவரை பதிவு இல்லை",
+
+  "familyTitle": "குடும்ப உறுப்பினர்கள்",
+  "familyAddMember": "குடும்ப உறுப்பினரைச் சேர்",
+  "familyNoMembers": "இதுவரை குடும்ப உறுப்பினர்கள் இல்லை",
+  "familyFullName": "முழு பெயர்",
+  "familyPhone": "தொலைபேசி எண்",
+  "familyRelationship": "உறவு",
+
+  "refillTitle": "மருந்து நிரப்புதல்",
+  "refillRequestButton": "நிரப்புதல் கோரிக்கை",
+  "refillNoActive": "செயலில் மருந்துச் சீட்டுகள் இல்லை",
+
+  "stepsTitle": "நடை சவால்",
+  "stepsStartWalk": "நடக்கத் தொடங்கு",
+  "stepsStopWalk": "நடப்பை நிறுத்து",
+
+  "updateAvailableTitle": "புதுப்பிப்பு கிடைக்கிறது",
+  "updateAvailableBody": "VH Health-ன் புதிய பதிப்பு கிடைக்கிறது. சிறந்த அனுபவத்திற்கு புதுப்பிக்கவும்.",
+  "updateNow": "இப்போது புதுப்பிக்கவும்",
+  "updateLater": "பின்னர்"
 }
