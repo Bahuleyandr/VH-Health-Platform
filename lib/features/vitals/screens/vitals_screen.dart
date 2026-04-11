@@ -460,17 +460,145 @@ class _VitalsHistoryTabState extends State<_VitalsHistoryTab> {
     }
     return RefreshIndicator(
       onRefresh: _fetchHistory,
-      child: ListView.separated(
+      child: ListView(
         padding: const EdgeInsets.all(16),
-        itemCount: _entries.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 12),
-        itemBuilder: (context, index) {
-          final entry = _entries[index];
-          return _VitalEntryCard(entry: entry);
-        },
+        children: [
+          // Trend summary comparing latest vs previous readings
+          if (_entries.length >= 2)
+            _VitalsTrendSummary(latest: _entries[0], previous: _entries[1]),
+          if (_entries.length >= 2) const SizedBox(height: 16),
+          Text('History', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          ...List.generate(_entries.length, (i) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _VitalEntryCard(entry: _entries[i]),
+          )),
+        ],
       ),
     );
   }
+}
+
+/// Shows a summary row comparing latest vs previous vital readings with
+/// trend arrows (up/down/unchanged).
+class _VitalsTrendSummary extends StatelessWidget {
+  final Map<String, dynamic> latest;
+  final Map<String, dynamic> previous;
+
+  const _VitalsTrendSummary({required this.latest, required this.previous});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final trends = <_TrendItem>[];
+
+    void addTrend(String label, String unit, String key, {bool higherIsBad = true}) {
+      final cur = _toDouble(latest[key]);
+      final prev = _toDouble(previous[key]);
+      if (cur == null || prev == null) return;
+      trends.add(_TrendItem(label, cur, prev, unit, higherIsBad));
+    }
+
+    addTrend('HR', 'bpm', 'heartRate');
+    addTrend('Temp', '\u00B0F', 'temperature');
+    addTrend('Sugar', 'mg/dL', 'bloodSugar');
+    addTrend('Weight', 'kg', 'weight', higherIsBad: false);
+    addTrend('SpO2', '%', 'spO2', higherIsBad: false);
+
+    // Blood pressure (systolic)
+    final latestBp = latest['bloodPressure'] as Map<String, dynamic>?;
+    final prevBp = previous['bloodPressure'] as Map<String, dynamic>?;
+    if (latestBp != null && prevBp != null) {
+      final cur = _toDouble(latestBp['systolic']);
+      final prev = _toDouble(prevBp['systolic']);
+      if (cur != null && prev != null) {
+        trends.insert(0, _TrendItem('BP Sys', 'mmHg', cur, prev, true));
+      }
+    }
+
+    if (trends.isEmpty) return const SizedBox.shrink();
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: theme.colorScheme.surface,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.trending_up, size: 18, color: Color(0xFFE57373)),
+                const SizedBox(width: 8),
+                Text(
+                  'Trends vs Last Reading',
+                  style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 20,
+              runSpacing: 12,
+              children: trends.map((t) {
+                final diff = t.current - t.previous;
+                final isUp = diff > 0;
+                final isDown = diff < 0;
+                final isBad = (isUp && t.higherIsBad) || (isDown && !t.higherIsBad);
+                final color = diff == 0
+                    ? Colors.grey
+                    : isBad
+                        ? Colors.red.shade400
+                        : Colors.green.shade400;
+                final arrow = diff == 0 ? '→' : isUp ? '↑' : '↓';
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(t.label, style: theme.textTheme.labelSmall?.copyWith(color: Colors.grey)),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${t.current.toStringAsFixed(t.current == t.current.roundToDouble() ? 0 : 1)}',
+                          style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$arrow${diff.abs().toStringAsFixed(1)}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: color,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static double? _toDouble(dynamic v) {
+    if (v == null) return null;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v.toString());
+  }
+}
+
+class _TrendItem {
+  final String label;
+  final double current;
+  final double previous;
+  final String unit;
+  final bool higherIsBad;
+  _TrendItem(this.label, this.current, this.previous, this.unit, this.higherIsBad);
 }
 
 class _VitalEntryCard extends StatelessWidget {
