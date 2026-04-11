@@ -3,6 +3,7 @@ import { HEALTH_MESSAGES } from '../../config/healthConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import * as pointService from '../../services/gamification/pointService.js';
 import * as healthRecordService from '../../services/health/healthRecordService.js';
 import * as patientHealthService from '../../services/health/patientHealthService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
@@ -209,6 +210,11 @@ export async function recordPatientVitals(req, res) {
       ip: req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
       requestId: req.id
     });
+
+    // Gamification: fire-and-forget vitals points
+    pointService.awardVitalsPoints(uid).catch(err =>
+      logger.warn('Gamification: vitals point award failed', { error: err.message })
+    );
 
     success(res, { id: result[0].id, recordedAt: result[0].recorded_at }, 'Vitals recorded successfully');
   } catch (err) {
