@@ -82,7 +82,35 @@ function forwardableHeaders(incoming: Headers): HeadersInit {
   return out;
 }
 
+/**
+ * CSRF Origin validation for mutation requests (POST/PUT/PATCH/DELETE).
+ * Rejects cross-origin requests that don't match the allowed origin.
+ * GET/HEAD/OPTIONS are exempt (safe methods per RFC 7231).
+ */
+function validateMutationOrigin(req: NextRequest): NextResponse | null {
+  const method = req.method;
+  if (["GET", "HEAD", "OPTIONS"].includes(method)) return null;
+
+  const origin = req.headers.get("origin");
+  if (!origin) return null; // same-origin requests may omit origin
+
+  const allowed = process.env.NEXT_PUBLIC_ALLOWED_ORIGIN || "http://localhost:3000";
+  const allowedOrigins = allowed.split(",").map((s: string) => s.trim());
+
+  if (!allowedOrigins.includes(origin)) {
+    return NextResponse.json(
+      { message: "Forbidden: cross-origin mutation blocked" },
+      { status: 403 },
+    );
+  }
+  return null;
+}
+
 async function handleProxy(req: NextRequest) {
+  // CSRF: validate origin on mutation requests
+  const csrfError = validateMutationOrigin(req);
+  if (csrfError) return csrfError;
+
   // Validate auth from httpOnly cookie
   const token = req.cookies.get("auth_token")?.value;
   if (!token) {
