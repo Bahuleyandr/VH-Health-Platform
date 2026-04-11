@@ -11,7 +11,7 @@ import { dispatch } from '../utils/notifications/notificationDispatcher.js';
  *
  * Call from a cron job (e.g., every 30 minutes):
  *   import { runAppointmentReminders } from './schedulers/appointmentReminderScheduler.js';
- *   cron.schedule('*/30 * * * *', () => runAppointmentReminders());
+ *   cron.schedule('0,30 * * * *', () => runAppointmentReminders());
  */
 export async function runAppointmentReminders() {
   try {
