@@ -17,8 +17,18 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // Pass all uncaught Flutter framework errors to Crashlytics.
-  FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+  // Strip potential PHI from error messages before sending to Crashlytics.
+  // Phone numbers, patient names, or medical data may appear in stack traces.
+  FlutterError.onError = (FlutterErrorDetails details) {
+    final sanitised = FlutterErrorDetails(
+      exception: _sanitiseForCrashlytics(details.exception),
+      stack: details.stack,
+      library: details.library,
+      context: details.context,
+      silent: details.silent,
+    );
+    FirebaseCrashlytics.instance.recordFlutterFatalError(sanitised);
+  };
 
   // Global error widget — shows a friendly message instead of red screen
   ErrorWidget.builder = (FlutterErrorDetails details) {
@@ -60,8 +70,27 @@ void main() async {
   runZonedGuarded(() {
     runApp(const VHHealthStaffApp());
   }, (error, stack) {
-    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    FirebaseCrashlytics.instance.recordError(
+      _sanitiseForCrashlytics(error),
+      stack,
+      fatal: true,
+    );
   });
+}
+
+/// Redact potential PHI (phone numbers, emails) from error messages
+/// before they are sent to Firebase Crashlytics.
+Object _sanitiseForCrashlytics(Object error) {
+  final msg = error.toString();
+  // Mask 10-digit phone numbers and common Indian formats (+91...)
+  final redacted = msg
+      .replaceAll(RegExp(r'\+?\d{10,13}'), '[REDACTED_PHONE]')
+      .replaceAll(
+        RegExp(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'),
+        '[REDACTED_EMAIL]',
+      );
+  if (redacted == msg) return error; // nothing to redact
+  return Exception(redacted);
 }
 
 class VHHealthStaffApp extends StatelessWidget {
