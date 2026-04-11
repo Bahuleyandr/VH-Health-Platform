@@ -34,6 +34,7 @@ const navigation: NavItem[] = [
   { name: 'Pharmacy', href: '/dashboard/pharmacy', requiredPermissions: ['pharmacyAdminRoutes'] },
   { name: 'Reporting', href: '/dashboard/reporting', requiredPermissions: ['viewAuditLogs'] },
   { name: 'Analytics', href: '/dashboard/analytics', requiredPermissions: ['viewAuditLogs'] },
+  { name: 'Report Builder', href: '/dashboard/report-builder', requiredPermissions: ['viewAuditLogs'] },
   { name: 'Staff Roster', href: '/dashboard/staff-roster', requiredPermissions: ['userManagement'] },
   { name: 'Attendance', href: '/dashboard/attendance', requiredPermissions: ['userManagement'] },
   { name: 'Leave Approvals', href: '/dashboard/leave-approvals', requiredPermissions: ['userManagement'] },
