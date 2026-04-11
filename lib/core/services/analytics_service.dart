@@ -77,7 +77,7 @@ class AnalyticsService {
     try {
       await _analytics.logEvent(
         name: name,
-        parameters: params?.map((k, v) => MapEntry(k, v?.toString())),
+        parameters: params,
       );
     } catch (e) {
       if (kDebugMode) debugPrint('Analytics: $name error: $e');
