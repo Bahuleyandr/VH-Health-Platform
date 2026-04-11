@@ -78,7 +78,7 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
     // Update existing attendance
     result = await prisma.$queryRawUnsafe(`
       UPDATE staff_attendance SET
-        check_out_time = COALESCE($1, check_out_time),
+        check_out_time = CASE WHEN $1::boolean THEN NOW() ELSE check_out_time END,
         location = COALESCE($2, location),
         notes = COALESCE($3, notes),
         break_duration_minutes = COALESCE($4, break_duration_minutes),
@@ -87,12 +87,12 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
       WHERE staff_id = $6 AND DATE(check_in_time) = $7
       RETURNING id, staff_id, check_in_time, check_out_time, status, location, created_at
     `, [
-      check_out_time, 
-      location ? JSON.stringify(location) : null, 
-      notes, 
-      break_duration_minutes, 
-      markedBy, 
-      staff_id, 
+      check_out_time ? true : false, // Use server NOW() instead of client timestamp
+      location ? JSON.stringify(location) : null,
+      notes,
+      break_duration_minutes,
+      markedBy,
+      staff_id,
       today
     ]);
   } else {
@@ -104,9 +104,9 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
       RETURNING id, staff_id, check_in_time, check_out_time, status, location, created_at
     `, [
-      staff_id, 
-      check_in_time || new Date(),
-      check_out_time,
+      staff_id,
+      new Date(), // Always use server timestamp to prevent client-side tampering
+      check_out_time ? new Date() : null, // Server-authoritative checkout time too
       location ? JSON.stringify(location) : null,
       notes, 
       break_duration_minutes, 
