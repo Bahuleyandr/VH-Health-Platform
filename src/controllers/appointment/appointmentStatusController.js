@@ -3,6 +3,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import appointmentService from '../../services/appointment/appointmentService.js';
 import appointmentValidationService from '../../services/appointment/appointmentValidationService.js';
+import * as pointService from '../../services/gamification/pointService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { broadcast, sendToUser } from '../../utils/websocket/wsServer.js';
 
@@ -56,6 +57,18 @@ export const updateAppointmentStatus = async (req, res) => {
       sendToUser(updatedAppointment.doctor_id, 'appointment-status-changed', {
         appointmentId: id, status: statusValidation.status,
       });
+    }
+
+    // Gamification: fire-and-forget point awards
+    if (statusValidation.status === 'COMPLETED') {
+      pointService.awardAppointmentPoints(updatedAppointment).catch(err =>
+        logger.warn('Gamification: appointment point award failed', { error: err.message })
+      );
+    }
+    if (statusValidation.status === 'IN_PROGRESS') {
+      pointService.awardOnTimeBonus(updatedAppointment).catch(err =>
+        logger.warn('Gamification: on-time bonus check failed', { error: err.message })
+      );
     }
 
     success(res, {
