@@ -1,5 +1,3 @@
-// TODO: Add firebase_analytics to pubspec.yaml:
-//   firebase_analytics: ^11.3.6
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:flutter/foundation.dart';
 
