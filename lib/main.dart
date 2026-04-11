@@ -67,8 +67,39 @@ Future<void> main() async {
   });
 }
 
-class VHRoot extends StatelessWidget {
+class VHRoot extends StatefulWidget {
   const VHRoot({super.key});
+
+  @override
+  State<VHRoot> createState() => _VHRootState();
+}
+
+class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      // Save battery: disconnect WebSocket and stop connectivity polling
+      WebSocketService.instance.disconnect();
+      ConnectivityService.stopMonitoring();
+    } else if (state == AppLifecycleState.resumed) {
+      // Reconnect when the app comes back to foreground
+      ConnectivityService.startMonitoring();
+      WebSocketService.instance.connect();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
