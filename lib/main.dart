@@ -12,6 +12,7 @@ import 'core/providers/theme_provider.dart';
 import 'core/providers/session_timeout_provider.dart';
 import 'core/providers/websocket_provider.dart';
 import 'core/services/connectivity_sync_service.dart';
+import 'core/services/websocket_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -93,8 +94,40 @@ Object _sanitiseForCrashlytics(Object error) {
   return Exception(redacted);
 }
 
-class VHHealthStaffApp extends StatelessWidget {
+class VHHealthStaffApp extends StatefulWidget {
   const VHHealthStaffApp({super.key});
+
+  @override
+  State<VHHealthStaffApp> createState() => _VHHealthStaffAppState();
+}
+
+class _VHHealthStaffAppState extends State<VHHealthStaffApp>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      // Save battery: disconnect WebSocket when app is backgrounded
+      WebSocketService.instance.disconnect();
+      ConnectivitySyncService.instance.stopListening();
+    } else if (state == AppLifecycleState.resumed) {
+      // Reconnect when the app comes back to foreground
+      ConnectivitySyncService.instance.startListening();
+      WebSocketService.instance.connect();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
