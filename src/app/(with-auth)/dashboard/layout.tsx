@@ -11,6 +11,7 @@ import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { AuthDebugger } from '@/components/auth/AuthDebugger';
 import { MenuIcon } from '@/components/icons';
 import { usePermissions } from '@/hooks/usePermissions';
+import { useIdleTimeout } from '@/hooks/useIdleTimeout';
 import { useAuth } from '@/contexts/AuthContext';
 import { AnnouncementBanner } from './notifications/components/AnnouncementBannerManager';
 import styles from './Dashboard.module.css';
@@ -68,6 +69,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const { role, isSuperAdmin, hasAllPermissions } = usePermissions();
   const { logout } = useAuth();
+
+  // Auto-logout after 30 minutes of inactivity
+  useIdleTimeout(30 * 60 * 1000);
 
   const visibleNav = useMemo(() => {
     return navigation.filter((item) => {
