@@ -63,7 +63,7 @@ export function generateToken(payload, expiresIn) {
     role: role || 'PATIENT',
     ...(phone && { phone }),
     ...extraClaims,  // Include email, type, sub overrides, iss, aud, etc.
-    'https://hyzrtspkmgelzqylokex.supabase.co/jwt/claims': {
+    [process.env.JWT_CLAIMS_NAMESPACE || 'https://vhhealth.app/jwt/claims']: {
       'x-hasura-default-role': role ? role.toLowerCase() : 'anonymous',
       'x-hasura-allowed-roles': [role ? role.toLowerCase() : 'anonymous'],
       'x-hasura-user-id': uid,
