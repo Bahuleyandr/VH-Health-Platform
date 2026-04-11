@@ -58,7 +58,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     final theme = Theme.of(context);
 
     try {
-      final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+      final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80, maxWidth: 1200, maxHeight: 1200);
       if (picked != null && mounted) setState(() => _photo = File(picked.path));
     } catch (e) {
       debugPrint('Photo pick failed: $e');

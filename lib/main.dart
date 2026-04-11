@@ -48,6 +48,19 @@ Future<void> main() async {
   // Initialize local notification scheduler for medication reminders.
   await NotificationScheduler.initialize();
 
+  // Sync medication reminders from backend and reschedule local notifications.
+  try {
+    final remindersResp = await ApiClient.get('/reminders/medication');
+    if (remindersResp.isSuccess && remindersResp.data is List) {
+      final reminders = (remindersResp.data as List)
+          .cast<Map<String, dynamic>>();
+      await NotificationScheduler.rescheduleAll(reminders);
+    }
+  } catch (e) {
+    // User may not be logged in yet — silently skip.
+    debugPrint('Medication reminder sync skipped: $e');
+  }
+
   // Start network connectivity monitoring.
   ConnectivityService.startMonitoring();
 
