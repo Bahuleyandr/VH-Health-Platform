@@ -100,6 +100,14 @@ async function proxyLogin(
       );
     }
 
+    // MFA challenge passthrough — when the backend returns a 2FA challenge
+    // instead of a token, forward it verbatim so the client can prompt for
+    // the authenticator code. No cookie is set yet.
+    const payload = data?.data ?? data;
+    if (payload?.requiresTwoFactor && payload?.challengeToken) {
+      return NextResponse.json(data, { status: 200 });
+    }
+
     // Extract token from backend response envelope
     const token =
       data?.data?.token ??
