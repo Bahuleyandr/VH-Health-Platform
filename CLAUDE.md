@@ -281,3 +281,10 @@ docker exec vhhealth-db psql -U vhhealth -d vhhealth
 - [ ] Tokens must include `jti` claim (automatic via `generateToken()`)
 - [ ] Logout must blacklist the token (automatic via `authService.logout()`)
 - [ ] Security constants in `src/config/securityConfig.js` — never hardcoded in services
+
+
+## Future Directions
+
+See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current A+/S-tier roadmap.
+It tracks Phase 1 (security floor), Phase 2 (polish), and Phase 3 (marquee features).
+When starting a new Claude session, run `cat docs/ROADMAP.md` and pick any unchecked item.

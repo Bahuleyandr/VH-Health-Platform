@@ -3,6 +3,7 @@ import { HEALTH_MESSAGES } from '../../config/healthConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import * as pointService from '../../services/gamification/pointService.js';
 import * as healthRecordService from '../../services/health/healthRecordService.js';
 import * as patientHealthService from '../../services/health/patientHealthService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
@@ -179,17 +180,25 @@ export async function recordPatientVitals(req, res) {
       return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
     }
 
-    const { bloodPressure, heartRate, temperature, bloodSugar, weight, spO2 } = req.body;
+    const { bloodPressure, heartRate, temperature, bloodSugar, weight, spO2, mood } = req.body;
 
-    // At least one vital must be provided
+    // At least one vital OR a mood must be provided (mood alone is a valid
+    // check-in submission from the dashboard check-in modal).
     if (!bloodPressure && heartRate == null && temperature == null &&
-        bloodSugar == null && weight == null && spO2 == null) {
-      return error(res, 'At least one vital sign is required', HTTP_STATUS.BAD_REQUEST);
+        bloodSugar == null && weight == null && spO2 == null && !mood) {
+      return error(res, 'At least one vital sign or a mood is required', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // Validate mood if present
+    const allowedMoods = ['great', 'good', 'okay', 'poor', 'bad'];
+    const moodNorm = mood ? String(mood).toLowerCase() : null;
+    if (moodNorm && !allowedMoods.includes(moodNorm)) {
+      return error(res, 'mood must be one of: great, good, okay, poor, bad', HTTP_STATUS.BAD_REQUEST);
     }
 
     const result = await prisma.$queryRawUnsafe(
-      `INSERT INTO patient_vitals (patient_uid, blood_pressure, heart_rate, temperature, blood_sugar, weight, spo2)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO patient_vitals (patient_uid, blood_pressure, heart_rate, temperature, blood_sugar, weight, spo2, mood)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING id, recorded_at`,
       uid,
       bloodPressure ? JSON.stringify(bloodPressure) : null,
@@ -197,7 +206,8 @@ export async function recordPatientVitals(req, res) {
       temperature != null ? parseFloat(temperature) : null,
       bloodSugar != null ? parseInt(bloodSugar, 10) : null,
       weight != null ? parseFloat(weight) : null,
-      spO2 != null ? parseInt(spO2, 10) : null
+      spO2 != null ? parseInt(spO2, 10) : null,
+      moodNorm
     );
 
     logPhiAccess({
@@ -209,6 +219,11 @@ export async function recordPatientVitals(req, res) {
       ip: req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
       requestId: req.id
     });
+
+    // Gamification: fire-and-forget vitals points
+    pointService.awardVitalsPoints(uid).catch(err =>
+      logger.warn('Gamification: vitals point award failed', { error: err.message })
+    );
 
     success(res, { id: result[0].id, recordedAt: result[0].recorded_at }, 'Vitals recorded successfully');
   } catch (err) {

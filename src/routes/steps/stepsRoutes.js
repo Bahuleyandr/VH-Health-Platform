@@ -5,6 +5,7 @@ import { Router } from 'express';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import * as pointService from '../../services/gamification/pointService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 const router = Router();
@@ -62,6 +63,12 @@ router.post('/session/stop', async (req, res) => {
         ended_at: new Date(),
       },
     });
+
+    // Gamification: fire-and-forget step goal check
+    const profile = await prisma.step_profiles.findUnique({ where: { user_uid: uid } });
+    pointService.awardStepPoints(uid, profile?.daily_goal || 8000).catch(err =>
+      logger.warn('Gamification: step point award failed', { error: err.message })
+    );
 
     return success(res, { session: updated }, 'Walk session stopped');
   } catch (err) {

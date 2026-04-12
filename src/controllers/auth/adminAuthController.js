@@ -1,11 +1,20 @@
 // src/controllers/auth/adminAuthController.js
 
+import bcrypt from 'bcrypt';
 import { validationResult } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
+import SECURITY_CONFIG from '../../config/securityConfig.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AuthService } from '../../services/auth/authService.js';
 import { StaffAuthService } from '../../services/auth/staffAuthService.js';
+import { generateToken } from '../../utils/auth/tokenHelpers.js';
 import { success, error } from '../../utils/responseHelper.js';
+import {
+  generateTotpSetup,
+  verifyTotp,
+  generateBackupCodes,
+} from '../../utils/totpUtils.js';
 
 /* util: pick username OR email from body */
 const pickIdentity = (body) => (body?.username?.trim() || body?.email?.trim() || null);
@@ -276,5 +285,267 @@ export const revokeAllSessions = async (req, res) => {
   } catch (err) {
     logger.error('Revoke all sessions error:', err);
     return error(res, 'Failed to revoke sessions', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+/* ================================================================== */
+/* =========================== MFA / 2FA ============================ */
+/* ================================================================== */
+// TOTP (Time-based One-Time Password) via an authenticator app. Supporting
+// infra is already in place:
+//   * src/utils/totpUtils.js            — secret gen, QR, encryption, verify
+//   * src/services/auth/authService.js  — login returns challenge when totp_enabled
+//   * migrations 023, 026, 032          — totp_challenges table + admins columns
+//
+// These endpoints complete the flow for the admin portal.
+
+const BCRYPT_ROUNDS = 10;
+
+/**
+ * POST /auth/admin/mfa/enroll — (authed)
+ * Starts enrollment for the caller. Returns QR data URL + otpauth URL +
+ * fresh backup codes. `totp_enabled` is NOT flipped until the admin proves
+ * possession via /mfa/verify-setup.
+ */
+export const mfaEnroll = async (req, res) => {
+  try {
+    const adminId = req.user?.uid;
+    if (!adminId) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+
+    const admin = await prisma.admins.findUnique({
+      where: { uid: String(adminId) },
+      select: { username: true, email: true, totp_enabled: true },
+    });
+    if (!admin) return error(res, 'Admin not found', HTTP_STATUS.NOT_FOUND);
+    if (admin.totp_enabled) {
+      return error(res, 'MFA is already enabled. Disable it first to re-enroll.', HTTP_STATUS.CONFLICT);
+    }
+
+    const label = admin.username || admin.email || adminId;
+    const { encryptedSecret, qrCodeDataUrl, otpauthUrl } = await generateTotpSetup(label);
+
+    // Hash backup codes before storage so even a DB leak cannot reuse them.
+    const plainCodes = generateBackupCodes();
+    const hashedCodes = await Promise.all(
+      plainCodes.map((c) => bcrypt.hash(c, BCRYPT_ROUNDS))
+    );
+
+    await prisma.admins.update({
+      where: { uid: String(adminId) },
+      data: {
+        totp_secret_encrypted: encryptedSecret,
+        totp_backup_codes: hashedCodes,
+        totp_enabled: false,        // flipped on successful verify-setup
+        totp_enrolled_at: null,
+      },
+    });
+
+    logger.info('Admin MFA enrollment started', { adminId });
+    return success(res, {
+      qrCodeDataUrl,
+      otpauthUrl,
+      backupCodes: plainCodes,      // show ONCE in the UI — never returned again
+      next: 'Confirm a code from your authenticator at /auth/admin/mfa/verify-setup',
+    }, 'MFA enrollment initialised');
+  } catch (err) {
+    logger.error('[MFA Enroll]', err);
+    return error(res, 'Failed to start MFA enrollment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+/**
+ * POST /auth/admin/mfa/verify-setup — (authed)
+ * Verifies the first TOTP code and flips `totp_enabled = true`. After this
+ * call, subsequent logins for this admin will return a challenge instead of
+ * a JWT.
+ */
+export const mfaVerifySetup = async (req, res) => {
+  try {
+    const adminId = req.user?.uid;
+    if (!adminId) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+
+    const { code } = req.body || {};
+    if (!code || !/^\d{6}$/.test(String(code))) {
+      return error(res, 'Provide a 6-digit authenticator code', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const admin = await prisma.admins.findUnique({
+      where: { uid: String(adminId) },
+      select: { totp_secret_encrypted: true, totp_enabled: true },
+    });
+    if (!admin?.totp_secret_encrypted) {
+      return error(res, 'No MFA enrollment in progress. Call /mfa/enroll first.', HTTP_STATUS.BAD_REQUEST);
+    }
+    if (admin.totp_enabled) {
+      return error(res, 'MFA is already enabled.', HTTP_STATUS.CONFLICT);
+    }
+
+    const ok = await verifyTotp(String(code), admin.totp_secret_encrypted);
+    if (!ok) {
+      return error(res, 'Invalid authenticator code', HTTP_STATUS.UNAUTHORIZED);
+    }
+
+    await prisma.admins.update({
+      where: { uid: String(adminId) },
+      data: { totp_enabled: true, totp_enrolled_at: new Date() },
+    });
+
+    logger.info('Admin MFA enabled', { adminId });
+    return success(res, { enabled: true }, 'MFA enabled');
+  } catch (err) {
+    logger.error('[MFA VerifySetup]', err);
+    return error(res, 'Failed to verify MFA code', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+/**
+ * POST /auth/admin/mfa/disable — (authed)
+ * Disables MFA. Requires both the admin's current password and a current
+ * TOTP code to prevent a session-hijack from silently turning off 2FA.
+ */
+export const mfaDisable = async (req, res) => {
+  try {
+    const adminId = req.user?.uid;
+    if (!adminId) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+
+    const { currentPassword, code } = req.body || {};
+    if (!currentPassword || !code) {
+      return error(res, 'currentPassword and code are required', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const admin = await prisma.admins.findUnique({
+      where: { uid: String(adminId) },
+      select: { password_hash: true, totp_enabled: true, totp_secret_encrypted: true },
+    });
+    if (!admin) return error(res, 'Admin not found', HTTP_STATUS.NOT_FOUND);
+    if (!admin.totp_enabled || !admin.totp_secret_encrypted) {
+      return error(res, 'MFA is not currently enabled', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const pwOk = await bcrypt.compare(currentPassword, admin.password_hash);
+    if (!pwOk) return error(res, 'Incorrect password', HTTP_STATUS.UNAUTHORIZED);
+
+    const totpOk = await verifyTotp(String(code), admin.totp_secret_encrypted);
+    if (!totpOk) return error(res, 'Invalid authenticator code', HTTP_STATUS.UNAUTHORIZED);
+
+    await prisma.admins.update({
+      where: { uid: String(adminId) },
+      data: {
+        totp_enabled: false,
+        totp_secret_encrypted: null,
+        totp_backup_codes: null,
+        totp_enrolled_at: null,
+      },
+    });
+
+    logger.info('Admin MFA disabled', { adminId });
+    return success(res, { enabled: false }, 'MFA disabled');
+  } catch (err) {
+    logger.error('[MFA Disable]', err);
+    return error(res, 'Failed to disable MFA', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+/**
+ * POST /auth/admin/mfa/challenge/verify — (public, paired with /login)
+ * Body: { challengeToken, code, useBackupCode? }
+ * Completes the 2FA step after a successful password login. On success
+ * returns the admin JWT with the configured admin expiry.
+ */
+export const mfaVerifyChallenge = async (req, res) => {
+  try {
+    const { challengeToken, code, useBackupCode = false } = req.body || {};
+    if (!challengeToken || !code) {
+      return error(res, 'challengeToken and code are required', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // Lookup valid (non-expired) challenge
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT admin_id FROM totp_challenges
+        WHERE challenge_token = $1
+          AND expires_at > NOW()
+        LIMIT 1`,
+      challengeToken
+    );
+    if (rows.length === 0) {
+      return error(res, 'Challenge expired or invalid. Please log in again.', HTTP_STATUS.UNAUTHORIZED);
+    }
+    const adminId = rows[0].admin_id;
+
+    const admin = await prisma.admins.findUnique({
+      where: { uid: String(adminId) },
+      select: {
+        uid: true,
+        username: true,
+        email: true,
+        role: true,
+        totp_enabled: true,
+        totp_secret_encrypted: true,
+        totp_backup_codes: true,
+      },
+    });
+    if (!admin?.totp_enabled || !admin.totp_secret_encrypted) {
+      return error(res, 'MFA not configured on this account', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    let ok = false;
+    if (useBackupCode) {
+      const codes = Array.isArray(admin.totp_backup_codes) ? admin.totp_backup_codes : [];
+      let matchedIdx = -1;
+      for (let i = 0; i < codes.length; i++) {
+        const hash = codes[i];
+        if (!hash) continue;
+        // eslint-disable-next-line no-await-in-loop
+        if (await bcrypt.compare(String(code), hash)) {
+          matchedIdx = i;
+          break;
+        }
+      }
+      if (matchedIdx >= 0) {
+        // Consume the code — null it out to prevent reuse.
+        const updated = [...codes];
+        updated[matchedIdx] = null;
+        await prisma.admins.update({
+          where: { uid: String(adminId) },
+          data: { totp_backup_codes: updated },
+        });
+        ok = true;
+      }
+    } else {
+      ok = await verifyTotp(String(code), admin.totp_secret_encrypted);
+    }
+
+    if (!ok) {
+      return error(res, 'Invalid MFA code', HTTP_STATUS.UNAUTHORIZED);
+    }
+
+    // Consume the challenge so it can't be replayed.
+    await prisma.$queryRawUnsafe(
+      `DELETE FROM totp_challenges WHERE challenge_token = $1`,
+      challengeToken
+    );
+
+    const token = generateToken({
+      uid: admin.uid,
+      role: String(admin.role).toUpperCase(),
+      email: admin.email ?? undefined,
+      sub: admin.uid,
+      iss: 'vh-health-backend',
+      aud: 'vh-health-admin',
+    }, SECURITY_CONFIG.jwt.adminExpiry);
+
+    logger.info('Admin MFA challenge verified', { adminId, viaBackup: !!useBackupCode });
+    return success(res, {
+      token,
+      admin: {
+        uid: admin.uid,
+        username: admin.username,
+        email: admin.email,
+        role: admin.role,
+      },
+    }, 'MFA verified');
+  } catch (err) {
+    logger.error('[MFA VerifyChallenge]', err);
+    return error(res, 'Failed to verify MFA challenge', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };

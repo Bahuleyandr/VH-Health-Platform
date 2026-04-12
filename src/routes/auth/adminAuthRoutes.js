@@ -72,8 +72,18 @@ wrapRoutesWithValidation(
       // Request password reset (send OTP)
       ['/forgot-password', otpRateLimiter, ...forgotPasswordValidator, handleValidation, adminAuthController.forgotPassword],
 
-      // Reset password with OTP
-      ['/reset-password', ...resetPasswordValidator, handleValidation, adminAuthController.resetPassword],
+      // Reset password with OTP — rate limited to prevent brute-forcing the code
+      ['/reset-password', otpRateLimiter, ...resetPasswordValidator, handleValidation, adminAuthController.resetPassword],
+
+      // MFA challenge — completes the 2FA step after a successful password
+      // login. Rate-limited same as /login to prevent code brute-forcing.
+      ['/mfa/challenge/verify', authRateLimiter,
+        body('challengeToken').notEmpty(),
+        body('code').notEmpty(),
+        body('useBackupCode').optional().isBoolean().toBoolean(),
+        handleValidation,
+        adminAuthController.mfaVerifyChallenge,
+      ],
     ],
     get: [['/health', adminAuthController.getHealthStatus]],
   },
@@ -94,6 +104,24 @@ wrapRoutesWithValidation(
     post: [
       // Change password (self)
       ['/change-password', ...changeAdminPasswordValidator, handleValidation, passwordComplexityMiddleware, adminAuthController.changePassword],
+
+      // MFA enrollment (self) — returns QR + otpauth URL + one-time backup codes.
+      ['/mfa/enroll', adminAuthController.mfaEnroll],
+
+      // MFA verify-setup (self) — confirms the first code and flips totp_enabled=true.
+      ['/mfa/verify-setup',
+        body('code').matches(/^\d{6}$/).withMessage('6-digit code required'),
+        handleValidation,
+        adminAuthController.mfaVerifySetup,
+      ],
+
+      // MFA disable (self) — requires current password + TOTP.
+      ['/mfa/disable',
+        body('currentPassword').notEmpty(),
+        body('code').matches(/^\d{6}$/).withMessage('6-digit code required'),
+        handleValidation,
+        adminAuthController.mfaDisable,
+      ],
     ],
     get: [
       // Current admin profile

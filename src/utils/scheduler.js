@@ -132,8 +132,17 @@ cron.schedule('40 3 * * *', withJobLock('purge-expired-otps', async () => {
   logger.info(`Expired OTP cleanup: ${result.length} rows deleted`);
 }));
 
-// 🗓️ Daily at 03:45 - Purge housekeeping photos past retention window
-cron.schedule('45 3 * * *', withJobLock('purge-housekeeping-photos', purgeHousekeepingPhotos));
+// 🗓️ Daily at 03:45 - Purge file deletion log entries older than 90 days
+cron.schedule('45 3 * * *', withJobLock('purge-file-deletion-log', async () => {
+  logger.info('Scheduled Task: Purging file_deletion_log entries older than 90 days...');
+  const result = await prisma.$queryRawUnsafe(
+    `DELETE FROM file_deletion_log WHERE deleted_at < NOW() - INTERVAL '90 days'`
+  );
+  logger.info(`File deletion log cleanup: ${Number(result) || 0} rows deleted`);
+}));
+
+// 🗓️ Daily at 03:50 - Purge housekeeping photos past retention window
+cron.schedule('50 3 * * *', withJobLock('purge-housekeeping-photos', purgeHousekeepingPhotos));
 
 // Every 5 minutes - Canary health check (synthetic tests against critical paths)
 cron.schedule('*/5 * * * *', withJobLock('canary-health-check', async () => {
@@ -166,6 +175,12 @@ export async function runAllScheduledTasksNow() {
     await sendTimedReminders();
     await processPendingScheduledNotifications();
     await sendInvestigationNotifications();
+
+    // Purge file deletion log entries older than 90 days
+    const fileDeletionResult = await prisma.$queryRawUnsafe(
+      `DELETE FROM file_deletion_log WHERE deleted_at < NOW() - INTERVAL '90 days'`
+    );
+    logger.info(`File deletion log cleanup: ${Number(fileDeletionResult) || 0} rows deleted`);
 
     logger.info('✅ All manual tasks completed.');
   } catch (err) {
