@@ -141,14 +141,25 @@ export async function staffLogin(
   return { token, user: staffUser, success: true };
 }
 
+export type AdminLoginResult =
+  | {
+      success: true;
+      requiresTwoFactor: false;
+      token: string;
+      admin?: AdminUser;
+    }
+  | {
+      success: true;
+      requiresTwoFactor: true;
+      challengeToken: string;
+      expiresAt?: string;
+      admin?: Partial<AdminUser>;
+    };
+
 export async function adminLogin(
   username: string,
   password: string,
-): Promise<{
-  token: string;
-  admin?: AdminUser;
-  success: boolean;
-}> {
+): Promise<AdminLoginResult> {
   // Route through /api/login proxy (server-side) which:
   // 1. Adds the x-api-key from process.env.API_KEY
   // 2. Sets the auth_token as an httpOnly cookie
@@ -165,18 +176,57 @@ export async function adminLogin(
     throw new Error(loginResult?.message ?? "Login failed");
   }
 
-  const payload = loginResult?.data ?? loginResult;
-  const token = payload?.token ?? payload?.accessToken;
-  const admin = payload?.admin;
+  const payload = (loginResult?.data ?? loginResult) as Record<string, unknown>;
+
+  // 2FA challenge — caller must complete via verifyAdminMfa()
+  if (payload?.requiresTwoFactor && typeof payload?.challengeToken === "string") {
+    return {
+      success: true,
+      requiresTwoFactor: true,
+      challengeToken: payload.challengeToken as string,
+      expiresAt: payload.expiresAt as string | undefined,
+      admin: payload.admin as Partial<AdminUser> | undefined,
+    };
+  }
+
+  const token = (payload?.token ?? payload?.accessToken) as string | undefined;
+  const admin = payload?.admin as AdminUser | undefined;
 
   if (!token) {
     throw new Error("No token received from server");
   }
 
-  // Cache user profile (non-sensitive) with timestamp for UI
   if (admin) cacheAdminUser(admin);
 
-  return { token: token!, admin, success: true };
+  return { success: true, requiresTwoFactor: false, token, admin };
+}
+
+/**
+ * Completes the admin 2FA flow using the challenge token from [adminLogin].
+ * On success the httpOnly auth cookie is set by the /api/login/mfa route.
+ */
+export async function verifyAdminMfa(params: {
+  challengeToken: string;
+  code: string;
+  useBackupCode?: boolean;
+}): Promise<{ token: string; admin?: AdminUser; success: true }> {
+  const response = await fetch("/api/login/mfa", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+
+  const json = await response.json() as LoginResponse;
+  if (!response.ok) {
+    throw new Error(json?.message ?? "MFA verification failed");
+  }
+
+  const payload = (json?.data ?? json) as Record<string, unknown>;
+  const token = (payload?.token ?? payload?.accessToken) as string | undefined;
+  const admin = payload?.admin as AdminUser | undefined;
+  if (!token) throw new Error("No token received after MFA");
+  if (admin) cacheAdminUser(admin);
+  return { success: true, token, admin };
 }
 
 export async function getAdminProfile(): Promise<AdminUser> {

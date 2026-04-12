@@ -26,7 +26,7 @@ import Image from 'next/image';
 import styles from './Login.module.css';
 
 function LoginInner() {
-  const { login, loginStaff } = useAuth();
+  const { login, verifyMfa, loginStaff } = useAuth();
 
   // Tab state: 'admin' | 'staff'
   const [loginMode, setLoginMode] = useState<'admin' | 'staff'>('admin');
@@ -38,14 +38,19 @@ function LoginInner() {
   const [showPassword, setShowPassword] = useState(false);
   const [capsOn, setCapsOn] = useState(false);
   const [logoError, setLogoError] = useState(false);
-  
+
   // Validation state
   const [touched, setTouched] = useState({ username: false, password: false });
   const [fieldErrors, setFieldErrors] = useState({ username: '', password: '' });
-  
+
   // Submit state
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // MFA state — populated when the backend returns a 2FA challenge.
+  const [mfaChallenge, setMfaChallenge] = useState<{ challengeToken: string; adminHint?: string } | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
+  const [mfaUseBackup, setMfaUseBackup] = useState(false);
 
   // Autofocus management
   const userRef = useRef<HTMLInputElement>(null);
@@ -122,9 +127,18 @@ function LoginInner() {
       if (loginMode === 'staff') {
         await loginStaff(username.trim(), password);
       } else {
-        await login(username.trim(), password);
+        const outcome = await login(username.trim(), password);
+        if (outcome.kind === 'mfa') {
+          setMfaChallenge({
+            challengeToken: outcome.challenge.challengeToken,
+            adminHint: outcome.challenge.adminHint?.username,
+          });
+          setMfaCode('');
+          setMfaUseBackup(false);
+          return; // Stop here — the TOTP panel takes over.
+        }
       }
-      
+
       if (remember) {
         localStorage.setItem('vh:remember', 'true');
         localStorage.setItem('vh:savedUsername', username.trim());
@@ -373,6 +387,95 @@ function LoginInner() {
             )}
           </button>
         </form>
+
+        {/* ── MFA challenge panel ───────────────────────────────────── */}
+        {mfaChallenge && (
+          <div
+            style={{
+              marginTop: 24,
+              padding: 16,
+              borderRadius: 10,
+              border: '1px solid #6366f1',
+              background: 'rgba(99, 102, 241, 0.08)',
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Two-factor authentication</div>
+            <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 12 }}>
+              Enter the 6-digit code from your authenticator app
+              {mfaChallenge.adminHint ? ` for ${mfaChallenge.adminHint}` : ''}.
+            </div>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              value={mfaCode}
+              onChange={(e) => setMfaCode(e.target.value.replace(/[^0-9A-Za-z-]/g, '').slice(0, mfaUseBackup ? 14 : 6))}
+              placeholder={mfaUseBackup ? 'Backup code' : '123456'}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                borderRadius: 8,
+                border: '1px solid #6366f155',
+                fontSize: 18,
+                letterSpacing: mfaUseBackup ? 0 : 4,
+                marginBottom: 10,
+                background: '#fff',
+                color: '#111',
+              }}
+              aria-label={mfaUseBackup ? 'Backup code' : 'Authenticator code'}
+            />
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 12 }}>
+              <input type="checkbox" checked={mfaUseBackup} onChange={(e) => { setMfaUseBackup(e.target.checked); setMfaCode(''); }} />
+              Use a backup recovery code instead
+            </label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => { setMfaChallenge(null); setMfaCode(''); setError(''); }}
+                disabled={isLoading}
+                style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: 'transparent', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isLoading || !mfaCode.trim()}
+                onClick={async () => {
+                  setError('');
+                  setIsLoading(true);
+                  try {
+                    await verifyMfa({
+                      challengeToken: mfaChallenge.challengeToken,
+                      code: mfaCode.trim(),
+                      useBackupCode: mfaUseBackup,
+                    });
+                    if (remember) {
+                      localStorage.setItem('vh:remember', 'true');
+                      localStorage.setItem('vh:savedUsername', username.trim());
+                    }
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'MFA verification failed');
+                  } finally {
+                    setIsLoading(false);
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  padding: '10px 14px',
+                  borderRadius: 8,
+                  background: '#6366f1',
+                  color: '#fff',
+                  border: 'none',
+                  cursor: isLoading ? 'wait' : 'pointer',
+                  fontWeight: 600,
+                  opacity: isLoading ? 0.7 : 1,
+                }}
+              >
+                {isLoading ? 'Verifying…' : 'Verify'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Security Badges */}
         <div className={styles.securityBadges}>
