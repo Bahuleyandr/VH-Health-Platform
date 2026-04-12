@@ -89,7 +89,7 @@ function fakeJwt(payload: Record<string, unknown>): string {
 beforeAll(() => {
   delete process.env.JWT_SECRET;
   // Ensure we are NOT in production mode so parseTokenStructure is used
-  process.env.NODE_ENV = "test";
+  (process.env as Record<string, string>).NODE_ENV = "test";
 });
 
 beforeEach(() => {
