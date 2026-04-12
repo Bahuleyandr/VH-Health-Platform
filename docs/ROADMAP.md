@@ -8,8 +8,8 @@
 
 ## Phase 1 — A+ Security Floor (in progress)
 
-- [ ] **Populate `pinnedCertFingerprints` — CRITICAL BLOCKER.** `lib/config/security_config.dart` L58-71 currently `[]`. Replace with build-time env-injected production + backup SPKI SHA-256 hashes. Add doc: extract via `openssl s_client -servername api.vhhealth.app -connect api.vhhealth.app:443 | openssl x509 -pubkey -noout | openssl pkey -pubin -outform DER | openssl dgst -sha256 -binary | base64`. Crash early on empty list + `kReleaseMode`.
-- [ ] **New service: `DeviceIntegrityService`.** `lib/services/device_integrity_service.dart`. Thin wrapper over `flutter_jailbreak_detection` so both patient + staff apps call one API: `await DeviceIntegrityService.check()` returns `{ ok, reasons[] }`. Release builds hard-block on compromise; debug warns only.
+- [x] **Populate `pinnedCertFingerprints` — CRITICAL BLOCKER.** `lib/config/security_config.dart` L58-71 currently `[]`. Replace with build-time env-injected production + backup SPKI SHA-256 hashes. Add doc: extract via `openssl s_client -servername api.vhhealth.app -connect api.vhhealth.app:443 | openssl x509 -pubkey -noout | openssl pkey -pubin -outform DER | openssl dgst -sha256 -binary | base64`. Crash early on empty list + `kReleaseMode`.
+- [x] **New service: `DeviceIntegrityService`.** `lib/services/device_integrity_service.dart`. Thin wrapper over `flutter_jailbreak_detection` so both patient + staff apps call one API: `await DeviceIntegrityService.check()` returns `{ ok, reasons[] }`. Release builds hard-block on compromise; debug warns only.
 - [ ] **JWT refresh-token flow.** `lib/services/auth_service.dart` currently reads static JWT. Add `refresh()` that swaps expired access token using stored refresh token. Silent retry on 401 in the HTTP client.
 
 ## Phase 2 — A+ Polish
