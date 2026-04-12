@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../config/security_config.dart';
 
-const List<String> kPinnedCertificates = SecurityConfig.pinnedCertFingerprints;
+final List<String> kPinnedCertificates = SecurityConfig.pinnedCertFingerprints;
 
 /// Shared TLS certificate pinning utility for VHHealth apps.
 class CertificatePinner {
