@@ -97,3 +97,10 @@ dependencies:
 - Staff-specific theme: blue/teal primary (distinct from patient app's teal/green)
 - Use descriptive SnackBars for success/error feedback
 - GoRouter redirect guard: unauthenticated users → `/login`
+
+
+## Future Directions
+
+See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current A+/S-tier roadmap.
+It tracks Phase 1 (security floor), Phase 2 (polish), and Phase 3 (marquee features).
+When starting a new Claude session, run `cat docs/ROADMAP.md` and pick any unchecked item.
