@@ -18,6 +18,7 @@ import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/features/investigations/screens/book_investigation_screen.dart';
 import 'package:vhhealth/core/widgets/contact_banner.dart';
 import 'package:vhhealth/features/investigations/screens/my_bookings_screen.dart';
+import 'package:vhhealth/features/investigations/widgets/result_gauge_widget.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 class InvestigationsScreen extends StatefulWidget {
@@ -767,15 +768,23 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                       : null,
                   isThreeLine: true,
                 ),
-                // Results text
+                // Results — gauge if numeric value + parseable reference range, else text
                 if (results != null && results.toString().isNotEmpty)
                   Padding(
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(results.toString(),
-                          style: theme.textTheme.bodySmall),
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    child: _buildResultBlock(
+                      theme,
+                      testName.toString(),
+                      results.toString(),
+                      inv['normal_range']?.toString() ??
+                          inv['reference_range']?.toString(),
+                      inv['unit']?.toString(),
+                      previousValue: _findPreviousNumericValue(
+                        _investigations,
+                        currentIndex: i,
+                        testName: testName.toString(),
+                      ),
                     ),
                   ),
                 // Expandable file list
@@ -827,6 +836,72 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
         },
       ),
     );
+  }
+
+  // ── Result rendering helpers ────────────────────────────────────────────
+
+  /// Attempts to render a gauge visualisation for a numeric lab result. Falls
+  /// back to a plain text line when the value or reference range cannot be
+  /// parsed into numbers.
+  Widget _buildResultBlock(
+    ThemeData theme,
+    String testName,
+    String results,
+    String? normalRange,
+    String? unit, {
+    double? previousValue,
+  }) {
+    final numeric = _extractLeadingNumber(results);
+    final range = LabReferenceRange.tryParse(normalRange, unit: unit);
+    if (numeric != null && range != null) {
+      return ResultGaugeWidget(
+        testName: testName,
+        value: numeric,
+        previousValue: previousValue,
+        range: range,
+        unit: unit,
+      );
+    }
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(results, style: theme.textTheme.bodySmall),
+          if (normalRange != null && normalRange.isNotEmpty)
+            Text('Reference: $normalRange',
+                style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor)),
+        ],
+      ),
+    );
+  }
+
+  /// Pulls the first numeric token out of a result string like "95 mg/dL" or
+  /// "HbA1c: 5.8%".
+  double? _extractLeadingNumber(String s) {
+    final m = RegExp(r'(-?\d+(?:\.\d+)?)').firstMatch(s);
+    if (m == null) return null;
+    return double.tryParse(m.group(1)!);
+  }
+
+  /// Finds the most recent previous numeric result for the same test so the
+  /// gauge can show a trend chip. Walks newer → older from [currentIndex]+1.
+  double? _findPreviousNumericValue(
+    List<dynamic> list, {
+    required int currentIndex,
+    required String testName,
+  }) {
+    for (var j = currentIndex + 1; j < list.length; j++) {
+      final other = list[j];
+      if (other is! Map) continue;
+      final otherName = (other['test_name'] ?? other['type'] ?? '').toString();
+      if (otherName != testName) continue;
+      final otherResult = (other['results'] ?? other['result'])?.toString();
+      if (otherResult == null || otherResult.isEmpty) continue;
+      final n = _extractLeadingNumber(otherResult);
+      if (n != null) return n;
+    }
+    return null;
   }
 }
 

@@ -24,6 +24,9 @@ import 'package:vhhealth/core/widgets/logout_button.dart';
 import 'package:vhhealth/core/theme/theme_colors.dart';
 import 'package:vhhealth/features/dashboard/widgets/next_visit_progress_widget.dart';
 import 'package:vhhealth/features/dashboard/widgets/health_points_widget.dart';
+import 'package:vhhealth/features/dashboard/widgets/wellness_score_widget.dart';
+import 'package:vhhealth/features/dashboard/widgets/health_insight_card.dart';
+import 'package:vhhealth/features/dashboard/widgets/daily_checkin_sheet.dart';
 
 class DashboardScreen extends StatefulWidget {
   final String name;
@@ -94,6 +97,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _maybeFetchFromBackend();
       _startAppointmentPolling();
       _startSmartWidgetPolling();
+      // Daily mood check-in prompt — only shows if not already done today.
+      if (mounted && cachedName != 'Guest') {
+        maybeShowDailyCheckIn(context);
+      }
     });
   }
 
@@ -548,6 +555,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   statusColor: _statusColor(_appointmentStatus),
                   statusIcon: _statusIcon(_appointmentStatus),
                 ),
+
+              // Personal Wellness Score (animated 0-100 ring)
+              if (!isGuest) const WellnessScoreWidget(),
+
+              // Smart Health Insights (up to 2 cards)
+              if (!isGuest) const HealthInsightsStrip(),
 
               // Gamification widgets
               if (!isGuest && _nextAppointmentDetail != null)

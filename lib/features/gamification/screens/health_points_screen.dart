@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/features/dashboard/widgets/next_visit_progress_widget.dart';
+import 'package:vhhealth/features/gamification/widgets/achievement_grid.dart';
 
 // ─── Screen ──────────────────────────────────────────────────────────────────
 
@@ -46,7 +47,7 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
     _tabController.addListener(_onTabChanged);
     _fetchSummary();
   }
@@ -68,9 +69,12 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
         if (_milestones.isEmpty && !_loadingMilestones) _fetchMilestones();
         break;
       case 2:
-        if (_rewards.isEmpty) _fetchRewards();
+        // AchievementGrid self-fetches; no-op here.
         break;
       case 3:
+        if (_rewards.isEmpty) _fetchRewards();
+        break;
+      case 4:
         if (_history.isEmpty) _fetchHistory();
         break;
     }
@@ -322,6 +326,7 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
             tabs: const [
               Tab(text: 'Overview'),
               Tab(text: 'Milestones'),
+              Tab(text: 'Achievements'),
               Tab(text: 'My Rewards'),
               Tab(text: 'History'),
             ],
@@ -334,6 +339,7 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
               children: [
                 _buildOverviewTab(),
                 _buildMilestonesTab(),
+                const AchievementGrid(),
                 _buildRewardsTab(),
                 _buildHistoryTab(),
               ],
