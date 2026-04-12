@@ -17,10 +17,12 @@ class NotificationProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Fetch unread notifications for the given phone number
+  /// Fetch unread notifications for the authenticated user.
+  ///
+  /// The [phone] parameter is kept for API compatibility but is no longer
+  /// sent to the backend — the `/my` endpoint derives the user from the JWT.
   Future<void> fetchUnreadCount(String phone) async {
-    // Skip for guest users
-    if (phone == 'guest' || phone.isEmpty) {
+    if (phone.isEmpty) {
       _unreadCount = 0;
       notifyListeners();
       return;
@@ -28,7 +30,7 @@ class NotificationProvider extends ChangeNotifier {
 
     try {
       final response = await ApiClient.get(
-        '/notifications/$phone',
+        '/notifications/my',
         timeout: const Duration(seconds: 10),
       );
 
@@ -54,13 +56,13 @@ class NotificationProvider extends ChangeNotifier {
     }
   }
 
-  /// Mark all notifications as read for the given phone number
+  /// Mark all notifications as read for the authenticated user.
   Future<void> markAllRead(String phone) async {
-    if (phone == 'guest' || phone.isEmpty) return;
+    if (phone.isEmpty) return;
 
     try {
       final response = await ApiClient.patch(
-        '/notifications/$phone/mark-all-read',
+        '/notifications/my/mark-all-read',
         timeout: const Duration(seconds: 10),
       );
 

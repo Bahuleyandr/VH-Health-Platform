@@ -248,7 +248,7 @@ class _PrescriptionRefillCard extends StatelessWidget {
         final dt = DateTime.parse(lastFilledRaw);
         lastFilled = DateFormat('MMM dd, yyyy').format(dt);
       }
-    } catch (_) {}
+    } catch (e) { debugPrint('Refill date parse error: $e'); }
 
     final isSubmitting = refillStatus == 'submitting';
     final isSubmitted = refillStatus == 'submitted';

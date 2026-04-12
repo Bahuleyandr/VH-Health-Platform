@@ -25,6 +25,7 @@ import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/connectivity_service.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/services/websocket_service.dart';
+import 'package:vhhealth/core/offline/mutation_queue.dart';
 
 // App Utilities
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -47,8 +48,26 @@ Future<void> main() async {
   // Initialize local notification scheduler for medication reminders.
   await NotificationScheduler.initialize();
 
+  // Sync medication reminders from backend and reschedule local notifications.
+  try {
+    final remindersResp = await ApiClient.get('/reminders/medication');
+    if (remindersResp.isSuccess && remindersResp.data is List) {
+      final reminders = (remindersResp.data as List)
+          .cast<Map<String, dynamic>>();
+      await NotificationScheduler.rescheduleAll(reminders);
+    }
+  } catch (e) {
+    // User may not be logged in yet — silently skip.
+    debugPrint('Medication reminder sync skipped: $e');
+  }
+
   // Start network connectivity monitoring.
   ConnectivityService.startMonitoring();
+
+  // Auto-replay queued mutations when connectivity is restored.
+  ConnectivityService.onChange.listen((online) {
+    if (online) MutationQueue.replayQueue();
+  });
 
   // Connect the WebSocket service for real-time updates.
   WebSocketService.instance.connect();
@@ -61,8 +80,39 @@ Future<void> main() async {
   });
 }
 
-class VHRoot extends StatelessWidget {
+class VHRoot extends StatefulWidget {
   const VHRoot({super.key});
+
+  @override
+  State<VHRoot> createState() => _VHRootState();
+}
+
+class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      // Save battery: disconnect WebSocket and stop connectivity polling
+      WebSocketService.instance.disconnect();
+      ConnectivityService.stopMonitoring();
+    } else if (state == AppLifecycleState.resumed) {
+      // Reconnect when the app comes back to foreground
+      ConnectivityService.startMonitoring();
+      WebSocketService.instance.connect();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

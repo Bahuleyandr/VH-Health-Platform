@@ -5,6 +5,7 @@ import 'package:vhhealth/core/utils/document_opener.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/offline_banner.dart';
+import 'package:vhhealth/features/your_health/widgets/prescription_countdown_widget.dart';
 
 class PrescriptionsTab extends StatefulWidget {
   final String phone;
@@ -125,11 +126,31 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                 padding: const EdgeInsets.all(14),
                 child: Row(
                   children: [
-                    CircleAvatar(
-                      backgroundColor: cs.primary.withValues(alpha: 0.1),
-                      child: Icon(Icons.medication,
-                          color: cs.primary, size: 22),
-                    ),
+                    // Countdown ring replaces the default avatar when we can
+                    // derive a duration from the prescription data; otherwise
+                    // we fall back to the standard medication icon.
+                    Builder(builder: (_) {
+                      final rxMap = Map<String, dynamic>.from(rx as Map);
+                      final days = PrescriptionCountdown.parseDurationDays(rxMap);
+                      final startStr = rxMap['created_at'] ?? rxMap['issued_at'];
+                      DateTime? start;
+                      if (startStr != null) {
+                        try {
+                          start = DateTime.parse(startStr.toString()).toLocal();
+                        } catch (_) {}
+                      }
+                      if (days != null && start != null) {
+                        return PrescriptionCountdown(
+                          startDate: start,
+                          durationDays: days,
+                        );
+                      }
+                      return CircleAvatar(
+                        backgroundColor: cs.primary.withValues(alpha: 0.1),
+                        child: Icon(Icons.medication,
+                            color: cs.primary, size: 22),
+                      );
+                    }),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(

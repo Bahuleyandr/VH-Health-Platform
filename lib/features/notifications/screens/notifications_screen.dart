@@ -47,7 +47,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
 
     try {
-      final result = await ApiClient.cachedGet('/notifications/${widget.phone}');
+      final result = await ApiClient.cachedGet('/notifications/my');
 
       if (!mounted) return;
       _staleLabel = result.staleLabel;

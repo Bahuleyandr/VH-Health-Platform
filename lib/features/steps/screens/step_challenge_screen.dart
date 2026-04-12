@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:pedometer/pedometer.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 
@@ -189,11 +190,42 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
   StreamSubscription<Position>? _positionStream;
   Timer? _elapsedTimer;
 
+  // ── Pedometer (hardware step counter) ──
+  StreamSubscription<StepCount>? _pedometerSubscription;
+  int? _pedometerBaseline;
+
   @override
   void initState() {
     super.initState();
     _historyTabController = TabController(length: 3, vsync: this);
+    _initPedometer();
     _fetchAll();
+  }
+
+  void _initPedometer() {
+    try {
+      _pedometerSubscription = Pedometer.stepCountStream.listen(
+        (StepCount event) {
+          if (!mounted || !_isWalking) return;
+          if (_pedometerBaseline == null) {
+            // Record the baseline step count when the walk session starts
+            _pedometerBaseline = event.steps;
+            return;
+          }
+          final stepsSinceStart = event.steps - _pedometerBaseline!;
+          if (stepsSinceStart > 0) {
+            setState(() {
+              _estimatedSteps = stepsSinceStart;
+            });
+          }
+        },
+        onError: (e) {
+          debugPrint('Pedometer stream error: $e');
+        },
+      );
+    } catch (e) {
+      debugPrint('Pedometer initialization failed: $e');
+    }
   }
 
   @override
@@ -202,6 +234,7 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
     _nameController.dispose();
     _positionStream?.cancel();
     _elapsedTimer?.cancel();
+    _pedometerSubscription?.cancel();
     super.dispose();
   }
 
@@ -355,6 +388,7 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
         _estimatedSteps = 0;
         _elapsedSeconds = 0;
         _lastPosition = null;
+        _pedometerBaseline = null; // Reset so next pedometer event sets baseline
       });
 
       // Start GPS stream
@@ -409,6 +443,7 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
       _estimatedSteps = 0;
       _elapsedSeconds = 0;
       _lastPosition = null;
+      _pedometerBaseline = null;
     });
 
     if (sessionId == null) return;

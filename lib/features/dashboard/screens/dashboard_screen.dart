@@ -22,6 +22,11 @@ import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/widgets/logout_button.dart';
 import 'package:vhhealth/core/theme/theme_colors.dart';
+import 'package:vhhealth/features/dashboard/widgets/next_visit_progress_widget.dart';
+import 'package:vhhealth/features/dashboard/widgets/health_points_widget.dart';
+import 'package:vhhealth/features/dashboard/widgets/wellness_score_widget.dart';
+import 'package:vhhealth/features/dashboard/widgets/health_insight_card.dart';
+import 'package:vhhealth/features/dashboard/widgets/daily_checkin_sheet.dart';
 
 class DashboardScreen extends StatefulWidget {
   final String name;
@@ -66,6 +71,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Map<String, dynamic>? _activeInvestigationBooking;
   Map<String, dynamic>? _recentPrescription;
 
+  // Gamification data
+  Map<String, dynamic>? _nextAppointmentDetail;
+  Map<String, dynamic>? _healthPoints;
+
   // Features list
   late final List<FeatureIconData> _features;
 
@@ -88,6 +97,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _maybeFetchFromBackend();
       _startAppointmentPolling();
       _startSmartWidgetPolling();
+      // Daily mood check-in prompt — only shows if not already done today.
+      if (mounted && cachedName != 'Guest') {
+        maybeShowDailyCheckIn(context);
+      }
     });
   }
 
@@ -381,6 +394,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         description: 'Manage family members linked to your account',
         onTap: (ctx) => _openFeature(ctx, '/family'),
       ),
+      FeatureIconData(
+        icon: Icons.emoji_events,
+        label: 'Health Points',
+        color: const Color(0xFFFFD54F),
+        onTap: (ctx) => _openFeature(ctx, '/health-points'),
+      ),
     ];
   }
 
@@ -398,7 +417,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           cachedName = results[2] ?? widget.name;
         });
       }
-    } catch (_) {}
+    } catch (e) { debugPrint('Dashboard error: $e'); }
   }
 
   Future<void> _maybeFetchFromBackend() async {
@@ -407,7 +426,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (!mounted || fetched == 'true') return;
       await Future.delayed(const Duration(seconds: 1));
       if (mounted) _fetchAndStoreDashboard();
-    } catch (_) {}
+    } catch (e) { debugPrint('Dashboard error: $e'); }
   }
 
   Future<void> _fetchAndStoreDashboard() async {
@@ -424,12 +443,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final name = data['name'] ?? widget.name;
         final last = data['lastAppointment'];
         final next = data['nextAppointment'];
+        final nextDetail = data['nextAppointmentDetail'] as Map<String, dynamic>?;
+        final healthPts = data['healthPoints'] as Map<String, dynamic>?;
 
         setState(() {
           _staleLabel = result.staleLabel;
           cachedName = name;
           lastAppointment = last;
           nextAppointment = next;
+          _nextAppointmentDetail = nextDetail;
+          _healthPoints = healthPts;
         });
 
         // Persist to secure storage
@@ -448,16 +471,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
             final freshName = freshData['name'] ?? widget.name;
             final freshLast = freshData['lastAppointment'];
             final freshNext = freshData['nextAppointment'];
+            final nextDetail = freshData['nextAppointmentDetail'] as Map<String, dynamic>?;
+            final healthPts = freshData['healthPoints'] as Map<String, dynamic>?;
             setState(() {
               _staleLabel = null;
               cachedName = freshName;
               lastAppointment = freshLast;
               nextAppointment = freshNext;
+              _nextAppointmentDetail = nextDetail;
+              _healthPoints = healthPts;
             });
           }
         });
       }
-    } catch (_) {}
+    } catch (e) { debugPrint('Dashboard error: $e'); }
   }
 
   void _openFeature(BuildContext context, String routeName) {
@@ -527,6 +554,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   statusLabel: _statusLabel(_appointmentStatus),
                   statusColor: _statusColor(_appointmentStatus),
                   statusIcon: _statusIcon(_appointmentStatus),
+                ),
+
+              // Personal Wellness Score (animated 0-100 ring)
+              if (!isGuest) const WellnessScoreWidget(),
+
+              // Smart Health Insights (up to 2 cards)
+              if (!isGuest) const HealthInsightsStrip(),
+
+              // Gamification widgets
+              if (!isGuest && _nextAppointmentDetail != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: NextVisitProgressWidget(
+                    detail: _nextAppointmentDetail,
+                    onTap: () => _openFeature(context, '/appointments'),
+                    onSchedule: () => _openFeature(context, '/appointments'),
+                  ),
+                ),
+              if (!isGuest && _healthPoints != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: HealthPointsWidget(
+                    data: _healthPoints,
+                    onTap: () => _openFeature(context, '/health-points'),
+                  ),
                 ),
 
               // Smart contextual widgets
@@ -951,7 +1003,7 @@ class _AppointmentCard extends StatelessWidget {
       try { d = DateFormat('dd/MM/yyyy').parse(date); } catch (_) {}
       d ??= DateTime.tryParse(date);
       if (d != null) return DateFormat('dd/MM/yyyy').format(d);
-    } catch (_) {}
+    } catch (e) { debugPrint('Dashboard error: $e'); }
     return date;
   }
 
@@ -968,7 +1020,7 @@ class _AppointmentCard extends StatelessWidget {
         if (diff == 1) return 'Tomorrow';
         if (diff > 0) return 'In $diff days';
       }
-    } catch (_) {}
+    } catch (e) { debugPrint('Dashboard error: $e'); }
     return '';
   }
 }

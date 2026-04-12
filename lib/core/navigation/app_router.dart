@@ -31,7 +31,9 @@ import 'package:vhhealth/features/steps/screens/step_challenge_screen.dart';
 import 'package:vhhealth/features/vitals/screens/vitals_screen.dart';
 import 'package:vhhealth/features/prescriptions/screens/refill_screen.dart';
 import 'package:vhhealth/features/family/screens/family_screen.dart';
+import 'package:vhhealth/features/medications/screens/medication_reminders_screen.dart';
 import 'package:vhhealth/features/abdm/screens/abdm_screen.dart';
+import 'package:vhhealth/features/gamification/screens/health_points_screen.dart';
 import 'package:vhhealth/core/widgets/main_scaffold_go_router.dart';
 
 class AppRouter {
@@ -120,7 +122,7 @@ class AppRouter {
         try {
           Provider.of<SessionTimeoutProvider>(context, listen: false)
               .startTracking();
-        } catch (_) {}
+        } catch (e) { debugPrint('Router: $e'); }
 
         // Load user data from secure storage if not already loaded
         if (_userPhone == null || _userName == null) {
@@ -146,7 +148,7 @@ class AppRouter {
         try {
           final sp = Provider.of<SessionTimeoutProvider>(context, listen: false);
           if (!sp.isSessionExpired) sp.recordActivity();
-        } catch (_) {}
+        } catch (e) { debugPrint('Router: $e'); }
       }
 
       return null;
@@ -321,8 +323,16 @@ class AppRouter {
         ),
       ),
       GoRoute(
+        path: '/reminders',
+        builder: (context, state) => const MedicationRemindersScreen(),
+      ),
+      GoRoute(
         path: '/abdm',
         builder: (context, state) => const AbdmScreen(),
+      ),
+      GoRoute(
+        path: '/health-points',
+        builder: (context, state) => const HealthPointsScreen(),
       ),
       GoRoute(
         path: '/records',
@@ -346,7 +356,11 @@ class AppRouter {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, size: 64, color: Colors.red),
+            Icon(
+              Icons.error_outline,
+              size: 64,
+              color: Theme.of(context).colorScheme.error,
+            ),
             const SizedBox(height: 16),
             Text('Page not found: ${state.matchedLocation}'),
             const SizedBox(height: 16),

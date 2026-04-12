@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -126,14 +127,21 @@ class OrderListTabState extends State<OrderListTab> {
                 const SizedBox(height: 8),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
-                  child: Image.network(
-                    order['prescription_photo_url'],
+                  child: CachedNetworkImage(
+                    imageUrl: order['prescription_photo_url'],
                     height: 200,
                     width: double.infinity,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => Container(
+                    placeholder: (context, _) => Container(
+                      height: 200,
+                      color: Theme.of(context).colorScheme.surfaceContainerLow,
+                      child: const Center(
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                    errorWidget: (context, _, __) => Container(
                       height: 100,
-                      color: Colors.grey.shade200,
+                      color: Theme.of(context).colorScheme.surfaceContainerLow,
                       child: const Center(
                           child: Icon(Icons.broken_image, size: 40)),
                     ),
