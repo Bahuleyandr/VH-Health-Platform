@@ -94,3 +94,10 @@ Public URL: `https://admin.vhhealth.app`
 - All new pages go under `src/app/(with-auth)/dashboard/`
 - Use TanStack Query for data fetching (not raw useEffect + useState)
 - Backend response envelope: `{ success, message, data }` — `requestJSON` auto-unwraps `.data`
+
+
+## Future Directions
+
+See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current A+/S-tier roadmap.
+It tracks Phase 1 (security floor), Phase 2 (polish), and Phase 3 (marquee features).
+When starting a new Claude session, run `cat docs/ROADMAP.md` and pick any unchecked item.
