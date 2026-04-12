@@ -16,7 +16,7 @@ class OfflineQueue {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       join(dbPath, 'offline_queue.db'),
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE pending_writes (
@@ -26,9 +26,19 @@ class OfflineQueue {
             body TEXT NOT NULL,
             created_at INTEGER NOT NULL,
             retry_count INTEGER DEFAULT 0,
-            context_label TEXT
+            context_label TEXT,
+            status TEXT DEFAULT 'pending',
+            conflict_reason TEXT
           )
         ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+              "ALTER TABLE pending_writes ADD COLUMN status TEXT DEFAULT 'pending'");
+          await db.execute(
+              'ALTER TABLE pending_writes ADD COLUMN conflict_reason TEXT');
+        }
       },
     );
   }
@@ -51,10 +61,37 @@ class OfflineQueue {
     });
   }
 
-  /// Get all pending writes ordered by created_at.
+  /// Get all pending writes (excludes conflicted items).
   static Future<List<Map<String, dynamic>>> getPending() async {
     final db = await database;
-    return db.query('pending_writes', orderBy: 'created_at ASC');
+    return db.query(
+      'pending_writes',
+      where: "status = 'pending'",
+      orderBy: 'created_at ASC',
+    );
+  }
+
+  /// Get writes that were rejected as conflicts (server had newer data).
+  /// UI can show these to the user for manual resolution.
+  static Future<List<Map<String, dynamic>>> getConflicts() async {
+    final db = await database;
+    return db.query(
+      'pending_writes',
+      where: "status = 'conflict'",
+      orderBy: 'created_at DESC',
+    );
+  }
+
+  /// Mark a write as conflicted. The server returned 409/422 indicating
+  /// the resource was modified since the offline write was queued.
+  static Future<void> markConflict(int id, String reason) async {
+    final db = await database;
+    await db.update(
+      'pending_writes',
+      {'status': 'conflict', 'conflict_reason': reason},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   /// Remove a write after successful sync.

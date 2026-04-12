@@ -360,9 +360,11 @@ class HrApiService {
 
   // ─── Notifications ────────────────────────────────────────────────────────
 
-  /// GET /notifications/:phone — fetch notifications for staff
+  /// GET /notifications/my — fetch notifications for the authenticated staff member.
+  ///
+  /// Uses the JWT-derived identity instead of putting the phone number in the URL.
   static Future<List<dynamic>> getNotifications(String phone) async {
-    final resp = await ApiClient.get('/notifications/$phone');
+    final resp = await ApiClient.get('/notifications/my');
     if (resp.isSuccess) {
       if (resp.data is List) return resp.data;
       if (resp.raw is Map) {
@@ -374,9 +376,9 @@ class HrApiService {
     throw Exception('Failed to fetch notifications (${resp.statusCode})');
   }
 
-  /// PATCH /notifications/:phone/mark-all-read
+  /// PATCH /notifications/my/mark-all-read
   static Future<void> markAllNotificationsRead(String phone) async {
-    await ApiClient.patch('/notifications/$phone/mark-all-read');
+    await ApiClient.patch('/notifications/my/mark-all-read');
   }
 
   // ─── Device Registration ──────────────────────────────────────────────────
