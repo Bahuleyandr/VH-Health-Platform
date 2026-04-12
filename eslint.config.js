@@ -49,7 +49,11 @@ export default [
     },
     rules: {
       // --- Your Custom Rules ---
-      'no-console': process.env.NODE_ENV === 'production' ? 'warn' : 'off',
+      // Ban raw console.* everywhere — Winston `logger.*` is the structured
+      // path. Allow `warn`/`error` as a temporary escape hatch; dedicated
+      // overrides below let `bin/www.js` and `src/scripts/**` print freely
+      // because they run before the logger is initialised / out of band.
+      'no-console': ['warn', { allow: ['warn', 'error'] }],
       'no-unused-vars': [
         'warn',
         {
@@ -87,6 +91,13 @@ export default [
   },
   {
     files: ['src/scripts/**/*.js', 'src/scripts/**/*.cjs', 'src/scripts/**/*.mjs'],
+    rules: {
+      'no-console': 'off',
+    },
+  },
+  {
+    // Startup printer runs before the Winston logger is ready.
+    files: ['src/bin/www.js'],
     rules: {
       'no-console': 'off',
     },

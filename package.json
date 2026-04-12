@@ -142,7 +142,7 @@
     },
     "maxWorkers": 1,
     "workerThreads": false,
-    "testPathPatterns": [
+    "testMatch": [
       "<rootDir>/src/tests/**/*.test.js"
     ]
   },
