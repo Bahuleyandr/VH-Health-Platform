@@ -4,6 +4,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import * as pointService from '../../services/gamification/pointService.js';
+import * as wellnessService from '../../services/gamification/wellnessService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 /**
@@ -145,5 +146,92 @@ export async function claimMilestone(req, res) {
   } catch (err) {
     logger.error('Gamification claimMilestone error', { error: err.message });
     return error(res, 'Failed to claim milestone', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+}
+
+/**
+ * GET /wellness-score — 0-100 score with per-dimension breakdown
+ */
+export async function getWellnessScore(req, res) {
+  try {
+    const uid = req.user?.uid;
+    if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+
+    const result = await wellnessService.computeWellnessScore(uid);
+    return success(res, result, 'Wellness score computed');
+  } catch (err) {
+    logger.error('Gamification getWellnessScore error', { error: err.message });
+    return error(res, 'Failed to compute wellness score', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+}
+
+/**
+ * GET /insights — prioritised smart health insight cards for dashboard
+ */
+export async function getInsights(req, res) {
+  try {
+    const uid = req.user?.uid;
+    if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+
+    const limit = Math.min(5, Math.max(1, parseInt(req.query.limit, 10) || 3));
+    const insights = await wellnessService.computeHealthInsights(uid, limit);
+    return success(res, { insights }, 'Health insights retrieved');
+  } catch (err) {
+    logger.error('Gamification getInsights error', { error: err.message });
+    return error(res, 'Failed to retrieve insights', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+}
+
+/**
+ * GET /checkin/status — whether the user has already checked in today + streak
+ */
+export async function getCheckInStatus(req, res) {
+  try {
+    const uid = req.user?.uid;
+    if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+
+    const [done, streak] = await Promise.all([
+      wellnessService.hasCheckedInToday(uid),
+      wellnessService.getCheckInStreak(uid),
+    ]);
+    return success(res, { checkedInToday: done, streak }, 'Check-in status');
+  } catch (err) {
+    logger.error('Gamification getCheckInStatus error', { error: err.message });
+    return error(res, 'Failed to retrieve check-in status', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+}
+
+/**
+ * POST /checkin — record a daily mood check-in and award points (10).
+ * Idempotent per day via health_point_ledger's (user_uid, activity_type, activity_ref_id) unique key.
+ */
+export async function recordCheckIn(req, res) {
+  try {
+    const uid = req.user?.uid;
+    if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+
+    const { mood } = req.body || {};
+    const allowedMoods = ['great', 'good', 'okay', 'poor', 'bad'];
+    if (!mood || !allowedMoods.includes(String(mood).toLowerCase())) {
+      return error(res, 'mood must be one of: great, good, okay, poor, bad', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    const awarded = await pointService.awardPoints(uid, {
+      activityType: 'DAILY_CHECKIN',
+      activityRefId: today,
+      points: 10,
+      description: `Daily check-in (${String(mood).toLowerCase()})`,
+    });
+
+    const streak = await wellnessService.getCheckInStreak(uid);
+    return success(res, {
+      alreadyCheckedIn: awarded === null,
+      pointsAwarded: awarded ? 10 : 0,
+      streak,
+    }, awarded ? 'Check-in recorded' : 'Already checked in today');
+  } catch (err) {
+    logger.error('Gamification recordCheckIn error', { error: err.message });
+    return error(res, 'Failed to record check-in', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 }
