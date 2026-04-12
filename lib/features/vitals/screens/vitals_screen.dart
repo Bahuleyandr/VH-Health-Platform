@@ -512,7 +512,7 @@ class _VitalsTrendSummary extends StatelessWidget {
       final cur = _toDouble(latestBp['systolic']);
       final prev = _toDouble(prevBp['systolic']);
       if (cur != null && prev != null) {
-        trends.insert(0, _TrendItem('BP Sys', 'mmHg', cur, prev, true));
+        trends.insert(0, _TrendItem('BP Sys', cur, prev, 'mmHg', true));
       }
     }
 
