@@ -8,7 +8,7 @@
 
 ## Phase 1 — A+ Security Floor (in progress)
 
-- [ ] **Jailbreak/root detection.** Add `flutter_jailbreak_detection: ^1.10.0`. Use shared `DeviceIntegrityService` from `vhhealth-core`. Hard-block release build on compromised device. Wire into splash/login.
+- [x] **Jailbreak/root detection.** Add `flutter_jailbreak_detection: ^1.10.0`. Use shared `DeviceIntegrityService` from `vhhealth-core`. Hard-block release build on compromised device. Wire into splash/login.
 - [ ] **Offline sync UX.** `OfflineQueue` + `ConnectivitySyncService` exist but no UI indicator — staff unaware when syncing or when conflicts occur. Add persistent badge + conflict-resolution sheet.
 
 ## Phase 2 — A+ Polish
