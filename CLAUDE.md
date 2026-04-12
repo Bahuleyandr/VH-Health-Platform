@@ -89,3 +89,10 @@ Both patient and staff apps currently have their own copies of ApiConfig and aut
 - All public API exported via `lib/vhhealth_core.dart` barrel file
 - Keep dependencies minimal — only things both apps need
 - When adding new shared code, add it here AND export from the barrel file
+
+
+## Future Directions
+
+See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current A+/S-tier roadmap.
+It tracks Phase 1 (security floor), Phase 2 (polish), and Phase 3 (marquee features).
+When starting a new Claude session, run `cat docs/ROADMAP.md` and pick any unchecked item.
