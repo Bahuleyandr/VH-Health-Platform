@@ -68,10 +68,17 @@ class _DebouncedButtonState extends State<DebouncedButton> {
       onPressed: effectiveOnPressed,
       style: widget.style,
       child: _busy
-          ? const SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                widget.child,
+                const SizedBox(width: 8),
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ],
             )
           : widget.child,
     );
