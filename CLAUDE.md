@@ -332,3 +332,10 @@ dart run build_runner build --delete-conflicting-outputs
 - Polling: use exponential backoff on consecutive failures, not fixed intervals
 - Linting: `package:flutter_lints` (see `analysis_options.yaml`)
 - JWT stored in flutter_secure_storage with key `'jwt'`
+
+
+## Future Directions
+
+See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current A+/S-tier roadmap.
+It tracks Phase 1 (security floor), Phase 2 (polish), and Phase 3 (marquee features).
+When starting a new Claude session, run `cat docs/ROADMAP.md` and pick any unchecked item.
