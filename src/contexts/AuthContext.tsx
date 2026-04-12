@@ -18,14 +18,33 @@ import {
   isAuthenticated,
   getAdminUser,
   clearAuthData,
+  verifyAdminMfa,
 } from "@/lib/api-client";
 import type { AdminUser } from "@/lib/types";
+
+/** Describes the second-factor challenge returned by `login` when the admin
+ *  account has MFA enabled. Callers must complete the flow via `verifyMfa`. */
+export interface MfaChallenge {
+  challengeToken: string;
+  expiresAt?: string;
+  adminHint?: { username?: string };
+}
+
+/** Discriminated result returned by `login` so the UI can distinguish "go to
+ *  dashboard" from "prompt for TOTP". */
+export type LoginOutcome =
+  | { kind: "success" }
+  | { kind: "mfa"; challenge: MfaChallenge };
 
 interface AuthContextType {
   user: AdminUser | null;
   loading: boolean;
   error: string | null;
-  login: (username: string, password: string) => Promise<void>;
+  /** Admin password login. Returns a discriminated union so the caller can
+   *  render a TOTP prompt when the backend asks for a second factor. */
+  login: (username: string, password: string) => Promise<LoginOutcome>;
+  /** Completes the 2FA step after a `login()` that returned `{ kind: "mfa" }`. */
+  verifyMfa: (args: { challengeToken: string; code: string; useBackupCode?: boolean }) => Promise<void>;
   loginStaff: (employeeId: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
@@ -85,21 +104,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [checkAuth]);
 
   const login = useCallback(
-    async (username: string, password: string) => {
+    async (username: string, password: string): Promise<LoginOutcome> => {
       try {
         setLoading(true);
         setError(null);
 
         const result = await adminLogin(username, password);
-        // api-client persists token/admin to localStorage; we update state & route
+
+        // Backend requested a second factor — surface the challenge to the UI.
+        if (result.requiresTwoFactor) {
+          return {
+            kind: "mfa",
+            challenge: {
+              challengeToken: result.challengeToken,
+              expiresAt: result.expiresAt,
+              adminHint: result.admin?.username ? { username: result.admin.username } : undefined,
+            },
+          };
+        }
+
         if (result?.admin) {
           setUser(result.admin);
           router.push("/dashboard");
-        } else {
-          throw new Error("Login successful but no admin data received");
+          return { kind: "success" };
         }
+        throw new Error("Login successful but no admin data received");
       } catch (e) {
         const msg = (e as Error).message || "Login failed";
+        setError(msg);
+        throw e;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [router],
+  );
+
+  const verifyMfa = useCallback(
+    async (args: { challengeToken: string; code: string; useBackupCode?: boolean }) => {
+      try {
+        setLoading(true);
+        setError(null);
+        const result = await verifyAdminMfa(args);
+        if (result?.admin) setUser(result.admin);
+        router.push("/dashboard");
+      } catch (e) {
+        const msg = (e as Error).message || "MFA verification failed";
         setError(msg);
         throw e;
       } finally {
@@ -150,7 +200,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, error, login, loginStaff, logout, checkAuth }}
+      value={{ user, loading, error, login, verifyMfa, loginStaff, logout, checkAuth }}
     >
       {children}
     </AuthContext.Provider>
