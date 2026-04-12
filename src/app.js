@@ -119,6 +119,8 @@ import messagingRoutes from './routes/messaging/messagingRoutes.js';
 import reminderRoutes from './routes/reminders/index.js';
 import stepsRoutes from './routes/steps/stepsRoutes.js';
 import stepRewardsRoutes from './routes/steps/stepRewardsRoutes.js';
+import gamificationRoutes from './routes/gamification/gamificationRoutes.js';
+import adminGamificationRoutes from './routes/gamification/adminGamificationRoutes.js';
 
 // Clinical workflows (MAR, NEWS2, Handover)
 import clinicalRoutes from './routes/clinical/clinicalRoutes.js';
@@ -334,6 +336,7 @@ app.use('/api/v1/notifications', notificationRoutes);
 app.use('/api/v1/reminders', patientRateLimiter, reminderRoutes);
 app.use('/api/v1/steps', patientRateLimiter, stepsRoutes);
 app.use('/api/v1/rewards', patientRateLimiter, stepRewardsRoutes);
+app.use('/api/v1/gamification', patientRateLimiter, gamificationRoutes);
 
 // Healthcare services - Legacy (to be modularized)
 app.use('/api/v1/devices', deviceRoutes);
@@ -399,6 +402,7 @@ app.use('/api/v1/emr', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_ST
 
 // Centralized admin namespace — IP allowlisted when ADMIN_IP_ALLOWLIST is set
 app.use('/api/v1/admin', requireRole('ADMIN', 'SUPER_ADMIN'), adminIpAllowlist, adminRateLimiter, adminDashboardRoutes);
+app.use('/api/v1/admin/gamification', requireRole('ADMIN', 'SUPER_ADMIN'), adminIpAllowlist, adminRateLimiter, adminGamificationRoutes);
 
 // System settings + status
 app.use('/api/v1/system', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, systemRoutes);

@@ -903,6 +903,25 @@ model notification_delivery_log {
   @@map("notification_delivery_log")
 }
 
+model notification_outbox {
+  id              Int       @id @default(autoincrement())
+  type            String
+  recipient_id    String?
+  recipient_phone String?
+  title           String
+  body            String
+  payload         Json?
+  status          String    @default("PENDING")
+  retry_count     Int       @default(0)
+  failure_reason  String?
+  last_attempt_at DateTime?
+  sent_at         DateTime?
+  created_at      DateTime  @default(now())
+
+  @@index([status, retry_count])
+  @@index([created_at])
+}
+
 // ===================================================================
 // 📍 LOCATION SERVICES
 // ===================================================================
@@ -1246,4 +1265,59 @@ model step_rewards {
   @@index([user_uid, is_applied])
   @@index([reward_month])
   @@map("step_rewards")
+}
+
+// ===================================================================
+// 🏆 GAMIFICATION — Health Points & Milestones
+// ===================================================================
+
+model health_point_ledger {
+  id              Int       @id @default(autoincrement())
+  user_uid        String    @db.Uuid
+  points          Int
+  activity_type   String    @db.VarChar(50)
+  activity_ref_id String?   @db.VarChar(100)
+  description     String    @db.VarChar(255)
+  earned_at       DateTime  @default(now()) @db.Timestamptz()
+  expires_at      DateTime? @db.Timestamptz()
+  created_at      DateTime  @default(now()) @db.Timestamptz()
+
+  @@unique([user_uid, activity_type, activity_ref_id], name: "uq_hpl_idempotency")
+  @@index([user_uid])
+  @@index([user_uid, earned_at(sort: Desc)])
+}
+
+model health_milestones {
+  id                 Int       @id @default(autoincrement())
+  name               String    @db.VarChar(100)
+  points_required    Int
+  reward_type        String    @db.VarChar(50)
+  reward_value       Int       @default(0)
+  reward_description String    @db.VarChar(255)
+  icon_name          String?   @db.VarChar(50)
+  color_hex          String?   @db.VarChar(7)
+  is_active          Boolean   @default(true)
+  sort_order         Int       @default(0)
+  created_at         DateTime  @default(now()) @db.Timestamptz()
+  updated_at         DateTime  @default(now()) @updatedAt @db.Timestamptz()
+
+  claims health_milestone_claims[]
+  @@index([is_active, sort_order])
+}
+
+model health_milestone_claims {
+  id           Int       @id @default(autoincrement())
+  user_uid     String    @db.Uuid
+  milestone_id Int
+  voucher_code String    @db.VarChar(20)
+  claimed_at   DateTime  @default(now()) @db.Timestamptz()
+  is_redeemed  Boolean   @default(false)
+  redeemed_at  DateTime? @db.Timestamptz()
+  redeemed_by  String?   @db.VarChar(100)
+  expires_at   DateTime  @db.Timestamptz()
+
+  milestone health_milestones @relation(fields: [milestone_id], references: [id])
+  @@unique([user_uid, milestone_id])
+  @@index([user_uid])
+  @@index([voucher_code])
 }
