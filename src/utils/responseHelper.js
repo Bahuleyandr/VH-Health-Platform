@@ -1,4 +1,73 @@
 // src/utils/responseHelper.js
+
+import logger from '../logging/logger.js';
+
+const IS_PROD = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+
+/**
+ * Patterns that suggest a message contains leaked internals (stack frames,
+ * raw DB errors, driver output, file paths, prisma noise). Anything matching
+ * gets replaced with a generic message in production.
+ *
+ * Keep this list defensive — false positives just give a generic message,
+ * false negatives leak internals. Tune toward stricter over time.
+ */
+const LEAK_PATTERNS = [
+  /\n\s{4}at\s/,          // stack frames: "    at Object.<anonymous>"
+  /^Error:/i,             // raw Error.toString()
+  /SequelizeError|PrismaClient|pg_|ECONNREFUSED|ETIMEDOUT|ENOTFOUND/i,
+  /\/(home|root|usr|opt)\//, // absolute filesystem paths
+  /\bsyntax error\b/i,
+  /\bunexpected token\b/i,
+  /\bconnection refused\b/i,
+];
+
+const GENERIC_5XX = 'An internal server error occurred. Please try again later.';
+const GENERIC_4XX = 'Request could not be processed.';
+
+/**
+ * Scrubs a client-bound error message. In production strips anything that
+ * looks like raw internals and always generalises 5xx messages unless the
+ * caller explicitly marked the message as `safe`.
+ *
+ * Always logs the original server-side (via logger.warn) so operators keep
+ * visibility.
+ *
+ * @param {string} message
+ * @param {number} statusCode
+ * @param {{ safe?: boolean, context?: string }} opts
+ * @returns {string}
+ */
+export function sanitizeErrorMessage(message, statusCode, opts = {}) {
+  const raw = typeof message === 'string' ? message : String(message ?? '');
+  const safe = opts.safe === true;
+
+  if (!IS_PROD) return raw || (statusCode >= 500 ? GENERIC_5XX : GENERIC_4XX);
+
+  // In production: never leak for 5xx unless explicitly safe.
+  if (statusCode >= 500 && !safe) {
+    if (raw && raw !== GENERIC_5XX) {
+      logger.warn('responseHelper: scrubbed 5xx message before sending', {
+        original: raw,
+        context: opts.context,
+      });
+    }
+    return GENERIC_5XX;
+  }
+
+  // 4xx (and opted-in 5xx): strip if it smells like leaked internals.
+  if (LEAK_PATTERNS.some((re) => re.test(raw))) {
+    logger.warn('responseHelper: scrubbed leaky error message', {
+      original: raw,
+      statusCode,
+      context: opts.context,
+    });
+    return statusCode >= 500 ? GENERIC_5XX : GENERIC_4XX;
+  }
+
+  return raw || (statusCode >= 500 ? GENERIC_5XX : GENERIC_4XX);
+}
+
 /**
  * Standard success response.
  * @param {Response} res - Express response
@@ -29,23 +98,44 @@ export function success(res, data, message = 'Success', status = 200, meta = {})
 
 /**
  * Standard error response.
+ *
+ * In production, messages are automatically scrubbed (see
+ * `sanitizeErrorMessage`). Callers that have a safe, hand-written message
+ * for a 5xx can opt out by passing `{ safe: true }` as the 4th arg *or* by
+ * passing a details object with `safe: true`.
+ *
  * @param {Response} res - Express response
  * @param {string} message - Error message (generic, safe for clients)
  * @param {number} statusCode - HTTP status (default 500)
  * @param {*} details - Optional error details (validation errors, etc.)
+ *                      May be `{ safe: true, ...rest }` to opt out of
+ *                      5xx scrubbing when the message is confirmed safe.
  */
 export function error(res, message = 'Internal server error', statusCode = 500, details = null) {
+  let safeFlag = false;
+  let outDetails = details;
+  if (details && typeof details === 'object' && details.safe === true) {
+    safeFlag = true;
+    const { safe: _safe, ...rest } = details;
+    outDetails = Object.keys(rest).length > 0 ? rest : null;
+  }
+
+  const finalMessage = sanitizeErrorMessage(message, statusCode, {
+    safe: safeFlag,
+    context: res.req?.originalUrl,
+  });
+
   const response = {
     success: false,
-    message,
+    message: finalMessage,
   };
 
   if (res.req?.id) {
     response.requestId = res.req.id;
   }
 
-  if (details) {
-    response.details = details;
+  if (outDetails) {
+    response.details = outDetails;
   }
 
   res.status(statusCode).json(response);

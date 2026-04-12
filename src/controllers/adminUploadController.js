@@ -25,25 +25,26 @@ export async function getFileStats(req, res) {
     const { timeframe = '30d', detailed: _detailed = false } = req.query;
     const userRole = req.user?.role;
     const userId = req.user?.uid;
-    
-    let interval;
-    switch (timeframe) {
-      case '7d': interval = '7 days'; break;
-      case '30d': interval = '30 days'; break;
-      case '90d': interval = '90 days'; break;
-      case '1y': interval = '1 year'; break;
-      default: interval = '30 days';
-    }
 
-    // Role-based access filtering
-    let roleFilter = '';
-    if (!['ADMIN', 'DOCTOR'].includes(userRole)) {
-      roleFilter = `AND (uploaded_by = '${userId}' OR (is_hipaa_protected = false AND is_private = false))`;
-    }
+    // Map timeframe enum → integer day count. Server-controlled only — any
+    // unknown value falls through to 30d. Keeps all day-math as bind params.
+    const TIMEFRAME_DAYS = { '7d': 7, '30d': 30, '90d': 90, '1y': 365 };
+    const intervalDays = TIMEFRAME_DAYS[timeframe] ?? 30;
+    const interval = `${intervalDays} days`; // kept only for the response payload
+
+    // Role-based access filtering. userId comes from the JWT but we still
+    // bind it as a parameter (belt-and-braces against any future refactor
+    // that hands us a less-trusted user id).
+    const privilegedRoles = ['ADMIN', 'DOCTOR'];
+    const restrictByUser = !privilegedRoles.includes(userRole);
+    const roleClause = restrictByUser
+      ? 'AND (uploaded_by = $2 OR (is_hipaa_protected = false AND is_private = false))'
+      : '';
+    const baseParams = restrictByUser ? [intervalDays, userId] : [intervalDays];
 
     // Overall statistics
     const stats = await prisma.$queryRawUnsafe(`
-      SELECT 
+      SELECT
         COUNT(*) as total_files,
         SUM(file_size) as total_size_bytes,
         AVG(file_size) as avg_file_size,
@@ -58,39 +59,39 @@ export async function getFileStats(req, res) {
         COUNT(*) FILTER (WHERE retention_date < CURRENT_DATE) as expired_files,
         AVG(processing_time_ms) as avg_processing_time,
         SUM(CASE WHEN compression_applied THEN original_size - file_size ELSE 0 END) as total_savings_bytes
-      FROM file_metadata 
-      WHERE uploaded_at > NOW() - INTERVAL '${interval}' ${roleFilter}
-    `);
+      FROM file_metadata
+      WHERE uploaded_at > NOW() - ($1::int || ' days')::interval ${roleClause}
+    `, ...baseParams);
 
     // Category breakdown
     const categoryStats = await prisma.$queryRawUnsafe(`
-      SELECT 
+      SELECT
         category,
         COUNT(*) as file_count,
         SUM(file_size) as total_size,
         AVG(file_size) as avg_size,
         COUNT(*) FILTER (WHERE is_hipaa_protected = true) as hipaa_count,
         COUNT(*) FILTER (WHERE scan_status = 'infected') as infected_count
-      FROM file_metadata 
-      WHERE uploaded_at > NOW() - INTERVAL '${interval}' ${roleFilter}
+      FROM file_metadata
+      WHERE uploaded_at > NOW() - ($1::int || ' days')::interval ${roleClause}
       GROUP BY category
       ORDER BY file_count DESC
-    `);
+    `, ...baseParams);
 
     // Daily upload trends
     const dailyUploads = await prisma.$queryRawUnsafe(`
-      SELECT 
+      SELECT
         DATE(uploaded_at) as upload_date,
         COUNT(*) as files_uploaded,
         SUM(file_size) as bytes_uploaded,
         COUNT(*) FILTER (WHERE is_hipaa_protected = true) as hipaa_uploads,
         COUNT(*) FILTER (WHERE urgency_level = 'urgent') as urgent_uploads
-      FROM file_metadata 
-      WHERE uploaded_at > NOW() - INTERVAL '${interval}' ${roleFilter}
+      FROM file_metadata
+      WHERE uploaded_at > NOW() - ($1::int || ' days')::interval ${roleClause}
       GROUP BY DATE(uploaded_at)
       ORDER BY upload_date DESC
       LIMIT 30
-    `);
+    `, ...baseParams);
 
     // Format results
     const formattedStats = {
@@ -243,8 +244,16 @@ export async function cleanupExpiredFiles(req, res) {
       paramIndex++;
     }
 
-    if (olderThanDays) {
-      whereClause += ` AND uploaded_at < NOW() - INTERVAL '${olderThanDays} days'`;
+    if (olderThanDays != null) {
+      // Validate + bind as int. Reject anything non-numeric to prevent
+      // interval expression injection.
+      const daysInt = parseInt(olderThanDays, 10);
+      if (Number.isNaN(daysInt) || daysInt < 0 || daysInt > 36500) {
+        return error(res, 'olderThanDays must be a non-negative integer (days)', HTTP_STATUS.BAD_REQUEST);
+      }
+      whereClause += ` AND uploaded_at < NOW() - ($${paramIndex}::int || ' days')::interval`;
+      params.push(daysInt);
+      paramIndex++;
     }
 
     // Find expired files
@@ -478,16 +487,22 @@ export async function purgeQuarantinedFiles(req, res) {
       return error(res, 'Purge confirmation required', HTTP_STATUS.BAD_REQUEST);
     }
 
+    // Validate + bind olderThanDays to prevent SQL injection via interval.
+    const daysInt = parseInt(olderThanDays, 10);
+    if (Number.isNaN(daysInt) || daysInt < 0 || daysInt > 36500) {
+      return error(res, 'olderThanDays must be a non-negative integer (days)', HTTP_STATUS.BAD_REQUEST);
+    }
+
     // Find quarantined files older than specified days
     const quarantinedFiles = await prisma.$queryRawUnsafe(`
-      SELECT 
+      SELECT
         id, storage_key, file_name, file_size, is_hipaa_protected,
         quarantined_at, scan_result
-      FROM file_metadata 
-      WHERE is_quarantined = true 
-        AND quarantined_at < NOW() - INTERVAL '${olderThanDays} days'
+      FROM file_metadata
+      WHERE is_quarantined = true
+        AND quarantined_at < NOW() - ($1::int || ' days')::interval
       ORDER BY quarantined_at ASC
-    `);
+    `, daysInt);
 
     let purgedCount = 0;
     let freedBytes = 0;

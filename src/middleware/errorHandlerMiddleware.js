@@ -4,6 +4,7 @@ import * as Sentry from '@sentry/node';
 import sourceMapSupport from 'source-map-support';
 import logger from '../logging/logger.js';
 import { AppError } from '../utils/AppError.js';
+import { sanitizeErrorMessage } from '../utils/responseHelper.js';
 
 /**
  * Centralized error handling middleware.
@@ -32,14 +33,20 @@ export const errorHandlerMiddleware = (err, req, res, _next) => {
     },
   });
 
-  // 4. Handle AppError instances with structured response
+  // 4. Handle AppError instances with structured response.
+  // AppError messages are author-controlled, so we mark them safe but still
+  // run through the sanitizer in case a service interpolated err.message.
   if (err instanceof AppError) {
     const response = {
       success: false,
-      message: err.message,
+      message: sanitizeErrorMessage(err.message, err.statusCode, {
+        safe: true,
+        context: req.originalUrl,
+      }),
       code: err.code,
     };
     if (err.details) response.details = err.details;
+    if (req.id) response.requestId = req.id;
     // Only report non-operational errors to Sentry
     if (!err.isOperational && statusCode >= 500) {
       Sentry.captureException(err);
@@ -52,14 +59,13 @@ export const errorHandlerMiddleware = (err, req, res, _next) => {
     Sentry.captureException(err);
   }
 
-  // 6. Create the response body — never leak internal error details in production
+  // 6. Create the response body — never leak internal error details in production.
+  // sanitizeErrorMessage replaces raw err.message with a generic 5xx line in
+  // production and scrubs leak-pattern matches on any status.
   const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
   const errorResponse = {
     success: false,
-    message: isProduction && statusCode >= 500
-      ? 'An internal server error occurred.'
-      : (err.message || 'An internal server error occurred.'),
-    // Include requestId for client-side log correlation
+    message: sanitizeErrorMessage(err.message, statusCode, { context: req.originalUrl }),
     ...(req.id && { requestId: req.id }),
     // Only include the stack in development for security reasons
     ...(!isProduction && { stack }),
