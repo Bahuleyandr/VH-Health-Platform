@@ -8,9 +8,9 @@
 
 ## Phase 1 — A+ Security Floor (in progress)
 
-- [ ] **Jailbreak/root detection.** Add `flutter_jailbreak_detection: ^1.10.0`. Use shared `DeviceIntegrityService` from `vhhealth-core`. Hard-block in release build on compromised device. Wire into `lib/features/splash/`.
-- [ ] **Hardcoded `Colors.*` → `theme.colorScheme.*`.** Grep `Colors\.(red|white|black|grey)` outside theme files — 10+ hits. `lib/core/navigation/app_router.dart` L359 is the starting point.
-- [ ] **Wire `CachedNetworkImage`.** Dep is in pubspec but never imported. Replace every `Image.network(...)` — pharmacy order list, records, profile avatars, doctor photos.
+- [x] **Jailbreak/root detection.** Add `flutter_jailbreak_detection: ^1.10.0`. Use shared `DeviceIntegrityService` from `vhhealth-core`. Hard-block in release build on compromised device. Wire into `lib/features/splash/`.
+- [x] **Hardcoded `Colors.*` → `theme.colorScheme.*`.** Grep `Colors\.(red|white|black|grey)` outside theme files — 10+ hits. `lib/core/navigation/app_router.dart` L359 is the starting point.
+- [x] **Wire `CachedNetworkImage`.** Dep is in pubspec but never imported. Replace every `Image.network(...)` — pharmacy order list, records, profile avatars, doctor photos.
 - [ ] **God-file split — dashboard.** `lib/features/dashboard/screens/dashboard_screen.dart` (1322L). Extract 6 private widget classes at bottom (`_TodayAppointmentCard`, `_SmartPharmacyCard`, `_SmartInvestigationCard`, `_SmartPrescriptionCard`, `_AppointmentCard`, `_QuickActionButton`, `_LanguageMenuButton`) into `lib/features/dashboard/widgets/`.
 - [ ] **God-file split — health points.** `lib/features/gamification/screens/health_points_screen.dart` (1219L). Each `_buildXTab` → dedicated widget file.
 
