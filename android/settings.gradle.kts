@@ -31,6 +31,6 @@ include(":app")
 // Set group before any project is configured so the namespace resolves correctly.
 gradle.beforeProject {
     if (project.name == "flutter_jailbreak_detection") {
-        project.ext.set("group", "appmire.be.flutterjailbreakdetection")
+        project.extraProperties.set("group", "appmire.be.flutterjailbreakdetection")
     }
 }
