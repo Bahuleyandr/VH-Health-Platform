@@ -8,12 +8,12 @@
 
 ## Phase 1 — A+ Security Floor (in progress)
 
-- [ ] **SQL injection in analytics — CRITICAL.** `src/controllers/adminUploadController.js` L41-62, L247, L488; `src/controllers/analyticsController.js` 6+ patterns. Template literals in `INTERVAL '${interval}'` + `WHERE ... '${userId}'`. Parameterize. Validate integer inputs with enum clamp.
-- [ ] **err.message leakage — HIGH.** ~236 occurrences. `src/middleware/errorHandlerMiddleware.js` must strip `err.message` in `NODE_ENV === 'production'` unless `err instanceof AppError`. Controllers: generic message + `logger.error(..., { err })`. Target: grep count <20.
-- [ ] **Jest broken.** `jest.config.js` has invalid `testPathPatterns`; `iconv-lite` dependency issue. Fix + add `npm test` to `.github/workflows/ci.yml` as blocking step for `authorization.test.js` + `critical-paths.test.js`.
-- [ ] **console.log in prod code.** 123 instances across `/src`. Migrate to `logger.info/warn/error` with structured fields. Add ESLint rule `no-console: error` (allowlist `bin/www.js`).
-- [ ] **Admin MFA (TOTP) + 4h JWT TTL.** `npm i otplib`. `POST /auth/admin/mfa/enroll` + `/verify` + recovery codes. Enforce in `adminAuthController.login`. `securityConfig.js` admin JWT TTL 7d → 4h. Refresh-token flow (reuse staff pattern).
-- [ ] **Bed management CRUD.** Add/verify routes in `src/routes/bed/` + controllers. Admin portal currently uses localStorage — backend must be ready.
+- [x] **SQL injection in analytics — CRITICAL.** `src/controllers/adminUploadController.js` L41-62, L247, L488; `src/controllers/analyticsController.js` 6+ patterns. Template literals in `INTERVAL '${interval}'` + `WHERE ... '${userId}'`. Parameterize. Validate integer inputs with enum clamp.
+- [x] **err.message leakage — HIGH.** ~236 occurrences. `src/middleware/errorHandlerMiddleware.js` must strip `err.message` in `NODE_ENV === 'production'` unless `err instanceof AppError`. Controllers: generic message + `logger.error(..., { err })`. Target: grep count <20.
+- [x] **Jest broken.** `jest.config.js` has invalid `testPathPatterns`; `iconv-lite` dependency issue. Fix + add `npm test` to `.github/workflows/ci.yml` as blocking step for `authorization.test.js` + `critical-paths.test.js`.
+- [x] **console.log in prod code.** 123 instances across `/src`. Migrate to `logger.info/warn/error` with structured fields. Add ESLint rule `no-console: error` (allowlist `bin/www.js`).
+- [x] **Admin MFA (TOTP) + 4h JWT TTL.** `npm i otplib`. `POST /auth/admin/mfa/enroll` + `/verify` + recovery codes. Enforce in `adminAuthController.login`. `securityConfig.js` admin JWT TTL 7d → 4h. Refresh-token flow (reuse staff pattern).
+- [x] **Bed management CRUD.** Add/verify routes in `src/routes/bed/` + controllers. Admin portal currently uses localStorage — backend must be ready.
 
 ## Phase 2 — A+ Polish
 
