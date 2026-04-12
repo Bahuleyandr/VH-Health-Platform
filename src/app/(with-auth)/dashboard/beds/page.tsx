@@ -46,10 +46,10 @@ export default function BedsPage() {
   const bedsQuery = useQuery<Bed[]>({
     queryKey: ["beds"],
     queryFn: async () => {
-      const res = await fetchAdminAPI("/beds");
+      const res = await fetchAdminAPI<Bed[] | { rows: Bed[] }>("/beds");
       // fetchAdminAPI unwraps data; backend returns either array or { rows: [] }.
-      if (Array.isArray(res)) return res as Bed[];
-      if (Array.isArray(res?.rows)) return res.rows as Bed[];
+      if (Array.isArray(res)) return res;
+      if (Array.isArray((res as { rows?: Bed[] })?.rows)) return (res as { rows: Bed[] }).rows;
       return [] as Bed[];
     },
     refetchOnWindowFocus: false,
@@ -58,9 +58,9 @@ export default function BedsPage() {
   const wardsQuery = useQuery<Ward[]>({
     queryKey: ["wards"],
     queryFn: async () => {
-      const res = await fetchAdminAPI("/wards");
-      if (Array.isArray(res)) return res as Ward[];
-      if (Array.isArray(res?.rows)) return res.rows as Ward[];
+      const res = await fetchAdminAPI<Ward[] | { rows: Ward[] }>("/wards");
+      if (Array.isArray(res)) return res;
+      if (Array.isArray((res as { rows?: Ward[] })?.rows)) return (res as { rows: Ward[] }).rows;
       return [] as Ward[];
     },
     refetchOnWindowFocus: false,
@@ -71,7 +71,6 @@ export default function BedsPage() {
       return fetchAdminAPI(`/beds/${payload.id}`, {
         method: "PUT",
         body: JSON.stringify({ status: payload.status, patient_name: payload.patient_name ?? null }),
-        headers: { "Content-Type": "application/json" },
       });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["beds"] }),
