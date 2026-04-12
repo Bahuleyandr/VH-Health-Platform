@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:vhhealth_core/services/device_integrity_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -40,7 +41,37 @@ class _SplashScreenState extends State<SplashScreen>
     super.dispose();
   }
 
+  Future<void> _showIntegrityBlocker(DeviceIntegrityResult integrity) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Device not supported'),
+        content: Text(
+          'For your safety, VH Health cannot run on this device. Reason: '
+          '${integrity.reasons.join(', ')}. '
+          'Please use a standard, unmodified phone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _handleSplashTap() async {
+    // Device integrity gate — run first so a compromised device never
+    // reaches any auth code path.
+    final integrity = await DeviceIntegrityService.check();
+    if (integrity.shouldBlock) {
+      await _showIntegrityBlocker(integrity);
+      return;
+    }
+
     try {
       final firebaseUser = FirebaseAuth.instance.currentUser;
       final jwt = await _secureStorage.read(key: 'jwt');
