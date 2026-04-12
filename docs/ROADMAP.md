@@ -8,8 +8,8 @@
 
 ## Phase 1 — A+ Security Floor (in progress)
 
-- [ ] **Replace bed-management localStorage mock.** The bed page stores state in `localStorage` with a TODO comment. Wire to backend `/beds` CRUD routes via TanStack Query. If backend routes are incomplete, land them in `vh-health-backend` first.
-- [ ] **MFA (TOTP) on login.** Backend endpoints land in `vh-health-backend`. Admin portal needs: MFA challenge step in login flow, settings page for enrollment (show QR code), recovery-code display UI.
+- [x] **Replace bed-management localStorage mock.** The bed page stores state in `localStorage` with a TODO comment. Wire to backend `/beds` CRUD routes via TanStack Query. If backend routes are incomplete, land them in `vh-health-backend` first.
+- [x] **MFA (TOTP) on login.** Backend endpoints land in `vh-health-backend`. Admin portal needs: MFA challenge step in login flow, settings page for enrollment (show QR code), recovery-code display UI.
 - [ ] **Shorten JWT TTL to 4h + refresh token.** Backend drops TTL in `securityConfig.js`; portal must implement refresh flow.
 - [ ] **Move token storage out of `localStorage`.** XSS risk. Either: (a) `httpOnly` cookie via Next.js API route proxy for backend calls (preferred), or (b) at minimum add strict CSP header via `middleware.ts`.
 - [ ] **Split god-components.** `DashboardClient.tsx` (975L), `system-audit/page.tsx` (1041L), `PermissionsMatrix.tsx` (416L). Extract per-tab or per-section subcomponents. Target max 300L.
