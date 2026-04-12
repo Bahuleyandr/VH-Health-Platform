@@ -16,7 +16,6 @@ dependencies:
   url_launcher: ^6.3.1
   # Device integrity — used by DeviceIntegrityService to detect
   # rooted / jailbroken devices before issuing JWTs in release builds.
-  flutter_jailbreak_detection: ^1.10.0
 
 dev_dependencies:
   flutter_test:
