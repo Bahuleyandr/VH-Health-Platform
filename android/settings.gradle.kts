@@ -25,3 +25,12 @@ plugins {
 }
 
 include(":app")
+
+// Fix for flutter_jailbreak_detection which uses `namespace project.group` but
+// project.group may not be resolved when AGP reads namespace during configuration.
+// Set group before any project is configured so the namespace resolves correctly.
+gradle.beforeProject {
+    if (project.name == "flutter_jailbreak_detection") {
+        project.ext.set("group", "appmire.be.flutterjailbreakdetection")
+    }
+}
