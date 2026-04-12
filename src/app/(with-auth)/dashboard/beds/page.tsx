@@ -1,19 +1,31 @@
 // src/app/(with-auth)/dashboard/beds/page.tsx
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { fetchAdminAPI } from "@/lib/api";
 
 /* ---------- Types ---------- */
 
 type BedStatus = "available" | "occupied" | "reserved" | "maintenance";
 
 interface Bed {
-  id: string;
-  number: string;
-  ward: string;
-  floor: number;
+  id: number;
+  bed_number: string;
   status: BedStatus;
-  patientName?: string;
+  ward_id: number;
+  ward_name?: string | null;
+  ward_floor?: number | null;
+  patient_name?: string | null;
+  patient_uid?: string | null;
+}
+
+interface Ward {
+  id: number;
+  name: string;
+  floor: number | null;
+  total_beds?: number;
 }
 
 const STATUS_COLORS: Record<BedStatus, { bg: string; border: string; text: string }> = {
@@ -23,69 +35,56 @@ const STATUS_COLORS: Record<BedStatus, { bg: string; border: string; text: strin
   maintenance: { bg: "#f1f5f9", border: "#94a3b8", text: "#64748b" },
 };
 
-const DEFAULT_WARDS = ["General", "ICU", "Pediatrics", "Maternity", "Surgical"];
-const STORAGE_KEY = "vhhealth_beds";
-
-function generateDefaultBeds(): Bed[] {
-  const beds: Bed[] = [];
-  let id = 1;
-  for (const ward of DEFAULT_WARDS) {
-    const floor = DEFAULT_WARDS.indexOf(ward) + 1;
-    for (let i = 1; i <= 8; i++) {
-      beds.push({
-        id: String(id++),
-        number: `${ward.charAt(0)}${floor}${String(i).padStart(2, "0")}`,
-        ward,
-        floor,
-        status: "available",
-      });
-    }
-  }
-  return beds;
-}
-
-function loadBeds(): Bed[] {
-  if (typeof window === "undefined") return generateDefaultBeds();
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as Bed[];
-  } catch { /* ignore */ }
-  const beds = generateDefaultBeds();
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(beds));
-  return beds;
-}
-
-function saveBeds(beds: Bed[]) {
-  if (typeof window !== "undefined") {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(beds));
-  }
-}
-
 /* ---------- Page ---------- */
 
 export default function BedsPage() {
-  const [beds, setBeds] = useState<Bed[]>([]);
+  const qc = useQueryClient();
   const [filterWard, setFilterWard] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [editBed, setEditBed] = useState<Bed | null>(null);
 
-  useEffect(() => {
-    setBeds(loadBeds());
-  }, []);
+  const bedsQuery = useQuery<Bed[]>({
+    queryKey: ["beds"],
+    queryFn: async () => {
+      const res = await fetchAdminAPI("/beds");
+      // fetchAdminAPI unwraps data; backend returns either array or { rows: [] }.
+      if (Array.isArray(res)) return res as Bed[];
+      if (Array.isArray(res?.rows)) return res.rows as Bed[];
+      return [] as Bed[];
+    },
+    refetchOnWindowFocus: false,
+  });
 
-  const updateBed = useCallback((id: string, updates: Partial<Bed>) => {
-    setBeds((prev) => {
-      const next = prev.map((b) => (b.id === id ? { ...b, ...updates } : b));
-      saveBeds(next);
-      return next;
-    });
-  }, []);
+  const wardsQuery = useQuery<Ward[]>({
+    queryKey: ["wards"],
+    queryFn: async () => {
+      const res = await fetchAdminAPI("/wards");
+      if (Array.isArray(res)) return res as Ward[];
+      if (Array.isArray(res?.rows)) return res.rows as Ward[];
+      return [] as Ward[];
+    },
+    refetchOnWindowFocus: false,
+  });
 
-  const filtered = beds.filter((b) => {
-    if (filterWard !== "all" && b.ward !== filterWard) return false;
+  const updateStatusMutation = useMutation({
+    mutationFn: async (payload: { id: number; status: BedStatus; patient_name?: string | null }) => {
+      return fetchAdminAPI(`/beds/${payload.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ status: payload.status, patient_name: payload.patient_name ?? null }),
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["beds"] }),
+  });
+
+  const beds = bedsQuery.data ?? [];
+  const wards = wardsQuery.data ?? [];
+
+  const filtered = useMemo(() => beds.filter((b) => {
+    if (filterWard !== "all" && String(b.ward_id) !== filterWard) return false;
     if (filterStatus !== "all" && b.status !== filterStatus) return false;
     return true;
-  });
+  }), [beds, filterWard, filterStatus]);
 
   const total = beds.length;
   const occupied = beds.filter((b) => b.status === "occupied").length;
@@ -100,26 +99,35 @@ export default function BedsPage() {
     border: "1px solid var(--border-color, #e2e8f0)",
   };
 
+  const summaryTiles = [
+    { label: "Total", value: total, color: "#3b82f6" },
+    { label: "Available", value: available, color: "#22c55e" },
+    { label: "Occupied", value: occupied, color: "#ef4444" },
+    { label: "Reserved", value: reserved, color: "#f59e0b" },
+    { label: "Maintenance", value: maintenance, color: "#94a3b8" },
+  ];
+
   return (
     <div style={{ padding: "0 0 32px" }}>
-      {/* Banner */}
-      <div style={{ background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 8, padding: "12px 16px", marginBottom: 20, fontSize: 14, color: "#92400e" }}>
-        ⚠️ Backend bed management API coming soon. Data is stored locally in your browser.
-      </div>
-
       <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 20 }}>Bed / Ward Management</h1>
+
+      {bedsQuery.isError && (
+        <div style={{ background: "#fef2f2", border: "1px solid #ef4444", borderRadius: 8, padding: "12px 16px", marginBottom: 20, fontSize: 14, color: "#dc2626" }}>
+          Failed to load beds from the backend.
+          <button
+            onClick={() => { bedsQuery.refetch(); wardsQuery.refetch(); }}
+            style={{ marginLeft: 12, padding: "4px 10px", borderRadius: 6, background: "#fff", border: "1px solid #ef4444", color: "#dc2626", cursor: "pointer" }}
+          >Retry</button>
+        </div>
+      )}
 
       {/* Summary */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12, marginBottom: 24 }}>
-        {[
-          { label: "Total", value: total, color: "#3b82f6" },
-          { label: "Available", value: available, color: "#22c55e" },
-          { label: "Occupied", value: occupied, color: "#ef4444" },
-          { label: "Reserved", value: reserved, color: "#f59e0b" },
-          { label: "Maintenance", value: maintenance, color: "#94a3b8" },
-        ].map((s) => (
+        {summaryTiles.map((s) => (
           <div key={s.label} style={{ ...cardStyle, padding: 16, textAlign: "center" }}>
-            <div style={{ fontSize: 28, fontWeight: 700, color: s.color }}>{s.value}</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: s.color }}>
+              {bedsQuery.isLoading ? "…" : s.value}
+            </div>
             <div style={{ fontSize: 12, color: "var(--text-secondary, #888)" }}>{s.label}</div>
           </div>
         ))}
@@ -129,7 +137,7 @@ export default function BedsPage() {
       <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
         <select value={filterWard} onChange={(e) => setFilterWard(e.target.value)} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid var(--border-color, #e2e8f0)" }}>
           <option value="all">All Wards</option>
-          {DEFAULT_WARDS.map((w) => <option key={w} value={w}>{w}</option>)}
+          {wards.map((w) => <option key={w.id} value={String(w.id)}>{w.name}{w.floor != null ? ` (Floor ${w.floor})` : ""}</option>)}
         </select>
         <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid var(--border-color, #e2e8f0)" }}>
           <option value="all">All Status</option>
@@ -141,41 +149,52 @@ export default function BedsPage() {
       </div>
 
       {/* Bed Grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
-        {filtered.map((bed) => {
-          const sc = STATUS_COLORS[bed.status];
-          return (
-            <div
-              key={bed.id}
-              onClick={() => setEditBed(bed)}
-              style={{
-                padding: 14,
-                borderRadius: 8,
-                border: `2px solid ${sc.border}`,
-                background: sc.bg,
-                cursor: "pointer",
-                transition: "transform 0.15s",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <span style={{ fontWeight: 700, fontSize: 16 }}>{bed.number}</span>
-                <span style={{ fontSize: 11, fontWeight: 600, color: sc.text, textTransform: "uppercase" }}>{bed.status}</span>
+      {bedsQuery.isLoading ? (
+        <div style={{ padding: 48, textAlign: "center", color: "var(--text-secondary, #888)" }}>Loading beds…</div>
+      ) : filtered.length === 0 ? (
+        <div style={{ padding: 48, textAlign: "center", color: "var(--text-secondary, #888)" }}>
+          No beds match the current filters.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
+          {filtered.map((bed) => {
+            const sc = STATUS_COLORS[bed.status];
+            return (
+              <div
+                key={bed.id}
+                onClick={() => setEditBed(bed)}
+                style={{
+                  padding: 14,
+                  borderRadius: 8,
+                  border: `2px solid ${sc.border}`,
+                  background: sc.bg,
+                  cursor: "pointer",
+                  transition: "transform 0.15s",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontWeight: 700, fontSize: 16 }}>{bed.bed_number}</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: sc.text, textTransform: "uppercase" }}>{bed.status}</span>
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-secondary, #666)" }}>
+                  {bed.ward_name ?? `Ward ${bed.ward_id}`}
+                  {bed.ward_floor != null ? ` · Floor ${bed.ward_floor}` : ""}
+                </div>
+                {bed.patient_name && (
+                  <div style={{ fontSize: 12, marginTop: 4, fontWeight: 500 }}>🛏️ {bed.patient_name}</div>
+                )}
               </div>
-              <div style={{ fontSize: 12, color: "var(--text-secondary, #666)" }}>{bed.ward} · Floor {bed.floor}</div>
-              {bed.patientName && (
-                <div style={{ fontSize: 12, marginTop: 4, fontWeight: 500 }}>🛏️ {bed.patientName}</div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Edit Modal */}
       {editBed && (
         <>
           <div onClick={() => setEditBed(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 50 }} />
           <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 51, background: "var(--bg-secondary, #fff)", borderRadius: 12, padding: 24, width: 360, maxWidth: "90vw", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)" }}>
-            <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>Bed {editBed.number}</h3>
+            <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>Bed {editBed.bed_number}</h3>
 
             <label style={{ display: "block", marginBottom: 12, fontSize: 14 }}>
               Status
@@ -183,7 +202,7 @@ export default function BedsPage() {
                 value={editBed.status}
                 onChange={(e) => {
                   const status = e.target.value as BedStatus;
-                  const updated = { ...editBed, status, patientName: status !== "occupied" ? undefined : editBed.patientName };
+                  const updated = { ...editBed, status, patient_name: status !== "occupied" ? null : editBed.patient_name };
                   setEditBed(updated);
                 }}
                 style={{ display: "block", width: "100%", padding: "8px 12px", marginTop: 4, borderRadius: 6, border: "1px solid var(--border-color, #e2e8f0)" }}
@@ -199,12 +218,18 @@ export default function BedsPage() {
               <label style={{ display: "block", marginBottom: 12, fontSize: 14 }}>
                 Patient Name
                 <input
-                  value={editBed.patientName || ""}
-                  onChange={(e) => setEditBed({ ...editBed, patientName: e.target.value })}
+                  value={editBed.patient_name || ""}
+                  onChange={(e) => setEditBed({ ...editBed, patient_name: e.target.value })}
                   style={{ display: "block", width: "100%", padding: "8px 12px", marginTop: 4, borderRadius: 6, border: "1px solid var(--border-color, #e2e8f0)" }}
                   placeholder="Patient name"
                 />
               </label>
+            )}
+
+            {updateStatusMutation.isError && (
+              <div style={{ fontSize: 13, color: "#dc2626", marginBottom: 8 }}>
+                Failed to save. Please try again.
+              </div>
             )}
 
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
@@ -212,13 +237,22 @@ export default function BedsPage() {
                 Cancel
               </button>
               <button
-                onClick={() => {
-                  updateBed(editBed.id, { status: editBed.status, patientName: editBed.patientName });
-                  setEditBed(null);
+                disabled={updateStatusMutation.isPending}
+                onClick={async () => {
+                  try {
+                    await updateStatusMutation.mutateAsync({
+                      id: editBed.id,
+                      status: editBed.status,
+                      patient_name: editBed.status === "occupied" ? editBed.patient_name ?? null : null,
+                    });
+                    setEditBed(null);
+                  } catch {
+                    /* mutation error already surfaced inline */
+                  }
                 }}
-                style={{ padding: "8px 16px", borderRadius: 6, background: "var(--color-primary, #3b82f6)", color: "#fff", border: "none", cursor: "pointer", fontWeight: 500 }}
+                style={{ padding: "8px 16px", borderRadius: 6, background: "var(--color-primary, #3b82f6)", color: "#fff", border: "none", cursor: updateStatusMutation.isPending ? "wait" : "pointer", fontWeight: 500, opacity: updateStatusMutation.isPending ? 0.7 : 1 }}
               >
-                Save
+                {updateStatusMutation.isPending ? "Saving…" : "Save"}
               </button>
             </div>
           </div>
