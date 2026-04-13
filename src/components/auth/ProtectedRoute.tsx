@@ -37,16 +37,15 @@ export function ProtectedRoute({
 
   useEffect(() => {
     try {
-      const token =
-        typeof window !== "undefined"
-          ? localStorage.getItem("adminToken")
-          : null;
+      // Real auth is enforced server-side via the httpOnly auth_token cookie
+      // (Next.js middleware). This component is defense-in-depth: gate on the
+      // cached admin profile, which is set on login and cleared on logout.
       const userStr =
         typeof window !== "undefined"
           ? localStorage.getItem("adminUser")
           : null;
 
-      if (!token) {
+      if (!userStr) {
         setIsAuthenticated(false);
         setIsLoading(false);
         router.push("/login");

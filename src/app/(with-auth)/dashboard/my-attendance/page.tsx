@@ -42,11 +42,8 @@ export default function MyAttendancePage() {
   const [submitting, setSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
+  // Auth is carried via the httpOnly auth_token cookie handled by /api/proxy.
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
 
   const fetchAttendance = useCallback(async () => {
     setLoading(true);

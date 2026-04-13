@@ -45,8 +45,8 @@ export function useDashboardData() {
   const [infraHealth, setInfraHealth] = useState<InfraHealthData | null>(null);
 
   // ---- Helpers ----
-  const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') ?? undefined : undefined;
-  const headers = getHeaders(token);
+  // Auth is carried via the httpOnly auth_token cookie handled by /api/proxy.
+  const headers = getHeaders();
   const headersRef = useRef(headers);
   headersRef.current = headers;
 

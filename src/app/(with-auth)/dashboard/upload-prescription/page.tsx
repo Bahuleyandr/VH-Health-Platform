@@ -41,8 +41,8 @@ export default function UploadPrescriptionPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
-  const authHeaders: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
+  // Auth is carried via the httpOnly auth_token cookie handled by /api/proxy.
+  const authHeaders: HeadersInit = {};
 
   const fetchData = useCallback(async () => {
     setLoading(true);

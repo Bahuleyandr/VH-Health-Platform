@@ -17,16 +17,14 @@ function DevAuthDebugger() {
   const [showDebug, setShowDebug] = useState(false);
 
   // Avoid touching localStorage during render to prevent hydration mismatch
-  const [tokenPresent, setTokenPresent] = useState<boolean | null>(null);
   const [cachedUserPreview, setCachedUserPreview] = useState<string | null>(
     null,
   );
 
   const refreshLocalCache = useCallback(() => {
     try {
-      const token = localStorage.getItem("adminToken");
+      // Access token lives in an httpOnly cookie (invisible to JS).
       const u = localStorage.getItem("adminUser");
-      setTokenPresent(!!token);
       setCachedUserPreview(
         u
           ? (() => {
@@ -44,7 +42,6 @@ function DevAuthDebugger() {
           : null,
       );
     } catch {
-      setTokenPresent(false);
       setCachedUserPreview(null);
     }
   }, []);
@@ -85,13 +82,9 @@ function DevAuthDebugger() {
 
             <div>
               <strong>Token:</strong>{" "}
-              {tokenPresent === null ? (
-                "…"
-              ) : tokenPresent ? (
-                <span className="text-success">✅ Present</span>
-              ) : (
-                <span className="text-destructive">❌ Missing</span>
-              )}
+              <span className="text-muted-foreground">
+                httpOnly cookie (not readable)
+              </span>
             </div>
 
             {user && (
