@@ -3,6 +3,7 @@
 // Exposes histograms, counters, and gauges in Prometheus exposition format.
 
 import db from '../config/database.js';
+import { isRedisConnected } from '../lib/redis.js';
 
 // ---------------------------------------------------------------------------
 // Histogram helper — fixed buckets, no external lib needed
@@ -191,12 +192,11 @@ function refreshGauges() {
     // Pool may not be initialised yet
   }
 
-  // Redis — try to detect connection via global or ioredis
+  // Redis — reflect actual client connection state
   try {
-    // If a Redis client is exported elsewhere, detect its status
-    redisConnected.set({}, 0); // Default to disconnected; override below if found
+    redisConnected.set({}, isRedisConnected() ? 1 : 0);
   } catch {
-    // ignore
+    redisConnected.set({}, 0);
   }
 }
 

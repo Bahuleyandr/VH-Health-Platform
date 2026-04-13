@@ -29,6 +29,7 @@ import requestIdMiddleware from './middleware/requestIdMiddleware.js';
 import { selfHealingMiddleware } from './middleware/selfHealingMiddleware.js';
 import validateApiKey from './middleware/validateApiKey.js';
 import { publicCache, privateCache } from './middleware/cacheControlMiddleware.js';
+import { success, error } from './utils/responseHelper.js';
 
 // ====================================
 // ROUTE IMPORTS - Organized by category
@@ -236,7 +237,7 @@ const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production'
 if (!isProduction) {
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 } else {
-  app.use('/api-docs', (req, res) => res.status(404).json({ success: false, message: 'Not found' }));
+  app.use('/api-docs', (req, res) => error(res, 'Not found', 404));
 }
 // Rate-limit public endpoints to prevent abuse/recon
 app.use('/metrics', genericLimiter, metricsRoutes);
@@ -248,16 +249,12 @@ app.get('/', genericLimiter, async (req, res, next) => {
     const db = (await import('./config/database.js')).default;
     const dbHealth = await db.healthCheck();
     if (!dbHealth.healthy) {
-      return res.status(503).json({
-        status: 'degraded',
-        message: 'Database unavailable',
-      });
+      return error(res, 'Database unavailable', 503, { safe: true, status: 'degraded' });
     }
-    res.json({
+    success(res, {
       status: 'healthy',
-      message: 'VH Health API is running.',
       version: process.env.API_VERSION || '1.0.0',
-    });
+    }, 'VH Health API is running.');
   } catch (err) {
     next(err);
   }
@@ -283,8 +280,8 @@ app.use('/api/v1/abdm', abdmCallbackRoutes);
 // ====================================
 // PUBLIC HEALTH CHECK (no auth required — for Render/uptime monitors)
 // ====================================
-app.get('/health', (req, res) => res.json({ status: 'ok', service: 'vh-health-backend' }));
-app.get('/api/health', (req, res) => res.json({ status: 'ok', service: 'vh-health-backend' }));
+app.get('/health', (req, res) => success(res, { status: 'ok', service: 'vh-health-backend' }));
+app.get('/api/health', (req, res) => success(res, { status: 'ok', service: 'vh-health-backend' }));
 
 // ====================================
 // API KEY & AUTH MIDDLEWARE

@@ -94,3 +94,22 @@ export function verifyToken(token) {
   }
 }
 verifyToken.lastError = null;
+
+/**
+ * Verifies a JWT token's signature only — ignores expiry.
+ *
+ * Use ONLY for the refresh-token flow: an access token that has just
+ * expired must still be rotatable if the signature is valid and the `jti`
+ * is not blacklisted. Every other code path must use [verifyToken].
+ *
+ * @param {string} token - JWT token to verify.
+ * @returns {Object|null} - Decoded payload on valid signature, otherwise null.
+ */
+export function verifyTokenAllowExpired(token) {
+  try {
+    return jwt.verify(token, JWT_SECRET, { ignoreExpiration: true });
+  } catch (error) {
+    logger.error('❌ JWT signature verification failed:', error.message || error);
+    return null;
+  }
+}

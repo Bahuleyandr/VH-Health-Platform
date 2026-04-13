@@ -17,12 +17,15 @@
 
 ## Phase 2 — A+ Polish
 
-- [ ] **Test coverage ≥60%.** Integration tests for billing, pharmacy state machines, clinical workflows. Currently 35 test files but many don't run.
+- [ ] **Test coverage ≥60%.** Integration tests for billing, pharmacy state machines, clinical workflows. Currently 35 test files but many don't run. *Deferred — needs live Node+DB to run/debug.*
 - [ ] **OpenAPI/Swagger conformance.** `/api-docs` exists but isn't validated against runtime responses. Add CI check.
-- [ ] **API response consistency.** 4 raw `res.json(...)` instances in `src/app.js` bypass `success/error` helpers. Standardize.
-- [ ] **Prisma schema drift detection.** Schema has 58 models, raw `pg` queries used. Add CI job that diffs schema vs live DB.
-- [ ] **Observability.** `/metrics` Prometheus endpoint. SLO/SLI definitions. OpenTelemetry request tracing.
+- [x] **API response consistency.** 4 raw `res.json(...)` instances in `src/app.js` now use `success`/`error` helpers (`/`, `/health`, `/api/health`, `/api-docs` 404).
+- [ ] **Prisma schema drift detection.** Schema has 58 models, raw `pg` queries used. Add CI job that diffs schema vs live DB. (`schemaDriftDetector.js` exists — needs CI hook.)
+- [x] **Observability.** `/metrics` Prometheus endpoint already wired (http duration histogram, request counter, DB pool, memory, uptime gauges). Fixed `redis_connected` gauge to reflect actual client state. OpenTelemetry still pending.
 - [ ] **Load-test automation.** `/load-tests` dir exists but not in CI. Run weekly against staging.
+
+### Phase 1 loose-end (completed 2026-04-13)
+- [x] **`/auth/refresh-token` accepts expired tokens.** `verifyToken()` rejected expired JWTs, making refresh useless. Added `verifyTokenAllowExpired()` in `jwtUtils.js` + replay-protection via `isTokenBlacklisted(jti)` before rotation. Signature still validated.
 
 ## Phase 3 — S-Tier Marquee
 
