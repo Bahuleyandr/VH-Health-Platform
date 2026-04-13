@@ -116,7 +116,7 @@ lib/
 ```
 
 ## Key Architecture Decisions
-- **ApiClient** (`lib/core/services/api_client.dart`) is the centralized HTTP layer — all API calls go through it with automatic auth headers, 15s default timeout (30s for uploads), JSON response parsing via `ApiResponse`, and **401 session-expiry detection** (clears stale JWT and redirects to login via `onSessionExpired` callback)
+- **ApiClient** (`lib/core/services/api_client.dart`) is the centralized HTTP layer — all API calls go through it with automatic auth headers, 15s default timeout (30s for uploads), JSON response parsing via `ApiResponse`, and **single-flight 401 refresh**: on 401 it POSTs `/auth/refresh-token`, stores the new JWT, and retries the original request once; falls back to `onSessionExpired` (clears stale JWT + redirects to login) only when refresh fails.
 - **ApiConfig** lives in `vhhealth_core` — re-exported by `lib/core/config/api_config.dart`. Base URL: `https://api.vhhealth.app/api/v1`
 - **BackendApiService** is the only service that does NOT use ApiClient (it handles unauthenticated login requests)
 - **DataStateBuilder** (`lib/core/widgets/data_state_builder.dart`) eliminates loading/error/empty boilerplate across screens

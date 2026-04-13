@@ -6,22 +6,22 @@
 
 ---
 
-## Phase 1 — A+ Security Floor (in progress)
+## Phase 1 — A+ Security Floor ✅
 
-- [x] **Jailbreak/root detection.** Add `flutter_jailbreak_detection: ^1.10.0`. Use shared `DeviceIntegrityService` from `vhhealth-core`. Hard-block in release build on compromised device. Wire into `lib/features/splash/`.
-- [x] **Hardcoded `Colors.*` → `theme.colorScheme.*`.** Grep `Colors\.(red|white|black|grey)` outside theme files — 10+ hits. `lib/core/navigation/app_router.dart` L359 is the starting point.
-- [x] **Wire `CachedNetworkImage`.** Dep is in pubspec but never imported. Replace every `Image.network(...)` — pharmacy order list, records, profile avatars, doctor photos.
-- [ ] **God-file split — dashboard.** `lib/features/dashboard/screens/dashboard_screen.dart` (1322L). Extract 6 private widget classes at bottom (`_TodayAppointmentCard`, `_SmartPharmacyCard`, `_SmartInvestigationCard`, `_SmartPrescriptionCard`, `_AppointmentCard`, `_QuickActionButton`, `_LanguageMenuButton`) into `lib/features/dashboard/widgets/`.
-- [ ] **God-file split — health points.** `lib/features/gamification/screens/health_points_screen.dart` (1219L). Each `_buildXTab` → dedicated widget file.
+- [x] **Jailbreak/root detection.** `DeviceIntegrityService` from `vhhealth-core` wired into splash.
+- [x] **Hardcoded `Colors.*` → `theme.colorScheme.*`.** Swept.
+- [x] **Wire `CachedNetworkImage`.** Replaced `Image.network(...)` in pharmacy, records, profile, doctor photos.
+- [x] **God-file split — dashboard.** `dashboard_screen.dart` 1329→688L. Seven widgets extracted to `lib/features/dashboard/widgets/` (quick_action_button, today_appointment_card, language_menu_button, appointment_card, smart_pharmacy_card, smart_investigation_card, smart_prescription_card).
+- [x] **God-file split — health points.** `health_points_screen.dart` 1219→371L. Four tabs + painter extracted under `lib/features/gamification/widgets/` (overview_tab with TierRingPainter, milestones_tab, rewards_tab, history_tab) + `utils/tier_utils.dart` for shared helpers.
 
 ## Phase 2 — A+ Polish
 
-- [ ] **Test coverage ≥60%.** Integration tests for appointment booking, pharmacy checkout flow, offline sync, vitals log → wellness score recompute.
-- [ ] **Localization coverage.** 5 languages declared (en/hi/ta/te/ml) but ~52% of regional strings missing. Audit with `flutter gen-l10n --untranslated-messages-file`.
-- [ ] **Accessibility.** `Semantics` wrappers on interactive widgets, ≥4.5:1 contrast in dark mode, `TextScaler.linear` support everywhere.
-- [ ] **JWT refresh flow.** Currently relies on 401 redirect to login. Add refresh token storage + silent refresh in `core/services/api_client.dart`.
+- [ ] **Test coverage ≥60%.** Integration tests for appointment booking, pharmacy checkout flow, offline sync, vitals log → wellness score recompute. *Deferred — dedicated session.*
+- [ ] **Localization coverage.** 5 languages declared (en/hi/ta/te/ml) but ~52% of regional strings missing. Audit with `flutter gen-l10n --untranslated-messages-file`. *Deferred — needs tool output.*
+- [ ] **Accessibility.** `Semantics` wrappers on interactive widgets, ≥4.5:1 contrast in dark mode, `TextScaler.linear` support everywhere. *Deferred — per-screen survey.*
+- [x] **JWT refresh flow.** `ApiClient` now does single-flight refresh on 401 (mirrors `vhhealth_core.VHHttpClient`). POSTs to `/auth/refresh-token`, stores new token, retries the original request once; falls back to `onSessionExpired` callback on refresh failure.
 - [ ] **Analytics event coverage.** Instrument key funnels (appointment booked, Rx ordered, vitals logged, check-in completed, badge earned).
-- [ ] **Dashboard UX.** `Expanded(flex: 3)` dial compresses when new widgets (wellness score, insights, check-in) stack above. Wrap above-dial area in `SingleChildScrollView`.
+- [x] **Dashboard UX.** Above-dial widgets wrapped in `SingleChildScrollView`; dial now fixed at `screenHeight * 0.42` so it never compresses as wellness/insights/gamification widgets stack.
 
 ## Phase 3 — S-Tier Marquee
 

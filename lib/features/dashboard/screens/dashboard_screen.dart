@@ -27,6 +27,13 @@ import 'package:vhhealth/features/dashboard/widgets/health_points_widget.dart';
 import 'package:vhhealth/features/dashboard/widgets/wellness_score_widget.dart';
 import 'package:vhhealth/features/dashboard/widgets/health_insight_card.dart';
 import 'package:vhhealth/features/dashboard/widgets/daily_checkin_sheet.dart';
+import 'package:vhhealth/features/dashboard/widgets/quick_action_button.dart';
+import 'package:vhhealth/features/dashboard/widgets/today_appointment_card.dart';
+import 'package:vhhealth/features/dashboard/widgets/language_menu_button.dart';
+import 'package:vhhealth/features/dashboard/widgets/appointment_card.dart';
+import 'package:vhhealth/features/dashboard/widgets/smart_pharmacy_card.dart';
+import 'package:vhhealth/features/dashboard/widgets/smart_investigation_card.dart';
+import 'package:vhhealth/features/dashboard/widgets/smart_prescription_card.dart';
 
 class DashboardScreen extends StatefulWidget {
   final String name;
@@ -536,7 +543,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             icon: const Icon(Icons.accessibility),
             onPressed: _toggleAccessibility,
           ),
-          const _LanguageMenuButton(),
+          const LanguageMenuButton(),
           const LogoutButton(style: LogoutButtonStyle.iconOnly),
         ],
       ),
@@ -544,12 +551,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: SafeArea(
           child: Column(
             children: [
-              // Offline / stale-data banner
+              // Offline / stale-data banner (pinned at top, stays visible while scrolling)
               OfflineBanner(staleLabel: _staleLabel),
 
+              // Scrollable region — wellness/insights/gamification/smart cards stacking
+              // above the dial used to compress the dial via Expanded(flex: 3).
+              // Scrolling + a fixed-height dial keeps every widget fully visible.
+              Expanded(
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
               // Today's appointment status card (real-time)
               if (_todayAppointment != null && !isGuest)
-                _TodayAppointmentCard(
+                TodayAppointmentCard(
                   appointment: _todayAppointment!,
                   statusLabel: _statusLabel(_appointmentStatus),
                   statusColor: _statusColor(_appointmentStatus),
@@ -584,17 +600,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
               // Smart contextual widgets
               if (!isGuest) ...[
                 if (_activePharmacyOrder != null)
-                  _SmartPharmacyCard(
+                  SmartPharmacyCard(
                     order: _activePharmacyOrder!,
                     onTap: () => _openFeature(context, '/pharmacy'),
                   ),
                 if (_activeInvestigationBooking != null)
-                  _SmartInvestigationCard(
+                  SmartInvestigationCard(
                     booking: _activeInvestigationBooking!,
                     onTap: () => _openFeature(context, '/investigations'),
                   ),
                 if (_recentPrescription != null)
-                  _SmartPrescriptionCard(
+                  SmartPrescriptionCard(
                     prescription: _recentPrescription!,
                     onOrderTap: () => _openFeature(context, '/pharmacy'),
                     onViewTap: () => _openFeature(context, '/records'),
@@ -607,25 +623,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: Row(
                     children: [
-                      _QuickActionButton(
+                      QuickActionButton(
                         icon: LucideIcons.calendarPlus,
                         label: 'Book',
                         color: cs.primary,
                         onTap: () => _openFeature(context, '/appointments'),
                       ),
-                      _QuickActionButton(
+                      QuickActionButton(
                         icon: LucideIcons.fileText,
                         label: 'Records',
                         color: cs.tertiary,
                         onTap: () => _openFeature(context, '/records'),
                       ),
-                      _QuickActionButton(
+                      QuickActionButton(
                         icon: LucideIcons.pill,
                         label: 'Pharmacy',
                         color: cs.secondary,
                         onTap: () => _openFeature(context, '/pharmacy'),
                       ),
-                      _QuickActionButton(
+                      QuickActionButton(
                         icon: Icons.favorite,
                         label: 'SOS',
                         color: Colors.red,
@@ -635,9 +651,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 ),
 
-              // Feature dial
-              Expanded(
-                flex: 3,
+              // Feature dial — fixed height so it never compresses as
+              // above-dial widgets stack up.
+              SizedBox(
+                height: screenHeight * 0.42,
                 child: Padding(
                   padding: const EdgeInsets.all(24),
                   child: CircularFeatureDial(
@@ -652,18 +669,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
               // Appointment card
               if (!isGuest)
-                Container(
-                  constraints: BoxConstraints(
-                    minHeight: 120,
-                    maxHeight: screenHeight * 0.25,
-                  ),
-                  child: _AppointmentCard(
-                    lastAppointment: lastAppointment,
-                    nextAppointment: nextAppointment,
-                    onViewHistory: () => _openFeature(context, '/appointments'),
-                    onScheduleNew: () => _openFeature(context, '/appointments'),
+                AppointmentCard(
+                  lastAppointment: lastAppointment,
+                  nextAppointment: nextAppointment,
+                  onViewHistory: () => _openFeature(context, '/appointments'),
+                  onScheduleNew: () => _openFeature(context, '/appointments'),
+                ),
+                    ],
                   ),
                 ),
+              ),
             ],
           ),
         ),
@@ -679,644 +694,3 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 }
 
-// ── Quick Action Button ──────────────────────────────────────────
-class _QuickActionButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _QuickActionButton({
-    required this.icon,
-    required this.label,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(icon, color: color, size: 22),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 11,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ── Today's Appointment Status Card (real-time) ──────────────────
-class _TodayAppointmentCard extends StatelessWidget {
-  final Map<String, dynamic> appointment;
-  final String statusLabel;
-  final Color statusColor;
-  final IconData statusIcon;
-
-  const _TodayAppointmentCard({
-    required this.appointment,
-    required this.statusLabel,
-    required this.statusColor,
-    required this.statusIcon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final doctorName = appointment['doctor_name']?.toString() ?? 'Doctor';
-    final time = appointment['appointment_time']?.toString() ?? '';
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: statusColor.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: statusColor.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        children: [
-          Icon(statusIcon, color: statusColor, size: 28),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: statusColor,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        'TODAY',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 10,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      statusLabel,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: statusColor,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Dr. $doctorName${time.isNotEmpty ? ' • $time' : ''}',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Language Menu Button ─────────────────────────────────────────
-class _LanguageMenuButton extends StatelessWidget {
-  const _LanguageMenuButton();
-
-  @override
-  Widget build(BuildContext context) {
-    return PopupMenuButton<int>(
-      tooltip: 'Change Language',
-      offset: const Offset(0, 40),
-      icon: const Icon(Icons.language),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      itemBuilder: (_) => [
-        const PopupMenuItem<int>(
-          value: 0,
-          enabled: false,
-          padding: EdgeInsets.zero,
-          child: SizedBox(width: 150, child: LanguageDropdown()),
-        ),
-      ],
-    );
-  }
-}
-
-// ── Appointment Card ─────────────────────────────────────────────
-class _AppointmentCard extends StatelessWidget {
-  final String? lastAppointment;
-  final String? nextAppointment;
-  final VoidCallback? onViewHistory;
-  final VoidCallback? onScheduleNew;
-
-  const _AppointmentCard({
-    this.lastAppointment,
-    this.nextAppointment,
-    this.onViewHistory,
-    this.onScheduleNew,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      margin: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: theme.colorScheme.primary.withValues(alpha: 0.1),
-            blurRadius: 20,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primary.withValues(alpha: 0.1),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-            ),
-            child: Row(
-              children: [
-                Icon(LucideIcons.calendar, color: theme.colorScheme.primary, size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  'Appointments',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _buildAppointmentInfo(
-                    context,
-                    icon: LucideIcons.checkCircle,
-                    iconColor: ThemeColors.getSuccessColor(context),
-                    label: 'Last Visit',
-                    date: lastAppointment,
-                    isPast: true,
-                  ),
-                ),
-                Container(
-                  height: 50,
-                  width: 1,
-                  color: theme.colorScheme.outline.withValues(alpha: 0.2),
-                  margin: const EdgeInsets.symmetric(horizontal: 16),
-                ),
-                Expanded(
-                  child: _buildAppointmentInfo(
-                    context,
-                    icon: LucideIcons.clock,
-                    iconColor: ThemeColors.getInfoColor(context),
-                    label: 'Next Visit',
-                    date: nextAppointment,
-                    isPast: false,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              border: Border(
-                top: BorderSide(
-                  color: theme.colorScheme.outline.withValues(alpha: 0.2),
-                ),
-              ),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextButton.icon(
-                    onPressed: onViewHistory,
-                    icon: const Icon(LucideIcons.history, size: 16),
-                    label: const Text('History'),
-                    style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 8)),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: onScheduleNew,
-                    icon: const Icon(LucideIcons.plus, size: 16),
-                    label: const Text('Schedule'),
-                    style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 8)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAppointmentInfo(
-    BuildContext context, {
-    required IconData icon,
-    required Color iconColor,
-    required String label,
-    required String? date,
-    required bool isPast,
-  }) {
-    final theme = Theme.of(context);
-    final hasDate = date != null && date.isNotEmpty && date != 'Not Available';
-
-    return Column(
-      children: [
-        Icon(icon, color: iconColor, size: 28),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          hasDate ? _formatDate(date) : 'Not Scheduled',
-          style: theme.textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: hasDate
-                ? theme.colorScheme.onSurface
-                : theme.colorScheme.onSurface.withValues(alpha: 0.5),
-          ),
-          textAlign: TextAlign.center,
-        ),
-        if (hasDate && !isPast) ...[
-          const SizedBox(height: 2),
-          Text(
-            _getDaysUntil(date),
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.primary,
-              fontSize: 11,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  String _formatDate(String date) {
-    try {
-      DateTime? d;
-      try { d = DateFormat('dd/MM/yyyy').parse(date); } catch (_) {}
-      d ??= DateTime.tryParse(date);
-      if (d != null) return DateFormat('dd/MM/yyyy').format(d);
-    } catch (e) { debugPrint('Dashboard error: $e'); }
-    return date;
-  }
-
-  String _getDaysUntil(String date) {
-    try {
-      DateTime? d;
-      try { d = DateFormat('dd/MM/yyyy').parse(date); } catch (_) {}
-      d ??= DateTime.tryParse(date);
-      if (d != null) {
-        final diff = DateTime(d.year, d.month, d.day)
-            .difference(DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day))
-            .inDays;
-        if (diff == 0) return 'Today';
-        if (diff == 1) return 'Tomorrow';
-        if (diff > 0) return 'In $diff days';
-      }
-    } catch (e) { debugPrint('Dashboard error: $e'); }
-    return '';
-  }
-}
-
-// ── Smart Pharmacy Order Card ────────────────────────────────────
-class _SmartPharmacyCard extends StatelessWidget {
-  final Map<String, dynamic> order;
-  final VoidCallback onTap;
-
-  const _SmartPharmacyCard({required this.order, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final orderNumber = order['order_number']?.toString() ?? '';
-    final status = order['status']?.toString().toUpperCase() ?? '';
-    final color = _pharmacyStatusColor(status);
-
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withValues(alpha: 0.25)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.15),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(LucideIcons.pill, color: color, size: 22),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Pharmacy Order ${orderNumber.isNotEmpty ? orderNumber : ''}',
-                    style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: color,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          _pharmacyStatusLabel(status),
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 9,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            Icon(LucideIcons.chevronRight, color: color, size: 20),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Color _pharmacyStatusColor(String status) {
-    switch (status) {
-      case 'PLACED':
-        return Colors.orange;
-      case 'CONFIRMED':
-        return Colors.blue;
-      case 'DISPATCHED':
-        return Colors.teal;
-      case 'OUT_FOR_DELIVERY':
-        return Colors.green;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  String _pharmacyStatusLabel(String status) {
-    switch (status) {
-      case 'PLACED':
-        return 'PLACED';
-      case 'CONFIRMED':
-        return 'CONFIRMED';
-      case 'DISPATCHED':
-        return 'DISPATCHED 🚗';
-      case 'OUT_FOR_DELIVERY':
-        return 'ON THE WAY 🚗';
-      default:
-        return status;
-    }
-  }
-}
-
-// ── Smart Investigation Booking Card ─────────────────────────────
-class _SmartInvestigationCard extends StatelessWidget {
-  final Map<String, dynamic> booking;
-  final VoidCallback onTap;
-
-  const _SmartInvestigationCard({required this.booking, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final bookingNumber = booking['booking_number']?.toString() ?? '';
-    final status = booking['status']?.toString().toUpperCase() ?? '';
-    final color = _invStatusColor(status);
-
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withValues(alpha: 0.25)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.15),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(LucideIcons.flaskConical, color: color, size: 22),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Lab Booking ${bookingNumber.isNotEmpty ? bookingNumber : ''}',
-                    style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                    decoration: BoxDecoration(
-                      color: color,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      _invStatusLabel(status),
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 9,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(LucideIcons.chevronRight, color: color, size: 20),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Color _invStatusColor(String status) {
-    switch (status) {
-      case 'BOOKED':
-        return Colors.orange;
-      case 'DISPATCHED':
-        return Colors.teal;
-      case 'SAMPLE_COLLECTED':
-        return Colors.blue;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  String _invStatusLabel(String status) {
-    switch (status) {
-      case 'BOOKED':
-        return 'BOOKED';
-      case 'DISPATCHED':
-        return 'COLLECTOR ON THE WAY';
-      case 'SAMPLE_COLLECTED':
-        return 'SAMPLE COLLECTED';
-      default:
-        return status;
-    }
-  }
-}
-
-// ── Smart Prescription Card ──────────────────────────────────────
-class _SmartPrescriptionCard extends StatelessWidget {
-  final Map<String, dynamic> prescription;
-  final VoidCallback onOrderTap;
-  final VoidCallback onViewTap;
-
-  const _SmartPrescriptionCard({
-    required this.prescription,
-    required this.onOrderTap,
-    required this.onViewTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final doctorName = prescription['doctor_name']?.toString() ?? 'Doctor';
-    final rxNumber = prescription['prescription_number']?.toString() ?? '';
-    final itemCount = (prescription['items'] as List?)?.length ??
-        prescription['medicine_count'] ??
-        prescription['item_count'] ??
-        0;
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.purple.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.purple.withValues(alpha: 0.25)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.purple.withValues(alpha: 0.15),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(LucideIcons.fileText, color: Colors.purple, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'New Prescription${rxNumber.isNotEmpty ? ' $rxNumber' : ''}',
-                  style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Dr. $doctorName${itemCount > 0 ? ' • $itemCount medicines' : ''}',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    SizedBox(
-                      height: 28,
-                      child: FilledButton(
-                        onPressed: onOrderTap,
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          textStyle: const TextStyle(fontSize: 11),
-                        ),
-                        child: const Text('Order Medicines'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    SizedBox(
-                      height: 28,
-                      child: OutlinedButton(
-                        onPressed: onViewTap,
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          textStyle: const TextStyle(fontSize: 11),
-                        ),
-                        child: const Text('View'),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
