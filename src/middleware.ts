@@ -102,8 +102,51 @@ const ROLE_RANK: Record<string, number> = {
   SUPER_ADMIN: 4,
 };
 
+/**
+ * Optional IP allowlist. Set `ADMIN_IP_ALLOWLIST` to a comma-separated list
+ * of exact client IPs (e.g. "203.0.113.10,203.0.113.11"). When unset, the
+ * allowlist is disabled and every client is accepted — the previous behaviour.
+ *
+ * Matches against the first entry in `X-Forwarded-For` (what reverse proxies
+ * send) falling back to the raw remote address. Intended as a second layer
+ * of defence alongside auth, not a replacement.
+ */
+function isIpAllowed(request: NextRequest): boolean {
+  const raw = process.env.ADMIN_IP_ALLOWLIST;
+  if (!raw || raw.trim() === "") return true; // allowlist disabled
+
+  const allowlist = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (allowlist.length === 0) return true;
+
+  const forwarded = request.headers.get("x-forwarded-for");
+  const clientIp =
+    (forwarded ? forwarded.split(",")[0].trim() : "") ||
+    request.headers.get("x-real-ip") ||
+    "";
+
+  return clientIp !== "" && allowlist.includes(clientIp);
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // ── IP allowlist (opt-in via env) ─────────────────────────────────────────
+  // Applied only to dashboard + proxy routes (the matcher below). Login is
+  // not gated here — it's covered by the /api/login CSRF origin check.
+  if (!isIpAllowed(request)) {
+    if (pathname.startsWith("/api/proxy")) {
+      return NextResponse.json(
+        { message: "Forbidden: IP not allowed" },
+        { status: 403 },
+      );
+    }
+    // For dashboard, render a minimal 403 so we don't leak the dashboard
+    // tree to a blocked address.
+    return new NextResponse("Forbidden", { status: 403 });
+  }
 
   // Auth is carried via the httpOnly "auth_token" cookie.
   const token = request.cookies.get("auth_token")?.value;

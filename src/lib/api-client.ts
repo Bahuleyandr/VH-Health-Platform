@@ -247,21 +247,20 @@ export async function adminLogout(): Promise<void> {
   }
 }
 
-export async function refreshToken(): Promise<string> {
-  const data = await postJSON<{ token: string }>(
-    API_ENDPOINTS.auth.refreshToken,
-  );
-  if (!data?.token) {
-    clearAuthData();
-    throw new Error("No token in refresh response");
-  }
-  // Update httpOnly cookie with new token
-  await fetch("/api/login", {
+/**
+ * Rotate the httpOnly auth_token cookie via the server-side /api/refresh route.
+ * The browser never sees the token — it only observes the cookie being swapped.
+ * Throws on failure; caller is responsible for redirecting to /login.
+ */
+export async function refreshToken(): Promise<void> {
+  const res = await fetch("/api/refresh", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token: data.token }),
+    credentials: "include",
   });
-  return data.token;
+  if (!res.ok) {
+    clearAuthData();
+    throw new Error("Refresh failed");
+  }
 }
 
 /* =========================

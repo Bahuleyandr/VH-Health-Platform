@@ -6,21 +6,22 @@
 
 ---
 
-## Phase 1 — A+ Security Floor (in progress)
+## Phase 1 — A+ Security Floor ✅
 
-- [x] **Replace bed-management localStorage mock.** The bed page stores state in `localStorage` with a TODO comment. Wire to backend `/beds` CRUD routes via TanStack Query. If backend routes are incomplete, land them in `vh-health-backend` first.
-- [x] **MFA (TOTP) on login.** Backend endpoints land in `vh-health-backend`. Admin portal needs: MFA challenge step in login flow, settings page for enrollment (show QR code), recovery-code display UI.
-- [ ] **Shorten JWT TTL to 4h + refresh token.** Backend drops TTL in `securityConfig.js`; portal must implement refresh flow.
-- [ ] **Move token storage out of `localStorage`.** XSS risk. Either: (a) `httpOnly` cookie via Next.js API route proxy for backend calls (preferred), or (b) at minimum add strict CSP header via `middleware.ts`.
-- [ ] **Split god-components.** `DashboardClient.tsx` (975L), `system-audit/page.tsx` (1041L), `PermissionsMatrix.tsx` (416L). Extract per-tab or per-section subcomponents. Target max 300L.
+- [x] **Replace bed-management localStorage mock.** Wired to backend `/beds` CRUD via TanStack Query.
+- [x] **MFA (TOTP) on login.** Challenge step + enrollment + recovery codes UI shipped.
+- [x] **Shorten JWT TTL to 4h + refresh token.** `/api/refresh` route rotates the httpOnly cookie server-side; `core.ts` 401 handler does single-flight refresh + retry, redirecting to login only on failure.
+- [x] **Move token storage out of `localStorage`.** Already on httpOnly `auth_token` cookie; legacy `localStorage.getItem("adminToken")` purged across 12 files. Also fixed a latent bug in `ProtectedRoute` that gated auth on a key nothing writes.
+- [x] **Split god-components (Phase 1 scope).** `PermissionsMatrix.tsx` 413→112L orchestrator + 4 sub-files. `system-audit/page.tsx` 1041→67L orchestrator + 5 sub-files. `DashboardClient.tsx` 973→746L (types/skeleton/helpers extracted; deeper per-section split still open — see Phase 2).
 
 ## Phase 2 — A+ Polish
 
-- [ ] **Test coverage ≥60%.** Currently 4 unit tests. Add: login + MFA, role change audit, bed CRUD, pharmacy stock adjustment.
-- [ ] **Data-table features.** Pagination + sort + filter exist; add bulk-edit, export-to-CSV, keyboard shortcuts for power users.
-- [ ] **IP allowlist middleware.** Admin portal is already production-reachable; restrict to office VPN ranges via Next.js `middleware.ts` or reverse proxy.
-- [ ] **Error boundaries + empty states.** Consistent loading / empty / error UI across pages.
-- [ ] **Sentry integration.** No error tracking today.
+- [ ] **Test coverage ≥60%.** Currently 4 unit tests + 1 new auth-flow suite (`src/__tests__/lib/auth-flow.test.ts`). Add: MFA challenge flow, role change audit, bed CRUD, pharmacy stock adjustment.
+- [ ] **Data-table features.** Pagination + sort + filter exist; **CSV export utility shipped** (`src/lib/exportToCsv.ts`). Still open: bulk-edit, keyboard shortcuts.
+- [x] **IP allowlist middleware.** `src/middleware.ts` gates `/dashboard/*` and `/api/proxy/*` behind `ADMIN_IP_ALLOWLIST` env var. Opt-in — unset means no allowlist.
+- [x] **Error boundaries + empty states.** `PageErrorBoundary` now reports to Sentry + hides raw errors from users. New `LoadingSpinner` + `EmptyState` shared components. `(with-auth)/layout.tsx` wraps all authenticated pages.
+- [x] **Sentry integration.** Already wired — `@sentry/nextjs` v10, 3 instrumentation files, `withSentryConfig`, CSP entry, error boundary hook. Set `NEXT_PUBLIC_SENTRY_DSN` in prod to activate.
+- [ ] **Deeper `DashboardClient.tsx` split.** 746L today; extract StatsGrid, NotificationsDrawer, CommandPalette, ActivityFeed as stateless children with explicit prop surfaces. Needs judgment on prop design.
 
 ## Phase 3 — S-Tier Marquee
 

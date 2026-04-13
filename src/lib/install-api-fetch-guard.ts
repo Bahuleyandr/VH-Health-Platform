@@ -295,7 +295,14 @@ function isRequest(input: RequestInfo | URL): input is Request {
   return typeof Request !== 'undefined' && input instanceof Request;
 }
 
-export function installApiFetchGuard(getToken: () => string | undefined) {
+/**
+ * Install the fetch guard.
+ *
+ * Auth is carried via the httpOnly auth_token cookie handled server-side by
+ * /api/proxy — no client-side token injection. The legacy `getToken` parameter
+ * is accepted for back-compat but ignored.
+ */
+export function installApiFetchGuard(_getToken?: () => string | undefined) {
   if (installed || typeof window === 'undefined') return;
   installed = true;
 
@@ -359,20 +366,15 @@ export function installApiFetchGuard(getToken: () => string | undefined) {
       let finalInit = init;
 
       if (targetIsApi) {
-        const token = getToken();
-
-        // Defaults & merge
-        const defaults = new Headers(getHeaders(token));
+        // Auth is carried via the httpOnly auth_token cookie; the proxy
+        // injects Authorization + x-api-key server-side. No client injection.
+        const defaults = new Headers(getHeaders());
         const merged = new Headers(init?.headers ?? undefined);
 
         // Add default headers if not present
         const defaultApiKey = defaults.get('x-api-key');
         if (defaultApiKey && !merged.has('x-api-key')) {
           merged.set('x-api-key', defaultApiKey);
-        }
-        
-        if (token && !merged.has('authorization')) {
-          merged.set('authorization', `Bearer ${token}`);
         }
 
         // Content-Type only for JSON string bodies (avoid FormData)
@@ -398,11 +400,10 @@ export function installApiFetchGuard(getToken: () => string | undefined) {
         finalInit = { ...init, headers: merged };
 
         if (process.env.NODE_ENV === 'development') {
-          console.debug('[fetch-guard] API request', { 
+          console.debug('[fetch-guard] API request', {
             input: typeof input === 'string' ? input : input instanceof URL ? input.href : 'Request',
             path,
             finalUrl: typeof finalUrl === 'string' ? finalUrl : 'URL',
-            hasToken: !!token 
           });
         }
       } else if (process.env.NODE_ENV === 'development' && path) {

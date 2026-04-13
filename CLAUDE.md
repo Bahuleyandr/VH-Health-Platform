@@ -47,16 +47,17 @@ src/
 ## Key Architecture Decisions
 - **fetchAdminAPI** auto-prepends `/api/v1` to short paths. Used by most dashboard pages.
 - **getJSON/postJSON/putJSON** use full paths (e.g., `/api/v1/auth/admin/login`). Used by auth and admin management.
-- **Auth token**: Stored in `localStorage["adminToken"]` AND synced to `adminToken` cookie (for SSR middleware).
-- **AuthContext** handles login (stores token + cookie), logout (clears both), and checkAuth (rehydrates on mount).
-- **Middleware** checks cookie on `/dashboard/*` routes — redirects to `/login` if missing.
+- **Auth token**: Stored in an **httpOnly, Secure, SameSite=Strict** `auth_token` cookie (4h max-age). The browser never sees the token. `localStorage` only holds the non-sensitive `adminUser` profile cache (4h TTL).
+- **AuthContext** handles login (cookie set by `/api/login`), logout (cookie cleared by `/api/logout`), and checkAuth (rehydrates profile from cache + `/api/v1/auth/admin/profile`).
+- **Middleware** verifies the cookie's JWT signature via `jose.jwtVerify` on `/dashboard/*` and `/api/proxy/*` routes. Fails closed in production when `JWT_SECRET` is unset.
 
 ## Auth Flow
-1. User submits username + password
-2. `adminLogin()` → `POST /api/v1/auth/admin/login` → receives JWT + admin object
-3. JWT stored in localStorage + cookie (7-day, SameSite=Lax)
-4. All API calls include `Authorization: Bearer <token>` via `getHeaders(token)`
-5. Logout clears localStorage + cookie + calls backend logout endpoint
+1. User submits username + password (optionally followed by a TOTP MFA challenge)
+2. `adminLogin()` → `POST /api/login` (Next.js route) → proxies to backend → backend returns JWT
+3. `/api/login` sets `auth_token` as an httpOnly cookie (4h, `Secure` in prod, `SameSite=Strict`). The browser never touches the token.
+4. All API calls go through `/api/proxy/*` (same-origin, cookie carried). The proxy injects `Authorization: Bearer <token>` + `x-api-key` server-side from `process.env.BACKEND_API_KEY`.
+5. On 401, `core.ts` `requestJSON` does a single-flight rotation via `/api/refresh` (server reads cookie, calls backend `/auth/refresh-token`, sets rotated cookie) then retries the original request once. Concurrent 401s share one refresh via a module-level promise. On refresh failure: `adminUser` cache cleared + redirect to `/login`.
+6. Logout clears `adminUser` cache + calls `/api/logout` (cookie expired) + backend logout endpoint.
 
 ## API Client Layers
 ```
@@ -79,7 +80,11 @@ Public URL: `https://admin.vhhealth.app`
 ## Environment
 `.env.local`:
 - `NEXT_PUBLIC_API_URL` — backend URL (default: `https://api.vhhealth.app`)
-- `NEXT_PUBLIC_API_KEY` — API key (set in `.env.local`, no default)
+- `BACKEND_API_KEY` (or legacy `API_KEY`) — **server-only** API key; injected by `/api/proxy` and `/api/login`. Never expose as `NEXT_PUBLIC_*`.
+- `NEXT_PUBLIC_ALLOWED_ORIGIN` — CSRF origin allowlist for `/api/login`, `/api/refresh`, `/api/logout`, `/api/proxy` mutations.
+- `ADMIN_IP_ALLOWLIST` (optional) — comma-separated list of exact client IPs allowed through `middleware.ts`. Unset → disabled.
+- `NEXT_PUBLIC_SENTRY_DSN` — activate Sentry in production. Instrumentation files already wired.
+- `JWT_SECRET` — used by `middleware.ts` `jose.jwtVerify` for signature validation. Fails closed in production when unset.
 
 ## Related Repos
 - **Backend** (Node.js): `../vhhealth-backend` — github.com/Bahuleyandr/vh-health-backend
@@ -90,7 +95,10 @@ Public URL: `https://admin.vhhealth.app`
 ## Conventions
 - Use `fetchAdminAPI` for dashboard pages (auto-prepends /api/v1)
 - Use `getJSON`/`postJSON` with full paths for auth-related calls
-- Auth functions (getAuthToken, clearAuthData) live in `api-client.ts` only
+- **Never** read/write `localStorage.getItem("adminToken")` — the token is httpOnly. The proxy handles auth server-side; client code passes nothing.
+- Use shared `LoadingSpinner` + `EmptyState` from `@/components/` instead of ad-hoc loading/empty UI.
+- Wrap new feature groups in `PageErrorBoundary` (already applied at `(with-auth)/layout.tsx`) — errors get reported to Sentry + show a recoverable fallback, never the raw message to the user.
+- Use `exportToCsv({ filename, columns, rows })` from `@/lib/exportToCsv` for any "download CSV" action — handles escaping, CRLF, UTF-8 BOM.
 - All new pages go under `src/app/(with-auth)/dashboard/`
 - Use TanStack Query for data fetching (not raw useEffect + useState)
 - Backend response envelope: `{ success, message, data }` — `requestJSON` auto-unwraps `.data`
