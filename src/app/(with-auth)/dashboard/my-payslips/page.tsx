@@ -31,11 +31,8 @@ export default function MyPayslipsPage() {
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
 
-  const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
+  // Auth is carried via the httpOnly auth_token cookie handled by /api/proxy.
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
 
   const fetchPayslips = useCallback(async () => {
     setLoading(true);

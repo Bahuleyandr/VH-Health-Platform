@@ -214,21 +214,22 @@ describe("postJSON", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Auth token forwarding
+// Auth token handling
 // ---------------------------------------------------------------------------
+// Auth is carried via the httpOnly auth_token cookie handled by /api/proxy —
+// the client never reads or injects the token. These tests verify that no
+// Authorization header / `token` option is forwarded from the client layer.
 describe("auth token handling", () => {
-  it("reads token from localStorage and passes it via apiFetch", async () => {
-    localStorage.setItem("adminToken", "my-jwt-token");
+  it("does not forward a client-side token via apiFetch", async () => {
     mockedApiFetch.mockResolvedValueOnce(mockResponse({ data: "ok" }));
 
     await getJSON("/api/v1/admin/dashboard");
 
     const callInit = mockedApiFetch.mock.calls[0][1] as Record<string, unknown>;
-    expect(callInit).toHaveProperty("token", "my-jwt-token");
+    expect(callInit?.token).toBeUndefined();
   });
 
-  it("omits token when useAuth is false", async () => {
-    localStorage.setItem("adminToken", "my-jwt-token");
+  it("does not forward a token even when useAuth is false", async () => {
     mockedApiFetch.mockResolvedValueOnce(mockResponse({ data: "ok" }));
 
     await getJSON("/api/v1/health-check", undefined, false);
