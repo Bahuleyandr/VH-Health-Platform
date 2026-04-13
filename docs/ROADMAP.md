@@ -6,17 +6,17 @@
 
 ---
 
-## Phase 1 — A+ Security Floor (in progress)
+## Phase 1 — A+ Security Floor ✅
 
-- [x] **Jailbreak/root detection.** Add `flutter_jailbreak_detection: ^1.10.0`. Use shared `DeviceIntegrityService` from `vhhealth-core`. Hard-block release build on compromised device. Wire into splash/login.
-- [ ] **Offline sync UX.** `OfflineQueue` + `ConnectivitySyncService` exist but no UI indicator — staff unaware when syncing or when conflicts occur. Add persistent badge + conflict-resolution sheet.
+- [x] **Jailbreak/root detection.** Via `DeviceIntegrityService` from `vhhealth-core`.
+- [x] **Offline sync UX.** `ConnectivitySyncService` now a `ChangeNotifier` exposing `isOnline`, `isSyncing`, `pendingCount`, `conflictCount`. New `OfflineSyncBadge` widget (compact priority-sorted pill: conflicts > syncing > offline > pending) wired into `StaffScaffold` app-bar. Tap opens `SyncStatusSheet` listing conflicts with **Discard** / **Retry** per item. `vitals_screen` + `nursing_notes_screen` migrated from `OfflineQueue.enqueue` → `ConnectivitySyncService.instance.enqueue` so counts stay fresh.
 
 ## Phase 2 — A+ Polish
 
-- [ ] **Test coverage ≥60%.** Currently 3 tests (login + config smoke). Add: MAR submit, handover post, vitals entry, order create, offline → online sync.
-- [ ] **Tablet/iPad layouts.** Responsive only; no split-pane. Critical for ward rounds (patient list | EMR | vitals entry in one view).
+- [ ] **Test coverage ≥60%.** Currently 3 tests (login + config smoke). Add: MAR submit, handover post, vitals entry, order create, offline → online sync. *Deferred.*
+- [ ] **Tablet/iPad layouts.** Responsive only; no split-pane. Critical for ward rounds (patient list | EMR | vitals entry in one view). *Deferred — design-intensive.*
 - [ ] **Dark mode coverage.** Partial today. Audit all screens.
-- [ ] **Device registration + quick-login lockout.** Staff auth has `_checkStaffLockout` on backend but app doesn't surface lockout state clearly.
+- [x] **Device-lockout UX on login.** Login screen now detects backend lockout messages and renders a distinct amber lock card ("Account temporarily locked"/try again in 15 min/contact supervisor) instead of the generic red error. Backend returns only the message string today; structured retry-after fields are a future enhancement.
 
 ## Phase 3 — S-Tier Marquee
 

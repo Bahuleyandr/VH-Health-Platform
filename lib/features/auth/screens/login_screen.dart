@@ -25,6 +25,18 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _rememberMe = true;
   bool _deviceRegistered = false;
   String? _error;
+  bool _isLockedOut = false;
+
+  /// Matches the backend lockout message so we can render a distinct UI.
+  /// Backend currently throws
+  /// `Error('Account temporarily locked due to multiple failed attempts')`
+  /// — match generously in case the wording evolves.
+  static bool _looksLikeLockout(String msg) {
+    final lower = msg.toLowerCase();
+    return lower.contains('locked') ||
+        lower.contains('too many') ||
+        lower.contains('temporarily');
+  }
 
   @override
   void initState() {
@@ -59,6 +71,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _isLockedOut = false;
     });
     try {
       if (_mode == _LoginMode.quickLogin) {
@@ -81,7 +94,11 @@ class _LoginScreenState extends State<LoginScreen> {
       }
       if (mounted) context.go('/dashboard');
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() {
+        _error = msg;
+        _isLockedOut = _looksLikeLockout(msg);
+      });
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -295,30 +312,87 @@ class _LoginScreenState extends State<LoginScreen> {
 
                         if (_error != null) ...[
                           const SizedBox(height: 12),
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: AppTheme.errorRed.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                  color: AppTheme.errorRed.withValues(alpha: 0.3)),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.error_outline,
-                                    color: AppTheme.errorRed, size: 18),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    _error!,
-                                    style: const TextStyle(
-                                        color: AppTheme.errorRed,
-                                        fontSize: 13),
+                          _isLockedOut
+                              ? Container(
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.warningAmber
+                                        .withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: AppTheme.warningAmber
+                                          .withValues(alpha: 0.5),
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Icon(Icons.lock_clock,
+                                          color: AppTheme.warningAmber,
+                                          size: 22),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const Text(
+                                              'Account temporarily locked',
+                                              style: TextStyle(
+                                                color: AppTheme.warningAmber,
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              _error!,
+                                              style: const TextStyle(
+                                                  color: AppTheme.warningAmber,
+                                                  fontSize: 12.5),
+                                            ),
+                                            const SizedBox(height: 6),
+                                            const Text(
+                                              'Too many failed attempts. Try again in 15 minutes or contact your supervisor.',
+                                              style: TextStyle(
+                                                  color: AppTheme.warningAmber,
+                                                  fontSize: 11.5,
+                                                  fontStyle: FontStyle.italic),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              : Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.errorRed
+                                        .withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                        color: AppTheme.errorRed
+                                            .withValues(alpha: 0.3)),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.error_outline,
+                                          color: AppTheme.errorRed, size: 18),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          _error!,
+                                          style: const TextStyle(
+                                              color: AppTheme.errorRed,
+                                              fontSize: 13),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                              ],
-                            ),
-                          ),
                         ],
 
                         const SizedBox(height: 24),
