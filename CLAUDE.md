@@ -55,19 +55,43 @@ Single source of truth for backend connection:
 ### AuthService
 Secure storage abstraction:
 - `getJwt()` / `setJwt()` / `clearJwt()`
-- `getUserPhone()` / `setUserPhone()`
-- `getUserRole()` / `setUserRole()`
-- `getEmployeeId()` / `setEmployeeId()`
-- `clearAll()`
+- `getRefreshToken()` / `setRefreshToken()` / `clearRefreshToken()`
+- `setTokens({accessToken, refreshToken?})` — persist both in one call (empty `refreshToken` ignored)
+- `getUserPhone()` / `setUserPhone()` / `getUserRole()` / `setUserRole()`
+- `getEmployeeId()` / `setEmployeeId()` / `getStaffId()` / `setStaffId()`
+- `isLoggedIn()` — true iff JWT present
+- `clearAll()` — wipes every key
 
 ### VHHttpClient
-HTTP helper with automatic auth:
-- `VHHttpClient.get('/endpoint')` — auto-adds auth headers
-- `VHHttpClient.post('/endpoint', body)` — JSON encoded
-- `VHHttpClient.put('/endpoint', body)`
-- `VHHttpClient.patch('/endpoint', body)`
-- `VHHttpClient.delete('/endpoint')`
-- Set `auth: false` to skip JWT header
+HTTP helper with automatic auth, single-flight 401 refresh, and exponential-backoff retry:
+- `VHHttpClient.get('/endpoint')` / `.post(...)` / `.put(...)` / `.patch(...)` / `.delete(...)`
+- `VHHttpClient.multipart('/endpoint', fileBuilder: () async => [...])` — pass `fileBuilder` (not just `files`) to enable 401-retry; plain `files` still works but skips retry (streams are single-use).
+- Set `auth: false` to skip JWT header.
+- **401 refresh flow**: POSTs to `/auth/refresh-token` with `{refreshToken}` body when `AuthService.getRefreshToken()` has a value (staff path), otherwise bearer-based rotation (patient/admin path). Concurrent 401s share one refresh via a module-level `Completer`. Success → retry original request once; failure → clear all tokens + fire `onSessionExpired`.
+- **Retry with backoff**: retries `TimeoutException`, `http.ClientException`, and 5xx responses with 1s → 2s backoff (3 attempts total). 4xx and 401 bypass retry — bugs won't self-heal, and the refresh path handles auth.
+- **Test hook**: `setClientForTesting(http.Client)` + `resetClientForTesting()` (`@visibleForTesting`) allow swapping in `MockClient`. Pair with `debugTryRefreshToken()` to exercise refresh paths.
+
+### CrashReporter
+Abstraction over non-fatal error reporting. No-op by default; install a real impl at startup:
+```dart
+CrashReporter.install(FirebaseCrashReporter());
+CrashReporter.instance.recordError(e, stack, context: 'vitals upload');
+```
+Methods: `recordError(error, stack, {context, extra, fatal})`, `log(message)`, `setUserId(id?)`, `setCustomKey(key, value)`. Implementations MUST strip PII before reporting. Call `CrashReporter.reset()` in tests.
+
+### BiometricAuthService
+Abstraction over platform biometrics (`local_auth`). No-op default returns `notAvailable`. Consumers install a real impl at startup:
+```dart
+BiometricAuthService.install(LocalAuthBiometricService());
+final r = await BiometricAuthService.instance.authenticate(
+  reason: 'Unlock to view your medical records',
+);
+if (r == BiometricAuthResult.success) { /* ... */ }
+```
+`BiometricAuthResult` distinguishes `success` / `cancelled` / `notEnrolled` / `notAvailable` / `error`.
+
+### ApiRetry
+Generic async retry with exponential backoff: `ApiRetry.withRetry(() async => ..., maxRetries: 3, initialDelay: 1s, shouldRetry: (e) => ...)`. Used internally by `VHHttpClient`; available for callers wrapping their own idempotent operations.
 
 ### SosButton
 Reusable FAB widget for emergency:

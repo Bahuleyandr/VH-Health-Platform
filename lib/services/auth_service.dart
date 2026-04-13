@@ -4,10 +4,27 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 class AuthService {
   static const _storage = FlutterSecureStorage();
 
-  // ── JWT ──────────────────────────────────────────────────────────────────
+  // ── JWT (access token) ───────────────────────────────────────────────────
   static Future<String?> getJwt() => _storage.read(key: 'jwt');
   static Future<void> setJwt(String token) => _storage.write(key: 'jwt', value: token);
   static Future<void> clearJwt() => _storage.delete(key: 'jwt');
+
+  // ── Refresh token (staff path; optional for patient/admin) ───────────────
+  static Future<String?> getRefreshToken() => _storage.read(key: 'refreshToken');
+  static Future<void> setRefreshToken(String token) =>
+      _storage.write(key: 'refreshToken', value: token);
+  static Future<void> clearRefreshToken() => _storage.delete(key: 'refreshToken');
+
+  /// Persist an access token plus optional refresh token in one call.
+  static Future<void> setTokens({
+    required String accessToken,
+    String? refreshToken,
+  }) async {
+    await setJwt(accessToken);
+    if (refreshToken != null && refreshToken.isNotEmpty) {
+      await setRefreshToken(refreshToken);
+    }
+  }
 
   // ── Phone ────────────────────────────────────────────────────────────────
   static Future<String?> getUserPhone() => _storage.read(key: 'userPhone');
