@@ -7,6 +7,8 @@ export 'services/api_retry.dart';
 export 'services/auth_service.dart';
 export 'services/certificate_pinner.dart';
 export 'services/connectivity_service.dart';
+export 'services/biometric_auth_service.dart';
+export 'services/crash_reporter.dart';
 export 'services/device_integrity_service.dart';
 export 'services/http_client.dart';
 export 'theme/app_theme.dart';
