@@ -6,11 +6,11 @@ import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
-import { generateToken, verifyToken } from '../../utils/jwtUtils.js';
+import { generateToken, verifyToken, verifyTokenAllowExpired } from '../../utils/jwtUtils.js';
 import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
-import { blacklistToken, revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
+import { blacklistToken, isTokenBlacklisted, revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
 import { generateChallengeToken } from '../../utils/totpUtils.js';
 import * as firebaseAuthService from './firebaseAuthService.js';
 import * as otpService from './otpService.js';
@@ -676,8 +676,15 @@ export class AuthService {
   /* ======================== Tokens / Sessions ======================== */
   static async refreshToken(token) {
     try {
-      const decoded = verifyToken(token);
-      if (!decoded) throw new Error('Invalid or expired token');
+      // Refresh must accept a JUST-EXPIRED access token — that's the whole
+      // point. We still verify the signature and reject already-revoked
+      // tokens (replay protection via jti blacklist).
+      const decoded = verifyTokenAllowExpired(token);
+      if (!decoded) throw new Error('Invalid token signature');
+
+      if (decoded.jti && await isTokenBlacklisted(decoded.jti)) {
+        throw new Error('Token has been revoked');
+      }
 
       const user = await prisma.users.findUnique({
         where: { uid: decoded.uid },
@@ -685,7 +692,9 @@ export class AuthService {
       });
       if (!user) throw new Error('User not found');
 
-      // Token rotation: blacklist the old token before issuing a new one
+      // Token rotation: blacklist the old token before issuing a new one.
+      // For tokens that have already expired, blacklisting is a no-op
+      // (tokenBlacklist.js short-circuits when ttl <= 0) — safe.
       if (decoded.jti && decoded.exp) {
         await blacklistToken(decoded.jti, decoded.exp, 'refresh_rotation');
       }
