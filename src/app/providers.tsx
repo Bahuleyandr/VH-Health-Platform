@@ -23,13 +23,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Install once on the client; the guard itself is idempotent.
-    installApiFetchGuard(() => {
-      try {
-        return localStorage.getItem('adminToken') ?? undefined;
-      } catch {
-        return undefined;
-      }
-    });
+    // Auth is carried via the httpOnly auth_token cookie — no token callback.
+    installApiFetchGuard();
   }, []);
 
   return (

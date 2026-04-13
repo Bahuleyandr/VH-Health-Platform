@@ -48,26 +48,73 @@ function isBrowser() {
   return typeof window !== "undefined";
 }
 
-function getToken(): string | undefined {
-  if (!isBrowser()) return undefined;
-  return localStorage.getItem("adminToken") ?? undefined;
+/* =========================
+ * 401 auto-refresh (single-flight)
+ * =========================
+ * Concurrent 401s share one refresh call. On success the original request is
+ * retried once. On failure the user is sent to /login. The refresh endpoint
+ * itself skips this path to avoid recursion.
+ */
+let refreshInFlight: Promise<void> | null = null;
+
+function isRefreshEndpoint(endpoint: string): boolean {
+  return endpoint.includes("/auth/refresh-token");
+}
+
+function triggerSessionExpired(): void {
+  if (!isBrowser()) return;
+  try {
+    localStorage.removeItem("adminUser");
+  } catch {
+    /* best-effort */
+  }
+  toast.error("Session expired. Please log in again.");
+  window.location.href = "/login";
+}
+
+/**
+ * Rotate the httpOnly auth_token cookie via the server-side /api/refresh route.
+ * Throws on failure — caller handles the redirect.
+ * (Inlined here to avoid a circular import with lib/api-client.ts.)
+ */
+async function doRefresh(): Promise<void> {
+  const res = await fetch("/api/refresh", {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Refresh failed");
+}
+
+async function sharedRefresh(): Promise<void> {
+  if (!refreshInFlight) {
+    refreshInFlight = doRefresh().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
 }
 
 /* =========================
  * Core JSON fetch (via apiFetch)
  * ========================= */
 
+interface InternalOptions extends RequestInit {
+  useAuth?: boolean;
+  /** Internal — prevents infinite 401 loops on retried requests. */
+  _retried?: boolean;
+}
+
 async function requestJSON<T = unknown>(
   endpoint: string,
-  options: RequestInit & { useAuth?: boolean } = {},
+  options: InternalOptions = {},
 ): Promise<T> {
-  const { useAuth = true, headers, ...rest } = options;
-  const token = useAuth ? getToken() : undefined;
+  const { useAuth = true, _retried = false, headers, ...rest } = options;
 
+  // Auth is carried via the httpOnly auth_token cookie handled server-side by
+  // /api/proxy. No client-side token injection.
   const res = await apiFetch(endpoint, {
     ...rest,
     headers: headers as HeadersInit | undefined,
-    token,
   });
 
   const contentType = res.headers.get("content-type") ?? "";
@@ -79,11 +126,19 @@ async function requestJSON<T = unknown>(
 
   if (!res.ok) {
     if (res.status === 401) {
-      if (isBrowser()) {
-        toast.error("Session expired. Please log in again.");
-        window.location.href = "/login";
+      // Don't try to refresh while refreshing — and don't retry forever.
+      if (!useAuth || _retried || isRefreshEndpoint(endpoint)) {
+        triggerSessionExpired();
+        throw new APIError("Unauthorized", 401, payload);
       }
-      throw new APIError("Unauthorized", 401, payload);
+      try {
+        await sharedRefresh();
+      } catch {
+        triggerSessionExpired();
+        throw new APIError("Unauthorized", 401, payload);
+      }
+      // Refresh succeeded — replay the original request exactly once.
+      return requestJSON<T>(endpoint, { ...options, _retried: true });
     }
     if (res.status === 403) {
       if (isBrowser())
@@ -184,9 +239,12 @@ export async function fetchAdminAPI<T = unknown>(
   const prefixedEndpoint = normalizedEndpoint.startsWith("/api/v1")
     ? normalizedEndpoint
     : `/api/v1${normalizedEndpoint}`;
+  // Note: `token` arg is legacy — client-side requests are authenticated via
+  // the httpOnly auth_token cookie handled by /api/proxy. Passing a token here
+  // is a no-op for security, kept only for API-shape compatibility.
   const res = await apiFetch(prefixedEndpoint, {
     method,
-    token: token ?? getToken(),
+    token,
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });

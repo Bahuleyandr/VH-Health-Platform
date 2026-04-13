@@ -6,13 +6,8 @@ import { installApiFetchGuard } from "@/lib/install-api-fetch-guard";
 
 export default function ApiFetchGuard() {
   useEffect(() => {
-    installApiFetchGuard(() => {
-      try {
-        return localStorage.getItem("adminToken") ?? undefined;
-      } catch {
-        return undefined;
-      }
-    });
+    // Auth is carried via the httpOnly auth_token cookie — no token callback.
+    installApiFetchGuard();
   }, []);
 
   return null;

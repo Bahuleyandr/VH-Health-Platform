@@ -5,174 +5,21 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { API_ENDPOINTS, API_BASE_URL, getHeaders } from '@/lib/api-config';
 import styles from './Dashboard.module.css';
-import { Skeleton } from '@/components/ui/skeleton';
+import { AnimatedCounter } from './components/AnimatedCounter';
+import { DashboardSkeleton } from './components/DashboardSkeleton';
+import { SimpleChart } from './components/SimpleChart';
+import type {
+  Activity,
+  ActivityApiItem,
+  ChartData,
+  DashboardData,
+  Notification,
+  StatCard,
+} from './dashboardTypes';
+import { formatTimeAgo } from './formatTimeAgo';
 
-function DashboardSkeleton() {
-  return (
-    <div className="p-6 space-y-6">
-      {/* Header skeleton */}
-      <div className="flex justify-between items-center">
-        <div className="space-y-2">
-          <Skeleton className="h-8 w-64" />
-          <Skeleton className="h-4 w-48" />
-        </div>
-        <div className="flex gap-3 items-center">
-          <Skeleton className="h-9 w-72 rounded-full" />
-          <Skeleton className="h-9 w-32 rounded-md" />
-          <Skeleton className="h-9 w-9 rounded-full" />
-          <Skeleton className="h-9 w-9 rounded-full" />
-        </div>
-      </div>
-      {/* Department tabs skeleton */}
-      <div className="flex gap-2">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-8 w-24 rounded-full" />
-        ))}
-      </div>
-      {/* Stats cards skeleton */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="border rounded-xl p-5 space-y-3">
-            <div className="flex justify-between">
-              <Skeleton className="h-9 w-9 rounded-lg" />
-              <Skeleton className="h-5 w-14 rounded-full" />
-            </div>
-            <Skeleton className="h-4 w-32" />
-            <Skeleton className="h-8 w-20" />
-            <Skeleton className="h-2 w-full rounded-full" />
-          </div>
-        ))}
-      </div>
-      {/* Main content grid skeleton */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Chart card */}
-        <div className="lg:col-span-2 border rounded-xl p-5 space-y-4">
-          <div className="flex justify-between items-center">
-            <Skeleton className="h-6 w-44" />
-            <div className="flex gap-2">
-              <Skeleton className="h-8 w-32 rounded-md" />
-              <Skeleton className="h-8 w-24 rounded-md" />
-            </div>
-          </div>
-          <Skeleton className="h-48 w-full rounded-lg" />
-        </div>
-        {/* Activity feed */}
-        <div className="border rounded-xl p-5 space-y-4">
-          <div className="flex justify-between items-center">
-            <Skeleton className="h-6 w-36" />
-            <Skeleton className="h-4 w-16" />
-          </div>
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="flex gap-3 items-start">
-              <Skeleton className="h-8 w-8 rounded-full flex-shrink-0" />
-              <div className="space-y-1.5 flex-1">
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-3 w-24" />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-      {/* Widget grid skeleton */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="border rounded-xl p-5 space-y-3">
-            <Skeleton className="h-5 w-40" />
-            {Array.from({ length: 4 }).map((_, j) => (
-              <div key={j} className="flex justify-between items-center">
-                <Skeleton className="h-4 w-28" />
-                <Skeleton className="h-4 w-12" />
-              </div>
-            ))}
-            <Skeleton className="h-8 w-full rounded-md mt-2" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Types
-interface StatCard {
-  id: string;
-  title: string;
-  value: number;
-  change: number;
-  icon: string;
-  color: 'blue' | 'green' | 'yellow' | 'red';
-  prefix?: string;
-  suffix?: string;
-}
-
-interface Notification {
-  id: string;
-  type: 'critical' | 'warning' | 'info' | 'success';
-  title: string;
-  message: string;
-  time: Date;
-  read: boolean;
-}
-
-interface Activity {
-  id: string;
-  user: string;
-  action: string;
-  target: string;
-  time: Date;
-  department: string;
-}
-
-interface ChartData {
-  labels: string[];
-  datasets: {
-    label: string;
-    data: number[];
-    color: string;
-  }[];
-}
-
-interface DashboardData {
-  overview: {
-    totalUsers: number;
-    activeUsers: number;
-    newUsersToday: number;
-    totalDoctors: number;
-    availableDoctors: number;
-    totalDepartments: number;
-    appointmentsToday: number;
-    appointmentsUpcoming: number;
-    appointmentCompletionRate: number;
-    emergencyAlerts: number;
-    totalStaff: number;
-    presentStaff: number;
-    onLeaveStaff: number;
-    pendingHRActions: number;
-  };
-  charts: {
-    userGrowth: Array<{ date: string; value: number }>;
-    appointmentTrends: Array<{ date: string; value: number }>;
-    departmentUtilization: Array<{ label: string; value: number }>;
-  };
-  recentActivity: Activity[];
-  systemHealth: {
-    status: 'healthy' | 'warning' | 'critical';
-    uptime: string;
-    responseTime: number;
-    errorRate: number;
-  };
-}
-
-// Define proper type for activity item from API
-interface ActivityApiItem {
-  id: string;
-  user: string;
-  action: string;
-  target: string;
-  department: string;
-  timestamp?: string | Date;
-  time?: string | Date;
-}
-
+// DashboardSkeleton / AnimatedCounter / SimpleChart / formatTimeAgo / dashboard
+// type declarations moved into dedicated files — see imports above.
 function DashboardClient() {
   const router = useRouter();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -230,11 +77,9 @@ useEffect(() => {
     setIsLoading(true);
     
     try {
-      const token = localStorage.getItem('adminToken');
-      
-      // Fetch real dashboard data from API
+      // Auth is carried via the httpOnly auth_token cookie handled by /api/proxy.
       const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.admin.dashboard}`, {
-        headers: getHeaders(token || undefined),
+        headers: getHeaders(),
       });
       
       if (!response.ok) throw new Error('Failed to fetch dashboard data');
@@ -895,82 +740,6 @@ useEffect(() => {
       )}
     </div>
   );
-}
-
-// Animated Counter Component
-function AnimatedCounter({ value, suffix = '' }: { value: number; suffix?: string }) {
-  const [displayValue, setDisplayValue] = useState(0);
-  
-  useEffect(() => {
-    const duration = 1000;
-    const steps = 20;
-    const increment = value / steps;
-    let current = 0;
-    
-    const timer = setInterval(() => {
-      current += increment;
-      if (current >= value) {
-        setDisplayValue(value);
-        clearInterval(timer);
-      } else {
-        setDisplayValue(Math.floor(current));
-      }
-    }, duration / steps);
-    
-    return () => clearInterval(timer);
-  }, [value]);
-  
-  return <div className={styles.statValue}>{displayValue.toLocaleString()}{suffix}</div>;
-}
-
-// Simple Chart Component
-function SimpleChart({ data }: { data: ChartData }) {
-  const maxValue = Math.max(...data.datasets.flatMap(d => d.data));
-  
-  return (
-    <div className={styles.simpleChart}>
-      <div className={styles.chartBars}>
-        {data.labels.map((label, i) => (
-          <div key={label} className={styles.chartBarGroup}>
-            {data.datasets.map((dataset, j) => (
-              <div
-                key={dataset.label}
-                className={styles.chartBar}
-                style={{
-                  height: `${(dataset.data[i] / maxValue) * 100}%`,
-                  backgroundColor: dataset.color,
-                  opacity: j === 0 ? 1 : 0.7
-                }}
-                title={`${dataset.label}: ${dataset.data[i]}`}
-              />
-            ))}
-            <span className={styles.chartLabel}>{label}</span>
-          </div>
-        ))}
-      </div>
-      <div className={styles.chartLegend}>
-        {data.datasets.map(dataset => (
-          <span key={dataset.label} className={styles.legendItem}>
-            <span 
-              className={styles.legendColor} 
-              style={{ backgroundColor: dataset.color }}
-            />
-            {dataset.label}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Utility function
-function formatTimeAgo(date: Date): string {
-  const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
-  
-  if (seconds < 60) return 'just now';
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} mins ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
-  return `${Math.floor(seconds / 86400)} days ago`;
 }
 
 export default DashboardClient;
