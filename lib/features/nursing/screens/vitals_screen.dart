@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/services/connectivity_sync_service.dart';
 import '../../../core/services/medical_api_service.dart';
-import '../../../core/services/offline_queue.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -134,7 +133,7 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
       };
 
       if (!ConnectivitySyncService.instance.isOnline) {
-        await OfflineQueue.enqueue(
+        await ConnectivitySyncService.instance.enqueue(
           endpoint: '/health/records',
           method: 'POST',
           body: body,

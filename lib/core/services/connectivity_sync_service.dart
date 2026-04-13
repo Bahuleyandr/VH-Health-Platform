@@ -5,25 +5,44 @@ import 'package:flutter/foundation.dart';
 import 'offline_queue.dart';
 import 'api_client.dart';
 
-/// Monitors connectivity and auto-syncs pending offline writes when back online.
-class ConnectivitySyncService {
+/// Monitors connectivity, auto-syncs pending offline writes when back online,
+/// and exposes observable state (isOnline / isSyncing / counts) to the UI.
+///
+/// UI code listens via `context.watch<ConnectivitySyncService>()` *or* wraps an
+/// `AnimatedBuilder(animation: ConnectivitySyncService.instance, ...)`.
+class ConnectivitySyncService extends ChangeNotifier {
   static final ConnectivitySyncService instance = ConnectivitySyncService._();
   ConnectivitySyncService._();
 
+  // ── Observable state ──────────────────────────────────────────────────
   bool _isOnline = true;
   bool get isOnline => _isOnline;
 
   bool _isSyncing = false;
+  bool get isSyncing => _isSyncing;
+
+  int _pendingCount = 0;
+  int get pendingCount => _pendingCount;
+
+  int _conflictCount = 0;
+  int get conflictCount => _conflictCount;
+
+  // ── Internals ─────────────────────────────────────────────────────────
   StreamSubscription<List<ConnectivityResult>>? _subscription;
 
   /// Listen to connectivity changes, trigger sync when back online.
   void startListening() {
-    _subscription = Connectivity().onConnectivityChanged.listen((results) {
+    _subscription ??= Connectivity().onConnectivityChanged.listen((results) {
       final wasOffline = !_isOnline;
-      _isOnline = results.any((r) => r != ConnectivityResult.none);
+      final newOnline = results.any((r) => r != ConnectivityResult.none);
 
       if (kDebugMode) {
-        debugPrint('ConnectivitySync: online=$_isOnline results=$results');
+        debugPrint('ConnectivitySync: online=$newOnline results=$results');
+      }
+
+      if (newOnline != _isOnline) {
+        _isOnline = newOnline;
+        notifyListeners();
       }
 
       if (_isOnline && wasOffline) {
@@ -31,20 +50,87 @@ class ConnectivitySyncService {
       }
     });
 
-    // Check initial state
+    // Check initial state + prime counts.
     Connectivity().checkConnectivity().then((results) {
-      _isOnline = results.any((r) => r != ConnectivityResult.none);
+      final newOnline = results.any((r) => r != ConnectivityResult.none);
+      if (newOnline != _isOnline) {
+        _isOnline = newOnline;
+        notifyListeners();
+      }
     });
+    refreshCounts();
+  }
+
+  void stopListening() {
+    _subscription?.cancel();
+    _subscription = null;
+  }
+
+  /// Re-read pending + conflict counts from the queue and notify listeners
+  /// if anything changed. Cheap — call after any queue mutation, or on a
+  /// pull-to-refresh.
+  Future<void> refreshCounts() async {
+    final pending = await OfflineQueue.getPending();
+    final conflicts = await OfflineQueue.getConflicts();
+    final changed =
+        pending.length != _pendingCount || conflicts.length != _conflictCount;
+    _pendingCount = pending.length;
+    _conflictCount = conflicts.length;
+    if (changed) notifyListeners();
+  }
+
+  /// Queue a write and update counts. Prefer this over calling
+  /// [OfflineQueue.enqueue] directly so the badge stays accurate.
+  Future<int> enqueue({
+    required String endpoint,
+    required String method,
+    required Map<String, dynamic> body,
+    String? contextLabel,
+  }) async {
+    final id = await OfflineQueue.enqueue(
+      endpoint: endpoint,
+      method: method,
+      body: body,
+      contextLabel: contextLabel,
+    );
+    await refreshCounts();
+    return id;
+  }
+
+  /// User discarded a conflicted write — remove it from the queue.
+  Future<void> discardConflict(int id) async {
+    await OfflineQueue.remove(id);
+    await refreshCounts();
+  }
+
+  /// User asked to retry a conflicted write — flip it back to pending and
+  /// trigger a sync pass if we're online.
+  Future<void> retryConflict(int id) async {
+    final db = await OfflineQueue.database;
+    await db.update(
+      'pending_writes',
+      {'status': 'pending', 'conflict_reason': null, 'retry_count': 0},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    await refreshCounts();
+    if (_isOnline) {
+      syncPending();
+    }
   }
 
   /// Attempt to sync all pending writes.
   Future<void> syncPending() async {
     if (_isSyncing) return;
     _isSyncing = true;
+    notifyListeners();
 
     try {
       final pending = await OfflineQueue.getPending();
-      if (pending.isEmpty) return;
+      if (pending.isEmpty) {
+        await refreshCounts();
+        return;
+      }
 
       if (kDebugMode) {
         debugPrint('ConnectivitySync: syncing ${pending.length} pending writes');
@@ -86,8 +172,6 @@ class ConnectivitySyncService {
               debugPrint('ConnectivitySync: synced id=$id ($endpoint)');
             }
           } else if (resp.statusCode == 409 || resp.statusCode == 422) {
-            // Server-wins conflict: resource was modified while offline.
-            // Mark as conflicted so the UI can show the user.
             final reason = resp.message ?? 'Resource was modified on the server';
             await OfflineQueue.markConflict(id, reason);
             if (kDebugMode) {
@@ -108,11 +192,8 @@ class ConnectivitySyncService {
       }
     } finally {
       _isSyncing = false;
+      await refreshCounts();
+      notifyListeners();
     }
-  }
-
-  void stopListening() {
-    _subscription?.cancel();
-    _subscription = null;
   }
 }

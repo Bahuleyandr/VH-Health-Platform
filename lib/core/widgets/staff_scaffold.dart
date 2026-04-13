@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../config/role_config.dart';
 import '../theme/app_theme.dart';
+import 'offline_sync_badge.dart';
 import 'sos_button.dart';
 
 class StaffScaffold extends StatelessWidget {
@@ -35,6 +36,7 @@ class StaffScaffold extends StatelessWidget {
       appBar: AppBar(
         title: Text(title),
         actions: [
+          const OfflineSyncBadge(),
           if (showSos) const SosButton(),
           ...?actions,
         ],

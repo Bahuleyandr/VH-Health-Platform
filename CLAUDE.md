@@ -97,6 +97,9 @@ dependencies:
 - Staff-specific theme: blue/teal primary (distinct from patient app's teal/green)
 - Use descriptive SnackBars for success/error feedback
 - GoRouter redirect guard: unauthenticated users → `/login`
+- **Offline writes**: queue via `ConnectivitySyncService.instance.enqueue(...)` — **not** `OfflineQueue.enqueue` directly — so the sync badge stays accurate.
+- `OfflineSyncBadge` is mounted in `StaffScaffold` app-bar actions; hidden when online + empty + no conflicts. Tap opens `SyncStatusSheet` with per-conflict Discard/Retry.
+- UI reads sync state via `ListenableBuilder(listenable: ConnectivitySyncService.instance, ...)` — the service is a `ChangeNotifier`.
 
 
 ## Future Directions
