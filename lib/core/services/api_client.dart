@@ -1,185 +1,77 @@
 // lib/core/services/api_client.dart
-import 'dart:async';
-import 'dart:convert';
-import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:http/http.dart' as http;
-import 'package:vhhealth_core/models/api_response.dart';
-import 'package:vhhealth_staff/core/config/api_config.dart';
+//
+// Thin façade over `vhhealth_core.VHHttpClient`. All HTTP + JWT refresh + 401
+// single-flight + retry logic lives in core; this file exists so existing
+// call sites (`ApiClient.get('/path')`) keep compiling. When a new app-level
+// HTTP concern appears, add it *here* — don't duplicate logic from core.
+//
+// Deprecation path: individual call sites can migrate to `VHHttpClient.xxx`
+// directly over time. The façade is a compatibility layer, not a permanent
+// abstraction.
 
-/// Centralized HTTP client for all backend API calls.
-///
-/// Provides authenticated requests with consistent timeout, response parsing,
-/// 401 session-expiry detection, and error handling so individual screens
-/// don't have to repeat this logic.
+import 'package:http/http.dart' as http;
+import 'package:vhhealth_core/vhhealth_core.dart';
+
+export 'package:vhhealth_core/models/api_response.dart' show ApiResponse;
+
+/// Staff-app HTTP client. Every method delegates to [VHHttpClient].
 class ApiClient {
   ApiClient._();
 
-  static const Duration _defaultTimeout = Duration(seconds: 15);
-  static const Duration _uploadTimeout = Duration(seconds: 30);
+  /// Registered once at startup; forwarded to [VHHttpClient.onSessionExpired]
+  /// so the single refresh/relogin flow owns both app-HTTP calls and the
+  /// realtime WS.
+  static set onSessionExpired(void Function(String? message)? cb) {
+    VHHttpClient.onSessionExpired = cb;
+  }
 
-  /// Listener called when the backend returns 401 (unauthorized).
-  /// Set this from the app's root widget to trigger a redirect to login.
-  /// The callback receives an optional error message from the backend.
-  static void Function(String? message)? onSessionExpired;
-
-  // ── Convenience HTTP methods ───────────────────────────────────────────────
-
-  /// Authenticated GET request. Returns parsed response body.
   static Future<ApiResponse> get(
     String path, {
     Map<String, String>? queryParameters,
     Duration? timeout,
-  }) async {
-    final uri = _buildUri(path, queryParameters);
-    final headers = await ApiConfig.authenticatedHeaders();
-    final response = await http
-        .get(uri, headers: headers)
-        .timeout(timeout ?? _defaultTimeout);
-    return _processResponse(response);
-  }
+  }) =>
+      VHHttpClient.get(path, queryParameters: queryParameters, timeout: timeout);
 
-  /// Authenticated POST request with JSON body.
   static Future<ApiResponse> post(
     String path, {
     Map<String, dynamic>? body,
     Duration? timeout,
-  }) async {
-    final uri = _buildUri(path);
-    final headers = await ApiConfig.authenticatedHeaders();
-    final response = await http
-        .post(uri,
-            headers: headers, body: body != null ? jsonEncode(body) : null)
-        .timeout(timeout ?? _defaultTimeout);
-    return _processResponse(response);
-  }
+  }) =>
+      VHHttpClient.post(path, body: body, timeout: timeout);
 
-  /// Authenticated PUT request with JSON body.
   static Future<ApiResponse> put(
     String path, {
     Map<String, dynamic>? body,
     Duration? timeout,
-  }) async {
-    final uri = _buildUri(path);
-    final headers = await ApiConfig.authenticatedHeaders();
-    final response = await http
-        .put(uri,
-            headers: headers, body: body != null ? jsonEncode(body) : null)
-        .timeout(timeout ?? _defaultTimeout);
-    return _processResponse(response);
-  }
+  }) =>
+      VHHttpClient.put(path, body: body, timeout: timeout);
 
-  /// Authenticated PATCH request with optional JSON body.
   static Future<ApiResponse> patch(
     String path, {
     Map<String, dynamic>? body,
     Duration? timeout,
-  }) async {
-    final uri = _buildUri(path);
-    final headers = await ApiConfig.authenticatedHeaders();
-    final response = await http
-        .patch(uri,
-            headers: headers, body: body != null ? jsonEncode(body) : null)
-        .timeout(timeout ?? _defaultTimeout);
-    return _processResponse(response);
-  }
+  }) =>
+      VHHttpClient.patch(path, body: body, timeout: timeout);
 
-  /// Authenticated DELETE request.
   static Future<ApiResponse> delete(
     String path, {
+    Map<String, dynamic>? body,
     Duration? timeout,
-  }) async {
-    final uri = _buildUri(path);
-    final headers = await ApiConfig.authenticatedHeaders();
-    final response = await http
-        .delete(uri, headers: headers)
-        .timeout(timeout ?? _defaultTimeout);
-    return _processResponse(response);
-  }
+  }) =>
+      VHHttpClient.delete(path, body: body, timeout: timeout);
 
-  /// Authenticated multipart POST (for file uploads).
-  /// Returns [ApiResponse] after streaming the request.
   static Future<ApiResponse> multipart(
     String path, {
-    Map<String, String> fields = const {},
-    List<http.MultipartFile> files = const [],
+    Map<String, String>? fields,
+    List<http.MultipartFile>? files,
+    Future<List<http.MultipartFile>> Function()? fileBuilder,
     Duration? timeout,
-  }) async {
-    final uri = _buildUri(path);
-    final headers = await ApiConfig.authenticatedHeaders();
-    final req = http.MultipartRequest('POST', uri)
-      ..headers.addAll(headers)
-      ..fields.addAll(fields)
-      ..files.addAll(files);
-    final streamed = await req.send().timeout(timeout ?? _uploadTimeout);
-    final body = await streamed.stream.bytesToString();
-    final parsed = ApiResponse.parse(streamed.statusCode, body);
-    _checkUnauthorized(parsed);
-    return parsed;
-  }
-
-  // ── Helpers ────────────────────────────────────────────────────────────────
-
-  static Uri _buildUri(String path, [Map<String, String>? queryParameters]) {
-    final base = Uri.parse('${ApiConfig.baseUrl}$path');
-    if (queryParameters != null && queryParameters.isNotEmpty) {
-      return base.replace(queryParameters: queryParameters);
-    }
-    return base;
-  }
-
-  /// Process an HTTP response: parse JSON and check for 401.
-  static Future<ApiResponse> _processResponse(http.Response response) async {
-    final parsed = ApiResponse.fromHttp(response);
-    await _checkUnauthorized(parsed);
-    return parsed;
-  }
-
-  static bool _isRefreshing = false;
-
-  /// On 401, attempt a single token refresh before expiring the session.
-  static Future<void> _checkUnauthorized(ApiResponse response) async {
-    if (response.statusCode != 401) return;
-
-    // Prevent concurrent refresh attempts
-    if (_isRefreshing) return;
-    _isRefreshing = true;
-
-    try {
-      if (kDebugMode) {
-        debugPrint('ApiClient: 401 — attempting token refresh');
-      }
-
-      final headers = await ApiConfig.authenticatedHeaders();
-      final refreshResp = await http
-          .post(
-            Uri.parse('${ApiConfig.baseUrl}/auth/refresh-token'),
-            headers: headers,
-          )
-          .timeout(const Duration(seconds: 10));
-
-      if (refreshResp.statusCode >= 200 && refreshResp.statusCode < 300) {
-        final body = jsonDecode(refreshResp.body);
-        final newToken = body['data']?['token'] ?? body['token'];
-        if (newToken != null) {
-          await ApiConfig.saveJwt(newToken.toString());
-          if (kDebugMode) {
-            debugPrint('ApiClient: token refreshed successfully');
-          }
-          return; // Success — caller can retry the original request
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('ApiClient: token refresh failed: $e');
-      }
-    } finally {
-      _isRefreshing = false;
-    }
-
-    // Refresh failed — clear tokens and redirect to login
-    const FlutterSecureStorage().delete(key: 'staff_jwt');
-    onSessionExpired
-        ?.call(response.message ?? 'Session expired. Please log in again.');
-  }
+  }) =>
+      VHHttpClient.multipart(
+        path,
+        fields: fields,
+        files: files,
+        fileBuilder: fileBuilder,
+        timeout: timeout,
+      );
 }

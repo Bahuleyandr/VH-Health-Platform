@@ -14,6 +14,7 @@ import 'core/providers/websocket_provider.dart';
 import 'core/services/code_blue_notifier.dart';
 import 'core/services/connectivity_sync_service.dart';
 import 'core/services/websocket_service.dart';
+import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 /// Background FCM handler for Code Blue data messages. Must be a top-level
@@ -155,6 +156,10 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
         ChangeNotifierProvider(create: (_) => WebSocketProvider()..init()),
+        // Realtime fabric lifecycle owner. Widgets should listen via
+        // `context.read<RealtimeProvider>().events(channel)` instead of
+        // calling `RealtimeClient.instance.connect()` directly.
+        ChangeNotifierProvider(create: (_) => RealtimeProvider()..ensureConnected()),
         ChangeNotifierProvider(
           create: (_) => SessionTimeoutProvider(
             timeoutDuration: const Duration(minutes: 15),
