@@ -1,72 +1,95 @@
 // lib/core/services/api_client.dart
-import 'dart:async';
-import 'dart:convert';
-import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:http/http.dart' as http;
-import 'package:vhhealth/core/config/api_config.dart';
-import 'package:vhhealth/core/offline/api_cache_manager.dart';
-import 'package:vhhealth_core/models/api_response.dart';
-import 'package:vhhealth_core/services/connectivity_service.dart';
+//
+// Thin façade over `vhhealth_core.VHHttpClient`. All HTTP + JWT refresh + 401
+// single-flight + retry logic lives in core; this file exists so existing
+// call sites (`ApiClient.get(...)`) keep compiling. The only patient-specific
+// extension is [cachedGet] — offline-first wrapper tied to the patient app's
+// [ApiCacheManager] and [ConnectivityService].
+//
+// Deprecation path: migrate individual call sites to `VHHttpClient.xxx`
+// directly when convenient. `cachedGet` stays here because its caching
+// strategy is patient-specific.
 
-/// Centralized HTTP client for all backend API calls.
-///
-/// Provides authenticated requests with:
-/// - Consistent timeout + response parsing
-/// - 401 single-flight token refresh (mirrors `vhhealth_core.VHHttpClient`)
-/// - Single retry on a successful refresh
-/// - Session-expiry callback if refresh fails
+import 'package:http/http.dart' as http;
+import 'package:vhhealth/core/offline/api_cache_manager.dart';
+import 'package:vhhealth_core/vhhealth_core.dart';
+
+export 'package:vhhealth_core/models/api_response.dart' show ApiResponse, CachedApiResponse;
+
 class ApiClient {
   ApiClient._();
 
-  static const Duration _defaultTimeout = Duration(seconds: 15);
-  static const Duration _uploadTimeout = Duration(seconds: 30);
-  static const _storage = FlutterSecureStorage();
+  /// Registered once at startup (see `main.dart`). Forwards to
+  /// [VHHttpClient.onSessionExpired] so the same refresh/relogin flow
+  /// owns HTTP + realtime WS auth.
+  static set onSessionExpired(void Function(String? message)? cb) {
+    VHHttpClient.onSessionExpired = cb;
+  }
 
-  /// Listener called when the backend returns 401 (unauthorized).
-  /// Set this from the app's root widget to trigger a redirect to login.
-  /// The callback receives an optional error message from the backend.
-  static void Function(String? message)? onSessionExpired;
+  // ── Delegated HTTP methods ────────────────────────────────────────────────
 
-  // ── Convenience HTTP methods ───────────────────────────────────────────────
-
-  /// Authenticated GET request. Single retry on timeout; single retry after
-  /// a successful token refresh when the backend returns 401.
   static Future<ApiResponse> get(
     String path, {
     Map<String, String>? queryParameters,
     Duration? timeout,
-  }) async {
-    final uri = _buildUri(path, queryParameters);
-    final effectiveTimeout = timeout ?? _defaultTimeout;
+  }) =>
+      VHHttpClient.get(path, queryParameters: queryParameters, timeout: timeout);
 
-    Future<http.Response> send() async {
-      final headers = await ApiConfig.authenticatedAuthHeaders();
-      return http.get(uri, headers: headers).timeout(effectiveTimeout);
-    }
+  static Future<ApiResponse> post(
+    String path, {
+    Map<String, dynamic>? body,
+    Duration? timeout,
+  }) =>
+      VHHttpClient.post(path, body: body, timeout: timeout);
 
-    http.Response response;
-    try {
-      response = await send();
-    } on TimeoutException {
-      if (kDebugMode) debugPrint('ApiClient.get: timeout on $path — retrying');
-      final headers = await ApiConfig.authenticatedAuthHeaders();
-      response = await http
-          .get(uri, headers: headers)
-          .timeout(effectiveTimeout + const Duration(seconds: 5));
-    }
+  static Future<ApiResponse> put(
+    String path, {
+    Map<String, dynamic>? body,
+    Duration? timeout,
+  }) =>
+      VHHttpClient.put(path, body: body, timeout: timeout);
 
-    final parsed = ApiResponse.fromHttp(response);
-    if (parsed.statusCode == 401 && await _handleUnauthorized(parsed)) {
-      final retry = await send();
-      return _processResponse(retry);
-    }
-    _checkUnauthorized(parsed);
-    return parsed;
-  }
+  static Future<ApiResponse> patch(
+    String path, {
+    Map<String, dynamic>? body,
+    Duration? timeout,
+  }) =>
+      VHHttpClient.patch(path, body: body, timeout: timeout);
 
-  /// Cache-first GET: returns cached data immediately (if available),
-  /// then fetches from network in background and updates the cache.
+  static Future<ApiResponse> delete(
+    String path, {
+    Map<String, dynamic>? body,
+    Duration? timeout,
+  }) =>
+      VHHttpClient.delete(path, body: body, timeout: timeout);
+
+  static Future<ApiResponse> multipart(
+    String path, {
+    Map<String, String>? fields,
+    List<http.MultipartFile>? files,
+    Future<List<http.MultipartFile>> Function()? fileBuilder,
+    Duration? timeout,
+  }) =>
+      VHHttpClient.multipart(
+        path,
+        fields: fields,
+        files: files,
+        fileBuilder: fileBuilder,
+        timeout: timeout,
+      );
+
+  // ── Patient-specific: cache-first GET ─────────────────────────────────────
+
+  /// Returns cached data immediately (if available, fresh-or-stale), then
+  /// fetches fresh data in the background and updates the cache. Used by
+  /// the dashboard + record-list screens for snappy offline-first UX.
+  ///
+  /// Returns [CachedApiResponse]:
+  ///   * `response` — immediately available payload (cached or live)
+  ///   * `fromCache` — true when `response` was served from disk
+  ///   * `staleLabel` — human-readable "2 hours ago" when serving stale
+  ///   * `onFresh` — a future for the network response, when the cached
+  ///     copy was fresh enough that we returned it synchronously
   static Future<CachedApiResponse> cachedGet(
     String path, {
     Map<String, String>? queryParameters,
@@ -107,6 +130,7 @@ class ApiClient {
     }
 
     if (cached != null && !cached.isStale(cacheTtl)) {
+      // Cache is fresh — return immediately, refresh in background.
       final freshFuture = get(path, queryParameters: queryParameters, timeout: timeout)
           .then((response) {
         if (response.isSuccess) {
@@ -135,6 +159,7 @@ class ApiClient {
       );
     }
 
+    // Cache is stale or missing — fetch live, fall back to stale cache on error.
     try {
       final response = await get(path, queryParameters: queryParameters, timeout: timeout);
       if (response.isSuccess) {
@@ -161,217 +186,5 @@ class ApiClient {
       }
       rethrow;
     }
-  }
-
-  /// Authenticated POST request with JSON body.
-  static Future<ApiResponse> post(
-    String path, {
-    Map<String, dynamic>? body,
-    Duration? timeout,
-  }) async {
-    final uri = _buildUri(path);
-    final encoded = body != null ? jsonEncode(body) : null;
-    Future<http.Response> send() async {
-      final headers = await ApiConfig.authenticatedAuthHeaders();
-      return http
-          .post(uri, headers: headers, body: encoded)
-          .timeout(timeout ?? _defaultTimeout);
-    }
-
-    final response = await send();
-    final parsed = ApiResponse.fromHttp(response);
-    if (parsed.statusCode == 401 && await _handleUnauthorized(parsed)) {
-      final retry = await send();
-      return _processResponse(retry);
-    }
-    _checkUnauthorized(parsed);
-    return parsed;
-  }
-
-  /// Authenticated PUT request with JSON body.
-  static Future<ApiResponse> put(
-    String path, {
-    Map<String, dynamic>? body,
-    Duration? timeout,
-  }) async {
-    final uri = _buildUri(path);
-    final encoded = body != null ? jsonEncode(body) : null;
-    Future<http.Response> send() async {
-      final headers = await ApiConfig.authenticatedAuthHeaders();
-      return http
-          .put(uri, headers: headers, body: encoded)
-          .timeout(timeout ?? _defaultTimeout);
-    }
-
-    final response = await send();
-    final parsed = ApiResponse.fromHttp(response);
-    if (parsed.statusCode == 401 && await _handleUnauthorized(parsed)) {
-      final retry = await send();
-      return _processResponse(retry);
-    }
-    _checkUnauthorized(parsed);
-    return parsed;
-  }
-
-  /// Authenticated PATCH request with optional JSON body.
-  static Future<ApiResponse> patch(
-    String path, {
-    Map<String, dynamic>? body,
-    Duration? timeout,
-  }) async {
-    final uri = _buildUri(path);
-    final encoded = body != null ? jsonEncode(body) : null;
-    Future<http.Response> send() async {
-      final headers = await ApiConfig.authenticatedAuthHeaders();
-      return http
-          .patch(uri, headers: headers, body: encoded)
-          .timeout(timeout ?? _defaultTimeout);
-    }
-
-    final response = await send();
-    final parsed = ApiResponse.fromHttp(response);
-    if (parsed.statusCode == 401 && await _handleUnauthorized(parsed)) {
-      final retry = await send();
-      return _processResponse(retry);
-    }
-    _checkUnauthorized(parsed);
-    return parsed;
-  }
-
-  /// Authenticated DELETE request.
-  static Future<ApiResponse> delete(
-    String path, {
-    Duration? timeout,
-  }) async {
-    final uri = _buildUri(path);
-    Future<http.Response> send() async {
-      final headers = await ApiConfig.authenticatedAuthHeaders();
-      return http.delete(uri, headers: headers).timeout(timeout ?? _defaultTimeout);
-    }
-
-    final response = await send();
-    final parsed = ApiResponse.fromHttp(response);
-    if (parsed.statusCode == 401 && await _handleUnauthorized(parsed)) {
-      final retry = await send();
-      return _processResponse(retry);
-    }
-    _checkUnauthorized(parsed);
-    return parsed;
-  }
-
-  /// Authenticated multipart POST (for file uploads).
-  /// Multipart streams are single-use; 401 retry is not attempted here —
-  /// a 401 fires [onSessionExpired] as before.
-  static Future<ApiResponse> multipart(
-    String path, {
-    Map<String, String> fields = const {},
-    List<http.MultipartFile> files = const [],
-    Duration? timeout,
-  }) async {
-    final uri = _buildUri(path);
-    final headers = await ApiConfig.authenticatedAuthHeaders();
-    final req = http.MultipartRequest('POST', uri)
-      ..headers.addAll(headers)
-      ..fields.addAll(fields)
-      ..files.addAll(files);
-    final streamed = await req.send().timeout(timeout ?? _uploadTimeout);
-    final body = await streamed.stream.bytesToString();
-    final parsed = ApiResponse.parse(streamed.statusCode, body);
-    _checkUnauthorized(parsed);
-    return parsed;
-  }
-
-  // ── Helpers ────────────────────────────────────────────────────────────────
-
-  static Uri _buildUri(String path, [Map<String, String>? queryParameters]) {
-    final base = Uri.parse('${ApiConfig.baseUrl}$path');
-    if (queryParameters != null && queryParameters.isNotEmpty) {
-      return base.replace(queryParameters: queryParameters);
-    }
-    return base;
-  }
-
-  /// Process an HTTP response: parse JSON and check for 401.
-  static ApiResponse _processResponse(http.Response response) {
-    final parsed = ApiResponse.fromHttp(response);
-    _checkUnauthorized(parsed);
-    return parsed;
-  }
-
-  /// If the response is 401 without a retry opportunity (e.g. after the
-  /// retry itself), clear the stored JWT and notify the app to redirect.
-  static void _checkUnauthorized(ApiResponse response) {
-    if (response.statusCode == 401) {
-      if (kDebugMode) {
-        debugPrint('ApiClient: 401 Unauthorized — session expired');
-      }
-      _storage.delete(key: 'jwt');
-      onSessionExpired?.call(
-        response.message ?? 'Session expired. Please log in again.',
-      );
-    }
-  }
-
-  // ── Token refresh (single-flight) ──────────────────────────────────────────
-
-  /// Concurrent 401s share one refresh call.
-  static Completer<bool>? _refreshInFlight;
-
-  /// On 401: attempt a single-flight refresh.
-  /// Returns `true` if refresh succeeded and the caller should retry the
-  /// original request. Returns `false` if the session is unrecoverable —
-  /// in which case tokens are cleared and [onSessionExpired] fires.
-  static Future<bool> _handleUnauthorized(ApiResponse response) async {
-    if (response.statusCode != 401) return false;
-    final refreshed = await _tryRefreshToken();
-    if (refreshed) return true;
-    if (kDebugMode) {
-      debugPrint('ApiClient: 401 refresh failed — clearing session');
-    }
-    await _storage.delete(key: 'jwt');
-    onSessionExpired?.call(
-      response.message ?? 'Session expired. Please log in again.',
-    );
-    return false;
-  }
-
-  static Future<bool> _tryRefreshToken() {
-    final existing = _refreshInFlight;
-    if (existing != null) return existing.future;
-
-    final completer = Completer<bool>();
-    _refreshInFlight = completer;
-
-    _performRefresh().then((ok) {
-      completer.complete(ok);
-    }).catchError((Object e, StackTrace st) {
-      if (kDebugMode) debugPrint('ApiClient: refresh failed — $e');
-      completer.complete(false);
-    }).whenComplete(() {
-      _refreshInFlight = null;
-    });
-
-    return completer.future;
-  }
-
-  static Future<bool> _performRefresh() async {
-    final uri = _buildUri('/auth/refresh-token');
-    // Use current (possibly expired) access token as the bearer — backend
-    // verifyTokenAllowExpired accepts it as long as signature is valid.
-    final headers = await ApiConfig.authenticatedHeaders();
-    final response =
-        await http.post(uri, headers: headers).timeout(_defaultTimeout);
-    final parsed = ApiResponse.fromHttp(response);
-    if (!parsed.isSuccess) return false;
-
-    final data = parsed.data;
-    if (data is! Map) return false;
-
-    final newToken = (data['accessToken'] as String?) ?? (data['token'] as String?);
-    if (newToken == null || newToken.isEmpty) return false;
-
-    await _storage.write(key: 'jwt', value: newToken);
-    if (kDebugMode) debugPrint('ApiClient: token refreshed');
-    return true;
   }
 }
