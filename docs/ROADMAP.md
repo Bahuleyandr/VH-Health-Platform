@@ -25,20 +25,30 @@
 
 ## Phase 3 — S-Tier Marquee
 
-### 3A (admin slice). Real-time KPI dashboard
-SSE subscriber to backend real-time fabric. Live tiles: bed occupancy %, ED wait time, avg TAT, staff utilisation, pharmacy stock-out rate. Recharts for trend lines; WebSocket for tile updates. Replace polling dashboard.
+### 3A (admin slice). Real-time KPI dashboard ✅ (first tile, 2026-04-14)
+- `hooks/useRealtimeChannel.ts` — two-step handshake: POSTs `/api/realtime-ticket` to mint a ~60s WS-scoped ticket (primary JWT stays in the httpOnly cookie, never exposed to JS), then opens WS to backend `/ws?token=<ticket>` with auto-reconnect and subscribes to the named channel.
+- `app/api/realtime-ticket/route.ts` — server-side ticket proxy with CSRF origin check, matches `/api/refresh` pattern.
+- `LiveBedOccupancyTile` mounted in `CleanDashboard` — subscribes to `admin:beds`, shows connection pulse + most recent bed event.
+- **Loose end closed (2026-04-14):** `LiveBedOccupancyTile` rewritten from an event log into an aggregate tile group. Subscribes to `admin:kpi` and renders two tiles — bed occupancy % (green/amber/red based on pressure) with occupied/total subline, and today's-queue (waiting count + in-consult + active doctors). Backend `kpiAggregator.tickAdminKpi` emits every 30s with a startup prime so tiles paint before the first cron tick.
+- **Still open:** ED wait time, pharmacy stock-out rate, staff utilisation — each requires its own aggregator branch. The pattern is in place; adding a tile is `emitAdminKpi('new-tile', {...})` on the backend + a reader in `LiveBedOccupancyTile`.
 
-### 3F. Integrated revenue cycle
-Admin views for: insurance claim submission queue (837 EDI), denial reason dashboard, AR aging, patient payment portal admin (view installments, waive fees with audit). Depends on backend revenue-cycle implementation.
+### 3F. Integrated revenue cycle ✅ (denial dashboard + 837 download available, 2026-04-14)
+Admin page `dashboard/billing/denials` reads the new `/billing/denials/summary` + `/billing/denials` endpoints — count / amount denied / appealed / win rate tiles, top reason codes, recent list. Backend now also exposes `GET /billing/837/:invoiceId` (returns `application/edi-x12`) — a claim-submission queue page can wire directly to it.
+**Still open:** dedicated claim submission queue UI, AR aging, patient payment portal admin, payer-specific companion-guide overrides.
 
-### 3Γ. Compliance & accreditation dashboards
-NABH / JCI indicator tracking: hand-hygiene compliance, medication error rate, HAI rate, surgical-site infection rate, patient-identification error rate. Pulls from existing `clinical_alerts` + audit tables. Export PDF for auditor visits.
+### 3Γ. Compliance & accreditation dashboards ✅ (2026-04-14)
+Admin page `dashboard/compliance/indicators` reads `/compliance/indicators` — NABH/JCI tiles for medication error rate, patient-identification error rate, MAR override rate, CDS override rate, unacknowledged critical alerts. Indicators with no data source (hand-hygiene, HAI, surgical-site infection) render as "tracking integration needed" rather than misleading zeros.
+**PDF export landed 2026-04-14** — `src/lib/exportToPdf.ts` wraps jsPDF + jspdf-autotable; "Export PDF" button downloads a formatted report with hospital branding + trailing-window subtitle.
+**Still open:** hand-hygiene/HAI/SSI data sources.
 
-### 3Δ. Pharmacy inventory + expiry management
-Stock on hand, reorder points, expiry alerts (30/60/90 day), supplier integration for auto-reorder, batch tracking for recalls. Currently pharmacy is order-routing only — no stock view.
+### 3Δ. Pharmacy inventory + expiry management ✅ (2026-04-14)
+Admin page `dashboard/pharmacy/inventory` — summary tiles (in-stock, below reorder, expiring, expired) + per-section tables (low stock, expiring 30d, expired). Reads the existing `/pharmacy/inventory/*` endpoints.
+**Still open:** supplier integration for auto-reorder, batch-level recall tracking (current backend keys on medication, not batch).
 
-### 3Ε. Executive KPI dashboard (C-suite view)
-Role-gated view with high-level metrics: revenue (month/quarter), occupancy trend, patient satisfaction (from feedback module), doctor utilisation. PDF export for board meetings.
+### 3Ε. Executive KPI dashboard (C-suite view) ✅ (2026-04-14)
+Admin page `dashboard/executive` reads the new `/admin/executive-kpi/summary` — revenue billed/collected, bed occupancy with pressure colouring, patient satisfaction (feedback avg), doctor utilisation. Role-gated client-side via `usePermissions` + backend `ADMIN` requirement.
+**PDF export landed 2026-04-14** — same shared helper as compliance; exports a KPI strip + revenue/operations tables.
+**Still open:** quarter-over-quarter trend lines.
 
 ---
 
