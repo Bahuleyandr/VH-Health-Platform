@@ -1,0 +1,16 @@
+# Dart / Flutter build outputs
+.dart_tool/
+.packages
+pubspec.lock
+build/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OpenAPI codegen output — regenerated on demand from swagger/api.yaml.
+# Keeping it out of git means pub get + build_runner must run on fresh
+# clones, but avoids ~1 MB of generated churn in diffs and merge conflicts.
+# If this becomes inconvenient, flip it — both patterns are defensible.
+lib/api/generated/

@@ -7,6 +7,8 @@ export 'services/api_retry.dart';
 export 'services/auth_service.dart';
 export 'services/certificate_pinner.dart';
 export 'services/connectivity_service.dart';
+export 'services/connectivity_sync_service.dart';
+export 'services/offline_queue.dart';
 export 'services/biometric_auth_service.dart';
 export 'services/crash_reporter.dart';
 export 'services/device_integrity_service.dart';
@@ -17,6 +19,10 @@ export 'services/mtls_client_service.dart';
 export 'services/realtime_client.dart';
 export 'services/realtime_provider.dart';
 export 'services/version_gate.dart';
+// OpenAPI-generated API (models + chopper client). Re-exported from
+// lib/api/vhhealth_api.dart once `dart run build_runner build` has
+// generated the artefacts. The auth interceptor is always available.
+export 'api/vh_auth_interceptor.dart';
 export 'theme/app_theme.dart';
 export 'theme/theme_colors.dart';
 export 'utils/date_formatter.dart';
@@ -25,4 +31,5 @@ export 'utils/safe_url_launcher.dart';
 export 'utils/validators.dart';
 export 'widgets/data_state_builder.dart';
 export 'widgets/error_boundary.dart';
+export 'widgets/offline_sync_badge.dart';
 export 'widgets/sos_button.dart';
