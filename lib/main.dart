@@ -23,6 +23,7 @@ import 'package:vhhealth/core/navigation/app_router.dart';
 // Core Services
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/connectivity_service.dart';
+import 'package:vhhealth/core/services/health_sync_service.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/services/websocket_service.dart';
 import 'package:vhhealth/core/offline/mutation_queue.dart';
@@ -111,6 +112,9 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
       // Reconnect when the app comes back to foreground
       ConnectivityService.startMonitoring();
       WebSocketService.instance.connect();
+      // HealthKit / Google Health Connect: fire-and-forget delta sync. Noop if
+      // the user never granted permissions (service requests them on first call).
+      unawaited(HealthSyncService.instance.syncNow());
     }
   }
 

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'package:vhhealth/core/services/health_sync_service.dart';
 import 'package:vhhealth/core/widgets/language_dropdown.dart';
 import 'package:vhhealth/core/widgets/logout_button.dart';
 import 'package:vhhealth/features/settings/controllers/settings_controller.dart';
@@ -42,6 +43,39 @@ List<Widget> buildSettingsSections(SettingsController c) {
             subtitle: Text('Ayushman Bharat Health Account', style: txt.bodySmall),
             trailing: Icon(Icons.arrow_forward_ios, size: 16, color: cs.onSurfaceVariant),
             onTap: () => c.context.push('/abdm'),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: CircleAvatar(
+              backgroundColor: const Color(0xFFFF7043).withAlpha(30),
+              child: const Icon(Icons.watch, color: Color(0xFFFF7043)),
+            ),
+            title: Text('Connect wearables', style: txt.titleMedium),
+            subtitle: Text('Sync steps, heart rate, SpO₂ from Apple Health / Google Health Connect',
+                style: txt.bodySmall),
+            trailing: const Icon(Icons.sync, size: 18),
+            onTap: () async {
+              final messenger = ScaffoldMessenger.of(c.context);
+              final granted = await HealthSyncService.instance.requestPermissions();
+              if (!granted) {
+                messenger.showSnackBar(const SnackBar(
+                  content: Text('Health permissions were not granted'),
+                ));
+                return;
+              }
+              messenger.showSnackBar(const SnackBar(content: Text('Syncing health data…')));
+              final synced = await HealthSyncService.instance.syncNow();
+              await HealthSyncService.instance.startForegroundSync();
+              // Register the 15-min background task so sync keeps running when
+              // the app is backgrounded. Safe to call every time — existingWork
+              // policy is `keep`, so re-registration is a no-op.
+              await HealthSyncService.enableBackgroundSync();
+              messenger.showSnackBar(SnackBar(
+                content: Text(synced > 0
+                    ? 'Health data synced — vitals updated'
+                    : 'No new samples to sync'),
+              ));
+            },
           ),
         ],
       ),

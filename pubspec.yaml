@@ -49,6 +49,8 @@ dependencies:
   share_plus: ^10.1.4
   screenshot: ^3.0.0
   pedometer: ^4.0.1
+  health: ^11.1.0
+  workmanager: ^0.5.2
   geolocator: ^14.0.1
   add_2_calendar: ^3.0.1
   local_auth: ^2.3.0              # Updated from 2.1.6

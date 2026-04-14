@@ -25,17 +25,32 @@
 
 ## Phase 3 — S-Tier Marquee
 
-### 3C. Apple HealthKit + Google Fit sync
-Add `health: ^10.x`. Background sync steps/HR/sleep/SpO2 → `POST /health/patient/vitals` with `source: 'healthkit'`. Updates wellness score live (no form entry). Push prescription + vitals-goal reminders back to wrist via `flutter_health` write APIs. **This is the single most visible S-tier feature for patients.**
+### 3C. Apple HealthKit + Google Fit sync ✅ (foreground slice, 2026-04-14)
+- `core/services/health_sync_service.dart` — singleton. `requestPermissions()` prompts for the plugin's 6 read types (HEART_RATE, BLOOD_OXYGEN, STEPS, WEIGHT, BODY_TEMPERATURE, SLEEP_ASLEEP). `syncNow()` is silent — uses `hasPermissions()` check and returns 0 if not granted (safe to call on every app resume). `startForegroundSync()` runs a 30-min `Timer.periodic`.
+- `main.dart#didChangeAppLifecycleState` fires `syncNow()` on resume.
+- Settings → "Connect wearables" tile grants permissions + starts the timer.
+- Backend migration `005_*.sql` adds `source` + `recorded_at_source` to `patient_vitals`. `POST /health/patient/vitals` accepts `source` and `recordedAtSource`. New `GET /health/patient/:id/sync-status` returns `{lastSyncBySource}` so the app can reconcile after a reinstall.
+- **Still open:** true background sync via `workmanager` (current foreground timer dies when app is backgrounded). Android Health Connect manifest permissions + iOS `NSHealthShareUsageDescription` entry in Info.plist. Wrist write-back for medication reminders + vitals goals.
 
-### 3A (patient slice). Live queue position
-Connect to backend Socket.IO. Show "Dr. is 3 patients away — est. 12 min" on appointment day. Replace `_TodayAppointmentCard` polling.
+### 3A (patient slice). Live queue position ✅ (2026-04-14)
+`today_appointment_card.dart` converted to a StatefulWidget subscribing to the `queue-position` personal event via `RealtimeClient` (from `vhhealth_core`). Shows "Dr. is N patients away — est. M min" (or "You're next") inline under the existing status row when a live event arrives; falls back silently to the static card otherwise. Backend drives fan-out from `appointmentStatusController` on IN_PROGRESS/COMPLETED/CANCELLED/NO_SHOW transitions.
 
-### 3G. AI symptom checker (chatbot)
-Claude API integration behind `/chatbot`. System prompt produces structured differential. Auto-fills appointment booking form with symptom summary for doctor context. Triage decision: "see doctor now / self-care / urgent care".
+### 3G. AI symptom checker (chatbot) ✅ (2026-04-14)
+Backend `services/chatbot/triageService.js` wraps Anthropic Messages API with a cacheable system prompt that produces a structured `{triage, differential, summary, redFlags}` response. `POST /chatbot/triage` pulls the authenticated patient's age/sex/allergies server-side so the model has context without the user restating it. Patient app `features/chatbot/screens/symptom_checker_screen.dart` — free-text entry, triage visualisation (self_care / see_doctor_now / urgent_care), differential list, red-flag list, and "Book an appointment" shortcut that pre-fills the reason.
+**Background sync landed 2026-04-14.** `HealthSyncService.enableBackgroundSync()` registers a 15-min `workmanager` periodic task with `NetworkType.connected` + `requiresBatteryNotLow` constraints. Top-level `healthSyncBackgroundDispatcher` (with `@pragma('vm:entry-point')`) runs the silent `syncNow` in a background isolate. Settings "Connect wearables" tile now enables background sync after granting perms.
 
-### 3E (patient slice). CDS visibility
-Show "why this was prescribed" + alternatives on Rx detail sheet. Surface allergy warnings inline on `your_health/prescriptions_tab`.
+**Provider-agnostic.** Backend `triageService` speaks either Anthropic Messages API or any OpenAI-compatible chat-completions server (Ollama / vLLM / llama.cpp server / LM Studio / local OpenAI proxy). Configure via env:
+- `CHATBOT_PROVIDER` — `anthropic` (default) | `openai`
+- `CHATBOT_BASE_URL` — e.g. `http://ollama.internal:11434/v1` for self-hosted, `https://api.anthropic.com` for Anthropic
+- `CHATBOT_MODEL` — model identifier (defaults per provider)
+- `CHATBOT_API_KEY` — optional for self-hosted backends without auth; required for Anthropic (also accepts `ANTHROPIC_API_KEY` for back-compat).
+
+Structured response contract (`{triage, differential, summary, redFlags}`) is identical across providers; patient app is unchanged.
+
+### 3E (patient slice). CDS visibility ✅ (partial, 2026-04-14)
+Inline `_SafetyContextBanner` added to the Rx detail sheet in `your_health/prescriptions_tab.dart`. Fetches `/prescriptions/:id/safety`, renders allergy warnings and any clinician override reasons on file so patients see prescribing rationale. Indication is still shown via the existing `diagnosis` section.
+
+**Still open:** explicit "alternatives" surfacing requires a drug-similarity source the backend doesn't yet have.
 
 ---
 
