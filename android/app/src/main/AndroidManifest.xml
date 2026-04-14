@@ -65,7 +65,19 @@
     
     <!-- 🔔 Notification Policy Access (if managing notification settings) -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
-    
+
+    <!-- 🫀 Health Connect / Health Kit (Phase 3C patient sync).
+         Android 14+ reads health data via the Health Connect app; each data
+         type needs its own read permission. The `health` plugin declares
+         these at runtime but listing them here makes the permission
+         declaration explicit for Play Store review. -->
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
+    <uses-permission android:name="android.permission.health.READ_WEIGHT" />
+    <uses-permission android:name="android.permission.health.READ_BODY_TEMPERATURE" />
+    <uses-permission android:name="android.permission.health.READ_SLEEP" />
+
     <application
         android:name="${applicationName}"
         android:label="VH Health"
@@ -197,6 +209,14 @@
         <intent>
             <action android:name="android.intent.action.PICK" />
             <data android:mimeType="image/*" />
+        </intent>
+
+        <!-- Health Connect — required for the `health` plugin to discover
+             the Health Connect provider app on Android 14+. Without this
+             <queries> entry the plugin silently returns no samples. -->
+        <package android:name="com.google.android.apps.healthdata" />
+        <intent>
+            <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
         </intent>
     </queries>
 </manifest>
