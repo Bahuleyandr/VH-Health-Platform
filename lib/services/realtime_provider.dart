@@ -10,7 +10,6 @@
 // out and back in, and nothing ever closes the socket. Centralising in a
 // provider makes the whole lifecycle one place to reason about.
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import 'auth_service.dart';

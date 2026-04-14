@@ -20,6 +20,7 @@ dependencies:
   # generated clients (Client / RequestInterceptor types, serialization hooks).
   # The generator itself is a dev_dependency below.
   chopper: ^8.0.3
+  json_annotation: ^4.11.0
   # Offline write queue (was staff-only; Phase 5.5 promoted to core so the
   # patient app gets the same ChangeNotifier + sync-badge UX).
   sqflite: ^2.3.3
@@ -38,6 +39,6 @@ dev_dependencies:
   # swagger/api.yaml, emitting models + chopper client stubs into
   # lib/api/generated/. See docs/API_CODEGEN.md for the migration playbook.
   build_runner: ^2.4.8
-  swagger_dart_code_generator: ^3.1.0
+  swagger_dart_code_generator: ^4.1.1
   chopper_generator: ^8.0.3
   json_serializable: ^6.8.0

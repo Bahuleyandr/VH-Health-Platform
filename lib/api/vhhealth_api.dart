@@ -11,4 +11,9 @@
 // export below — that's the signal to run the generator. See
 // `docs/API_CODEGEN.md` for the full migration playbook.
 
-export 'generated/vhhealth_api.swagger.dart';
+// The generator names output files after the input — swagger/api.yaml
+// produces generated/api.swagger.dart + api.enums.swagger.dart + the
+// chopper client at client_index.dart.
+export 'generated/api.swagger.dart';
+export 'generated/api.enums.swagger.dart';
+export 'generated/client_index.dart';

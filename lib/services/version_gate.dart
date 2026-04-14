@@ -9,7 +9,6 @@
 // `{ patient: {min, recommended, updateUrl}, staff: {...} }` — ops can raise
 // the floor without a deploy by bumping env vars.
 
-import '../config/api_config.dart';
 import 'http_client.dart';
 
 enum AppRole { patient, staff }
