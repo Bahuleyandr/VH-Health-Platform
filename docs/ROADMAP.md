@@ -1,3 +1,26 @@
+# HONESTY ADDENDUM — 2026-04-14 (post-audit)
+
+**Revised grade: C+ (not B+/B).** Weakest of the 5 repos despite genuinely ambitious clinical-safety code.
+
+**Sharp cons:**
+- **4 tests for 33K LOC.** 1.2% coverage on an app that does MAR 5-rights drug administration and Code Blue dispatch. This is not acceptable for a clinical app in production.
+- **11 TODO stubs** for endpoints that may not exist backend-side (housekeeping, directory, performance). Multiple `// ignore: unused_field` flags — screens may be ornamental if the backend isn't wired.
+- **Dark mode half-baked.** Roadmap Phase 2 lists "Dark mode coverage. Partial today. Audit all screens." No evidence of completion.
+- **No tablet/iPad responsive design.** Ward-rounds workflow needs split-pane (patient list | EMR | vitals entry). Roadmap says *"Deferred — design-intensive."* Phones only.
+- **vhhealth-core reuse is partial.** Imports `ApiResponse`, `RealtimeClient`, `DeviceIntegrityService`, `SOS` from core — but duplicates `auth_service.dart`, `api_config.dart`, theme logic locally.
+
+**What stays good:**
+- `ConnectivitySyncService` with conflict detection + per-item Discard/Retry UX — textbook reactive design.
+- Code Blue wake-from-terminated is deep platform work (FCM high-priority, `flutter_local_notifications`, full-screen intent).
+- MAR 5-rights (patient/drug/dose/route/time verification with dry-run before commit) + CDS allergy blocker modal are real clinical-safety code, not boilerplate.
+- `FEATURE_STRUCTURE.md` enforces no-cross-feature imports — discipline is holding.
+- Platform config complete (Android manifest permissions, iOS entitlements).
+
+**Suitable for:** internal hospital staff beta-test as an MVP.
+**Not suitable for:** public app stores or 24/7 critical-care SLA without finishing the deferred Phase 2 + 3 subitems.
+
+---
+
 # Staff App Roadmap — A+/S-Tier
 
 > Source of truth for next-step work. Flutter app for hospital staff (doctors, nurses, pharmacists, lab techs, ward staff).
