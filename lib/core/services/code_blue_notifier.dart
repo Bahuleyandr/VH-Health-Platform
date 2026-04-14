@@ -59,6 +59,16 @@ class CodeBlueNotifier {
       ),
     );
 
+    // Android 13+ requires runtime consent for POST_NOTIFICATIONS; request it
+    // eagerly so the Code Blue channel is actually allowed to notify.
+    await androidPlugin?.requestNotificationsPermission();
+
+    // Android 14+ gates USE_FULL_SCREEN_INTENT behind a user-granted runtime
+    // permission — without it the notification still fires but won't bypass
+    // lockscreen. Ask once at startup; if denied, fall back to a normal
+    // high-importance notification.
+    await androidPlugin?.requestFullScreenIntentPermission();
+
     // Wire the FCM data-message handler (foreground path — backend already
     // delivers via staff:code-blue WS on foreground, but showing the full
     // notification here too is cheap and makes the two channels convergent).
