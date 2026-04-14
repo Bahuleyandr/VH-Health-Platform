@@ -92,6 +92,39 @@ Public URL: `https://admin.vhhealth.app`
 - **Staff App** (Flutter): `../vhhealth-staff` — github.com/Bahuleyandr/vhhealth-staff
 - **Core Package** (Dart): `../vhhealth-core` — github.com/Bahuleyandr/vhhealth-core
 
+## God-page refactor pattern (added 2026-04-15)
+
+Pages that grow past ~500 LOC get split into a `components/` subfolder with
+one file per logical seam. The page itself becomes a thin tab orchestrator
+(<80 LOC). Established pattern, already applied to:
+
+- `dashboard/housekeeping/page.tsx` (1268→65 LOC, 7 components)
+- `dashboard/pharmacy/page.tsx` (889→58 LOC, 7 components)
+- `dashboard/investigations/page.tsx` (961→56 LOC, 6 components)
+- `dashboard/billing/page.tsx` (976→50 LOC, 4 components)
+
+Rules:
+- Each tab is its own `"use client"` file under `components/`.
+- Shared UI primitives (StatCard, StatusBadge, formatters) live in
+  `components/shared.tsx` or `components/helpers.tsx`.
+- Shared TypeScript interfaces in `components/types.ts`.
+- Modals co-located in their owning tab if used in one place, separate
+  file if shared (e.g. `OrderDetailModal.tsx`, `DetailPanel.tsx`).
+- Page.tsx: imports + tab state + tab-switcher + tab routing only.
+
+Pre-cut decomposition for the next two god-pages (appointments 1057 LOC,
+payroll 1603 LOC) lives in [`docs/REFACTORING_SKETCHES.md`](docs/REFACTORING_SKETCHES.md).
+The full `REFACTORING_PLAN.md` documents the full ranked leaderboard.
+
+## Testing
+
+- **Unit/component**: Jest configured. Use `npm test`. No `.test.tsx`
+  written yet for components — top priority.
+- **E2E**: Playwright scaffolded at `playwright.config.ts` + `e2e/`.
+  Run `npm run test:e2e` (requires `npm run dev` running OR set
+  `webServer` config). `npm run test:e2e:ui` for the inspector.
+  Currently 3 smoke tests; add per-journey tests as god-pages get refactored.
+
 ## Conventions
 - Use `fetchAdminAPI` for dashboard pages (auto-prepends /api/v1)
 - Use `getJSON`/`postJSON` with full paths for auth-related calls
