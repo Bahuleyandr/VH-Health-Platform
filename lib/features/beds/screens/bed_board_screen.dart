@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:vhhealth_core/vhhealth_core.dart';
+import 'package:vhhealth_core/services/realtime_client.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 

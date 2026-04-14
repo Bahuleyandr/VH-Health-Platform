@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:vhhealth_core/vhhealth_core.dart';
+import 'package:vhhealth_core/services/realtime_client.dart';
 
 /// Invisible overlay widget that listens to `staff:code-blue` events and shows
 /// a blocking full-screen modal the moment a Code Blue fires. Mount once —
