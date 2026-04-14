@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Image from "next/image";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { X, RefreshCw, CheckCircle, Flag, UserPlus, Eye, Plus, Edit2 } from "lucide-react";
 import {
@@ -353,9 +354,20 @@ function LogsTab() {
                           </div>
                           {log.photo_url && (
                             <div>
-                              <a href={log.photo_url} target="_blank" rel="noreferrer" className="inline-block">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={log.photo_url} alt="Cleaning evidence" className="max-h-40 rounded border" />
+                              <a
+                                href={log.photo_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-block relative h-40 w-64"
+                              >
+                                <Image
+                                  src={log.photo_url}
+                                  alt="Cleaning evidence"
+                                  fill
+                                  sizes="256px"
+                                  className="rounded border object-cover"
+                                  unoptimized
+                                />
                               </a>
                             </div>
                           )}
@@ -808,9 +820,20 @@ function DetailPanel({
           {req.photo_url && (
             <div>
               <div className="text-xs font-medium text-gray-500 mb-1">Problem Photo</div>
-              <a href={req.photo_url} target="_blank" rel="noreferrer">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={req.photo_url} alt="Problem" className="max-h-48 rounded border w-full object-cover" />
+              <a
+                href={req.photo_url}
+                target="_blank"
+                rel="noreferrer"
+                className="relative block w-full h-48"
+              >
+                <Image
+                  src={req.photo_url}
+                  alt="Problem"
+                  fill
+                  sizes="(max-width: 768px) 100vw, 50vw"
+                  className="rounded border object-cover"
+                  unoptimized
+                />
               </a>
             </div>
           )}
@@ -823,9 +846,20 @@ function DetailPanel({
               {req.completion_photo_url && (
                 <div>
                   <div className="text-xs font-medium text-gray-500 mb-1">Completion Photo</div>
-                  <a href={req.completion_photo_url} target="_blank" rel="noreferrer">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={req.completion_photo_url} alt="Completion" className="max-h-48 rounded border w-full object-cover" />
+                  <a
+                    href={req.completion_photo_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="relative block w-full h-48"
+                  >
+                    <Image
+                      src={req.completion_photo_url}
+                      alt="Completion"
+                      fill
+                      sizes="(max-width: 768px) 100vw, 50vw"
+                      className="rounded border object-cover"
+                      unoptimized
+                    />
                   </a>
                 </div>
               )}
