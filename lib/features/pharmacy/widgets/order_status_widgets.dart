@@ -63,7 +63,7 @@ class PharmacyOrderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final status = order['status'] ?? 'PLACED';
+    final status = order['status'] ?? 'PENDING';
     final orderNum = order['order_number'] ?? '#${order['id']}';
     final date = order['created_at'];
     final cost = order['total_cost'];
@@ -131,9 +131,10 @@ class PharmacyStatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (color, label) = switch (status.toUpperCase()) {
-      'PLACED' => (Colors.orange, 'Placed'),
+      'PENDING' || 'PLACED' => (Colors.orange, 'Pending'),
       'CONFIRMED' => (Colors.blue, 'Confirmed'),
       'PREPARING' => (Colors.amber.shade700, 'Preparing'),
+      'READY' => (Colors.purple, 'Ready'),
       'DISPATCHED' => (Colors.teal, 'Dispatched'),
       'DELIVERED' => (Colors.green, 'Delivered'),
       'CANCELLED' => (Colors.red, 'Cancelled'),
@@ -171,8 +172,10 @@ class PharmacyMiniStatusTracker extends StatelessWidget {
       );
     }
 
-    const steps = ['PLACED', 'CONFIRMED', 'PREPARING', 'DISPATCHED', 'DELIVERED'];
-    final currentIdx = steps.indexOf(status.toUpperCase());
+    const steps = ['PENDING', 'CONFIRMED', 'PREPARING', 'DISPATCHED', 'DELIVERED'];
+    // Fold legacy 'PLACED' into the canonical 'PENDING' for indexing.
+    final normalized = status.toUpperCase() == 'PLACED' ? 'PENDING' : status.toUpperCase();
+    final currentIdx = steps.indexOf(normalized);
 
     return Row(
       children: List.generate(steps.length * 2 - 1, (i) {
@@ -232,14 +235,15 @@ class PharmacyStatusTracker extends StatelessWidget {
     }
 
     const steps = [
-      ('PLACED', 'Order Placed', Icons.receipt_long),
+      ('PENDING', 'Order Placed', Icons.receipt_long),
       ('CONFIRMED', 'Confirmed', Icons.check_circle),
       ('PREPARING', 'Preparing', Icons.medication),
       ('DISPATCHED', 'Dispatched', Icons.delivery_dining),
       ('DELIVERED', 'Delivered', Icons.done_all),
     ];
-    final currentIdx =
-        steps.indexWhere((s) => s.$1 == status.toUpperCase());
+    // Legacy alias: 'PLACED' → 'PENDING' for lookup.
+    final normalized = status.toUpperCase() == 'PLACED' ? 'PENDING' : status.toUpperCase();
+    final currentIdx = steps.indexWhere((s) => s.$1 == normalized);
 
     return Column(
       children: List.generate(steps.length, (i) {

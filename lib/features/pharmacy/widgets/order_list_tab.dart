@@ -103,7 +103,7 @@ class OrderListTabState extends State<OrderListTab> {
                     style: const TextStyle(
                         fontSize: 18, fontWeight: FontWeight.bold),
                   ),
-                  PharmacyStatusChip(status: order['status'] ?? 'PLACED'),
+                  PharmacyStatusChip(status: order['status'] ?? 'PENDING'),
                 ],
               ),
               const SizedBox(height: 8),
@@ -115,7 +115,7 @@ class OrderListTabState extends State<OrderListTab> {
               const SizedBox(height: 20),
 
               // Status tracker
-              PharmacyStatusTracker(status: order['status'] ?? 'PLACED'),
+              PharmacyStatusTracker(status: order['status'] ?? 'PENDING'),
 
               const SizedBox(height: 20),
 

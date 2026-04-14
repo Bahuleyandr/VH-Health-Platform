@@ -29,10 +29,14 @@ enum AppointmentStatus {
 }
 
 /// Pharmacy order statuses returned by the backend.
+/// Canonical value is `PENDING` (matches backend `ORDER_STATUS.PENDING` after the
+/// 2026-04-14 lifecycle alignment). Legacy `PLACED` is accepted for backward
+/// compatibility with older backend deployments.
 enum PharmacyOrderStatus {
-  placed('PLACED'),
+  pending('PENDING'),
   confirmed('CONFIRMED'),
   preparing('PREPARING'),
+  ready('READY'),
   dispatched('DISPATCHED'),
   delivered('DELIVERED'),
   cancelled('CANCELLED');
@@ -43,6 +47,9 @@ enum PharmacyOrderStatus {
   static PharmacyOrderStatus? fromString(String? status) {
     if (status == null) return null;
     final upper = status.toUpperCase();
+    // Legacy alias: old backends returned 'PLACED' before the 2026-04-14 lifecycle
+    // rename. Fold it into the canonical `pending`.
+    if (upper == 'PLACED') return PharmacyOrderStatus.pending;
     return PharmacyOrderStatus.values.cast<PharmacyOrderStatus?>().firstWhere(
       (e) => e!.value == upper,
       orElse: () => null,
@@ -53,9 +60,10 @@ enum PharmacyOrderStatus {
   bool get isTerminal => this == delivered || this == cancelled;
 
   static const List<String> orderedSteps = [
-    'PLACED',
+    'PENDING',
     'CONFIRMED',
     'PREPARING',
+    'READY',
     'DISPATCHED',
     'DELIVERED',
   ];

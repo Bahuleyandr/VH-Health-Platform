@@ -1,3 +1,21 @@
+# HONESTY ADDENDUM — 2026-04-14 (post-audit)
+
+**Revised grade: B (not B+).** Strong architecture, centralized `ApiClient`, offline-first sync, and genuinely shipped Phase 3 features (HealthKit, AI symptom checker, live queue). But two gaps the existing roadmap understates:
+
+- **Test coverage is near-zero.** 6 test files, 1 actual smoke test (`expect(1 + 1).toBe(2)`). For a clinical app touching PHI. Target: 15–20 widget/integration tests covering auth, appointment book/cancel, pharmacy order, records, vitals log.
+- **State management is mixed, not "consistent Provider".** 284 `StatefulWidget`s + Provider + 57 direct `FlutterSecureStorage()` instantiations. No storage service abstraction.
+- **i18n is theatrical.** 5 languages declared (en/hi/ta/te/ml) but ~52% of regional strings missing; app silently falls back. Not dropping languages — backfilling, but honestly scoped as a multi-week translation-contractor task.
+- **Dark mode incomplete.** 283 hardcoded `Colors.*` remain after the "sweep"; several screens unreadable in dark mode.
+
+**What stays genuinely good:**
+- `VHHttpClient` via core with single-flight 401 refresh + secure storage JWT.
+- `ApiCacheManager` + `MutationQueue` + `ConnectivityService` — real offline-first, not theater.
+- HealthKit / Google Fit sync + AI symptom checker + SafetyContextBanner all shipped.
+
+**Phase 3 follow-through:** background sync via `workmanager` still foreground-only. Alternatives surfacing on CDS banner needs drug-similarity source on backend.
+
+---
+
 # Patient App Roadmap — A+/S-Tier
 
 > Source of truth for next-step work. Born from a full-repo audit. Update as items land.
