@@ -22,7 +22,10 @@ android {
 
     defaultConfig {
         applicationId = "com.vh.vhhealth"
-        minSdk = 23
+        // Health Connect / HealthKit plugin (Phase 3C) requires API 26 —
+        // Android 8.0. flutter_local_notifications + workmanager are fine
+        // at that level. Drops devices running Android 7 and below.
+        minSdk = 26
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
