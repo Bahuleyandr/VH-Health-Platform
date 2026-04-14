@@ -58,15 +58,14 @@ class ApiClient {
 
   static Future<ApiResponse> delete(
     String path, {
-    Map<String, dynamic>? body,
     Duration? timeout,
   }) =>
-      VHHttpClient.delete(path, body: body, timeout: timeout);
+      VHHttpClient.delete(path, timeout: timeout);
 
   static Future<ApiResponse> multipart(
     String path, {
-    Map<String, String>? fields,
-    List<http.MultipartFile>? files,
+    Map<String, String> fields = const {},
+    List<http.MultipartFile> files = const [],
     Future<List<http.MultipartFile>> Function()? fileBuilder,
     Duration? timeout,
   }) =>
