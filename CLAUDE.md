@@ -115,8 +115,23 @@ Both patient and staff apps currently have their own copies of ApiConfig and aut
 - When adding new shared code, add it here AND export from the barrel file
 
 
+## Audit correction (2026-04-15)
+
+The first repo audit incorrectly claimed the patient app didn't import
+this package. Grep proves otherwise — patient (`VH-Health`) imports core
+21 times across 18 files; staff (`vhhealth-staff`) imports 25 times
+across 23 files. Both apps are real consumers; the package is genuinely
+shared. Each app's local `core/services/*.dart` files that look like
+duplicates are usually thin re-exports (`export 'package:vhhealth_core/...'`)
+or specialised wrappers (e.g. staff's `auth_service.dart` is staff-flow-
+specific, NOT a duplicate of core's base auth_service).
+
+When adding new shared code, prefer adding here + exporting via the
+`vhhealth_core.dart` barrel over duplicating across the two apps.
+
 ## Future Directions
 
-See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current A+/S-tier roadmap.
-It tracks Phase 1 (security floor), Phase 2 (polish), and Phase 3 (marquee features).
-When starting a new Claude session, run `cat docs/ROADMAP.md` and pick any unchecked item.
+See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current roadmap and
+[`../FINISH_BUILDING.md`](../FINISH_BUILDING.md) for the cross-repo
+master plan. Top open items: `RealtimeClient` test coverage (zero today),
+conditional dependency exports to slim per-consumer transitive graph.
