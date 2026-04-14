@@ -15,6 +15,8 @@ export 'services/http_client.dart';
 export 'services/message_crypto.dart';
 export 'services/mtls_client_service.dart';
 export 'services/realtime_client.dart';
+export 'services/realtime_provider.dart';
+export 'services/version_gate.dart';
 export 'theme/app_theme.dart';
 export 'theme/theme_colors.dart';
 export 'utils/date_formatter.dart';

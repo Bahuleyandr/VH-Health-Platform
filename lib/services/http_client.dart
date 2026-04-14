@@ -334,6 +334,16 @@ class VHHttpClient {
   @visibleForTesting
   static Future<bool> debugTryRefreshToken() => _tryRefreshToken();
 
+  /// Public entry point into the single-flight refresh. Shared by
+  /// `RealtimeClient` so a WS 4001 closure refreshes the token once (rather
+  /// than giving up) and reconnects with the rotated JWT. Concurrent callers
+  /// join the same in-flight refresh — no duplicate requests to the backend.
+  ///
+  /// Returns `true` if a new access token is now stored and callers can
+  /// retry; `false` if the refresh was rejected (stored tokens cleared +
+  /// [onSessionExpired] fired).
+  static Future<bool> refreshAuthToken() => _tryRefreshToken();
+
   static Future<bool> _tryRefreshToken() {
     final existing = _refreshInFlight;
     if (existing != null) return existing.future;

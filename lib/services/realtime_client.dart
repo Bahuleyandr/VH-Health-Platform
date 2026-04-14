@@ -7,6 +7,7 @@ import 'package:web_socket_channel/status.dart' as ws_status;
 
 import '../config/api_config.dart';
 import 'auth_service.dart';
+import 'http_client.dart';
 
 /// A single event received from the real-time fabric.
 class RealtimeEvent {
@@ -182,13 +183,17 @@ class RealtimeClient {
     _channel = null;
     _serverSubscribed.clear();
 
-    // 4001 == auth failure (token invalid/revoked/expired). Stop reconnecting.
+    // 4001 == auth failure (token invalid/revoked/expired).
+    //
+    // Previously: gave up immediately and fired onSessionExpired. That diverged
+    // from VHHttpClient's behaviour, which does a single-flight refresh on 401
+    // and retries. Now we share that refresh flow:
+    //   1. Ask VHHttpClient.refreshAuthToken (joins the single-flight).
+    //   2. On success: schedule a reconnect with the rotated token.
+    //   3. On failure: mirror VHHttpClient — clear tokens, fire
+    //      onSessionExpired, stop trying.
     if (code == 4001) {
-      _sessionExpired = true;
-      _shouldReconnect = false;
-      try {
-        onSessionExpired?.call();
-      } catch (_) {/* swallow */}
+      _handleAuthFailureAndMaybeReconnect();
       return;
     }
 
@@ -199,6 +204,25 @@ class RealtimeClient {
       _openSocket();
     });
     _backoffMs = (_backoffMs * 2).clamp(1000, _maxBackoffMs);
+  }
+
+  Future<void> _handleAuthFailureAndMaybeReconnect() async {
+    final refreshed = await VHHttpClient.refreshAuthToken();
+    if (refreshed && _shouldReconnect) {
+      // VHHttpClient has already persisted the rotated JWT — our next
+      // _openSocket() call picks it up via AuthService.getJwt().
+      _backoffMs = 1000;
+      _reconnectTimer?.cancel();
+      _reconnectTimer = Timer(const Duration(milliseconds: 200), _openSocket);
+      return;
+    }
+    // Refresh rejected — VHHttpClient has cleared tokens + called its own
+    // onSessionExpired. Stop trying to reconnect on our side too.
+    _sessionExpired = true;
+    _shouldReconnect = false;
+    try {
+      onSessionExpired?.call();
+    } catch (_) {/* swallow */}
   }
 
   /// Subscribe to [channel] and return a broadcast stream of its events.
