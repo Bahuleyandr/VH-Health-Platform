@@ -1,3 +1,23 @@
+# HONESTY ADDENDUM — 2026-04-14 (post-audit)
+
+**Grade: B+.** Genuinely the strongest repo after the backend-post-fix. Fortress auth (httpOnly cookie + single-flight 401 refresh + CSRF allowlist + JWT signature validation in middleware), strict TypeScript, Zod validation, TanStack Query v5, real-time fabric wired. 60 routes, most feature-complete.
+
+**Gaps the existing roadmap understates:**
+- **Zero component tests.** Not one `.test.tsx` for an actual component. Jest configured but unused. Auth, forms, data tables — all untested at the UI level.
+- **God components** — `system-logs/page.tsx` (456 LOC), `PermissionsMatrix.tsx`, `CleanDashboard` pulling a giant subtree. Hard to mock, hard to test.
+- **Accessibility at 5/10.** Raw `<img>` tags bypass Next/Image (disabled with comments); sparse `aria-label`/`role` on interactive elements; forms may lack proper labels; no `aria-live` on async data tiles.
+- **Real-time half-baked.** WS reconnect has exponential backoff, but no heartbeat/pong, no subscribe-confirmation, no stale-ticket refresh UX. Ticket TTL is 60s — stale tokens will manifest as mysterious disconnects.
+- **No CI/CD visible.** `.vercel-deploy-trigger` + Dockerfile exist, but no GitHub Actions workflow. Manual deploys are a footgun.
+
+**Next concrete moves:**
+1. Playwright smoke tests on top 5 user journeys (login → dashboard, user CRUD, appointment ops, billing invoice, compliance dashboard).
+2. Break `system-logs/page.tsx` + `PermissionsMatrix.tsx` into testable subcomponents.
+3. Next/Image sweep — every raw `<img>` with `eslint-disable`.
+4. a11y audit (axe-core on key pages).
+5. WS heartbeat + ticket-refresh UX.
+
+---
+
 # Admin Portal Roadmap — A+/S-Tier
 
 > Source of truth for next-step work. Next.js app for hospital administration.

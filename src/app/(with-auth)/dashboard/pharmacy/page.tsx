@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, Suspense } from "react";
+import Image from "next/image";
 import { fetchAdminAPI, postJSON } from "@/lib/api";
 // import { useSearchParams, useRouter } from "next/navigation";
 
@@ -482,12 +483,16 @@ function OrderDetailModal({
         {order.prescription_photo_url && (
           <div className="mt-4">
             <p className="text-sm text-gray-500 mb-2">Prescription:</p>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={order.prescription_photo_url}
-              alt="Prescription"
-              className="w-full max-h-48 object-cover rounded-lg border"
-            />
+            <div className="relative w-full h-48">
+              <Image
+                src={order.prescription_photo_url}
+                alt="Prescription"
+                fill
+                sizes="(max-width: 768px) 100vw, 50vw"
+                className="rounded-lg border object-cover"
+                unoptimized
+              />
+            </div>
           </div>
         )}
 
