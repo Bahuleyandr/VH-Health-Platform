@@ -334,8 +334,39 @@ dart run build_runner build --delete-conflicting-outputs
 - JWT stored in flutter_secure_storage with key `'jwt'`
 
 
+## Status enums (added 2026-04-15)
+
+`lib/core/models/status_enums.dart` is the canonical source for backend
+status string handling:
+
+- `AppointmentStatus` — SCHEDULED → CONFIRMED → IN_PROGRESS → COMPLETED;
+  + CANCELLED / NO_SHOW terminal.
+- `PharmacyOrderStatus` — PENDING → CONFIRMED → PREPARING → READY →
+  DISPATCHED → DELIVERED; + CANCELLED terminal. Legacy `PLACED` accepted
+  in `fromString` as alias for `pending` (backend renamed 2026-04-14).
+- `InvestigationStatus` — PENDING → CONFIRMED → SAMPLE_COLLECTED →
+  PROCESSING → COMPLETED → REPORT_READY; + CANCELLED.
+
+Use `*.fromString(s)` instead of raw string compares. `isActive` /
+`isTerminal` give classification. `PharmacyOrderStatus.orderedSteps`
+is the canonical lifecycle list (no `PLACED`).
+
+## Testing (added 2026-04-15)
+
+Real tests live under `test/`. Pure-Dart unit tests need no plugin mocks:
+
+- `test/core/models/status_enums_test.dart` — 14 enum tests.
+- `test/core/utils/font_scaler_test.dart` — 2 widget tests.
+
+Run with `flutter test`.
+
+Mock-heavy tests (Firebase auth, ApiClient single-flight 401 refresh,
+`SharedPrefsService`, offline mutation queue, multipart pharmacy upload)
+need plugin-channel mock setup that isn't in place yet — see
+`test/README.md` for the prioritised list.
+
 ## Future Directions
 
-See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current A+/S-tier roadmap.
-It tracks Phase 1 (security floor), Phase 2 (polish), and Phase 3 (marquee features).
-When starting a new Claude session, run `cat docs/ROADMAP.md` and pick any unchecked item.
+See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current roadmap and
+[`../FINISH_BUILDING.md`](../FINISH_BUILDING.md) for the cross-repo
+master plan (Phase 0.5 = current; ranked open items at the bottom).
