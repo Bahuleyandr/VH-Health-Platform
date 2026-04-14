@@ -11,12 +11,31 @@ import 'core/providers/notification_provider.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/providers/session_timeout_provider.dart';
 import 'core/providers/websocket_provider.dart';
+import 'core/services/code_blue_notifier.dart';
 import 'core/services/connectivity_sync_service.dart';
 import 'core/services/websocket_service.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+
+/// Background FCM handler for Code Blue data messages. Must be a top-level
+/// function (not a closure or class method) so Flutter can spawn it in a new
+/// isolate when the app is terminated. Ensures the high-importance notification
+/// is shown even without a live app process.
+@pragma('vm:entry-point')
+Future<void> _fcmBackgroundHandler(RemoteMessage message) async {
+  if (message.data['type'] != 'code_blue') return;
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await CodeBlueNotifier.instance.initialize();
+  await CodeBlueNotifier.instance.showForMessage(message);
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Register the terminated/background Code Blue handler *before* any foreground
+  // plumbing so notifications fire even if the app hasn't been opened this session.
+  FirebaseMessaging.onBackgroundMessage(_fcmBackgroundHandler);
+  await CodeBlueNotifier.instance.initialize();
 
   // Strip potential PHI from error messages before sending to Crashlytics.
   // Phone numbers, patient names, or medical data may appear in stack traces.

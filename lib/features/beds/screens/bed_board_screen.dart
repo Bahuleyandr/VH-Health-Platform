@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:vhhealth_core/vhhealth_core.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 
@@ -19,10 +22,37 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
   bool _loadingBeds = false;
   String? _error;
 
+  StreamSubscription<RealtimeEvent>? _bedEventSub;
+  Timer? _refreshDebounce;
+
   @override
   void initState() {
     super.initState();
     _fetchWards();
+    _attachRealtime();
+  }
+
+  Future<void> _attachRealtime() async {
+    final rt = RealtimeClient.instance;
+    await rt.connect();
+    _bedEventSub = rt.events('staff:beds').listen((_) => _debouncedRefresh());
+  }
+
+  void _debouncedRefresh() {
+    _refreshDebounce?.cancel();
+    _refreshDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+      if (_selectedWardId != null) {
+        _fetchBeds(_selectedWardId!);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _bedEventSub?.cancel();
+    _refreshDebounce?.cancel();
+    super.dispose();
   }
 
   Future<void> _fetchWards() async {

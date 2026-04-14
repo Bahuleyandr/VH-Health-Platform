@@ -301,6 +301,51 @@ class MedicalApiService {
     return _get('/prescriptions/$id');
   }
 
+  /// POST /prescriptions/safety-check — run CDS preview. Returns
+  /// `{ safe, warnings, blockers }`. Staff app calls this before create so we
+  /// can drive the hard-block UX without the user losing their form state.
+  static Future<Map<String, dynamic>> checkPrescriptionSafety({
+    required int patientId,
+    required List<Map<String, dynamic>> medications,
+  }) async {
+    return _post('/prescriptions/safety-check', {
+      'patient_id': patientId,
+      'medications': medications,
+    });
+  }
+
+  // ─── MAR 5-rights (bedside barcode verification) ──────────────────────────
+
+  /// POST /clinical/mar/verify — dry-run 5-rights check. Returns
+  /// `{ ma, rights: {patient,drug,dose,route,time}, allPassed, context }`.
+  static Future<Map<String, dynamic>> verify5Rights({
+    required int maId,
+    required String scannedPatientUid,
+    required String scannedBarcode,
+  }) async {
+    return _post('/clinical/mar/verify', {
+      'ma_id': maId,
+      'scanned_patient_uid': scannedPatientUid,
+      'scanned_barcode': scannedBarcode,
+    });
+  }
+
+  /// POST /clinical/mar/:id/administer-with-scan — commit administration with
+  /// rights audit. Throws if the backend returns 409 and no [overrideReason]
+  /// was supplied; caller should prompt for one and retry.
+  static Future<Map<String, dynamic>> administerWithScan({
+    required int maId,
+    required String scannedPatientUid,
+    required String scannedBarcode,
+    String? overrideReason,
+  }) async {
+    return _post('/clinical/mar/$maId/administer-with-scan', {
+      'scanned_patient_uid': scannedPatientUid,
+      'scanned_barcode': scannedBarcode,
+      if (overrideReason != null) 'override_reason': overrideReason,
+    });
+  }
+
   /// GET /prescriptions/all — list all prescriptions (admin/staff)
   static Future<List<dynamic>> getEPrescriptionsList({
     String? doctorId,
