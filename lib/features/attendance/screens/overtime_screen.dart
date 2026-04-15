@@ -124,7 +124,7 @@ class _OvertimeScreenState extends State<OvertimeScreen> with SingleTickerProvid
           const Text('Type', style: TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-            value: _type,
+            initialValue: _type,
             decoration: const InputDecoration(border: OutlineInputBorder()),
             items: const [
               DropdownMenuItem(value: 'comp_time', child: Text('Compensatory Time Off')),
