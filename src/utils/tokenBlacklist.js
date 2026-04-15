@@ -155,7 +155,7 @@ export async function cleanupExpiredTokens() {
     const result = await prisma.$queryRawUnsafe(
       'DELETE FROM invalidated_tokens WHERE expires_at < NOW()'
     );
-    logger.info('Token blacklist cleanup complete', { deleted: result?.length ?? 0 });
+    logger.info('Token blacklist cleanup complete', { deleted: Number(result) || 0 });
   } catch (err) {
     logger.error('Token blacklist cleanup failed:', err.message);
   }
