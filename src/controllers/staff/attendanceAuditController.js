@@ -132,7 +132,7 @@ export const getAttendanceHRActivity = async (req, res) => {
           AND lr.status != 'pending'
         GROUP BY u.id, u.name, u.role
         ORDER BY total DESC
-      `, [interval]).catch(() => ({ rows: [] })),
+      `, interval).catch(() => ({ rows: [] })),
 
       prisma.$queryRawUnsafe(`
         SELECT
@@ -146,7 +146,7 @@ export const getAttendanceHRActivity = async (req, res) => {
         WHERE ar.reviewed_at >= NOW() - $1::INTERVAL
         GROUP BY u.id, u.name, u.role
         ORDER BY total DESC
-      `, [interval]).catch(() => ({ rows: [] })),
+      `, interval).catch(() => ({ rows: [] })),
 
       prisma.$queryRawUnsafe(`
         SELECT
@@ -160,7 +160,7 @@ export const getAttendanceHRActivity = async (req, res) => {
         WHERE ad.reviewed_at >= NOW() - $1::INTERVAL
         GROUP BY u.id, u.name, u.role
         ORDER BY total DESC
-      `, [interval]).catch(() => ({ rows: [] })),
+      `, interval).catch(() => ({ rows: [] })),
 
       prisma.$queryRawUnsafe(`
         SELECT
@@ -174,7 +174,7 @@ export const getAttendanceHRActivity = async (req, res) => {
         WHERE ot.approved_at >= NOW() - $1::INTERVAL
         GROUP BY u.id, u.name, u.role
         ORDER BY total DESC
-      `, [interval]).catch(() => ({ rows: [] })),
+      `, interval).catch(() => ({ rows: [] })),
 
       // Bulk corrections — potentially sensitive, full log
       prisma.$queryRawUnsafe(`
@@ -336,7 +336,7 @@ export const getAttendanceSLAReport = async (req, res) => {
           ROUND(AVG(EXTRACT(EPOCH FROM (updated_at - created_at))/3600) FILTER (WHERE status != 'pending')::NUMERIC, 1) as avg_hours
         FROM leave_requests
         WHERE created_at >= NOW() - $1::INTERVAL
-      `, [interval]).catch(() => ({ rows: [{}] })),
+      `, interval).catch(() => ({ rows: [{}] })),
 
       prisma.$queryRawUnsafe(`
         SELECT
@@ -347,7 +347,7 @@ export const getAttendanceSLAReport = async (req, res) => {
           ROUND(AVG(EXTRACT(EPOCH FROM (reviewed_at - created_at))/3600) FILTER (WHERE reviewed_at IS NOT NULL)::NUMERIC, 1) as avg_hours
         FROM attendance_regularization
         WHERE created_at >= NOW() - $1::INTERVAL
-      `, [interval]).catch(() => ({ rows: [{}] })),
+      `, interval).catch(() => ({ rows: [{}] })),
 
       prisma.$queryRawUnsafe(`
         SELECT
@@ -358,7 +358,7 @@ export const getAttendanceSLAReport = async (req, res) => {
           ROUND(AVG(EXTRACT(EPOCH FROM (reviewed_at - created_at))/3600) FILTER (WHERE reviewed_at IS NOT NULL)::NUMERIC, 1) as avg_hours
         FROM attendance_disputes
         WHERE created_at >= NOW() - $1::INTERVAL
-      `, [interval]).catch(() => ({ rows: [{}] })),
+      `, interval).catch(() => ({ rows: [{}] })),
 
       prisma.$queryRawUnsafe(`
         SELECT
@@ -369,7 +369,7 @@ export const getAttendanceSLAReport = async (req, res) => {
           ROUND(AVG(EXTRACT(EPOCH FROM (approved_at - created_at))/3600) FILTER (WHERE approved_at IS NOT NULL)::NUMERIC, 1) as avg_hours
         FROM overtime_requests
         WHERE created_at >= NOW() - $1::INTERVAL
-      `, [interval]).catch(() => ({ rows: [{}] })),
+      `, interval).catch(() => ({ rows: [{}] })),
     ]);
 
     success(res, {

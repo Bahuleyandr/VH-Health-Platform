@@ -44,7 +44,7 @@ export function logSecurityEvent(eventType, details = {}) {
           (user_id, user_name, user_role, ip_address, method, path, module, action,
            query_params, request_summary, status_code, response_time_ms, success, user_agent)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-      `, [
+      `, 
         details.userId || null,
         details.userName || null,
         details.userRole || null,
@@ -59,7 +59,7 @@ export function logSecurityEvent(eventType, details = {}) {
         0,
         false,
         (details.userAgent || '').substring(0, 200),
-      ]);
+      );
     } catch (err) {
       _logToFile(eventType, details, err?.message);
     } finally {

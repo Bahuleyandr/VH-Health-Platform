@@ -419,7 +419,7 @@ export class RBACService {
         ${where}
         ORDER BY ura.changed_at DESC
         LIMIT $${vals.length + 1} OFFSET $${vals.length + 2}
-      `, [...vals, parseInt(limit), offset]).catch(() => ({ rows: [] }));
+      `, ...vals, parseInt(limit), offset).catch(() => ({ rows: [] }));
 
       // Count with same WHERE & same param list
       const total = await prisma.$queryRawUnsafe(
@@ -612,12 +612,12 @@ export class RBACService {
          WHERE phone = $1
          ORDER BY changed_at DESC 
          LIMIT 5`,
-        [userInfo.phone]
+        userInfo.phone
       ).catch(() => ({ rows: [] }));
 
       const roleStats = await prisma.$queryRawUnsafe(
         'SELECT COUNT(*) as total_users FROM users WHERE role = $1 AND is_active = true',
-        [userInfo.role]
+        userInfo.role
       ).catch(() => ({ rows: [{ total_users: 0 }] }));
 
       return {

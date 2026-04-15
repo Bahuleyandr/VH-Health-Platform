@@ -4,12 +4,17 @@ import { wrapAutoRBAC, wrapRoutes } from '../../config/routeWrapper.js';
 import adminUserRoutes from './adminUserRoutes.js';
 import familyRoutes from './familyRoutes.js';
 import lookupRoutes from './lookupRoutes.js';
+import publicKeyRoutes from './publicKeyRoutes.js';
 import userRoutes from './userRoutes.js';
 
 const router = express.Router();
 
 // Family member routes (static path — must come before /:identifier)
 router.use('/family-members', familyRoutes);
+
+// E2E public-key directory — mounted before the wildcard userRoutes so
+// /me/public-key and /:id/public-key don't get swallowed by /:identifier.
+router.use('/', publicKeyRoutes);
 
 // Regular user routes - accessible based on RBAC
 wrapAutoRBAC(router, 'userRoutes', {

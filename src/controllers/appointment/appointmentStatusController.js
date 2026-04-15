@@ -4,8 +4,31 @@ import logger from '../../logging/logger.js';
 import appointmentService from '../../services/appointment/appointmentService.js';
 import appointmentValidationService from '../../services/appointment/appointmentValidationService.js';
 import * as pointService from '../../services/gamification/pointService.js';
+import { getWaitingQueueForDoctor } from '../../services/appointment/waitTimeService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { broadcast, sendToUser } from '../../utils/websocket/wsServer.js';
+import { emitQueuePosition } from '../../utils/websocket/realtimeEmitter.js';
+
+// Status transitions that shift every downstream patient's queue position
+const QUEUE_SHIFTING_STATUSES = new Set(['IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW']);
+
+async function fanOutQueuePositions(appointment) {
+  if (!appointment?.doctor_id || !appointment?.appointment_date) return;
+  const date = new Date(appointment.appointment_date).toISOString().split('T')[0];
+  try {
+    const waiting = await getWaitingQueueForDoctor(appointment.doctor_id, date);
+    for (const row of waiting) {
+      emitQueuePosition({
+        patientId: row.patientId,
+        appointmentId: row.appointmentId,
+        position: row.position,
+        etaMinutes: row.etaMinutes,
+      });
+    }
+  } catch (err) {
+    logger.warn('Queue-position fan-out failed:', err.message);
+  }
+}
 
 export const updateAppointmentStatus = async (req, res) => {
   try {
@@ -57,6 +80,21 @@ export const updateAppointmentStatus = async (req, res) => {
       sendToUser(updatedAppointment.doctor_id, 'appointment-status-changed', {
         appointmentId: id, status: statusValidation.status,
       });
+    }
+
+    // Staff-wide appointment feed (gated to staff roles via channelAuth)
+    broadcast('staff:appointments', {
+      kind: 'status-changed',
+      appointmentId: id,
+      doctorId: updatedAppointment.doctor_id,
+      patientId: updatedAppointment.patient_id,
+      status: statusValidation.status,
+      at: new Date().toISOString(),
+    });
+
+    // Queue-position fan-out to remaining waiting patients on status transitions that shift the queue
+    if (QUEUE_SHIFTING_STATUSES.has(statusValidation.status)) {
+      fanOutQueuePositions(updatedAppointment).catch(() => {});
     }
 
     // Gamification: fire-and-forget point awards

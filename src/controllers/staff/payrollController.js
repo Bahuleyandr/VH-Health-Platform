@@ -48,9 +48,10 @@ export const getPayslipDetail = async (req, res) => {
     const staffUid = req.user?.uid;
 
     const payslip = await prisma.$queryRawUnsafe(`
-      SELECT p.id, p.staff_uid, p.month, p.year, p.payroll_run_id, p.basic_salary, p.hra,
-        p.special_allowance, p.total_earnings, p.pf_employee, p.pf_employer, p.esi,
-        p.professional_tax, p.tds, p.total_deductions, p.net_salary, p.status, p.pdf_url,
+      SELECT p.id, p.staff_uid, p.month, p.year, p.payroll_run_id, p.basic_earned, p.hra_earned,
+        p.da_earned, p.special_allowance_earned, p.transport_allowance_earned, p.medical_allowance_earned,
+        p.overtime_pay, p.gross_salary, p.pf_employee, p.esi_employee,
+        p.professional_tax, p.tds, p.total_deductions, p.net_salary, p.status, p.pdf_key,
         p.created_at, p.updated_at
       FROM payslips p
       WHERE p.id = $1 AND p.staff_uid = $2 AND p.status IN ('issued','viewed','downloaded')
@@ -216,12 +217,13 @@ export const issuePayslips = async (req, res) => {
 
     // Regenerate PDFs for any manually-edited payslips
     const editedPayslips = await prisma.$queryRawUnsafe(
-      `SELECT p.id, p.staff_uid, p.month, p.year, p.payroll_run_id, p.basic_salary, p.hra,
-        p.special_allowance, p.total_earnings, p.pf_employee, p.pf_employer, p.esi,
-        p.professional_tax, p.tds, p.total_deductions, p.net_salary, p.status, p.pdf_url,
+      `SELECT p.id, p.staff_uid, p.month, p.year, p.payroll_run_id, p.basic_earned, p.hra_earned,
+        p.da_earned, p.special_allowance_earned, p.transport_allowance_earned, p.medical_allowance_earned,
+        p.overtime_pay, p.gross_salary, p.pf_employee, p.esi_employee,
+        p.professional_tax, p.tds, p.total_deductions, p.net_salary, p.status, p.pdf_key,
         p.created_at, p.updated_at,
-        ss.id as salary_id, ss.basic_salary as ss_basic, ss.hra as ss_hra,
-        ss.special_allowance as ss_special, ss.total_ctc, ss.is_active, ss.effective_from
+        ss.id as salary_id, ss.basic_salary as ss_basic, ss.hra_pct as ss_hra_pct,
+        ss.special_allowance as ss_special, ss.is_active, ss.effective_from
        FROM payslips p
        JOIN staff_salary ss ON ss.staff_uid = p.staff_uid
        WHERE p.month=$1 AND p.year=$2 AND p.manually_edited=true AND p.pdf_key IS NULL`, month, year);
@@ -524,7 +526,7 @@ export const manualEditPayslip = async (req, res) => {
       WHERE id = $3
     `, edit_reason, editorUid, id);
 
-    const updated = await prisma.$queryRawUnsafe('SELECT id, staff_uid, month, year, payroll_run_id, basic_salary, hra, special_allowance, total_earnings, pf_employee, pf_employer, esi, professional_tax, tds, total_deductions, net_salary, status, pdf_url, created_at, updated_at FROM payslips WHERE id = $1', id);
+    const updated = await prisma.$queryRawUnsafe('SELECT id, staff_uid, month, year, payroll_run_id, basic_earned, hra_earned, da_earned, special_allowance_earned, transport_allowance_earned, medical_allowance_earned, overtime_pay, gross_salary, pf_employee, esi_employee, professional_tax, tds, total_deductions, net_salary, status, pdf_key, created_at, updated_at FROM payslips WHERE id = $1', id);
     success(res, updated[0], 'Payslip updated — PDF will regenerate on issue');
   } catch (err) {
     logger.error('Manual Edit Payslip Error:', err);
@@ -1230,7 +1232,7 @@ export const raisePayslipQuery = async (req, res) => {
     const staffUid = req.user?.uid;
     const { payslip_id, subject, description, category } = req.body;
     if (!payslip_id || !subject || !description) return error(res, 'payslip_id, subject, description required', HTTP_STATUS.BAD_REQUEST);
-    const payslip = await prisma.$queryRawUnsafe('SELECT id, staff_uid, month, year, payroll_run_id, basic_salary, hra, special_allowance, total_earnings, pf_employee, pf_employer, esi, professional_tax, tds, total_deductions, net_salary, status, pdf_url, created_at, updated_at FROM payslips WHERE id=$1 AND staff_uid=$2', payslip_id, staffUid);
+    const payslip = await prisma.$queryRawUnsafe('SELECT id, staff_uid, month, year, payroll_run_id, basic_earned, hra_earned, da_earned, special_allowance_earned, transport_allowance_earned, medical_allowance_earned, overtime_pay, gross_salary, pf_employee, esi_employee, professional_tax, tds, total_deductions, net_salary, status, pdf_key, created_at, updated_at FROM payslips WHERE id=$1 AND staff_uid=$2', payslip_id, staffUid);
     if (!payslip.length) return error(res, 'Payslip not found', HTTP_STATUS.NOT_FOUND);
     const result = await prisma.$queryRawUnsafe(
       `INSERT INTO payslip_queries (payslip_id,staff_uid,subject,description,category) VALUES ($1,$2,$3,$4,$5) RETURNING id, payslip_id, staff_uid, subject, description, category, status, created_at`, payslip_id, staffUid, subject, description, category||'general');

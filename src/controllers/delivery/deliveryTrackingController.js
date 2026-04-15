@@ -70,7 +70,7 @@ export const updateDeliveryLocation = async (req, res) => {
     await prisma.$queryRawUnsafe(`
       INSERT INTO delivery_location_updates (order_type, order_id, delivery_person_id, lat, lng, accuracy, speed, heading, battery_level)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-    `, [order_type, order_id, deliveryPersonId, lat, lng, accuracy || null, speed || null, heading || null, battery_level || null]);
+    `, order_type, order_id, deliveryPersonId, lat, lng, accuracy || null, speed || null, heading || null, battery_level || null);
 
     // Update live location on the order
     if (order_type === 'pharmacy') {
@@ -79,7 +79,7 @@ export const updateDeliveryLocation = async (req, res) => {
         const remaining = haversineKm(lat, lng, order[0].delivery_lat, order[0].delivery_lng);
         const eta = estimateMinutes(remaining);
         await prisma.$queryRawUnsafe(`UPDATE pharmacy_orders SET delivery_lat=$1, delivery_lng=$2, estimated_delivery_mins=$3, delivery_distance_km=$4, delivery_tracking_active=TRUE, updated_at=NOW() WHERE id=$5`,
-          [lat, lng, eta, Math.round(remaining * 100) / 100, order_id]);
+          lat, lng, eta, Math.round(remaining * 100) / 100, order_id);
       }
     } else if (order_type === 'investigation') {
       const booking = await prisma.$queryRawUnsafe('SELECT collection_lat, collection_lng FROM investigation_bookings WHERE id=$1', order_id);
@@ -87,7 +87,7 @@ export const updateDeliveryLocation = async (req, res) => {
         const remaining = haversineKm(lat, lng, booking[0].collection_lat, booking[0].collection_lng);
         const eta = estimateMinutes(remaining);
         await prisma.$queryRawUnsafe(`UPDATE investigation_bookings SET collector_lat=$1, collector_lng=$2, estimated_collection_mins=$3, collection_distance_km=$4, collection_tracking_active=TRUE, updated_at=NOW() WHERE id=$5`,
-          [lat, lng, eta, Math.round(remaining * 100) / 100, order_id]);
+          lat, lng, eta, Math.round(remaining * 100) / 100, order_id);
       }
     }
 

@@ -1,3 +1,4 @@
+import logger from '../src/logging/logger.js';
 // src/admin/backup-db.js
 
 import { execSync } from 'child_process';
@@ -17,7 +18,7 @@ function compressFile(filePath) {
   const destination = fs.createWriteStream(`${filePath}.gz`);
 
   source.pipe(gzip).pipe(destination).on('finish', () => {
-    console.log(`🗜️  Compressed to ${filePath}.gz`);
+    logger.info(`🗜️  Compressed to ${filePath}.gz`);
     fs.unlinkSync(filePath); // Optional: Remove uncompressed .sql
   });
 }
@@ -25,7 +26,7 @@ function compressFile(filePath) {
 export default function backupDb(envFile, label) {
   const envPath = path.resolve(__dirname, '..', envFile);
   if (!fs.existsSync(envPath)) {
-    console.error(`❌ ${envFile} not found. Skipping ${label} backup.`);
+    logger.error(`❌ ${envFile} not found. Skipping ${label} backup.`);
     return;
   }
 
@@ -33,7 +34,7 @@ export default function backupDb(envFile, label) {
   const dbUrl = process.env.DATABASE_URL;
 
   if (!dbUrl) {
-    console.error(`❌ DATABASE_URL not defined in ${envFile}. Skipping ${label} backup.`);
+    logger.error(`❌ DATABASE_URL not defined in ${envFile}. Skipping ${label} backup.`);
     return;
   }
 
@@ -45,18 +46,18 @@ export default function backupDb(envFile, label) {
     fs.mkdirSync(backupFolder, { recursive: true });
   }
 
-  console.log(`🚀 Starting ${label} backup to ${backupFile}...`);
+  logger.info(`🚀 Starting ${label} backup to ${backupFile}...`);
   try {
     // Check pg_dump is available before attempting
     try { execSync('which pg_dump', { stdio: 'pipe' }); } catch {
-      console.warn(`⚠️  pg_dump not found on this system — skipping ${label} backup. Use Supabase dashboard or docs/DB-REBUILD-GUIDE.md for backups.`);
+      logger.warn(`⚠️  pg_dump not found on this system — skipping ${label} backup. Use Supabase dashboard or docs/DB-REBUILD-GUIDE.md for backups.`);
       return;
     }
     execSync(`pg_dump "${dbUrl}" > "${backupFile}"`, { stdio: 'inherit' });
-    console.log(`✅ ${label} backup completed: ${backupFile}`);
+    logger.info(`✅ ${label} backup completed: ${backupFile}`);
     compressFile(backupFile);
   } catch (err) {
-    console.error(`❌ Failed to backup ${label}:`, err.message);
+    logger.error(`❌ Failed to backup ${label}:`, err.message);
   }
 }
 

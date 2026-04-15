@@ -87,7 +87,7 @@ export const bulkLeaveApproval = async (req, res) => {
         approved_at = NOW()
       WHERE id = ANY($3::int[])
       RETURNING id
-    `, [status, approvedBy, leave_ids]);
+    `, status, approvedBy, leave_ids);
 
     success(res, {
       processed: result.length,
@@ -116,7 +116,7 @@ export const approveLeaveRequest = async (req, res) => {
         approver_comments = $3
       WHERE id = $1
       RETURNING id, staff_uid, leave_type, start_date, end_date, status, approved_by, reason, created_at
-    `, [leaveId, approvedBy, comments]);
+    `, leaveId, approvedBy, comments);
 
     if (result.length === 0) {
       return error(res, 'Leave request not found', HTTP_STATUS.NOT_FOUND);
@@ -138,7 +138,7 @@ export const overrideLeaveBalance = async (req, res) => {
     await prisma.$queryRawUnsafe(`
       INSERT INTO leave_balance_overrides (staff_id, leave_type, new_balance, reason, overridden_by)
       VALUES ($1, $2, $3, $4, $5)
-    `, [staff_id, leave_type, new_balance, reason, overriddenBy]);
+    `, staff_id, leave_type, new_balance, reason, overriddenBy);
 
     success(res, {
       staff_id,

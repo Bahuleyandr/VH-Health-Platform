@@ -76,13 +76,13 @@ export async function processAndUploadFile(file, metadata, user) {
       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
       $16, $17, $18, $19, $20, $21, $22, NOW()
     ) RETURNING id, storage_key, scan_status, retention_date`,
-    [
+    
       file.originalname, file.mimetype, processedBuffer.length, file.buffer.length,
       key, url, category, description, isPrivate, finalHipaaProtected, uploadedBy,
       uploadedByRole, normalizePhone(patientPhone), relatedId, relatedType,
       compressionApplied, processingTime, 'pending', retentionDate,
       urgencyLevel, ipAddress, userAgent
-    ]
+    
   );
 
   const fileId = result[0].id;
@@ -146,7 +146,7 @@ function scheduleVirusScan(fileId, url, fileName, urgencyLevel, ipAddress, key) 
           scan_status = $1, scan_result = $2, scanned_at = NOW(),
           scan_duration_ms = $3
         WHERE id = $4
-      `, [status, resultText, scanDuration, fileId]);
+      `, status, resultText, scanDuration, fileId);
 
       // Immediate quarantine for infected files
       if (status === 'infected') {
@@ -155,7 +155,7 @@ function scheduleVirusScan(fileId, url, fileName, urgencyLevel, ipAddress, key) 
             is_quarantined = true, quarantined_at = NOW(), 
             quarantine_reason = $1, quarantined_by = 'system'
           WHERE id = $2
-        `, [resultText, fileId]);
+        `, resultText, fileId);
         
         // Alert admins for infected files
         await auditService.createSystemAlert(
@@ -178,7 +178,7 @@ function scheduleVirusScan(fileId, url, fileName, urgencyLevel, ipAddress, key) 
         UPDATE file_metadata SET 
           scan_status = $1, scan_result = $2, scanned_at = NOW()
         WHERE id = $3
-      `, ['failed', scanError.message, fileId]);
+      `, 'failed', scanError.message, fileId);
     }
   }, scanDelay);
 }
@@ -205,7 +205,7 @@ export async function getFileMetadata(fileId, userId, userRole) {
     LEFT JOIN file_access_logs fal ON fm.id = fal.file_id
     WHERE fm.id = $1
     GROUP BY fm.id, u.name, u.phone
-  `, [fileId]);
+  `, fileId);
 
   if (result.length === 0) {
     return null;
@@ -235,7 +235,7 @@ export async function generateDownloadUrl(fileId, userId, userRole, expiresIn = 
       retention_date, file_size
     FROM file_metadata 
     WHERE id = $1
-  `, [fileId]);
+  `, fileId);
 
   if (result.length === 0) {
     throw new Error('Hospital file not found');
@@ -310,7 +310,7 @@ export async function deleteFile(fileId, userId, userRole, reason, permanentDele
       file_size, category, retention_date
     FROM file_metadata 
     WHERE id = $1
-  `, [fileId]);
+  `, fileId);
 
   if (fileResult.length === 0) {
     throw new Error('Hospital file not found');
@@ -344,7 +344,7 @@ export async function deleteFile(fileId, userId, userRole, reason, permanentDele
       UPDATE file_metadata 
       SET is_deleted = true, deleted_at = NOW(), deleted_by = $1, deletion_reason = $2
       WHERE id = $3
-    `, [userId, reason, fileId]);
+    `, userId, reason, fileId);
 
     // Log soft deletion
     await auditService.logFileAccess(fileId, 'soft_delete', userId, ipAddress, 
@@ -365,7 +365,7 @@ export async function deleteFile(fileId, userId, userRole, reason, permanentDele
     }
 
     // Remove from database
-    await prisma.$queryRawUnsafe('DELETE FROM file_metadata WHERE id = $1', [fileId]);
+    await prisma.$queryRawUnsafe('DELETE FROM file_metadata WHERE id = $1', fileId);
 
     // Log permanent deletion
     await auditService.logFileDeletion(

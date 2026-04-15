@@ -42,7 +42,7 @@ export function requireConsent(consentType) {
            AND revoked_at IS NULL
          ORDER BY granted_at DESC
          LIMIT 1`,
-        [patientUid, consentType]
+        patientUid, consentType
       );
 
       const userId = req.user?.uid || req.user?.id || null;
@@ -57,7 +57,7 @@ export function requireConsent(consentType) {
               (user_id, user_name, user_role, ip_address, method, path, module, action,
                request_summary, status_code, success)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-            [
+            
               userId,
               req.user?.name || null,
               userRole,
@@ -69,7 +69,7 @@ export function requireConsent(consentType) {
               JSON.stringify({ patient_uid: patientUid, consent_type: consentType, consent_found: result.length > 0 }),
               result.length > 0 ? 200 : 403,
               result.length > 0,
-            ]
+            
           );
         } catch (auditErr) {
           logger.warn('Consent audit log write failed:', { error: auditErr.message });

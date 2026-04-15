@@ -14,7 +14,7 @@ export const getOnboardingChecklist = async (staffId) => {
     FROM users u
     JOIN staff s ON u.id = s.user_id
     WHERE u.id = $1
-  `, [staffId]);
+  `, staffId);
 
   if (staffInfo.length === 0) {
     return null;
@@ -31,7 +31,7 @@ export const getOnboardingChecklist = async (staffId) => {
       FROM staff_onboarding_tasks
       WHERE staff_id = $1
       ORDER BY priority DESC, due_date ASC
-    `, [staffId]);
+    `, staffId);
 
     onboardingTasks = tasksResult.map(task => ({
       ...task,
@@ -111,7 +111,7 @@ export const updateOnboardingTask = async (staffId, taskId, completed, completed
         updated_at = NOW()
     WHERE staff_id = $3 AND id = $4
     RETURNING id, staff_id, task_name, description, completed, completed_date, completed_by, updated_at
-  `, [completed, completedBy, staffId, taskId]);
+  `, completed, completedBy, staffId, taskId);
 
   if (result.length === 0) {
     return null;
@@ -132,7 +132,7 @@ export const updateOnboardingTask = async (staffId, taskId, completed, completed
 export const isUserViewingOwnOnboarding = async (staffId, userUid) => {
   const result = await prisma.$queryRawUnsafe(
     'SELECT 1 FROM users WHERE id = $1 AND uid = $2',
-    [staffId, userUid]
+    staffId, userUid
   );
   return result.length > 0;
 };

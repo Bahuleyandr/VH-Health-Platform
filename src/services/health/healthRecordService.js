@@ -163,8 +163,8 @@ export async function createHealthRecord(data, recorderId) {
   
   // Verify patient and recorder exist
   const [patientCheck, recorderCheck] = await Promise.all([
-    prisma.$queryRawUnsafe('SELECT id, name FROM users WHERE id = $1', [patient_id]),
-    prisma.$queryRawUnsafe('SELECT id, name FROM users WHERE id = $1', [recorderId])
+    prisma.$queryRawUnsafe('SELECT id, name FROM users WHERE id = $1', patient_id),
+    prisma.$queryRawUnsafe('SELECT id, name FROM users WHERE id = $1', recorderId)
   ]);
   
   if (patientCheck.length === 0) {
@@ -180,7 +180,7 @@ export async function createHealthRecord(data, recorderId) {
       measurements, symptoms, notes, recorded_date, created_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
     RETURNING id, uid, patient_name, record_type, description, file_url, doctor_name, notes, created_at, updated_at
-  `, [
+  `, 
     patient_id, 
     record_type.toUpperCase(), 
     recorderId,
@@ -188,7 +188,7 @@ export async function createHealthRecord(data, recorderId) {
     JSON.stringify(measurements), 
     symptoms, 
     notes
-  ]);
+  );
   
   return {
     record: result[0],
@@ -199,7 +199,7 @@ export async function createHealthRecord(data, recorderId) {
 
 export async function updateHealthRecord(id, data, userId, userRole) {
   // Check if record exists and user has permission
-  const recordCheck = await prisma.$queryRawUnsafe('SELECT recorded_by FROM health_records WHERE id = $1', [id]);
+  const recordCheck = await prisma.$queryRawUnsafe('SELECT recorded_by FROM health_records WHERE id = $1', id);
   if (recordCheck.length === 0) {
     throw new Error('Health record not found');
   }
@@ -220,13 +220,13 @@ export async function updateHealthRecord(id, data, userId, userRole) {
       updated_at = NOW()
     WHERE id = $5
     RETURNING id, uid, patient_name, record_type, description, file_url, doctor_name, notes, created_at, updated_at
-  `, [
+  `, 
     vital_signs ? JSON.stringify(vital_signs) : null,
     measurements ? JSON.stringify(measurements) : null,
     symptoms, 
     notes, 
     id
-  ]);
+  );
   
   return result[0];
 }
@@ -234,7 +234,7 @@ export async function updateHealthRecord(id, data, userId, userRole) {
 export async function checkDoctorPatientAccess(doctorId, patientId) {
   const result = await prisma.$queryRawUnsafe(
     'SELECT 1 FROM appointments WHERE doctor_id = $1 AND patient_id = $2 LIMIT 1',
-    [doctorId, patientId]
+    doctorId, patientId
   );
   return result.length > 0;
 }

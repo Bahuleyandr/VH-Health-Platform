@@ -23,7 +23,7 @@ class FeedbackService {
        LEFT JOIN appointments a ON f.appointment_id = a.id
        WHERE f.phone = $1
        ORDER BY f.created_at DESC`,
-      [phone]
+      phone
     );
 
     const averageRating = this.calculateAverageRating(result);
@@ -53,7 +53,7 @@ class FeedbackService {
         COUNT(*) FILTER (WHERE response_status = 'responded') as responded_count
        FROM feedback
        WHERE phone = $1`,
-      [phone]
+      phone
     );
 
     return result[0];

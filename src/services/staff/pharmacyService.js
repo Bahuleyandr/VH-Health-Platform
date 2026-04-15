@@ -21,14 +21,14 @@ export const updatePharmacyOrderStatus = async (data) => {
       updated_at = NOW()
     WHERE id = $8 AND phone = $9
     RETURNING id, phone, status, order_note, dispensed_medications, pharmacist_notes, _dispensed_by, dispensed_at, updated_by, updated_at, placed_at
-  `, [
+  `, 
     status, notes, 
     dispensed_medications ? JSON.stringify(dispensed_medications) : null,
     pharmacist_notes, 
     status === 'dispensed' ? updatedBy : null,
     dispensed_at,
     updatedBy, order_id, phone
-  ]);
+  );
 
   if (result.length === 0) {
     throw new Error('ORDER_NOT_FOUND');
@@ -46,13 +46,13 @@ export const updatePharmacyOrderStatus = async (data) => {
     `INSERT INTO notifications (
       phone, title, body, type, related_id, created_at
     ) VALUES ($1, $2, $3, $4, $5, NOW())`,
-    [
+    
       phone,
       `Pharmacy Order ${status.charAt(0).toUpperCase() + status.slice(1)}`,
       statusMessages[status] || `Your pharmacy order status has been updated to ${status}.`,
       'pharmacy_update',
       order_id
-    ]
+    
   );
 
   // Log activity
@@ -61,7 +61,7 @@ export const updatePharmacyOrderStatus = async (data) => {
       staff_uid, action, patient_phone, order_id,
       old_status, new_status, notes, created_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
-    [
+    
       updatedBy,
       'ORDER_STATUS_UPDATED',
       phone,
@@ -69,7 +69,7 @@ export const updatePharmacyOrderStatus = async (data) => {
       'previous_status',
       status,
       notes
-    ]
+    
   );
 
   logger.info(`💊 Pharmacy order ${order_id} updated to ${status} by ${updatedByName} for patient ${phone}`);

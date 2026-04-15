@@ -34,7 +34,7 @@ export const bulkCorrectAttendance = async (req, res) => {
 
           const existing = await prisma.$queryRawUnsafe(
             'SELECT id FROM staff_attendance WHERE staff_id=$1 AND DATE(check_in_time)=$2',
-            [c.staff_id, c.date]
+            c.staff_id, c.date
           );
 
           if (existing.length > 0) {
@@ -64,12 +64,12 @@ export const bulkCorrectAttendance = async (req, res) => {
             await prisma.$queryRawUnsafe(
               `INSERT INTO staff_attendance (staff_id, check_in_time, check_out_time, location)
                VALUES ($1, $2, $3, $4)`,
-              [
+              
                 c.staff_id,
                 c.check_in_time,
                 c.check_out_time || null,
                 JSON.stringify({ bulk_correction: true, reason: c.reason || globalReason || 'Admin correction' })
-              ]
+              
             );
           }
 
@@ -78,14 +78,14 @@ export const bulkCorrectAttendance = async (req, res) => {
             `INSERT INTO attendance_regularization (staff_id, date, reason, requested_check_in, requested_check_out, status, reviewed_by, reviewed_at)
              VALUES ($1, $2, $3, $4, $5, 'approved', $6, NOW())
              ON CONFLICT (staff_id, date) DO UPDATE SET status='approved', reviewed_by=$6, reviewed_at=NOW()`,
-            [
+            
               c.staff_id,
               c.date,
               c.reason || globalReason || 'Bulk admin correction',
               c.check_in_time || null,
               c.check_out_time || null,
               adminId
-            ]
+            
           ).catch(e => logger.warn('Bulk attendance correction insert failed:', e.message));
 
           results.applied++;

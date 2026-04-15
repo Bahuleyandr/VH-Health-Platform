@@ -27,7 +27,7 @@ export async function searchUsers(query, limit = 20) {
       WHERE search_vector @@ to_tsquery('english', $1)
       ORDER BY rank DESC
       LIMIT $2
-    `, [tsQuery, limit]);
+    `, tsQuery, limit);
     return result.map(r => ({ ...r, type: 'user' }));
   }
 
@@ -37,7 +37,7 @@ export async function searchUsers(query, limit = 20) {
     FROM users
     WHERE name ILIKE $1 OR phone ILIKE $1 OR email ILIKE $1
     LIMIT $2
-  `, [`%${query.trim()}%`, limit]);
+  `, `%${query.trim()}%`, limit);
   return result.map(r => ({ ...r, type: 'user' }));
 }
 
@@ -54,7 +54,7 @@ export async function searchDoctors(query, limit = 20) {
       WHERE search_vector @@ to_tsquery('english', $1)
       ORDER BY rank DESC
       LIMIT $2
-    `, [tsQuery, limit]);
+    `, tsQuery, limit);
     return result.map(r => ({ ...r, type: 'doctor' }));
   }
 
@@ -63,7 +63,7 @@ export async function searchDoctors(query, limit = 20) {
     FROM doctors
     WHERE name ILIKE $1 OR specialization ILIKE $1 OR qualification ILIKE $1
     LIMIT $2
-  `, [`%${query.trim()}%`, limit]);
+  `, `%${query.trim()}%`, limit);
   return result.map(r => ({ ...r, type: 'doctor' }));
 }
 
@@ -82,7 +82,7 @@ export async function searchAppointments(query, limit = 20) {
         @@ to_tsquery('english', $1)
       ORDER BY rank DESC
       LIMIT $2
-    `, [tsQuery, limit]);
+    `, tsQuery, limit);
     return result.map(r => ({ ...r, type: 'appointment' }));
   }
 
@@ -91,7 +91,7 @@ export async function searchAppointments(query, limit = 20) {
     FROM appointments
     WHERE reason ILIKE $1 OR notes ILIKE $1
     LIMIT $2
-  `, [`%${query.trim()}%`, limit]);
+  `, `%${query.trim()}%`, limit);
   return result.map(r => ({ ...r, type: 'appointment' }));
 }
 

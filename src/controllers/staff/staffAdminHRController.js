@@ -77,7 +77,7 @@ export const approvePerformanceReview = async (req, res) => {
         final_rating = COALESCE($4, rating)
       WHERE id = $1
       RETURNING id, staff_id, review_period, status, rating, final_rating, approved_by, approved_at, approver_comments, created_at
-    `, [reviewId, approvedBy, comments, final_rating]);
+    `, reviewId, approvedBy, comments, final_rating);
 
     if (result.length === 0) {
       return error(res, 'Performance review not found', HTTP_STATUS.NOT_FOUND);

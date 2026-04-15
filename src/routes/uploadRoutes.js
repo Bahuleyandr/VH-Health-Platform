@@ -181,7 +181,7 @@ router.get('/by-key/:storageKey', async (req, res) => {
     const result = await prisma.$queryRawUnsafe(
       `SELECT id, storage_key, file_name, is_quarantined, scan_status, uploaded_by
        FROM file_metadata WHERE storage_key = $1`,
-      [storageKey]
+      storageKey
     );
 
     if (result.length === 0) {

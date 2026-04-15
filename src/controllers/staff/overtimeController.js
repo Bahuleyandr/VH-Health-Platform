@@ -18,7 +18,7 @@ export const requestOvertime = async (req, res) => {
     const result = await prisma.$queryRawUnsafe(`
       INSERT INTO overtime_requests (staff_id, date, extra_hours, reason, type)
       VALUES ($1, $2, $3, $4, $5) RETURNING id, staff_uid, date, hours, reason, status, approved_by, created_at
-    `, [staffId, date, extra_hours, reason, type || 'comp_time']);
+    `, staffId, date, extra_hours, reason, type || 'comp_time');
 
     success(res, result[0], 'Overtime request submitted');
   } catch (err) {
@@ -64,7 +64,7 @@ export const approveOvertime = async (req, res) => {
       UPDATE overtime_requests
       SET status=$1, approved_by=$2, approved_at=NOW(), rejection_reason=$3
       WHERE id=$4 RETURNING id, staff_uid, date, hours, reason, status, approved_by, created_at
-    `, [status, approverId, rejection_reason || null, id]);
+    `, status, approverId, rejection_reason || null, id);
 
     if (result.length === 0) {
       return error(res, 'Request not found', HTTP_STATUS.NOT_FOUND);

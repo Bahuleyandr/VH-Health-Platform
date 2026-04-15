@@ -12,7 +12,7 @@ export async function logUserAction(userId, action, targetUserId = null, details
       INSERT INTO user_action_logs (
         user_id, action, target_user_id, details, ip_address, created_at
       ) VALUES ($1, $2, $3, $4, $5, NOW())
-    `, [userId, action, targetUserId, details, ipAddress]);
+    `, userId, action, targetUserId, details, ipAddress);
   } catch (err) {
     logger.error('Failed to log user action:', err);
   }
@@ -30,7 +30,7 @@ export async function getUserActivityLogs(userId, limit = 20) {
       WHERE user_id = $1 
       ORDER BY created_at DESC 
       LIMIT $2
-    `, [userId, limit]);
+    `, userId, limit);
     
     return result;
   } catch (err) {
@@ -80,7 +80,7 @@ export async function getActivityAudit(filters = {}) {
       ${whereClause}
       ORDER BY ual.created_at DESC
       LIMIT $${paramIndex}
-    `, [...params, limit]);
+    `, ...params, limit);
 
     return activityLogs;
   } catch (err) {
@@ -176,7 +176,7 @@ export async function getUserAccessHistory(userId, days = 90) {
       WHERE user_id = $1 AND created_at > NOW() - INTERVAL '${days} days'
       GROUP BY DATE(created_at)
       ORDER BY access_date DESC
-    `, [userId]);
+    `, userId);
 
     return result;
   } catch (err) {
@@ -276,7 +276,7 @@ export async function generateAuditReport(startDate, endDate, options = {}) {
       `;
     }
 
-    const result = await prisma.$queryRawUnsafe(query, [startDate, endDate]);
+    const result = await prisma.$queryRawUnsafe(query, startDate, endDate);
     return result;
   } catch (err) {
     logger.error('Failed to generate audit report:', err);

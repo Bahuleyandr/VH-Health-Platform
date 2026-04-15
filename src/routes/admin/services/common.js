@@ -7,7 +7,7 @@ import logger from '../../../logging/logger.js';
  */
 export async function tableExists(table) {
   try {
-    const { rows } = await prisma.$queryRawUnsafe(`SELECT to_regclass($1) AS reg`, [`public.${table}`]);
+    const rows = await prisma.$queryRawUnsafe(`SELECT to_regclass($1) AS reg`, `public.${table}`);
     return Boolean(rows[0]?.reg);
   } catch {
     return false;
@@ -19,10 +19,10 @@ export async function tableExists(table) {
  */
 export async function columnExists(table, column) {
   try {
-    const { rows } = await prisma.$queryRawUnsafe(
+    const rows = await prisma.$queryRawUnsafe(
       `SELECT 1 FROM information_schema.columns
        WHERE table_schema='public' AND table_name=$1 AND column_name=$2`,
-      [table, column]
+      table, column
     );
     return rows.length > 0;
   } catch {
@@ -48,7 +48,7 @@ export async function safeQuery(sql, params = [], label = 'query') {
  */
 export async function safeScalar(sql, params = [], fallback = 0) {
   try {
-    const { rows } = await prisma.$queryRawUnsafe(sql, params);
+    const rows = await prisma.$queryRawUnsafe(sql, params);
     const v = rows[0] && Object.values(rows[0])[0];
     if (v === null || Number.isNaN(Number(v))) return fallback;
     return Number(v);

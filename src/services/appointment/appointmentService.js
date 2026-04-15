@@ -55,6 +55,15 @@ export class AppointmentService {
 
     try {
       return await prisma.$transaction(async (tx) => {
+        // Resolve patient phone + doctor name for the NOT NULL columns on appointments.
+        const [pRows, dRows] = await Promise.all([
+          tx.$queryRaw`SELECT id, phone, name FROM users WHERE id = ${parseInt(patient_id)}`,
+          tx.$queryRaw`SELECT id, name FROM users WHERE id = ${parseInt(doctor_id)}`,
+        ]);
+        const patientPhone = pRows[0]?.phone ?? '';
+        const patientName = pRows[0]?.name ?? null;
+        const doctorName = dRows[0]?.name ?? '';
+
         // Lock conflicting rows
         const conflict = await tx.$queryRaw`
           SELECT id FROM appointments
@@ -74,16 +83,18 @@ export class AppointmentService {
 
         const rows = await tx.$queryRaw`
           INSERT INTO appointments (
-            patient_id, doctor_id, appointment_date, appointment_time,
-            reason, notes, status, created_at
+            phone, patient_id, patient_name, doctor_id, doctor_name,
+            appointment_date, appointment_time,
+            reason, notes, status, created_at, updated_at
           ) VALUES (
-            ${parseInt(patient_id)}, ${parseInt(doctor_id)},
+            ${patientPhone}, ${parseInt(patient_id)}, ${patientName},
+            ${parseInt(doctor_id)}, ${doctorName},
             ${appointment_date}::date, ${appointment_time},
             ${reason ?? null}, ${notes ?? null},
-            ${APPOINTMENT_CONFIG.STATUSES.SCHEDULED}, NOW()
+            ${APPOINTMENT_CONFIG.STATUSES.SCHEDULED}, NOW(), NOW()
           )
-          RETURNING id, uid, phone, patient_name, doctor_name, appointment_date,
-            appointment_time, status, notes, created_at, updated_at
+          RETURNING id, uid, phone, patient_id, patient_name, doctor_id, doctor_name,
+            appointment_date, appointment_time, status, reason, notes, created_at, updated_at
         `;
 
         return rows[0];
@@ -117,19 +128,22 @@ export class AppointmentService {
 
   async updateAppointmentStatus(id, status, notes = null, _updatedBy = null) {
     try {
-      const rows = await prisma.$queryRaw`
-        UPDATE appointments SET
-          status     = ${status},
-          notes      = CASE
-                         WHEN ${notes ?? null} IS NOT NULL
-                         THEN COALESCE(notes || ' | ', '') || ${notes ?? null}
-                         ELSE notes
-                       END,
-          updated_at = NOW()
-        WHERE id = ${parseInt(id)}
-        RETURNING id, uid, phone, patient_name, doctor_name, appointment_date,
-          appointment_time, status, notes, created_at, updated_at
-      `;
+      // Use $queryRawUnsafe with explicit ::text cast so NULL params have a known type.
+      // Prisma can't infer `$2 IS NOT NULL` on a bare tagged-template null (42P18).
+      const rows = await prisma.$queryRawUnsafe(
+        `UPDATE appointments SET
+           status     = $1,
+           notes      = CASE
+                          WHEN $2::text IS NOT NULL
+                          THEN COALESCE(notes || ' | ', '') || $2::text
+                          ELSE notes
+                        END,
+           updated_at = NOW()
+         WHERE id = $3
+         RETURNING id, uid, phone, patient_id, doctor_id, patient_name, doctor_name,
+           appointment_date, appointment_time, status, notes, created_at, updated_at`,
+        status, notes ?? null, parseInt(id)
+      );
       return rows[0];
     } catch (error) {
       logger.error('Error updating appointment status:', error);
@@ -140,14 +154,14 @@ export class AppointmentService {
   async getAppointmentById(id) {
     try {
       const rows = await prisma.$queryRaw`
-        SELECT a.id, a.uid, a.phone, a.doctor_id, a.doctor_name, a.patient_name,
+        SELECT a.id, a.uid, a.phone, a.patient_id, a.doctor_id, a.doctor_name, a.patient_name,
                a.appointment_date, a.appointment_time, a.status, a.reason, a.notes,
                a.created_at, a.updated_at,
                u.email AS patient_email,
                d.name AS doctor_name_detail, d.phone AS doctor_phone, d.email AS doctor_email,
                dp.specialization, dp.department, dp.consultation_fee
         FROM appointments a
-        LEFT JOIN users u ON a.uid = u.uid
+        LEFT JOIN users u ON a.patient_id = u.id
         LEFT JOIN users d ON a.doctor_id = d.id
         LEFT JOIN doctors dp ON d.id = dp.user_id
         WHERE a.id = ${parseInt(id)}

@@ -20,7 +20,7 @@ const router = Router();
  * POST /theatre/schedule
  * Schedule a new surgery
  */
-router.post('/schedule', requiredUUID('patient_uid'), requiredString('procedure_name', 300), requiredString('surgeon_uid'), validate, async (req, res, next) => {
+router.post('/schedule', requiredUUID('patient_uid'), requiredString('procedure_name', 300), requiredUUID('surgeon'), validate, async (req, res, next) => {
   try {
     const scheduleData = {
       patient_uid: req.body.patient_uid,

@@ -2,7 +2,7 @@ name: Backend CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'claude/**']
   pull_request:
 
 jobs:
@@ -56,8 +56,15 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      - name: Apply database schema for tests
+      - name: Apply Prisma schema
         run: npx prisma db push --force-reset --skip-generate
+
+      - name: Apply raw migrations + seed lookup data
+        # Prisma schema only covers 69 of ~170 tables the tests need. The raw
+        # migrations under `migrations/` create the rest (ot_schedules, blood_requests,
+        # vitals_chart, diagnoses, admissions, etc.) and the seed scripts populate
+        # departments / doctors / ICD-10 that integration tests reference.
+        run: node scripts/ci-setup-db.mjs
 
       - name: Run tests
         run: node --max-old-space-size=4096 --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --forceExit --detectOpenHandles
@@ -94,6 +101,61 @@ jobs:
             exit 0
           fi
           npx prisma migrate deploy
+
+  fhir-conformance:
+    # Validates a small set of sample FHIR R4 bundles against the official
+    # HL7 IG Publisher / Validator JAR. Runs on every PR; non-blocking
+    # (continue-on-error) until the team commits to fixing every warning.
+    # The validator JAR is large (~150MB) and slow (~30s per resource), so
+    # we cache it and run only against the curated sample bundles in
+    # `src/services/fhir/__samples__/` rather than the full test corpus.
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (validator requires Java)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Cache validator JAR
+        id: cache-validator
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/fhir-validator
+          key: fhir-validator-6.3.11
+
+      - name: Download validator JAR
+        if: steps.cache-validator.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.cache/fhir-validator
+          curl -L -o ~/.cache/fhir-validator/validator_cli.jar \
+            https://github.com/hapifhir/org.hl7.fhir.core/releases/download/6.3.11/validator_cli.jar
+
+      - name: Validate sample bundles (R4)
+        run: |
+          if [ ! -d src/services/fhir/__samples__ ]; then
+            echo "No __samples__/ directory — skipping conformance run."
+            echo "Drop FHIR R4 JSON bundles in src/services/fhir/__samples__/ to enable."
+            exit 0
+          fi
+          set -e
+          for f in src/services/fhir/__samples__/*.json; do
+            echo "=== Validating $f ==="
+            java -jar ~/.cache/fhir-validator/validator_cli.jar "$f" -version 4.0.1 || true
+          done
+
+      - name: Notify Discord on failure
+        if: failure()
+        run: |
+          curl -s -H "Content-Type: application/json" \
+            -d "{\"content\": \"⚠️ **FHIR conformance** flagged warnings on \`${{ github.ref_name }}\`\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "${{ secrets.DISCORD_WEBHOOK_URL }}" || true
 
   codeql:
     runs-on: ubuntu-latest

@@ -21,7 +21,7 @@ export const getDepartmentStaffSummary = async (department) => {
     FROM users u
     JOIN staff s ON u.id = s.user_id
     WHERE s.department = $1
-  `, [department]);
+  `, department);
 
   // Staff by position
   const positionBreakdown = await prisma.$queryRawUnsafe(`
@@ -34,7 +34,7 @@ export const getDepartmentStaffSummary = async (department) => {
     WHERE s.department = $1 AND s.is_active = true
     GROUP BY s.position
     ORDER BY count DESC
-  `, [department]);
+  `, department);
 
   // Staff by shift
   const shiftBreakdown = await prisma.$queryRawUnsafe(`
@@ -46,7 +46,7 @@ export const getDepartmentStaffSummary = async (department) => {
     WHERE s.department = $1 AND s.is_active = true AND s.shift_type IS NOT NULL
     GROUP BY s.shift_type
     ORDER BY count DESC
-  `, [department]);
+  `, department);
 
   // Experience distribution
   const experienceDistribution = await prisma.$queryRawUnsafe(`
@@ -71,7 +71,7 @@ export const getDepartmentStaffSummary = async (department) => {
         WHEN '5-10 years' THEN 4
         ELSE 5
       END
-  `, [department]);
+  `, department);
 
   // Recent attendance
   const attendanceMetrics = await prisma.$queryRawUnsafe(`
@@ -83,7 +83,7 @@ export const getDepartmentStaffSummary = async (department) => {
     WHERE s.department = $1 
       AND DATE(sa.check_in_time) = CURRENT_DATE
       AND sa.check_out_time IS NOT NULL
-  `, [department]);
+  `, department);
 
   // Performance metrics
   const performanceMetrics = await prisma.$queryRawUnsafe(`
@@ -93,7 +93,7 @@ export const getDepartmentStaffSummary = async (department) => {
       COUNT(CASE WHEN s.performance_rating < 3.0 THEN 1 END) as needs_improvement
     FROM staff s
     WHERE s.department = $1 AND s.is_active = true AND s.performance_rating IS NOT NULL
-  `, [department]);
+  `, department);
 
   // Staff list
   const staffList = await prisma.$queryRawUnsafe(`
@@ -112,7 +112,7 @@ export const getDepartmentStaffSummary = async (department) => {
       AND DATE(sa.check_in_time) = CURRENT_DATE
     WHERE s.department = $1 AND s.is_active = true
     ORDER BY s.position, u.name
-  `, [department]);
+  `, department);
 
   const stats = departmentStats[0];
   const attendance = attendanceMetrics[0];

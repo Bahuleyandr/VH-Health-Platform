@@ -64,7 +64,7 @@ wrapAutoRBAC(
                FROM user_devices 
                WHERE user_uid = (SELECT uid FROM users WHERE phone = $1)
                ORDER BY last_active DESC`,
-              [phone]
+              phone
             );
 
             // Redact FCM tokens unless admin
@@ -258,7 +258,7 @@ wrapAutoRBAC(
                FROM user_devices ud
                JOIN users u ON ud.user_uid = u.uid
                WHERE ud.device_id = $1`,
-              [deviceId]
+              deviceId
             );
 
             if (result.length === 0) {
@@ -303,7 +303,7 @@ wrapAutoRBAC(
             // Get user UID
             const userResult = await prisma.$queryRawUnsafe(
               'SELECT uid, name FROM users WHERE phone = $1',
-              [normalizedPhone]
+              normalizedPhone
             );
 
             if (userResult.length === 0) {
@@ -328,7 +328,7 @@ wrapAutoRBAC(
                 last_active = NOW(),
                 updated_at = NOW()
               RETURNING id, created_at = updated_at as is_new_registration`,
-              [user.uid, deviceId, deviceName, platform, appVersion, osVersion, fcmToken]
+              user.uid, deviceId, deviceName, platform, appVersion, osVersion, fcmToken
             );
 
             const isNewRegistration = result[0].is_new_registration;
@@ -389,12 +389,12 @@ wrapAutoRBAC(
               RETURNING device_name, last_active
             `;
 
-            const result = await prisma.$queryRawUnsafe(updateQuery, [
+            const result = await prisma.$queryRawUnsafe(updateQuery, 
               deviceId, 
               normalizedPhone,
               additionalData.appVersion,
               additionalData.osVersion
-            ]);
+            );
 
             if (result.length === 0) {
               return error(res, 'Device not found or access denied', HTTP_STATUS.NOT_FOUND);
@@ -439,7 +439,7 @@ wrapAutoRBAC(
                WHERE device_id = $2 
                  AND user_uid = (SELECT uid FROM users WHERE phone = $3)
                RETURNING device_name`,
-              [fcmToken, deviceId, normalizedPhone]
+              fcmToken, deviceId, normalizedPhone
             );
 
             if (result.length === 0) {
@@ -489,7 +489,7 @@ wrapAutoRBAC(
                WHERE device_id = $1 
                  AND user_uid = (SELECT uid FROM users WHERE phone = $2)
                RETURNING device_name, platform`,
-              [deviceId, normalizedPhone]
+              deviceId, normalizedPhone
             );
 
             if (result.length === 0) {

@@ -14,6 +14,7 @@ import adminPharmacyRoutes from '../pharmacy/adminRoutes.js';
 import adminRecordRoutes from '../record/adminRoutes.js';
 import adminUserRoutes from '../user/adminUserRoutes.js';
 import auditRoutes from './auditRoutes.js';
+import executiveKpiRoutes from './executiveKpiRoutes.js';
 import featureFlagRoutes from './featureFlagRoutes.js';
 
 // Services (barrel import)
@@ -612,5 +613,6 @@ router.use('/investigations', adminInvestigationRoutes);
 router.use('/pharmacy', adminPharmacyRoutes);
 router.use('/analytics', analyticsRoutes);
 router.use('/feature-flags', featureFlagRoutes);
+router.use('/executive-kpi', executiveKpiRoutes);
 
 export default router;

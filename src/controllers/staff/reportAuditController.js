@@ -231,7 +231,7 @@ export const getAdminActivityReport = async (req, res) => {
         AND ru.created_at >= NOW() - $1::INTERVAL
       GROUP BY u.id, u.name, u.role
       ORDER BY total_actions DESC
-    `, [interval]);
+    `, interval);
 
     // Reports that had NO admin action in expected window
     const neglected = await prisma.$queryRawUnsafe(`
@@ -277,7 +277,7 @@ export const getAdminActivityReport = async (req, res) => {
         ) = 0
         AND sg.created_at >= NOW() - $1::INTERVAL
       ORDER BY hours_open DESC
-    `, [interval]);
+    `, interval);
 
     // Resolution rate
     const resolutionStats = await prisma.$queryRawUnsafe(`
@@ -300,7 +300,7 @@ export const getAdminActivityReport = async (req, res) => {
         ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))/3600) FILTER (WHERE resolved_at IS NOT NULL)::NUMERIC, 1) as avg_hours_to_resolve
       FROM staff_grievances
       WHERE created_at >= NOW() - $1::INTERVAL
-    `, [interval]);
+    `, interval);
 
     success(res, {
       period_days: parseInt(days),
@@ -335,7 +335,7 @@ export const getSLAReport = async (req, res) => {
       WHERE created_at >= NOW() - $1::INTERVAL
       GROUP BY severity
       ORDER BY CASE severity WHEN 'sentinel' THEN 1 WHEN 'severe' THEN 2 WHEN 'moderate' THEN 3 ELSE 4 END
-    `, [`${parseInt(days)} days`]);
+    `, `${parseInt(days)} days`);
 
     const grievanceSLA = await prisma.$queryRawUnsafe(`
       SELECT
@@ -349,7 +349,7 @@ export const getSLAReport = async (req, res) => {
       FROM staff_grievances
       WHERE created_at >= NOW() - $1::INTERVAL
       GROUP BY priority
-    `, [`${parseInt(days)} days`]);
+    `, `${parseInt(days)} days`);
 
     success(res, {
       period_days: parseInt(days),

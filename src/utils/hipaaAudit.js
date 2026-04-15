@@ -12,7 +12,7 @@ export function logPhiAccess({ userId, userRole, patientId, recordType, action =
       await prisma.$queryRawUnsafe(
         `INSERT INTO hipaa_access_log (accessed_by, accessed_by_role, patient_id, record_type, action, ip_address, request_id, accessed_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
-        [userId, userRole, patientId, recordType, action, ip || null, requestId || null]
+        userId, userRole, patientId, recordType, action, ip || null, requestId || null
       );
     } catch (err) {
       // Fallback to file log — HIPAA audit must never be lost

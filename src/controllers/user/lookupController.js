@@ -191,7 +191,7 @@ export class LookupController {
       // Rate limiting for lookup requests to prevent enumeration
       const recentLookups = await prisma.$queryRawUnsafe(
         'SELECT COUNT(*) FROM audit_logs WHERE uid = $1 AND action = $2 AND created_at > NOW() - INTERVAL \'1 hour\'',
-        [requestedBy, 'user-lookup']
+        requestedBy, 'user-lookup'
       );
 
       const lookupCount = parseInt(recentLookups[0].count);
@@ -601,7 +601,7 @@ export class LookupController {
            OR u.last_login > NOW() - make_interval(days => $2)
         ORDER BY COALESCE(u.last_login, u.registered_at) DESC
         LIMIT $1
-      `, [Math.min(parseInt(limit), 100), parseInt(days)]);
+      `, Math.min(parseInt(limit), 100), parseInt(days));
 
       await logAudit(req, 'user-activity-report-viewed', { days, recordCount: recentActivity.length });
 

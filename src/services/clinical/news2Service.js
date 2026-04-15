@@ -128,14 +128,14 @@ export function getClinicalRisk(score) {
 export async function recordNEWS2(patientUid, vitals, recordedBy) {
   const { totalScore, clinicalRisk, escalationAction } = calculateNEWS2(vitals);
 
-  const { rows } = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO news2_scores
        (patient_uid, respiration_rate, spo2, spo2_scale, supplemental_o2,
         temperature, systolic_bp, heart_rate, consciousness,
         total_score, clinical_risk, escalation_action, recorded_by)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      RETURNING id, patient_uid, total_score, risk_level, recorded_by, created_at`,
-    [
+    
       patientUid,
       vitals.respiration_rate,
       vitals.spo2,
@@ -149,7 +149,7 @@ export async function recordNEWS2(patientUid, vitals, recordedBy) {
       clinicalRisk,
       escalationAction,
       recordedBy,
-    ]
+    
   );
 
   const record = rows[0];
@@ -186,7 +186,7 @@ export async function recordNEWS2(patientUid, vitals, recordedBy) {
  * @returns {Object} { scores, trend }
  */
 export async function getPatientNEWS2History(patientUid, limit = 50) {
-  const { rows } = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, respiration_rate, spo2, spo2_scale, supplemental_o2,
             temperature, systolic_bp, heart_rate, consciousness,
             total_score, clinical_risk, escalation_action, recorded_by, recorded_at
@@ -194,7 +194,7 @@ export async function getPatientNEWS2History(patientUid, limit = 50) {
      WHERE patient_uid = $1
      ORDER BY recorded_at DESC
      LIMIT $2`,
-    [patientUid, limit]
+    patientUid, limit
   );
 
   // Build trend from last 10 scores (oldest to newest)

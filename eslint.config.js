@@ -53,7 +53,18 @@ export default [
       // path. Allow `warn`/`error` as a temporary escape hatch; dedicated
       // overrides below let `bin/www.js` and `src/scripts/**` print freely
       // because they run before the logger is initialised / out of band.
-      'no-console': ['warn', { allow: ['warn', 'error'] }],
+      // Block new console.* in production code. `logger.*` is the structured path.
+      // Scripts + bin/www.js are exempted via the overrides below.
+      'no-console': ['error', { allow: ['warn', 'error'] }],
+      // Flag `prisma.$queryRawUnsafe(sql, [array])` — the drift bug that was
+      // silently broken across ~70 sites. Raw Prisma methods need spread args.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "CallExpression[callee.property.name=/^\\$queryRawUnsafe$|^\\$executeRawUnsafe$/] > ArrayExpression:nth-child(2)",
+          message: 'prisma.$queryRawUnsafe/$executeRawUnsafe takes spread params (...args), not an array. Use sql, ...params instead of sql, [params].',
+        },
+      ],
       'no-unused-vars': [
         'warn',
         {

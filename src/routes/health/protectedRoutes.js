@@ -71,6 +71,11 @@ router.get('/patient/:patient_id/vitals',
   patientHealthController.getPatientVitals
 );
 
+router.get('/patient/:patient_id/sync-status',
+  patientIdValidator,
+  patientHealthController.getVitalsSyncStatus
+);
+
 // Statistics routes
 router.get('/stats/overview',
   healthStatsController.getHealthStatistics

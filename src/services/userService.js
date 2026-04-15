@@ -37,7 +37,7 @@ export async function createOrUpdateUser(userData, requestingUser) {
   // Check for existing user
   const existingUser = await prisma.$queryRawUnsafe(
     'SELECT id, uid, role, name FROM users WHERE phone = $1',
-    [normalizedPhone]
+    normalizedPhone
   );
 
   let userId, userUid, operation;
@@ -63,12 +63,12 @@ export async function createOrUpdateUser(userData, requestingUser) {
         updated_at = NOW(), updated_by = $16
       WHERE phone = $17
       RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at
-    `, [
+    `, 
       name, email, gender, address, birthday, anniversary, role, 
       department || HOSPITAL_ROLES[role].department, specialty, finalEmployeeId,
       licenseNumber, normalizePhone(emergencyContact), bloodGroup, allergies, 
       medicalHistory, requestingUserId, normalizedPhone
-    ]);
+    );
 
   } else {
     // Create new user
@@ -84,12 +84,12 @@ export async function createOrUpdateUser(userData, requestingUser) {
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
         'active', NOW(), $17
       ) RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at
-    `, [
+    `, 
       normalizedPhone, name, email, gender, address, birthday, anniversary,
       role, department || HOSPITAL_ROLES[role].department, specialty, finalEmployeeId,
       licenseNumber, normalizePhone(emergencyContact), bloodGroup, allergies,
       medicalHistory, requestingUserId
-    ]);
+    );
 
     userId = result[0].id;
     userUid = result[0].uid;
@@ -106,7 +106,7 @@ export async function createOrUpdateUser(userData, requestingUser) {
     LEFT JOIN user_action_logs ual ON u.uid = ual.user_id
     WHERE u.uid = $1
     GROUP BY u.id, ur.role_description, ur.permissions
-  `, [userUid]);
+  `, userUid);
 
   return {
     user: userResult[0],
@@ -149,7 +149,7 @@ export async function getUserByIdentifier(identifier) {
     LEFT JOIN users updater ON u.updated_by = updater.uid
     WHERE u.${column} = $1
     GROUP BY u.id, ur.role_description, ur.permissions, creator.name, updater.name
-  `, [value]);
+  `, value);
 
   if (result.length === 0) {
     return null;
@@ -222,7 +222,7 @@ export async function updateUser(identifier, updateData, requestingUser) {
     UPDATE users SET ${updateFields.join(', ')}
     WHERE ${column} = $${paramIndex + 1}
     RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at
-  `, [...updateValues, targetUser[column]]);
+  `, ...updateValues, targetUser[column]);
 
   return {
     user: updateResult[0],
@@ -262,7 +262,7 @@ export async function changeUserStatus(identifier, newStatus, reason, requesting
       status_change_reason = $3, updated_at = NOW(), updated_by = $2
     WHERE ${column} = $4
     RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at
-  `, [newStatus, requestingUserId, reason, targetUser[column]]);
+  `, newStatus, requestingUserId, reason, targetUser[column]);
 
   // Create status change record
   await prisma.$queryRawUnsafe(`
@@ -270,7 +270,7 @@ export async function changeUserStatus(identifier, newStatus, reason, requesting
       user_id, previous_status, new_status, changed_by, change_reason,
       changed_at, ip_address
     ) VALUES ($1, $2, $3, $4, $5, NOW(), $6)
-  `, [targetUser.uid, targetUser.status, newStatus, requestingUserId, reason, null]);
+  `, targetUser.uid, targetUser.status, newStatus, requestingUserId, reason, null);
 
   return {
     user: updateResult[0],
@@ -301,7 +301,7 @@ export async function deactivateUser(identifier, reason, transferDataTo, request
   if (transferDataTo) {
     const transferTarget = await prisma.$queryRawUnsafe(
       'SELECT uid, name, role, status FROM users WHERE uid = $1',
-      [transferDataTo]
+      transferDataTo
     );
 
     if (transferTarget.length === 0) {
@@ -325,7 +325,7 @@ export async function deactivateUser(identifier, reason, transferDataTo, request
       updated_by = $1
     WHERE ${column} = $4
     RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at
-  `, [requestingUserId, reason, transferDataTo, targetUser[column]]);
+  `, requestingUserId, reason, transferDataTo, targetUser[column]);
 
   // Create deactivation record
   await prisma.$queryRawUnsafe(`
@@ -333,7 +333,7 @@ export async function deactivateUser(identifier, reason, transferDataTo, request
       user_id, deactivated_by, deactivation_reason, data_transferred_to,
       deactivated_at, ip_address, user_data
     ) VALUES ($1, $2, $3, $4, NOW(), $5, $6)
-  `, [
+  `, 
     targetUser.uid, requestingUserId, reason, transferDataTo, null,
     JSON.stringify({
       name: targetUser.name,
@@ -341,7 +341,7 @@ export async function deactivateUser(identifier, reason, transferDataTo, request
       department: targetUser.department,
       phone: targetUser.phone
     })
-  ]);
+  );
 
   return {
     deactivatedUser: deactivationResult[0],
@@ -355,7 +355,7 @@ export async function deactivateUser(identifier, reason, transferDataTo, request
 export async function reactivateUser(userId, reason, requestingUser) {
   const userResult = await prisma.$queryRawUnsafe(
     'SELECT uid, name, role, status, deactivated_at FROM users WHERE uid = $1',
-    [userId]
+    userId
   );
 
   if (userResult.length === 0) {
@@ -383,14 +383,14 @@ export async function reactivateUser(userId, reason, requestingUser) {
       updated_by = $1
     WHERE uid = $3
     RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at
-  `, [requestingUserId, reason, userId]);
+  `, requestingUserId, reason, userId);
 
   // Create reactivation record
   await prisma.$queryRawUnsafe(`
     INSERT INTO user_reactivation_log (
       user_id, reactivated_by, reactivation_reason, reactivated_at, ip_address
     ) VALUES ($1, $2, $3, NOW(), $4)
-  `, [userId, requestingUserId, reason, null]);
+  `, userId, requestingUserId, reason, null);
 
   return {
     reactivatedUser: reactivationResult[0],
@@ -419,7 +419,7 @@ export async function bulkImportUsers(users, options, requestingUser) {
       const employeeId = userData.employeeId || userUtils.generateEmployeeId(userData.role, department);
 
       // Check if user exists
-      const existing = await prisma.$queryRawUnsafe('SELECT uid FROM users WHERE phone = $1', [normalizedPhone]);
+      const existing = await prisma.$queryRawUnsafe('SELECT uid FROM users WHERE phone = $1', normalizedPhone);
 
       if (existing.length > 0) {
         errors.push({
@@ -438,10 +438,10 @@ export async function bulkImportUsers(users, options, requestingUser) {
           status, registered_at, created_by
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', NOW(), $8)
         RETURNING uid, name, phone, role, employee_id
-      `, [
+      `, 
         normalizedPhone, userData.name, userData.email, userData.gender,
         userData.role, department, employeeId, requestingUserId
-      ]);
+      );
 
       results.push({
         index: i + 1,
@@ -465,10 +465,10 @@ export async function bulkImportUsers(users, options, requestingUser) {
       operation_type, performed_by, total_items, success_count, 
       error_count, operation_details, performed_at
     ) VALUES ($1, $2, $3, $4, $5, $6, NOW())
-  `, [
+  `, 
     'bulk_user_import', requestingUserId, users.length, results.length,
     errors.length, JSON.stringify({ notifyUsers })
-  ]);
+  );
 
   return {
     successCount: results.length,

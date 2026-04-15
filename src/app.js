@@ -44,6 +44,7 @@ import bedManagementRoutes from './routes/bed/bedManagementRoutes.js';
 import { bedRouter, wardRouter } from './routes/bed/bedRoutes.js';
 import auditSearchRoutes from './routes/compliance/auditSearchRoutes.js';
 import breachRoutes from './routes/compliance/breachRoutes.js';
+import complianceIndicatorsRoutes from './routes/compliance/indicatorsRoutes.js';
 import configRoutes from './routes/configRoutes.js';
 import dashboardRoutes from './routes/dashboard/index.js';
 import deliveryRoutes from './routes/delivery/index.js';
@@ -51,6 +52,9 @@ import departmentRoutes from './routes/department/index.js';
 import deviceRoutes from './routes/deviceRoutes.js';
 import doctorRoutes from './routes/doctor/index.js';
 import healthRoutes from './routes/health/index.js';
+import realtimeRoutes from './routes/realtime/realtimeRoutes.js';
+import realtimeTicketRoutes from './routes/realtime/realtimeTicketRoutes.js';
+import chatbotRoutes from './routes/chatbot/chatbotRoutes.js';
 import routes from './routes/index.js';
 import infrastructureRoutes from './routes/infrastructure/index.js';
 import internalRoutes from './routes/internalRoutes.js';
@@ -100,6 +104,7 @@ import sessionRoutes from './routes/sessionRoutes.js';
 
 // Billing & Invoicing
 import billingRoutes from './routes/billing/billingRoutes.js';
+import revenueCycleRoutes from './routes/billing/revenueCycleRoutes.js';
 
 // Quality & Infection Control
 import qualityRoutes from './routes/quality/qualityRoutes.js';
@@ -273,6 +278,7 @@ app.head('/', async (req, res, next) => {
 app.use('/api/v1/auth', patientRateLimiter, routes.auth); // Patient Auth
 app.use('/api/v1/otp', patientRateLimiter, routes.otp);
 app.use('/api/v1/health', genericLimiter, healthRoutes);
+app.use('/api/v1/realtime', genericLimiter, realtimeRoutes);
 
 // ABDM gateway callbacks (public — no JWT/API key, validated via ABDM request signature)
 app.use('/api/v1/abdm', abdmCallbackRoutes);
@@ -314,6 +320,13 @@ app.use(normalizeIdentityFields); // runs AFTER JWT auth
 // ====================================
 // AUTHENTICATED ROUTES (API key required)
 // ====================================
+
+// Realtime ticket exchange — JWT-authed; issues short-lived WS-scoped tokens
+// for browser clients that can't expose their primary JWT to JS.
+app.use('/api/v1/realtime', genericLimiter, realtimeTicketRoutes);
+
+// AI symptom-checker (Claude API). JWT-authed via the global middleware above.
+app.use('/api/v1/chatbot', patientRateLimiter, chatbotRoutes);
 
 // User management
 app.use('/api/v1/users', patientRateLimiter, userRoutes);
@@ -421,6 +434,7 @@ app.use('/api/v1/blood-bank', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NUR
 
 // Billing & Invoicing (mount-level role gate + route-level checks for mutations)
 app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BILLING_STAFF', 'PATIENT'), billingRoutes);
+app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), revenueCycleRoutes);
 
 // Quality & Infection Control (route-level role checks)
 app.use('/api/v1/quality', qualityRoutes);
@@ -434,6 +448,7 @@ app.use('/api/v1/messaging', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURS
 // Compliance: Breach Notification + Audit Search (admin only)
 app.use('/api/v1/compliance', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, breachRoutes);
 app.use('/api/v1/compliance', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, auditSearchRoutes);
+app.use('/api/v1/compliance', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, complianceIndicatorsRoutes);
 
 // Serve report exports — protected behind JWT + admin role to prevent unauthorized access
 app.use('/exports', requireRole('ADMIN', 'SUPER_ADMIN'), express.static('exports'));

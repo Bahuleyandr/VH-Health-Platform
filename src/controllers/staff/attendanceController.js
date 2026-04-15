@@ -77,10 +77,10 @@ export const getAttendanceCalendar = async (req, res) => {
              (EXTRACT(HOUR FROM check_in_time) = 9 AND EXTRACT(MINUTE FROM check_in_time) > 15)
              THEN true ELSE false END as is_late
         FROM staff_attendance WHERE staff_id = $1 AND DATE(check_in_time) BETWEEN $2 AND $3`,
-        [id, startDate, endDate]),
+        id, startDate, endDate),
       prisma.$queryRawUnsafe(`SELECT DATE(start_date) as start_date, DATE(end_date) as end_date, leave_type, status
         FROM leave_applications WHERE staff_id = $1 AND status = 'approved'
-        AND start_date <= $3 AND end_date >= $2`, [id, startDate, endDate])
+        AND start_date <= $3 AND end_date >= $2`, id, startDate, endDate)
         .catch(() => ({ rows: [] }))
     ]);
 
@@ -153,7 +153,7 @@ export const requestRegularization = async (req, res) => {
       VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
       ON CONFLICT (staff_id, date) DO UPDATE SET reason=$3, requested_check_in=$4, requested_check_out=$5, status='pending', created_at=NOW()
       RETURNING id, staff_id, date, reason, requested_check_in, requested_check_out, status, created_at
-    `, [id, date, reason, check_in_time || null, check_out_time || null]);
+    `, id, date, reason, check_in_time || null, check_out_time || null);
 
     success(res, result[0], 'Regularization request submitted');
   } catch (err) {
@@ -175,7 +175,7 @@ export const startBreak = async (req, res) => {
     const today = new Date().toISOString().split('T')[0];
     const att = await prisma.$queryRawUnsafe(
       `SELECT id FROM staff_attendance WHERE staff_id=$1 AND DATE(check_in_time)=$2 AND check_out_time IS NULL`,
-      [staffId, today]
+      staffId, today
     );
 
     if (att.length === 0) {
@@ -192,7 +192,7 @@ export const startBreak = async (req, res) => {
 
     const result = await prisma.$queryRawUnsafe(`
       INSERT INTO staff_breaks (attendance_id, staff_id, break_start) VALUES ($1, $2, NOW()) RETURNING id, attendance_id, staff_id, break_start, break_end, duration_minutes
-    `, [att[0].id, staffId]);
+    `, att[0].id, staffId);
 
     success(res, result[0], 'Break started');
   } catch (err) {
@@ -220,7 +220,7 @@ export const endBreak = async (req, res) => {
       UPDATE staff_breaks SET break_end=NOW(),
         duration_minutes=EXTRACT(EPOCH FROM (NOW() - break_start))/60
       WHERE id=$1 RETURNING id, attendance_id, staff_id, break_start, break_end, duration_minutes
-    `, [breakId]);
+    `, breakId);
 
     success(res, result[0], `Break ended — ${Math.round(result[0].duration_minutes)} minutes`);
   } catch (err) {
@@ -243,7 +243,7 @@ export const getTodayBreaks = async (req, res) => {
       FROM staff_breaks b
       WHERE b.staff_id=$1 AND DATE(b.break_start)=$2
       ORDER BY b.break_start
-    `, [staffId, today]);
+    `, staffId, today);
 
     const totalBreakMinutes = breaks.reduce((sum, b) => sum + parseFloat(b.duration_minutes_calc || 0), 0);
     success(res, { breaks: breaks, totalBreakMinutes: Math.round(totalBreakMinutes) }, 'Breaks fetched');
@@ -277,7 +277,7 @@ export const submitDispute = async (req, res) => {
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       ON CONFLICT (staff_id, date) DO UPDATE SET dispute_type=$3, description=$4, requested_check_in=$5, requested_check_out=$6, evidence_url=$7, status='pending', created_at=NOW()
       RETURNING id, staff_uid, dispute_date, reason, status, resolution, created_at
-    `, [staffId, date, dispute_type, description, requested_check_in || null, requested_check_out || null, evidence_url || null]);
+    `, staffId, date, dispute_type, description, requested_check_in || null, requested_check_out || null, evidence_url || null);
 
     success(res, result[0], 'Dispute submitted. HR will review within 24 hours.');
   } catch (err) {
@@ -351,7 +351,7 @@ export const resolveDispute = async (req, res) => {
       if (d.requested_check_in || d.requested_check_out) {
         const existingAtt = await prisma.$queryRawUnsafe(
           `SELECT id FROM staff_attendance WHERE staff_id=$1 AND DATE(check_in_time)=$2`,
-          [d.staff_id, d.date]
+          d.staff_id, d.date
         );
 
         if (existingAtt.length > 0) {
@@ -375,7 +375,7 @@ export const resolveDispute = async (req, res) => {
         } else if (d.requested_check_in) {
           await prisma.$queryRawUnsafe(
             `INSERT INTO staff_attendance (staff_id, check_in_time, check_out_time) VALUES ($1, $2, $3)`,
-            [d.staff_id, d.requested_check_in, d.requested_check_out || null]
+            d.staff_id, d.requested_check_in, d.requested_check_out || null
           );
         }
       }
@@ -384,7 +384,7 @@ export const resolveDispute = async (req, res) => {
     const result = await prisma.$queryRawUnsafe(`
       UPDATE attendance_disputes SET status=$1, reviewer_comment=$2, reviewed_by=$3, reviewed_at=NOW()
       WHERE id=$4 RETURNING id, staff_uid, dispute_date, reason, status, resolution, created_at
-    `, [status, reviewer_comment || null, reviewerId, id]);
+    `, status, reviewer_comment || null, reviewerId, id);
 
     success(res, result[0], `Dispute ${status}`);
   } catch (err) {

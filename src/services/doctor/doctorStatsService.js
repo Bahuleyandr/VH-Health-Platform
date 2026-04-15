@@ -18,7 +18,7 @@ export class DoctorStatsService {
             ROUND(COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END)::numeric / NULLIF(COUNT(*), 0) * 100, 2) as completion_rate
           FROM appointments 
           WHERE doctor_id = $1 AND appointment_date >= CURRENT_DATE - INTERVAL '${months} months'
-        `, [doctorId]),
+        `, doctorId),
         
         // Patient statistics
         prisma.$queryRawUnsafe(`
@@ -27,7 +27,7 @@ export class DoctorStatsService {
             COUNT(*) as total_consultations
           FROM appointments 
           WHERE doctor_id = $1 AND status = 'COMPLETED'
-        `, [doctorId]),
+        `, doctorId),
         
         // Revenue statistics
         prisma.$queryRawUnsafe(`
@@ -38,7 +38,7 @@ export class DoctorStatsService {
           JOIN doctors d ON a.doctor_id = d.user_id
           WHERE a.doctor_id = $1 AND a.appointment_date >= CURRENT_DATE - INTERVAL '${months} months'
           GROUP BY d.consultation_fee
-        `, [doctorId])
+        `, doctorId)
       ]);
       
       return {
@@ -58,7 +58,7 @@ export class DoctorStatsService {
       // Verify doctor exists
       const doctorCheck = await prisma.$queryRawUnsafe(
         'SELECT u.name, d.specialization, d.department FROM users u JOIN doctors d ON u.id = d.user_id WHERE u.id = $1',
-        [doctorId]
+        doctorId
       );
       
       if (doctorCheck.length === 0) {
@@ -76,7 +76,7 @@ export class DoctorStatsService {
             ROUND(COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END)::numeric / NULLIF(COUNT(*), 0) * 100, 2) as completion_rate
           FROM appointments 
           WHERE doctor_id = $1 AND appointment_date >= CURRENT_DATE - INTERVAL '${months} months'
-        `, [doctorId]),
+        `, doctorId),
         
         // Monthly trends
         prisma.$queryRawUnsafe(`
@@ -90,7 +90,7 @@ export class DoctorStatsService {
           WHERE a.doctor_id = $1 AND a.appointment_date >= CURRENT_DATE - INTERVAL '${months} months'
           GROUP BY DATE_TRUNC('month', appointment_date)
           ORDER BY DATE_TRUNC('month', appointment_date) DESC
-        `, [doctorId]),
+        `, doctorId),
         
         // Patient feedback (if table exists)
         prisma.$queryRawUnsafe(`
@@ -98,7 +98,7 @@ export class DoctorStatsService {
                  COUNT(CASE WHEN rating >= 4 THEN 1 END) as positive_reviews
           FROM patient_feedback 
           WHERE doctor_id = $1 AND created_at >= CURRENT_DATE - INTERVAL '${months} months'
-        `, [doctorId]).catch(() => ({
+        `, doctorId).catch(() => ({
           rows: [{ avg_rating: null, total_reviews: 0, positive_reviews: 0 }]
         }))
       ]);

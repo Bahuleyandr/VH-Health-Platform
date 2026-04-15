@@ -1,10 +1,25 @@
-// Pharmacy order statuses
+// Pharmacy order statuses — canonical UPPERCASE lifecycle matching the DB default ('PENDING')
+// and the `*_at` timestamp columns on pharmacy_orders (confirmed_at, preparing_at, dispatched_at,
+// delivered_at, cancelled_at).
 export const ORDER_STATUS = {
-  PENDING: 'pending',
-  PROCESSING: 'processing',
-  READY: 'ready',
-  DISPENSED: 'dispensed',
-  CANCELLED: 'cancelled'
+  PENDING:    'PENDING',
+  CONFIRMED:  'CONFIRMED',
+  PREPARING:  'PREPARING',
+  READY:      'READY',
+  DISPATCHED: 'DISPATCHED',
+  DELIVERED:  'DELIVERED',
+  CANCELLED:  'CANCELLED',
+};
+
+// Allowed transitions. Terminal states (DELIVERED, CANCELLED) have empty arrays.
+export const ORDER_STATUS_TRANSITIONS = {
+  PENDING:    ['CONFIRMED', 'CANCELLED'],
+  CONFIRMED:  ['PREPARING', 'CANCELLED'],
+  PREPARING:  ['READY', 'DISPATCHED', 'CANCELLED'],
+  READY:      ['DISPATCHED', 'CANCELLED'],
+  DISPATCHED: ['DELIVERED', 'CANCELLED'],
+  DELIVERED:  [],
+  CANCELLED:  [],
 };
 
 // Medication categories

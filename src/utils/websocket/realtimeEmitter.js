@@ -1,0 +1,153 @@
+// src/utils/websocket/realtimeEmitter.js
+//
+// Domain-level helpers that wrap the raw broadcast()/sendToUser() primitives
+// with the channel naming convention from channelAuth.js. Controllers/services
+// should import from here, not from wsServer directly.
+
+import prisma from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
+import { sendPushNotification } from '../notifications/sendPushNotification.js';
+import { broadcast, sendToUser } from './wsServer.js';
+
+/** Vital-sign anomaly detected (WARNING or CRITICAL). */
+export function emitVitalAnomaly(alert) {
+  try {
+    broadcast('staff:clinical-alerts', {
+      kind: 'vital-anomaly',
+      patientId: String(alert.patient_id),
+      vitalName: alert.vital_name,
+      value: alert.value,
+      unit: alert.unit,
+      severity: alert.severity,
+      message: alert.message,
+      at: new Date().toISOString(),
+    });
+  } catch (err) {
+    logger.warn('emitVitalAnomaly failed:', err.message);
+  }
+}
+
+/** Code Blue — cardiac arrest / rapid-response push. */
+export function emitCodeBlue({ patientId, bedNumber, ward, triggeredBy, reason }) {
+  const payload = {
+    kind: 'code-blue',
+    patientId: String(patientId),
+    bedNumber: bedNumber || null,
+    ward: ward || null,
+    triggeredBy: triggeredBy ? String(triggeredBy) : null,
+    reason: reason || null,
+    at: new Date().toISOString(),
+  };
+  try {
+    broadcast('staff:code-blue', payload);
+  } catch (err) {
+    logger.warn('emitCodeBlue WS failed:', err.message);
+  }
+  // Fan out a high-priority FCM data message to active staff devices so the
+  // staff app wakes from background and shows a full-screen alert. Best-effort
+  // — failures must never block WS delivery.
+  _fanOutCodeBlueFcm(payload).catch((err) =>
+    logger.warn('emitCodeBlue FCM fan-out failed:', err.message),
+  );
+}
+
+async function _fanOutCodeBlueFcm(payload) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT device_token FROM staff_devices
+      WHERE is_active = true AND device_token IS NOT NULL`,
+  );
+  const tokens = rows.map((r) => r.device_token).filter(Boolean);
+  if (tokens.length === 0) return;
+
+  const bodyParts = [];
+  if (payload.ward) bodyParts.push(`Ward ${payload.ward}`);
+  if (payload.bedNumber) bodyParts.push(`Bed ${payload.bedNumber}`);
+  const body = bodyParts.length > 0 ? bodyParts.join(' · ') : 'Respond immediately';
+
+  // Firebase caps multicast at 500 tokens per call — chunk if needed.
+  const CHUNK = 500;
+  for (let i = 0; i < tokens.length; i += CHUNK) {
+    const slice = tokens.slice(i, i + CHUNK);
+    await sendPushNotification({
+      tokens: slice,
+      title: 'CODE BLUE',
+      body,
+      priority: 'high',
+      channelId: 'code_blue',
+      data: {
+        type: 'code_blue',
+        patientId: payload.patientId,
+        bedNumber: payload.bedNumber || '',
+        ward: payload.ward || '',
+        reason: payload.reason || '',
+        at: payload.at,
+      },
+    });
+  }
+}
+
+/** Bed occupancy change (create/update/admit/discharge/delete). */
+export function emitBedEvent(kind, bed) {
+  try {
+    const payload = {
+      kind,
+      bedId: bed?.id ?? null,
+      bedNumber: bed?.bed_number ?? null,
+      wardId: bed?.ward_id ?? null,
+      status: bed?.status ?? null,
+      patientId: bed?.patient_id ? String(bed.patient_id) : null,
+      at: new Date().toISOString(),
+    };
+    broadcast('staff:beds', payload);
+    broadcast('admin:beds', payload);
+  } catch (err) {
+    logger.warn('emitBedEvent failed:', err.message);
+  }
+}
+
+/** New handover note posted. */
+export function emitHandover(handover) {
+  try {
+    broadcast('staff:handovers', {
+      kind: 'handover-created',
+      handoverId: handover?.id ?? null,
+      patientUid: handover?.patient_uid ?? null,
+      ward: handover?.ward ?? null,
+      bedNumber: handover?.bed_number ?? null,
+      outgoingNurse: handover?.outgoing_nurse ?? null,
+      incomingNurse: handover?.incoming_nurse ?? null,
+      shift: handover?.shift ?? null,
+      at: new Date().toISOString(),
+    });
+  } catch (err) {
+    logger.warn('emitHandover failed:', err.message);
+  }
+}
+
+/** Queue position recomputed for a patient. */
+export function emitQueuePosition({ patientId, appointmentId, position, etaMinutes }) {
+  if (!patientId) return;
+  try {
+    sendToUser(String(patientId), 'queue-position', {
+      appointmentId: String(appointmentId),
+      position,
+      etaMinutes: etaMinutes ?? null,
+      at: new Date().toISOString(),
+    });
+  } catch (err) {
+    logger.warn('emitQueuePosition failed:', err.message);
+  }
+}
+
+/** Admin KPI tile tick. */
+export function emitAdminKpi(tile, value) {
+  try {
+    broadcast('admin:kpi', {
+      tile,
+      value,
+      at: new Date().toISOString(),
+    });
+  } catch (err) {
+    logger.warn('emitAdminKpi failed:', err.message);
+  }
+}

@@ -121,11 +121,11 @@ export async function uploadBatchFiles(req, res) {
         batch_id, uploaded_by, total_files, successful_files, failed_files,
         total_processing_time_ms, category, is_hipaa_protected, completed_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-    `, [
+    `, 
       generatedBatchId, req.user?.uid, req.files.length, results.length, 
       errors_list.length, totalProcessingTime, req.body.category, 
       req.body.hipaaProtected || false
-    ]);
+    );
 
     logger.info(`📤 Hospital batch upload completed: ${results.length}/${req.files.length} files | Batch: ${generatedBatchId} | User: ${req.user?.uid}`);
 

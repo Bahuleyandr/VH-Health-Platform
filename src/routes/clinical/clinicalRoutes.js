@@ -3,6 +3,7 @@ import express from 'express';
 import { validationResult } from 'express-validator';
 import handoverService from '../../services/clinical/handoverService.js';
 import marService from '../../services/clinical/marService.js';
+import marFiveRightsService from '../../services/clinical/marFiveRightsService.js';
 import news2Service from '../../services/clinical/news2Service.js';
 import { success, error } from '../../utils/responseHelper.js';
 import {
@@ -106,6 +107,63 @@ router.post('/mar/:id/administer', paramId(), optionalString('notes', 500), vali
     next(err);
   }
 });
+
+/**
+ * POST /clinical/mar/verify
+ * Dry-run 5-rights check for a scheduled medication_administrations row.
+ * Body: { ma_id, scanned_patient_uid, scanned_barcode }.
+ * Returns { rights, allPassed, ma, context }. Does not write.
+ */
+router.post('/mar/verify',
+  requiredNumber('ma_id'),
+  requiredUUID('scanned_patient_uid'),
+  requiredString('scanned_barcode', 100),
+  validate,
+  async (req, res, next) => {
+    try {
+      const { ma_id, scanned_patient_uid, scanned_barcode } = req.body;
+      const result = await marFiveRightsService.evaluate5Rights({
+        ma_id: parseInt(ma_id, 10),
+        scanned_patient_uid,
+        scanned_barcode,
+      });
+      return success(res, result, result.allPassed ? 'All 5 rights passed' : '5-rights check failed');
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * POST /clinical/mar/:id/administer-with-scan
+ * Commit a medication administration after a wristband + drug-barcode scan.
+ * Body: { scanned_patient_uid, scanned_barcode, override_reason? }.
+ * If any right fails and override_reason is absent, returns 409 with the
+ * failing rights so the client can drive the override modal.
+ */
+router.post('/mar/:id/administer-with-scan',
+  paramId(),
+  requiredUUID('scanned_patient_uid'),
+  requiredString('scanned_barcode', 100),
+  optionalString('override_reason', 500),
+  validate,
+  async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const { scanned_patient_uid, scanned_barcode, override_reason } = req.body;
+      const record = await marFiveRightsService.administerWithScan({
+        ma_id: parseInt(id, 10),
+        scanned_patient_uid,
+        scanned_barcode,
+        administeredBy: req.user.uid,
+        overrideReason: override_reason && override_reason.trim().length >= 5 ? override_reason.trim() : null,
+      });
+      return success(res, record, 'Medication administration recorded');
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 /**
  * POST /clinical/mar/:id/miss

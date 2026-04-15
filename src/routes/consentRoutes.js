@@ -60,7 +60,7 @@ router.post('/grant', requiredUUID('patient_uid'), requiredString('consent_type'
       `SELECT id FROM patient_consents
        WHERE patient_uid = $1 AND consent_type = $2 AND granted = true AND revoked_at IS NULL
        LIMIT 1`,
-      [patient_uid, consent_type]
+      patient_uid, consent_type
     );
 
     if (existing.length > 0) {
@@ -72,7 +72,7 @@ router.post('/grant', requiredUUID('patient_uid'), requiredString('consent_type'
         (patient_uid, consent_type, granted, granted_at, granted_by, ip_address, notes, created_at)
        VALUES ($1, $2, true, NOW(), $3, $4, $5, NOW())
        RETURNING id, patient_uid, consent_type, granted, granted_at, granted_by, ip_address, notes, created_at`,
-      [patient_uid, consent_type, grantedBy, ip, notes || null]
+      patient_uid, consent_type, grantedBy, ip, notes || null
     );
 
     logPhiAccess({
@@ -120,7 +120,7 @@ router.post('/revoke', requiredUUID('patient_uid'), requiredString('consent_type
          AND granted = true
          AND revoked_at IS NULL
        RETURNING id, patient_uid, consent_type, granted, granted_at, revoked_at`,
-      [patient_uid, consent_type]
+      patient_uid, consent_type
     );
 
     if (result.length === 0) {
@@ -171,7 +171,7 @@ router.get('/:patientUid', async (req, res, next) => {
        FROM patient_consents
        WHERE patient_uid = $1
        ORDER BY created_at DESC`,
-      [patientUid]
+      patientUid
     );
 
     const ip = req.ip || req.headers['x-forwarded-for'] || null;
@@ -218,7 +218,7 @@ router.get('/:patientUid/:consentType', async (req, res, next) => {
          AND consent_type = $2
        ORDER BY created_at DESC
        LIMIT 1`,
-      [patientUid, consentType]
+      patientUid, consentType
     );
 
     if (result.length === 0) {

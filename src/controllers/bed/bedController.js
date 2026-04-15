@@ -3,6 +3,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import bedService from '../../services/bed/bedService.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { emitBedEvent } from '../../utils/websocket/realtimeEmitter.js';
 
 // ===== WARD CONTROLLERS =====
 
@@ -83,6 +84,7 @@ export const getBedSummary = async (req, res) => {
 export const createBed = async (req, res) => {
   try {
     const bed = await bedService.createBed(req.body);
+    emitBedEvent('bed-created', bed);
     success(res, { bed }, 'Bed created', HTTP_STATUS.CREATED);
   } catch (err) {
     logger.error('Error creating bed:', err);
@@ -94,6 +96,7 @@ export const updateBed = async (req, res) => {
   try {
     const bed = await bedService.updateBed(req.params.id, req.body);
     if (!bed) return error(res, 'Bed not found', HTTP_STATUS.NOT_FOUND);
+    emitBedEvent('bed-updated', bed);
     success(res, { bed }, 'Bed updated');
   } catch (err) {
     logger.error('Error updating bed:', err);
@@ -105,6 +108,7 @@ export const deleteBed = async (req, res) => {
   try {
     const deleted = await bedService.deleteBed(req.params.id);
     if (!deleted) return error(res, 'Bed not found', HTTP_STATUS.NOT_FOUND);
+    emitBedEvent('bed-deleted', { id: req.params.id });
     success(res, null, 'Bed deleted');
   } catch (err) {
     logger.error('Error deleting bed:', err);
@@ -116,6 +120,7 @@ export const admitPatient = async (req, res) => {
   try {
     const bed = await bedService.admitPatient(req.params.id, req.body);
     if (!bed) return error(res, 'Bed not available for admission', HTTP_STATUS.BAD_REQUEST);
+    emitBedEvent('patient-admitted', bed);
     success(res, { bed }, 'Patient admitted');
   } catch (err) {
     logger.error('Error admitting patient:', err);
@@ -127,6 +132,7 @@ export const dischargePatient = async (req, res) => {
   try {
     const bed = await bedService.dischargePatient(req.params.id);
     if (!bed) return error(res, 'Bed is not occupied', HTTP_STATUS.BAD_REQUEST);
+    emitBedEvent('patient-discharged', bed);
     success(res, { bed }, 'Patient discharged');
   } catch (err) {
     logger.error('Error discharging patient:', err);

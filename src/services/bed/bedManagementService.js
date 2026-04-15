@@ -13,7 +13,7 @@ class BedManagementService {
   // =========================================================================
   async getBedOccupancy() {
     // Overall counts
-    const { rows: totals } = await prisma.$queryRawUnsafe(`
+    const totals = await prisma.$queryRawUnsafe(`
       SELECT
         COUNT(*)::int AS total,
         COUNT(*) FILTER (WHERE status = 'occupied')::int AS occupied,
@@ -25,7 +25,7 @@ class BedManagementService {
     `);
 
     // By ward
-    const { rows: byWard } = await prisma.$queryRawUnsafe(`
+    const byWard = await prisma.$queryRawUnsafe(`
       SELECT
         ward_id,
         ward_name,
@@ -39,7 +39,7 @@ class BedManagementService {
     `);
 
     // By bed type
-    const { rows: byType } = await prisma.$queryRawUnsafe(`
+    const byType = await prisma.$queryRawUnsafe(`
       SELECT
         bed_type,
         COUNT(*)::int AS total,
@@ -280,7 +280,7 @@ class BedManagementService {
 
     const where = conditions.join(' AND ');
 
-    const { rows } = await prisma.$queryRawUnsafe(
+    const rows = await prisma.$queryRawUnsafe(
       `SELECT id, bed_number, ward_id, ward_name, floor, bed_type, notes, created_at
        FROM beds
        WHERE ${where}
@@ -295,19 +295,19 @@ class BedManagementService {
   // markBedReady — Cleaning complete, set bed to available
   // =========================================================================
   async markBedReady(bedId) {
-    const { rows } = await prisma.$queryRawUnsafe(
+    const rows = await prisma.$queryRawUnsafe(
       `UPDATE beds
        SET status = 'available', updated_at = NOW()
        WHERE id = $1 AND status = 'cleaning'
        RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
-      [bedId]
+      bedId
     );
 
     if (!rows.length) {
       // Check if bed exists at all
-      const { rows: check } = await prisma.$queryRawUnsafe(
+      const check = await prisma.$queryRawUnsafe(
         `SELECT id, status FROM beds WHERE id = $1`,
-        [bedId]
+        bedId
       );
       if (!check.length) {
         throw AppError.notFound('Bed not found');
@@ -326,16 +326,16 @@ class BedManagementService {
   // =========================================================================
   async getBedHistory(bedId) {
     // Verify bed exists
-    const { rows: bedCheck } = await prisma.$queryRawUnsafe(
+    const bedCheck = await prisma.$queryRawUnsafe(
       `SELECT id, bed_number FROM beds WHERE id = $1`,
-      [bedId]
+      bedId
     );
 
     if (!bedCheck.length) {
       throw AppError.notFound('Bed not found');
     }
 
-    const { rows } = await prisma.$queryRawUnsafe(
+    const rows = await prisma.$queryRawUnsafe(
       `SELECT bt.id, bt.patient_uid, bt.from_bed_id, bt.to_bed_id,
               bt.reason, bt.transferred_by, bt.transferred_at,
               fb.bed_number AS from_bed_number,
@@ -348,7 +348,7 @@ class BedManagementService {
        WHERE bt.from_bed_id = $1 OR bt.to_bed_id = $1
        ORDER BY bt.transferred_at DESC
        LIMIT 200`,
-      [bedId]
+      bedId
     );
 
     return rows;

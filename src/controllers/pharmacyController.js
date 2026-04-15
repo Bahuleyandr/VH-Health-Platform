@@ -25,7 +25,7 @@ export async function placePharmacyOrder(req, res) {
     const result = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_orders (phone, order_note, file_key)
        VALUES ($1, $2, $3) RETURNING id, phone, order_note, file_key, status, created_at`,
-      [phone, order_note, file_key || null]
+      phone, order_note, file_key || null
     );
     success(res, result[0], 'Pharmacy order placed');
   } catch (err) {

@@ -173,7 +173,7 @@ export const bulkShiftAssignment = async (req, res) => {
               updated_by = $3,
               updated_at = NOW()
             WHERE id = $1
-          `, [assignment.staff_id, assignment.shift, assignedBy]);
+          `, assignment.staff_id, assignment.shift, assignedBy);
           
           return { staff_id: assignment.staff_id, status: 'success' };
         } catch (err) {
@@ -259,7 +259,7 @@ export const updateStaffStatus = async (req, res) => {
         updated_at = NOW()
       WHERE id = $1
       RETURNING id, employee_id, department, shift, is_active, on_leave, status_reason, updated_by, updated_at
-    `, [staffId, is_active, on_leave, reason, updatedBy]);
+    `, staffId, is_active, on_leave, reason, updatedBy);
 
     if (result.length === 0) {
       return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
@@ -289,7 +289,7 @@ export const archiveStaffMember = async (req, res) => {
         archive_reason = $3
       WHERE id = $1
       RETURNING id, employee_id
-    `, [staffId, archivedBy, reason]);
+    `, staffId, archivedBy, reason);
 
     if (result.length === 0) {
       return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
@@ -318,7 +318,7 @@ export const purgeOldRecords = async (req, res) => {
           DELETE FROM staff_attendance
           WHERE check_in_time < NOW() - make_interval(days => $1)
           RETURNING id
-        `, [safeDays]);
+        `, safeDays);
         break;
       case 'reviews':
         result = await prisma.$queryRawUnsafe(`
@@ -326,17 +326,18 @@ export const purgeOldRecords = async (req, res) => {
           WHERE created_at < NOW() - make_interval(days => $1)
           AND status = 'completed'
           RETURNING id
-        `, [safeDays]);
+        `, safeDays);
         break;
       default:
         return error(res, 'Invalid record type', HTTP_STATUS.BAD_REQUEST);
     }
 
     // Log the purge operation
-    await prisma.$queryRawUnsafe(`
-      INSERT INTO audit_logs (action, entity_type, performed_by, details)
-      VALUES ('purge', $1, $2, $3)
-    `, [record_type, purgedBy, { deleted_count: result.length, older_than_days }]);
+    await prisma.$queryRawUnsafe(
+      `INSERT INTO audit_logs (action, resource, uid, metadata)
+       VALUES ('purge', $1, $2::uuid, $3::jsonb)`,
+      record_type, purgedBy, JSON.stringify({ deleted_count: result.length, older_than_days })
+    );
 
     success(res, {
       purged: result.length,

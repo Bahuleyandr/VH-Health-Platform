@@ -140,7 +140,7 @@ export async function executeErasure({ uid, phone, requestedBy, reason, ip, requ
             medical_history = NULL, is_active = false,
             updated_at = NOW()
           WHERE uid = $4`,
-          [ANON, ANON_EMAIL, ANON, uid]
+          ANON, ANON_EMAIL, ANON, uid
         );
         results.users = { action: 'anonymized', count: 1 };
       } catch (err) {
@@ -167,11 +167,11 @@ export async function executeErasure({ uid, phone, requestedBy, reason, ip, requ
         `INSERT INTO gdpr_erasure_log
           (uid, phone_hash, requested_by, reason, ip, tables_processed, completed_at, duration_ms, results, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
-        [
+        
           erasureLog.uid, erasureLog.phone_hash, erasureLog.requested_by,
           erasureLog.reason, erasureLog.ip, erasureLog.tables_processed,
           erasureLog.completed_at, erasureLog.duration_ms, erasureLog.results,
-        ]
+        
       );
     } catch (logErr) {
       // Log table might not exist yet — write to file as fallback
@@ -216,7 +216,7 @@ export async function checkLegalHold(uid) {
     const holds = await prisma.$queryRawUnsafe(
       `SELECT id, reason, created_at FROM legal_holds
        WHERE user_uid = $1 AND released_at IS NULL`,
-      [uid]
+      uid
     );
     return { hasHold: holds.length > 0, holds };
   } catch {

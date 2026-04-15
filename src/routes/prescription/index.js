@@ -26,7 +26,8 @@ const upload = multer({
 // Staff/admin create prescription
 wrapAutoRBAC(router, 'ePrescriptionCreateRoutes', {
   post: [
-    ['/create', [upload.single('handwritten_photo')], ePrescriptionController.createPrescription]
+    ['/create', [upload.single('handwritten_photo')], ePrescriptionController.createPrescription],
+    ['/safety-check', [], ePrescriptionController.previewSafetyCheck]
   ]
 });
 
@@ -55,7 +56,8 @@ wrapAutoRBAC(router, 'ePrescriptionPdfRoutes', {
 // Dynamic /:id routes last
 wrapAutoRBAC(router, 'ePrescriptionDetailRoutes', {
   get: [
-    ['/:id', [], ePrescriptionController.getPrescription]
+    ['/:id', [], ePrescriptionController.getPrescription],
+    ['/:id/safety', [], ePrescriptionController.getPrescriptionSafety]
   ],
   post: [
     ['/:id/order-pharmacy', [], ePrescriptionController.orderPharmacyFromPrescription],

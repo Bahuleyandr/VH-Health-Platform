@@ -41,6 +41,36 @@ export async function getAppVersion(req, res) {
   success(res, versionInfo, 'App version fetched successfully');
 }
 
+/**
+ * GET /health/client-requirements
+ *
+ * Client-side version gate. Apps POST their build identifier at startup and
+ * render an upgrade blocker if they're below the minimum. Sourced from env
+ * so ops can push a floor without a deploy.
+ *
+ * Response shape is stable: { patient: {min, recommended}, staff: {min, recommended} }.
+ */
+export async function getClientRequirements(req, res) {
+  success(res, {
+    patient: {
+      min: process.env.PATIENT_MIN_VERSION || '1.0.0',
+      recommended: process.env.PATIENT_RECOMMENDED_VERSION || process.env.PATIENT_MIN_VERSION || '1.0.0',
+      updateUrl: {
+        android: process.env.PATIENT_ANDROID_URL || null,
+        ios: process.env.PATIENT_IOS_URL || null,
+      },
+    },
+    staff: {
+      min: process.env.STAFF_MIN_VERSION || '1.0.0',
+      recommended: process.env.STAFF_RECOMMENDED_VERSION || process.env.STAFF_MIN_VERSION || '1.0.0',
+      updateUrl: {
+        android: process.env.STAFF_ANDROID_URL || null,
+        ios: process.env.STAFF_IOS_URL || null,
+      },
+    },
+  }, 'Client version requirements');
+}
+
 export async function getSystemStatus(req, res) {
   try {
     const systemStatus = systemHealthService.getSystemStatus();

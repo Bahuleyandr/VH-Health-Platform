@@ -27,7 +27,9 @@ function getHasuraClaims(decoded) {
  * JWT authentication middleware
  * - Accepts tokens that may use uid | user_id | userId | id | sub | x-hasura-user-id
  * - Normalizes role; maps SUPER_ADMIN->ADMIN etc.; falls back to PATIENT
- * - Attaches req.user = { uid, role, roles?, phone?, email? }
+ * - Attaches req.user = { uid, role, roles?, phone?, email?, id? }
+ *   `id` is the DB integer id (from decoded.id / decoded.userId / hasura), when present.
+ *   Callers that need int-FK comparisons (e.g. appointments.patient_id) should use `id`.
  * - 401 for missing/invalid token; 400 if UID cannot be derived
  */
 export default async function jwtMiddleware(req, res, next) {
@@ -115,6 +117,9 @@ export default async function jwtMiddleware(req, res, next) {
   // Optional fields
   const phone = decoded.phone ?? decoded.phone_number ?? decoded.phoneNumber ?? null;
   const email = decoded.email ?? null;
+  // Preserve the int DB id when the token carries one (distinct from uid, which is a uuid).
+  const idRaw = decoded.id ?? decoded.userId ?? decoded.user_id ?? hasura?.['x-hasura-user-int-id'] ?? null;
+  const idInt = idRaw != null && /^\d+$/.test(String(idRaw)) ? parseInt(String(idRaw), 10) : null;
 
   req.user = {
     uid: String(uidRaw),
@@ -122,6 +127,7 @@ export default async function jwtMiddleware(req, res, next) {
     roles: rolesAllowed.length ? rolesAllowed : undefined,
     phone,
     email,
+    id: idInt,
   };
 
   logger.info(`JWT OK: uid=${req.user.uid} role=${req.user.role}`);

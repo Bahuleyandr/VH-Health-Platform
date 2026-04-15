@@ -44,7 +44,7 @@ export const proposeRevision = async (req, res) => {
     }
 
     // Get current salary
-    const currentSalaryRes = await prisma.$queryRawUnsafe('SELECT id, staff_uid, basic_salary, hra, special_allowance, total_ctc, is_active, effective_from, created_at FROM staff_salary WHERE staff_uid=$1', staff_uid);
+    const currentSalaryRes = await prisma.$queryRawUnsafe('SELECT id, staff_uid, basic_salary, hra_pct, da_pct, special_allowance, transport_allowance, medical_allowance, pf_employee_pct, is_active, effective_from, created_at FROM staff_salary WHERE staff_uid=$1', staff_uid);
     const currentSalary = currentSalaryRes[0];
 
     // Calculate proposed gross if basic is provided
@@ -67,8 +67,8 @@ export const proposeRevision = async (req, res) => {
         effective_from, reason, proposed_by,
         current_gross, proposed_gross
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-      RETURNING id, staff_uid, revision_type, old_basic, new_basic, status, approved_by, reason, created_at, revision_number, current_basic, proposed_basic
-    `, [
+      RETURNING id, staff_uid, revision_type, current_basic, proposed_basic, status, reason, created_at, revision_number
+    `, 
       staff_uid, revision_type,
       currentSalary?.basic_salary ?? null,
       proposed_basic ?? null,
@@ -80,7 +80,7 @@ export const proposeRevision = async (req, res) => {
       effective_from, reason, proposerUid,
       currentSalary?.basic_salary ?? null,
       proposedGross ?? proposed_basic ?? null,
-    ]);
+    );
 
     success(res, result[0],
       `${revision_type} proposal ${result[0].revision_number} submitted — awaiting HR signature`);
@@ -97,7 +97,7 @@ export const hrSignRevision = async (req, res) => {
     const hrUid = req.user?.uid;
     const { comment } = req.body;
 
-    const rev = await prisma.$queryRawUnsafe('SELECT id, staff_uid, revision_type, old_basic, new_basic, old_ctc, new_ctc, effective_from, status, approved_by, reason, created_at FROM salary_revisions WHERE id=$1', id);
+    const rev = await prisma.$queryRawUnsafe('SELECT id, staff_uid, revision_type, current_basic, proposed_basic, current_gross, proposed_gross, effective_from, status, hr_signed_by, admin_signed_by, reason, created_at FROM salary_revisions WHERE id=$1', id);
     if (rev.length === 0) return error(res, 'Revision not found', HTTP_STATUS.NOT_FOUND);
     if (rev[0].status !== 'pending_hr') {
       return error(res, 'Revision is not awaiting HR signature', HTTP_STATUS.BAD_REQUEST);
@@ -107,8 +107,8 @@ export const hrSignRevision = async (req, res) => {
       UPDATE salary_revisions
       SET hr_signed_by=$1, hr_signed_at=NOW(), hr_comment=$2, status='pending_admin', updated_at=NOW()
       WHERE id=$3
-      RETURNING id, staff_uid, revision_type, old_basic, new_basic, status, approved_by, reason, created_at
-    `, [hrUid, comment ?? null, id]);
+      RETURNING id, staff_uid, revision_type, current_basic, proposed_basic, status, reason, created_at
+    `, hrUid, comment ?? null, id);
 
     success(res, result[0], 'HR signature applied — awaiting Admin countersign');
   } catch (err) {
@@ -124,7 +124,7 @@ export const adminSignRevision = async (req, res) => {
     const adminUid = req.user?.uid;
     const { comment } = req.body;
 
-    const rev = await prisma.$queryRawUnsafe('SELECT id, staff_uid, revision_type, old_basic, new_basic, old_ctc, new_ctc, effective_from, status, approved_by, reason, created_at FROM salary_revisions WHERE id=$1', id);
+    const rev = await prisma.$queryRawUnsafe('SELECT id, staff_uid, revision_type, current_basic, proposed_basic, current_gross, proposed_gross, effective_from, status, hr_signed_by, admin_signed_by, reason, created_at FROM salary_revisions WHERE id=$1', id);
     if (rev.length === 0) return error(res, 'Revision not found', HTTP_STATUS.NOT_FOUND);
     if (rev[0].status !== 'pending_admin') {
       return error(res, 'Revision must be HR-signed before Admin countersign', HTTP_STATUS.BAD_REQUEST);
@@ -141,8 +141,8 @@ export const adminSignRevision = async (req, res) => {
       SET admin_signed_by=$1, admin_signed_at=NOW(), admin_comment=$2,
           status='approved', signature_hash=$3, updated_at=NOW()
       WHERE id=$4
-      RETURNING id, staff_uid, revision_type, old_basic, new_basic, status, approved_by, reason, created_at
-    `, [adminUid, comment ?? null, hash, id]);
+      RETURNING id, staff_uid, revision_type, current_basic, proposed_basic, status, reason, created_at
+    `, adminUid, comment ?? null, hash, id);
 
     success(res, result[0], 'Admin countersign complete — revision approved');
   } catch (err) {
@@ -156,7 +156,7 @@ export const applyRevision = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const rev = await prisma.$queryRawUnsafe('SELECT id, staff_uid, revision_type, old_basic, new_basic, old_ctc, new_ctc, effective_from, status, approved_by, reason, created_at FROM salary_revisions WHERE id=$1', id);
+    const rev = await prisma.$queryRawUnsafe('SELECT id, staff_uid, revision_type, current_basic, proposed_basic, current_gross, proposed_gross, effective_from, status, hr_signed_by, admin_signed_by, reason, created_at FROM salary_revisions WHERE id=$1', id);
     if (rev.length === 0) return error(res, 'Revision not found', HTTP_STATUS.NOT_FOUND);
     if (rev[0].status !== 'approved') {
       return error(res, 'Revision must be approved by both HR and Admin before applying', HTTP_STATUS.FORBIDDEN);
@@ -199,7 +199,7 @@ export const applyRevision = async (req, res) => {
     // Mark as applied
     await prisma.$queryRawUnsafe(
       `UPDATE salary_revisions SET status='applied', applied_at=NOW() WHERE id=$1`,
-      [id]
+      id
     );
 
     // Update annual review reminder if applicable
@@ -208,7 +208,7 @@ export const applyRevision = async (req, res) => {
       UPDATE annual_review_reminders
       SET status='completed', revision_id=$1
       WHERE staff_uid=$2 AND review_year=$3 AND status IN ('pending','initiated')
-    `, [id, r.staff_uid, thisYear]).catch(() => { /* non-critical */ });
+    `, id, r.staff_uid, thisYear).catch(() => { /* non-critical */ });
 
     success(res, { revision_id: id, staff_uid: r.staff_uid }, 'Revision applied to staff salary');
   } catch (err) {
@@ -228,8 +228,8 @@ export const rejectRevision = async (req, res) => {
       UPDATE salary_revisions
       SET status='rejected', rejected_by=$1, rejected_at=NOW(), rejection_reason=$2, updated_at=NOW()
       WHERE id=$3 AND status IN ('pending_hr','pending_admin')
-      RETURNING id, staff_uid, revision_type, old_basic, new_basic, status, approved_by, reason, created_at
-    `, [rejecterUid, reason ?? null, id]);
+      RETURNING id, staff_uid, revision_type, current_basic, proposed_basic, status, reason, created_at
+    `, rejecterUid, reason ?? null, id);
 
     if (result.length === 0) {
       return error(res, 'Revision not found or already processed', HTTP_STATUS.NOT_FOUND);
@@ -256,8 +256,8 @@ export const getRevisions = async (req, res) => {
     params.push(Math.min(parseInt(limit) || 50, 200));
 
     const revisions = await prisma.$queryRawUnsafe(`
-      SELECT sr.id, sr.staff_uid, sr.revision_type, sr.old_basic, sr.new_basic, sr.old_ctc, sr.new_ctc,
-             sr.effective_from, sr.status, sr.approved_by, sr.reason, sr.created_at,
+      SELECT sr.id, sr.staff_uid, sr.revision_type, sr.current_basic, sr.proposed_basic, sr.current_gross, sr.proposed_gross,
+             sr.effective_from, sr.status, sr.reason, sr.created_at,
              u.name as staff_name, COALESCE(s.department, ss.department) as department,
              u2.name as proposed_by_name,
              u3.name as hr_signed_by_name,
@@ -308,7 +308,7 @@ export const getAnnualReviewStatus = async (req, res) => {
         AND ss.date_of_joining IS NOT NULL
         AND ss.date_of_joining::date <= CURRENT_DATE - INTERVAL '11 months'
       ORDER BY ss.date_of_joining ASC
-    `, [year]);
+    `, year);
 
     success(res, { year, staff: dueForReview }, 'Annual review status fetched');
   } catch (err) {
@@ -323,8 +323,8 @@ export const getRevisionDetail = async (req, res) => {
     const { id } = req.params;
 
     const result = await prisma.$queryRawUnsafe(`
-      SELECT sr.id, sr.staff_uid, sr.revision_type, sr.old_basic, sr.new_basic, sr.old_ctc, sr.new_ctc,
-             sr.effective_from, sr.status, sr.approved_by, sr.reason, sr.created_at,
+      SELECT sr.id, sr.staff_uid, sr.revision_type, sr.current_basic, sr.proposed_basic, sr.current_gross, sr.proposed_gross,
+             sr.effective_from, sr.status, sr.reason, sr.created_at,
              u.name as staff_name, COALESCE(s.department, ss.department) as department,
              u2.name as proposed_by_name,
              u3.name as hr_signed_by_name,
@@ -337,7 +337,7 @@ export const getRevisionDetail = async (req, res) => {
       LEFT JOIN users u3 ON sr.hr_signed_by = u3.uid
       LEFT JOIN users u4 ON sr.admin_signed_by = u4.uid
       WHERE sr.id = $1
-    `, [id]);
+    `, id);
 
     if (result.length === 0) return error(res, 'Revision not found', HTTP_STATUS.NOT_FOUND);
     success(res, result[0], 'Revision detail fetched');

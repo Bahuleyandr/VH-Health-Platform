@@ -41,7 +41,7 @@ export async function runMigrations() {
       logger.info(`Running migration: ${file}`);
 
       await prisma.$queryRawUnsafe(sql);
-      await prisma.$queryRawUnsafe('INSERT INTO _migrations (name) VALUES ($1)', [file]);
+      await prisma.$queryRawUnsafe('INSERT INTO _migrations (name) VALUES ($1)', file);
       ran++;
       logger.info(`✅ Migration completed: ${file}`);
     }

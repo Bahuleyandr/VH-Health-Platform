@@ -390,13 +390,13 @@ export class SwaggerService {
           admin_uid, action, description, details, 
           ip_address, created_at
         ) VALUES ($1, $2, $3, $4, $5, NOW())`,
-        [
+        
           adminInfo.uid,
           'DOCUMENTATION_REGENERATED',
           `API documentation regenerated from ${regenerationResult.source}`,
           JSON.stringify(regenerationResult),
           adminInfo.ipAddress
-        ]
+        
       ).catch(err => logger.warn('Could not log regeneration activity:', err.message));
       
       return {

@@ -22,7 +22,7 @@ export const requestReplacement = async (req, res) => {
     const result = await prisma.$queryRawUnsafe(`
       INSERT INTO replacement_requests (leave_request_id, requester_id, replacement_staff_id, dates, status, requester_message, requested_at)
       VALUES ($1, $2, $3, $4, 'pending', $5, NOW()) RETURNING id, original_staff_id, replacement_staff_id, shift_date, status, reason, created_at
-    `, [leave_request_id || null, requesterId, replacement_staff_id, JSON.stringify(dates), message || null]);
+    `, leave_request_id || null, requesterId, replacement_staff_id, JSON.stringify(dates), message || null);
 
     success(res, result[0], 'Replacement request sent');
   } catch (err) {
@@ -51,7 +51,7 @@ export const respondToReplacement = async (req, res) => {
     const result = await prisma.$queryRawUnsafe(`
       UPDATE replacement_requests SET status=$1, responder_message=$2, responded_at=NOW()
       WHERE id=$3 RETURNING id, original_staff_id, replacement_staff_id, shift_date, status, reason, created_at
-    `, [status, message || null, id]);
+    `, status, message || null, id);
 
     success(res, result[0], `Replacement request ${status}`);
   } catch (err) {
@@ -105,7 +105,7 @@ export const hrApproveReplacement = async (req, res) => {
     const result = await prisma.$queryRawUnsafe(`
       UPDATE replacement_requests SET status='hr_approved', hr_approved_at=NOW(), hr_approved_by=$1
       WHERE id=$2 AND status='accepted' RETURNING id, original_staff_id, replacement_staff_id, shift_date, status, reason, created_at
-    `, [hrId, id]);
+    `, hrId, id);
     if (result.length === 0) {
       return error(res, 'Replacement request not found or not in accepted state', HTTP_STATUS.NOT_FOUND);
     }

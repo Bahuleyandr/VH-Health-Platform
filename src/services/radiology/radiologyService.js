@@ -7,47 +7,57 @@ import { AppError } from '../../utils/AppError.js';
 const VALID_MODALITIES = ['xray', 'ct', 'mri', 'ultrasound', 'mammography', 'fluoroscopy'];
 const VALID_PRIORITIES = ['routine', 'urgent', 'stat'];
 
+// Canonical columns for radiology_orders. The real schema has:
+// `report (text)`, `report_completed_at`, `radiologist (uuid)`, `notes`.
+// It does NOT have `findings`, `impression`, `images`, `reported_by`, `reported_at` —
+// an earlier service shape referenced those; we fold findings/impression into the
+// `report` text blob and keep `radiologist` as the reporter uuid.
+const RAD_RETURNING = `id, patient_uid, encounter_id, modality, body_part, clinical_indication,
+    priority, status, ordered_by, radiologist, report, report_completed_at, notes,
+    created_at, updated_at`;
+
+function requireIntId(id) {
+  const n = parseInt(id, 10);
+  if (!Number.isFinite(n)) throw AppError.badRequest('Invalid id — must be an integer');
+  return n;
+}
+
 class RadiologyService {
 
-  /**
-   * Create a new radiology order
-   */
   async createOrder(data) {
     const {
       patient_uid, encounter_id, modality, body_part,
-      clinical_indication, priority = 'routine', ordered_by, notes
+      clinical_indication, priority = 'routine', ordered_by, notes,
     } = data;
 
     if (!patient_uid || !modality || !body_part || !clinical_indication || !ordered_by) {
       throw AppError.badRequest('Missing required fields: patient_uid, modality, body_part, clinical_indication, ordered_by');
     }
-
     if (!VALID_MODALITIES.includes(modality)) {
       throw AppError.badRequest(`Invalid modality. Must be one of: ${VALID_MODALITIES.join(', ')}`);
     }
-
     if (!VALID_PRIORITIES.includes(priority)) {
       throw AppError.badRequest(`Invalid priority. Must be one of: ${VALID_PRIORITIES.join(', ')}`);
     }
 
     const result = await prisma.$queryRawUnsafe(
       `INSERT INTO radiology_orders
-        (patient_uid, encounter_id, modality, body_part, clinical_indication, priority, status, ordered_by, notes, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, 'ordered', $7, $8, NOW())
-       RETURNING id, patient_uid, encounter_id, modality, body_part, clinical_indication, priority, status, ordered_by, notes, created_at`,
-      [patient_uid, encounter_id || null, modality, body_part, clinical_indication, priority, ordered_by, notes || null]
+        (patient_uid, encounter_id, modality, body_part, clinical_indication,
+         priority, status, ordered_by, notes, created_at, updated_at)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, 'ordered', $7::uuid, $8, NOW(), NOW())
+       RETURNING ${RAD_RETURNING}`,
+      patient_uid, encounter_id || null, modality, body_part, clinical_indication,
+      priority, ordered_by, notes || null
     );
 
     logger.info('Radiology order created', { orderId: result[0].id, modality, patient_uid });
     return result[0];
   }
 
-  /**
-   * Get radiology worklist (filterable by status, modality, priority)
-   */
   async getWorklist(filters = {}) {
     const { status, modality, priority, page = 1, limit = 50 } = filters;
-    const offset = (Math.max(1, parseInt(page, 10)) - 1) * parseInt(limit, 10);
+    const safeLimit = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
+    const offset = (Math.max(1, parseInt(page, 10) || 1) - 1) * safeLimit;
     const conditions = [];
     const params = [];
 
@@ -67,157 +77,128 @@ class RadiologyService {
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const countResult = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*) FROM radiology_orders ro ${whereClause}`,
-      params
+      `SELECT COUNT(*)::int AS count FROM radiology_orders ro ${whereClause}`,
+      ...params
     );
-
     const total = parseInt(countResult[0].count, 10);
 
-    params.push(parseInt(limit, 10));
+    params.push(safeLimit);
     params.push(offset);
 
     const result = await prisma.$queryRawUnsafe(
       `SELECT ro.id, ro.patient_uid, ro.encounter_id, ro.modality, ro.body_part,
               ro.clinical_indication, ro.priority, ro.status, ro.ordered_by,
-              ro.reported_by, ro.reported_at, ro.notes, ro.created_at
+              ro.radiologist, ro.report_completed_at, ro.notes, ro.created_at, ro.updated_at
        FROM radiology_orders ro
        ${whereClause}
        ORDER BY
          CASE ro.priority WHEN 'stat' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END,
          ro.created_at DESC
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
-      params
+      ...params
     );
 
     return {
       orders: result,
       pagination: {
         total,
-        page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
-        pages: Math.ceil(total / parseInt(limit, 10))
-      }
+        page: parseInt(page, 10) || 1,
+        limit: safeLimit,
+        pages: Math.ceil(total / safeLimit),
+      },
     };
   }
 
-  /**
-   * Submit a radiology report for an order
-   */
   async submitReport(id, data) {
-    const { report, findings, impression, images, reported_by } = data;
+    const { report, findings, impression, reported_by } = data;
 
     if (!report || !reported_by) {
       throw AppError.badRequest('Missing required fields: report, reported_by');
     }
 
-    // Verify order exists and is not cancelled
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM radiology_orders WHERE id = $1`,
-      [id]
-    );
-
-    if (existing.length === 0) {
-      throw AppError.notFound('Radiology order not found');
-    }
-
+      `SELECT id, status FROM radiology_orders WHERE id = $1`, requireIntId(id));
+    if (existing.length === 0) throw AppError.notFound('Radiology order not found');
     if (existing[0].status === 'cancelled') {
       throw AppError.badRequest('Cannot submit report for a cancelled order');
     }
 
+    // Compose a full-report blob that captures the structured sections the old
+    // API accepted but the DB has no columns for.
+    const parts = [];
+    if (findings) parts.push(`Findings:\n${findings}`);
+    if (impression) parts.push(`Impression:\n${impression}`);
+    parts.push(report);
+    const fullReport = parts.join('\n\n');
+
     const result = await prisma.$queryRawUnsafe(
       `UPDATE radiology_orders
-       SET report = $1, findings = $2, impression = $3, images = $4,
-           reported_by = $5, reported_at = NOW(), status = 'completed'
-       WHERE id = $6
-       RETURNING id, patient_uid, modality, body_part, status, report, findings, impression, images, reported_by, reported_at`,
-      [report, findings || null, impression || null, images || [], reported_by, id]
+       SET report = $1, radiologist = $2::uuid, report_completed_at = NOW(),
+           status = 'completed', updated_at = NOW()
+       WHERE id = $3
+       RETURNING ${RAD_RETURNING}`,
+      fullReport, reported_by, requireIntId(id)
     );
 
     logger.info('Radiology report submitted', { orderId: id, reported_by });
     return result[0];
   }
 
-  /**
-   * Get radiology history for a patient
-   */
   async getPatientHistory(patientUid, filters = {}) {
     const { page = 1, limit = 20 } = filters;
-    const offset = (Math.max(1, parseInt(page, 10)) - 1) * parseInt(limit, 10);
+    const safeLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+    const offset = (Math.max(1, parseInt(page, 10) || 1) - 1) * safeLimit;
 
     const countResult = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*) FROM radiology_orders WHERE patient_uid = $1`,
-      [patientUid]
+      `SELECT COUNT(*)::int AS count FROM radiology_orders WHERE patient_uid = $1::uuid`,
+      patientUid
     );
-
     const total = parseInt(countResult[0].count, 10);
 
     const result = await prisma.$queryRawUnsafe(
-      `SELECT id, patient_uid, encounter_id, modality, body_part, clinical_indication,
-              priority, status, report, findings, impression, images,
-              ordered_by, reported_by, reported_at, notes, created_at
+      `SELECT ${RAD_RETURNING}
        FROM radiology_orders
-       WHERE patient_uid = $1
+       WHERE patient_uid = $1::uuid
        ORDER BY created_at DESC
        LIMIT $2 OFFSET $3`,
-      [patientUid, parseInt(limit, 10), offset]
+      patientUid, safeLimit, offset
     );
 
     return {
       orders: result,
       pagination: {
         total,
-        page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
-        pages: Math.ceil(total / parseInt(limit, 10))
-      }
+        page: parseInt(page, 10) || 1,
+        limit: safeLimit,
+        pages: Math.ceil(total / safeLimit),
+      },
     };
   }
 
-  /**
-   * Get detail for a single radiology order
-   */
   async getOrderDetail(id) {
     const result = await prisma.$queryRawUnsafe(
-      `SELECT id, patient_uid, encounter_id, modality, body_part, clinical_indication,
-              priority, status, report, findings, impression, images,
-              ordered_by, reported_by, reported_at, notes, created_at
+      `SELECT ${RAD_RETURNING}
        FROM radiology_orders
-       WHERE id = $1`,
-      [id]
-    );
-
-    if (result.length === 0) {
-      throw AppError.notFound('Radiology order not found');
-    }
-
+       WHERE id = $1`, requireIntId(id));
+    if (result.length === 0) throw AppError.notFound('Radiology order not found');
     return result[0];
   }
 
-  /**
-   * Cancel a radiology order
-   */
   async cancelOrder(id, cancelledBy) {
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM radiology_orders WHERE id = $1`,
-      [id]
-    );
-
-    if (existing.length === 0) {
-      throw AppError.notFound('Radiology order not found');
-    }
-
+      `SELECT id, status FROM radiology_orders WHERE id = $1`, requireIntId(id));
+    if (existing.length === 0) throw AppError.notFound('Radiology order not found');
     if (existing[0].status === 'completed') {
       throw AppError.badRequest('Cannot cancel a completed order');
     }
-
     if (existing[0].status === 'cancelled') {
       throw AppError.badRequest('Order is already cancelled');
     }
 
     const result = await prisma.$queryRawUnsafe(
-      `UPDATE radiology_orders SET status = 'cancelled' WHERE id = $1
-       RETURNING id, patient_uid, modality, body_part, status`,
-      [id]
+      `UPDATE radiology_orders SET status = 'cancelled', updated_at = NOW() WHERE id = $1
+       RETURNING ${RAD_RETURNING}`,
+      requireIntId(id)
     );
 
     logger.info('Radiology order cancelled', { orderId: id, cancelledBy });

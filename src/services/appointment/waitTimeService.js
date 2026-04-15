@@ -69,3 +69,45 @@ export async function getAppointmentWaitTime(appointmentId) {
     avgConsultationMinutes: estimate.avgConsultationMinutes,
   };
 }
+
+/**
+ * Fetch every still-waiting appointment for a doctor on a given date
+ * with each patient's current queue position + ETA. Used by the realtime
+ * fan-out to push queue-position updates after a status change.
+ */
+export async function getWaitingQueueForDoctor(doctorId, date) {
+  const rows = await prisma.$queryRaw`
+    WITH waiting AS (
+      SELECT id, patient_id, token_number
+      FROM appointments
+      WHERE doctor_id = ${parseInt(doctorId)}
+        AND DATE(appointment_date) = ${date}::date
+        AND status IN ('CONFIRMED', 'SCHEDULED')
+    ),
+    consult AS (
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'IN_PROGRESS')::int AS in_progress,
+        AVG(EXTRACT(EPOCH FROM (completed_at - started_at)) / 60)
+          FILTER (WHERE status = 'COMPLETED' AND completed_at IS NOT NULL) AS avg_min
+      FROM appointments
+      WHERE doctor_id = ${parseInt(doctorId)}
+        AND DATE(appointment_date) = ${date}::date
+    )
+    SELECT w.id, w.patient_id, w.token_number,
+           (SELECT COUNT(*) FROM waiting w2 WHERE w2.token_number < w.token_number)::int AS position,
+           c.avg_min
+    FROM waiting w, consult c
+    ORDER BY w.token_number ASC
+  `;
+
+  return rows.map((r) => {
+    const avgMin = parseFloat(r.avg_min) || 15;
+    return {
+      appointmentId: r.id,
+      patientId: r.patient_id,
+      tokenNumber: r.token_number,
+      position: r.position,
+      etaMinutes: Math.round(r.position * avgMin),
+    };
+  });
+}

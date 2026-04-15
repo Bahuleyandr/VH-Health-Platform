@@ -33,7 +33,7 @@ async function sendWithRetry(message, maxRetries = 2) {
  * @param {string} options.body - Notification body
  * @param {Object} [options.data] - Optional custom key-value data
  */
-export async function sendPushNotification({ tokens, title, body, data = {}, userId = null }) {
+export async function sendPushNotification({ tokens, title, body, data = {}, userId = null, priority = 'normal', channelId = null }) {
   // Also push via WebSocket if userId is provided
   if (userId) {
     try {
@@ -55,13 +55,34 @@ export async function sendPushNotification({ tokens, title, body, data = {}, use
     throw new Error('🚫 Cannot send to more than 500 tokens in a single multicast request.');
   }
 
+  // High-priority messages (Code Blue, critical vitals) are sent data-only so
+  // the client can build a full-screen-intent notification locally against a
+  // MAX-importance channel. Normal messages use FCM's notification block so
+  // Android's system tray renders them directly.
+  const isHigh = priority === 'high';
   const multicastMessage = {
     tokens: tokenArray,
-    notification: { title, body },
+    ...(isHigh
+      ? {}
+      : { notification: { title, body } }),
     data: {
+      ...(isHigh ? { title, body } : {}),
       ...data,
       click_action: 'FLUTTER_NOTIFICATION_CLICK',
     },
+    ...(isHigh
+      ? {
+          android: {
+            priority: 'high',
+            ttl: 60 * 1000, // 60s — Code Blue is irrelevant after the event window
+            ...(channelId ? { notification: { channelId, priority: 'max', visibility: 'public' } } : {}),
+          },
+          apns: {
+            headers: { 'apns-priority': '10' },
+            payload: { aps: { 'interruption-level': 'critical', sound: 'default' } },
+          },
+        }
+      : {}),
   };
 
   try {
@@ -92,17 +113,17 @@ export async function sendPushNotification({ tokens, title, body, data = {}, use
             // Deactivate invalid tokens in user_devices (fcm_token column)
             await prisma.$queryRawUnsafe(
               `UPDATE user_devices SET fcm_token = NULL WHERE fcm_token = ANY($1)`,
-              [invalidTokens]
+              invalidTokens
             );
             // Deactivate invalid tokens in staff_devices (device_token column)
             await prisma.$queryRawUnsafe(
               `UPDATE staff_devices SET is_active = false, device_token = NULL WHERE device_token = ANY($1)`,
-              [invalidTokens]
+              invalidTokens
             );
             // Clear invalid tokens from users table (device_token column)
             await prisma.$queryRawUnsafe(
               `UPDATE users SET device_token = NULL WHERE device_token = ANY($1)`,
-              [invalidTokens]
+              invalidTokens
             );
           } catch (e) {
             logger.warn('Failed to cleanup invalid tokens:', e.message);

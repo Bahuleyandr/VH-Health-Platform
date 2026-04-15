@@ -18,9 +18,20 @@ export class AppointmentValidationService {
       errors.push('Doctor not found');
     }
 
-    // P1 IDOR: Check for role-based access (String comparison for type safety)
-    if (user.role === 'PATIENT' && String(user.id) !== String(bookingData.patient_id)) {
-      errors.push('Can only book appointments for yourself');
+    // P1 IDOR: patient may only book for themselves. jwtMiddleware now surfaces the
+    // int DB id as `user.id` (when the token carries it); fall back to a uid→id lookup
+    // if the token is uid-only.
+    if (user.role === 'PATIENT') {
+      let callerInt = user.id;
+      if (callerInt == null && user.uid) {
+        const prismaMod = await import('../../lib/prisma.js');
+        const rows = await prismaMod.default.$queryRawUnsafe(
+          `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`, user.uid);
+        callerInt = rows[0]?.id ?? null;
+      }
+      if (String(callerInt) !== String(bookingData.patient_id)) {
+        errors.push('Can only book appointments for yourself');
+      }
     }
 
     // Check for conflicts if no errors so far
@@ -61,9 +72,19 @@ export class AppointmentValidationService {
       errors.push('Can only update scheduled appointments');
     }
 
-    // P1 IDOR: Check permissions (String comparison for type safety)
-    if (user.role === 'PATIENT' && String(appointment.patient_id) !== String(user.id)) {
-      errors.push('Can only update your own appointments');
+    // P1 IDOR: compare appointment.patient_id to caller's int id (uid→id fallback
+    // when the token didn't carry `id`).
+    if (user.role === 'PATIENT') {
+      let callerInt = user.id;
+      if (callerInt == null && user.uid) {
+        const prismaMod = await import('../../lib/prisma.js');
+        const rows = await prismaMod.default.$queryRawUnsafe(
+          `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`, user.uid);
+        callerInt = rows[0]?.id ?? null;
+      }
+      if (String(appointment.patient_id) !== String(callerInt)) {
+        errors.push('Can only update your own appointments');
+      }
     }
 
     // Check for conflicts if time is being changed

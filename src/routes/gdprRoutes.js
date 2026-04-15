@@ -70,7 +70,7 @@ router.get('/erasure-log', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, res)
        FROM gdpr_erasure_log
        ORDER BY created_at DESC
        LIMIT $1 OFFSET $2`,
-      [limit, offset]
+      limit, offset
     );
 
     return success(res, logs, 'Erasure log retrieved');

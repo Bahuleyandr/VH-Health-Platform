@@ -185,7 +185,7 @@ export async function rescanFile(req, res) {
             scan_status = $1, scan_result = $2, scanned_at = NOW(),
             scan_duration_ms = $3
           WHERE id = $4
-        `, [status, resultText, scanDuration, fileId]);
+        `, status, resultText, scanDuration, fileId);
 
         // Auto-quarantine if infected
         if (status === 'infected') {
@@ -194,7 +194,7 @@ export async function rescanFile(req, res) {
               is_quarantined = true, quarantined_at = NOW(), 
               quarantine_reason = $1, quarantined_by = $2
             WHERE id = $3
-          `, [resultText, adminUid, fileId]);
+          `, resultText, adminUid, fileId);
         }
 
         // Log scan completion
@@ -205,7 +205,7 @@ export async function rescanFile(req, res) {
       } catch (scanError) {
         await prisma.$queryRawUnsafe(
           'UPDATE file_metadata SET scan_status = $1, scan_result = $2, scanned_at = NOW() WHERE id = $3',
-          ['failed', scanError.message, fileId]
+          'failed', scanError.message, fileId
         );
       }
     }, 50); // High priority scan
