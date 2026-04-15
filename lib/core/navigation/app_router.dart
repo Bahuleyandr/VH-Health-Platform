@@ -8,6 +8,7 @@ import 'package:vhhealth/core/providers/session_timeout_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 
 // Import all your screens
+import 'package:vhhealth/features/chatbot/screens/symptom_checker_screen.dart';
 import 'package:vhhealth/features/splash/screens/splash_screen.dart';
 import 'package:vhhealth/features/auth/screens/login_screen.dart';
 import 'package:vhhealth/features/auth/screens/terms_disclaimer_screen.dart';
@@ -293,6 +294,10 @@ class AppRouter {
       GoRoute(
         path: '/about-us',
         builder: (context, state) => const AboutUsScreen(),
+      ),
+      GoRoute(
+        path: '/chatbot',
+        builder: (context, state) => const SymptomCheckerScreen(),
       ),
       GoRoute(
         path: '/calendar',

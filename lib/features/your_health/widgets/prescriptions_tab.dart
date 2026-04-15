@@ -249,6 +249,7 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
               Text(rx['diagnosis']),
               const SizedBox(height: 16),
             ],
+            if (rx['id'] != null) _SafetyContextBanner(prescriptionId: rx['id'] as int),
             const Text('Medications',
                 style: TextStyle(
                     fontWeight: FontWeight.bold, fontSize: 14)),
@@ -582,6 +583,95 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
           ),
         );
       }),
+    );
+  }
+}
+
+/// Inline banner on the Rx detail sheet surfacing CDS context fetched from
+/// `/prescriptions/:id/safety`. Shows allergy warnings against the patient's
+/// profile and — when a clinician has overridden a blocker — the recorded
+/// reason, so the patient has visibility into prescribing decisions.
+class _SafetyContextBanner extends StatefulWidget {
+  const _SafetyContextBanner({required this.prescriptionId});
+  final int prescriptionId;
+
+  @override
+  State<_SafetyContextBanner> createState() => _SafetyContextBannerState();
+}
+
+class _SafetyContextBannerState extends State<_SafetyContextBanner> {
+  late Future<Map<String, dynamic>?> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  Future<Map<String, dynamic>?> _load() async {
+    try {
+      final resp = await ApiClient.get('/prescriptions/${widget.prescriptionId}/safety');
+      if (resp.isSuccess) return resp.dataAsMap();
+    } catch (_) {/* silent — banner is best-effort */}
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: _future,
+      builder: (ctx, snap) {
+        final data = snap.data;
+        if (data == null) return const SizedBox.shrink();
+        final warnings = (data['warnings'] as List?) ?? const [];
+        final overrides = (data['overrides'] as List?) ?? const [];
+        if (warnings.isEmpty && overrides.isEmpty) return const SizedBox.shrink();
+
+        final theme = Theme.of(ctx);
+        return Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.errorContainer.withValues(alpha: 0.3),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: theme.colorScheme.error.withValues(alpha: 0.4)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.health_and_safety, color: theme.colorScheme.error, size: 18),
+                  const SizedBox(width: 6),
+                  Text('Safety notes',
+                      style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.bold)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              for (final w in warnings)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    '• ${(w as Map)['message'] ?? ''}',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ),
+              if (overrides.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text('Clinician override on file:',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.w600)),
+                for (final o in overrides)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text('• ${(o as Map)['reason'] ?? ''}',
+                        style: const TextStyle(fontSize: 13, fontStyle: FontStyle.italic)),
+                  ),
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 }

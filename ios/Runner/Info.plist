@@ -47,5 +47,33 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+
+	<!-- Phase 3C HealthKit sync — iOS rejects the app if health data is
+	     read at runtime without both usage strings here AND the HealthKit
+	     entitlement in Runner.entitlements. -->
+	<key>NSHealthShareUsageDescription</key>
+	<string>VH Health reads steps, heart rate, blood oxygen, weight, and body temperature from Apple Health so your wellness score stays up to date without manual entry.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>VH Health writes medication reminders and vitals goals back to Apple Health so they show on your Apple Watch.</string>
+
+	<!-- Background fetch lets HealthSyncService run silently under iOS
+	     BGTaskScheduler even when the app is not in the foreground. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>processing</string>
+		<string>remote-notification</string>
+	</array>
+
+	<!-- Permission strings for features already shipped; harmless if a
+	     particular release doesn't use one. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Camera access is used to upload prescriptions, investigation slips, and profile photos.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Photo library access is used to attach medical records and profile photos.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Face ID unlocks your health records after timeout.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Location is used to find the nearest emergency services for SOS alerts.</string>
 </dict>
 </plist>

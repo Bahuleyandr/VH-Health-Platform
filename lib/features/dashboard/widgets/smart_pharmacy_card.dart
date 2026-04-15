@@ -76,10 +76,14 @@ class SmartPharmacyCard extends StatelessWidget {
 
   Color _pharmacyStatusColor(String status) {
     switch (status) {
-      case 'PLACED':
+      case 'PENDING':
+      case 'PLACED': // legacy alias — kept for backward compatibility
         return Colors.orange;
       case 'CONFIRMED':
         return Colors.blue;
+      case 'PREPARING':
+      case 'READY':
+        return Colors.purple;
       case 'DISPATCHED':
         return Colors.teal;
       case 'OUT_FOR_DELIVERY':
@@ -91,10 +95,15 @@ class SmartPharmacyCard extends StatelessWidget {
 
   String _pharmacyStatusLabel(String status) {
     switch (status) {
+      case 'PENDING':
       case 'PLACED':
-        return 'PLACED';
+        return 'PENDING';
       case 'CONFIRMED':
         return 'CONFIRMED';
+      case 'PREPARING':
+        return 'PREPARING';
+      case 'READY':
+        return 'READY';
       case 'DISPATCHED':
         return 'DISPATCHED 🚗';
       case 'OUT_FOR_DELIVERY':
