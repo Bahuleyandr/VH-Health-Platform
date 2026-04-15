@@ -9,6 +9,7 @@ import { DashboardHeaderClean } from './components/DashboardHeader.clean';
 import { StatCards, AppointmentQueueCards } from './components/DashboardStatsClean';
 import { AnalyticsAndActivity } from './components/DashboardChartsClean';
 import { SystemHealthSection, InfrastructureMonitor } from './components/SystemHealthPanel';
+import LiveBedOccupancyTile from './components/LiveBedOccupancyTile';
 
 export default function CleanDashboard() {
   const {
@@ -40,6 +41,7 @@ export default function CleanDashboard() {
       <main className="mx-auto max-w-7xl px-4 py-6 space-y-6">
         <StatCards quick={quick} prevQuick={prevQuick} />
         <AppointmentQueueCards queue={queue} prevQueue={prevQueue} />
+        <LiveBedOccupancyTile />
         <AnalyticsAndActivity charts={charts} activity={activity} />
         <SystemHealthSection health={health} lastUpdated={lastUpdated} />
         {infraHealth && <InfrastructureMonitor infraHealth={infraHealth} />}
