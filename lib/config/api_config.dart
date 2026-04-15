@@ -1,15 +1,12 @@
-/// Centralized API configuration for VHHealth apps.
-///
-/// All backend URLs and keys should reference this class
-/// instead of hardcoding values in individual screens.
-///
-/// ## Security: API Key Injection
-/// The API key is injected at build time via `--dart-define`:
-/// ```bash
-/// flutter run --dart-define=VH_API_KEY=your-secret-key
-/// flutter build apk --dart-define=VH_API_KEY=your-secret-key
-/// ```
-/// This prevents the key from being committed to source control.
+// Centralized API configuration for VHHealth apps.
+// All backend URLs and keys should reference this class
+// instead of hardcoding values in individual screens.
+//
+// Security: API Key Injection
+// The API key is injected at build time via `--dart-define`:
+//   flutter run --dart-define=VH_API_KEY=your-secret-key
+//   flutter build apk --dart-define=VH_API_KEY=your-secret-key
+// This prevents the key from being committed to source control.
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class ApiConfig {
