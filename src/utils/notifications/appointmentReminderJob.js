@@ -32,7 +32,7 @@ export async function sendTimedReminders() {
         WHERE a.status = 'CONFIRMED'
           AND a.appointment_date BETWEEN $1 AND $2
           AND a.reminder_24h_sent IS NOT TRUE
-      `, [in23h, in24h]),
+      `, in23h, in24h),
       prisma.$queryRawUnsafe(`
         SELECT a.id, a.appointment_time, a.token_number,
                u.name AS patient_name, u.phone AS patient_phone, u.device_token,
@@ -43,7 +43,7 @@ export async function sendTimedReminders() {
         WHERE a.status = 'CONFIRMED'
           AND a.appointment_date BETWEEN $1 AND $2
           AND a.reminder_1h_sent IS NOT TRUE
-      `, [in30m, in90m]),
+      `, in30m, in90m),
     ]);
 
     // Send 24h reminders
@@ -172,7 +172,7 @@ export async function sendAppointmentReminders() {
        LEFT JOIN departments dept ON doc.department_id = dept.id
        WHERE a.appointment_date >= $1::date AND a.appointment_date < $2::date
          AND a.status != 'cancelled' AND u.device_token IS NOT NULL`,
-      [today.toISOString(), tomorrow.toISOString()]
+      today.toISOString(), tomorrow.toISOString()
     );
 
     for (const appt of result) {
@@ -214,7 +214,7 @@ export async function sendAppointmentReminders() {
         await prisma.$queryRawUnsafe(
           `INSERT INTO notifications (phone, title, body, type, created_at, read)
            VALUES ($1, $2, $3, $4, NOW(), false)`,
-          [appt.phone, notification.title, notification.body, 'reminder']
+          appt.phone, notification.title, notification.body, 'reminder'
         );
       } catch (err) {
         logger.error(`❌ Failed to send reminder to ${appt.phone}: ${err.message}`);

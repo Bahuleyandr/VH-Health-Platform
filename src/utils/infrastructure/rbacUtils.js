@@ -127,7 +127,7 @@ export const checkRoleCapacity = async (role, _db) => {
   
   const result = await prisma.$queryRawUnsafe(
     'SELECT COUNT(*) FROM users WHERE role = $1 AND is_active = true',
-    [role]
+    role
   );
   
   const current = parseInt(result[0].count);

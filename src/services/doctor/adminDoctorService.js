@@ -237,7 +237,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
       case 'activate': {
         const activateResult = await prisma.$queryRawUnsafe(
           'UPDATE doctors SET is_available = true, updated_at = NOW() WHERE user_id = ANY($1) RETURNING user_id',
-          [doctorIds]
+          doctorIds
         );
         results = activateResult;
         break;
@@ -246,7 +246,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
       case 'deactivate': {
         const deactivateResult = await prisma.$queryRawUnsafe(
           'UPDATE doctors SET is_available = false, updated_at = NOW() WHERE user_id = ANY($1) RETURNING user_id',
-          [doctorIds]
+          doctorIds
         );
         
         // Cancel future appointments for deactivated doctors
@@ -256,7 +256,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
             notes = COALESCE(notes || ' ', '') || 'Doctor deactivated by admin',
             updated_at = NOW()
           WHERE doctor_id = ANY($1) AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
-        `, [doctorIds]);
+        `, doctorIds);
         
         results = deactivateResult;
         break;
@@ -268,7 +268,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
         }
         const feeResult = await prisma.$queryRawUnsafe(
           'UPDATE doctors SET consultation_fee = $1, updated_at = NOW() WHERE user_id = ANY($2) RETURNING user_id, consultation_fee',
-          [data.consultation_fee, doctorIds]
+          data.consultation_fee, doctorIds
         );
         results = feeResult;
         break;
@@ -280,7 +280,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
         }
         const deptResult = await prisma.$queryRawUnsafe(
           'UPDATE doctors SET department = $1, updated_at = NOW() WHERE user_id = ANY($2) RETURNING user_id, department',
-          [data.department, doctorIds]
+          data.department, doctorIds
         );
         results = deptResult;
         break;
@@ -292,7 +292,7 @@ async performBulkOperation(operation, doctorIds, data = {}) {
         }
         const scheduleResult = await prisma.$queryRawUnsafe(
           'UPDATE doctors SET available_days = $1, available_hours = $2, updated_at = NOW() WHERE user_id = ANY($3) RETURNING user_id, available_days, available_hours',
-          [data.available_days, data.available_hours, doctorIds]
+          data.available_days, data.available_hours, doctorIds
         );
         results = scheduleResult;
         break;

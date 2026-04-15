@@ -99,7 +99,7 @@ export const getStaffList = async (filters, userRole) => {
     WHERE u.role = ANY($1) AND (s.is_active = true OR s.is_active IS NULL)
     GROUP BY s.department
     ORDER BY count DESC
-  `, [allowedRoles]);
+  `, allowedRoles);
 
   const roleStats = await prisma.$queryRawUnsafe(`
     SELECT u.role, COUNT(*) as count
@@ -108,7 +108,7 @@ export const getStaffList = async (filters, userRole) => {
     WHERE u.role = ANY($1) AND (s.is_active = true OR s.is_active IS NULL)
     GROUP BY u.role
     ORDER BY count DESC
-  `, [allowedRoles]);
+  `, allowedRoles);
 
   // Format staff data
   const enhancedStaff = result.map(staff => ({
@@ -170,7 +170,7 @@ export const getStaffProfile = async (identifier, userRole, userId, includePriva
     LEFT JOIN staff s ON u.id = s.user_id 
     LEFT JOIN users sup ON s.supervisor_id = sup.id
     WHERE ${column} = $1 AND u.role = ANY($2)
-  `, [identifier, allowedRoles]);
+  `, identifier, allowedRoles);
 
   if (result.length === 0) {
     throw new Error('NOT_FOUND');
@@ -206,7 +206,7 @@ export const getStaffProfile = async (identifier, userRole, userId, includePriva
         AND check_in_time >= CURRENT_DATE - INTERVAL '7 days'
       ORDER BY check_in_time DESC
       LIMIT 7
-    `, [staff.id]);
+    `, staff.id);
     
     recentAttendance = attendanceResult.map(record => ({
       ...record,
@@ -231,7 +231,7 @@ export const getStaffProfile = async (identifier, userRole, userId, includePriva
         FROM staff_performance_reviews 
         WHERE staff_id = $1
           AND review_date >= CURRENT_DATE - INTERVAL '1 year'
-      `, [staff.id]);
+      `, staff.id);
       
       if (performanceResult[0].total_reviews > 0) {
         performanceMetrics = {
@@ -278,7 +278,7 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
   // Verify user exists and has appropriate role
   const userCheck = await prisma.$queryRawUnsafe(
     'SELECT id, role, name, phone FROM users WHERE id = $1',
-    [user_id]
+    user_id
   );
 
   if (userCheck.length === 0) {
@@ -295,7 +295,7 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
   // Check if staff profile already exists
   const existingProfile = await prisma.$queryRawUnsafe(
     'SELECT user_id FROM staff WHERE user_id = $1',
-    [user_id]
+    user_id
   );
 
   if (existingProfile.length > 0) {
@@ -305,7 +305,7 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
   // Check employee_id uniqueness
   const employeeIdCheck = await prisma.$queryRawUnsafe(
     'SELECT user_id FROM staff WHERE employee_id = $1',
-    [employee_id]
+    employee_id
   );
 
   if (employeeIdCheck.length > 0) {
@@ -316,7 +316,7 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
   if (supervisor_id) {
     const supervisorCheck = await prisma.$queryRawUnsafe(
       'SELECT id FROM users WHERE id = $1 AND role IN ($2, $3, $4)',
-      [supervisor_id, 'ADMIN', 'DOCTOR', 'HR_STAFF']
+      supervisor_id, 'ADMIN', 'DOCTOR', 'HR_STAFF'
     );
 
     if (supervisorCheck.length === 0) {
@@ -332,13 +332,13 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
       certifications, notes, is_active, created_at, created_by
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, NOW(), $13)
     RETURNING id, user_id, employee_id, department, position, is_active, created_at
-  `, [
+  `, 
     user_id, employee_id, position, department, shift.toUpperCase(), salary,
     hire_date, supervisor_id, emergency_contact, 
     skills ? JSON.stringify(skills) : null,
     certifications ? JSON.stringify(certifications) : null, 
     notes, createdBy
-  ]);
+  );
 
   // Log staff creation activity
   await prisma.$queryRawUnsafe(
@@ -346,14 +346,14 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
       admin_uid, action, description, affected_user_id,
       details, ip_address, created_at
     ) VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-    [
+    
       createdBy,
       'STAFF_PROFILE_CREATED',
       `Staff profile created for ${user.name} (${employee_id})`,
       user_id,
       JSON.stringify({ employee_id, position, department }),
       ipAddress
-    ]
+    
   );
 
   logger.info(`👤 Staff profile created: ${employee_id} for user ${user.name} by ${creatorName}`);
@@ -383,7 +383,7 @@ export const updateStaffProfile = async (id, data, updatedBy, updaterName, ipAdd
   // Verify staff profile exists
   const staffCheck = await prisma.$queryRawUnsafe(
     'SELECT s.*, u.name FROM staff s JOIN users u ON s.user_id = u.id WHERE s.user_id = $1',
-    [id]
+    id
   );
 
   if (staffCheck.length === 0) {
@@ -396,7 +396,7 @@ export const updateStaffProfile = async (id, data, updatedBy, updaterName, ipAdd
   if (supervisor_id) {
     const supervisorCheck = await prisma.$queryRawUnsafe(
       'SELECT id FROM users WHERE id = $1 AND role IN ($2, $3, $4)',
-      [supervisor_id, 'ADMIN', 'DOCTOR', 'HR_STAFF']
+      supervisor_id, 'ADMIN', 'DOCTOR', 'HR_STAFF'
     );
 
     if (supervisorCheck.length === 0) {
@@ -422,13 +422,13 @@ export const updateStaffProfile = async (id, data, updatedBy, updaterName, ipAdd
       updated_by = $12
     WHERE user_id = $13
     RETURNING id, user_id, employee_id, department, position, is_active, created_at
-  `, [
+  `, 
     position, department, shift?.toUpperCase(), salary, supervisor_id,
     emergency_contact, 
     skills ? JSON.stringify(skills) : null,
     certifications ? JSON.stringify(certifications) : null,
     notes, is_active, performance_rating, updatedBy, id
-  ]);
+  );
 
   // Track changes for audit log
   const changes = {};
@@ -443,14 +443,14 @@ export const updateStaffProfile = async (id, data, updatedBy, updaterName, ipAdd
       admin_uid, action, description, affected_user_id,
       details, ip_address, created_at
     ) VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-    [
+    
       updatedBy,
       'STAFF_PROFILE_UPDATED',
       `Staff profile updated for ${currentStaff.name}`,
       id,
       JSON.stringify(changes),
       ipAddress
-    ]
+    
   );
 
   logger.info(`📝 Staff profile updated: ${currentStaff.name} (${id}) by ${updaterName}`);
@@ -634,7 +634,7 @@ export const getStaffStatistics = async (userRole, timeframe) => {
     FROM users u
     LEFT JOIN staff s ON u.id = s.user_id
     WHERE u.role = ANY($1)
-  `, [allowedRoles]);
+  `, allowedRoles);
 
   // Department breakdown
   const departmentStats = await prisma.$queryRawUnsafe(`
@@ -648,7 +648,7 @@ export const getStaffStatistics = async (userRole, timeframe) => {
     WHERE s.is_active = true AND u.role = ANY($1)
     GROUP BY s.department
     ORDER BY total_count DESC
-  `, [allowedRoles]);
+  `, allowedRoles);
 
   // Role distribution
   const roleStats = await prisma.$queryRawUnsafe(`
@@ -661,7 +661,7 @@ export const getStaffStatistics = async (userRole, timeframe) => {
     WHERE u.role = ANY($1)
     GROUP BY u.role
     ORDER BY count DESC
-  `, [allowedRoles]);
+  `, allowedRoles);
 
   // Shift distribution
   const shiftStats = await prisma.$queryRawUnsafe(`
@@ -674,7 +674,7 @@ export const getStaffStatistics = async (userRole, timeframe) => {
     WHERE s.is_active = true AND u.role = ANY($1)
     GROUP BY s.shift
     ORDER BY s.shift
-  `, [allowedRoles]);
+  `, allowedRoles);
 
   // Attendance statistics (if available)
   let attendanceStats = null;

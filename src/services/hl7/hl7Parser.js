@@ -1,7 +1,53 @@
 // src/services/hl7/hl7Parser.js
 // Simple pipe-delimited HL7v2 parser — no external dependencies needed.
 // HL7v2 messages are CR-delimited segments with pipe-separated fields.
+//
+// 2026-04-15: added the standard escape-sequence decoder (`\F\`, `\S\`, `\T\`,
+// `\R\`, `\E\`, `\X..\` hex). Real HL7v2 messages use these to embed delimiter
+// characters inside field values; without decoding, a name like "DOE\R\JOHN"
+// would silently keep the literal `\R\` instead of becoming the intended `~`
+// separator. Decoding is applied on text-bearing PID/MSH fields. Date/code
+// fields are left raw because they should never legitimately contain escapes.
 
+/**
+ * Decode the standard HL7v2 escape sequences. Returns the decoded string.
+ * Handles: \F\ → |, \S\ → ^, \T\ → &, \R\ → ~, \E\ → \, \X..\ → hex bytes.
+ * Anything else (e.g. \H\ for highlight, \M..\ for multibyte) is passed through
+ * unchanged.
+ */
+export function decodeHL7Escapes(value) {
+  if (!value || typeof value !== 'string') return value;
+  if (value.indexOf('\\') === -1) return value; // fast path
+  // Hex escape requires an even number of hex digits — otherwise it's malformed
+  // and we leave it as a literal (no silent truncation).
+  return value.replace(/\\([FSTRE])\\|\\X((?:[0-9A-Fa-f]{2})+)\\/g, (match, simple, hex) => {
+    if (simple) {
+      switch (simple) {
+        case 'F': return '|';
+        case 'S': return '^';
+        case 'T': return '&';
+        case 'R': return '~';
+        case 'E': return '\\';
+        default: return match;
+      }
+    }
+    if (hex) {
+      // Hex escape — pairs of hex digits → bytes → string. Used for characters
+      // outside the printable ASCII range. We assume UTF-8 because the rest of
+      // the parser does.
+      const bytes = [];
+      for (let i = 0; i < hex.length; i += 2) {
+        bytes.push(parseInt(hex.slice(i, i + 2), 16));
+      }
+      try {
+        return Buffer.from(bytes).toString('utf8');
+      } catch {
+        return match;
+      }
+    }
+    return match;
+  });
+}
 
 // =============================================================================
 // PARSE HL7v2
@@ -45,10 +91,10 @@ export function parseHL7(message) {
 
 function parseMSH(fields) {
   return {
-    sendingApp: fields[2] || '',
-    sendingFacility: fields[3] || '',
-    receivingApp: fields[4] || '',
-    receivingFacility: fields[5] || '',
+    sendingApp: decodeHL7Escapes(fields[2] || ''),
+    sendingFacility: decodeHL7Escapes(fields[3] || ''),
+    receivingApp: decodeHL7Escapes(fields[4] || ''),
+    receivingFacility: decodeHL7Escapes(fields[5] || ''),
     dateTime: fields[6] || '',
     messageType: fields[8] || '',
     messageControlId: fields[9] || '',
@@ -59,12 +105,12 @@ function parseMSH(fields) {
 
 function parsePID(fields) {
   return {
-    patientId: fields[3] || '',
-    name: fields[5] || '',
+    patientId: decodeHL7Escapes(fields[3] || ''),
+    name: decodeHL7Escapes(fields[5] || ''),
     birthDate: fields[7] || '',
     gender: fields[8] || '',
-    address: fields[11] || '',
-    phone: fields[13] || '',
+    address: decodeHL7Escapes(fields[11] || ''),
+    phone: decodeHL7Escapes(fields[13] || ''),
   };
 }
 
@@ -179,4 +225,5 @@ export default {
   generateACK,
   formatHL7Date,
   generateControlId,
+  decodeHL7Escapes,
 };

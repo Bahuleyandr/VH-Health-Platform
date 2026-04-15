@@ -21,7 +21,7 @@ class ReferralService {
       `SELECT referral_number FROM referrals
        WHERE referral_number LIKE $1
        ORDER BY id DESC LIMIT 1`,
-      [`${prefix}%`]
+      `${prefix}%`
     );
 
     let sequence = 1;
@@ -76,12 +76,12 @@ class ReferralService {
       RETURNING id, referral_number, patient_uid, encounter_id,
         referring_doctor, referred_to_doctor, referred_to_department,
         referral_type, reason, urgency, clinical_summary, status, created_at`,
-      [
+      
         referralNumber, patient_uid, encounter_id || null, referring_doctor,
         referred_to_doctor || null, referred_to_department,
         referral_type || 'internal', reason, urgency || 'routine',
         clinical_summary || null
-      ]
+      
     );
 
     logger.info(`Referral created: ${referralNumber} from ${referring_doctor} to ${referred_to_department}`);
@@ -125,7 +125,7 @@ class ReferralService {
          CASE urgency WHEN 'emergency' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END,
          created_at DESC
        LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
-      [...params, parseInt(limit, 10), offset]
+      ...params, parseInt(limit, 10), offset
     );
 
     return {
@@ -174,7 +174,7 @@ class ReferralService {
        FROM referrals ${whereClause}
        ORDER BY created_at DESC
        LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
-      [...params, parseInt(limit, 10), offset]
+      ...params, parseInt(limit, 10), offset
     );
 
     return {
@@ -199,7 +199,7 @@ class ReferralService {
 
     const existing = await prisma.$queryRawUnsafe(
       `SELECT id, status FROM referrals WHERE id = $1`,
-      [referralId]
+      referralId
     );
     if (existing.length === 0) {
       throw AppError.notFound('Referral not found');
@@ -217,7 +217,7 @@ class ReferralService {
        RETURNING id, referral_number, patient_uid, referring_doctor,
         referred_to_doctor, referred_to_department, referral_type,
         reason, urgency, status, accepted_by, accepted_at, created_at`,
-      [acceptedBy, referralId]
+      acceptedBy, referralId
     );
 
     logger.info(`Referral ${referralId} accepted by ${acceptedBy}`);
@@ -235,7 +235,7 @@ class ReferralService {
 
     const existing = await prisma.$queryRawUnsafe(
       `SELECT id, status FROM referrals WHERE id = $1`,
-      [referralId]
+      referralId
     );
     if (existing.length === 0) {
       throw AppError.notFound('Referral not found');
@@ -254,7 +254,7 @@ class ReferralService {
         referred_to_doctor, referred_to_department, referral_type,
         reason, urgency, status, accepted_by, accepted_at,
         completed_at, response_notes, created_at`,
-      [responseNotes || null, referralId]
+      responseNotes || null, referralId
     );
 
     logger.info(`Referral ${referralId} completed`);
@@ -272,7 +272,7 @@ class ReferralService {
 
     const existing = await prisma.$queryRawUnsafe(
       `SELECT id, status FROM referrals WHERE id = $1`,
-      [referralId]
+      referralId
     );
     if (existing.length === 0) {
       throw AppError.notFound('Referral not found');
@@ -289,7 +289,7 @@ class ReferralService {
        RETURNING id, referral_number, patient_uid, referring_doctor,
         referred_to_doctor, referred_to_department, referral_type,
         reason, urgency, status, response_notes, created_at`,
-      [responseNotes || null, referralId]
+      responseNotes || null, referralId
     );
 
     logger.info(`Referral ${referralId} declined`);
@@ -305,7 +305,7 @@ class ReferralService {
 
     const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) AS total FROM referrals WHERE patient_uid = $1`,
-      [patientUid]
+      patientUid
     );
     const total = parseInt(countResult[0].total, 10);
 
@@ -318,7 +318,7 @@ class ReferralService {
        WHERE patient_uid = $1
        ORDER BY created_at DESC
        LIMIT $2 OFFSET $3`,
-      [patientUid, parseInt(limit, 10), offset]
+      patientUid, parseInt(limit, 10), offset
     );
 
     return {

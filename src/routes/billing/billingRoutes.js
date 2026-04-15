@@ -122,7 +122,7 @@ router.post('/invoice/:id/payment', paramId(), requiredNumber('amount', { min: 0
       return error(res, 'Invalid invoice ID', 400);
     }
 
-    const { amount, method, transaction_ref } = req.body;
+    const { amount, payment_method: method, transaction_ref } = req.body;
     const processedBy = req.user?.uid || null;
 
     const result = await billingService.recordPayment(

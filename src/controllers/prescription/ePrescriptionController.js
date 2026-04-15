@@ -5,6 +5,7 @@ import PDFDocument from 'pdfkit';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
 import { dispatch } from '../../utils/notifications/notificationDispatcher.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -243,6 +244,26 @@ export const createPrescription = async (req, res) => {
       return error(res, 'At least one medication is required', HTTP_STATUS.BAD_REQUEST);
     }
 
+    // ── Clinical Decision Support hard-block ──
+    // Run safety check; if blockers[] non-empty, require an explicit override payload.
+    // Override requires a non-empty reason; we log it to prescription_safety_overrides
+    // after the prescription is inserted so there's always a prescription_id to link.
+    const override = req.body.override; // { reason, approvedBy? }
+    const safety = await validatePrescriptionSafety(patient_id, medications);
+    if (!safety.safe) {
+      if (!override || typeof override.reason !== 'string' || override.reason.trim().length < 5) {
+        return error(
+          res,
+          'Prescription blocked by clinical safety check',
+          HTTP_STATUS.CONFLICT,
+          { blockers: safety.blockers, warnings: safety.warnings, requiresOverride: true },
+        );
+      }
+      logger.warn(
+        `CDS override used by user=${req.user?.id} patient=${patient_id} blockers=${safety.blockers.length}`,
+      );
+    }
+
     // Validate appointment if provided
     if (appointment_id) {
       const apptCheck = await prisma.$queryRawUnsafe('SELECT id FROM appointments WHERE id=$1', appointment_id);
@@ -284,6 +305,26 @@ export const createPrescription = async (req, res) => {
 
     const prescription = insertResult[0];
 
+    // If CDS blockers were overridden, persist the audit row linked to the new Rx.
+    if (!safety.safe && override) {
+      try {
+        await prisma.$queryRawUnsafe(
+          `INSERT INTO prescription_safety_overrides
+             (prescription_id, patient_id, doctor_id, blockers, reason, approved_by, created_by)
+           VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)`,
+          prescription.id,
+          patient_id,
+          doctor_id,
+          JSON.stringify(safety.blockers),
+          override.reason.trim(),
+          override.approvedBy || null,
+          created_by,
+        );
+      } catch (auditErr) {
+        logger.error('Failed to persist CDS override audit row:', auditErr.message);
+      }
+    }
+
     // Fetch patient and doctor info for PDF
     const [patientRes, doctorRes] = await Promise.all([
       prisma.$queryRawUnsafe('SELECT id, name, phone, gender, birthday FROM users WHERE id=$1', patient_id),
@@ -320,6 +361,70 @@ export const createPrescription = async (req, res) => {
   } catch (err) {
     logger.error('Create e-prescription error:', err);
     error(res, 'Failed to create prescription', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// POST /prescriptions/safety-check — preview CDS result before save (no insert).
+// Clients call this to drive the hard-block UX without committing anything.
+// Body: { patient_id, medications: [{ name | medication_name, ... }] }
+// ═══════════════════════════════════════════════════════════════════════════════
+export const previewSafetyCheck = async (req, res) => {
+  try {
+    const { patient_id, medications } = req.body;
+    if (!patient_id || !Array.isArray(medications) || medications.length === 0) {
+      return error(res, 'patient_id and medications are required', HTTP_STATUS.BAD_REQUEST);
+    }
+    const safety = await validatePrescriptionSafety(patient_id, medications);
+    success(res, safety, safety.safe ? 'Safe to prescribe' : 'Blockers detected');
+  } catch (err) {
+    logger.error('Preview safety check error:', err);
+    error(res, 'Failed to run safety check', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GET /prescriptions/:id/safety — patient-facing safety context for the Rx detail
+// sheet. Returns allergy warnings the patient should see + any override reason
+// so they know when a clinician consciously prescribed through a caution.
+// ═══════════════════════════════════════════════════════════════════════════════
+export const getPrescriptionSafety = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const rx = await prisma.$queryRawUnsafe(
+      'SELECT patient_id, medications, diagnosis FROM e_prescriptions WHERE id = $1',
+      id,
+    );
+    if (rx.length === 0) return error(res, 'Prescription not found', HTTP_STATUS.NOT_FOUND);
+
+    // Patient role may only view their own prescription's safety context.
+    if (req.user?.role === 'PATIENT' && String(rx[0].patient_id) !== String(req.user.id)) {
+      return error(res, 'Forbidden', HTTP_STATUS.FORBIDDEN);
+    }
+
+    const meds = Array.isArray(rx[0].medications)
+      ? rx[0].medications
+      : (typeof rx[0].medications === 'string' ? JSON.parse(rx[0].medications) : []);
+    const safety = await validatePrescriptionSafety(rx[0].patient_id, meds);
+
+    const overrides = await prisma.$queryRawUnsafe(
+      `SELECT reason, created_at FROM prescription_safety_overrides
+       WHERE prescription_id = $1 ORDER BY created_at DESC`,
+      id,
+    );
+
+    success(res, {
+      warnings: safety.warnings,
+      blockers: safety.blockers,
+      overrides: overrides.map(o => ({
+        reason: o.reason,
+        at: o.created_at,
+      })),
+      indication: rx[0].diagnosis || null,
+    }, 'Prescription safety context');
+  } catch (err) {
+    logger.error('Get prescription safety error:', err);
+    error(res, 'Failed to fetch safety context', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 

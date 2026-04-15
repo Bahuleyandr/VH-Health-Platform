@@ -283,8 +283,50 @@ docker exec vhhealth-db psql -U vhhealth -d vhhealth
 - [ ] Security constants in `src/config/securityConfig.js` — never hardcoded in services
 
 
+## Phase 0.5 conventions (added 2026-04-15)
+
+Locked-in patterns from the drift-fix pass. Read first when touching raw
+SQL, JWT auth, or test infrastructure:
+
+- **Raw Prisma calls take SPREAD args, never an array.**
+  `prisma.$queryRawUnsafe(sql, ...params)` — passing `[a, b, c]` as the
+  second arg makes the array a single bound value and every `$2+`
+  placeholder goes unbound. ESLint rule + `npm run lint:raw-params` block
+  the regression. Codemod at `scripts/fix-raw-params.mjs` if you ever
+  need to migrate new code.
+- **`req.user.id` is the int DB id**, surfaced by `jwtMiddleware` when the
+  token carries `id`/`userId`/`user_id`. `req.user.uid` is the uuid.
+  IDOR checks against integer FK columns (`appointments.patient_id`,
+  `pharmacy_orders.patient_id`, etc.) should `String(req.user.id)`. Falls
+  back to a uid→id DB lookup when the token is uid-only.
+- **Schema is the source of truth, NOT the Prisma schema** — `prisma db
+  push` only creates 69 of the ~170 tables tests need. The rest live in
+  raw `migrations/*.sql`. CI applies them via `scripts/ci-setup-db.mjs`;
+  do the same locally if you ever wipe the DB.
+- **Postgres timezone matters.** Test data inserted via `NOW()` lands in
+  the server's tz (IST in dev). When a test queries by date, fetch
+  `current_date::text` from Postgres rather than computing JS UTC date —
+  the two diverge at midnight UTC.
+- **Tests assert exactly, never `[200, 500]`.** All shallow tests deleted
+  2026-04-14. New tests go under `src/tests/*-deep.test.js` (integration)
+  or `src/tests/unit/*.test.js` (pure functions).
+- **HL7v2 escape decoding** lives in `services/hl7/hl7Parser.js#decodeHL7Escapes`.
+  Apply to text fields (PID name, MSH names, addresses); skip date/code fields.
+- **LOINC validation** via `services/hl7/loincValidator.js`. Strict mode =
+  allowlist-only; non-strict = structural regex only.
+- **Adherence ML** is heuristic by default. ONNX model loads from
+  `models/adherence-risk.onnx` if present (training pipeline at
+  `scripts/ml/`). Production response includes `source: 'heuristic' | 'onnx'`
+  so callers can tell.
+- **FHIR validator is informational.** Catches required-element +
+  bound-value-set violations. Slicing/terminology/profile invariants
+  deferred to the official IG Publisher run in CI's `fhir-conformance`
+  job (non-blocking; sample bundles in `src/services/fhir/__samples__/`).
+
 ## Future Directions
 
-See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current A+/S-tier roadmap.
-It tracks Phase 1 (security floor), Phase 2 (polish), and Phase 3 (marquee features).
-When starting a new Claude session, run `cat docs/ROADMAP.md` and pick any unchecked item.
+See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current A+/S-tier roadmap
+and [`../FINISH_BUILDING.md`](../FINISH_BUILDING.md) for the cross-repo
+master plan (Phase 0.5 = current pass; ranked open items at the bottom).
+When starting a new Claude session, read both and pick from the ranked
+open items.

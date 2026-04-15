@@ -36,14 +36,14 @@ export async function purgeHousekeepingPhotos() {
       WHERE photo_key IS NOT NULL
         AND status = 'verified'
         AND logged_at < NOW() - $1::INTERVAL
-    `, [`${RETENTION.verified_log_days} days`]);
+    `, `${RETENTION.verified_log_days} days`);
 
     for (const row of expiredVerified) {
       try {
         await deleteObject(row.photo_key);
         await prisma.$queryRawUnsafe(
           `UPDATE housekeeping_logs SET photo_key = NULL, photo_url = NULL WHERE id = $1`,
-          [row.id]
+          row.id
         );
         purged++;
       } catch (e) {
@@ -58,14 +58,14 @@ export async function purgeHousekeepingPhotos() {
       WHERE photo_key IS NOT NULL
         AND status != 'verified'
         AND logged_at < NOW() - $1::INTERVAL
-    `, [`${RETENTION.unverified_log_days} days`]);
+    `, `${RETENTION.unverified_log_days} days`);
 
     for (const row of expiredUnverified) {
       try {
         await deleteObject(row.photo_key);
         await prisma.$queryRawUnsafe(
           `UPDATE housekeeping_logs SET photo_key = NULL, photo_url = NULL WHERE id = $1`,
-          [row.id]
+          row.id
         );
         purged++;
       } catch (e) {
@@ -79,7 +79,7 @@ export async function purgeHousekeepingPhotos() {
       SELECT id, photo_key, completion_photo_key FROM housekeeping_requests
       WHERE status IN ('completed','verified','closed')
         AND created_at < NOW() - $1::INTERVAL
-    `, [`${RETENTION.completed_request_days} days`]);
+    `, `${RETENTION.completed_request_days} days`);
 
     for (const row of expiredCompleted) {
       const keysToDelete = [row.photo_key, row.completion_photo_key].filter(Boolean);
@@ -98,7 +98,7 @@ export async function purgeHousekeepingPhotos() {
             photo_key = NULL, photo_url = NULL,
             completion_photo_key = NULL, completion_photo_url = NULL
           WHERE id = $1
-        `, [row.id]);
+        `, row.id);
       }
     }
 
@@ -108,14 +108,14 @@ export async function purgeHousekeepingPhotos() {
       WHERE photo_key IS NOT NULL
         AND status IN ('open','assigned')
         AND created_at < NOW() - $1::INTERVAL
-    `, [`${RETENTION.stale_open_request_days} days`]);
+    `, `${RETENTION.stale_open_request_days} days`);
 
     for (const row of staleOpen) {
       try {
         await deleteObject(row.photo_key);
         await prisma.$queryRawUnsafe(
           `UPDATE housekeeping_requests SET photo_key = NULL, photo_url = NULL WHERE id = $1`,
-          [row.id]
+          row.id
         );
         purged++;
       } catch (e) {

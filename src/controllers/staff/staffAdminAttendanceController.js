@@ -24,7 +24,7 @@ export const getAttendanceAnalytics = async (req, res) => {
         ${department ? 'AND s.department = $4' : ''}
       GROUP BY period
       ORDER BY period DESC
-    `, [group_by, start_date, end_date, ...(department ? [department] : [])]);
+    `, group_by, start_date, end_date, ...(department ? [department] : []));
 
     success(res, {
       analytics: analytics,
@@ -193,7 +193,7 @@ export const bulkAttendanceCorrection = async (req, res) => {
               updated_by = $4,
               updated_at = NOW()
             WHERE staff_id = $1 AND check_in_time::date = $5
-          `, [correction.staff_id, correction.check_in, correction.check_out, correctedBy, correction.date]);
+          `, correction.staff_id, correction.check_in, correction.check_out, correctedBy, correction.date);
           
           return { staff_id: correction.staff_id, status: 'success' };
         } catch (err) {
@@ -231,7 +231,7 @@ export const overrideAttendance = async (req, res) => {
         overridden_by = $5,
         updated_at = NOW()
       RETURNING id, staff_uid, check_in_time, check_out_time, status, created_at
-    `, [staff_id, check_in, check_out, reason, overriddenBy]);
+    `, staff_id, check_in, check_out, reason, overriddenBy);
 
     success(res, result[0], 'Attendance override successful');
   } catch (err) {

@@ -27,17 +27,17 @@ export const submitGrievance = async (req, res) => {
         (reporter_id, grievance_type, subject, description, against_whom, department, incident_date, is_anonymous)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
       RETURNING id, staff_uid, subject, status, assigned_to, resolution, created_at, updated_at, grievance_number
-    `, [
+    `, 
       is_anonymous ? null : reporterId,
       grievance_type, subject, description,
       against_whom || null, department || null,
       incident_date || null, is_anonymous
-    ]);
+    );
 
     await prisma.$queryRawUnsafe(`
       INSERT INTO report_updates (report_type, report_id, author_role, message, is_internal)
       VALUES ('grievance', $1, 'system', $2, false)
-    `, [result[0].id, `Grievance ${result[0].grievance_number} received. ${is_anonymous ? 'Submitted anonymously.' : 'HR has been notified.'}`]);
+    `, result[0].id, `Grievance ${result[0].grievance_number} received. ${is_anonymous ? 'Submitted anonymously.' : 'HR has been notified.'}`);
 
     success(res, {
       id: result[0].id,
@@ -61,7 +61,7 @@ export const getMyGrievances = async (req, res) => {
       FROM staff_grievances
       WHERE reporter_id = $1
       ORDER BY created_at DESC LIMIT 50
-    `, [staffId]);
+    `, staffId);
     success(res, grievances, 'Grievances fetched');
   } catch (err) {
     logger.error('Get My Grievances Error:', err);
@@ -81,7 +81,7 @@ export const getGrievanceDetail = async (req, res) => {
              CASE WHEN status IN ('resolved','closed') THEN resolution ELSE NULL END as resolution
       FROM staff_grievances
       WHERE id = $1 AND reporter_id = $2
-    `, [id, staffId]);
+    `, id, staffId);
 
     if (grievance.length === 0) return error(res, 'Grievance not found', HTTP_STATUS.NOT_FOUND);
 
@@ -209,13 +209,13 @@ export const updateGrievance = async (req, res) => {
     }
 
     if (internal_note) {
-      await prisma.$queryRawUnsafe(`INSERT INTO report_updates (report_type, report_id, author_id, author_role, message, is_internal) VALUES ('grievance',$1,$2,'hr',$3,true)`, [id, adminId, internal_note]);
+      await prisma.$queryRawUnsafe(`INSERT INTO report_updates (report_type, report_id, author_id, author_role, message, is_internal) VALUES ('grievance',$1,$2,'hr',$3,true)`, id, adminId, internal_note);
     }
     if (public_update) {
-      await prisma.$queryRawUnsafe(`INSERT INTO report_updates (report_type, report_id, author_id, author_role, message, is_internal) VALUES ('grievance',$1,$2,'hr',$3,false)`, [id, adminId, public_update]);
+      await prisma.$queryRawUnsafe(`INSERT INTO report_updates (report_type, report_id, author_id, author_role, message, is_internal) VALUES ('grievance',$1,$2,'hr',$3,false)`, id, adminId, public_update);
     }
     if (status && status !== existing[0].status) {
-      await prisma.$queryRawUnsafe(`INSERT INTO report_updates (report_type, report_id, author_id, author_role, message, is_internal) VALUES ('grievance',$1,$2,'system',$3,false)`, [id, adminId, `Status updated to: ${status.replace('_',' ').toUpperCase()}`]);
+      await prisma.$queryRawUnsafe(`INSERT INTO report_updates (report_type, report_id, author_id, author_role, message, is_internal) VALUES ('grievance',$1,$2,'system',$3,false)`, id, adminId, `Status updated to: ${status.replace('_',' ').toUpperCase()}`);
     }
 
     const updated = await prisma.$queryRawUnsafe(`SELECT sg.id, sg.staff_uid, sg.subject, sg.description, sg.category, sg.priority, sg.status, sg.assigned_to, sg.hr_notes, sg.resolution, sg.created_at, sg.updated_at, u.name as assigned_to_name FROM staff_grievances sg LEFT JOIN users u ON sg.assigned_to = u.id WHERE sg.id = $1`, id);

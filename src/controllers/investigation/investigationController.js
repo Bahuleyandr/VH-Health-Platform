@@ -336,7 +336,7 @@ export const getInvestigationsByPhone = async (req, res) => {
     // Get total count for pagination
     const countResult = await prisma.$queryRawUnsafe(
       'SELECT COUNT(*) FROM investigations WHERE phone = $1',
-      [phone]
+      phone
     );
     
     const totalInvestigations = parseInt(countResult[0].count);
@@ -403,7 +403,7 @@ export const getInvestigationsByUID = async (req, res) => {
     // Get total count
     const countResult = await prisma.$queryRawUnsafe(
       'SELECT COUNT(*) FROM investigations WHERE phone = $1',
-      [phone]
+      phone
     );
     
     const totalInvestigations = parseInt(countResult[0].count);
@@ -463,7 +463,7 @@ export const upsertTestCatalog = async (req, res) => {
     } else {
       result = await prisma.$queryRawUnsafe(
         `INSERT INTO investigation_test_catalog (name,code,category,normal_range,unit,default_cost,turnaround_hours,requires_fasting,patient_instructions,description) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id, name, code, category, normal_range, unit, default_cost, turnaround_hours, requires_fasting, patient_instructions, description`,
-        [name, code||null, category, normal_range||null, unit||null, default_cost||null, turnaround_hours||24, requires_fasting||false, patient_instructions||null, description||null]
+        name, code||null, category, normal_range||null, unit||null, default_cost||null, turnaround_hours||24, requires_fasting||false, patient_instructions||null, description||null
       );
     }
     success(res, result[0], id ? 'Updated' : 'Added');
@@ -488,13 +488,13 @@ export const getInvestigationSLADashboard = async (req, res) => {
           COUNT(CASE WHEN status='PENDING' THEN 1 END) as pending,
           COUNT(CASE WHEN priority IN ('URGENT','STAT') AND status NOT IN ('completed','COMPLETED') THEN 1 END) as urgent_pending,
           AVG(CASE WHEN result_uploaded_at IS NOT NULL THEN EXTRACT(EPOCH FROM (result_uploaded_at-ordered_date))/3600 END) as avg_tat_hours
-        FROM investigations WHERE DATE(ordered_date) BETWEEN $1 AND $2`, [from, to]
+        FROM investigations WHERE DATE(ordered_date) BETWEEN $1 AND $2`, from, to
       ),
       prisma.$queryRawUnsafe(
-        `SELECT status, COUNT(*) as count FROM investigations WHERE DATE(ordered_date) BETWEEN $1 AND $2 GROUP BY status`, [from, to]
+        `SELECT status, COUNT(*) as count FROM investigations WHERE DATE(ordered_date) BETWEEN $1 AND $2 GROUP BY status`, from, to
       ),
       prisma.$queryRawUnsafe(
-        `SELECT priority, COUNT(*) as count FROM investigations WHERE DATE(ordered_date) BETWEEN $1 AND $2 GROUP BY priority`, [from, to]
+        `SELECT priority, COUNT(*) as count FROM investigations WHERE DATE(ordered_date) BETWEEN $1 AND $2 GROUP BY priority`, from, to
       ),
       prisma.$queryRawUnsafe(
         `SELECT i.*, u.name as patient_name, u.phone as patient_phone, d.name as doctor_name,

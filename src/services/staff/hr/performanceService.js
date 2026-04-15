@@ -141,7 +141,7 @@ export const createPerformanceReview = async (reviewData) => {
   // Verify staff member exists
   const staffCheck = await prisma.$queryRawUnsafe(
     'SELECT u.name, s.employee_id FROM users u JOIN staff s ON u.id = s.user_id WHERE u.id = $1',
-    [staff_id]
+    staff_id
   );
 
   if (staffCheck.length === 0) {
@@ -158,18 +158,18 @@ export const createPerformanceReview = async (reviewData) => {
       training_recommendations, review_date, created_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_DATE, NOW())
     RETURNING id, staff_id, reviewer_id, rating, review_period, reviewer_comments, goals_achieved, areas_for_improvement, future_goals, training_recommendations, review_date, created_at
-  `, [
+  `, 
     staff_id, reviewerId, rating, review_period, reviewer_comments,
     goals_achieved ? JSON.stringify(goals_achieved) : null,
     areas_for_improvement ? JSON.stringify(areas_for_improvement) : null,
     future_goals ? JSON.stringify(future_goals) : null,
     training_recommendations ? JSON.stringify(training_recommendations) : null
-  ]);
+  );
 
   // Update staff's current performance rating
   await prisma.$queryRawUnsafe(
     'UPDATE staff SET performance_rating = $1, last_review_date = CURRENT_DATE WHERE user_id = $2',
-    [rating, staff_id]
+    rating, staff_id
   );
 
   // Create notification for staff member
@@ -177,13 +177,13 @@ export const createPerformanceReview = async (reviewData) => {
     `INSERT INTO notifications (
       user_id, title, body, type, related_id, created_at
     ) VALUES ($1, $2, $3, $4, $5, NOW())`,
-    [
+    
       staff_id,
       'Performance Review Completed',
       `Your ${review_period} performance review has been completed. Rating: ${rating}/5.0`,
       'performance_review',
       reviewResult[0].id
-    ]
+    
   );
 
   // Log review activity
@@ -191,12 +191,12 @@ export const createPerformanceReview = async (reviewData) => {
     `INSERT INTO hr_activity_logs (
       hr_staff_uid, action, staff_id, description, created_at
     ) VALUES ($1, $2, $3, $4, NOW())`,
-    [
+    
       reviewerId,
       'PERFORMANCE_REVIEW_CREATED',
       staff_id,
       `Performance review created for ${staff.name} - Rating: ${rating}/5.0`
-    ]
+    
   );
 
   logger.info(`📝 Performance review created for ${staff.name} (${staff_id}) by ${reviewerName} - Rating: ${rating}/5.0`);

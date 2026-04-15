@@ -253,7 +253,7 @@ export const adminDoctorController = {
       
       const result = await prisma.$queryRawUnsafe(
         `INSERT INTO doctors (name, department, intro, image_url) VALUES ($1, $2, $3, $4) RETURNING id, name, department, intro, image_url, is_active, created_at`,
-        [name, department, intro, imageUrl]
+        name, department, intro, imageUrl
       );
       
       success(res, result[0], 'Doctor saved successfully');

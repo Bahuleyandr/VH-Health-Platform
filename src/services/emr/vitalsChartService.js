@@ -6,10 +6,6 @@ import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
 import news2Service from '../clinical/news2Service.js';
 
 
-// ===================================================================
-// Vitals Charting Service
-// ===================================================================
-
 const VALID_VITAL_TYPES = [
   'heart_rate', 'systolic_bp', 'diastolic_bp', 'temperature', 'spo2',
   'respiratory_rate', 'blood_glucose', 'pain_score', 'weight_kg',
@@ -20,110 +16,64 @@ const VALID_IO_TYPES = ['intake', 'output'];
 const VALID_IO_CATEGORIES = ['oral', 'iv', 'blood', 'urine', 'drain', 'vomit', 'stool', 'other'];
 const VALID_CONSCIOUSNESS = ['A', 'C', 'V', 'P', 'U'];
 
-// ===================================================================
-// recordVitals
-// ===================================================================
+const VITAL_RETURNING = `id, patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp,
+    temperature, spo2, respiratory_rate, blood_glucose, pain_score,
+    weight_kg, height_cm, gcs_score, supplemental_o2, o2_flow_rate,
+    consciousness, notes, recorded_by, recorded_at`;
 
-/**
- * Record a vitals entry and auto-trigger NEWS2 + anomaly checks.
- * @param {Object} data - Vitals data
- * @returns {Object} Created vitals record with any alerts
- */
 export async function recordVitals(data) {
   const {
-    patient_uid,
-    encounter_id,
-    heart_rate,
-    systolic_bp,
-    diastolic_bp,
-    temperature,
-    spo2,
-    respiratory_rate,
-    blood_glucose,
-    pain_score,
-    weight_kg,
-    height_cm,
-    gcs_score,
-    supplemental_o2,
-    o2_flow_rate,
-    consciousness,
-    notes,
-    recorded_by,
+    patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp, temperature,
+    spo2, respiratory_rate, blood_glucose, pain_score, weight_kg, height_cm,
+    gcs_score, supplemental_o2, o2_flow_rate, consciousness, notes, recorded_by,
   } = data;
 
   if (!patient_uid || !recorded_by) {
     throw AppError.badRequest('patient_uid and recorded_by are required');
   }
 
-  // Validate at least one vital sign is provided
   const vitalValues = [heart_rate, systolic_bp, diastolic_bp, temperature, spo2,
     respiratory_rate, blood_glucose, pain_score, weight_kg, height_cm, gcs_score];
   if (vitalValues.every((v) => v === undefined || v === null)) {
     throw AppError.badRequest('At least one vital sign measurement is required');
   }
 
-  // Validate pain score range
   if (pain_score !== undefined && pain_score !== null && (pain_score < 0 || pain_score > 10)) {
     throw AppError.badRequest('pain_score must be between 0 and 10');
   }
-
-  // Validate GCS range
   if (gcs_score !== undefined && gcs_score !== null && (gcs_score < 3 || gcs_score > 15)) {
     throw AppError.badRequest('gcs_score must be between 3 and 15');
   }
-
-  // Validate consciousness level
   if (consciousness && !VALID_CONSCIOUSNESS.includes(consciousness)) {
     throw AppError.badRequest(`consciousness must be one of: ${VALID_CONSCIOUSNESS.join(', ')}`);
   }
 
-  const { rows } = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO vitals_chart
        (patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp, temperature,
         spo2, respiratory_rate, blood_glucose, pain_score, weight_kg, height_cm,
         gcs_score, supplemental_o2, o2_flow_rate, consciousness, notes, recorded_by, recorded_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW())
-     RETURNING id, patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp,
-               temperature, spo2, respiratory_rate, blood_glucose, pain_score,
-               weight_kg, height_cm, gcs_score, supplemental_o2, o2_flow_rate,
-               consciousness, notes, recorded_by, recorded_at`,
-    [
-      patient_uid,
-      encounter_id || null,
-      heart_rate ?? null,
-      systolic_bp ?? null,
-      diastolic_bp ?? null,
-      temperature ?? null,
-      spo2 ?? null,
-      respiratory_rate ?? null,
-      blood_glucose ?? null,
-      pain_score ?? null,
-      weight_kg ?? null,
-      height_cm ?? null,
-      gcs_score ?? null,
-      supplemental_o2 ?? false,
-      o2_flow_rate ?? null,
-      consciousness || null,
-      notes || null,
-      recorded_by,
-    ]
+     VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::uuid, NOW())
+     RETURNING ${VITAL_RETURNING}`,
+    patient_uid,
+    encounter_id || null,
+    heart_rate ?? null, systolic_bp ?? null, diastolic_bp ?? null, temperature ?? null,
+    spo2 ?? null, respiratory_rate ?? null, blood_glucose ?? null, pain_score ?? null,
+    weight_kg ?? null, height_cm ?? null, gcs_score ?? null,
+    supplemental_o2 ?? false, o2_flow_rate ?? null,
+    consciousness || null, notes || null, recorded_by,
   );
 
   const record = rows[0];
   let alerts = [];
   let news2Result = null;
 
-  // Auto-trigger NEWS2 calculation if core vitals are present
-  if (respiratory_rate !== null && spo2 !== null && temperature !== null &&
-      systolic_bp !== null && heart_rate !== null && consciousness) {
+  if (respiratory_rate != null && spo2 != null && temperature != null &&
+      systolic_bp != null && heart_rate != null && consciousness) {
     try {
       news2Result = await news2Service.recordNEWS2(patient_uid, {
         respiration_rate: respiratory_rate,
-        spo2,
-        temperature,
-        systolic_bp,
-        heart_rate,
-        consciousness,
+        spo2, temperature, systolic_bp, heart_rate, consciousness,
         supplemental_o2: supplemental_o2 || false,
       }, recorded_by);
     } catch (err) {
@@ -131,20 +81,30 @@ export async function recordVitals(data) {
     }
   }
 
-  // Auto-check for vital sign anomalies
   try {
     const vitalsForCheck = {};
-    if (heart_rate !== null) vitalsForCheck.heart_rate = heart_rate;
-    if (systolic_bp !== null) vitalsForCheck.systolic_bp = systolic_bp;
-    if (diastolic_bp !== null) vitalsForCheck.diastolic_bp = diastolic_bp;
-    if (temperature !== null) vitalsForCheck.temperature = temperature;
-    if (spo2 !== null) vitalsForCheck.oxygen_saturation = spo2;
-    if (respiratory_rate !== null) vitalsForCheck.respiratory_rate = respiratory_rate;
+    if (heart_rate != null) vitalsForCheck.heart_rate = heart_rate;
+    if (systolic_bp != null) vitalsForCheck.systolic_bp = systolic_bp;
+    if (diastolic_bp != null) vitalsForCheck.diastolic_bp = diastolic_bp;
+    if (temperature != null) vitalsForCheck.temperature = temperature;
+    if (spo2 != null) vitalsForCheck.oxygen_saturation = spo2;
+    if (respiratory_rate != null) vitalsForCheck.respiratory_rate = respiratory_rate;
 
     if (Object.keys(vitalsForCheck).length > 0) {
-      alerts = await checkVitalAnomalies(patient_uid, vitalsForCheck, {
-        recordedBy: recorded_by,
-      });
+      // clinical_alerts.patient_id is an INT FK to users(id) — resolve uuid→int.
+      const userRows = await prisma.$queryRawUnsafe(
+        `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`, patient_uid);
+      const patientIntId = userRows[0]?.id ?? null;
+      // recorded_by is a uuid; clinical_alerts.created_by is int FK — resolve too.
+      const recorderRows = await prisma.$queryRawUnsafe(
+        `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`, recorded_by);
+      const recordedByInt = recorderRows[0]?.id ?? null;
+
+      if (patientIntId) {
+        alerts = await checkVitalAnomalies(patientIntId, vitalsForCheck, {
+          recordedBy: recordedByInt,
+        });
+      }
     }
   } catch (err) {
     logger.warn(`Vital anomaly check failed for patient=${patient_uid}: ${err.message}`);
@@ -152,31 +112,15 @@ export async function recordVitals(data) {
 
   logger.info(`Vitals recorded: id=${record.id}, patient=${patient_uid}, by=${recorded_by}`);
 
-  return {
-    vitals: record,
-    news2: news2Result,
-    alerts: alerts || [],
-  };
+  return { vitals: record, news2: news2Result, alerts: alerts || [] };
 }
 
-// ===================================================================
-// getVitalsTrend
-// ===================================================================
-
-/**
- * Get time-series data for a specific vital sign.
- * @param {string} patientUid
- * @param {string} vitalType - Column name (e.g., 'heart_rate', 'systolic_bp')
- * @param {string|null} dateFrom
- * @param {string|null} dateTo
- * @returns {Array} Array of { timestamp, value }
- */
 export async function getVitalsTrend(patientUid, vitalType, dateFrom, dateTo) {
   if (!VALID_VITAL_TYPES.includes(vitalType)) {
     throw AppError.badRequest(`Invalid vital type: ${vitalType}. Must be one of: ${VALID_VITAL_TYPES.join(', ')}`);
   }
 
-  const conditions = ['patient_uid = $1', `${vitalType} IS NOT NULL`];
+  const conditions = ['patient_uid = $1::uuid', `${vitalType} IS NOT NULL`];
   const params = [patientUid];
   let paramIdx = 2;
 
@@ -185,65 +129,38 @@ export async function getVitalsTrend(patientUid, vitalType, dateFrom, dateTo) {
     params.push(dateFrom);
     paramIdx++;
   }
-
   if (dateTo) {
     conditions.push(`recorded_at <= $${paramIdx}`);
     params.push(dateTo);
     paramIdx++;
   }
 
-  // vitalType is validated against VALID_VITAL_TYPES whitelist above — safe for interpolation
-  const { rows } = await prisma.$queryRawUnsafe(
+  // vitalType validated against VALID_VITAL_TYPES whitelist — safe for interpolation
+  return prisma.$queryRawUnsafe(
     `SELECT recorded_at AS timestamp, ${vitalType} AS value
      FROM vitals_chart
      WHERE ${conditions.join(' AND ')}
      ORDER BY recorded_at ASC`,
-    params
+    ...params
   );
-
-  return rows;
 }
 
-// ===================================================================
-// getLatestVitals
-// ===================================================================
-
-/**
- * Get the most recent complete set of vitals for a patient.
- * @param {string} patientUid
- * @returns {Object|null} Latest vitals record
- */
 export async function getLatestVitals(patientUid) {
-  const { rows } = await prisma.$queryRawUnsafe(
-    `SELECT id, patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp,
-            temperature, spo2, respiratory_rate, blood_glucose, pain_score,
-            weight_kg, height_cm, gcs_score, supplemental_o2, o2_flow_rate,
-            consciousness, notes, recorded_by, recorded_at
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT ${VITAL_RETURNING}
      FROM vitals_chart
-     WHERE patient_uid = $1
+     WHERE patient_uid = $1::uuid
      ORDER BY recorded_at DESC
      LIMIT 1`,
-    [patientUid]
+    patientUid
   );
-
   return rows.length > 0 ? rows[0] : null;
 }
 
-// ===================================================================
-// getVitalsChart
-// ===================================================================
-
-/**
- * Get all vitals for an encounter, paginated.
- * @param {string} patientUid
- * @param {string|null} encounterId
- * @param {Object} pagination - { page?, limit? }
- * @returns {Object} { vitals, pagination }
- */
 export async function getVitalsChart(patientUid, encounterId, pagination = {}) {
   const { page = 1, limit = 50 } = pagination;
 
-  const conditions = ['patient_uid = $1'];
+  const conditions = ['patient_uid = $1::uuid'];
   const params = [patientUid];
   let paramIdx = 2;
 
@@ -257,22 +174,19 @@ export async function getVitalsChart(patientUid, encounterId, pagination = {}) {
   const safeLimit = Math.min(Math.max(1, parseInt(limit, 10)), 100);
   const offset = (Math.max(1, parseInt(page, 10)) - 1) * safeLimit;
 
-  const { rows: countRows } = await prisma.$queryRawUnsafe(
-    `SELECT COUNT(*) AS total FROM vitals_chart WHERE ${whereClause}`,
-    params
+  const countRows = await prisma.$queryRawUnsafe(
+    `SELECT COUNT(*)::int AS total FROM vitals_chart WHERE ${whereClause}`,
+    ...params
   );
   const total = parseInt(countRows[0].total, 10);
 
-  const { rows } = await prisma.$queryRawUnsafe(
-    `SELECT id, patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp,
-            temperature, spo2, respiratory_rate, blood_glucose, pain_score,
-            weight_kg, height_cm, gcs_score, supplemental_o2, o2_flow_rate,
-            consciousness, notes, recorded_by, recorded_at
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT ${VITAL_RETURNING}
      FROM vitals_chart
      WHERE ${whereClause}
      ORDER BY recorded_at DESC
      LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
-    [...params, safeLimit, offset]
+    ...params, safeLimit, offset
   );
 
   return {
@@ -286,63 +200,38 @@ export async function getVitalsChart(patientUid, encounterId, pagination = {}) {
   };
 }
 
-// ===================================================================
-// recordIntakeOutput
-// ===================================================================
-
-/**
- * Record an intake/output entry.
- * @param {Object} data - { patient_uid, encounter_id?, io_type, category, amount_ml, description?, recorded_by }
- * @returns {Object} Created I/O record
- */
 export async function recordIntakeOutput(data) {
   const { patient_uid, encounter_id, io_type, category, amount_ml, description, recorded_by } = data;
 
   if (!patient_uid || !io_type || !category || amount_ml === undefined || !recorded_by) {
     throw AppError.badRequest('patient_uid, io_type, category, amount_ml, and recorded_by are required');
   }
-
   if (!VALID_IO_TYPES.includes(io_type)) {
     throw AppError.badRequest(`Invalid io_type: ${io_type}. Must be one of: ${VALID_IO_TYPES.join(', ')}`);
   }
-
   if (!VALID_IO_CATEGORIES.includes(category)) {
     throw AppError.badRequest(`Invalid category: ${category}. Must be one of: ${VALID_IO_CATEGORIES.join(', ')}`);
   }
-
   if (typeof amount_ml !== 'number' || amount_ml < 0) {
     throw AppError.badRequest('amount_ml must be a non-negative number');
   }
 
-  const { rows } = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO intake_output
        (patient_uid, encounter_id, io_type, category, amount_ml, description, recorded_by, recorded_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+     VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::uuid, NOW())
      RETURNING id, patient_uid, encounter_id, io_type, category, amount_ml, description, recorded_by, recorded_at`,
-    [patient_uid, encounter_id || null, io_type, category, amount_ml, description || null, recorded_by]
+    patient_uid, encounter_id || null, io_type, category, amount_ml, description || null, recorded_by
   );
 
   logger.info(`I/O recorded: id=${rows[0].id}, type=${io_type}, category=${category}, amount=${amount_ml}ml, patient=${patient_uid}`);
   return rows[0];
 }
 
-// ===================================================================
-// getIOBalance
-// ===================================================================
-
-/**
- * Calculate fluid balance for a specific day (total intake - total output).
- * @param {string} patientUid
- * @param {string|null} encounterId
- * @param {string} date - ISO date (YYYY-MM-DD)
- * @returns {Object} { date, total_intake, total_output, balance, entries }
- */
 export async function getIOBalance(patientUid, encounterId, date) {
-  if (!date) {
-    throw AppError.badRequest('date is required (YYYY-MM-DD)');
-  }
+  if (!date) throw AppError.badRequest('date is required (YYYY-MM-DD)');
 
-  const conditions = ['patient_uid = $1', 'recorded_at::date = $2::date'];
+  const conditions = ['patient_uid = $1::uuid', 'recorded_at::date = $2::date'];
   const params = [patientUid, date];
   let paramIdx = 3;
 
@@ -354,29 +243,27 @@ export async function getIOBalance(patientUid, encounterId, date) {
 
   const whereClause = conditions.join(' AND ');
 
-  // Get totals by type
-  const { rows: totals } = await prisma.$queryRawUnsafe(
+  const totals = await prisma.$queryRawUnsafe(
     `SELECT io_type, COALESCE(SUM(amount_ml), 0) AS total_ml
      FROM intake_output
      WHERE ${whereClause}
      GROUP BY io_type`,
-    params
+    ...params
   );
 
   let totalIntake = 0;
   let totalOutput = 0;
   for (const row of totals) {
-    if (row.io_type === 'intake') totalIntake = parseInt(row.total_ml, 10);
-    if (row.io_type === 'output') totalOutput = parseInt(row.total_ml, 10);
+    if (row.io_type === 'intake') totalIntake = parseFloat(row.total_ml);
+    if (row.io_type === 'output') totalOutput = parseFloat(row.total_ml);
   }
 
-  // Get individual entries
-  const { rows: entries } = await prisma.$queryRawUnsafe(
+  const entries = await prisma.$queryRawUnsafe(
     `SELECT id, io_type, category, amount_ml, description, recorded_by, recorded_at
      FROM intake_output
      WHERE ${whereClause}
      ORDER BY recorded_at ASC`,
-    params
+    ...params
   );
 
   return {
@@ -388,20 +275,8 @@ export async function getIOBalance(patientUid, encounterId, date) {
   };
 }
 
-// ===================================================================
-// getIOChart
-// ===================================================================
-
-/**
- * Get I/O chart data for a date range.
- * @param {string} patientUid
- * @param {string|null} encounterId
- * @param {string|null} dateFrom
- * @param {string|null} dateTo
- * @returns {Array} I/O entries sorted by recorded_at
- */
 export async function getIOChart(patientUid, encounterId, dateFrom, dateTo) {
-  const conditions = ['patient_uid = $1'];
+  const conditions = ['patient_uid = $1::uuid'];
   const params = [patientUid];
   let paramIdx = 2;
 
@@ -410,30 +285,24 @@ export async function getIOChart(patientUid, encounterId, dateFrom, dateTo) {
     params.push(encounterId);
     paramIdx++;
   }
-
   if (dateFrom) {
     conditions.push(`recorded_at >= $${paramIdx}`);
     params.push(dateFrom);
     paramIdx++;
   }
-
   if (dateTo) {
     conditions.push(`recorded_at <= $${paramIdx}`);
     params.push(dateTo);
     paramIdx++;
   }
 
-  const whereClause = conditions.join(' AND ');
-
-  const { rows } = await prisma.$queryRawUnsafe(
+  return prisma.$queryRawUnsafe(
     `SELECT id, io_type, category, amount_ml, description, recorded_by, recorded_at
      FROM intake_output
-     WHERE ${whereClause}
+     WHERE ${conditions.join(' AND ')}
      ORDER BY recorded_at ASC`,
-    params
+    ...params
   );
-
-  return rows;
 }
 
 export default {

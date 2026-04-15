@@ -251,7 +251,7 @@ export class AuthService {
           await prisma.$queryRawUnsafe(
             `INSERT INTO totp_challenges (admin_id, challenge_token, expires_at, created_at)
              VALUES ($1, $2, $3, NOW())`,
-            [admin.uid, challengeToken, expiresAt]
+            admin.uid, challengeToken, expiresAt
           );
         } catch (challengeErr) {
           logger.warn('TOTP challenge table may not exist, falling back to direct login:', challengeErr.message);

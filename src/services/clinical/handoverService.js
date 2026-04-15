@@ -2,6 +2,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { emitHandover } from '../../utils/websocket/realtimeEmitter.js';
 
 // ===================================================================
 // Nurse Handover Service
@@ -37,14 +38,14 @@ export async function createHandover(data) {
     throw AppError.badRequest(`Invalid shift: ${shift}. Must be one of: ${VALID_SHIFTS.join(', ')}`);
   }
 
-  const { rows } = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO nurse_handovers
        (patient_uid, ward, bed_number, outgoing_nurse, incoming_nurse, shift,
         patient_summary, active_issues, pending_tasks, medications_due,
         special_instructions)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING id, patient_uid, outgoing_nurse, incoming_nurse, summary, pending_tasks, alerts, status, created_at`,
-    [
+    
       patient_uid,
       ward || null,
       bed_number || null,
@@ -56,10 +57,12 @@ export async function createHandover(data) {
       pending_tasks,
       medications_due,
       special_instructions || null,
-    ]
+    
   );
 
   logger.info(`Handover created by nurse ${outgoing_nurse} for patient ${patient_uid} (${shift} shift)`);
+  const created = { ...rows[0], patient_uid, ward: ward || null, bed_number: bed_number || null, outgoing_nurse, incoming_nurse: incoming_nurse || null, shift: shift.toLowerCase() };
+  emitHandover(created);
   return rows[0];
 }
 
@@ -70,9 +73,9 @@ export async function createHandover(data) {
  * @returns {Object} Updated handover record
  */
 export async function acknowledgeHandover(id, nurseUid) {
-  const { rows: existing } = await prisma.$queryRawUnsafe(
+  const existing = await prisma.$queryRawUnsafe(
     'SELECT id, acknowledged, incoming_nurse FROM nurse_handovers WHERE id = $1',
-    [id]
+    id
   );
 
   if (existing.length === 0) {
@@ -83,14 +86,14 @@ export async function acknowledgeHandover(id, nurseUid) {
     throw AppError.conflict('Handover has already been acknowledged');
   }
 
-  const { rows } = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `UPDATE nurse_handovers
      SET acknowledged = true,
          acknowledged_at = NOW(),
          incoming_nurse = COALESCE(incoming_nurse, $2)
      WHERE id = $1
      RETURNING id, patient_uid, outgoing_nurse, incoming_nurse, summary, pending_tasks, alerts, status, created_at`,
-    [id, nurseUid]
+    id, nurseUid
   );
 
   logger.info(`Handover ${id} acknowledged by nurse ${nurseUid}`);
@@ -103,7 +106,7 @@ export async function acknowledgeHandover(id, nurseUid) {
  * @returns {Array} Pending handover records
  */
 export async function getActiveHandovers(nurseUid) {
-  const { rows } = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, ward, bed_number, outgoing_nurse, incoming_nurse,
             shift, patient_summary, active_issues, pending_tasks,
             medications_due, special_instructions, acknowledged, created_at
@@ -111,7 +114,7 @@ export async function getActiveHandovers(nurseUid) {
      WHERE (incoming_nurse = $1 OR incoming_nurse IS NULL)
        AND acknowledged = false
      ORDER BY created_at DESC`,
-    [nurseUid]
+    nurseUid
   );
 
   return rows;
@@ -124,7 +127,7 @@ export async function getActiveHandovers(nurseUid) {
  * @returns {Array} Handover records
  */
 export async function getPatientHandoverHistory(patientUid, limit = 50) {
-  const { rows } = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, ward, bed_number, outgoing_nurse, incoming_nurse,
             shift, patient_summary, active_issues, pending_tasks,
             medications_due, special_instructions, acknowledged,
@@ -133,7 +136,7 @@ export async function getPatientHandoverHistory(patientUid, limit = 50) {
      WHERE patient_uid = $1
      ORDER BY created_at DESC
      LIMIT $2`,
-    [patientUid, limit]
+    patientUid, limit
   );
 
   return rows;

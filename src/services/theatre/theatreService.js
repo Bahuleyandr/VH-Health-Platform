@@ -11,20 +11,27 @@ const VALID_TRANSITIONS = {
   in_progress: ['post_op'],
   post_op: ['completed'],
   completed: [],
-  cancelled: []
+  cancelled: [],
 };
 
-class TheatreService {
+const OT_RETURNING = `id, patient_uid, encounter_id, surgeon, anesthetist, procedure_name,
+    procedure_code, ot_room, scheduled_date, scheduled_time, estimated_duration,
+    actual_duration, status, pre_op_checklist, equipment_needed, blood_arranged,
+    consent_obtained, post_op_notes, complications, created_at, updated_at`;
 
-  /**
-   * Schedule a new surgery
-   */
+function requireIntId(id) {
+  const n = parseInt(id, 10);
+  if (!Number.isFinite(n)) throw AppError.badRequest('Invalid id — must be an integer');
+  return n;
+}
+
+class TheatreService {
   async scheduleSurgery(data) {
     const {
       patient_uid, encounter_id, surgeon, anesthetist,
       procedure_name, procedure_code, ot_room, scheduled_date,
       scheduled_time, estimated_duration, equipment_needed = [],
-      blood_arranged = false, consent_obtained = false
+      blood_arranged = false, consent_obtained = false,
     } = data;
 
     if (!patient_uid || !surgeon || !procedure_name || !scheduled_date) {
@@ -35,180 +42,128 @@ class TheatreService {
       `INSERT INTO ot_schedules
         (patient_uid, encounter_id, surgeon, anesthetist, procedure_name, procedure_code,
          ot_room, scheduled_date, scheduled_time, estimated_duration, status,
-         equipment_needed, blood_arranged, consent_obtained, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'scheduled', $11, $12, $13, NOW())
-       RETURNING id, patient_uid, encounter_id, surgeon, anesthetist, procedure_name,
-                 procedure_code, ot_room, scheduled_date, scheduled_time, estimated_duration,
-                 status, equipment_needed, blood_arranged, consent_obtained, created_at`,
-      [
-        patient_uid, encounter_id || null, surgeon, anesthetist || null,
-        procedure_name, procedure_code || null, ot_room || null,
-        scheduled_date, scheduled_time || null, estimated_duration || null,
-        equipment_needed, blood_arranged, consent_obtained
-      ]
+         equipment_needed, blood_arranged, consent_obtained, created_at, updated_at)
+       VALUES ($1::uuid, $2, $3::uuid, $4::uuid, $5, $6, $7, $8::date, $9::time,
+         $10, 'scheduled', $11::text[], $12, $13, NOW(), NOW())
+       RETURNING ${OT_RETURNING}`,
+      patient_uid, encounter_id || null, surgeon, anesthetist || null,
+      procedure_name, procedure_code || null, ot_room || null,
+      scheduled_date, scheduled_time || null, estimated_duration || null,
+      equipment_needed, blood_arranged, consent_obtained
     );
 
     logger.info('Surgery scheduled', { scheduleId: result[0].id, procedure_name, surgeon });
     return result[0];
   }
 
-  /**
-   * Get today's OT schedule
-   */
   async getTodaySchedule(filters = {}) {
     const { ot_room, status, date } = filters;
     const targetDate = date || new Date().toISOString().split('T')[0];
-    const conditions = [`scheduled_date = $1`];
+    const conditions = [`scheduled_date = $1::date`];
     const params = [targetDate];
 
     if (ot_room) {
       params.push(ot_room);
       conditions.push(`ot_room = $${params.length}`);
     }
-
     if (status) {
       params.push(status);
       conditions.push(`status = $${params.length}`);
     }
 
-    const whereClause = `WHERE ${conditions.join(' AND ')}`;
-
-    const result = await prisma.$queryRawUnsafe(
-      `SELECT id, patient_uid, encounter_id, surgeon, anesthetist, procedure_name,
-              procedure_code, ot_room, scheduled_date, scheduled_time, estimated_duration,
-              actual_duration, status, pre_op_checklist, equipment_needed,
-              blood_arranged, consent_obtained, post_op_notes, complications, created_at
+    return prisma.$queryRawUnsafe(
+      `SELECT ${OT_RETURNING}
        FROM ot_schedules
-       ${whereClause}
+       WHERE ${conditions.join(' AND ')}
        ORDER BY scheduled_time ASC NULLS LAST, created_at ASC`,
-      params
+      ...params
     );
-
-    return result;
   }
 
-  /**
-   * Update surgery status with valid transition enforcement
-   */
   async updateStatus(id, newStatus, updatedBy) {
     if (!VALID_STATUSES.includes(newStatus)) {
       throw AppError.badRequest(`Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}`);
     }
 
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM ot_schedules WHERE id = $1`,
-      [id]
-    );
-
-    if (existing.length === 0) {
-      throw AppError.notFound('OT schedule not found');
-    }
+      `SELECT id, status FROM ot_schedules WHERE id = $1`, requireIntId(id));
+    if (existing.length === 0) throw AppError.notFound('OT schedule not found');
 
     const currentStatus = existing[0].status;
     const allowed = VALID_TRANSITIONS[currentStatus] || [];
-
     if (!allowed.includes(newStatus)) {
       throw AppError.invalidTransition(currentStatus, newStatus, allowed);
     }
 
     const result = await prisma.$queryRawUnsafe(
-      `UPDATE ot_schedules SET status = $1 WHERE id = $2
-       RETURNING id, patient_uid, surgeon, procedure_name, ot_room, scheduled_date, status`,
-      [newStatus, id]
+      `UPDATE ot_schedules SET status = $1, updated_at = NOW() WHERE id = $2
+       RETURNING ${OT_RETURNING}`,
+      newStatus, requireIntId(id)
     );
 
     logger.info('OT schedule status updated', { scheduleId: id, from: currentStatus, to: newStatus, updatedBy });
     return result[0];
   }
 
-  /**
-   * Complete or update the pre-op checklist
-   */
   async completeChecklist(id, checklist) {
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM ot_schedules WHERE id = $1`,
-      [id]
-    );
-
-    if (existing.length === 0) {
-      throw AppError.notFound('OT schedule not found');
-    }
-
+      `SELECT id, status FROM ot_schedules WHERE id = $1`, requireIntId(id));
+    if (existing.length === 0) throw AppError.notFound('OT schedule not found');
     if (['completed', 'cancelled'].includes(existing[0].status)) {
       throw AppError.badRequest('Cannot update checklist for a completed or cancelled surgery');
     }
 
     const result = await prisma.$queryRawUnsafe(
-      `UPDATE ot_schedules SET pre_op_checklist = $1 WHERE id = $2
-       RETURNING id, patient_uid, procedure_name, status, pre_op_checklist`,
-      [JSON.stringify(checklist), id]
+      `UPDATE ot_schedules SET pre_op_checklist = $1::jsonb, updated_at = NOW()
+       WHERE id = $2
+       RETURNING ${OT_RETURNING}`,
+      JSON.stringify(checklist ?? {}), requireIntId(id)
     );
 
     logger.info('Pre-op checklist updated', { scheduleId: id });
     return result[0];
   }
 
-  /**
-   * Get available OT rooms for a given date
-   */
   async getAvailableRooms(date) {
-    if (!date) {
-      throw AppError.badRequest('Date is required');
-    }
+    if (!date) throw AppError.badRequest('Date is required');
 
-    // Get rooms that are currently booked (not cancelled/completed) on the given date
     const bookedResult = await prisma.$queryRawUnsafe(
       `SELECT DISTINCT ot_room FROM ot_schedules
-       WHERE scheduled_date = $1
+       WHERE scheduled_date = $1::date
          AND status NOT IN ('cancelled', 'completed')
          AND ot_room IS NOT NULL`,
-      [date]
+      date
     );
+    const bookedRooms = bookedResult.map((r) => r.ot_room);
 
-    const bookedRooms = bookedResult.map(r => r.ot_room);
-
-    // Return schedule summary per room for the date
     const scheduleResult = await prisma.$queryRawUnsafe(
-      `SELECT ot_room, COUNT(*) as surgery_count,
-              ARRAY_AGG(scheduled_time ORDER BY scheduled_time) as times,
-              ARRAY_AGG(status) as statuses
+      `SELECT ot_room, COUNT(*)::int AS surgery_count,
+              ARRAY_AGG(scheduled_time ORDER BY scheduled_time) AS times,
+              ARRAY_AGG(status) AS statuses
        FROM ot_schedules
-       WHERE scheduled_date = $1
+       WHERE scheduled_date = $1::date
          AND status NOT IN ('cancelled')
          AND ot_room IS NOT NULL
        GROUP BY ot_room
        ORDER BY ot_room`,
-      [date]
+      date
     );
 
-    return {
-      date,
-      booked_rooms: bookedRooms,
-      room_schedules: scheduleResult
-    };
+    return { date, booked_rooms: bookedRooms, room_schedules: scheduleResult };
   }
 
-  /**
-   * Cancel a scheduled surgery
-   */
   async cancelSurgery(id, cancelledBy) {
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM ot_schedules WHERE id = $1`,
-      [id]
-    );
-
-    if (existing.length === 0) {
-      throw AppError.notFound('OT schedule not found');
-    }
-
+      `SELECT id, status FROM ot_schedules WHERE id = $1`, requireIntId(id));
+    if (existing.length === 0) throw AppError.notFound('OT schedule not found');
     if (['completed', 'cancelled'].includes(existing[0].status)) {
       throw AppError.badRequest(`Cannot cancel a surgery that is already ${existing[0].status}`);
     }
 
     const result = await prisma.$queryRawUnsafe(
-      `UPDATE ot_schedules SET status = 'cancelled' WHERE id = $1
-       RETURNING id, patient_uid, surgeon, procedure_name, ot_room, scheduled_date, status`,
-      [id]
+      `UPDATE ot_schedules SET status = 'cancelled', updated_at = NOW() WHERE id = $1
+       RETURNING ${OT_RETURNING}`,
+      requireIntId(id)
     );
 
     logger.info('Surgery cancelled', { scheduleId: id, cancelledBy });

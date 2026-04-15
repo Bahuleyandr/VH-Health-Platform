@@ -177,72 +177,72 @@ function buildTemplateSummary(data) {
 // ===================================================================
 async function collectClinicalData(admissionId) {
   // Get admission details
-  const { rows: admRows } = await prisma.$queryRawUnsafe(
+  const admRows = await prisma.$queryRawUnsafe(
     `SELECT a.*, u.name as patient_name, u.gender, u.phone, u.birthday, u.allergies as patient_allergies
      FROM admissions a
      LEFT JOIN users u ON a.patient_uid = u.uid
      WHERE a.id = $1`,
-    [admissionId]
+    admissionId
   );
   if (!admRows.length) throw AppError.notFound('Admission not found');
   const admission = admRows[0];
 
   // Get all clinical notes for this encounter
-  const { rows: notes } = await prisma.$queryRawUnsafe(
+  const notes = await prisma.$queryRawUnsafe(
     `SELECT id, note_type, content, author_uid, is_signed, created_at
      FROM clinical_notes
      WHERE encounter_id = $1
      ORDER BY created_at ASC`,
-    [admission.encounter_id]
+    admission.encounter_id
   );
 
   // Get procedure notes specifically
   const procedures = notes.filter(n => n.note_type === 'procedure');
 
   // Get diagnoses
-  const { rows: diagnoses } = await prisma.$queryRawUnsafe(
+  const diagnoses = await prisma.$queryRawUnsafe(
     `SELECT icd10_code, description, diagnosis_type, status, severity, onset_date
      FROM diagnoses
      WHERE encounter_id = $1
      ORDER BY diagnosis_type ASC`,
-    [admission.encounter_id]
+    admission.encounter_id
   );
 
   // Get latest vitals
-  const { rows: vitalsRows } = await prisma.$queryRawUnsafe(
+  const vitalsRows = await prisma.$queryRawUnsafe(
     `SELECT heart_rate, systolic_bp, diastolic_bp, temperature, spo2,
             respiratory_rate, blood_glucose, pain_score, gcs_score, consciousness
      FROM vitals_chart
      WHERE encounter_id = $1
      ORDER BY recorded_at DESC LIMIT 1`,
-    [admission.encounter_id]
+    admission.encounter_id
   );
 
   // Get medication administrations
-  const { rows: medications } = await prisma.$queryRawUnsafe(
+  const medications = await prisma.$queryRawUnsafe(
     `SELECT medication_name, dose, route, status, administered_at
      FROM medication_administrations
      WHERE patient_uid = $1 AND created_at >= $2
      ORDER BY created_at DESC`,
-    [admission.patient_uid, admission.admitted_at]
+    admission.patient_uid, admission.admitted_at
   );
 
   // Get investigations
-  const { rows: investigations } = await prisma.$queryRawUnsafe(
+  const investigations = await prisma.$queryRawUnsafe(
     `SELECT type, test_name, status, result_summary, created_at
      FROM investigations
      WHERE patient_uid = $1 AND created_at >= $2
      ORDER BY created_at DESC`,
-    [admission.patient_uid, admission.admitted_at]
+    admission.patient_uid, admission.admitted_at
   );
 
   // Get active orders
-  const { rows: activeOrders } = await prisma.$queryRawUnsafe(
+  const activeOrders = await prisma.$queryRawUnsafe(
     `SELECT order_type, details, status, priority
      FROM clinical_orders
      WHERE encounter_id = $1 AND status NOT IN ('completed', 'cancelled', 'discontinued')
      ORDER BY created_at DESC`,
-    [admission.encounter_id]
+    admission.encounter_id
   );
 
   return {
@@ -342,27 +342,27 @@ async function generateDischargeSummary(admissionId, requestedBy, req) {
 // Save edited discharge summary as clinical note (draft or final)
 // ===================================================================
 async function saveDischargeSummary(admissionId, summary, savedBy) {
-  const { rows: admRows } = await prisma.$queryRawUnsafe(
+  const admRows = await prisma.$queryRawUnsafe(
     `SELECT encounter_id, patient_uid, status FROM admissions WHERE id = $1`,
-    [admissionId]
+    admissionId
   );
   if (!admRows.length) throw AppError.notFound('Admission not found');
 
   const admission = admRows[0];
 
   // Check if a discharge note already exists for this encounter
-  const { rows: existing } = await prisma.$queryRawUnsafe(
+  const existing = await prisma.$queryRawUnsafe(
     `SELECT id FROM clinical_notes
      WHERE encounter_id = $1 AND note_type = 'discharge'
      ORDER BY version DESC LIMIT 1`,
-    [admission.encounter_id]
+    admission.encounter_id
   );
 
   if (existing.length) {
     // Update existing draft (only if not signed)
-    const { rows: note } = await prisma.$queryRawUnsafe(
+    const note = await prisma.$queryRawUnsafe(
       `SELECT is_signed FROM clinical_notes WHERE id = $1`,
-      [existing[0].id]
+      existing[0].id
     );
     if (note[0]?.is_signed) {
       throw AppError.badRequest('Signed discharge summary cannot be modified. Add an addendum instead.');
@@ -372,19 +372,19 @@ async function saveDischargeSummary(admissionId, summary, savedBy) {
       `UPDATE clinical_notes
        SET content = $1, version = version + 1, updated_at = NOW()
        WHERE id = $2`,
-      [JSON.stringify(summary), existing[0].id]
+      JSON.stringify(summary), existing[0].id
     );
 
     return { noteId: existing[0].id, action: 'updated' };
   }
 
   // Create new discharge note
-  const { rows: created } = await prisma.$queryRawUnsafe(
+  const created = await prisma.$queryRawUnsafe(
     `INSERT INTO clinical_notes
      (encounter_id, patient_uid, author_uid, author_role, note_type, content, version, is_signed)
      VALUES ($1, $2, $3, 'DOCTOR', 'discharge', $4, 1, false)
      RETURNING id`,
-    [admission.encounter_id, admission.patient_uid, savedBy, JSON.stringify(summary)]
+    admission.encounter_id, admission.patient_uid, savedBy, JSON.stringify(summary)
   );
 
   return { noteId: created[0].id, action: 'created' };
@@ -394,17 +394,17 @@ async function saveDischargeSummary(admissionId, summary, savedBy) {
 // Sign discharge summary — makes it official and immutable
 // ===================================================================
 async function signDischargeSummary(admissionId, doctorUid) {
-  const { rows: admRows } = await prisma.$queryRawUnsafe(
+  const admRows = await prisma.$queryRawUnsafe(
     `SELECT encounter_id, patient_uid FROM admissions WHERE id = $1`,
-    [admissionId]
+    admissionId
   );
   if (!admRows.length) throw AppError.notFound('Admission not found');
 
   // Verify the signer is a doctor — Medical Records staff can edit but NOT sign
   const { canSignDischargeSummary } = await import('../../utils/roleHelpers.js');
-  const { rows: userRows } = await prisma.$queryRawUnsafe(
+  const userRows = await prisma.$queryRawUnsafe(
     `SELECT role FROM users WHERE uid = $1`,
-    [doctorUid]
+    doctorUid
   );
   const role = userRows[0]?.role?.toUpperCase() || '';
   if (!canSignDischargeSummary(role) && role !== 'SUPER_ADMIN') {
@@ -412,11 +412,11 @@ async function signDischargeSummary(admissionId, doctorUid) {
   }
 
   // Find the discharge note
-  const { rows: noteRows } = await prisma.$queryRawUnsafe(
+  const noteRows = await prisma.$queryRawUnsafe(
     `SELECT id, is_signed FROM clinical_notes
      WHERE encounter_id = $1 AND note_type = 'discharge'
      ORDER BY version DESC LIMIT 1`,
-    [admRows[0].encounter_id]
+    admRows[0].encounter_id
   );
   if (!noteRows.length) throw AppError.notFound('No discharge summary found. Generate one first.');
   if (noteRows[0].is_signed) throw AppError.badRequest('Discharge summary is already signed');
@@ -426,17 +426,17 @@ async function signDischargeSummary(admissionId, doctorUid) {
     `UPDATE clinical_notes
      SET is_signed = true, signed_at = NOW(), signed_by = $1
      WHERE id = $2`,
-    [doctorUid, noteRows[0].id]
+    doctorUid, noteRows[0].id
   );
 
   // Audit log
   await prisma.$queryRawUnsafe(
-    `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, details, created_at)
-     VALUES ($1, 'SIGN_DISCHARGE_SUMMARY', 'clinical_notes', $2, $3, NOW())`,
-    [doctorUid, String(noteRows[0].id), JSON.stringify({
+    `INSERT INTO audit_logs (uid, action, resource, resource_id, metadata, created_at)
+     VALUES ($1::uuid, 'SIGN_DISCHARGE_SUMMARY', 'clinical_notes', $2, $3::jsonb, NOW())`,
+    doctorUid, String(noteRows[0].id), JSON.stringify({
       admission_id: admissionId,
       patient_uid: admRows[0].patient_uid,
-    })]
+    })
   );
 
   logger.info(`Discharge summary signed for admission ${admissionId} by doctor ${doctorUid}`);

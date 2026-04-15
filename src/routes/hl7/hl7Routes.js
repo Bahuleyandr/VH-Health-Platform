@@ -78,7 +78,7 @@ router.post(
             `INSERT INTO admissions (patient_uid, status, ward, bed_number, admitting_doctor, admitted_at, reason, created_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
              ON CONFLICT DO NOTHING`,
-            [
+            
               patient.uid,
               admission.status || 'ADMITTED',
               admission.ward || null,
@@ -86,7 +86,7 @@ router.post(
               admission.admitting_doctor || null,
               admission.admitted_at || new Date().toISOString(),
               null,
-            ]
+            
           );
         } else if (messageType === 'ADT^A03') {
           // Discharge — update most recent admission for this patient
@@ -94,7 +94,7 @@ router.post(
             `UPDATE admissions SET status = 'DISCHARGED', discharged_at = $2
              WHERE patient_uid = $1 AND status = 'ADMITTED'
              ORDER BY admitted_at DESC LIMIT 1`,
-            [patient.uid, admission.discharged_at || new Date().toISOString()]
+            patient.uid, admission.discharged_at || new Date().toISOString()
           );
         }
 
@@ -114,17 +114,83 @@ router.post(
         await prisma.$queryRawUnsafe(
           `INSERT INTO investigations (patient_uid, test_name, status, ordered_at, created_at)
            VALUES ($1, $2, $3, $4, NOW())`,
-          [
+          
             patient.uid,
             order.test_name || 'Unknown Test',
             order.status || 'PENDING',
             order.ordered_at || new Date().toISOString(),
-          ]
+          
         );
 
         logger.info('HL7 ORM processed', { testName: order.test_name, patientUid: patient.uid, requestId: req.id });
         res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
         return res.status(200).send(generateACK(controlId, 'AA', 'Order accepted'));
+      }
+
+      if (messageType === 'ORU^R01') {
+        // Inbound lab result. Map OBX segments to structured_results and
+        // attach to the most recent matching pending investigation for the
+        // patient. If none, create a new investigation so the result isn't
+        // dropped.
+        const patientUid = parsed.pid?.uid || parsed.pid?.patientId;
+        if (!patientUid) {
+          res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
+          return res.status(400).send(generateACK(controlId, 'AE', 'Patient identifier (PID.3) is required'));
+        }
+
+        const observations = (parsed.obx || []).map((o) => ({
+          code: o.observationId || null, // typically LOINC when sender populates it
+          value: o.value,
+          units: o.units,
+          referenceRange: o.referenceRange,
+          abnormalFlag: o.abnormalFlag,
+          resultStatus: o.resultStatus,
+          valueType: o.valueType,
+        }));
+
+        const testName = parsed.obr?.universalServiceId || observations[0]?.code || 'Lab Result';
+
+        const matched = await prisma.$queryRawUnsafe(
+          `UPDATE investigations
+              SET structured_results = $2::jsonb,
+                  status = 'COMPLETED',
+                  completed_at = NOW(),
+                  result_uploaded_at = NOW()
+            WHERE patient_uid = $1::uuid
+              AND status IN ('REQUESTED', 'PENDING', 'IN_PROGRESS')
+              AND (test_name = $3 OR test_name = 'Unknown Test')
+              AND id = (
+                SELECT id FROM investigations
+                 WHERE patient_uid = $1::uuid
+                   AND status IN ('REQUESTED', 'PENDING', 'IN_PROGRESS')
+                 ORDER BY requested_at DESC
+                 LIMIT 1
+              )
+            RETURNING id`,
+          patientUid,
+          JSON.stringify(observations),
+          testName,
+        );
+
+        if (matched.length === 0) {
+          await prisma.$queryRawUnsafe(
+            `INSERT INTO investigations (patient_uid, test_name, status, structured_results, completed_at, created_at)
+             VALUES ($1::uuid, $2, 'COMPLETED', $3::jsonb, NOW(), NOW())`,
+            patientUid,
+            testName,
+            JSON.stringify(observations),
+          );
+        }
+
+        logger.info('HL7 ORU processed', {
+          patientUid,
+          testName,
+          observationCount: observations.length,
+          attached: matched.length > 0,
+          requestId: req.id,
+        });
+        res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
+        return res.status(200).send(generateACK(controlId, 'AA', 'Result accepted'));
       }
 
       // Unsupported message type
@@ -163,12 +229,12 @@ router.post(
         throw AppError.badRequest('admission_id is required for ADT events');
       }
 
-      const { rows: admissionRows } = await prisma.$queryRawUnsafe(
+      const admissionRows = await prisma.$queryRawUnsafe(
         `SELECT id, patient_uid, status, ward, bed_number, priority, admission_type,
                 admitting_doctor, attending_doctor, admitted_at, discharged_at,
                 encounter_id, reason, reason_for_admission, discharge_disposition, discharge_type
          FROM admissions WHERE id = $1 LIMIT 1`,
-        [admission_id]
+        admission_id
       );
 
       if (!admissionRows.length) {
@@ -177,9 +243,9 @@ router.post(
 
       const admission = admissionRows[0];
 
-      const { rows: patientRows } = await prisma.$queryRawUnsafe(
+      const patientRows = await prisma.$queryRawUnsafe(
         `SELECT uid, name, phone, gender, birthday, address FROM users WHERE uid = $1 LIMIT 1`,
-        [admission.patient_uid]
+        admission.patient_uid
       );
 
       const patient = patientRows[0] || { uid: admission.patient_uid };
@@ -194,11 +260,11 @@ router.post(
         throw AppError.badRequest('investigation_id is required for ORM/ORU events');
       }
 
-      const { rows: investigationRows } = await prisma.$queryRawUnsafe(
+      const investigationRows = await prisma.$queryRawUnsafe(
         `SELECT id, patient_uid, uid, test_name, investigation_type, status,
                 results, conclusion, interpretation, ordered_at, completed_at, created_at
          FROM investigations WHERE id = $1 LIMIT 1`,
-        [investigation_id]
+        investigation_id
       );
 
       if (!investigationRows.length) {
@@ -208,9 +274,9 @@ router.post(
       const investigation = investigationRows[0];
       const patientUid = investigation.patient_uid || investigation.uid;
 
-      const { rows: patientRows } = await prisma.$queryRawUnsafe(
+      const patientRows = await prisma.$queryRawUnsafe(
         `SELECT uid, name, phone, gender, birthday, address FROM users WHERE uid = $1 LIMIT 1`,
-        [patientUid]
+        patientUid
       );
 
       const patient = patientRows[0] || { uid: patientUid };

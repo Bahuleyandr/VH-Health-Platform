@@ -26,7 +26,7 @@ export const findNearbyHospitals = async (latitude, longitude, radius) => {
       cos(radians(longitude) - radians($2)) + sin(radians($1)) * 
       sin(radians(latitude)))) ASC
     LIMIT 5
-  `, [latitude, longitude]);
+  `, latitude, longitude);
 
   return result.map(hospital => ({
     ...hospital,
@@ -57,7 +57,7 @@ export const findNearbyPharmacies = async (latitude, longitude, radius) => {
       cos(radians(longitude) - radians($2)) + sin(radians($1)) * 
       sin(radians(latitude)))) ASC
     LIMIT 10
-  `, [latitude, longitude]);
+  `, latitude, longitude);
 
   return result.map(pharmacy => ({
     ...pharmacy,
@@ -86,7 +86,7 @@ export const findNearbyBloodBanks = async (latitude, longitude, radius) => {
       cos(radians(longitude) - radians($2)) + sin(radians($1)) * 
       sin(radians(latitude)))) ASC
     LIMIT 5
-  `, [latitude, longitude]);
+  `, latitude, longitude);
 
   return result.map(bloodBank => ({
     ...bloodBank,

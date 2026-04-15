@@ -1,6 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { dispatch } from '../notifications/notificationDispatcher.js';
+import { emitVitalAnomaly, emitCodeBlue } from '../websocket/realtimeEmitter.js';
 
 /**
  * Clinical reference ranges for vital signs.
@@ -64,8 +65,19 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
       await prisma.$queryRawUnsafe(
         `INSERT INTO clinical_alerts (patient_id, alert_type, vital_name, vital_value, severity, message, created_by, created_at)
          VALUES ($1, 'VITAL_ANOMALY', $2, $3, $4, $5, $6, NOW())`,
-        [alert.patient_id, alert.vital_name, alert.value, alert.severity, alert.message, alert.recorded_by]
+        alert.patient_id, alert.vital_name, alert.value, alert.severity, alert.message, alert.recorded_by
       );
+
+      // Realtime fabric: push to staff clinical-alerts channel (all severities);
+      // CRITICAL also fans out on staff:code-blue for full-screen staff-app alerts.
+      emitVitalAnomaly(alert);
+      if (alert.severity === 'CRITICAL' && isCodeBlueVital(alert.vital_name)) {
+        emitCodeBlue({
+          patientId: alert.patient_id,
+          triggeredBy: alert.recorded_by,
+          reason: alert.message,
+        });
+      }
 
       // Dispatch notification to the responsible clinician for CRITICAL alerts
       if (alert.severity === 'CRITICAL') {
@@ -88,6 +100,13 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
   }
 
   return alerts;
+}
+
+// Vitals whose CRITICAL breach constitutes a Code Blue event
+// (cardiopulmonary failure signals — HR, SpO2, respiratory rate, systolic BP collapse).
+const CODE_BLUE_VITALS = new Set(['heart_rate', 'oxygen_saturation', 'respiratory_rate', 'systolic_bp']);
+function isCodeBlueVital(name) {
+  return CODE_BLUE_VITALS.has(name);
 }
 
 export { VITAL_REFERENCE_RANGES };

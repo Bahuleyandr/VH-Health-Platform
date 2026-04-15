@@ -13,7 +13,7 @@ export async function createReminder(patientUid, data) {
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     RETURNING id, patient_uid, medication_name, dosage, frequency, reminder_times,
               start_date, end_date, is_active, notes, created_at
-  `, [patientUid, medication_name, dosage, frequency, reminder_times, start_date, end_date || null, notes || null]);
+  `, patientUid, medication_name, dosage, frequency, reminder_times, start_date, end_date || null, notes || null);
 
   return result[0];
 }
@@ -28,7 +28,7 @@ export async function getActiveReminders(patientUid) {
     FROM medication_reminders
     WHERE patient_uid = $1 AND is_active = true
     ORDER BY created_at DESC
-  `, [patientUid]);
+  `, patientUid);
 
   return result;
 }
@@ -52,7 +52,7 @@ export async function updateReminder(id, patientUid, data) {
     WHERE id = $1 AND patient_uid = $2
     RETURNING id, patient_uid, medication_name, dosage, frequency, reminder_times,
               start_date, end_date, is_active, notes, created_at
-  `, [id, patientUid, medication_name, dosage, frequency, reminder_times, start_date, end_date, notes || null]);
+  `, id, patientUid, medication_name, dosage, frequency, reminder_times, start_date, end_date, notes || null);
 
   if (result.length === 0) {
     throw AppError.notFound('Medication reminder not found');
@@ -71,7 +71,7 @@ export async function deactivateReminder(id, patientUid) {
     SET is_active = false
     WHERE id = $1 AND patient_uid = $2
     RETURNING id, patient_uid, medication_name, is_active
-  `, [id, patientUid]);
+  `, id, patientUid);
 
   if (result.length === 0) {
     throw AppError.notFound('Medication reminder not found');

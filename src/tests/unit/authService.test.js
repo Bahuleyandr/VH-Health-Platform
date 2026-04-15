@@ -20,6 +20,7 @@ const mockVerifyToken = jest.fn();
 jest.unstable_mockModule('../../utils/jwtUtils.js', () => ({
   generateToken: mockGenerateToken,
   verifyToken: mockVerifyToken,
+  verifyTokenAllowExpired: mockVerifyToken,
 }));
 
 // Mock phoneUtils — pass-through normalizePhone for predictability
@@ -282,7 +283,7 @@ describe('AuthService.refreshToken', () => {
   it('throws when token is invalid', async () => {
     mockVerifyToken.mockReturnValue(null);
 
-    await expect(AuthService.refreshToken('bad-token')).rejects.toThrow('Invalid or expired token');
+    await expect(AuthService.refreshToken('bad-token')).rejects.toThrow('Invalid token signature');
   });
 
   it('throws when user no longer exists', async () => {

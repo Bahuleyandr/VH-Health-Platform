@@ -59,13 +59,13 @@ export async function sendInvestigationNotifications() {
         await prisma.$queryRawUnsafe(
           `INSERT INTO notifications (phone, title, body, type, created_at, read)
            VALUES ($1, $2, $3, $4, NOW(), false)`,
-          [row.phone || 'unknown', 'Investigation Report Ready', message, 'investigation']
+          row.phone || 'unknown', 'Investigation Report Ready', message, 'investigation'
         );
 
         // 4. Mark as notified
         await prisma.$queryRawUnsafe(
           `UPDATE investigations SET notified = true, notified_at = NOW(), patient_notified_at = NOW() WHERE id = $1`,
-          [row.id]
+          row.id
         );
 
         logger.info(`✅ Notification logged for investigation ID ${row.id}`);

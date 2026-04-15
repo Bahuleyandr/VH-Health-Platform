@@ -22,7 +22,7 @@ export const getHRDashboardData = async (_timeframe) => {
     FROM users u
     JOIN staff s ON u.id = s.user_id
     WHERE u.role = ANY($1)
-  `, [Object.values(STAFF_ROLES)]);
+  `, Object.values(STAFF_ROLES));
 
   // Department staffing levels
   const departmentStats = await prisma.$queryRawUnsafe(`
@@ -37,7 +37,7 @@ export const getHRDashboardData = async (_timeframe) => {
     WHERE u.role = ANY($1) AND s.is_active = true
     GROUP BY s.department
     ORDER BY total_staff DESC
-  `, [Object.values(STAFF_ROLES)]);
+  `, Object.values(STAFF_ROLES));
 
   // Recent attendance trends
   let attendanceTrends = [];

@@ -168,7 +168,7 @@ export const getTurnoverReport = async (req, res) => {
         left_count - joined_count as net_change
       FROM monthly_turnover
       ORDER BY month, department
-    `, [year]);
+    `, year);
 
     success(res, {
       turnover: turnover,

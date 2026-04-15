@@ -16,26 +16,26 @@ export const uploadConsultation = async (data) => {
       vital_signs, medications_prescribed, uploaded_by, created_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
     RETURNING id, phone, file_key, file_name, file_type, consultation_type, doctor_notes, diagnosis, treatment_plan, follow_up_date, vital_signs, medications_prescribed, uploaded_by, created_at
-  `, [
+  `, 
     phone, file_key, file_name, file_type, consultation_type,
     doctor_notes, diagnosis, treatment_plan, follow_up_date,
     vital_signs ? JSON.stringify(vital_signs) : null,
     medications_prescribed ? JSON.stringify(medications_prescribed) : null,
     uploadedBy
-  ]);
+  );
 
   // Create notification
   await prisma.$queryRawUnsafe(
     `INSERT INTO notifications (
       phone, title, body, type, related_id, created_at
     ) VALUES ($1, $2, $3, $4, $5, NOW())`,
-    [
+    
       phone,
       'New Consultation Record Available',
       `Your consultation record from ${new Date().toLocaleDateString('en-GB')} is now available for review.`,
       'consultation_uploaded',
       result[0].id
-    ]
+    
   );
 
   // Log activity
@@ -44,13 +44,13 @@ export const uploadConsultation = async (data) => {
       staff_uid, action, patient_phone, description,
       consultation_id, created_at
     ) VALUES ($1, $2, $3, $4, $5, NOW())`,
-    [
+    
       uploadedBy,
       'CONSULTATION_UPLOADED',
       phone,
       `Consultation document uploaded: ${file_name}`,
       result[0].id
-    ]
+    
   );
 
   logger.info(`📋 Consultation uploaded by ${uploadedByName} for patient ${phone}: ${file_name}`);
@@ -86,13 +86,13 @@ export const uploadInvestigationResult = async (data) => {
       reviewed_by_doctor, urgent_flag, uploaded_by, status, requested_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'completed', NOW())
     RETURNING id, phone, test_name, file_key, file_name, file_type, result_status, lab_values, reference_ranges, technician_notes, reviewed_by_doctor, urgent_flag, uploaded_by, status, requested_at
-  `, [
+  `, 
     phone, test_name, file_key, file_name, file_type,
     result_status, 
     lab_values ? JSON.stringify(lab_values) : null,
     reference_ranges ? JSON.stringify(reference_ranges) : null,
     technician_notes, reviewed_by_doctor, urgent_flag, uploadedBy
-  ]);
+  );
 
   // Create notification
   const notificationTitle = urgent_flag ? 
@@ -109,12 +109,12 @@ export const uploadInvestigationResult = async (data) => {
     `INSERT INTO notifications (
       phone, title, body, type, priority, related_id, created_at
     ) VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-    [
+    
       phone, notificationTitle, notificationBody,
       'investigation_result',
       urgent_flag || result_status === 'critical' ? 'high' : 'normal',
       result[0].id
-    ]
+    
   );
 
   // Send push notification for urgent/critical results
@@ -122,7 +122,7 @@ export const uploadInvestigationResult = async (data) => {
     try {
       const userTokens = await prisma.$queryRawUnsafe(
         'SELECT fcm_token FROM user_devices WHERE phone = $1 AND fcm_token IS NOT NULL',
-        [phone]
+        phone
       );
 
       if (userTokens.length > 0) {
@@ -149,14 +149,14 @@ export const uploadInvestigationResult = async (data) => {
       staff_uid, action, patient_phone, description,
       investigation_id, urgent_flag, created_at
     ) VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-    [
+    
       uploadedBy,
       'INVESTIGATION_UPLOADED',
       phone,
       `Investigation result uploaded: ${test_name} (${result_status})`,
       result[0].id,
       urgent_flag
-    ]
+    
   );
 
   logger.info(`🔬 Investigation result uploaded by ${uploadedByName} for patient ${phone}: ${test_name} (${result_status})`);

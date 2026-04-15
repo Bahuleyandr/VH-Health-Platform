@@ -10,7 +10,7 @@ export async function logFileAccess(fileId, accessType, userId, ipAddress, userA
         file_id, user_id, access_type, ip_address, user_agent, 
         accessed_at, notes
       ) VALUES ($1, $2, $3, $4, $5, NOW(), $6)
-    `, [fileId, userId, accessType, ipAddress, userAgent, notes]);
+    `, fileId, userId, accessType, ipAddress, userAgent, notes);
   } catch (err) {
     logger.error('Failed to log file access:', err);
   }
@@ -23,10 +23,10 @@ export async function logBulkOperation(operationType, performedBy, affectedCount
         operation_type, performed_by, affected_count, success_count, 
         error_count, operation_details, performed_at
       ) VALUES ($1, $2, $3, $4, $5, $6, NOW())
-    `, [
+    `, 
       operationType, performedBy, affectedCount, successCount,
       errorCount, JSON.stringify(operationDetails)
-    ]);
+    );
   } catch (err) {
     logger.error('Failed to log bulk operation:', err);
   }
@@ -40,11 +40,11 @@ export async function logFileDeletion(fileInfo, deletedBy, deletionReason, delet
         is_hipaa_protected, uploaded_by, deleted_by, deletion_reason,
         deletion_type, deleted_at, ip_address
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11)
-    `, [
+    `, 
       fileInfo.id, fileInfo.file_name, fileInfo.storage_key, fileInfo.category, fileInfo.file_size,
       fileInfo.is_hipaa_protected, fileInfo.uploaded_by, deletedBy, deletionReason,
       deletionType, ipAddress
-    ]);
+    );
   } catch (err) {
     logger.error('Failed to log file deletion:', err);
   }
@@ -56,7 +56,7 @@ export async function createSystemAlert(alertType, severity, message, relatedFil
       INSERT INTO system_alerts (
         alert_type, severity, message, related_file_id, created_at
       ) VALUES ($1, $2, $3, $4, NOW())
-    `, [alertType, severity, message, relatedFileId]);
+    `, alertType, severity, message, relatedFileId);
   } catch (err) {
     logger.error('Failed to create system alert:', err);
   }
@@ -73,7 +73,7 @@ export async function getFileAccessLogs(fileId, limit = 10) {
       WHERE fal.file_id = $1
       ORDER BY fal.accessed_at DESC
       LIMIT $2
-    `, [fileId, limit]);
+    `, fileId, limit);
     
     return result.map(log => ({
       ...log,

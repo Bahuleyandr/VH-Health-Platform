@@ -11,7 +11,7 @@ import logger from '../../../logging/logger.js';
 export const getStaffLeaveBalance = async (staffId, year) => {
   const staffCheck = await prisma.$queryRawUnsafe(
     'SELECT u.name, s.employee_id, s.hire_date FROM users u JOIN staff s ON u.id = s.user_id WHERE u.id = $1',
-    [staffId]
+    staffId
   );
 
   if (staffCheck.length === 0) {
@@ -34,7 +34,7 @@ export const getStaffLeaveBalance = async (staffId, year) => {
       AND la.status = 'APPROVED'
     GROUP BY lt.leave_type, lt.annual_entitlement
     ORDER BY lt.leave_type
-  `, [staffId, year]);
+  `, staffId, year);
 
   // Get leave history
   const leaveHistory = await prisma.$queryRawUnsafe(`
@@ -50,7 +50,7 @@ export const getStaffLeaveBalance = async (staffId, year) => {
     FROM leave_applications
     WHERE staff_id = $1 AND EXTRACT(YEAR FROM start_date) = $2
     ORDER BY start_date DESC
-  `, [staffId, year]);
+  `, staffId, year);
 
   return {
     staff: {
@@ -129,7 +129,7 @@ export const applyForLeave = async (leaveData) => {
       AND la.status = 'APPROVED'
     WHERE lt.leave_type = $3
     GROUP BY lt.leave_type, lt.annual_entitlement
-  `, [staff_id, start_date, leave_type]);
+  `, staff_id, start_date, leave_type);
 
   if (balanceCheck.length === 0 || balanceCheck[0].days_remaining < daysDifference) {
     throw new Error('INSUFFICIENT_LEAVE_BALANCE');
@@ -138,7 +138,7 @@ export const applyForLeave = async (leaveData) => {
   // Get staff details
   const staffInfo = await prisma.$queryRawUnsafe(
     'SELECT u.name, s.employee_id, s.department, s.supervisor_id FROM users u JOIN staff s ON u.id = s.user_id WHERE u.id = $1',
-    [staff_id]
+    staff_id
   );
 
   if (staffInfo.length === 0) {
@@ -155,10 +155,10 @@ export const applyForLeave = async (leaveData) => {
       created_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
     RETURNING id, staff_id, leave_type, start_date, end_date, days_taken, reason, emergency_contact, status, applied_by, applied_date, created_at
-  `, [
+  `, 
     staff_id, leave_type, start_date, end_date, daysDifference,
     reason, emergency_contact, 'PENDING', appliedBy
-  ]);
+  );
 
   // Create notification for supervisor
   if (staff.supervisor_id) {
@@ -166,13 +166,13 @@ export const applyForLeave = async (leaveData) => {
       `INSERT INTO notifications (
         user_id, title, body, type, related_id, created_at
       ) VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [
+      
         staff.supervisor_id,
         'Leave Application Pending Approval',
         `${staff.name} has applied for ${leave_type} from ${startDate.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })} to ${endDate.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}`,
         'leave_application',
         applicationResult[0].id
-      ]
+      
     );
   }
 
@@ -207,7 +207,7 @@ export const applyForLeave = async (leaveData) => {
 export const isUserViewingOwnData = async (staffId, userUid) => {
   const result = await prisma.$queryRawUnsafe(
     'SELECT 1 FROM users WHERE id = $1 AND uid = $2',
-    [staffId, userUid]
+    staffId, userUid
   );
   return result.length > 0;
 };
@@ -221,7 +221,7 @@ export const isUserViewingOwnData = async (staffId, userUid) => {
 export const isUserApplyingOwnLeave = async (staffId, userUid) => {
   const result = await prisma.$queryRawUnsafe(
     'SELECT 1 FROM users WHERE id = $1 AND uid = $2',
-    [staffId, userUid]
+    staffId, userUid
   );
   return result.length > 0;
 };

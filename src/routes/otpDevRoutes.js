@@ -83,7 +83,7 @@ if (isDevelopment) {
         WHERE phone = $1 
         ORDER BY created_at DESC 
         LIMIT 10
-      `, [normalizedPhone]);
+      `, normalizedPhone);
 
       success(res, {
         phone: normalizedPhone,
@@ -127,7 +127,7 @@ if (isDevelopment) {
         INSERT INTO otp_codes (phone, otp_code, purpose, expires_at, created_at)
         VALUES ($1, $2, $3, $4, NOW())
         RETURNING id, session_id
-      `, [normalizedPhone, otpCode, purpose, expiresAt]);
+      `, normalizedPhone, otpCode, purpose, expiresAt);
 
       const sessionId = result[0]?.session_id || 'dev-session';
 
@@ -217,7 +217,7 @@ if (isDevelopment) {
       const result = await prisma.$queryRawUnsafe(`
         DELETE FROM otp_codes 
         WHERE phone = $1
-      `, [normalizedPhone]);
+      `, normalizedPhone);
 
       logger.info(`🧪 [DEV] Cleared ${result.length} OTP records for ${normalizedPhone}`);
 
@@ -254,7 +254,7 @@ if (isDevelopment) {
         WHERE phone = $1 
         ORDER BY created_at DESC 
         LIMIT 10
-      `, [normalizedPhone]);
+      `, normalizedPhone);
 
       success(res, {
         phone: normalizedPhone,

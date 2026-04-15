@@ -19,14 +19,14 @@ export async function insertUser(userData) {
       'active', NOW(), $17
     ) RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at`;
 
-  return prisma.$queryRawUnsafe(query, [
+  return prisma.$queryRawUnsafe(query, 
     userData.phone, userData.name, userData.email, userData.gender,
     userData.address, userData.birthday, userData.anniversary,
     userData.role, userData.department, userData.specialty,
     userData.employeeId, userData.licenseNumber, userData.emergencyContact,
     userData.bloodGroup, userData.allergies, userData.medicalHistory,
     userData.createdBy
-  ]);
+  );
 }
 
 export async function updateUser(whereClause, whereValue, updateData, updatedBy) {
@@ -49,7 +49,7 @@ export async function updateUser(whereClause, whereValue, updateData, updatedBy)
     WHERE ${whereClause} = $${paramIndex + 1}
     RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at`;
 
-  return prisma.$queryRawUnsafe(query, [...updateValues, whereValue]);
+  return prisma.$queryRawUnsafe(query, ...updateValues, whereValue);
 }
 
 // Safe column list for user queries — never includes encrypted_password, pin_hash, password_hash
@@ -60,15 +60,15 @@ const USER_SAFE_COLUMNS = `id, uid, phone, name, email, gender, address, birthda
 
 export async function getUserByPhone(phone) {
   const normalizedPhone = normalizePhone(phone);
-  return prisma.$queryRawUnsafe(`SELECT ${USER_SAFE_COLUMNS} FROM users WHERE phone = $1`, [normalizedPhone]);
+  return prisma.$queryRawUnsafe(`SELECT ${USER_SAFE_COLUMNS} FROM users WHERE phone = $1`, normalizedPhone);
 }
 
 export async function getUserByUid(uid) {
-  return prisma.$queryRawUnsafe(`SELECT ${USER_SAFE_COLUMNS} FROM users WHERE uid = $1`, [uid]);
+  return prisma.$queryRawUnsafe(`SELECT ${USER_SAFE_COLUMNS} FROM users WHERE uid = $1`, uid);
 }
 
 export async function getUserByEmployeeId(employeeId) {
-  return prisma.$queryRawUnsafe(`SELECT ${USER_SAFE_COLUMNS} FROM users WHERE employee_id = $1`, [employeeId]);
+  return prisma.$queryRawUnsafe(`SELECT ${USER_SAFE_COLUMNS} FROM users WHERE employee_id = $1`, employeeId);
 }
 
 /**
@@ -219,7 +219,7 @@ export async function searchUsers(searchQuery, searchType, filters, requestingUs
     ORDER BY relevance_score, u.name
     LIMIT $${paramIndex}`;
 
-  return prisma.$queryRawUnsafe(query, [...searchParams, limit]);
+  return prisma.$queryRawUnsafe(query, ...searchParams, limit);
 }
 
 /**
@@ -242,7 +242,7 @@ export async function getUsersByRole(role, includeInactive = false) {
     GROUP BY u.id, ur.role_description
     ORDER BY u.name ASC`;
 
-  return prisma.$queryRawUnsafe(query, [role]);
+  return prisma.$queryRawUnsafe(query, role);
 }
 
 export async function getUsersByDepartment(department, roleFilter = null) {
@@ -287,7 +287,7 @@ export async function updateUserStatus(identifier, column, newStatus, changedBy,
     WHERE ${column} = $4
     RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at`;
 
-  return prisma.$queryRawUnsafe(query, [newStatus, changedBy, reason, identifier]);
+  return prisma.$queryRawUnsafe(query, newStatus, changedBy, reason, identifier);
 }
 
 export async function insertStatusHistory(userId, previousStatus, newStatus, changedBy, reason, ipAddress) {
@@ -297,7 +297,7 @@ export async function insertStatusHistory(userId, previousStatus, newStatus, cha
       changed_at, ip_address
     ) VALUES ($1, $2, $3, $4, $5, NOW(), $6)`;
 
-  return prisma.$queryRawUnsafe(query, [userId, previousStatus, newStatus, changedBy, reason, ipAddress]);
+  return prisma.$queryRawUnsafe(query, userId, previousStatus, newStatus, changedBy, reason, ipAddress);
 }
 
 /**
@@ -317,7 +317,7 @@ export async function deactivateUser(identifier, column, deactivatedBy, reason, 
     WHERE ${column} = $4
     RETURNING id, uid, phone, name, email, role, status, registered_at, updated_at`;
 
-  return prisma.$queryRawUnsafe(query, [deactivatedBy, reason, transferTo, identifier]);
+  return prisma.$queryRawUnsafe(query, deactivatedBy, reason, transferTo, identifier);
 }
 
 export async function insertDeactivationLog(deactivationData) {
@@ -327,14 +327,14 @@ export async function insertDeactivationLog(deactivationData) {
       deactivated_at, ip_address, user_data
     ) VALUES ($1, $2, $3, $4, NOW(), $5, $6)`;
 
-  return prisma.$queryRawUnsafe(query, [
+  return prisma.$queryRawUnsafe(query, 
     deactivationData.userId,
     deactivationData.deactivatedBy,
     deactivationData.reason,
     deactivationData.transferTo,
     deactivationData.ipAddress,
     JSON.stringify(deactivationData.userData)
-  ]);
+  );
 }
 
 /**
@@ -347,13 +347,13 @@ export async function insertUserActionLog(logData) {
       user_id, action, target_user_id, details, ip_address, created_at
     ) VALUES ($1, $2, $3, $4, $5, NOW())`;
 
-  return prisma.$queryRawUnsafe(query, [
+  return prisma.$queryRawUnsafe(query, 
     logData.userId,
     logData.action,
     logData.targetUserId,
     logData.details,
     logData.ipAddress
-  ]);
+  );
 }
 
 export async function insertBulkOperationLog(operationData) {
@@ -363,14 +363,14 @@ export async function insertBulkOperationLog(operationData) {
       error_count, operation_details, performed_at
     ) VALUES ($1, $2, $3, $4, $5, $6, NOW())`;
 
-  return prisma.$queryRawUnsafe(query, [
+  return prisma.$queryRawUnsafe(query, 
     operationData.operationType,
     operationData.performedBy,
     operationData.totalItems,
     operationData.successCount,
     operationData.errorCount,
     JSON.stringify(operationData.operationDetails)
-  ]);
+  );
 }
 
 /**
@@ -404,5 +404,5 @@ export async function getUserGrowthStats(days = 30) {
     GROUP BY DATE(registered_at)
     ORDER BY registration_date DESC`;
 
-  return prisma.$queryRawUnsafe(query, [parseInt(days, 10)]);
+  return prisma.$queryRawUnsafe(query, parseInt(days, 10));
 }

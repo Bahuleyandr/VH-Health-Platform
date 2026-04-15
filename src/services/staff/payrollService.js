@@ -27,8 +27,8 @@ function calcProfessionalTax(grossMonthly) {
 export async function calculatePayslip(staffUid, month, year) {
   // Get salary config
   const salaryRes = await prisma.$queryRawUnsafe(
-    'SELECT id, staff_uid, basic_salary, hra, special_allowance, total_ctc, is_active, effective_from FROM staff_salary WHERE staff_uid = $1 AND is_active = true',
-    [staffUid]
+    'SELECT id, staff_uid, basic_salary, hra_pct, da_pct, special_allowance, transport_allowance, medical_allowance, pf_employee_pct, esi_applicable, tds_monthly, is_active, effective_from FROM staff_salary WHERE staff_uid = $1 AND is_active = true',
+    staffUid
   );
   if (salaryRes.length === 0) {
     throw new Error(`No salary configuration found for staff ${staffUid}`);
@@ -47,7 +47,7 @@ export async function calculatePayslip(staffUid, month, year) {
     WHERE staff_uid = $1
       AND EXTRACT(MONTH FROM date) = $2
       AND EXTRACT(YEAR FROM date) = $3
-  `, [staffUid, month, year]);
+  `, staffUid, month, year);
 
   const daysPresent = parseInt(attRes[0]?.days_present || 0);
   const overtimeHours = parseFloat(attRes[0]?.total_overtime_hours || 0);
@@ -64,13 +64,13 @@ export async function calculatePayslip(staffUid, month, year) {
       AND status = 'approved'
       AND from_date::date <= (make_date($3::int, $2::int, 1) + INTERVAL '1 month - 1 day')::date
       AND to_date::date >= make_date($3::int, $2::int, 1)
-  `, [staffUid, month, year]).catch(() => ({ rows: [{ leave_days: 0 }] }));
+  `, staffUid, month, year).catch(() => ({ rows: [{ leave_days: 0 }] }));
 
   const leaveDays = parseInt(leaveRes[0]?.leave_days || 0);
 
   // Get approved overtime for this month
   // overtime_requests.staff_id is INTEGER - need users.id
-  const userRes = await prisma.$queryRawUnsafe('SELECT id FROM users WHERE uid = $1', [staffUid]);
+  const userRes = await prisma.$queryRawUnsafe('SELECT id FROM users WHERE uid = $1', staffUid);
   const userId = userRes[0]?.id;
 
   let approvedOT = overtimeHours;
@@ -82,7 +82,7 @@ export async function calculatePayslip(staffUid, month, year) {
         AND status = 'approved'
         AND EXTRACT(MONTH FROM date::date) = $2
         AND EXTRACT(YEAR FROM date::date) = $3
-    `, [userId, month, year]).catch(() => ({ rows: [{ approved_overtime: 0 }] }));
+    `, userId, month, year).catch(() => ({ rows: [{ approved_overtime: 0 }] }));
     approvedOT = parseFloat(otRes[0]?.approved_overtime || overtimeHours);
   }
 
@@ -104,7 +104,7 @@ export async function calculatePayslip(staffUid, month, year) {
   const arrearsRes = await prisma.$queryRawUnsafe(`
     SELECT COALESCE(SUM(arrears_amount), 0) as total FROM salary_arrears
     WHERE staff_uid = $1 AND status = 'pending'
-  `, [staffUid]).catch(() => ({ rows: [{ total: 0 }] }));
+  `, staffUid).catch(() => ({ rows: [{ total: 0 }] }));
   const arrearsAmount = parseFloat(arrearsRes[0]?.total || 0);
 
   const grossSalary = basicEarned + hraEarned + daEarned + specialEarned +
@@ -133,7 +133,7 @@ export async function calculatePayslip(staffUid, month, year) {
       AND (deduction_start_year < $3 OR deduction_start_month <= $2)
       AND total_deducted < amount
     ORDER BY created_at ASC
-  `, [staffUid, month, year]).catch(() => ({ rows: [] }));
+  `, staffUid, month, year).catch(() => ({ rows: [] }));
 
   let totalAdvanceDeduction = 0;
   const advancesToProcess = [];
@@ -157,7 +157,7 @@ export async function calculatePayslip(staffUid, month, year) {
       AND EXTRACT(MONTH FROM sr.effective_from::date) = $2
       AND EXTRACT(YEAR FROM sr.effective_from::date) = $3
     LIMIT 1
-  `, [staffUid, month, year]).catch(() => ({ rows: [] }));
+  `, staffUid, month, year).catch(() => ({ rows: [] }));
 
   let revisionNote = null;
   if (revisionCheck.length > 0) {
@@ -230,7 +230,7 @@ export async function savePayslip(payrollRunId, data) {
       net_salary=$28, revision_note=$29,
       updated_at=NOW()
     RETURNING id, payroll_run_id, staff_uid, month, year, total_working_days, days_present, days_absent, days_leave, overtime_hours, overtime_rate, basic_earned, hra_earned, da_earned, special_allowance_earned, transport_allowance_earned, medical_allowance_earned, overtime_pay, arrears_amount, gross_salary, pf_employee, esi_employee, professional_tax, tds, total_deductions, advance_deduction, lop_days, lop_deduction, net_salary, revision_note, status, created_at, updated_at
-  `, [
+  `, 
     payrollRunId, data.staff_uid, data.month, data.year,
     data.total_working_days, data.days_present, data.days_absent, data.days_leave,
     data.overtime_hours, data.overtime_rate,
@@ -240,7 +240,7 @@ export async function savePayslip(payrollRunId, data) {
     data.professional_tax, data.tds, data.total_deductions,
     data.advance_deduction || 0, data.lop_days || 0, data.lop_deduction || 0,
     data.net_salary, data.revision_note || null,
-  ]);
+  );
   return result[0];
 }
 
@@ -254,7 +254,7 @@ export async function generateAnnualTaxSummary(staffUid, financialYear) {
   const endYear = startYear + 1;
 
   const payslips = await prisma.$queryRawUnsafe(`
-    SELECT id, staff_uid, month, year, payroll_run_id, basic_salary, hra, special_allowance, total_earnings, pf_employee, pf_employer, esi, professional_tax, tds, total_deductions, net_salary, status, created_at FROM payslips
+    SELECT id, staff_uid, month, year, payroll_run_id, basic_earned, hra_earned, da_earned, special_allowance_earned, transport_allowance_earned, medical_allowance_earned, overtime_pay, bonus_this_month, arrears_amount, gross_salary, pf_employee, esi_employee, professional_tax, tds, total_deductions, net_salary, status, created_at FROM payslips
     WHERE staff_uid = $1
       AND status IN ('issued','viewed','downloaded')
       AND (
@@ -262,7 +262,7 @@ export async function generateAnnualTaxSummary(staffUid, financialYear) {
         (year = $3 AND month <= 3)
       )
     ORDER BY year, month
-  `, [staffUid, startYear, endYear]);
+  `, staffUid, startYear, endYear);
 
   if (payslips.length === 0) {
     throw new Error('No payslips found for this financial year');
@@ -361,14 +361,14 @@ export async function generateAnnualTaxSummary(staffUid, financialYear) {
       taxable_income=$20, tax_payable=$21, months_included=$22,
       generated_at=NOW(), updated_at=NOW()
     RETURNING id, staff_uid, financial_year, total_basic, total_hra, total_da, total_special_allowance, total_transport_allowance, total_medical_allowance, total_overtime, total_bonus, total_arrears, total_gross, total_pf, total_esi, total_professional_tax, total_tds, total_advance_deductions, total_deductions, total_net, taxable_income, tax_payable, months_included, generated_at, created_at, updated_at
-  `, [
+  `, 
     summary.staff_uid, summary.financial_year, summary.total_basic, summary.total_hra, summary.total_da,
     summary.total_special_allowance, summary.total_transport_allowance, summary.total_medical_allowance,
     summary.total_overtime, summary.total_bonus, summary.total_arrears, summary.total_gross,
     summary.total_pf, summary.total_esi, summary.total_professional_tax, summary.total_tds,
     summary.total_advance_deductions, summary.total_deductions, summary.total_net,
     summary.taxable_income, summary.tax_payable, summary.months_included,
-  ]);
+  );
 
   return result[0];
 }
@@ -378,8 +378,8 @@ export async function generateAnnualTaxSummary(staffUid, financialYear) {
  */
 export async function calculateArrears(revisionId) {
   const revision = await prisma.$queryRawUnsafe(
-    "SELECT id, staff_uid, revision_type, old_basic, new_basic, old_ctc, new_ctc, effective_from, status, created_at FROM salary_revisions WHERE id=$1 AND status='applied'",
-    [revisionId]
+    "SELECT id, staff_uid, revision_type, current_basic, proposed_basic, current_gross, proposed_gross, effective_from, applied_at, status, created_at FROM salary_revisions WHERE id=$1 AND status='applied'",
+    revisionId
   );
   if (revision.length === 0) throw new Error('Revision not found or not applied');
 
@@ -413,8 +413,8 @@ export async function calculateArrears(revisionId) {
 
   for (const { month, year } of arrearMonths) {
     const payslip = await prisma.$queryRawUnsafe(
-      'SELECT id, staff_uid, month, year, payroll_run_id, basic_salary, hra, special_allowance, total_earnings, pf_employee, pf_employer, esi, professional_tax, tds, total_deductions, net_salary, status, created_at FROM payslips WHERE staff_uid=$1 AND month=$2 AND year=$3',
-      [r.staff_uid, month, year]
+      'SELECT id, staff_uid, month, year, payroll_run_id, basic_earned, hra_earned, da_earned, special_allowance_earned, transport_allowance_earned, medical_allowance_earned, overtime_pay, gross_salary, pf_employee, esi_employee, professional_tax, tds, total_deductions, net_salary, status, days_present, total_working_days, created_at FROM payslips WHERE staff_uid=$1 AND month=$2 AND year=$3',
+      r.staff_uid, month, year
     );
     if (payslip.length > 0) {
       const p = payslip[0];
@@ -433,7 +433,7 @@ export async function calculateArrears(revisionId) {
     VALUES ($1,$2,$3,$4,$5,$6,$7)
     ON CONFLICT DO NOTHING
     RETURNING id, staff_uid, revision_id, from_month, from_year, to_month, to_year, arrears_amount, status, created_at
-  `, [r.staff_uid, revisionId, fromDate.month, fromDate.year, toDate.month, toDate.year, Math.round(totalArrears * 100) / 100]);
+  `, r.staff_uid, revisionId, fromDate.month, fromDate.year, toDate.month, toDate.year, Math.round(totalArrears * 100) / 100);
 
   return { arrears_amount: Math.round(totalArrears * 100) / 100, months: arrearMonths.length, result: insertResult[0] };
 }

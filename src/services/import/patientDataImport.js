@@ -142,9 +142,9 @@ async function importPatient(fhirPatient, _importedBy) {
   }
 
   // Dedup by phone
-  const { rows: existing } = await prisma.$queryRawUnsafe(
+  const existing = await prisma.$queryRawUnsafe(
     `SELECT uid FROM users WHERE phone = $1 LIMIT 1`,
-    [patient.phone]
+    patient.phone
   );
 
   if (existing.length) {
@@ -163,7 +163,7 @@ async function importPatient(fhirPatient, _importedBy) {
       updates.push(`updated_at = NOW()`);
       await prisma.$queryRawUnsafe(
         `UPDATE users SET ${updates.join(', ')} WHERE uid = $${idx}`,
-        [...params, existing[0].uid]
+        ...params, existing[0].uid
       );
       logger.info(`Updated existing patient ${existing[0].uid} from FHIR import`);
     }
@@ -175,7 +175,7 @@ async function importPatient(fhirPatient, _importedBy) {
   await prisma.$queryRawUnsafe(
     `INSERT INTO users (uid, phone, name, gender, birthday, address, email, role, is_active, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, 'PATIENT', true, NOW())`,
-    [uid, patient.phone, patient.name, patient.gender, patient.birthday, patient.address, patient.email]
+    uid, patient.phone, patient.name, patient.gender, patient.birthday, patient.address, patient.email
   );
   logger.info(`Created new patient ${uid} from FHIR import`);
 }
@@ -196,13 +196,13 @@ async function importCondition(fhirCondition, importedBy) {
   const clinicalStatus = fhirCondition.clinicalStatus?.coding?.[0]?.code || 'active';
 
   // Dedup: check by patient + icd10 code + description
-  const { rows: existing } = await prisma.$queryRawUnsafe(
+  const existing = await prisma.$queryRawUnsafe(
     `SELECT id FROM diagnoses
      WHERE patient_uid = $1 AND (
        (icd10_code IS NOT NULL AND icd10_code = $2)
        OR (description = $3)
      ) LIMIT 1`,
-    [patientUid, icd10Code, description]
+    patientUid, icd10Code, description
   );
 
   if (existing.length) {
@@ -213,14 +213,14 @@ async function importCondition(fhirCondition, importedBy) {
   await prisma.$queryRawUnsafe(
     `INSERT INTO diagnoses (patient_uid, icd10_code, description, status, onset_date, diagnosed_by, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-    [
+    
       patientUid,
       icd10Code,
       description,
       clinicalStatus,
       fhirCondition.onsetDateTime || null,
       importedBy,
-    ]
+    
   );
 }
 
@@ -246,11 +246,11 @@ async function importMedication(fhirMedication, importedBy) {
   const status = statusMap[fhirMedication.status] || 'PENDING';
 
   // Dedup: check recent orders for same patient + medication text
-  const { rows: existing } = await prisma.$queryRawUnsafe(
+  const existing = await prisma.$queryRawUnsafe(
     `SELECT id FROM pharmacy_orders
      WHERE uid = $1 AND medication = $2 AND created_at > NOW() - INTERVAL '24 hours'
      LIMIT 1`,
-    [patientUid, medication]
+    patientUid, medication
   );
 
   if (existing.length) {
@@ -261,7 +261,7 @@ async function importMedication(fhirMedication, importedBy) {
   await prisma.$queryRawUnsafe(
     `INSERT INTO pharmacy_orders (uid, medication, order_note, status, prescribed_by, created_at)
      VALUES ($1, $2, $3, $4, $5, NOW())`,
-    [patientUid, medication, note, status, importedBy]
+    patientUid, medication, note, status, importedBy
   );
 }
 
@@ -303,18 +303,18 @@ async function importObservation(fhirObservation, importedBy) {
   }
 
   // Dedup: check for a vitals record within same minute
-  const { rows: existing } = await prisma.$queryRawUnsafe(
+  const existing = await prisma.$queryRawUnsafe(
     `SELECT id FROM vitals_chart
      WHERE patient_uid = $1 AND recorded_at BETWEEN $2::timestamp - INTERVAL '1 minute' AND $2::timestamp + INTERVAL '1 minute'
      LIMIT 1`,
-    [patientUid, recordedAt]
+    patientUid, recordedAt
   );
 
   if (existing.length) {
     // Update existing record with the new vital value
     await prisma.$queryRawUnsafe(
       `UPDATE vitals_chart SET ${column} = $1 WHERE id = $2`,
-      [value, existing[0].id]
+      value, existing[0].id
     );
     return;
   }
@@ -323,7 +323,7 @@ async function importObservation(fhirObservation, importedBy) {
   await prisma.$queryRawUnsafe(
     `INSERT INTO vitals_chart (patient_uid, ${column}, recorded_at, recorded_by, created_at)
      VALUES ($1, $2, $3, $4, NOW())`,
-    [patientUid, value, recordedAt, importedBy]
+    patientUid, value, recordedAt, importedBy
   );
 }
 
@@ -440,9 +440,9 @@ async function importPatientFromCCDA(patientData, _importedBy) {
   }
 
   // Dedup by phone
-  const { rows: existing } = await prisma.$queryRawUnsafe(
+  const existing = await prisma.$queryRawUnsafe(
     `SELECT uid FROM users WHERE phone = $1 LIMIT 1`,
-    [patientData.phone]
+    patientData.phone
   );
 
   if (existing.length) {
@@ -457,7 +457,7 @@ async function importPatientFromCCDA(patientData, _importedBy) {
   await prisma.$queryRawUnsafe(
     `INSERT INTO users (uid, phone, name, gender, birthday, address, role, is_active, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, 'PATIENT', true, NOW())`,
-    [uid, patientData.phone, patientData.name, patientData.gender, patientData.birthday, patientData.address]
+    uid, patientData.phone, patientData.name, patientData.gender, patientData.birthday, patientData.address
   );
   logger.info(`Created new patient ${uid} from C-CDA import`);
 }
@@ -466,16 +466,16 @@ async function importDiagnosisFromCCDA(problem, patientUid, importedBy) {
   if (!patientUid || !problem.displayName) return;
 
   // Dedup
-  const { rows: existing } = await prisma.$queryRawUnsafe(
+  const existing = await prisma.$queryRawUnsafe(
     `SELECT id FROM diagnoses WHERE patient_uid = $1 AND description = $2 LIMIT 1`,
-    [patientUid, problem.displayName]
+    patientUid, problem.displayName
   );
   if (existing.length) return;
 
   await prisma.$queryRawUnsafe(
     `INSERT INTO diagnoses (patient_uid, description, status, diagnosed_by, created_at)
      VALUES ($1, $2, 'active', $3, NOW())`,
-    [patientUid, problem.displayName, importedBy]
+    patientUid, problem.displayName, importedBy
   );
 }
 
@@ -483,16 +483,16 @@ async function importMedicationFromCCDA(med, patientUid, importedBy) {
   if (!patientUid || !med.displayName) return;
 
   // Dedup
-  const { rows: existing } = await prisma.$queryRawUnsafe(
+  const existing = await prisma.$queryRawUnsafe(
     `SELECT id FROM pharmacy_orders WHERE uid = $1 AND medication = $2 AND created_at > NOW() - INTERVAL '24 hours' LIMIT 1`,
-    [patientUid, med.displayName]
+    patientUid, med.displayName
   );
   if (existing.length) return;
 
   await prisma.$queryRawUnsafe(
     `INSERT INTO pharmacy_orders (uid, medication, status, prescribed_by, created_at)
      VALUES ($1, $2, 'PENDING', $3, NOW())`,
-    [patientUid, med.displayName, importedBy]
+    patientUid, med.displayName, importedBy
   );
 }
 
@@ -500,16 +500,16 @@ async function importAllergyFromCCDA(allergy, patientUid, _importedBy) {
   if (!patientUid || !allergy.displayName) return;
 
   // Dedup
-  const { rows: existing } = await prisma.$queryRawUnsafe(
+  const existing = await prisma.$queryRawUnsafe(
     `SELECT id FROM allergies WHERE patient_uid = $1 AND (allergen = $2 OR name = $2) LIMIT 1`,
-    [patientUid, allergy.displayName]
+    patientUid, allergy.displayName
   );
   if (existing.length) return;
 
   await prisma.$queryRawUnsafe(
     `INSERT INTO allergies (patient_uid, allergen, name, recorded_at)
      VALUES ($1, $2, $2, NOW())`,
-    [patientUid, allergy.displayName]
+    patientUid, allergy.displayName
   );
 }
 

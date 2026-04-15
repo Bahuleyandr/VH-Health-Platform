@@ -4,11 +4,12 @@ import { WebSocketServer } from 'ws';
 import logger from '../../logging/logger.js';
 import { verifyToken } from '../jwtUtils.js';
 import { isTokenBlacklisted, isUserTokensRevoked } from '../tokenBlacklist.js';
+import { authorizeChannel } from './channelAuth.js';
 
 /** @type {Map<string, Set<import('ws').WebSocket>>} userId → Set of sockets */
 const clients = new Map();
 
-/** @type {Map<import('ws').WebSocket, { userId: string, channels: Set<string> }>} */
+/** @type {Map<import('ws').WebSocket, { userId: string, role: string, channels: Set<string> }>} */
 const socketMeta = new Map();
 
 let wss = null;
@@ -98,6 +99,7 @@ async function authenticateAndRegister(ws, token) {
   }
 
   const userId = decoded.uid || decoded.id || decoded.sub;
+  const role = decoded.role;
   if (!userId) {
     ws.close(4001, 'Invalid token payload');
     return;
@@ -122,9 +124,9 @@ async function authenticateAndRegister(ws, token) {
   // Register client
   if (!clients.has(userId)) clients.set(userId, new Set());
   clients.get(userId).add(ws);
-  socketMeta.set(ws, { userId, channels: new Set() });
+  socketMeta.set(ws, { userId, role, channels: new Set() });
 
-  logger.info(`🔌 WS connected: user=${userId}`);
+  logger.info(`🔌 WS connected: user=${userId} role=${role || 'unknown'}`);
 
   // Ping/pong heartbeat
   ws.isAlive = true;
@@ -134,7 +136,14 @@ async function authenticateAndRegister(ws, token) {
     try {
       const msg = JSON.parse(raw);
       if (msg.action === 'subscribe' && msg.channel) {
-        socketMeta.get(ws)?.channels.add(msg.channel);
+        const meta = socketMeta.get(ws);
+        if (!meta) return;
+        const decision = authorizeChannel(msg.channel, { userId: meta.userId, role: meta.role });
+        if (!decision.allowed) {
+          ws.send(JSON.stringify({ event: 'subscribe-denied', channel: msg.channel, reason: decision.reason }));
+          return;
+        }
+        meta.channels.add(msg.channel);
         ws.send(JSON.stringify({ event: 'subscribed', channel: msg.channel }));
       } else if (msg.action === 'unsubscribe' && msg.channel) {
         socketMeta.get(ws)?.channels.delete(msg.channel);

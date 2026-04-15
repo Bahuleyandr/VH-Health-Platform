@@ -23,14 +23,14 @@ class NotificationOutbox {
           (type, recipient_id, recipient_phone, title, body, payload, status, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', NOW())
          RETURNING id, status`,
-        [
+        
           notification.type || 'push',
           notification.recipientId || null,
           notification.recipientPhone || null,
           notification.title || '',
           notification.body || '',
           JSON.stringify(notification.data || {}),
-        ]
+        
       );
       return result[0];
     } catch (err) {
@@ -47,7 +47,7 @@ class NotificationOutbox {
     try {
       await prisma.$queryRawUnsafe(
         `UPDATE notification_outbox SET status = 'SENT', sent_at = NOW() WHERE id = $1`,
-        [outboxId]
+        outboxId
       );
     } catch (err) {
       logger.warn('Failed to mark outbox entry as sent:', err.message);
@@ -63,7 +63,7 @@ class NotificationOutbox {
         `UPDATE notification_outbox
          SET status = 'FAILED', failure_reason = $2, retry_count = retry_count + 1, last_attempt_at = NOW()
          WHERE id = $1`,
-        [outboxId, reason]
+        outboxId, reason
       );
     } catch (err) {
       logger.warn('Failed to mark outbox entry as failed:', err.message);
@@ -85,7 +85,7 @@ class NotificationOutbox {
            AND (last_attempt_at IS NULL OR last_attempt_at < NOW() - INTERVAL '5 minutes')
          ORDER BY created_at ASC
          LIMIT $1`,
-        [limit]
+        limit
       );
       return result;
     } catch (err) {

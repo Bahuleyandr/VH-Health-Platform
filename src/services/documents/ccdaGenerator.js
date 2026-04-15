@@ -377,10 +377,10 @@ function buildVitalComponent(loincCode, displayName, value, unit) {
 // =============================================================================
 
 async function getPatientData(uid) {
-  const { rows } = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `SELECT uid, phone, name, gender, email, birthday, address
      FROM users WHERE uid = $1 LIMIT 1`,
-    [uid]
+    uid
   );
   if (!rows.length) {
     throw new Error(`Patient not found: ${uid}`);
@@ -389,72 +389,72 @@ async function getPatientData(uid) {
 }
 
 async function getActiveDiagnoses(uid) {
-  const { rows } = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `SELECT icd10_code, description, status, severity, diagnosis_type, onset_date, resolved_date
      FROM diagnoses
      WHERE patient_uid = $1 AND status IN ('active', 'chronic', 'recurrent')
      ORDER BY created_at DESC`,
-    [uid]
+    uid
   );
   return rows;
 }
 
 async function getActiveMedications(uid) {
-  const { rows } = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `SELECT medication_name, dose, route, status, administered_at
      FROM medication_administrations
      WHERE patient_uid = $1
      ORDER BY created_at DESC
      LIMIT 100`,
-    [uid]
+    uid
   );
   return rows;
 }
 
 async function getAllergies(uid) {
-  const { rows } = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `SELECT id, allergen, description, name, severity, reaction, recorded_at
      FROM allergies
      WHERE patient_uid = $1
      ORDER BY recorded_at DESC`,
-    [uid]
+    uid
   );
   return rows;
 }
 
 async function getRecentVitals(uid) {
-  const { rows } = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `SELECT heart_rate, systolic_bp, diastolic_bp, temperature, spo2,
             respiratory_rate, blood_glucose, recorded_at
      FROM vitals_chart
      WHERE patient_uid = $1
      ORDER BY recorded_at DESC
      LIMIT 20`,
-    [uid]
+    uid
   );
   return rows;
 }
 
 async function getProcedures(uid) {
-  const { rows } = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `SELECT id, title, content, procedure_name, performed_at, outcome, complications, created_at
      FROM clinical_notes
      WHERE patient_uid = $1 AND note_type = 'procedure'
      ORDER BY created_at DESC`,
-    [uid]
+    uid
   );
   return rows;
 }
 
 async function getInvestigations(uid) {
-  const { rows } = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `SELECT id, test_name, investigation_type, status, result_summary, conclusion,
             ordered_at, completed_at, created_at
      FROM investigations
      WHERE patient_uid = $1
      ORDER BY created_at DESC
      LIMIT 100`,
-    [uid]
+    uid
   );
   return rows;
 }

@@ -9,7 +9,7 @@ export async function getPatientSummary(patientId, days = TREND_PERIODS.MONTH) {
     // Get patient basic info
     const patientInfo = await prisma.$queryRawUnsafe(
       'SELECT name, phone, email, birthday, gender FROM users WHERE id = $1',
-      [patientId]
+      patientId
     );
     
     if (patientInfo.length === 0) {
@@ -26,7 +26,7 @@ export async function getPatientSummary(patientId, days = TREND_PERIODS.MONTH) {
         WHERE h.patient_id = $1 AND h.record_type = 'VITALS'
         ORDER BY h.recorded_date DESC
         LIMIT 1
-      `, [patientId]),
+      `, patientId),
       
       // Vital trends
       prisma.$queryRawUnsafe(`
@@ -35,7 +35,7 @@ export async function getPatientSummary(patientId, days = TREND_PERIODS.MONTH) {
         WHERE patient_id = $1 AND record_type = 'VITALS'
           AND recorded_date >= CURRENT_DATE - INTERVAL '${days} days'
         ORDER BY recorded_date DESC
-      `, [patientId]),
+      `, patientId),
       
       // Active conditions
       prisma.$queryRawUnsafe(`
@@ -44,7 +44,7 @@ export async function getPatientSummary(patientId, days = TREND_PERIODS.MONTH) {
         WHERE patient_id = $1 AND record_type = 'CONDITION'
         ORDER BY recorded_date DESC
         LIMIT 10
-      `, [patientId]),
+      `, patientId),
       
       // Medications
       prisma.$queryRawUnsafe(`
@@ -53,7 +53,7 @@ export async function getPatientSummary(patientId, days = TREND_PERIODS.MONTH) {
         WHERE patient_id = $1 AND record_type = 'MEDICATION'
         ORDER BY recorded_date DESC
         LIMIT 10
-      `, [patientId])
+      `, patientId)
     ]);
     
     return {
@@ -78,7 +78,7 @@ export async function getPatientVitalTrends(patientId, days = TREND_PERIODS.MONT
       WHERE patient_id = $1 AND record_type = 'VITALS'
         AND recorded_date >= CURRENT_DATE - INTERVAL '${days} days'
       ORDER BY recorded_date ASC
-    `, [patientId]);
+    `, patientId);
     
     // Process data to extract specific vital trends
     const trends = result.map(record => {
@@ -137,9 +137,9 @@ export async function getPatientAllergies(patientId) {
         LEFT JOIN users r ON h.recorded_by = r.id
         WHERE h.patient_id = $1 AND h.record_type = 'ALLERGY'
         ORDER BY h.recorded_date DESC
-      `, [patientId]),
+      `, patientId),
       
-      prisma.$queryRawUnsafe('SELECT name, phone FROM users WHERE id = $1', [patientId])
+      prisma.$queryRawUnsafe('SELECT name, phone FROM users WHERE id = $1', patientId)
     ]);
     
     return {

@@ -82,7 +82,7 @@ export const getAuditSummary = async (req, res) => {
           MAX(response_time_ms) as max_response_ms
         FROM audit_log
         WHERE created_at >= NOW() - $1::INTERVAL
-      `, [interval]),
+      `, interval),
 
       prisma.$queryRawUnsafe(`
         SELECT user_name, user_role, COUNT(*) as action_count,
@@ -93,7 +93,7 @@ export const getAuditSummary = async (req, res) => {
           AND user_id IS NOT NULL
         GROUP BY user_name, user_role
         ORDER BY action_count DESC LIMIT 10
-      `, [interval]),
+      `, interval),
 
       prisma.$queryRawUnsafe(`
         SELECT module, COUNT(*) as count,
@@ -101,7 +101,7 @@ export const getAuditSummary = async (req, res) => {
         FROM audit_log
         WHERE created_at >= NOW() - $1::INTERVAL
         GROUP BY module ORDER BY count DESC
-      `, [interval]),
+      `, interval),
 
       prisma.$queryRawUnsafe(`
         SELECT id, user_name, method, path, status_code, error_message, created_at, response_time_ms
@@ -109,7 +109,7 @@ export const getAuditSummary = async (req, res) => {
         WHERE success = false
           AND created_at >= NOW() - $1::INTERVAL
         ORDER BY created_at DESC LIMIT 20
-      `, [interval]),
+      `, interval),
 
       prisma.$queryRawUnsafe(`
         SELECT id, user_name, method, path, response_time_ms, created_at
@@ -117,7 +117,7 @@ export const getAuditSummary = async (req, res) => {
         WHERE response_time_ms > 2000
           AND created_at >= NOW() - $1::INTERVAL
         ORDER BY response_time_ms DESC LIMIT 10
-      `, [interval]),
+      `, interval),
     ]);
 
     success(res, {
@@ -149,7 +149,7 @@ export const getUserAuditHistory = async (req, res) => {
         AND created_at >= NOW() - $2::INTERVAL
       ORDER BY created_at DESC
       LIMIT $3
-    `, [userId, `${parseInt(days)} days`, Math.min(parseInt(limit), 500)]);
+    `, userId, `${parseInt(days)} days`, Math.min(parseInt(limit), 500));
 
     const stats = await prisma.$queryRawUnsafe(`
       SELECT
@@ -160,7 +160,7 @@ export const getUserAuditHistory = async (req, res) => {
       FROM audit_log
       WHERE user_id = $1
         AND created_at >= NOW() - $2::INTERVAL
-    `, [userId, `${parseInt(days)} days`]);
+    `, userId, `${parseInt(days)} days`);
 
     success(res, {
       user_id: userId,

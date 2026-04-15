@@ -1,3 +1,4 @@
+import logger from '../src/logging/logger.js';
 // src/admin/purge-archives.js
 
 import fs from 'fs';
@@ -13,11 +14,11 @@ export default function purgeArchives() {
   const now = Date.now();
   const msInDay = 24 * 60 * 60 * 1000;
 
-  console.log(`Scanning ${logsDir} for old .gz log files older than ${daysThreshold} days...`);
+  logger.info(`Scanning ${logsDir} for old .gz log files older than ${daysThreshold} days...`);
 
   fs.readdir(logsDir, (err, files) => {
     if (err) {
-      console.error('Failed to read logs directory:', err);
+      logger.error('Failed to read logs directory:', err);
       return;
     }
 
@@ -28,7 +29,7 @@ export default function purgeArchives() {
       const filePath = path.join(logsDir, file);
       fs.stat(filePath, (err, stats) => {
         if (err) {
-          console.error(`Error accessing ${file}:`, err);
+          logger.error(`Error accessing ${file}:`, err);
           return;
         }
 
@@ -36,9 +37,9 @@ export default function purgeArchives() {
         if (fileAgeInDays > daysThreshold) {
           fs.unlink(filePath, (err) => {
             if (err) {
-              console.error(`Failed to delete ${file}:`, err);
+              logger.error(`Failed to delete ${file}:`, err);
             } else {
-              console.log(`Deleted: ${file}`);
+              logger.info(`Deleted: ${file}`);
               deletedCount++;
             }
           });
@@ -47,9 +48,9 @@ export default function purgeArchives() {
     });
 
     if (oldFiles.length === 0) {
-      console.log('No .gz archived logs found.');
+      logger.info('No .gz archived logs found.');
     } else {
-      console.log(`Deletion task completed. ${deletedCount} files scheduled for removal.`);
+      logger.info(`Deletion task completed. ${deletedCount} files scheduled for removal.`);
     }
   });
 }

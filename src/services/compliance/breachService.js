@@ -36,13 +36,13 @@ export async function reportBreach({ severity, description, affectedRecords, aff
      VALUES ($1, $2, $3, $4, NOW(), $5, 'open', NOW())
      RETURNING id, breach_id, severity, description, affected_records, affected_patient_uids,
                discovered_at, reported_by, status, created_at`,
-    [
+    
       severity,
       description,
       affectedRecords || 0,
       affectedPatientUids || [],
       reportedBy || null,
-    ]
+    
   );
 
   const breach = result[0];
@@ -77,7 +77,7 @@ export async function containBreach(breachId, containmentActions, adminId) {
 
   const existing = await prisma.$queryRawUnsafe(
     `SELECT id, breach_id, status FROM data_breaches WHERE breach_id = $1`,
-    [breachId]
+    breachId
   );
 
   if (existing.length === 0) {
@@ -95,7 +95,7 @@ export async function containBreach(breachId, containmentActions, adminId) {
      WHERE breach_id = $2
      RETURNING id, breach_id, severity, description, affected_records, status,
                containment_actions, discovered_at, created_at`,
-    [containmentActions, breachId]
+    containmentActions, breachId
   );
 
   logBreachAudit(adminId, 'breach_contained', breachId, { containment_actions: containmentActions });
@@ -115,7 +115,7 @@ export async function resolveBreach(breachId, resolutionNotes, adminId) {
 
   const existing = await prisma.$queryRawUnsafe(
     `SELECT id, breach_id, status FROM data_breaches WHERE breach_id = $1`,
-    [breachId]
+    breachId
   );
 
   if (existing.length === 0) {
@@ -133,7 +133,7 @@ export async function resolveBreach(breachId, resolutionNotes, adminId) {
      WHERE breach_id = $2
      RETURNING id, breach_id, severity, description, affected_records, status,
                containment_actions, resolution_notes, resolved_at, discovered_at, created_at`,
-    [resolutionNotes, breachId]
+    resolutionNotes, breachId
   );
 
   logBreachAudit(adminId, 'breach_resolved', breachId, { resolution_notes: resolutionNotes });
@@ -207,7 +207,7 @@ export async function getBreachTimeline(breachId) {
             resolved_at, created_at
      FROM data_breaches
      WHERE breach_id = $1`,
-    [breachId]
+    breachId
   );
 
   if (breachResult.length === 0) {
@@ -221,7 +221,7 @@ export async function getBreachTimeline(breachId) {
      WHERE module = 'compliance'
        AND request_summary LIKE $1
      ORDER BY created_at ASC`,
-    [`%${breachId}%`]
+    `%${breachId}%`
   );
 
   return {
@@ -243,7 +243,7 @@ function logBreachAudit(userId, action, breachId, details) {
           (user_id, user_name, user_role, ip_address, method, path, module, action,
            request_summary, status_code, success)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-        [
+        
           userId || null,
           null,
           null,
@@ -255,7 +255,7 @@ function logBreachAudit(userId, action, breachId, details) {
           JSON.stringify({ breach_id: breachId, ...details }),
           200,
           true,
-        ]
+        
       );
     } catch (err) {
       logger.warn('Breach audit log write failed:', { error: err.message, breach_id: breachId });
@@ -287,7 +287,7 @@ async function notifyAdminsOfBreach(breach) {
           `INSERT INTO notification_outbox
             (type, recipient_id, recipient_phone, title, body, payload, status, created_at)
            VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', NOW())`,
-          [
+          
             'push',
             admin.uid,
             null,
@@ -299,7 +299,7 @@ async function notifyAdminsOfBreach(breach) {
               affected_records: breach.affected_records,
               action: 'breach_notification',
             }),
-          ]
+          
         );
       } catch (notifErr) {
         logger.warn('Failed to queue breach notification for admin:', {
@@ -312,7 +312,7 @@ async function notifyAdminsOfBreach(breach) {
     // Mark notification as sent on the breach
     await prisma.$queryRawUnsafe(
       `UPDATE data_breaches SET notification_sent_at = NOW() WHERE breach_id = $1`,
-      [breach.breach_id]
+      breach.breach_id
     );
 
     logger.info('Breach notifications queued for admins', {

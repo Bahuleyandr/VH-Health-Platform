@@ -7,17 +7,16 @@ const sendAppointmentReminders = async () => {
     const today = new Date();
     const yyyyMMdd = today.toISOString().split('T')[0];
 
-    const { rows: appointments } = await prisma.$queryRawUnsafe(`
+    const appointments = await prisma.$queryRawUnsafe(`
       SELECT a.phone, a.id, a.appointment_date, u.name
       FROM appointments a
       JOIN users u ON u.phone = a.phone
-      WHERE DATE(a.appointment_date) = $1
-    `, [yyyyMMdd]);
+      WHERE DATE(a.appointment_date) = $1`, yyyyMMdd);
 
     for (const appointment of appointments) {
-      const { rows: devices } = await prisma.$queryRawUnsafe(
+      const devices = await prisma.$queryRawUnsafe(
         `SELECT token FROM devices WHERE phone = $1`,
-        [appointment.phone]
+        appointment.phone
       );
 
       for (const device of devices) {

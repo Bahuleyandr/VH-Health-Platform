@@ -26,7 +26,7 @@ class QualityService {
       `SELECT incident_number FROM quality_incidents
        WHERE incident_number LIKE $1
        ORDER BY id DESC LIMIT 1`,
-      [`${prefix}%`]
+      `${prefix}%`
     );
 
     let sequence = 1;
@@ -77,10 +77,10 @@ class QualityService {
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING id, incident_number, reported_by, patient_uid, incident_type,
         severity, description, location, date_occurred, status, created_at`,
-      [
+      
         incidentNumber, reported_by, patient_uid || null, incident_type,
         severity, description, location || null, date_occurred
-      ]
+      
     );
 
     logger.info(`Quality incident reported: ${incidentNumber} by ${reported_by}`);
@@ -127,7 +127,7 @@ class QualityService {
        FROM quality_incidents ${whereClause}
        ORDER BY created_at DESC
        LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
-      [...params, parseInt(limit, 10), offset]
+      ...params, parseInt(limit, 10), offset
     );
 
     return {
@@ -153,7 +153,7 @@ class QualityService {
     // Verify exists
     const existing = await prisma.$queryRawUnsafe(
       `SELECT id, status FROM quality_incidents WHERE id = $1`,
-      [incidentId]
+      incidentId
     );
     if (existing.length === 0) {
       throw AppError.notFound('Incident not found');
@@ -183,10 +183,10 @@ class QualityService {
         severity, description, location, date_occurred, root_cause,
         corrective_action, preventive_action, status, investigated_by,
         resolved_at, created_at`,
-      [
+      
         root_cause || null, corrective_action || null, preventive_action || null,
         status || null, investigated_by || null, resolvedAt, incidentId
-      ]
+      
     );
 
     logger.info(`Quality incident ${incidentId} updated, status: ${status || 'unchanged'}`);
@@ -275,13 +275,13 @@ class QualityService {
         detection_date, culture_date, antibiotic_sensitivity,
         isolation_required, isolation_type, status, treatment_notes,
         reported_by, created_at`,
-      [
+      
         patient_uid, encounter_id || null, organism, infection_site,
         detection_date, culture_date || null,
         antibiotic_sensitivity ? JSON.stringify(antibiotic_sensitivity) : null,
         isolation_required || false, isolation_type || null,
         treatment_notes || null, reported_by
-      ]
+      
     );
 
     logger.info(`Infection case reported for patient ${patient_uid}, organism: ${organism}`);
@@ -327,7 +327,7 @@ class QualityService {
        FROM infection_cases ${whereClause}
        ORDER BY detection_date DESC
        LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
-      [...params, parseInt(limit, 10), offset]
+      ...params, parseInt(limit, 10), offset
     );
 
     // Summary stats

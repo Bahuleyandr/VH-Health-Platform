@@ -13,6 +13,10 @@ router.get('/health-check', systemHealthController.getComprehensiveHealth);
 // App version info
 router.get('/app-version', systemHealthController.getAppVersion);
 
+// Min / recommended app versions for each client. Consumed by the Flutter
+// apps at boot to render an upgrade blocker when below min.
+router.get('/client-requirements', systemHealthController.getClientRequirements);
+
 // System status monitoring
 router.get('/system/status', systemHealthController.getSystemStatus);
 

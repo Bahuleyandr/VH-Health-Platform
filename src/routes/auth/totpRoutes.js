@@ -181,7 +181,7 @@ router.post('/verify', async (req, res) => {
     const challenge = await prisma.$queryRawUnsafe(
       `SELECT id, admin_id, expires_at, used FROM totp_challenges
        WHERE challenge_token = $1 AND used = false AND expires_at > NOW()`,
-      [challengeToken]
+      challengeToken
     );
 
     if (challenge.length === 0) {
@@ -233,7 +233,7 @@ router.post('/verify', async (req, res) => {
     // Mark challenge as used
     await prisma.$queryRawUnsafe(
       `UPDATE totp_challenges SET used = true WHERE id = $1`,
-      [ch.id]
+      ch.id
     );
 
     // Issue the full JWT

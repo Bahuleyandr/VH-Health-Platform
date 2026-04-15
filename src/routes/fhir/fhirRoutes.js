@@ -17,6 +17,7 @@ import {
   toFhirDocumentReference,
   toFhirServiceRequest,
 } from '../../services/fhir/fhirAdapter.js';
+import { validatedFhirJson } from '../../services/fhir/fhirValidator.js';
 import { AppError } from '../../utils/AppError.js';
 
 const router = express.Router();
@@ -220,17 +221,19 @@ router.get(
   wrapAsync(async (req, res) => {
     const { id } = req.params;
 
-    const { rows } = await prisma.$queryRawUnsafe(
+    const rows = await prisma.$queryRawUnsafe(
       `SELECT uid, phone, name, gender, email, birthday, address, profile_picture, is_active
        FROM users WHERE uid = $1 LIMIT 1`,
-      [id]
+      id
     );
 
     if (!rows.length) {
       throw AppError.notFound('Patient not found');
     }
 
-    res.json(toFhirPatient(rows[0]));
+    // Validate before returning so any adapter drift surfaces as a 500 with an
+    // OperationOutcome instead of reaching the peer as invalid FHIR.
+    return validatedFhirJson(res, toFhirPatient(rows[0]), { expectedType: 'Patient' });
   })
 );
 
@@ -260,10 +263,10 @@ router.get(
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const { rows } = await prisma.$queryRawUnsafe(
+    const rows = await prisma.$queryRawUnsafe(
       `SELECT uid, phone, name, gender, email, birthday, address, profile_picture, is_active
        FROM users ${where} ORDER BY name LIMIT $${idx} OFFSET $${idx + 1}`,
-      [...params, _count, _offset]
+      ...params, _count, _offset
     );
 
     const resources = rows.map(toFhirPatient);
@@ -279,18 +282,18 @@ router.get(
   wrapAsync(async (req, res) => {
     const { id } = req.params;
 
-    const { rows } = await prisma.$queryRawUnsafe(
+    const rows = await prisma.$queryRawUnsafe(
       `SELECT a.id, a.uid, a.phone, a.patient_name, a.doctor_id, a.doctor_name,
               a.appointment_date, a.appointment_time, a.status, a.reason, a.notes, a.created_at
        FROM appointments a WHERE a.id = $1 LIMIT 1`,
-      [id]
+      id
     );
 
     if (!rows.length) {
       throw AppError.notFound('Appointment not found');
     }
 
-    res.json(toFhirAppointment(rows[0]));
+    return validatedFhirJson(res, toFhirAppointment(rows[0]), { expectedType: 'Appointment' });
   })
 );
 
@@ -326,10 +329,10 @@ router.get(
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const { rows } = await prisma.$queryRawUnsafe(
+    const rows = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, type, value, unit, recorded_date, recorded_by
        FROM vital_signs ${where} ORDER BY recorded_date DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      [...params, _count, _offset]
+      ...params, _count, _offset
     );
 
     const resources = rows.map(toFhirObservation);
@@ -374,11 +377,11 @@ router.get(
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const { rows } = await prisma.$queryRawUnsafe(
+    const rows = await prisma.$queryRawUnsafe(
       `SELECT id, uid, phone, status, medication, order_note, prescribed_by,
               priority, urgent, ordered_at, created_at
        FROM pharmacy_orders ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      [...params, _count, _offset]
+      ...params, _count, _offset
     );
 
     const resources = rows.map(toFhirMedicationRequest);
@@ -406,11 +409,11 @@ router.get(
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const { rows } = await prisma.$queryRawUnsafe(
+    const rows = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, status, icd10_code, icd10_description, description,
               onset_date, resolved_date, diagnosed_by, notes, created_at
        FROM diagnoses ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      [...params, _count, _offset]
+      ...params, _count, _offset
     );
 
     const resources = rows.map(toFhirCondition);
@@ -438,11 +441,11 @@ router.get(
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const { rows } = await prisma.$queryRawUnsafe(
+    const rows = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, note_type, title, content, status, procedure_name,
               performed_at, performed_by, author_id, outcome, complications, notes, created_at
        FROM clinical_notes ${where} AND note_type = 'PROCEDURE' ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      [...params, _count, _offset]
+      ...params, _count, _offset
     );
 
     const resources = rows.map(toFhirProcedure);
@@ -470,11 +473,11 @@ router.get(
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const { rows } = await prisma.$queryRawUnsafe(
+    const rows = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, uid, status, test_name, investigation_type, results,
               conclusion, interpretation, ordered_at, completed_at, created_at
        FROM investigations ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      [...params, _count, _offset]
+      ...params, _count, _offset
     );
 
     const resources = rows.map(toFhirDiagnosticReport);
@@ -502,10 +505,10 @@ router.get(
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const { rows } = await prisma.$queryRawUnsafe(
+    const rows = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, allergen, description, name, severity, reaction, recorded_at
        FROM allergies ${where} ORDER BY recorded_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      [...params, _count, _offset]
+      ...params, _count, _offset
     );
 
     const resources = rows.map(toFhirAllergyIntolerance);
@@ -533,12 +536,12 @@ router.get(
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const { rows } = await prisma.$queryRawUnsafe(
+    const rows = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, status, priority, admission_type, reason, reason_for_admission,
               admitting_doctor, attending_doctor, admitted_at, discharged_at,
               discharge_disposition, discharge_type, ward, bed_number
        FROM admissions ${where} ORDER BY admitted_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      [...params, _count, _offset]
+      ...params, _count, _offset
     );
 
     const resources = rows.map(toFhirEncounter);
@@ -572,10 +575,10 @@ router.get(
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const { rows } = await prisma.$queryRawUnsafe(
+    const rows = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, note_type, type, title, content, author_id, created_by, created_at
        FROM clinical_notes ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      [...params, _count, _offset]
+      ...params, _count, _offset
     );
 
     const resources = rows.map(toFhirDocumentReference);
@@ -603,12 +606,12 @@ router.get(
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const { rows } = await prisma.$queryRawUnsafe(
+    const rows = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, status, priority, referring_doctor, requester_id,
               referred_to_doctor, performer_id, referred_to_department,
               reason, clinical_notes, notes, created_at
        FROM referrals ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      [...params, _count, _offset]
+      ...params, _count, _offset
     );
 
     const resources = rows.map(toFhirServiceRequest);

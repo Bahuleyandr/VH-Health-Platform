@@ -49,7 +49,7 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
   // Verify staff member exists
   const staffCheck = await prisma.$queryRawUnsafe(
     'SELECT u.id, u.name, s.shift, s.department FROM users u JOIN staff s ON u.id = s.user_id WHERE u.id = $1',
-    [staff_id]
+    staff_id
   );
 
   if (staffCheck.length === 0) {
@@ -62,7 +62,7 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
   const today = new Date().toISOString().split('T')[0];
   const existingAttendance = await prisma.$queryRawUnsafe(
     'SELECT id FROM staff_attendance WHERE staff_id = $1 AND DATE(check_in_time) = $2',
-    [staff_id, today]
+    staff_id, today
   );
 
   // Enforce geofence on check-in (not check-out to avoid getting stuck)
@@ -86,7 +86,7 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
         updated_at = NOW()
       WHERE staff_id = $6 AND DATE(check_in_time) = $7
       RETURNING id, staff_id, check_in_time, check_out_time, status, location, created_at
-    `, [
+    `, 
       check_out_time ? true : false, // Use server NOW() instead of client timestamp
       location ? JSON.stringify(location) : null,
       notes,
@@ -94,7 +94,7 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
       markedBy,
       staff_id,
       today
-    ]);
+    );
   } else {
     // Create new attendance record
     result = await prisma.$queryRawUnsafe(`
@@ -103,7 +103,7 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
         notes, break_duration_minutes, attendance_type, marked_by, created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
       RETURNING id, staff_id, check_in_time, check_out_time, status, location, created_at
-    `, [
+    `, 
       staff_id,
       new Date(), // Always use server timestamp to prevent client-side tampering
       check_out_time ? new Date() : null, // Server-authoritative checkout time too
@@ -112,7 +112,7 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
       break_duration_minutes, 
       attendance_type, 
       markedBy
-    ]);
+    );
   }
 
   // Update staff's last check-in/out times
@@ -121,7 +121,7 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
       last_check_in = CASE WHEN $1 IS NOT NULL THEN $1 ELSE last_check_in END,
       last_check_out = CASE WHEN $2 IS NOT NULL THEN $2 ELSE last_check_out END
     WHERE user_id = $3
-  `, [check_in_time, check_out_time, staff_id]);
+  `, check_in_time, check_out_time, staff_id);
 
   // Calculate working hours if both times are provided
   let hoursWorked = 0;
@@ -145,7 +145,7 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
     await prisma.$queryRawUnsafe(`
       UPDATE staff_attendance SET attendance_status=$1, minutes_late=$2, overtime_hours=$3
       WHERE id=$4
-    `, [classification.status, classification.minutesLate, overtime, result[0].id])
+    `, classification.status, classification.minutesLate, overtime, result[0].id)
       .catch(e => logger.warn('Attendance classification update failed (columns may not exist yet):', e.message));
   }
 
@@ -154,13 +154,13 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
     `INSERT INTO attendance_logs (
       staff_id, action, marked_by, location, hours_worked, created_at
     ) VALUES ($1, $2, $3, $4, $5, NOW())`,
-    [
+    
       staff_id,
       check_out_time ? 'CHECK_OUT' : 'CHECK_IN',
       markedBy,
       location ? JSON.stringify(location) : null,
       hoursWorked
-    ]
+    
   );
 
   logger.info(`⏰ Attendance marked for ${staff.name} (${staff_id}) by ${markerName}: ${check_out_time ? 'CHECK_OUT' : 'CHECK_IN'}`);
@@ -189,7 +189,7 @@ export const getStaffAttendance = async (staffId, filters, userRole, userId) => 
     FROM users u
     JOIN staff s ON u.id = s.user_id
     WHERE u.id = $1
-  `, [staffId]);
+  `, staffId);
 
   if (staffCheck.length === 0) {
     throw new Error('STAFF_NOT_FOUND');

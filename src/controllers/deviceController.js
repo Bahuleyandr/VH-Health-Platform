@@ -19,16 +19,16 @@ export const registerDevice = async (req, res) => {
        SET fcm_token = EXCLUDED.fcm_token,
            platform = EXCLUDED.platform,
            updated_at = NOW()`,
-      [phone, fcm_token, platform]
+      phone, fcm_token, platform
     );
 
     await prisma.$queryRawUnsafe(
-      `INSERT INTO audit_logs (action, phone, platform)
-       VALUES ($1, $2, $3)`,
-      ['DEVICE_REGISTERED', phone, platform]
+      `INSERT INTO audit_logs (action, resource, metadata)
+       VALUES ($1, $2, $3::jsonb)`,
+      'DEVICE_REGISTERED', 'device', JSON.stringify({ phone, platform })
     );
 
-    console.info(`[DEVICE REGISTERED] Phone: ${phone}, Platform: ${platform}`);
+    logger.info(`[DEVICE REGISTERED] Phone: ${phone}, Platform: ${platform}`);
 
     return res.json(success('Device registered successfully.'));
   } catch (err) {

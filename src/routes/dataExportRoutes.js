@@ -22,7 +22,7 @@ router.get('/my-data', async (req, res) => {
     // Lookup user by uid or phone
     const userRes = await prisma.$queryRawUnsafe(
       `SELECT id, uid, name, phone, email, role, gender, birthday, address, allergies, emergency_contact, blood_group, registered_at, last_login, is_active FROM users WHERE uid = $1 OR phone = $1 LIMIT 1`,
-      [userId]
+      userId
     );
     const user = userRes[0];
     if (!user) {
@@ -34,13 +34,13 @@ router.get('/my-data', async (req, res) => {
 
     // Collect all patient data
     const [appointments, healthRecords, records, investigations, pharmacyOrders, feedback, notifications] = await Promise.all([
-      prisma.$queryRawUnsafe(`SELECT id, patient_id, doctor_id, appointment_date, appointment_time, status, reason, notes, token_number, department, created_at, updated_at FROM appointments WHERE uid = $1 OR phone = $2 LIMIT 10000`, [uid, phone]),
-      prisma.$queryRawUnsafe(`SELECT id, phone, record_type, record_data, doctor_name, notes, created_at FROM health_records WHERE phone = $1 LIMIT 10000`, [phone]),
-      prisma.$queryRawUnsafe(`SELECT id, phone, record_type, file_key, file_name, notes, created_at FROM records WHERE phone = $1 LIMIT 10000`, [phone]),
-      prisma.$queryRawUnsafe(`SELECT id, phone, investigation_type, status, results, notes, created_at FROM investigations WHERE phone = $1 LIMIT 10000`, [phone]),
-      prisma.$queryRawUnsafe(`SELECT id, phone, order_note, file_key, status, urgent, notes, created_at, updated_at FROM pharmacy_orders WHERE phone = $1 LIMIT 10000`, [phone]),
-      prisma.$queryRawUnsafe(`SELECT id, phone, rating, comment, appointment_id, created_at FROM feedback WHERE phone = $1 LIMIT 10000`, [phone]),
-      prisma.$queryRawUnsafe(`SELECT id, phone, title, body, type, read, created_at FROM notifications WHERE phone = $1 LIMIT 10000`, [phone]),
+      prisma.$queryRawUnsafe(`SELECT id, patient_id, doctor_id, appointment_date, appointment_time, status, reason, notes, token_number, department, created_at, updated_at FROM appointments WHERE uid = $1 OR phone = $2 LIMIT 10000`, uid, phone),
+      prisma.$queryRawUnsafe(`SELECT id, phone, record_type, record_data, doctor_name, notes, created_at FROM health_records WHERE phone = $1 LIMIT 10000`, phone),
+      prisma.$queryRawUnsafe(`SELECT id, phone, record_type, file_key, file_name, notes, created_at FROM records WHERE phone = $1 LIMIT 10000`, phone),
+      prisma.$queryRawUnsafe(`SELECT id, phone, investigation_type, status, results, notes, created_at FROM investigations WHERE phone = $1 LIMIT 10000`, phone),
+      prisma.$queryRawUnsafe(`SELECT id, phone, order_note, file_key, status, urgent, notes, created_at, updated_at FROM pharmacy_orders WHERE phone = $1 LIMIT 10000`, phone),
+      prisma.$queryRawUnsafe(`SELECT id, phone, rating, comment, appointment_id, created_at FROM feedback WHERE phone = $1 LIMIT 10000`, phone),
+      prisma.$queryRawUnsafe(`SELECT id, phone, title, body, type, read, created_at FROM notifications WHERE phone = $1 LIMIT 10000`, phone),
     ]);
 
     const exportData = {
@@ -82,7 +82,7 @@ router.delete('/my-data', async (req, res) => {
   try {
     const userRes = await prisma.$queryRawUnsafe(
       `SELECT uid, phone FROM users WHERE uid = $1 OR phone = $1 LIMIT 1`,
-      [userId]
+      userId
     );
     const user = userRes[0];
     if (!user) {
@@ -118,7 +118,7 @@ router.delete('/my-data', async (req, res) => {
         // Parameterize the timestamp as $1; table name is safe (whitelisted above)
         const result = await prisma.$queryRawUnsafe(
           `UPDATE ${table} SET deleted_at = $1 WHERE ${where} AND deleted_at IS NULL`,
-          [now, ...params]
+          now, ...params
         );
         results.push({ table, affected: result.length });
       } catch (err) {

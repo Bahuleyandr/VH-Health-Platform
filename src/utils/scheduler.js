@@ -37,6 +37,7 @@ import { scheduleArchiveMigrationJob } from './archiveMigrationJob.js';
 // Notifications
 import { verifyLatestBackup } from './backupVerification.js';
 import { runCanaryChecks } from './canaryHealthCheck.js';
+import { tickAdminKpi } from './kpiAggregator.js';
 import { purgeHousekeepingPhotos } from './housekeepingPurgeJob.js';
 import { sendAppointmentReminders, sendTimedReminders, processPendingScheduledNotifications } from './notifications/appointmentReminderJob.js';
 import { sendInvestigationNotifications } from './notifications/InvestigationNotificationJob.js';
@@ -149,9 +150,20 @@ cron.schedule('*/5 * * * *', withJobLock('canary-health-check', async () => {
   await runCanaryChecks();
 }));
 
+// Every 30 seconds — admin:kpi aggregator tick. Short cadence is safe because
+// tickAdminKpi runs two indexed count queries and emits over WebSocket only.
+// withJobLock guarantees no overlap if a tick ever backs up.
+cron.schedule('*/30 * * * * *', withJobLock('admin-kpi-tick', tickAdminKpi));
+
 // Schema drift detection — once at startup
 setImmediate(async () => {
   try { await detectSchemaDrift(); } catch (e) { logger.warn('Schema drift check failed:', e.message); }
+});
+
+// Prime the KPI channel once on startup so first subscribers get a snapshot
+// without waiting up to 30s for the next cron tick.
+setImmediate(async () => {
+  try { await tickAdminKpi(); } catch (e) { logger.warn('Initial admin:kpi tick failed:', e.message); }
 });
 
 // ✅ Manual Trigger for all tasks
@@ -203,7 +215,7 @@ cron.schedule('0 6 1 * *', withJobLock('monthly-payroll', async () => {
   // Check if already done
   const existing = await prisma.$queryRawUnsafe(
     'SELECT id, status FROM payroll_runs WHERE month=$1 AND year=$2',
-    [month, year]
+    month, year
   );
   if (existing.length > 0 && existing[0].status === 'completed') {
     logger.info(`Payroll for ${month}/${year} already completed`);
@@ -226,7 +238,7 @@ cron.schedule('0 6 1 * *', withJobLock('monthly-payroll', async () => {
      VALUES ($1, $2, 'processing')
      ON CONFLICT (month, year) DO UPDATE SET status='processing'
      RETURNING id, month, year, status, total_staff, total_gross, total_net, total_deductions, created_at`,
-    [month, year]
+    month, year
   );
   const runId = run[0].id;
 
@@ -247,7 +259,7 @@ cron.schedule('0 6 1 * *', withJobLock('monthly-payroll', async () => {
 
   await prisma.$queryRawUnsafe(
     `UPDATE payroll_runs SET status='completed', total_staff=$1, total_gross=$2, total_net=$3, total_deductions=$4 WHERE id=$5`,
-    [processed, totalGross.toFixed(2), totalNet.toFixed(2), totalDeductions.toFixed(2), runId]
+    processed, totalGross.toFixed(2), totalNet.toFixed(2), totalDeductions.toFixed(2), runId
   );
   logger.info(`Monthly payroll generated: ${processed} payslips for ${month}/${year}`);
 }));
@@ -264,6 +276,6 @@ cron.schedule('0 8 1 12 *', withJobLock('annual-salary-review', async () => {
       AND ss.date_of_joining IS NOT NULL
       AND ss.date_of_joining::date <= CURRENT_DATE - INTERVAL '11 months'
     ON CONFLICT (staff_uid, review_year) DO NOTHING
-  `, [year]);
+  `, year);
   logger.info(`Annual review reminders created for ${year}`);
 }));

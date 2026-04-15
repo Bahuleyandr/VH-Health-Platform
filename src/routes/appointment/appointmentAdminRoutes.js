@@ -207,7 +207,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           ${whereClause}
           ORDER BY ${sort_by} ${order}
           LIMIT $${params.length + 1} OFFSET $${params.length + 2}
-        `, [...params, limit, offset]);
+        `, ...params, limit, offset);
 
         // Get total count
         const countResult = await prisma.$queryRawUnsafe(`
@@ -328,7 +328,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           GROUP BY p.id, p.name, p.phone, p.email
           HAVING COUNT(CASE WHEN a.status = 'no_show' THEN 1 END) >= $1
           ORDER BY no_show_count DESC
-        `, [threshold]);
+        `, threshold);
 
         success(res, {
           noShowPatients: noShowPatients,
@@ -507,7 +507,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
               updated_by = $3
           WHERE id IN (${placeholders})
           RETURNING id, patient_id, doctor_id, appointment_date, status
-        `, [status, reason || `Status changed to ${status}`, req.user?.uid, ...appointment_ids]);
+        `, status, reason || `Status changed to ${status}`, req.user?.uid, ...appointment_ids);
 
         // Log admin action
         for (const appointment of result) {
@@ -543,7 +543,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
             WHERE doctor_id = $1 
               AND appointment_date = $2 
               AND status = 'scheduled'
-          `, [doctor_id, appointment_date]);
+          `, doctor_id, appointment_date);
 
           if (conflictCheck.length > 0) {
             return error(res, 'Time slot conflict detected. Set ignore_conflicts=true to override', HTTP_STATUS.CONFLICT);
@@ -558,12 +558,12 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
             notes, admin_override, override_reason
           ) VALUES ($1, $2, $3, $4, 'scheduled', NOW(), $5, $6, true, $7)
           RETURNING id, patient_id, doctor_id, appointment_date, reason, status, notes, admin_override, override_reason, created_at, created_by, updated_at
-        `, [
+        `, 
           patient_id, doctor_id, appointment_date, reason,
           req.user?.uid,
           `Admin override booking by ${req.user?.name}`,
           override_reason
-        ]);
+        );
 
         logger.info(`Admin ${req.user?.name} override booked appointment ${result[0].id}`);
 
@@ -594,14 +594,14 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           case 'cancel_first':
             result = await prisma.$queryRawUnsafe(
               'UPDATE appointments SET status = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, date, status, notes, created_at, updated_at',
-              ['cancelled', `Cancelled by admin due to conflict resolution`, conflict_appointments[0]]
+              'cancelled', `Cancelled by admin due to conflict resolution`, conflict_appointments[0]
             );
             break;
 
           case 'cancel_second':
             result = await prisma.$queryRawUnsafe(
               'UPDATE appointments SET status = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, date, status, notes, created_at, updated_at',
-              ['cancelled', `Cancelled by admin due to conflict resolution`, conflict_appointments[1]]
+              'cancelled', `Cancelled by admin due to conflict resolution`, conflict_appointments[1]
             );
             break;
 
@@ -611,7 +611,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
             }
             result = await prisma.$queryRawUnsafe(
               'UPDATE appointments SET appointment_date = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, date, status, notes, created_at, updated_at',
-              [new_time, `Rescheduled by admin due to conflict`, conflict_appointments[0]]
+              new_time, `Rescheduled by admin due to conflict`, conflict_appointments[0]
             );
             break;
 
@@ -621,7 +621,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
             }
             result = await prisma.$queryRawUnsafe(
               'UPDATE appointments SET appointment_date = $1, notes = $2 WHERE id = $3 RETURNING id, uid, phone, patient_name, doctor_name, date, status, notes, created_at, updated_at',
-              [new_time, `Rescheduled by admin due to conflict`, conflict_appointments[1]]
+              new_time, `Rescheduled by admin due to conflict`, conflict_appointments[1]
             );
             break;
             
@@ -687,7 +687,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
         if (appointmentIds.length > 0) {
           await prisma.$queryRawUnsafe(
             `UPDATE appointments SET reminder_sent = true WHERE id = ANY($1)`,
-            [appointmentIds]
+            appointmentIds
           );
         }
 
@@ -737,7 +737,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           FROM appointments
           WHERE id = ANY($3)
           RETURNING original_id
-        `, [req.user?.uid, reason, appointment_ids]);
+        `, req.user?.uid, reason, appointment_ids);
 
         // Delete appointments
         const placeholders = appointment_ids.map((_, i) => `$${i + 1}`).join(',');

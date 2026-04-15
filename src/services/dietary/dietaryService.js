@@ -34,10 +34,10 @@ class DietaryService {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', $9, NOW())
        RETURNING id, patient_uid, encounter_id, diet_type, restrictions, allergies,
                  meal_preferences, calories_target, special_instructions, status, ordered_by, created_at`,
-      [
+      
         patient_uid, encounter_id || null, diet_type, restrictions, allergies,
         meal_preferences || null, calories_target || null, special_instructions || null, ordered_by
-      ]
+      
     );
 
     logger.info('Diet order created', { orderId: result[0].id, diet_type, patient_uid });
@@ -64,7 +64,7 @@ class DietaryService {
        WHERE status = 'active'
        ORDER BY created_at DESC
        LIMIT $1 OFFSET $2`,
-      [parseInt(limit, 10), offset]
+      parseInt(limit, 10), offset
     );
 
     return {
@@ -89,7 +89,7 @@ class DietaryService {
 
     const existing = await prisma.$queryRawUnsafe(
       `SELECT id, status FROM diet_orders WHERE id = $1`,
-      [id]
+      id
     );
 
     if (existing.length === 0) {
@@ -122,12 +122,12 @@ class DietaryService {
        RETURNING id, patient_uid, encounter_id, diet_type, restrictions, allergies,
                  meal_preferences, calories_target, special_instructions, status,
                  ordered_by, reviewed_by, created_at`,
-      [
+      
         diet_type || null, restrictions || null, allergies || null,
         meal_preferences || null, calories_target || null,
         special_instructions || null, status || null,
         reviewed_by || null, id
-      ]
+      
     );
 
     logger.info('Diet order updated', { orderId: id });
@@ -143,7 +143,7 @@ class DietaryService {
 
     const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM diet_orders WHERE patient_uid = $1`,
-      [patientUid]
+      patientUid
     );
     const total = parseInt(countResult[0].count, 10);
 
@@ -155,7 +155,7 @@ class DietaryService {
        WHERE patient_uid = $1
        ORDER BY created_at DESC
        LIMIT $2 OFFSET $3`,
-      [patientUid, parseInt(limit, 10), offset]
+      patientUid, parseInt(limit, 10), offset
     );
 
     return {

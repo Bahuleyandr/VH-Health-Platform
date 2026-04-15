@@ -33,7 +33,7 @@ class ABDMService {
     // Check patient exists
     const patientResult = await prisma.$queryRawUnsafe(
       `SELECT uid, name, phone FROM users WHERE uid = $1 AND is_active = true LIMIT 1`,
-      [patientUid]
+      patientUid
     );
     if (patientResult.length === 0) {
       throw AppError.notFound('Patient not found', 'PATIENT_NOT_FOUND');
@@ -42,7 +42,7 @@ class ABDMService {
     // Check ABHA not already linked to another patient
     const existingAbha = await prisma.$queryRawUnsafe(
       `SELECT uid FROM users WHERE abha_number = $1 AND uid != $2 LIMIT 1`,
-      [abhaNumber, patientUid]
+      abhaNumber, patientUid
     );
     if (existingAbha.length > 0) {
       throw AppError.conflict('This ABHA number is already linked to another patient', 'ABHA_ALREADY_LINKED');
@@ -67,7 +67,7 @@ class ABDMService {
        SET abha_number = $1, abha_address = $2, updated_at = NOW()
        WHERE uid = $3
        RETURNING uid, name, phone, abha_number, abha_address, updated_at`,
-      [abhaNumber, abhaAddress || null, patientUid]
+      abhaNumber, abhaAddress || null, patientUid
     );
 
     logger.info('ABHA linked to patient', {
@@ -94,7 +94,7 @@ class ABDMService {
        FROM users
        WHERE abha_number = $1 AND is_active = true
        LIMIT 1`,
-      [abhaNumber]
+      abhaNumber
     );
 
     if (result.length === 0) {
@@ -134,7 +134,7 @@ class ABDMService {
     // Find patient by ABHA number
     const patientResult = await prisma.$queryRawUnsafe(
       `SELECT uid FROM users WHERE abha_number = $1 AND is_active = true LIMIT 1`,
-      [patient.id]
+      patient.id
     );
 
     if (patientResult.length === 0) {
@@ -147,7 +147,7 @@ class ABDMService {
     // Check for duplicate consent request
     const existing = await prisma.$queryRawUnsafe(
       `SELECT id FROM abdm_consents WHERE consent_id = $1 LIMIT 1`,
-      [consentRequestId]
+      consentRequestId
     );
     if (existing.length > 0) {
       throw AppError.conflict('Consent request already exists', 'DUPLICATE_CONSENT');
@@ -162,7 +162,7 @@ class ABDMService {
          date_range_from, date_range_to, expiry_date, status, requester_name, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'REQUESTED', $10, NOW())
        RETURNING id, consent_id, patient_uid, purpose, hi_types, status, expiry_date, requester_name, created_at`,
-      [
+      
         consentRequestId,
         patientUid,
         ABDM_CONFIG.hipId || null,
@@ -173,7 +173,7 @@ class ABDMService {
         dateRange?.to ? new Date(dateRange.to) : null,
         expiryDate,
         requester?.name || null,
-      ]
+      
     );
 
     logger.info('ABDM consent request created', {
@@ -206,7 +206,7 @@ class ABDMService {
     if (new Date(consent.expiry_date) < new Date()) {
       await prisma.$queryRawUnsafe(
         `UPDATE abdm_consents SET status = 'EXPIRED' WHERE consent_id = $1`,
-        [consentId]
+        consentId
       );
       throw AppError.badRequest('Consent request has expired', 'CONSENT_EXPIRED');
     }
@@ -237,7 +237,7 @@ class ABDMService {
        SET status = 'GRANTED', granted_at = NOW(), consent_artifact = $1
        WHERE consent_id = $2
        RETURNING id, consent_id, patient_uid, purpose, status, granted_at, consent_artifact`,
-      [JSON.stringify(consentArtifact), consentId]
+      JSON.stringify(consentArtifact), consentId
     );
 
     // Notify ABDM gateway asynchronously
@@ -277,7 +277,7 @@ class ABDMService {
        SET status = 'DENIED'
        WHERE consent_id = $1
        RETURNING id, consent_id, patient_uid, purpose, status`,
-      [consentId]
+      consentId
     );
 
     // Notify ABDM gateway asynchronously
@@ -316,7 +316,7 @@ class ABDMService {
        SET status = 'REVOKED', revoked_at = NOW()
        WHERE consent_id = $1
        RETURNING id, consent_id, patient_uid, purpose, status, revoked_at`,
-      [consentId]
+      consentId
     );
 
     // Notify ABDM gateway asynchronously
@@ -358,7 +358,7 @@ class ABDMService {
        FROM abdm_consents
        WHERE consent_id = $1
        LIMIT 1`,
-      [consentId]
+      consentId
     );
 
     if (consentResult.length === 0) {
@@ -375,7 +375,7 @@ class ABDMService {
     if (new Date(consent.expiry_date) < new Date()) {
       await prisma.$queryRawUnsafe(
         `UPDATE abdm_consents SET status = 'EXPIRED' WHERE consent_id = $1`,
-        [consentId]
+        consentId
       );
       throw AppError.forbidden('Consent has expired', 'CONSENT_EXPIRED');
     }
@@ -386,7 +386,7 @@ class ABDMService {
         (transaction_id, consent_id, patient_uid, hi_types, date_range_from, date_range_to, key_material, status, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, 'PROCESSING', NOW())
        RETURNING id, transaction_id, consent_id, patient_uid, status, created_at`,
-      [
+      
         transactionId,
         consentId,
         consent.patient_uid,
@@ -394,7 +394,7 @@ class ABDMService {
         dateRange?.from ? new Date(dateRange.from) : consent.date_range_from,
         dateRange?.to ? new Date(dateRange.to) : consent.date_range_to,
         keyMaterial ? JSON.stringify(keyMaterial) : null,
-      ]
+      
     );
 
     // Collect and send health data asynchronously
@@ -413,7 +413,7 @@ class ABDMService {
       // Mark as FAILED
       prisma.$queryRawUnsafe(
         `UPDATE abdm_data_requests SET status = 'FAILED' WHERE transaction_id = $1`,
-        [transactionId]
+        transactionId
       ).catch(() => {});
     });
 
@@ -437,7 +437,7 @@ class ABDMService {
        FROM abdm_consents
        WHERE patient_uid = $1
        ORDER BY created_at DESC`,
-      [patientUid]
+      patientUid
     );
 
     return result;
@@ -643,7 +643,7 @@ class ABDMService {
        LEFT JOIN users u ON u.uid = c.patient_uid
        WHERE c.consent_id = $1
        LIMIT 1`,
-      [consentId]
+      consentId
     );
 
     if (result.length === 0) {
@@ -680,7 +680,7 @@ class ABDMService {
     // Mark as delivered
     await prisma.$queryRawUnsafe(
       `UPDATE abdm_data_requests SET status = 'DELIVERED', delivered_at = NOW() WHERE transaction_id = $1`,
-      [transactionId]
+      transactionId
     );
 
     logger.info('ABDM data request processed', {

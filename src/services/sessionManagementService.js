@@ -32,7 +32,7 @@ export async function listActiveSessions(userId, limit = 20) {
         AND al.created_at > NOW() - INTERVAL '30 days'
       ORDER BY al.created_at DESC
       LIMIT $2`,
-      [userId, Math.min(Math.max(limit, 1), 50)]
+      userId, Math.min(Math.max(limit, 1), 50)
     );
     return sessions;
   } catch (err) {
@@ -54,7 +54,7 @@ export async function revokeSession(userId, jti) {
     const session = await prisma.$queryRawUnsafe(
       `SELECT id, user_id FROM auth_logs
        WHERE jti = $1 AND user_id = $2 AND action = 'login_success'`,
-      [jti, userId]
+      jti, userId
     );
 
     if (session.length === 0) {
@@ -88,7 +88,7 @@ export async function revokeAllOtherSessions(userId, currentJti) {
          AND al.action = 'login_success'
          AND it.jti IS NULL
          AND al.created_at > NOW() - INTERVAL '30 days'`,
-      [userId, currentJti]
+      userId, currentJti
     );
 
     let revokedCount = 0;

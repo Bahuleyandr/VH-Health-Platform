@@ -20,7 +20,7 @@ const router = Router();
  * POST /radiology/orders
  * Create a new radiology order
  */
-router.post('/orders', requiredUUID('patient_uid'), requiredString('study_type', 200), validate, async (req, res, next) => {
+router.post('/orders', requiredUUID('patient_uid'), requiredString('modality', 50), requiredString('body_part', 100), validate, async (req, res, next) => {
   try {
     const orderData = {
       patient_uid: req.body.patient_uid,

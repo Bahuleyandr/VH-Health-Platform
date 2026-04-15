@@ -51,13 +51,13 @@ export const submitCleaningLog = async (req, res) => {
          notes, photo_key, photo_url, signature_hash, logged_at)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
       RETURNING id, staff_id, zone_id, location_text, cleaning_type, notes, photo_url, signature_hash, log_number, logged_at, status, created_at
-    `, [
+    `, 
       staffId, zone_id || null, location_text || null,
       latitude || null, longitude || null,
       cleaning_type, notes || null,
       photo_key || null, photo_url || null,
       signature, timestamp,
-    ]);
+    );
 
     success(res, result[0], `Cleaning log ${result[0].log_number} submitted`);
   } catch (err) {
@@ -115,18 +115,18 @@ export const raiseRequest = async (req, res) => {
          request_type, urgency, description, photo_key, photo_url, sla_due_at)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
       RETURNING id, zone_id, assigned_to, task_type, status, notes, completed_at, created_at, request_number, urgency, sla_due_at
-    `, [
+    `, 
       requesterId, zone_id || null, location_text || '',
       latitude || null, longitude || null,
       request_type, urgency, description || null,
       photo_key || null, photo_url || null, slaDueAt,
-    ]);
+    );
 
     // System update
     await prisma.$queryRawUnsafe(`
       INSERT INTO housekeeping_request_updates (request_id, author_role, message, is_internal)
       VALUES ($1, 'system', $2, false)
-    `, [result[0].id, `Request ${result[0].request_number} raised. Urgency: ${urgency.toUpperCase()}. SLA: ${slaMinutes < 60 ? `${slaMinutes}min` : `${slaMinutes/60}h`}.`]);
+    `, result[0].id, `Request ${result[0].request_number} raised. Urgency: ${urgency.toUpperCase()}. SLA: ${slaMinutes < 60 ? `${slaMinutes}min` : `${slaMinutes/60}h`}.`);
 
     success(res, result[0], `Request ${result[0].request_number} raised`);
   } catch (err) {
@@ -158,7 +158,7 @@ export const getMyRequests = async (req, res) => {
       LEFT JOIN users u ON hr.requester_id = u.id
       WHERE hr.assigned_to = $1 AND hr.status NOT IN ('completed','verified','closed','cancelled')
       ORDER BY hr.urgency DESC, hr.created_at ASC LIMIT 20
-    `, [staffId]);
+    `, staffId);
 
     success(res, { raised: raised, assigned: assigned }, 'Requests fetched');
   } catch (err) {
@@ -194,12 +194,12 @@ export const completeRequest = async (req, res) => {
         updated_at = NOW()
       WHERE id = $5
       RETURNING id, zone_id, assigned_to, task_type, status, notes, completed_at, created_at
-    `, [completion_notes || null, completion_photo_key || null, completion_photo_url || null, signatureHash, id]);
+    `, completion_notes || null, completion_photo_key || null, completion_photo_url || null, signatureHash, id);
 
     await prisma.$queryRawUnsafe(`
       INSERT INTO housekeeping_request_updates (request_id, author_id, author_role, message, is_internal)
       VALUES ($1, $2, 'hk_staff', $3, false)
-    `, [id, staffId, `Task completed by housekeeping staff${completion_notes ? ': ' + completion_notes : '.'}`]);
+    `, id, staffId, `Task completed by housekeeping staff${completion_notes ? ': ' + completion_notes : '.'}`);
 
     success(res, result[0], 'Request marked as completed');
   } catch (err) {
@@ -310,7 +310,7 @@ export const assignRequest = async (req, res) => {
         status = 'assigned', updated_at = NOW()
       WHERE id = $3 AND status IN ('open','assigned')
       RETURNING id, zone_id, assigned_to, task_type, status, notes, completed_at, created_at
-    `, [assigned_to, adminId, id]);
+    `, assigned_to, adminId, id);
 
     if (result.length === 0) return error(res, 'Request not found or already in progress', HTTP_STATUS.NOT_FOUND);
 
@@ -318,7 +318,7 @@ export const assignRequest = async (req, res) => {
     await prisma.$queryRawUnsafe(`
       INSERT INTO housekeeping_request_updates (request_id, author_id, author_role, message, is_internal)
       VALUES ($1, $2, 'admin', $3, false)
-    `, [id, adminId, `Assigned to ${staff[0]?.name || 'staff'}${note ? '. Note: ' + note : '.'}`]);
+    `, id, adminId, `Assigned to ${staff[0]?.name || 'staff'}${note ? '. Note: ' + note : '.'}`);
 
     success(res, result[0], 'Request assigned');
   } catch (err) {
@@ -338,7 +338,7 @@ export const verifyLog = async (req, res) => {
     const result = await prisma.$queryRawUnsafe(`
       UPDATE housekeeping_logs SET status = $1, verified_by = $2, verified_at = NOW(),
         flag_reason = $3 WHERE id = $4 RETURNING id, staff_id, zone_id, status, verified_by, verified_at, flag_reason, logged_at, created_at
-    `, [action, verifierId, flag_reason || null, id]);
+    `, action, verifierId, flag_reason || null, id);
 
     if (result.length === 0) return error(res, 'Log not found', HTTP_STATUS.NOT_FOUND);
     success(res, result[0], `Log ${action}`);
@@ -357,14 +357,14 @@ export const verifyRequest = async (req, res) => {
     const result = await prisma.$queryRawUnsafe(`
       UPDATE housekeeping_requests SET status = 'verified', verified_by = $1, verified_at = NOW(),
         updated_at = NOW() WHERE id = $2 AND status = 'completed' RETURNING id, zone_id, assigned_to, task_type, status, notes, completed_at, created_at
-    `, [verifierId, id]);
+    `, verifierId, id);
 
     if (result.length === 0) return error(res, 'Request not found or not yet completed', HTTP_STATUS.NOT_FOUND);
 
     await prisma.$queryRawUnsafe(`
       INSERT INTO housekeeping_request_updates (request_id, author_id, author_role, message, is_internal)
       VALUES ($1, $2, 'supervisor', 'Completion verified ✓', false)
-    `, [id, verifierId]);
+    `, id, verifierId);
 
     success(res, result[0], 'Request verified');
   } catch (err) {
@@ -455,7 +455,7 @@ export const getRequestDetail = async (req, res) => {
       LEFT JOIN users u2 ON hr.assigned_to = u2.id
       LEFT JOIN users u3 ON hr.verified_by = u3.id
       WHERE hr.id = $1 AND (hr.requester_id = $2 OR hr.assigned_to = $2)
-    `, [id, staffId]);
+    `, id, staffId);
 
     if (req_.length === 0) return error(res, 'Request not found', HTTP_STATUS.NOT_FOUND);
 
@@ -484,7 +484,7 @@ export const createZone = async (req, res) => {
       INSERT INTO housekeeping_zones (name, zone_type, floor, building, is_active)
       VALUES ($1, $2, $3, $4, true)
       RETURNING id, name, zone_type, is_active, floor, building, created_at
-    `, [name, zone_type, floor || null, building || null]);
+    `, name, zone_type, floor || null, building || null);
 
     success(res, result[0], 'Zone created');
   } catch (err) {
@@ -509,8 +509,8 @@ export const updateZone = async (req, res) => {
         is_active = COALESCE($5, is_active)
       WHERE id = $6
       RETURNING id, name, zone_type, is_active, floor, building, created_at
-    `, [name || null, zone_type || null, floor || null, building || null,
-        is_active !== undefined ? is_active : null, id]);
+    `, name || null, zone_type || null, floor || null, building || null,
+        is_active !== undefined ? is_active : null, id);
 
     if (result.length === 0) return error(res, 'Zone not found', HTTP_STATUS.NOT_FOUND);
 
@@ -549,7 +549,7 @@ export const adminCreateRequest = async (req, res) => {
       VALUES ($1, $2, $3, $4, $5, $6,
               $7, $8, $9, $10, $11)
       RETURNING id, zone_id, assigned_to, task_type, status, notes, completed_at, created_at, request_number, urgency, sla_due_at
-    `, [
+    `, 
       adminId,
       zone_id || null,
       location_text || null,
@@ -561,7 +561,7 @@ export const adminCreateRequest = async (req, res) => {
       assigned_to ? new Date().toISOString() : null,
       assigned_to ? adminId : null,
       sla_due_at,
-    ]);
+    );
 
     success(res, result[0], `Request ${result[0].request_number} created`);
   } catch (err) {

@@ -67,7 +67,7 @@ export const verifyDevice = async (deviceToken) => {
     `SELECT device_id, device_name, platform, last_active, staff_id, is_active
      FROM staff_devices
      WHERE device_token = $1 AND is_active = true`,
-    [deviceToken]
+    deviceToken
   );
   
   if (result.length === 0) {
@@ -97,7 +97,7 @@ export const getTodayAttendance = async (staffId) => {
     `SELECT id, staff_uid, check_in_time, check_out_time, duration_minutes, status, created_at FROM staff_attendance
      WHERE staff_uid = $1 AND DATE(check_in_time) = DATE($2)
      ORDER BY check_in_time DESC LIMIT 1`,
-    [staffId, today]
+    staffId, today
   );
   
   if (result.length === 0) {
@@ -141,7 +141,7 @@ export const getAttendanceHistory = async (staffId, { startDate, endDate, page, 
        ${whereClause}
        ORDER BY check_in_time DESC
        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-      [...params, limit, offset]
+      ...params, limit, offset
     ),
     prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM staff_attendance ${whereClause}`,

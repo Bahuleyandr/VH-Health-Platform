@@ -38,7 +38,7 @@ export async function getPatientDashboard(req, res) {
        WHERE phone = $1 AND date < NOW()
        ORDER BY date DESC
        LIMIT 1`,
-      [normalizedPhone]
+      normalizedPhone
     );
 
     // --- 3. Next upcoming appointment — date only ---
@@ -47,14 +47,14 @@ export async function getPatientDashboard(req, res) {
        WHERE phone = $1 AND date >= NOW()
        ORDER BY date ASC
        LIMIT 1`,
-      [normalizedPhone]
+      normalizedPhone
     );
 
     // --- 4. Total upcoming count ---
     const upcomingCountResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM appointments
        WHERE phone = $1 AND date >= NOW()`,
-      [normalizedPhone]
+      normalizedPhone
     );
     const upcomingCount = parseInt(upcomingCountResult[0]?.count || '0', 10);
 

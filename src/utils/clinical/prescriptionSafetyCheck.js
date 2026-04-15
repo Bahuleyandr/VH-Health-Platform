@@ -16,7 +16,7 @@ export async function validatePrescriptionSafety(patientId, medications) {
     // 1. Check patient allergies
     const allergyResult = await prisma.$queryRawUnsafe(
       `SELECT allergy_name, severity FROM patient_allergies WHERE patient_id = $1 AND is_active = true`,
-      [patientId]
+      patientId
     );
     const allergies = allergyResult;
 
@@ -48,7 +48,7 @@ export async function validatePrescriptionSafety(patientId, medications) {
     const activeMedsResult = await prisma.$queryRawUnsafe(
       `SELECT medication_name FROM e_prescriptions
        WHERE patient_id = $1 AND status = 'ACTIVE' AND end_date >= CURRENT_DATE`,
-      [patientId]
+      patientId
     );
 
     for (const med of medications) {
