@@ -7,6 +7,7 @@ import '../../../core/services/api_client.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../widgets/cds_blocker_modal.dart';
 
 /// E-Prescriptions screen — structured prescription entry with medicine type-ahead.
 class PrescriptionsScreen extends StatefulWidget {
@@ -254,6 +255,32 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
 
     setState(() => _submitting = true);
     try {
+      final meds = _medications.map((m) => m.toJson()).toList();
+
+      // ── CDS hard-block preview ──
+      // Run safety-check first so we can drive the modal without burning the
+      // clinician's form state on a server-side 409.
+      final safety = await MedicalApiService.checkPrescriptionSafety(
+        patientId: _patientId!,
+        medications: meds,
+      );
+      final blockers = (safety['blockers'] as List?) ?? const [];
+      final warnings = (safety['warnings'] as List?) ?? const [];
+      String? overrideReason;
+      if (blockers.isNotEmpty) {
+        if (!mounted) return;
+        final outcome = await CdsBlockerModal.show(
+          context,
+          blockers: blockers,
+          warnings: warnings,
+        );
+        if (outcome == null || !outcome.shouldProceed) {
+          if (mounted) setState(() => _submitting = false);
+          return;
+        }
+        overrideReason = outcome.overrideReason;
+      }
+
       final body = <String, dynamic>{
         'patient_id': _patientId,
         'doctor_id': _doctorId,
@@ -262,12 +289,13 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         'clinical_notes': _clinicalNotesCtrl.text.trim().isEmpty
             ? null
             : _clinicalNotesCtrl.text.trim(),
-        'medications': _medications.map((m) => m.toJson()).toList(),
+        'medications': meds,
         if (_followUpDate != null)
           'follow_up_date':
               DateFormat('yyyy-MM-dd').format(_followUpDate!),
         if (_followUpNotesCtrl.text.trim().isNotEmpty)
           'follow_up_notes': _followUpNotesCtrl.text.trim(),
+        if (overrideReason != null) 'override': {'reason': overrideReason},
       };
       final vitals = _buildVitals();
       if (vitals != null) body['vitals'] = vitals;

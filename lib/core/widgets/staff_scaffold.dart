@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../config/role_config.dart';
 import '../theme/app_theme.dart';
+import 'code_blue_listener.dart';
 import 'offline_sync_badge.dart';
 import 'sos_button.dart';
 
@@ -31,20 +32,22 @@ class StaffScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppTheme.backgroundGrey,
-      appBar: AppBar(
-        title: Text(title),
-        actions: [
-          const OfflineSyncBadge(),
-          if (showSos) const SosButton(),
-          ...?actions,
-        ],
+    return CodeBlueListener(
+      child: Scaffold(
+        backgroundColor: AppTheme.backgroundGrey,
+        appBar: AppBar(
+          title: Text(title),
+          actions: [
+            const OfflineSyncBadge(),
+            if (showSos) const SosButton(),
+            ...?actions,
+          ],
+        ),
+        body: body,
+        floatingActionButton: floatingActionButton,
+        bottomNavigationBar: showBottomNav ? _buildBottomNav(context) : null,
+        bottomSheet: bottomSheet,
       ),
-      body: body,
-      floatingActionButton: floatingActionButton,
-      bottomNavigationBar: showBottomNav ? _buildBottomNav(context) : null,
-      bottomSheet: bottomSheet,
     );
   }
 
