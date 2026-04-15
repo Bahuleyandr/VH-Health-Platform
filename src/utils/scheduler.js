@@ -112,7 +112,7 @@ cron.schedule('30 3 * * *', withJobLock('purge-audit-logs', async () => {
   const result = await prisma.$queryRawUnsafe(
     `DELETE FROM audit_log WHERE created_at < NOW() - INTERVAL '90 days'`
   );
-  logger.info(`Audit log cleanup: ${result.length} rows deleted`);
+  logger.info(`Audit log cleanup: ${Number(result) || 0} rows deleted`);
 }));
 
 // 🗓️ Daily at 03:35 - Purge expired token blacklist entries
@@ -121,7 +121,7 @@ cron.schedule('35 3 * * *', withJobLock('purge-invalidated-tokens', async () => 
   const result = await prisma.$queryRawUnsafe(
     `DELETE FROM invalidated_tokens WHERE expires_at < NOW()`
   );
-  logger.info(`Invalidated tokens cleanup: ${result.length} rows deleted`);
+  logger.info(`Invalidated tokens cleanup: ${Number(result) || 0} rows deleted`);
 }));
 
 // 🗓️ Daily at 03:40 - Purge expired OTP sessions
@@ -130,7 +130,7 @@ cron.schedule('40 3 * * *', withJobLock('purge-expired-otps', async () => {
   const result = await prisma.$queryRawUnsafe(
     `DELETE FROM otp_sessions WHERE expires_at < NOW() - INTERVAL '1 day'`
   );
-  logger.info(`Expired OTP cleanup: ${result.length} rows deleted`);
+  logger.info(`Expired OTP cleanup: ${Number(result) || 0} rows deleted`);
 }));
 
 // 🗓️ Daily at 03:45 - Purge file deletion log entries older than 90 days
