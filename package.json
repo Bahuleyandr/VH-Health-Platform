@@ -39,7 +39,7 @@
     "jspdf": "^2.5.2",
     "jspdf-autotable": "^3.8.4",
     "lucide-react": "^0.577.0",
-    "next": "15.5.14",
+    "next": "15.5.15",
     "react": "^19.0.0",
     "react-dom": "^19.2.5",
     "react-error-boundary": "^6.1.1",
