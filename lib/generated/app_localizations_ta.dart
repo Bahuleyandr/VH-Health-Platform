@@ -882,4 +882,252 @@ class AppLocalizationsTa extends AppLocalizations {
 
   @override
   String get profileIncomplete => 'Please complete your profile to continue';
+
+  @override
+  String get vitalsTitle => 'உடல் அறிகுறிகள்';
+
+  @override
+  String get vitalsLogTab => 'பதிவு செய்';
+
+  @override
+  String get vitalsHistoryTab => 'வரலாறு';
+
+  @override
+  String get vitalsLogHeading => 'Log Your Daily Vitals';
+
+  @override
+  String get vitalsLogSubheading =>
+      'Fill in any vitals you want to record today.';
+
+  @override
+  String get vitalsBloodPressure => 'Blood Pressure';
+
+  @override
+  String get vitalsSystolic => 'Systolic';
+
+  @override
+  String get vitalsDiastolic => 'Diastolic';
+
+  @override
+  String get vitalsHeartRate => 'Heart Rate';
+
+  @override
+  String get vitalsTemperature => 'Temperature';
+
+  @override
+  String get vitalsBloodSugar => 'Blood Sugar';
+
+  @override
+  String get vitalsWeight => 'Weight';
+
+  @override
+  String get vitalsSpO2 => 'SpO2';
+
+  @override
+  String get vitalsRecordButton => 'பதிவு செய்';
+
+  @override
+  String get vitalsSubmitting => 'Submitting...';
+
+  @override
+  String get vitalsRecordedSuccess =>
+      'உடல் அறிகுறிகள் வெற்றிகரமாக பதிவு செய்யப்பட்டன';
+
+  @override
+  String get vitalsRecordFailed => 'Failed to record vitals';
+
+  @override
+  String get vitalsAtLeastOne => 'Please enter at least one vital sign';
+
+  @override
+  String get vitalsNoHistory => 'இதுவரை பதிவு இல்லை';
+
+  @override
+  String get vitalsNoHistoryHint => 'Log your vitals using the Log Vitals tab.';
+
+  @override
+  String get vitalsHistoryFailed => 'Failed to load vitals history';
+
+  @override
+  String get familyTitle => 'குடும்ப உறுப்பினர்கள்';
+
+  @override
+  String get familyYourFamily => 'Your Family';
+
+  @override
+  String get familyManageHint =>
+      'Manage family members linked to your account.';
+
+  @override
+  String get familyNoMembers => 'இதுவரை குடும்ப உறுப்பினர்கள் இல்லை';
+
+  @override
+  String get familyNoMembersHint => 'Add family members to manage shared care.';
+
+  @override
+  String get familyAddMember => 'குடும்ப உறுப்பினரைச் சேர்';
+
+  @override
+  String get familyFullName => 'முழு பெயர்';
+
+  @override
+  String get familyPhone => 'தொலைபேசி எண்';
+
+  @override
+  String get familyRelationship => 'உறவு';
+
+  @override
+  String get familyDateOfBirth => 'Date of Birth (optional)';
+
+  @override
+  String get familyAdding => 'Adding...';
+
+  @override
+  String get familyAddedSuccess => 'Family member added successfully';
+
+  @override
+  String get familyAddFailed => 'Failed to add family member';
+
+  @override
+  String get familyRemoveTitle => 'Remove Family Member';
+
+  @override
+  String familyRemoveConfirm(String name) {
+    return 'Are you sure you want to remove $name?';
+  }
+
+  @override
+  String familyRemoved(String name) {
+    return '$name removed from family members';
+  }
+
+  @override
+  String get familyRemoveFailed => 'Failed to remove member';
+
+  @override
+  String get refillTitle => 'மருந்து நிரப்புதல்';
+
+  @override
+  String get refillActivePrescriptions => 'Active Prescriptions';
+
+  @override
+  String get refillHint =>
+      'Tap \"Request Refill\" to ask your doctor for a renewal.';
+
+  @override
+  String get refillNoActive => 'செயலில் மருந்துச் சீட்டுகள் இல்லை';
+
+  @override
+  String get refillNoActiveHint =>
+      'Your prescriptions from consultations will appear here.';
+
+  @override
+  String get refillRequestButton => 'நிரப்புதல் கோரிக்கை';
+
+  @override
+  String get refillRequesting => 'Requesting...';
+
+  @override
+  String get refillRetry => 'Retry Refill Request';
+
+  @override
+  String get refillConfirmTitle => 'Request Refill';
+
+  @override
+  String refillConfirmBody(String medication) {
+    return 'Request a refill for $medication?';
+  }
+
+  @override
+  String refillRequested(String medication) {
+    return 'Refill requested for $medication';
+  }
+
+  @override
+  String get refillRequestFailed => 'Failed to request refill';
+
+  @override
+  String get refillStatusActive => 'ACTIVE';
+
+  @override
+  String get refillStatusExpired => 'EXPIRED';
+
+  @override
+  String get stepsTitle => 'நடை சவால்';
+
+  @override
+  String get stepsProfile => 'Profile';
+
+  @override
+  String get stepsHistory => 'History';
+
+  @override
+  String get stepsLeaderboard => 'Leaderboard';
+
+  @override
+  String get stepsRewards => 'Rewards';
+
+  @override
+  String get stepsStartWalk => 'நடக்கத் தொடங்கு';
+
+  @override
+  String get stepsStopWalk => 'நடப்பை நிறுத்து';
+
+  @override
+  String get stepsSessionStarted => 'Walk session started';
+
+  @override
+  String get stepsSessionStopped => 'Walk done!';
+
+  @override
+  String get stepsNoHistory => 'No walk sessions yet';
+
+  @override
+  String get stepsNoHistoryHint => 'Start a walk to begin tracking your steps.';
+
+  @override
+  String get abdmTitle => 'ABDM (Ayushman Bharat)';
+
+  @override
+  String get abdmRegister => 'Register ABHA';
+
+  @override
+  String get abdmVerify => 'Verify ABHA';
+
+  @override
+  String get abdmConsents => 'Consents';
+
+  @override
+  String get abdmNoConsents => 'No consent requests';
+
+  @override
+  String get medicationRemindersTitle => 'Medication Reminders';
+
+  @override
+  String get medicationReminderAdd => 'Add Reminder';
+
+  @override
+  String get medicationReminderName => 'Medication Name';
+
+  @override
+  String get medicationReminderDosage => 'Dosage';
+
+  @override
+  String get medicationReminderFrequency => 'Frequency';
+
+  @override
+  String get medicationReminderNoReminders => 'No medication reminders set';
+
+  @override
+  String get updateAvailableTitle => 'புதுப்பிப்பு கிடைக்கிறது';
+
+  @override
+  String get updateAvailableBody =>
+      'VH Health-ன் புதிய பதிப்பு கிடைக்கிறது. சிறந்த அனுபவத்திற்கு புதுப்பிக்கவும்.';
+
+  @override
+  String get updateNow => 'இப்போது புதுப்பிக்கவும்';
+
+  @override
+  String get updateLater => 'பின்னர்';
 }

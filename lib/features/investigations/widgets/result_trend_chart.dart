@@ -45,7 +45,7 @@ class ResultTrendChart extends StatelessWidget {
               painter: SparklinePainter(
                 values: values,
                 color: c,
-                fillColor: c.withOpacity(0.10),
+                fillColor: c.withValues(alpha: 0.10),
               ),
             ),
           ),

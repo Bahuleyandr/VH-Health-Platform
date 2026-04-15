@@ -5,7 +5,6 @@
 // date earned, and a "Share" button that rasterises the card via
 // RepaintBoundary and hands it to share_plus.
 
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -89,7 +88,7 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
-                    colors: [a.color.withOpacity(0.95), a.color.withOpacity(0.65)],
+                    colors: [a.color.withValues(alpha: 0.95), a.color.withValues(alpha: 0.65)],
                   ),
                 ),
                 child: Column(
@@ -125,14 +124,14 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
                     Text(
                       a.description,
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white.withOpacity(0.9)),
+                      style: TextStyle(color: Colors.white.withValues(alpha: 0.9)),
                     ),
                     const SizedBox(height: 18),
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.25),
+                        color: Colors.white.withValues(alpha: 0.25),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(

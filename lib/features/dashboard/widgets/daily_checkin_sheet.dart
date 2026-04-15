@@ -157,7 +157,7 @@ class _DailyCheckInSheetState extends State<DailyCheckInSheet> {
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
-                  color: theme.hintColor.withOpacity(0.3),
+                  color: theme.hintColor.withValues(alpha: 0.3),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -221,7 +221,7 @@ class _DailyCheckInSheetState extends State<DailyCheckInSheet> {
         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
         decoration: BoxDecoration(
           color: selected
-              ? theme.colorScheme.primary.withOpacity(0.10)
+              ? theme.colorScheme.primary.withValues(alpha: 0.10)
               : Colors.transparent,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(

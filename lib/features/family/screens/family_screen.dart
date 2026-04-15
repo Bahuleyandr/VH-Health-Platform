@@ -487,7 +487,7 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
 
             // Relationship
             DropdownButtonFormField<String>(
-              value: _relationship,
+              initialValue: _relationship,
               decoration: const InputDecoration(
                 labelText: 'Relationship',
                 prefixIcon: Icon(Icons.people_outline),

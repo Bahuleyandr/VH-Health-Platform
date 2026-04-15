@@ -97,7 +97,7 @@ class ResultGaugeWidget extends StatelessWidget {
       decoration: BoxDecoration(
         color: theme.cardColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: statusColor.withOpacity(0.25)),
+        border: Border.all(color: statusColor.withValues(alpha: 0.25)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -113,7 +113,7 @@ class ResultGaugeWidget extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: statusColor.withOpacity(0.12),
+                  color: statusColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(statusLabel,
@@ -137,7 +137,7 @@ class ResultGaugeWidget extends StatelessWidget {
                 lowColor: Colors.red.shade400,
                 okColor: Colors.green.shade500,
                 highColor: Colors.red.shade400,
-                trackColor: scheme.onSurface.withOpacity(0.08),
+                trackColor: scheme.onSurface.withValues(alpha: 0.08),
                 needleColor: scheme.onSurface,
               ),
             ),
