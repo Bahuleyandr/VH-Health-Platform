@@ -13,7 +13,7 @@
     "lint": "eslint . --ext .js && npm run lint:raw-params",
     "lint:fix": "eslint . --ext .js --fix",
     "lint:raw-params": "node scripts/lint-raw-params.mjs",
-    "test": "NODE_OPTIONS=\"--experimental-vm-modules --max-old-space-size=4096\" node_modules/jest/bin/jest.js --runInBand --forceExit",
+    "test": "node --experimental-vm-modules --max-old-space-size=4096 node_modules/jest/bin/jest.js --runInBand --forceExit",
     "start:local": "dotenv -e .env.local -- node src/bin/www.js",
     "start:render": "node src/bin/www.js",
     "start:cluster": "node src/cluster.js",
@@ -44,9 +44,9 @@
     "load-test:health": "k6 run load-tests/k6/health.js",
     "load-test:auth": "k6 run load-tests/k6/auth.js",
     "load-test:api": "k6 run load-tests/k6/api.js",
-    "test:watch": "NODE_OPTIONS=\"--experimental-vm-modules --max-old-space-size=2048\" node_modules/jest/bin/jest.js --watch --forceExit",
-    "test:coverage": "NODE_OPTIONS=\"--experimental-vm-modules --max-old-space-size=2048\" node_modules/jest/bin/jest.js --runInBand --coverage --forceExit",
-    "test:suite": "NODE_OPTIONS=\"--experimental-vm-modules --max-old-space-size=2048\" node_modules/jest/bin/jest.js --runInBand --forceExit --testPathPatterns"
+    "test:watch": "node --experimental-vm-modules --max-old-space-size=2048 node_modules/jest/bin/jest.js --watch --forceExit",
+    "test:coverage": "node --experimental-vm-modules --max-old-space-size=2048 node_modules/jest/bin/jest.js --runInBand --coverage --forceExit",
+    "test:suite": "node --experimental-vm-modules --max-old-space-size=2048 node_modules/jest/bin/jest.js --runInBand --forceExit --testPathPatterns"
   },
   "repository": {
     "type": "git",
