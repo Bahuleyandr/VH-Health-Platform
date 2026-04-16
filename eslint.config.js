@@ -101,14 +101,27 @@ export default [
     },
   },
   {
-    files: ['src/scripts/**/*.js', 'src/scripts/**/*.cjs', 'src/scripts/**/*.mjs'],
+    // Scripts (both src/scripts/ per-app scripts and repo-root scripts/
+    // one-shot migration/codemod tooling) are exempt from no-console —
+    // they're interactive CLIs that print progress to stdout.
+    // The admin/ directory holds DB operator tooling (backup/cleanup/
+    // purge) which is also console-first by design.
+    files: [
+      'src/scripts/**/*.js',
+      'src/scripts/**/*.cjs',
+      'src/scripts/**/*.mjs',
+      'scripts/**/*.js',
+      'scripts/**/*.cjs',
+      'scripts/**/*.mjs',
+      'admin/**/*.js',
+    ],
     rules: {
       'no-console': 'off',
     },
   },
   {
-    // Startup printer runs before the Winston logger is ready.
-    files: ['src/bin/www.js'],
+    // Startup printers run before the Winston logger is ready.
+    files: ['src/bin/www.js', 'src/cluster.js'],
     rules: {
       'no-console': 'off',
     },

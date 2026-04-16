@@ -4,7 +4,7 @@ import { execSync } from 'child_process';
 
 // Find every file under src/ that has the problematic pattern
 const listing = execSync(
-  `grep -rlE "const \\{ rows[^}]*\\} = await prisma\\.$$queryRaw" src/`,
+  `grep -rlE "const \\{ rows[^}]*\\} = await prisma\\.\\$queryRaw" src/`,
   { encoding: 'utf8' }
 ).trim().split('\n').filter(Boolean);
 
