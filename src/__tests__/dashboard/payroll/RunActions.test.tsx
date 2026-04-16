@@ -41,11 +41,15 @@ function baseRun(overrides: Partial<PayrollRun> = {}): PayrollRun {
   } as PayrollRun;
 }
 
-// A minimal useMutation return-object shape acceptable to TS.
+// A minimal useMutation return-object shape acceptable to TS. Parameter
+// type must match the RunActions issueMut prop: (data: {month, year}) -> any.
+type IssueVariables = { month: number; year: number };
+type IssueMut = ReturnType<typeof useMutation<unknown, Error, IssueVariables>>;
 function makeIssueMut() {
-  // Needs QueryClient context to not crash — render inside wrapper below.
-  function Wrapper({ children }: { children: (m: ReturnType<typeof useMutation>) => React.ReactElement }) {
-    const m = useMutation({ mutationFn: async () => ({}) });
+  function Wrapper({ children }: { children: (m: IssueMut) => React.ReactElement }) {
+    const m = useMutation<unknown, Error, IssueVariables>({
+      mutationFn: async (_data) => ({}),
+    });
     return children(m);
   }
   return Wrapper;
