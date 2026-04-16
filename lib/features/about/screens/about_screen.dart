@@ -51,21 +51,21 @@ class AboutScreen extends StatelessWidget {
           const SizedBox(height: 24),
 
           // Description
-          Card(
+          const Card(
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'About',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 15,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  const Text(
+                  SizedBox(height: 8),
+                  Text(
                     'A hospital staff management app by VH Health. '
                     'Manage attendance, leave, appointments, and more — '
                     'all from your mobile device.',
@@ -81,12 +81,12 @@ class AboutScreen extends StatelessWidget {
           const SizedBox(height: 12),
 
           // Features
-          Card(
+          const Card(
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
+                children: [
                   Text(
                     'Features',
                     style: TextStyle(
@@ -137,28 +137,28 @@ class AboutScreen extends StatelessWidget {
           const SizedBox(height: 12),
 
           // Contact
-          Card(
+          const Card(
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Support',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 15,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  const ListTile(
+                  SizedBox(height: 8),
+                  ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: Icon(Icons.email_outlined,
                         color: AppTheme.primaryBlue),
                     title: Text('Email'),
                     subtitle: Text('support@vhhealth.in'),
                   ),
-                  const ListTile(
+                  ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: Icon(Icons.language,
                         color: AppTheme.primaryBlue),

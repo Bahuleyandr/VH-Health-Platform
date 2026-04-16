@@ -148,7 +148,7 @@ class _HandoverScreenState extends State<HandoverScreen>
           children: [
             // Department
             DropdownButtonFormField<String>(
-              value: _department,
+              initialValue: _department,
               decoration: const InputDecoration(
                 labelText: 'Department',
                 prefixIcon: Icon(Icons.business),
@@ -163,7 +163,7 @@ class _HandoverScreenState extends State<HandoverScreen>
 
             // Urgency
             DropdownButtonFormField<String>(
-              value: _urgency,
+              initialValue: _urgency,
               decoration: const InputDecoration(
                 labelText: 'Urgency',
                 prefixIcon: Icon(Icons.warning_amber),

@@ -108,7 +108,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
         children: [
           Expanded(
             child: DropdownButtonFormField<String>(
-              value: _statusFilter,
+              initialValue: _statusFilter,
               decoration: const InputDecoration(
                 labelText: 'Status',
                 contentPadding:
@@ -132,7 +132,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
           const SizedBox(width: 12),
           Expanded(
             child: DropdownButtonFormField<String>(
-              value: _modalityFilter,
+              initialValue: _modalityFilter,
               decoration: const InputDecoration(
                 labelText: 'Modality',
                 contentPadding:

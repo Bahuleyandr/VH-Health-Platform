@@ -202,7 +202,7 @@ class _UploadTabState extends State<_UploadTab> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
-              value: _testType,
+              initialValue: _testType,
               decoration: const InputDecoration(
                 labelText: 'Test Type',
                 prefixIcon: Icon(Icons.biotech_outlined),

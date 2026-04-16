@@ -187,7 +187,7 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
                 style: TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
-              value: _requestType,
+              initialValue: _requestType,
               decoration:
                   const InputDecoration(border: OutlineInputBorder()),
               items: _requestTypes.entries
@@ -242,7 +242,7 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
               const Center(child: CircularProgressIndicator())
             else ...[
               DropdownButtonFormField<int?>(
-                value: _selectedZoneId,
+                initialValue: _selectedZoneId,
                 decoration: const InputDecoration(
                     labelText: 'Select Zone (optional)',
                     border: OutlineInputBorder()),

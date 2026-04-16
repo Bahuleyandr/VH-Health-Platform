@@ -378,7 +378,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                   style: Theme.of(ctx).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: docType,
+                initialValue: docType,
                 decoration: const InputDecoration(labelText: 'Document Type', border: OutlineInputBorder()),
                 items: docTypes.map((t) => DropdownMenuItem(
                   value: t,

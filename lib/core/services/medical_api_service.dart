@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
-import 'package:vhhealth_core/models/api_response.dart';
 import 'api_client.dart';
 
 /// Medical API calls: investigations, consultations, prescriptions, EMR,

@@ -320,7 +320,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
 
             // Blood type dropdown
             DropdownButtonFormField<String>(
-              value: _requestBloodType,
+              initialValue: _requestBloodType,
               decoration: InputDecoration(
                 labelText: 'Blood Type',
                 prefixIcon: const Icon(Icons.bloodtype_outlined),

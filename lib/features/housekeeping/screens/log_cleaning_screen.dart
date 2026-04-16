@@ -172,7 +172,7 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
                 style: TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
-              value: _cleaningType,
+              initialValue: _cleaningType,
               decoration:
                   const InputDecoration(border: OutlineInputBorder()),
               items: _cleaningTypes.entries
@@ -189,7 +189,7 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
               const Center(child: CircularProgressIndicator())
             else ...[
               DropdownButtonFormField<int?>(
-                value: _selectedZoneId,
+                initialValue: _selectedZoneId,
                 decoration: const InputDecoration(
                     labelText: 'Select Zone (optional)',
                     border: OutlineInputBorder()),
