@@ -10,6 +10,17 @@ import logger from '../logging/logger.js';
 import { emitAdminKpi } from './websocket/realtimeEmitter.js';
 
 /**
+ * Emit a KPI tile on the WebSocket `admin:kpi` channel AND log it as a
+ * structured event so external observability (CloudWatch/Loki/Datadog) can
+ * scrape the same metrics without depending on WS subscribers. The log event
+ * has a stable shape: { event: 'kpi.snapshot', metric, payload }.
+ */
+function emitAndLogKpi(metric, payload) {
+  emitAdminKpi(metric, payload);
+  logger.info('kpi.snapshot', { event: 'kpi.snapshot', metric, payload });
+}
+
+/**
  * Snapshot each tile and emit it on `admin:kpi`.
  * Any single tile query failure is logged and skipped — we'd rather emit a
  * partial tick than block the whole cycle.
@@ -35,7 +46,7 @@ async function _occupancyTile() {
     const total = Number(r.total) || 0;
     const occupied = Number(r.occupied) || 0;
     const occupancyPct = total > 0 ? Math.round((occupied / total) * 100) : 0;
-    emitAdminKpi('bed-occupancy', {
+    emitAndLogKpi('bed-occupancy', {
       total,
       occupied,
       available: Number(r.available) || 0,
@@ -59,7 +70,7 @@ async function _waitingQueueTile() {
        WHERE DATE(appointment_date) = CURRENT_DATE`,
     );
     const r = rows[0] || { waiting: 0, in_progress: 0, active_doctors: 0 };
-    emitAdminKpi('waiting-queue', {
+    emitAndLogKpi('waiting-queue', {
       waiting: Number(r.waiting) || 0,
       inProgress: Number(r.in_progress) || 0,
       activeDoctors: Number(r.active_doctors) || 0,

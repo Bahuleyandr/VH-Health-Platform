@@ -23,6 +23,16 @@ const logFormat = format.printf(({ timestamp, level, message, ...meta }) => {
 });
 
 const isTest = process.env.NODE_ENV === 'test';
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Structured (JSON) output for production log aggregators (CloudWatch/Loki/
+// Datadog). Opt-in via LOG_FORMAT=json or enabled by default in production so
+// operators can scrape `kpi.*` / `request.*` events without regex-parsing
+// plain text. Dev keeps the human-readable printf format.
+const useJson = process.env.LOG_FORMAT === 'json' || (isProduction && process.env.LOG_FORMAT !== 'text');
+const fileFormat = useJson
+  ? format.combine(format.timestamp(), format.errors({ stack: true }), format.json())
+  : format.combine(format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }), logFormat);
 
 // Create Winston logger instance
 const logger = createLogger({
@@ -40,14 +50,16 @@ const logger = createLogger({
       )
     }),
 
-    // File-based logs
+    // File-based logs — structured JSON in production for log aggregators
     new transports.File({
       filename: path.join(logsDir, 'error.log'),
       level: 'error',
+      format: fileFormat,
       silent: isTest
     }),
     new transports.File({
       filename: path.join(logsDir, 'combined.log'),
+      format: fileFormat,
       silent: isTest
     }),
 
@@ -59,6 +71,7 @@ const logger = createLogger({
       zippedArchive: true,
       maxSize: '20m',
       maxFiles: '90d', // retain logs for 90 days
+      format: fileFormat,
       silent: isTest
     })
   ]
