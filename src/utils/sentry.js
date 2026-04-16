@@ -13,7 +13,7 @@ const release = process.env.GIT_COMMIT || process.env.RENDER_GIT_COMMIT || 'unkn
 
 // Production without a DSN means we're losing server errors — warn loudly.
 if (!dsn && env === 'production') {
-  // eslint-disable-next-line no-console
+  // no-console rule allows `warn` + `error` globally — no disable needed.
   console.warn('[sentry] SENTRY_DSN not set in production — error reporting disabled');
 }
 
