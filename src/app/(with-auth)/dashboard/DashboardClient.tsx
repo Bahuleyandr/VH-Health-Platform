@@ -17,6 +17,10 @@ import type {
   StatCard,
 } from './dashboardTypes';
 import { formatTimeAgo } from './formatTimeAgo';
+import {
+  DASHBOARD_DEMO_DATA,
+  DASHBOARD_DEMO_NOTIFICATIONS,
+} from './dashboardDemoData';
 
 // DashboardSkeleton / AnimatedCounter / SimpleChart / formatTimeAgo / dashboard
 // type declarations moved into dedicated files — see imports above.
@@ -75,151 +79,61 @@ useEffect(() => {
 
   const loadDashboardData = async () => {
     setIsLoading(true);
-    
+
     try {
       // Auth is carried via the httpOnly auth_token cookie handled by /api/proxy.
       const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.admin.dashboard}`, {
         headers: getHeaders(),
       });
-      
+
       if (!response.ok) throw new Error('Failed to fetch dashboard data');
-      
+
       const json = await response.json();
       const data = json.data || json;
-      
-      // Transform API data to match our component structure
+
+      // Transform API data to match our component structure. Missing fields
+      // fall back to DASHBOARD_DEMO_DATA (see ./dashboardDemoData.ts) so the
+      // dashboard is never half-blank when the backend returns a partial
+      // envelope. Extracted from inline duplication 2026-04-17 (P2 admin split).
       setDashboardData({
-        overview: data.overview || {
-          totalUsers: data.totalUsers || 1284,
-          activeUsers: data.activeUsers || 892,
-          newUsersToday: data.newUsersToday || 12,
-          totalDoctors: data.totalDoctors || 48,
-          availableDoctors: data.availableDoctors || 23,
-          totalDepartments: data.totalDepartments || 12,
-          appointmentsToday: data.appointmentsToday || 67,
-          appointmentsUpcoming: data.appointmentsUpcoming || 134,
-          appointmentCompletionRate: data.appointmentCompletionRate || 87,
-          emergencyAlerts: data.emergencyAlerts || 2,
-          totalStaff: data.totalStaff || 89,
-          presentStaff: data.presentStaff || 76,
-          onLeaveStaff: data.onLeaveStaff || 13,
-          pendingHRActions: data.pendingHRActions || 5
+        overview: data.overview ?? {
+          ...DASHBOARD_DEMO_DATA.overview,
+          totalUsers: data.totalUsers ?? DASHBOARD_DEMO_DATA.overview.totalUsers,
+          activeUsers: data.activeUsers ?? DASHBOARD_DEMO_DATA.overview.activeUsers,
+          newUsersToday: data.newUsersToday ?? DASHBOARD_DEMO_DATA.overview.newUsersToday,
+          totalDoctors: data.totalDoctors ?? DASHBOARD_DEMO_DATA.overview.totalDoctors,
+          availableDoctors: data.availableDoctors ?? DASHBOARD_DEMO_DATA.overview.availableDoctors,
+          totalDepartments: data.totalDepartments ?? DASHBOARD_DEMO_DATA.overview.totalDepartments,
+          appointmentsToday: data.appointmentsToday ?? DASHBOARD_DEMO_DATA.overview.appointmentsToday,
+          appointmentsUpcoming: data.appointmentsUpcoming ?? DASHBOARD_DEMO_DATA.overview.appointmentsUpcoming,
+          appointmentCompletionRate: data.appointmentCompletionRate ?? DASHBOARD_DEMO_DATA.overview.appointmentCompletionRate,
+          emergencyAlerts: data.emergencyAlerts ?? DASHBOARD_DEMO_DATA.overview.emergencyAlerts,
+          totalStaff: data.totalStaff ?? DASHBOARD_DEMO_DATA.overview.totalStaff,
+          presentStaff: data.presentStaff ?? DASHBOARD_DEMO_DATA.overview.presentStaff,
+          onLeaveStaff: data.onLeaveStaff ?? DASHBOARD_DEMO_DATA.overview.onLeaveStaff,
+          pendingHRActions: data.pendingHRActions ?? DASHBOARD_DEMO_DATA.overview.pendingHRActions,
         },
         charts: {
-          userGrowth: data.charts?.userGrowth || [
-            { date: 'Mon', value: 65 },
-            { date: 'Tue', value: 78 },
-            { date: 'Wed', value: 90 },
-            { date: 'Thu', value: 81 },
-            { date: 'Fri', value: 84 },
-            { date: 'Sat', value: 78 },
-            { date: 'Sun', value: 95 }
-          ],
-          appointmentTrends: data.charts?.appointmentTrends || [
-            { date: 'Mon', value: 58 },
-            { date: 'Tue', value: 68 },
-            { date: 'Wed', value: 77 },
-            { date: 'Thu', value: 89 },
-            { date: 'Fri', value: 76 },
-            { date: 'Sat', value: 77 },
-            { date: 'Sun', value: 88 }
-          ],
-          departmentUtilization: data.charts?.departmentUtilization || [
-            { label: 'Emergency', value: 85 },
-            { label: 'ICU', value: 92 },
-            { label: 'Surgery', value: 78 },
-            { label: 'Pediatrics', value: 65 },
-            { label: 'Radiology', value: 71 }
-          ]
+          userGrowth: data.charts?.userGrowth ?? DASHBOARD_DEMO_DATA.charts.userGrowth,
+          appointmentTrends: data.charts?.appointmentTrends ?? DASHBOARD_DEMO_DATA.charts.appointmentTrends,
+          departmentUtilization: data.charts?.departmentUtilization ?? DASHBOARD_DEMO_DATA.charts.departmentUtilization,
         },
-        recentActivity: (data.recentActivity || [
-          { id: '1', user: 'Nurse Kelly', action: 'updated', target: 'patient record #1234', department: 'ICU' },
-          { id: '2', user: 'Dr. Chen', action: 'prescribed', target: 'medication for #5678', department: 'Emergency' },
-          { id: '3', user: 'Admin Ross', action: 'scheduled', target: 'maintenance for MRI', department: 'Radiology' }
-        ]).map((item: ActivityApiItem) => ({
+        recentActivity: (data.recentActivity ?? DASHBOARD_DEMO_DATA.recentActivity).map((item: ActivityApiItem) => ({
           ...item,
-          time: new Date(item.timestamp || item.time || new Date())
+          time: new Date(item.timestamp || item.time || new Date()),
         })),
-        systemHealth: data.systemHealth || {
-          status: 'healthy',
-          uptime: '99.99%',
-          responseTime: 45,
-          errorRate: 0.1
-        }
+        systemHealth: data.systemHealth ?? DASHBOARD_DEMO_DATA.systemHealth,
       });
 
-      // Set notifications
-      setNotifications([
-        { id: '1', type: 'critical', title: 'Emergency Alert', message: 'Code Blue - Room 302', time: new Date(), read: false },
-        { id: '2', type: 'warning', title: 'Low Supplies', message: 'Oxygen tanks below 20% in ICU', time: new Date(), read: false },
-        { id: '3', type: 'info', title: 'Staff Update', message: 'Dr. Johnson has arrived for shift', time: new Date(), read: true }
-      ]);
-
+      // Notification seed — until the backend ships a real notifications
+      // feed this uses the demo set. Safe to replace with a fetched list.
+      setNotifications(DASHBOARD_DEMO_NOTIFICATIONS);
     } catch (error) {
       console.error('Dashboard data fetch error:', error);
-      // Use fallback demo data if API fails
-      setDashboardData({
-        overview: {
-          totalUsers: 1284,
-          activeUsers: 892,
-          newUsersToday: 12,
-          totalDoctors: 48,
-          availableDoctors: 23,
-          totalDepartments: 12,
-          appointmentsToday: 67,
-          appointmentsUpcoming: 134,
-          appointmentCompletionRate: 87,
-          emergencyAlerts: 2,
-          totalStaff: 89,
-          presentStaff: 76,
-          onLeaveStaff: 13,
-          pendingHRActions: 5
-        },
-        charts: {
-          userGrowth: [
-            { date: 'Mon', value: 65 },
-            { date: 'Tue', value: 78 },
-            { date: 'Wed', value: 90 },
-            { date: 'Thu', value: 81 },
-            { date: 'Fri', value: 84 },
-            { date: 'Sat', value: 78 },
-            { date: 'Sun', value: 95 }
-          ],
-          appointmentTrends: [
-            { date: 'Mon', value: 58 },
-            { date: 'Tue', value: 68 },
-            { date: 'Wed', value: 77 },
-            { date: 'Thu', value: 89 },
-            { date: 'Fri', value: 76 },
-            { date: 'Sat', value: 77 },
-            { date: 'Sun', value: 88 }
-          ],
-          departmentUtilization: [
-            { label: 'Emergency', value: 85 },
-            { label: 'ICU', value: 92 },
-            { label: 'Surgery', value: 78 },
-            { label: 'Pediatrics', value: 65 },
-            { label: 'Radiology', value: 71 }
-          ]
-        },
-        recentActivity: [
-          { id: '1', user: 'Nurse Kelly', action: 'updated', target: 'patient record #1234', time: new Date(), department: 'ICU' },
-          { id: '2', user: 'Dr. Chen', action: 'prescribed', target: 'medication for #5678', time: new Date(), department: 'Emergency' },
-          { id: '3', user: 'Admin Ross', action: 'scheduled', target: 'maintenance for MRI', time: new Date(), department: 'Radiology' }
-        ],
-        systemHealth: {
-          status: 'healthy',
-          uptime: '99.99%',
-          responseTime: 45,
-          errorRate: 0.1
-        }
-      });
-
-      setNotifications([
-        { id: '1', type: 'critical', title: 'Emergency Alert', message: 'Code Blue - Room 302', time: new Date(), read: false },
-        { id: '2', type: 'warning', title: 'Low Supplies', message: 'Oxygen tanks below 20% in ICU', time: new Date(), read: false },
-        { id: '3', type: 'info', title: 'Staff Update', message: 'Dr. Johnson has arrived for shift', time: new Date(), read: true }
-      ]);
+      // Full fallback when the backend is unreachable — single constant,
+      // no inline duplication.
+      setDashboardData(DASHBOARD_DEMO_DATA);
+      setNotifications(DASHBOARD_DEMO_NOTIFICATIONS);
     }
 
     setIsLoading(false);
