@@ -233,7 +233,7 @@ class MyUploadsTabState extends State<MyUploadsTab> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: docType,
+                  initialValue: docType,
                   decoration: const InputDecoration(
                       labelText: 'Document Type',
                       border: OutlineInputBorder()),

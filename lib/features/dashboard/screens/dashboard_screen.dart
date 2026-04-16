@@ -13,7 +13,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/connectivity_service.dart';
-import 'package:vhhealth/core/widgets/language_dropdown.dart';
 import 'package:vhhealth/core/widgets/offline_banner.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/core/widgets/circular_feature_dial.dart';
@@ -21,7 +20,6 @@ import 'package:vhhealth/core/providers/theme_provider.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/widgets/logout_button.dart';
-import 'package:vhhealth/core/theme/theme_colors.dart';
 import 'package:vhhealth/features/dashboard/widgets/next_visit_progress_widget.dart';
 import 'package:vhhealth/features/dashboard/widgets/health_points_widget.dart';
 import 'package:vhhealth/features/dashboard/widgets/wellness_score_widget.dart';

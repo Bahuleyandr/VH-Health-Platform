@@ -562,7 +562,7 @@ class _VitalsTrendSummary extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          '${t.current.toStringAsFixed(t.current == t.current.roundToDouble() ? 0 : 1)}',
+                          t.current.toStringAsFixed(t.current == t.current.roundToDouble() ? 0 : 1),
                           style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(width: 4),

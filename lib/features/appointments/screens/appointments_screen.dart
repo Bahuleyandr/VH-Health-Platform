@@ -661,7 +661,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
             )
           else
             DropdownButtonFormField<_DeptInfo>(
-              value: _selectedDept,
+              initialValue: _selectedDept,
               decoration:
                   InputDecoration(labelText: l10n.chooseDepartmentOrDoctor),
               items: _departments.map((dept) {
@@ -689,7 +689,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
           // Doctor dropdown
           if (_selectedDept != null && _selectedDept!.doctors.isNotEmpty)
             DropdownButtonFormField<_DoctorInfo>(
-              value: _selectedDoctor,
+              initialValue: _selectedDoctor,
               decoration:
                   InputDecoration(labelText: l10n.selectDoctorPlaceholder),
               items: _selectedDept!.doctors

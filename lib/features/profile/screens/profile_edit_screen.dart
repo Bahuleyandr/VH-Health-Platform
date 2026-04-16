@@ -302,7 +302,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
                         // ── Gender ──
                         DropdownButtonFormField<String>(
-                          value: _selectedGender,
+                          initialValue: _selectedGender,
                           decoration: InputDecoration(
                             labelText : 'Gender',
                             prefixIcon: Icon(Icons.wc_outlined, color: cs.primary),
@@ -340,7 +340,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
                         // ── Blood Group ──
                         DropdownButtonFormField<String>(
-                          value: _selectedBloodGroup,
+                          initialValue: _selectedBloodGroup,
                           decoration: InputDecoration(
                             labelText : 'Blood Group',
                             prefixIcon: Icon(Icons.bloodtype_outlined, color: cs.primary),

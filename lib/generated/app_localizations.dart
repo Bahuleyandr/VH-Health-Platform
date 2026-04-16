@@ -1723,6 +1723,474 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Please complete your profile to continue'**
   String get profileIncomplete;
+
+  /// No description provided for @vitalsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Vitals'**
+  String get vitalsTitle;
+
+  /// No description provided for @vitalsLogTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Log Vitals'**
+  String get vitalsLogTab;
+
+  /// No description provided for @vitalsHistoryTab.
+  ///
+  /// In en, this message translates to:
+  /// **'History'**
+  String get vitalsHistoryTab;
+
+  /// No description provided for @vitalsLogHeading.
+  ///
+  /// In en, this message translates to:
+  /// **'Log Your Daily Vitals'**
+  String get vitalsLogHeading;
+
+  /// No description provided for @vitalsLogSubheading.
+  ///
+  /// In en, this message translates to:
+  /// **'Fill in any vitals you want to record today.'**
+  String get vitalsLogSubheading;
+
+  /// No description provided for @vitalsBloodPressure.
+  ///
+  /// In en, this message translates to:
+  /// **'Blood Pressure'**
+  String get vitalsBloodPressure;
+
+  /// No description provided for @vitalsSystolic.
+  ///
+  /// In en, this message translates to:
+  /// **'Systolic'**
+  String get vitalsSystolic;
+
+  /// No description provided for @vitalsDiastolic.
+  ///
+  /// In en, this message translates to:
+  /// **'Diastolic'**
+  String get vitalsDiastolic;
+
+  /// No description provided for @vitalsHeartRate.
+  ///
+  /// In en, this message translates to:
+  /// **'Heart Rate'**
+  String get vitalsHeartRate;
+
+  /// No description provided for @vitalsTemperature.
+  ///
+  /// In en, this message translates to:
+  /// **'Temperature'**
+  String get vitalsTemperature;
+
+  /// No description provided for @vitalsBloodSugar.
+  ///
+  /// In en, this message translates to:
+  /// **'Blood Sugar'**
+  String get vitalsBloodSugar;
+
+  /// No description provided for @vitalsWeight.
+  ///
+  /// In en, this message translates to:
+  /// **'Weight'**
+  String get vitalsWeight;
+
+  /// No description provided for @vitalsSpO2.
+  ///
+  /// In en, this message translates to:
+  /// **'SpO2'**
+  String get vitalsSpO2;
+
+  /// No description provided for @vitalsRecordButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Record Vitals'**
+  String get vitalsRecordButton;
+
+  /// No description provided for @vitalsSubmitting.
+  ///
+  /// In en, this message translates to:
+  /// **'Submitting...'**
+  String get vitalsSubmitting;
+
+  /// No description provided for @vitalsRecordedSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Vitals recorded successfully'**
+  String get vitalsRecordedSuccess;
+
+  /// No description provided for @vitalsRecordFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to record vitals'**
+  String get vitalsRecordFailed;
+
+  /// No description provided for @vitalsAtLeastOne.
+  ///
+  /// In en, this message translates to:
+  /// **'Please enter at least one vital sign'**
+  String get vitalsAtLeastOne;
+
+  /// No description provided for @vitalsNoHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'No vitals recorded yet'**
+  String get vitalsNoHistory;
+
+  /// No description provided for @vitalsNoHistoryHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Log your vitals using the Log Vitals tab.'**
+  String get vitalsNoHistoryHint;
+
+  /// No description provided for @vitalsHistoryFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to load vitals history'**
+  String get vitalsHistoryFailed;
+
+  /// No description provided for @familyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Family Members'**
+  String get familyTitle;
+
+  /// No description provided for @familyYourFamily.
+  ///
+  /// In en, this message translates to:
+  /// **'Your Family'**
+  String get familyYourFamily;
+
+  /// No description provided for @familyManageHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage family members linked to your account.'**
+  String get familyManageHint;
+
+  /// No description provided for @familyNoMembers.
+  ///
+  /// In en, this message translates to:
+  /// **'No family members yet'**
+  String get familyNoMembers;
+
+  /// No description provided for @familyNoMembersHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Add family members to manage shared care.'**
+  String get familyNoMembersHint;
+
+  /// No description provided for @familyAddMember.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Family Member'**
+  String get familyAddMember;
+
+  /// No description provided for @familyFullName.
+  ///
+  /// In en, this message translates to:
+  /// **'Full Name'**
+  String get familyFullName;
+
+  /// No description provided for @familyPhone.
+  ///
+  /// In en, this message translates to:
+  /// **'Phone Number'**
+  String get familyPhone;
+
+  /// No description provided for @familyRelationship.
+  ///
+  /// In en, this message translates to:
+  /// **'Relationship'**
+  String get familyRelationship;
+
+  /// No description provided for @familyDateOfBirth.
+  ///
+  /// In en, this message translates to:
+  /// **'Date of Birth (optional)'**
+  String get familyDateOfBirth;
+
+  /// No description provided for @familyAdding.
+  ///
+  /// In en, this message translates to:
+  /// **'Adding...'**
+  String get familyAdding;
+
+  /// No description provided for @familyAddedSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Family member added successfully'**
+  String get familyAddedSuccess;
+
+  /// No description provided for @familyAddFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to add family member'**
+  String get familyAddFailed;
+
+  /// No description provided for @familyRemoveTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove Family Member'**
+  String get familyRemoveTitle;
+
+  /// No description provided for @familyRemoveConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Are you sure you want to remove {name}?'**
+  String familyRemoveConfirm(String name);
+
+  /// No description provided for @familyRemoved.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} removed from family members'**
+  String familyRemoved(String name);
+
+  /// No description provided for @familyRemoveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to remove member'**
+  String get familyRemoveFailed;
+
+  /// No description provided for @refillTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Prescription Refills'**
+  String get refillTitle;
+
+  /// No description provided for @refillActivePrescriptions.
+  ///
+  /// In en, this message translates to:
+  /// **'Active Prescriptions'**
+  String get refillActivePrescriptions;
+
+  /// No description provided for @refillHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap \"Request Refill\" to ask your doctor for a renewal.'**
+  String get refillHint;
+
+  /// No description provided for @refillNoActive.
+  ///
+  /// In en, this message translates to:
+  /// **'No active prescriptions'**
+  String get refillNoActive;
+
+  /// No description provided for @refillNoActiveHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Your prescriptions from consultations will appear here.'**
+  String get refillNoActiveHint;
+
+  /// No description provided for @refillRequestButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Request Refill'**
+  String get refillRequestButton;
+
+  /// No description provided for @refillRequesting.
+  ///
+  /// In en, this message translates to:
+  /// **'Requesting...'**
+  String get refillRequesting;
+
+  /// No description provided for @refillRetry.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry Refill Request'**
+  String get refillRetry;
+
+  /// No description provided for @refillConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Request Refill'**
+  String get refillConfirmTitle;
+
+  /// No description provided for @refillConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Request a refill for {medication}?'**
+  String refillConfirmBody(String medication);
+
+  /// No description provided for @refillRequested.
+  ///
+  /// In en, this message translates to:
+  /// **'Refill requested for {medication}'**
+  String refillRequested(String medication);
+
+  /// No description provided for @refillRequestFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to request refill'**
+  String get refillRequestFailed;
+
+  /// No description provided for @refillStatusActive.
+  ///
+  /// In en, this message translates to:
+  /// **'ACTIVE'**
+  String get refillStatusActive;
+
+  /// No description provided for @refillStatusExpired.
+  ///
+  /// In en, this message translates to:
+  /// **'EXPIRED'**
+  String get refillStatusExpired;
+
+  /// No description provided for @stepsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Step Challenge'**
+  String get stepsTitle;
+
+  /// No description provided for @stepsProfile.
+  ///
+  /// In en, this message translates to:
+  /// **'Profile'**
+  String get stepsProfile;
+
+  /// No description provided for @stepsHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'History'**
+  String get stepsHistory;
+
+  /// No description provided for @stepsLeaderboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Leaderboard'**
+  String get stepsLeaderboard;
+
+  /// No description provided for @stepsRewards.
+  ///
+  /// In en, this message translates to:
+  /// **'Rewards'**
+  String get stepsRewards;
+
+  /// No description provided for @stepsStartWalk.
+  ///
+  /// In en, this message translates to:
+  /// **'Start Walk'**
+  String get stepsStartWalk;
+
+  /// No description provided for @stepsStopWalk.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop Walk'**
+  String get stepsStopWalk;
+
+  /// No description provided for @stepsSessionStarted.
+  ///
+  /// In en, this message translates to:
+  /// **'Walk session started'**
+  String get stepsSessionStarted;
+
+  /// No description provided for @stepsSessionStopped.
+  ///
+  /// In en, this message translates to:
+  /// **'Walk done!'**
+  String get stepsSessionStopped;
+
+  /// No description provided for @stepsNoHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'No walk sessions yet'**
+  String get stepsNoHistory;
+
+  /// No description provided for @stepsNoHistoryHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Start a walk to begin tracking your steps.'**
+  String get stepsNoHistoryHint;
+
+  /// No description provided for @abdmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'ABDM (Ayushman Bharat)'**
+  String get abdmTitle;
+
+  /// No description provided for @abdmRegister.
+  ///
+  /// In en, this message translates to:
+  /// **'Register ABHA'**
+  String get abdmRegister;
+
+  /// No description provided for @abdmVerify.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify ABHA'**
+  String get abdmVerify;
+
+  /// No description provided for @abdmConsents.
+  ///
+  /// In en, this message translates to:
+  /// **'Consents'**
+  String get abdmConsents;
+
+  /// No description provided for @abdmNoConsents.
+  ///
+  /// In en, this message translates to:
+  /// **'No consent requests'**
+  String get abdmNoConsents;
+
+  /// No description provided for @medicationRemindersTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Medication Reminders'**
+  String get medicationRemindersTitle;
+
+  /// No description provided for @medicationReminderAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Reminder'**
+  String get medicationReminderAdd;
+
+  /// No description provided for @medicationReminderName.
+  ///
+  /// In en, this message translates to:
+  /// **'Medication Name'**
+  String get medicationReminderName;
+
+  /// No description provided for @medicationReminderDosage.
+  ///
+  /// In en, this message translates to:
+  /// **'Dosage'**
+  String get medicationReminderDosage;
+
+  /// No description provided for @medicationReminderFrequency.
+  ///
+  /// In en, this message translates to:
+  /// **'Frequency'**
+  String get medicationReminderFrequency;
+
+  /// No description provided for @medicationReminderNoReminders.
+  ///
+  /// In en, this message translates to:
+  /// **'No medication reminders set'**
+  String get medicationReminderNoReminders;
+
+  /// No description provided for @updateAvailableTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Update Available'**
+  String get updateAvailableTitle;
+
+  /// No description provided for @updateAvailableBody.
+  ///
+  /// In en, this message translates to:
+  /// **'A new version of VH Health is available. Please update for the best experience.'**
+  String get updateAvailableBody;
+
+  /// No description provided for @updateNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Update Now'**
+  String get updateNow;
+
+  /// No description provided for @updateLater.
+  ///
+  /// In en, this message translates to:
+  /// **'Later'**
+  String get updateLater;
 }
 
 class _AppLocalizationsDelegate

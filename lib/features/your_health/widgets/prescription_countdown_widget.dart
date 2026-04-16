@@ -83,7 +83,7 @@ class PrescriptionCountdown extends StatelessWidget {
         painter: RingProgressPainter(
           progress: isCompleted ? 1.0 : progress,
           color: ringColor,
-          backgroundColor: ringColor.withOpacity(0.12),
+          backgroundColor: ringColor.withValues(alpha: 0.12),
           strokeWidth: 5,
           padding: 4,
         ),

@@ -110,10 +110,10 @@ class _WellnessScoreWidgetState extends State<WellnessScoreWidget>
         decoration: BoxDecoration(
           color: theme.cardColor,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: color.withOpacity(0.3), width: 1.2),
+          border: Border.all(color: color.withValues(alpha: 0.3), width: 1.2),
           boxShadow: [
             BoxShadow(
-              color: color.withOpacity(0.08),
+              color: color.withValues(alpha: 0.08),
               blurRadius: 12,
               offset: const Offset(0, 4),
             ),
@@ -135,7 +135,7 @@ class _WellnessScoreWidgetState extends State<WellnessScoreWidget>
                         painter: RingProgressPainter(
                           progress: progress,
                           color: color,
-                          backgroundColor: color.withOpacity(0.12),
+                          backgroundColor: color.withValues(alpha: 0.12),
                           strokeWidth: 8,
                         ),
                         child: Center(
@@ -233,7 +233,7 @@ class _WellnessScoreWidgetState extends State<WellnessScoreWidget>
             child: LinearProgressIndicator(
               value: ratio,
               minHeight: 6,
-              backgroundColor: color.withOpacity(0.12),
+              backgroundColor: color.withValues(alpha: 0.12),
               valueColor: AlwaysStoppedAnimation(color),
             ),
           ),
@@ -256,7 +256,7 @@ class _WellnessScoreWidgetState extends State<WellnessScoreWidget>
             width: 84,
             height: 84,
             decoration: BoxDecoration(
-              color: theme.hintColor.withOpacity(0.12),
+              color: theme.hintColor.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
           ),
@@ -268,13 +268,13 @@ class _WellnessScoreWidgetState extends State<WellnessScoreWidget>
                 Container(
                   height: 14,
                   width: 120,
-                  color: theme.hintColor.withOpacity(0.12),
+                  color: theme.hintColor.withValues(alpha: 0.12),
                 ),
                 const SizedBox(height: 8),
                 Container(
                   height: 10,
                   width: 160,
-                  color: theme.hintColor.withOpacity(0.08),
+                  color: theme.hintColor.withValues(alpha: 0.08),
                 ),
               ],
             ),

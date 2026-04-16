@@ -139,7 +139,7 @@ class OrderListTabState extends State<OrderListTab> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
                     ),
-                    errorWidget: (context, _, __) => Container(
+                    errorWidget: (context, _, _) => Container(
                       height: 100,
                       color: Theme.of(context).colorScheme.surfaceContainerLow,
                       child: const Center(

@@ -252,7 +252,7 @@ class _AchievementGridState extends State<AchievementGrid> {
     DateTime? earnedAt,
   ) {
     final theme = Theme.of(context);
-    final color = unlocked ? a.color : theme.hintColor.withOpacity(0.4);
+    final color = unlocked ? a.color : theme.hintColor.withValues(alpha: 0.4);
     return InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: () {
@@ -270,7 +270,7 @@ class _AchievementGridState extends State<AchievementGrid> {
       child: Container(
         decoration: BoxDecoration(
           color: theme.cardColor,
-          border: Border.all(color: color.withOpacity(0.4)),
+          border: Border.all(color: color.withValues(alpha: 0.4)),
           borderRadius: BorderRadius.circular(14),
         ),
         padding: const EdgeInsets.all(10),
@@ -281,7 +281,7 @@ class _AchievementGridState extends State<AchievementGrid> {
               width: 52,
               height: 52,
               decoration: BoxDecoration(
-                color: color.withOpacity(0.14),
+                color: color.withValues(alpha: 0.14),
                 shape: BoxShape.circle,
               ),
               child: Icon(a.icon, color: color, size: 28),

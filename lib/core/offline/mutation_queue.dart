@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vhhealth/core/services/api_client.dart';
-import 'package:vhhealth_core/models/api_response.dart';
 import 'package:vhhealth_core/services/connectivity_service.dart';
 
 /// Queues API mutations when offline and replays them when connectivity returns.
