@@ -140,14 +140,62 @@ async function authenticateAndRegister(ws, token) {
         if (!meta) return;
         const decision = authorizeChannel(msg.channel, { userId: meta.userId, role: meta.role });
         if (!decision.allowed) {
-          ws.send(JSON.stringify({ event: 'subscribe-denied', channel: msg.channel, reason: decision.reason }));
+          ws.send(JSON.stringify({
+            event: 'subscribe-denied',
+            channel: msg.channel,
+            reason: decision.reason,
+            ts: Date.now(),
+          }));
           return;
         }
         meta.channels.add(msg.channel);
-        ws.send(JSON.stringify({ event: 'subscribed', channel: msg.channel }));
+        ws.send(JSON.stringify({
+          event: 'subscribed',
+          channel: msg.channel,
+          ts: Date.now(),
+        }));
       } else if (msg.action === 'unsubscribe' && msg.channel) {
         socketMeta.get(ws)?.channels.delete(msg.channel);
-        ws.send(JSON.stringify({ event: 'unsubscribed', channel: msg.channel }));
+        ws.send(JSON.stringify({
+          event: 'unsubscribed',
+          channel: msg.channel,
+          ts: Date.now(),
+        }));
+      } else if (msg.action === 'ping') {
+        // App-level ping/pong. Browsers hide WS-frame pings from JS, so
+        // clients can't measure RTT or detect half-open connections that way.
+        // This lets clients do both via normal JSON messages. Echo the
+        // client ts back so the client can compute round-trip latency.
+        ws.isAlive = true; // any traffic counts as alive for the WS-frame heartbeat too
+        ws.send(JSON.stringify({
+          event: 'pong',
+          ts: typeof msg.ts === 'number' ? msg.ts : null,
+          serverTs: Date.now(),
+        }));
+      } else if (msg.action === 'resync' && Array.isArray(msg.channels)) {
+        // Client reconnected after a disconnect and wants to re-assert its
+        // subscription list. We re-authorize each channel (role may have
+        // changed since the old session) and emit one `subscribed` /
+        // `subscribe-denied` event per channel so the client can reconcile
+        // its local state.
+        const meta = socketMeta.get(ws);
+        if (!meta) return;
+        for (const channel of msg.channels) {
+          if (typeof channel !== 'string') continue;
+          const decision = authorizeChannel(channel, { userId: meta.userId, role: meta.role });
+          if (decision.allowed) {
+            meta.channels.add(channel);
+            ws.send(JSON.stringify({ event: 'subscribed', channel, ts: Date.now() }));
+          } else {
+            meta.channels.delete(channel);
+            ws.send(JSON.stringify({
+              event: 'subscribe-denied',
+              channel,
+              reason: decision.reason,
+              ts: Date.now(),
+            }));
+          }
+        }
       }
     } catch {
       // ignore malformed messages
