@@ -104,7 +104,7 @@ class VersionGate {
     );
   }
 
-  /// Returns <0 if a<b, 0 if equal, >0 if a>b. Handles semver with optional
+  /// Returns negative if a[less than]b, 0 if equal, positive if a[greater than]b. Handles semver with optional
   /// pre-release suffix (rudimentary — pre-release always sorts below).
   static int _compareSemver(String a, String b) {
     final ap = _parseSemver(a);
