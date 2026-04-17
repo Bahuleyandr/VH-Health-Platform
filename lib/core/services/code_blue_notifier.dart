@@ -94,7 +94,7 @@ class CodeBlueNotifier {
       _notificationId,
       'CODE BLUE',
       body,
-      const NotificationDetails(
+      NotificationDetails(
         android: AndroidNotificationDetails(
           _channelId,
           'Code Blue',
@@ -106,10 +106,10 @@ class CodeBlueNotifier {
           visibility: NotificationVisibility.public,
           ongoing: true,
           autoCancel: false,
-          color: Color(0xFFB71C1C),
+          color: const Color(0xFFB71C1C),
           colorized: true,
         ),
-        iOS: DarwinNotificationDetails(
+        iOS: const DarwinNotificationDetails(
           interruptionLevel: InterruptionLevel.critical,
           presentAlert: true,
           presentSound: true,

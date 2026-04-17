@@ -268,7 +268,7 @@ class _MarScanScreenState extends State<MarScanScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.check_circle, color: AppTheme.successGreen, size: 72),
+            Icon(Icons.check_circle, color: AppTheme.successGreen, size: 72),
             const SizedBox(height: 12),
             const Text('Administration recorded',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),

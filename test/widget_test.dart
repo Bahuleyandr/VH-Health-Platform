@@ -1,22 +1,30 @@
-// Smoke test for the staff app bootstrap.
+// This is a basic Flutter widget test.
 //
-// The original Flutter scaffold test (counter demo) was removed 2026-04-16.
-// Real feature-level widget tests live under `test/features/` (coming in
-// the clinical-safety widget test batch — see `test/README.md`).
+// To perform an interaction with a widget in your test, use the WidgetTester
+// utility in the flutter_test package. For example, you can send tap and scroll
+// gestures. You can also use WidgetTester to find child widgets in the widget
+// tree, read text, and verify that the values of widget properties are correct.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:vhhealth_staff/main.dart';
+
 void main() {
-  testWidgets('MaterialApp smoke test — empty shell renders',
-      (WidgetTester tester) async {
-    await tester.pumpWidget(
-      const MaterialApp(
-        home: Scaffold(
-          body: Center(child: Text('staff')),
-        ),
-      ),
-    );
-    expect(find.text('staff'), findsOneWidget);
+  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
+    // Build our app and trigger a frame.
+    await tester.pumpWidget(const MyApp());
+
+    // Verify that our counter starts at 0.
+    expect(find.text('0'), findsOneWidget);
+    expect(find.text('1'), findsNothing);
+
+    // Tap the '+' icon and trigger a frame.
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pump();
+
+    // Verify that our counter has incremented.
+    expect(find.text('0'), findsNothing);
+    expect(find.text('1'), findsOneWidget);
   });
 }
