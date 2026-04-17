@@ -159,7 +159,7 @@ export class AppointmentService {
                a.created_at, a.updated_at,
                u.email AS patient_email,
                d.name AS doctor_name_detail, d.phone AS doctor_phone, d.email AS doctor_email,
-               dp.specialization, dp.department, dp.consultation_fee
+               dp.specialty, dp.department
         FROM appointments a
         LEFT JOIN users u ON a.patient_id = u.id
         LEFT JOIN users d ON a.doctor_id = d.id
