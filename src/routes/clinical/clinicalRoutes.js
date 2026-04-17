@@ -228,9 +228,34 @@ router.get('/mar/patient/:patientUid', async (req, res, next) => {
 router.get('/mar/overdue', async (req, res, next) => {
   try {
     const { ward_id } = req.query;
+    const wardId = ward_id ? parseInt(ward_id, 10) : null;
 
-    const records = await marService.getOverdueMedications(ward_id || null);
+    const records = await marService.getOverdueMedications(Number.isFinite(wardId) ? wardId : null);
     return success(res, records, 'Overdue medications retrieved');
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /clinical/mar/due
+ * Nurse "due meds" list — scheduled/held medications within a rolling
+ * window around now. Joins patient name + bed/ward for a single-fetch list.
+ * Query params: ward_id?, past_minutes? (default 120), future_minutes? (default 60).
+ * Window bounds clamped to the 0..1440-minute (24h) range.
+ */
+router.get('/mar/due', async (req, res, next) => {
+  try {
+    const wardIdRaw = req.query.ward_id ? parseInt(req.query.ward_id, 10) : null;
+    const pastRaw = req.query.past_minutes ? parseInt(req.query.past_minutes, 10) : 120;
+    const futureRaw = req.query.future_minutes ? parseInt(req.query.future_minutes, 10) : 60;
+
+    const wardId = Number.isFinite(wardIdRaw) ? wardIdRaw : null;
+    const pastMinutes = Math.max(0, Math.min(Number.isFinite(pastRaw) ? pastRaw : 120, 1440));
+    const futureMinutes = Math.max(0, Math.min(Number.isFinite(futureRaw) ? futureRaw : 60, 1440));
+
+    const records = await marService.getDueMedications({ wardId, pastMinutes, futureMinutes });
+    return success(res, records, 'Due medications retrieved');
   } catch (err) {
     next(err);
   }
