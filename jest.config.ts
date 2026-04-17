@@ -15,6 +15,10 @@ const config: Config = {
     "^@/(.*)$": "<rootDir>/src/$1",
   },
 
+  // Polyfills run BEFORE the test framework loads so undici + related
+  // fetch-API modules find TextEncoder / TextDecoder / Blob on globalThis.
+  setupFiles: ["<rootDir>/jest.polyfills.js"],
+
   // Setup files run after the test framework is installed
   setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
 
