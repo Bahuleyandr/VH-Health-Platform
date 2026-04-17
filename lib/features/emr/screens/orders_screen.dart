@@ -621,11 +621,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
     return showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Row(
+        title: const Row(
           children: [
-            const Icon(Icons.warning_amber, color: AppTheme.warningAmber),
-            const SizedBox(width: 8),
-            const Text('Clinical Alerts'),
+            Icon(Icons.warning_amber, color: AppTheme.warningAmber),
+            SizedBox(width: 8),
+            Text('Clinical Alerts'),
           ],
         ),
         content: SingleChildScrollView(
@@ -762,14 +762,14 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     const SizedBox(height: 4),
                     Expanded(
                       child: filtered.isEmpty
-                          ? Center(
+                          ? const Center(
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  const Icon(Icons.receipt_long,
+                                  Icon(Icons.receipt_long,
                                       size: 64, color: AppTheme.divider),
-                                  const SizedBox(height: 12),
-                                  const Text(
+                                  SizedBox(height: 12),
+                                  Text(
                                     'No orders found',
                                     style: TextStyle(
                                         color: AppTheme.textSecondary),

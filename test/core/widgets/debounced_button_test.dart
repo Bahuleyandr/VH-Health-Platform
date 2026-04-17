@@ -104,11 +104,11 @@ void main() {
 
     testWidgets('is disabled when onPressed is null', (tester) async {
       await tester.pumpWidget(
-        MaterialApp(
+        const MaterialApp(
           home: Scaffold(
             body: DebouncedButton(
               onPressed: null,
-              child: const Text('Disabled'),
+              child: Text('Disabled'),
             ),
           ),
         ),

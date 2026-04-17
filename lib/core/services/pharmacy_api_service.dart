@@ -1,4 +1,3 @@
-import 'package:vhhealth_core/models/api_response.dart';
 import 'api_client.dart';
 
 /// Pharmacy order management API calls.

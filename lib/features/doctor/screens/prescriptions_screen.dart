@@ -1133,20 +1133,20 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
       );
     }
     if (_prescriptions.isEmpty) {
-      return Center(
+      return const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.medication_liquid_outlined,
+            Icon(Icons.medication_liquid_outlined,
                 size: 56, color: AppTheme.textSecondary),
-            const SizedBox(height: 16),
-            const Text('No prescriptions yet',
+            SizedBox(height: 16),
+            Text('No prescriptions yet',
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                     color: AppTheme.textPrimary)),
-            const SizedBox(height: 8),
-            const Text('Created prescriptions will appear here',
+            SizedBox(height: 8),
+            Text('Created prescriptions will appear here',
                 style: TextStyle(color: AppTheme.textSecondary)),
           ],
         ),

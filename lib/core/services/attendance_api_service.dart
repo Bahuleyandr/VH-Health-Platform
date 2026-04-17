@@ -1,4 +1,3 @@
-import 'package:vhhealth_core/models/api_response.dart';
 import 'api_client.dart';
 
 /// Attendance-related API calls: check-in, check-out, history, breaks,

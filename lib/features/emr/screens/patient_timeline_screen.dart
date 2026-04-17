@@ -467,14 +467,14 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                     const SizedBox(height: 8),
                     Expanded(
                       child: filtered.isEmpty
-                          ? Center(
+                          ? const Center(
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  const Icon(Icons.timeline,
+                                  Icon(Icons.timeline,
                                       size: 64, color: AppTheme.divider),
-                                  const SizedBox(height: 12),
-                                  const Text(
+                                  SizedBox(height: 12),
+                                  Text(
                                     'No events found',
                                     style: TextStyle(
                                         color: AppTheme.textSecondary),
