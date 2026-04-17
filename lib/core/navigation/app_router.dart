@@ -28,6 +28,8 @@ import '../../features/doctor/screens/queue_screen.dart';
 // Nursing
 import '../../features/nursing/screens/vitals_screen.dart';
 import '../../features/nursing/screens/nursing_notes_screen.dart';
+import '../../features/nursing/screens/due_meds_screen.dart';
+import '../../features/nursing/screens/mar_scan_screen.dart';
 
 // HR
 import '../../features/hr/screens/hr_dashboard_screen.dart';
@@ -254,6 +256,20 @@ final GoRouter appRouter = GoRouter(
           name: 'nursing-notes',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: NursingNotesScreen()),
+        ),
+        GoRoute(
+          path: '/mar/due',
+          name: 'mar-due',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: DueMedsScreen()),
+        ),
+        GoRoute(
+          path: '/mar/scan/:maId',
+          name: 'mar-scan',
+          pageBuilder: (context, state) {
+            final maId = int.tryParse(state.pathParameters['maId'] ?? '') ?? 0;
+            return NoTransitionPage(child: MarScanScreen(maId: maId));
+          },
         ),
 
         // HR

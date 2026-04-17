@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:vhhealth_core/models/api_response.dart';
 import 'api_client.dart';
 
 /// Medical API calls: investigations, consultations, prescriptions, EMR,
@@ -343,6 +344,35 @@ class MedicalApiService {
       'scanned_barcode': scannedBarcode,
       if (overrideReason != null) 'override_reason': overrideReason,
     });
+  }
+
+  /// GET /clinical/mar/due — nurse "due meds" list within a rolling window.
+  /// Returns a list of map rows with keys: id, patient_uid, patient_name,
+  /// medication_name, dose, dosage, route, scheduled_time, status, bed_number,
+  /// ward_id, ward_name. Tap a row to feed `id` into [MarScanScreen] as `maId`.
+  static Future<List<Map<String, dynamic>>> getDueMedications({
+    int? wardId,
+    int pastMinutes = 120,
+    int futureMinutes = 60,
+  }) async {
+    final query = <String, String>{
+      if (wardId != null) 'ward_id': wardId.toString(),
+      'past_minutes': pastMinutes.toString(),
+      'future_minutes': futureMinutes.toString(),
+    };
+    final resp = await ApiClient.get('/clinical/mar/due', queryParameters: query);
+    if (!resp.isSuccess || resp.raw is! Map) {
+      throw Exception(resp.message ?? 'Failed to load due medications (${resp.statusCode})');
+    }
+    final raw = resp.raw as Map<String, dynamic>;
+    if (raw['success'] != true) {
+      throw Exception(raw['message']?.toString() ?? 'Failed to load due medications');
+    }
+    final data = raw['data'];
+    if (data is List) {
+      return data.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
+    }
+    return const [];
   }
 
   /// GET /prescriptions/all — list all prescriptions (admin/staff)

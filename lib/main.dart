@@ -13,7 +13,9 @@ import 'core/providers/session_timeout_provider.dart';
 import 'core/providers/websocket_provider.dart';
 import 'core/services/code_blue_notifier.dart';
 import 'core/services/connectivity_sync_service.dart';
+import 'core/services/firebase_crash_reporter.dart';
 import 'core/services/websocket_service.dart';
+import 'package:vhhealth_core/services/crash_reporter.dart';
 import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
 import 'package:firebase_messaging/firebase_messaging.dart';
 
@@ -32,6 +34,10 @@ Future<void> _fcmBackgroundHandler(RemoteMessage message) async {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Route non-fatal errors from core + app through the same Crashlytics-backed
+  // reporter. Fatal errors are still handled via FlutterError.onError below.
+  CrashReporter.install(const FirebaseCrashReporter());
 
   // Register the terminated/background Code Blue handler *before* any foreground
   // plumbing so notifications fire even if the app hasn't been opened this session.
