@@ -105,7 +105,7 @@ export class AppointmentQueryService {
           SELECT a.id, a.appointment_date, a.appointment_time, a.status, a.reason, a.notes,
                  a.created_at, a.updated_at,
                  d.name AS doctor_name, d.phone AS doctor_phone, d.id AS doctor_id,
-                 dp.specialization, dp.department, dp.consultation_fee
+                 dp.specialty, dp.department
           FROM appointments a
           LEFT JOIN users d ON a.doctor_id = d.id
           LEFT JOIN doctors dp ON d.id = dp.user_id
@@ -118,7 +118,7 @@ export class AppointmentQueryService {
           SELECT a.id, a.appointment_date, a.appointment_time, a.status, a.reason, a.notes,
                  a.created_at, a.updated_at,
                  d.name AS doctor_name, d.phone AS doctor_phone, d.id AS doctor_id,
-                 dp.specialization, dp.department, dp.consultation_fee
+                 dp.specialty, dp.department
           FROM appointments a
           LEFT JOIN users d ON a.doctor_id = d.id
           LEFT JOIN doctors dp ON d.id = dp.user_id
@@ -143,7 +143,7 @@ export class AppointmentQueryService {
         rows = await prisma.$queryRaw`
           SELECT a.id, a.appointment_time, a.status, a.reason,
                  p.name AS patient_name, p.phone AS patient_phone,
-                 d.name AS doctor_name, dp.department, dp.specialization
+                 d.name AS doctor_name, dp.department, dp.specialty
           FROM appointments a
           LEFT JOIN users p ON a.patient_id = p.id
           LEFT JOIN users d ON a.doctor_id = d.id
@@ -156,7 +156,7 @@ export class AppointmentQueryService {
         rows = await prisma.$queryRaw`
           SELECT a.id, a.appointment_time, a.status, a.reason,
                  p.name AS patient_name, p.phone AS patient_phone,
-                 d.name AS doctor_name, dp.department, dp.specialization
+                 d.name AS doctor_name, dp.department, dp.specialty
           FROM appointments a
           LEFT JOIN users p ON a.patient_id = p.id
           LEFT JOIN users d ON a.doctor_id = d.id
@@ -181,7 +181,7 @@ export class AppointmentQueryService {
                a.created_at, a.updated_at,
                u.email AS patient_email,
                d.name AS doctor_name_detail, d.phone AS doctor_phone, d.email AS doctor_email,
-               dp.specialization, dp.department, dp.consultation_fee
+               dp.specialty, dp.department
         FROM appointments a
         LEFT JOIN users u ON a.uid = u.uid
         LEFT JOIN users d ON a.doctor_id = d.id

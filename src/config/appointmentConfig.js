@@ -59,7 +59,7 @@ export const APPOINTMENT_QUERIES = {
            a.created_at, a.updated_at,
            p.name as patient_name, p.phone as patient_phone, p.id as patient_id,
            d.name as doctor_name, d.phone as doctor_phone, d.id as doctor_id,
-           dp.specialization, dp.department
+           dp.specialty, dp.department
     FROM appointments a
     LEFT JOIN users p ON a.patient_id = p.id
     LEFT JOIN users d ON a.doctor_id = d.id  
@@ -70,7 +70,7 @@ export const APPOINTMENT_QUERIES = {
     SELECT a.*, 
            p.name as patient_name, p.phone as patient_phone, p.email as patient_email,
            d.name as doctor_name, d.phone as doctor_phone, d.email as doctor_email,
-           dp.specialization, dp.department, dp.consultation_fee
+           dp.specialty, dp.department
     FROM appointments a
     LEFT JOIN users p ON a.patient_id = p.id
     LEFT JOIN users d ON a.doctor_id = d.id

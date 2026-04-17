@@ -43,7 +43,7 @@ export const getAppointmentsByPhone = async (req, res) => {
     }
     
     const result = await prisma.$queryRawUnsafe(`
-      SELECT a.*, d.name as doctor_name, dp.department, dp.specialization
+      SELECT a.*, d.name as doctor_name, dp.department, dp.specialty
       FROM appointments a
       LEFT JOIN users d ON a.doctor_id = d.id
       LEFT JOIN doctors dp ON d.id = dp.user_id
@@ -65,7 +65,7 @@ export const getAppointmentsByUID = async (req, res) => {
     const { uid } = req.params;
     
     const result = await prisma.$queryRawUnsafe(`
-      SELECT a.*, d.name as doctor_name, dp.department, dp.specialization
+      SELECT a.*, d.name as doctor_name, dp.department, dp.specialty
       FROM appointments a
       LEFT JOIN users d ON a.doctor_id = d.id
       LEFT JOIN doctors dp ON d.id = dp.user_id
