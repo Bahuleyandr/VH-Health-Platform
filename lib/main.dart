@@ -23,9 +23,11 @@ import 'package:vhhealth/core/navigation/app_router.dart';
 // Core Services
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/connectivity_service.dart';
+import 'package:vhhealth/core/services/firebase_crash_reporter.dart';
 import 'package:vhhealth/core/services/health_sync_service.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/services/websocket_service.dart';
+import 'package:vhhealth_core/services/crash_reporter.dart';
 import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
 import 'package:vhhealth/core/offline/mutation_queue.dart';
 
@@ -37,6 +39,10 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // Install the Firebase-backed crash reporter so core + app code all route
+  // non-fatal errors through the same abstraction.
+  CrashReporter.install(const FirebaseCrashReporter());
 
   // Pass all uncaught Flutter framework errors to Crashlytics.
   FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
