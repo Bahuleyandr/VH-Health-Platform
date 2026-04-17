@@ -112,11 +112,62 @@ describe('LOINC allowlist', () => {
     expect(isInAllowlist('6690-2')).toBe(true);  // WBC
   });
 
+  it('accepts extended vitals added in the 2026-04-17 allowlist expansion', () => {
+    expect(isInAllowlist('72514-3')).toBe(true); // Pain severity 0-10
+    expect(isInAllowlist('9269-2')).toBe(true);  // GCS total
+    expect(isInAllowlist('8280-0')).toBe(true);  // Waist circumference
+  });
+
+  it('accepts diabetes panel (fasting + 2h post-meal glucose)', () => {
+    expect(isInAllowlist('1558-6')).toBe(true);  // Fasting glucose
+    expect(isInAllowlist('1521-4')).toBe(true);  // 2h post-meal
+  });
+
+  it('accepts extended CBC indices (MCV / MCH / MCHC / RDW / Neut% / Lymph%)', () => {
+    expect(isInAllowlist('787-2')).toBe(true);
+    expect(isInAllowlist('785-6')).toBe(true);
+    expect(isInAllowlist('786-4')).toBe(true);
+    expect(isInAllowlist('788-0')).toBe(true);
+    expect(isInAllowlist('770-8')).toBe(true);
+    expect(isInAllowlist('736-9')).toBe(true);
+  });
+
+  it('accepts thyroid panel (TSH / fT3 / fT4)', () => {
+    expect(isInAllowlist('3016-3')).toBe(true);
+    expect(isInAllowlist('3026-2')).toBe(true);
+    expect(isInAllowlist('3051-0')).toBe(true);
+  });
+
+  it('accepts iron panel + inflammation markers', () => {
+    expect(isInAllowlist('2498-4')).toBe(true);   // Iron
+    expect(isInAllowlist('2500-7')).toBe(true);   // TIBC
+    expect(isInAllowlist('2502-3')).toBe(true);   // Transferrin saturation
+    expect(isInAllowlist('2276-4')).toBe(true);   // Ferritin
+    expect(isInAllowlist('1988-5')).toBe(true);   // CRP
+    expect(isInAllowlist('30341-2')).toBe(true);  // ESR
+  });
+
+  it('accepts expanded coagulation + cardiac markers (aPTT, D-dimer, BNP)', () => {
+    expect(isInAllowlist('14979-9')).toBe(true);  // aPTT
+    expect(isInAllowlist('30240-6')).toBe(true);  // D-dimer
+    expect(isInAllowlist('30934-4')).toBe(true);  // BNP
+    expect(isInAllowlist('14804-9')).toBe(true);  // LDH
+  });
+
+  it('accepts urinalysis dipstick codes', () => {
+    expect(isInAllowlist('20405-7')).toBe(true);  // Urine protein
+    expect(isInAllowlist('5792-7')).toBe(true);   // Urine glucose
+    expect(isInAllowlist('5797-6')).toBe(true);   // Urine ketones
+    expect(isInAllowlist('5799-2')).toBe(true);   // Urine leuk esterase
+    expect(isInAllowlist('5802-4')).toBe(true);   // Urine nitrite
+  });
+
   it('rejects valid LOINC codes that are NOT in the hospital allowlist', () => {
-    // 8302-2 is in the allowlist (Body height), so pick something that isn't —
-    // 14749-6 is "Glucose [Moles/volume] in Serum or Plasma" — valid LOINC, not in our set.
-    expect(isInAllowlist('14749-6')).toBe(false);
-    expect(isValidStructure('14749-6')).toBe(true); // structurally valid
+    // 72133-2 is "Pain severity — Wong-Baker FACES" — valid LOINC, deliberately
+    // not in our set (we use the 0-10 numeric rating instead). If this test
+    // fails because 72133-2 got added, update it to a different out-of-set code.
+    expect(isInAllowlist('72133-2')).toBe(false);
+    expect(isValidStructure('72133-2')).toBe(true); // structurally valid
   });
 });
 

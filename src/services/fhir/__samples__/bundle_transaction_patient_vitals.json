@@ -1,0 +1,117 @@
+{
+  "resourceType": "Bundle",
+  "id": "example-bundle-patient-vitals",
+  "type": "transaction",
+  "timestamp": "2026-04-17T09:15:00+05:30",
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:patient-priya",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "bundle-patient-priya",
+        "identifier": [
+          {
+            "system": "urn:vhhealth:uid",
+            "value": "bundle-uid-priya"
+          }
+        ],
+        "active": true,
+        "name": [
+          {
+            "use": "official",
+            "family": "Sharma",
+            "given": ["Priya"]
+          }
+        ],
+        "gender": "female",
+        "birthDate": "1984-07-22"
+      },
+      "request": {
+        "method": "PUT",
+        "url": "Patient/bundle-patient-priya"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-hr",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "bundle-hr",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "vital-signs"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8867-4",
+              "display": "Heart rate"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/bundle-patient-priya"
+        },
+        "effectiveDateTime": "2026-04-17T09:15:00+05:30",
+        "valueQuantity": {
+          "value": 74,
+          "unit": "/min",
+          "system": "http://unitsofmeasure.org",
+          "code": "/min"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:observation-spo2",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "bundle-spo2",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "vital-signs"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "59408-5",
+              "display": "Oxygen saturation by pulse oximetry"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/bundle-patient-priya"
+        },
+        "effectiveDateTime": "2026-04-17T09:15:00+05:30",
+        "valueQuantity": {
+          "value": 98,
+          "unit": "%",
+          "system": "http://unitsofmeasure.org",
+          "code": "%"
+        }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
+      }
+    }
+  ]
+}

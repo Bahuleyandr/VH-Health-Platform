@@ -1,0 +1,20 @@
+{
+  "resourceType": "Patient",
+  "id": "example-minimal",
+  "identifier": [
+    {
+      "system": "urn:vhhealth:uid",
+      "value": "example-uid-0001"
+    }
+  ],
+  "active": true,
+  "name": [
+    {
+      "use": "official",
+      "text": "Jane Doe"
+    }
+  ],
+  "telecom": [],
+  "gender": "female",
+  "birthDate": "1990-01-15"
+}

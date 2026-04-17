@@ -26,6 +26,7 @@ import { prometheusMiddleware } from './middleware/prometheusMiddleware.js';
 import { patientRateLimiter, genericLimiter, adminRateLimiter, dataExportRateLimiter, dashboardRateLimiter } from './middleware/rateLimitMiddleware.js';
 import { requireRole } from './middleware/rbacMiddleware.js';
 import requestIdMiddleware from './middleware/requestIdMiddleware.js';
+import sentryScopeMiddleware from './middleware/sentryScopeMiddleware.js';
 import { selfHealingMiddleware } from './middleware/selfHealingMiddleware.js';
 import validateApiKey from './middleware/validateApiKey.js';
 import { publicCache, privateCache } from './middleware/cacheControlMiddleware.js';
@@ -215,6 +216,7 @@ if (process.env.NODE_ENV === 'production') {
 
 app.use(compression({ threshold: 1024 })); // Only compress responses > 1KB
 app.use(requestIdMiddleware);
+app.use(sentryScopeMiddleware);
 app.use(apiVersionMiddleware);
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ limit: '1mb', extended: true }));
