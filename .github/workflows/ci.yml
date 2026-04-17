@@ -66,6 +66,11 @@ jobs:
         # departments / doctors / ICD-10 that integration tests reference.
         run: node scripts/ci-setup-db.mjs
 
+      - name: Schema drift check
+        # Fails the build if any table the detector expects is missing.
+        # Unexpected tables (raw migrations) are informational only.
+        run: node scripts/ci-schema-drift.mjs
+
       - name: Run tests
         run: node --max-old-space-size=4096 --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --forceExit --detectOpenHandles
 
@@ -145,10 +150,37 @@ jobs:
             exit 0
           fi
           set -e
+          # Any *.json under __samples__/ (not in golden/) is informational —
+          # the `|| true` keeps the build green while warnings are triaged.
+          shopt -s nullglob
           for f in src/services/fhir/__samples__/*.json; do
-            echo "=== Validating $f ==="
+            echo "=== Validating (informational) $f ==="
             java -jar ~/.cache/fhir-validator/validator_cli.jar "$f" -version 4.0.1 || true
           done
+
+      - name: Validate golden bundles strict (R4)
+        # Bundles under __samples__/golden/ MUST validate clean. Any error
+        # here fails the build. This is the gate that guards against
+        # regressions in the handful of known-good resources while the
+        # broader sample set stays informational.
+        run: |
+          if [ ! -d src/services/fhir/__samples__/golden ]; then
+            echo "No golden/ subdirectory — skipping strict run."
+            exit 0
+          fi
+          shopt -s nullglob
+          failed=0
+          for f in src/services/fhir/__samples__/golden/*.json; do
+            echo "=== Validating (STRICT) $f ==="
+            if ! java -jar ~/.cache/fhir-validator/validator_cli.jar "$f" -version 4.0.1; then
+              failed=$((failed + 1))
+            fi
+          done
+          if [ "$failed" -gt 0 ]; then
+            echo "✗ $failed golden bundle(s) failed FHIR R4 validation."
+            exit 1
+          fi
+          echo "✓ All golden bundles validated clean."
 
       - name: Notify Discord on failure
         if: failure()
