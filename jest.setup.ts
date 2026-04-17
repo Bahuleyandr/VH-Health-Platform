@@ -1,50 +1,38 @@
+import "@testing-library/jest-dom";
+
 // ---------------------------------------------------------------------------
-// jsdom 26 (bundled with jest-environment-jsdom 30) does NOT expose the
-// fetch API constructors on its window — so `new Response(...)` in test
-// code throws "Response is not defined". Polyfill from `undici` which
-// ships the spec-compliant WHATWG fetch implementation Node itself uses
-// internally.
-//
-// undici's module-top code touches TextDecoder/TextEncoder/ReadableStream/
-// WritableStream/TransformStream/Blob/MessageChannel — all native Node
-// features that jsdom's window doesn't always re-expose. We pull them
-// from node: built-ins BEFORE loading undici so the require doesn't blow
-// up at import time.
+// TextDecoder / TextEncoder polyfills. jsdom does not expose these; undici
+// (which powers the fetch polyfill below) tries to use them at module-load
+// time, so they must be wired BEFORE undici is imported.
 // ---------------------------------------------------------------------------
 import { TextDecoder, TextEncoder } from "node:util";
-import { ReadableStream, TransformStream, WritableStream } from "node:stream/web";
-import { Blob } from "node:buffer";
-import { MessageChannel, MessagePort } from "node:worker_threads";
-
-type PolyGlobals = Record<string, unknown>;
-const _g = globalThis as PolyGlobals;
-function maybe(key: string, value: unknown) {
-  if (typeof _g[key] === "undefined") _g[key] = value;
+if (typeof (globalThis as Record<string, unknown>).TextEncoder === "undefined") {
+  Object.defineProperty(globalThis, "TextEncoder", { value: TextEncoder, writable: true, configurable: true });
 }
-maybe("TextDecoder", TextDecoder);
-maybe("TextEncoder", TextEncoder);
-maybe("ReadableStream", ReadableStream);
-maybe("WritableStream", WritableStream);
-maybe("TransformStream", TransformStream);
-maybe("Blob", Blob);
-maybe("MessageChannel", MessageChannel);
-maybe("MessagePort", MessagePort);
+if (typeof (globalThis as Record<string, unknown>).TextDecoder === "undefined") {
+  Object.defineProperty(globalThis, "TextDecoder", { value: TextDecoder, writable: true, configurable: true });
+}
 
-/* eslint-disable-next-line @typescript-eslint/no-require-imports */
-const undici = require("undici") as {
-  fetch: unknown;
-  Headers: unknown;
-  Request: unknown;
-  Response: unknown;
-  FormData: unknown;
-};
-maybe("Response", undici.Response);
-maybe("Request", undici.Request);
-maybe("Headers", undici.Headers);
-maybe("fetch", undici.fetch);
-maybe("FormData", undici.FormData);
+// eslint-disable-next-line import/first
+import { fetch, FormData, Headers, Request, Response } from "undici";
 
-import "@testing-library/jest-dom";
+// ---------------------------------------------------------------------------
+// Fetch API polyfills. jsdom does not expose `Response` / `Request` /
+// `Headers` / `fetch` / `FormData`, and the runtime code under test (api-fetch,
+// auth-client, etc.) reaches for these globals directly. Node 22 *does* have
+// them natively, but jsdom shadows `globalThis` — so we forward undici's
+// implementations explicitly. Harmless no-ops if they're already present.
+// ---------------------------------------------------------------------------
+const fetchGlobals = { fetch, FormData, Headers, Request, Response } as const;
+for (const [name, impl] of Object.entries(fetchGlobals)) {
+  if (typeof (globalThis as Record<string, unknown>)[name] === "undefined") {
+    Object.defineProperty(globalThis, name, {
+      value: impl,
+      writable: true,
+      configurable: true,
+    });
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Mock localStorage (jsdom provides one, but we reset it between tests)
