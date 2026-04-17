@@ -1,3 +1,49 @@
+// ---------------------------------------------------------------------------
+// jsdom 26 (bundled with jest-environment-jsdom 30) does NOT expose the
+// fetch API constructors on its window — so `new Response(...)` in test
+// code throws "Response is not defined". Polyfill from `undici` which
+// ships the spec-compliant WHATWG fetch implementation Node itself uses
+// internally.
+//
+// undici's module-top code touches TextDecoder/TextEncoder/ReadableStream/
+// WritableStream/TransformStream/Blob/MessageChannel — all native Node
+// features that jsdom's window doesn't always re-expose. We pull them
+// from node: built-ins BEFORE loading undici so the require doesn't blow
+// up at import time.
+// ---------------------------------------------------------------------------
+import { TextDecoder, TextEncoder } from "node:util";
+import { ReadableStream, TransformStream, WritableStream } from "node:stream/web";
+import { Blob } from "node:buffer";
+import { MessageChannel, MessagePort } from "node:worker_threads";
+
+type PolyGlobals = Record<string, unknown>;
+const _g = globalThis as PolyGlobals;
+function maybe(key: string, value: unknown) {
+  if (typeof _g[key] === "undefined") _g[key] = value;
+}
+maybe("TextDecoder", TextDecoder);
+maybe("TextEncoder", TextEncoder);
+maybe("ReadableStream", ReadableStream);
+maybe("WritableStream", WritableStream);
+maybe("TransformStream", TransformStream);
+maybe("Blob", Blob);
+maybe("MessageChannel", MessageChannel);
+maybe("MessagePort", MessagePort);
+
+/* eslint-disable-next-line @typescript-eslint/no-require-imports */
+const undici = require("undici") as {
+  fetch: unknown;
+  Headers: unknown;
+  Request: unknown;
+  Response: unknown;
+  FormData: unknown;
+};
+maybe("Response", undici.Response);
+maybe("Request", undici.Request);
+maybe("Headers", undici.Headers);
+maybe("fetch", undici.fetch);
+maybe("FormData", undici.FormData);
+
 import "@testing-library/jest-dom";
 
 // ---------------------------------------------------------------------------
