@@ -155,7 +155,7 @@ export async function holdMedication(id, reason, heldBy) {
 
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE medication_administrations
-     SET status = 'held', hold_reason = $2, administered_by = $3
+     SET status = 'held', hold_reason = $2, administered_by = $3::uuid
      WHERE id = $1
      RETURNING id, patient_uid, medication_name, dosage, route, scheduled_time, status, administered_by, notes, created_at`,
     id, reason, heldBy
@@ -221,6 +221,53 @@ export async function getOverdueMedications(wardId) {
   return rows;
 }
 
+/**
+ * Get the nurse "due meds" list — scheduled/held medications within a
+ * rolling window around now. Joins patient name + bed/ward so the client
+ * can render a single list without extra round-trips.
+ *
+ * @param {Object} opts
+ * @param {number|null} opts.wardId - Optional ward filter
+ * @param {number} opts.pastMinutes - How far back to look (default 120)
+ * @param {number} opts.futureMinutes - How far forward (default 60)
+ * @returns {Array} Medication rows with patient_name, bed_number, ward_name
+ */
+export async function getDueMedications({ wardId = null, pastMinutes = 120, futureMinutes = 60 } = {}) {
+  const params = [pastMinutes, futureMinutes];
+  let wardClause = '';
+  if (wardId) {
+    params.push(wardId);
+    wardClause = `AND b.ward_id = $${params.length}`;
+  }
+
+  const query = `
+    SELECT ma.id,
+           ma.patient_uid,
+           ma.medication_name,
+           ma.dose,
+           ma.dosage,
+           ma.route,
+           ma.scheduled_time,
+           ma.status,
+           ma.notes,
+           u.name AS patient_name,
+           b.bed_number,
+           b.ward_id,
+           w.name AS ward_name
+      FROM medication_administrations ma
+      LEFT JOIN users u ON u.uid = ma.patient_uid
+      LEFT JOIN beds  b ON b.patient_id = u.id
+      LEFT JOIN wards w ON w.id = b.ward_id
+     WHERE ma.status IN ('scheduled', 'held')
+       AND ma.scheduled_time BETWEEN (NOW() - ($1 || ' minutes')::interval)
+                                 AND (NOW() + ($2 || ' minutes')::interval)
+       ${wardClause}
+     ORDER BY ma.scheduled_time ASC
+  `;
+
+  return prisma.$queryRawUnsafe(query, ...params);
+}
+
 export default {
   scheduleMedications,
   recordAdministration,
@@ -228,4 +275,5 @@ export default {
   holdMedication,
   getPatientMAR,
   getOverdueMedications,
+  getDueMedications,
 };
