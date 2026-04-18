@@ -1,0 +1,71 @@
+{
+  "resourceType": "Patient",
+  "id": "example-full",
+  "identifier": [
+    {
+      "system": "urn:vhhealth:uid",
+      "value": "example-uid-0002"
+    },
+    {
+      "system": "urn:vhhealth:mrn",
+      "value": "MRN-20260417-0042"
+    }
+  ],
+  "active": true,
+  "name": [
+    {
+      "use": "official",
+      "family": "Sharma",
+      "given": ["Priya", "K"]
+    }
+  ],
+  "telecom": [
+    {
+      "system": "phone",
+      "value": "+91-9999988888",
+      "use": "mobile"
+    },
+    {
+      "system": "email",
+      "value": "priya.example@vhhealth.local",
+      "use": "home"
+    }
+  ],
+  "gender": "female",
+  "birthDate": "1984-07-22",
+  "address": [
+    {
+      "use": "home",
+      "line": ["45 Example Avenue", "Apartment 12B"],
+      "city": "Chennai",
+      "district": "Chennai",
+      "state": "Tamil Nadu",
+      "postalCode": "600042",
+      "country": "IN"
+    }
+  ],
+  "contact": [
+    {
+      "relationship": [
+        {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/v2-0131",
+              "code": "N",
+              "display": "Next-of-Kin"
+            }
+          ]
+        }
+      ],
+      "name": {
+        "text": "Rahul Sharma"
+      },
+      "telecom": [
+        {
+          "system": "phone",
+          "value": "+91-9999977777"
+        }
+      ]
+    }
+  ]
+}

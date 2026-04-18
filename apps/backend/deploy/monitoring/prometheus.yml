@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'vhhealth-api'
+    static_configs:
+      - targets: ['api:5000']
+    metrics_path: /metrics
+    scrape_timeout: 10s

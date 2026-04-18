@@ -1,0 +1,120 @@
+import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
+import { HTTP_STATUS } from '../../config/responseCodes.js';
+import logger from '../../logging/logger.js';
+import appointmentService from '../../services/appointment/appointmentService.js';
+import appointmentValidationService from '../../services/appointment/appointmentValidationService.js';
+import * as pointService from '../../services/gamification/pointService.js';
+import { getWaitingQueueForDoctor } from '../../services/appointment/waitTimeService.js';
+import { success, error } from '../../utils/responseHelper.js';
+import { broadcast, sendToUser } from '../../utils/websocket/wsServer.js';
+import { emitQueuePosition } from '../../utils/websocket/realtimeEmitter.js';
+
+// Status transitions that shift every downstream patient's queue position
+const QUEUE_SHIFTING_STATUSES = new Set(['IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW']);
+
+async function fanOutQueuePositions(appointment) {
+  if (!appointment?.doctor_id || !appointment?.appointment_date) return;
+  const date = new Date(appointment.appointment_date).toISOString().split('T')[0];
+  try {
+    const waiting = await getWaitingQueueForDoctor(appointment.doctor_id, date);
+    for (const row of waiting) {
+      emitQueuePosition({
+        patientId: row.patientId,
+        appointmentId: row.appointmentId,
+        position: row.position,
+        etaMinutes: row.etaMinutes,
+      });
+    }
+  } catch (err) {
+    logger.warn('Queue-position fan-out failed:', err.message);
+  }
+}
+
+export const updateAppointmentStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, notes } = req.body;
+
+    // Validate status
+    const statusValidation = appointmentValidationService.validateStatusUpdate(status);
+    if (!statusValidation.valid) {
+      return error(res, statusValidation.error, HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // Get appointment to check permissions
+    const appointment = await appointmentService.getAppointmentById(id);
+    
+    if (!appointment) {
+      return error(res, APPOINTMENT_CONFIG.MESSAGES.APPOINTMENT_NOT_FOUND, HTTP_STATUS.NOT_FOUND);
+    }
+
+    // Check permissions
+    if (req.user?.role === 'PATIENT' && appointment.patient_id !== req.user.id) {
+      return error(res, 'Can only update your own appointments', HTTP_STATUS.FORBIDDEN);
+    }
+    if (req.user?.role === 'DOCTOR' && appointment.doctor_id !== req.user.id) {
+      return error(res, 'Can only update your own appointments', HTTP_STATUS.FORBIDDEN);
+    }
+
+    // Update status
+    const updatedAppointment = await appointmentService.updateAppointmentStatus(
+      id,
+      statusValidation.status,
+      notes,
+      req.user?.name
+    );
+
+    // Emit WebSocket event for appointment status change
+    broadcast('appointment-updates', {
+      appointmentId: id,
+      status: statusValidation.status,
+      updatedBy: req.user?.name,
+    });
+    // Notify patient and doctor directly
+    if (updatedAppointment.patient_id) {
+      sendToUser(updatedAppointment.patient_id, 'appointment-status-changed', {
+        appointmentId: id, status: statusValidation.status,
+      });
+    }
+    if (updatedAppointment.doctor_id) {
+      sendToUser(updatedAppointment.doctor_id, 'appointment-status-changed', {
+        appointmentId: id, status: statusValidation.status,
+      });
+    }
+
+    // Staff-wide appointment feed (gated to staff roles via channelAuth)
+    broadcast('staff:appointments', {
+      kind: 'status-changed',
+      appointmentId: id,
+      doctorId: updatedAppointment.doctor_id,
+      patientId: updatedAppointment.patient_id,
+      status: statusValidation.status,
+      at: new Date().toISOString(),
+    });
+
+    // Queue-position fan-out to remaining waiting patients on status transitions that shift the queue
+    if (QUEUE_SHIFTING_STATUSES.has(statusValidation.status)) {
+      fanOutQueuePositions(updatedAppointment).catch(() => {});
+    }
+
+    // Gamification: fire-and-forget point awards
+    if (statusValidation.status === 'COMPLETED') {
+      pointService.awardAppointmentPoints(updatedAppointment).catch(err =>
+        logger.warn('Gamification: appointment point award failed', { error: err.message })
+      );
+    }
+    if (statusValidation.status === 'IN_PROGRESS') {
+      pointService.awardOnTimeBonus(updatedAppointment).catch(err =>
+        logger.warn('Gamification: on-time bonus check failed', { error: err.message })
+      );
+    }
+
+    success(res, {
+      appointment: updatedAppointment,
+      updated_by: req.user?.name
+    }, 'Appointment status updated successfully');
+  } catch (err) {
+    logger.error('Error updating appointment status:', err);
+    error(res, 'Failed to update appointment status', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};

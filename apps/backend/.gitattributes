@@ -1,0 +1,18 @@
+# .gitattributes
+# Ensure all JS files use LF line endings
+*.js text eol=lf
+*.cjs text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Ensure package.json and lock files use LF
+package.json text eol=lf
+package-lock.json text eol=lf
+
+# Ensure config files use LF
+.env* text eol=lf
+.*rc text eol=lf
+babel.config.* text eol=lf

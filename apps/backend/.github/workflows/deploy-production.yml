@@ -1,0 +1,141 @@
+name: Deploy to Production
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy'
+        required: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: vhhealth_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npx prisma generate
+      - run: npm test -- --forceExit --detectOpenHandles
+        env:
+          DATABASE_URL: postgresql://postgres:test@localhost:5432/vhhealth_test
+          JWT_SECRET: test-secret
+          API_KEY: test-key
+
+  build-image:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=sha,prefix=sha-
+            type=raw,value=latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+
+  scan-image:
+    needs: build-image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'HIGH,CRITICAL'
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  deploy:
+    needs: [build-image, scan-image]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            cd /opt/vhhealth
+            docker compose pull api
+            bash deploy/blue-green.sh $(cat /var/run/vhhealth-active-color 2>/dev/null || echo blue)
+
+  smoke-test:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Health check
+        run: |
+          for i in {1..10}; do
+            status=$(curl -sf -o /dev/null -w "%{http_code}" https://api.vhhealth.app/api/v1/health/ping || echo "000")
+            if [ "$status" = "200" ]; then
+              echo "✅ Health check passed"
+              exit 0
+            fi
+            echo "Waiting for healthy response ($i/10)... got $status"
+            sleep 5
+          done
+          echo "❌ Smoke test failed"
+          exit 1
+
+  notify:
+    needs: [deploy, smoke-test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send notification
+        run: |
+          STATUS="${{ needs.smoke-test.result }}"
+          VERSION="${{ needs.build-image.outputs.version }}"
+          if [ "$STATUS" = "success" ]; then
+            EMOJI="✅"
+            MSG="Deployed $VERSION successfully"
+          else
+            EMOJI="❌"
+            MSG="Deploy $VERSION FAILED — check logs"
+          fi
+          curl -sf -X POST "${{ secrets.WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\": \"$EMOJI VH Health Backend: $MSG\"}" || true
