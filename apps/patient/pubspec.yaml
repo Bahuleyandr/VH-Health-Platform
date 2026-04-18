@@ -15,7 +15,7 @@ dependencies:
 
   # ── Shared core ────────────────────────────────────────────────────────────
   vhhealth_core:
-    path: ../vhhealth-core
+    path: ../../packages/vhhealth_core
     
   # ── Localisation ───────────────────────────────────────────────────────────
   flutter_localizations:

@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  workspace:
+    name: Melos workspace (analyze + test + format)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Print versions
+        run: |
+          flutter --version
+          dart --version
+
+      - name: Activate Melos
+        run: dart pub global activate melos
+
+      - name: Bootstrap workspace
+        run: melos bootstrap
+
+      - name: Format check
+        run: melos run format
+        continue-on-error: true
+
+      - name: Analyze
+        run: melos run analyze
+
+      - name: Test
+        run: melos run test

@@ -10,7 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   vhhealth_core:
-    path: ../vhhealth-core
+    path: ../../packages/vhhealth_core
   http: ^1.4.0
   flutter_secure_storage: ^9.2.4
   go_router: ^16.0.0
