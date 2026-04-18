@@ -5,6 +5,7 @@
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { logPhiAccess } from '../utils/hipaaAudit.js';
+import { normalizeAuditLogUserId } from '../utils/auditLogIdentity.js';
 
 /**
  * Factory middleware: requires active consent of a given type for the patient
@@ -45,7 +46,9 @@ export function requireConsent(consentType) {
         patientUid, consentType
       );
 
-      const userId = req.user?.uid || req.user?.id || null;
+      const userId = normalizeAuditLogUserId(
+        req.user?.id ?? req.user?.userId ?? req.user?.user_id ?? null
+      );
       const userRole = req.user?.role || null;
       const ip = req.ip || req.headers['x-forwarded-for'] || null;
 
@@ -59,7 +62,7 @@ export function requireConsent(consentType) {
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
             
               userId,
-              req.user?.name || null,
+              req.user?.name || req.user?.username || req.user?.email || null,
               userRole,
               ip,
               req.method,

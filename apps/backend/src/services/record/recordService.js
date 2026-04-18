@@ -146,8 +146,8 @@ export async function getMedicalRecords(filters = {}, _userRole) {
     const offset = (page - 1) * limit;
 
     const conditions = [Prisma.sql`1=1`];
-    if (patient_id) conditions.push(Prisma.sql`mr.patient_id = ${parseInt(patient_id)}`);
-    if (doctor_id) conditions.push(Prisma.sql`mr.doctor_id = ${parseInt(doctor_id)}`);
+    if (patient_id) conditions.push(Prisma.sql`mr.patient_id::text = ${String(patient_id)}`);
+    if (doctor_id) conditions.push(Prisma.sql`mr.doctor_id::text = ${String(doctor_id)}`);
     if (record_type) conditions.push(Prisma.sql`mr.record_type = ${record_type.toUpperCase()}`);
     if (date_from) conditions.push(Prisma.sql`DATE(mr.created_at) >= ${date_from}::date`);
     if (date_to) conditions.push(Prisma.sql`DATE(mr.created_at) <= ${date_to}::date`);
@@ -159,14 +159,14 @@ export async function getMedicalRecords(filters = {}, _userRole) {
         SELECT mr.id, mr.record_type, mr.title, mr.description, mr.diagnosis,
                mr.treatment, mr.medications, mr.privacy_level,
                TO_CHAR(mr.created_at, 'DD-MM-YYYY HH24:MI') AS created_at_formatted,
-               TO_CHAR(mr.updated_at, 'DD-MM-YYYY HH24:MI') AS updated_at_formatted,
-               p.name AS patient_name, p.phone AS patient_phone, p.id AS patient_id,
-               d.name AS doctor_name, d.phone AS doctor_phone, d.id AS doctor_id,
+               NULL::text AS updated_at_formatted,
+               p.name AS patient_name, p.phone AS patient_phone, COALESCE(p.uid::text, p.id::text) AS patient_id,
+               d.name AS doctor_name, d.phone AS doctor_phone, COALESCE(d.uid::text, d.id::text) AS doctor_id,
                dp.specialty AS specialization, dp.department
         FROM medical_records mr
-        LEFT JOIN users p ON mr.patient_id = p.id
-        LEFT JOIN users d ON mr.doctor_id = d.id
-        LEFT JOIN doctors dp ON d.id = dp.user_id
+        LEFT JOIN users p ON mr.patient_id::text = p.uid::text OR mr.patient_id::text = p.id::text
+        LEFT JOIN users d ON mr.doctor_id::text = d.id::text OR mr.doctor_id::text = d.uid::text
+        LEFT JOIN doctors dp ON mr.doctor_id::text = dp.id::text OR mr.doctor_id::text = dp.user_id::text
         WHERE ${whereClause}
         ORDER BY mr.created_at DESC
         LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}

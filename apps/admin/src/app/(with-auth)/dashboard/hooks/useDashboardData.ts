@@ -19,6 +19,8 @@ import type {
   ChartsState,
 } from './useDashboardData.types';
 
+type MaybeDataEnvelope<T> = T | { data?: T };
+
 export type {
   Quick,
   ActivityItem,
@@ -29,8 +31,17 @@ export type {
   ChartsState,
 };
 
+function unwrapData<T>(payload: MaybeDataEnvelope<T> | null | undefined): T | undefined {
+  if (payload == null) return undefined;
+  if (typeof payload === 'object' && !Array.isArray(payload) && 'data' in payload && payload.data !== undefined) {
+    return payload.data;
+  }
+  return payload as T;
+}
+
 export function useDashboardData() {
   // ---- Local state ----
+  const initialQueue: AppointmentQueue = { waiting: 0, inProgress: 0, completed: 0 };
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [quick, setQuick] = useState<Quick>({});
@@ -40,14 +51,16 @@ export function useDashboardData() {
   const [charts, setCharts] = useState<ChartsState>({ labels: [], users: [], appts: [] });
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [secondsAgo, setSecondsAgo] = useState(0);
-  const [queue, setQueue] = useState<AppointmentQueue>({ waiting: 0, inProgress: 0, completed: 0 });
-  const [prevQueue, setPrevQueue] = useState<AppointmentQueue>({ waiting: 0, inProgress: 0, completed: 0 });
+  const [queue, setQueue] = useState<AppointmentQueue>(initialQueue);
+  const [prevQueue, setPrevQueue] = useState<AppointmentQueue>(initialQueue);
   const [infraHealth, setInfraHealth] = useState<InfraHealthData | null>(null);
 
   // ---- Helpers ----
   // Auth is carried via the httpOnly auth_token cookie handled by /api/proxy.
   const headers = getHeaders();
   const headersRef = useRef(headers);
+  const quickRef = useRef<Quick>({});
+  const queueRef = useRef<AppointmentQueue>(initialQueue);
   headersRef.current = headers;
 
   const get = useCallback(async function get<T>(path: string): Promise<T> {
@@ -78,20 +91,20 @@ export function useDashboardData() {
   const loadAll = useCallback(async function loadAll() {
     setLoading(true);
     try {
-      const dash = await get<DashboardResponse>(API_ENDPOINTS.admin.dashboard);
-      const quickStats = await get<{ data?: Quick }>(API_ENDPOINTS.admin.stats.quick).catch(() => null);
-      const recent = await get<{ data?: ActivityItem[]; items?: ActivityItem[] }>(
+      const dashboardPayload = await get<MaybeDataEnvelope<DashboardResponse>>(API_ENDPOINTS.admin.dashboard);
+      const quickStatsPayload = await get<MaybeDataEnvelope<Quick>>(API_ENDPOINTS.admin.stats.quick).catch(() => null);
+      const recentPayload = await get<{ data?: ActivityItem[]; items?: ActivityItem[] }>(
         API_ENDPOINTS.admin.activity.recent + `?limit=${ACTIVITY_FEED_LIMIT}&offset=0`
       ).catch(() => null);
-      const sys = await get<{ data?: SystemHealth }>(API_ENDPOINTS.admin.health.system).catch(() => null);
+      const systemHealthPayload = await get<MaybeDataEnvelope<SystemHealth>>(API_ENDPOINTS.admin.health.system).catch(() => null);
 
       // Appointment stats for queue
-      const apptStats = await get<{ data?: { waiting?: number; in_progress?: number; completed?: number; inProgress?: number } }>(
+      const appointmentStatsPayload = await get<MaybeDataEnvelope<{ waiting?: number; in_progress?: number; completed?: number; inProgress?: number }>>(
         API_ENDPOINTS.admin.stats.appointments
       ).catch(() => null);
 
       // Module health
-      const moduleHealth = await get<{ data?: Array<{ name: string; status: HealthStatus }> }>(
+      const moduleHealthPayload = await get<MaybeDataEnvelope<Array<{ name: string; status: HealthStatus }>>>(
         API_ENDPOINTS.admin.health.modules
       ).catch(() => null);
 
@@ -102,24 +115,32 @@ export function useDashboardData() {
       setInfraHealth(null);
 
       // Normalize
+      const dash = unwrapData(dashboardPayload) ?? {};
+      const quickStats = unwrapData(quickStatsPayload);
+      const recent = recentPayload?.data ?? recentPayload?.items ?? dash.recentActivity ?? [];
+      const systemHealth = unwrapData(systemHealthPayload);
+      const appointmentStats = unwrapData(appointmentStatsPayload);
+      const moduleHealth = unwrapData(moduleHealthPayload);
       const overview = dash?.overview ?? {};
       const newQuick: Quick = {
-        totalUsers: quickStats?.data?.totalUsers ?? overview.totalUsers ?? 0,
+        totalUsers: quickStats?.totalUsers ?? overview.totalUsers ?? 0,
         presentStaff: overview.presentStaff ?? 0,
         availableDoctors: overview.availableDoctors ?? 0,
         appointmentsToday: overview.appointmentsToday ?? 0,
       };
-      setPrevQuick(quick);
+      setPrevQuick(quickRef.current);
       setQuick(newQuick);
+      quickRef.current = newQuick;
 
       // Queue
       const newQueue: AppointmentQueue = {
-        waiting: apptStats?.data?.waiting ?? 0,
-        inProgress: apptStats?.data?.inProgress ?? apptStats?.data?.in_progress ?? 0,
-        completed: apptStats?.data?.completed ?? 0,
+        waiting: appointmentStats?.waiting ?? 0,
+        inProgress: appointmentStats?.inProgress ?? appointmentStats?.in_progress ?? 0,
+        completed: appointmentStats?.completed ?? 0,
       };
-      setPrevQueue(queue);
+      setPrevQueue(queueRef.current);
       setQueue(newQueue);
+      queueRef.current = newQueue;
 
       const ug = dash?.charts?.userGrowth ?? [];
       const at = dash?.charts?.appointmentTrends ?? [];
@@ -129,9 +150,8 @@ export function useDashboardData() {
         appts: at.length ? at.map((d) => d.value) : [58, 68, 77, 89, 76, 77, 88],
       });
 
-      const act = recent?.data ?? recent?.items ?? dash?.recentActivity ?? [];
       setActivity(
-        (act ?? []).slice(0, ACTIVITY_FEED_LIMIT).map((a, i) => ({
+        recent.slice(0, ACTIVITY_FEED_LIMIT).map((a, i) => ({
           id: a?.id ?? String(i),
           user: a?.user ?? 'System',
           action: a?.action ?? 'updated',
@@ -141,8 +161,8 @@ export function useDashboardData() {
         }))
       );
 
-      const healthData = sys?.data ??
-        dash?.systemHealth ?? {
+      const healthData = systemHealth ??
+        dash.systemHealth ?? {
           status: 'healthy' as HealthStatus,
           uptime: '99.99%',
           responseTime: 45,
@@ -150,8 +170,8 @@ export function useDashboardData() {
         };
 
       // Merge module health
-      if (moduleHealth?.data) {
-        healthData.modules = moduleHealth.data;
+      if (moduleHealth) {
+        healthData.modules = moduleHealth;
       }
 
       setHealth(healthData);
@@ -160,7 +180,6 @@ export function useDashboardData() {
     } finally {
       setLoading(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [get]);
 
   async function refreshCache() {

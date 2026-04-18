@@ -246,7 +246,7 @@ export const exportDepartmentsCSV = async (req, res) => {
     // Convert to CSV format
     const csvContent = [
       exportData.headers.join(','),
-      ...exportData.map(row => row.map(cell => `"${cell}"`).join(','))
+      ...exportData.rows.map(row => row.map(cell => `"${cell}"`).join(','))
     ].join('\n');
     
     res.setHeader('Content-Type', 'text/csv');

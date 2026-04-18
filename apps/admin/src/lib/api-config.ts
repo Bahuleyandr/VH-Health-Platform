@@ -170,11 +170,11 @@ export const API_ENDPOINTS = {
     uploads: {
       summary: "/api/v1/admin/upload/summary", // GET - getUploadSummary()
       quarantined: "/api/v1/admin/upload/quarantine", // GET - listQuarantinedFiles()
-      hipaaAudit: "/api/v1/admin/upload/hipaa/audit", // POST - getHipaaAuditReport()
-      rescan: "/api/v1/admin/upload/rescan", // POST - rescanFile()
+      hipaaAudit: "/api/v1/admin/upload/hipaa/audit", // GET - getHipaaAuditReport()
+      rescan: "/api/v1/admin/upload/rescan/:fileId", // POST - rescanFile()
       cleanup: "/api/v1/admin/upload/cleanup", // POST - cleanupExpiredFiles()
-      bulkHipaa: "/api/v1/admin/upload/hipaa-bulk", // POST - bulkUpdateHipaaProtection()
-      purgeQuarantine: "/api/v1/admin/upload/purge-quarantine", // POST - purgeQuarantinedFiles()
+      bulkHipaa: "/api/v1/admin/upload/hipaa/bulk-protect", // POST - bulkUpdateHipaaProtection()
+      purgeQuarantine: "/api/v1/admin/upload/quarantine/purge", // POST - purgeQuarantinedFiles()
     },
 
     // Module entry points (kept for navigation)
@@ -352,8 +352,8 @@ export const API_ENDPOINTS = {
     // Admin
     adminAnalytics: "/api/v1/records/admin/analytics", // GET
     hipaaAudit: "/api/v1/records/admin/hipaa-audit", // GET
-    exportExcel: "/api/v1/records/admin/export/excel", // GET
-    exportPdf: "/api/v1/records/admin/export/pdf", // GET
+    exportExcel: "/api/v1/records/export/excel", // GET
+    exportPdf: "/api/v1/records/export/pdf", // GET
   },
 
   // Staff
@@ -537,6 +537,14 @@ export const buildUrl = (endpoint: string, params?: Record<string, string>) => {
   }
   return url;
 };
+
+export const ensureApiV1Path = (path: string) => {
+  if (path.startsWith("/api/v1/")) return path;
+  if (path.startsWith("/")) return `/api/v1${path}`;
+  return `/api/v1/${path}`;
+};
+
+export const buildProxyUrl = (path: string) => buildUrl(ensureApiV1Path(path));
 
 // Check if endpoint requires authentication
 export const requiresAuth = (endpoint: string): boolean =>

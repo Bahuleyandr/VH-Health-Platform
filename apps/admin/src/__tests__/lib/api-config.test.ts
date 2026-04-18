@@ -21,6 +21,8 @@ import {
   PROTECTED_ROUTES,
   getHeaders,
   buildUrl,
+  ensureApiV1Path,
+  buildProxyUrl,
   requiresAuth,
   buildWsUrl,
 } from "@/lib/api-config";
@@ -298,6 +300,36 @@ describe("buildUrl", () => {
       identifier: "hello world",
     });
     expect(url).toContain("hello%20world");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ensureApiV1Path / buildProxyUrl
+// ---------------------------------------------------------------------------
+describe("proxy URL helpers", () => {
+  it("preserves a full /api/v1 path", () => {
+    expect(ensureApiV1Path("/api/v1/admin/dashboard")).toBe(
+      "/api/v1/admin/dashboard",
+    );
+  });
+
+  it("adds /api/v1 to short API paths", () => {
+    expect(ensureApiV1Path("/admin/alerts")).toBe("/api/v1/admin/alerts");
+    expect(ensureApiV1Path("records/export/pdf")).toBe("/api/v1/records/export/pdf");
+  });
+
+  it("builds a proxied URL without stripping the API version", () => {
+    expect(buildProxyUrl("/api/v1/records/export/pdf")).toBe(
+      `${API_BASE_URL}/api/v1/records/export/pdf`,
+    );
+  });
+
+  it("preserves query strings when building proxy URLs", () => {
+    expect(
+      buildProxyUrl("/api/v1/appointments/admin/export?format=csv&date_from=2026-04-01"),
+    ).toBe(
+      `${API_BASE_URL}/api/v1/appointments/admin/export?format=csv&date_from=2026-04-01`,
+    );
   });
 });
 

@@ -85,7 +85,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
     try {
       _myUid = await ApiConfig.getStaffId();
       final resp = await ApiClient.get(
-        '/api/v1/messaging/thread/${widget.otherStaffUid}',
+        '/messaging/thread/${widget.otherStaffUid}',
       );
 
       if (!resp.isSuccess) {
@@ -129,7 +129,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
   Future<void> _markMessagesRead(List<int> ids) async {
     for (final id in ids) {
       try {
-        await ApiClient.patch('/api/v1/messaging/$id/read');
+        await ApiClient.patch('/messaging/$id/read');
       } catch (_) {
         // Non-critical — silently ignore individual failures
       }
@@ -144,7 +144,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
 
     try {
       final resp = await ApiClient.post(
-        '/api/v1/messaging/send',
+        '/messaging/send',
         body: {
           'recipient_uid': widget.otherStaffUid,
           'body': text,

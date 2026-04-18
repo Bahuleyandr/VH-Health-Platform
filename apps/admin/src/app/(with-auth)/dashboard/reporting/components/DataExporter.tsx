@@ -3,6 +3,7 @@
 
 import { useState, useMemo } from "react";
 import { DownloadIcon, RefreshIcon } from "@/components/icons";
+import { API_ENDPOINTS, buildProxyUrl } from "@/lib/api-config";
 
 /* ─── Date preset helpers ─── */
 function today() {
@@ -46,7 +47,8 @@ interface ExportDef {
   description: string;
   color: string;
   hoverColor: string;
-  buildUrl: (from: string, to: string) => string;
+  previewAsCsv: boolean;
+  buildPath: (from: string, to: string) => string;
   filename: (from: string, to: string) => string;
 }
 
@@ -57,8 +59,9 @@ const EXPORTS: ExportDef[] = [
     description: "All appointments with patient/doctor info, status, and timestamps",
     color: "bg-primary",
     hoverColor: "hover:bg-primary/90",
-    buildUrl: (from, to) =>
-      `/api/v1/appointments/admin/export?format=csv&startDate=${from}&endDate=${to}`,
+    previewAsCsv: true,
+    buildPath: (from, to) =>
+      `${API_ENDPOINTS.appointments.admin.export}?format=csv&date_from=${from}&date_to=${to}`,
     filename: (from, to) => `appointments-${from}-to-${to}.csv`,
   },
   {
@@ -67,8 +70,10 @@ const EXPORTS: ExportDef[] = [
     description: "Staff details, attendance, department allocation",
     color: "bg-purple-600",
     hoverColor: "hover:bg-purple-700",
-    buildUrl: () => `/api/v1/staff/hr/export-report?format=csv`,
-    filename: () => `staff-hr-report-${today()}.csv`,
+    previewAsCsv: true,
+    buildPath: (from, to) =>
+      `/api/v1/staff/hr/export-report?format=csv&report_type=attendance&start_date=${from}&end_date=${to}`,
+    filename: (from, to) => `staff-attendance-report-${from}-to-${to}.csv`,
   },
   {
     id: "departments",
@@ -76,7 +81,8 @@ const EXPORTS: ExportDef[] = [
     description: "Department list with doctor counts and status",
     color: "bg-teal-600",
     hoverColor: "hover:bg-teal-700",
-    buildUrl: () => `/api/v1/departments/admin/export/csv`,
+    previewAsCsv: true,
+    buildPath: () => API_ENDPOINTS.departments.exportCsv,
     filename: () => `departments-${today()}.csv`,
   },
   {
@@ -85,8 +91,10 @@ const EXPORTS: ExportDef[] = [
     description: "Medical records exported as XLSX spreadsheet",
     color: "bg-success",
     hoverColor: "hover:bg-success/90",
-    buildUrl: () => `/api/v1/records/admin/export/excel`,
-    filename: () => `medical-records-${today()}.xlsx`,
+    previewAsCsv: false,
+    buildPath: (from, to) =>
+      `${API_ENDPOINTS.records.exportExcel}?type=all&date_from=${from}&date_to=${to}`,
+    filename: (from, to) => `medical-records-${from}-to-${to}.xlsx`,
   },
   {
     id: "records-pdf",
@@ -94,8 +102,10 @@ const EXPORTS: ExportDef[] = [
     description: "Formatted medical records report as PDF",
     color: "bg-destructive",
     hoverColor: "hover:bg-destructive/90",
-    buildUrl: () => `/api/v1/records/admin/export/pdf`,
-    filename: () => `medical-records-${today()}.pdf`,
+    previewAsCsv: false,
+    buildPath: (from, to) =>
+      `${API_ENDPOINTS.records.exportPdf}?type=all&date_from=${from}&date_to=${to}`,
+    filename: (from, to) => `medical-records-${from}-to-${to}.pdf`,
   },
 ];
 
@@ -130,7 +140,7 @@ export function DataExporter() {
 
     try {
       // Auth is via httpOnly cookie — no need to pass token explicitly.
-      const url = `/api/proxy/${exp.buildUrl(dateRange.from, dateRange.to).replace(/^\/api\/v1\//, '')}`;
+      const url = buildProxyUrl(exp.buildPath(dateRange.from, dateRange.to));
       const res = await fetch(url, { credentials: "include" });
 
       if (!res.ok) {
@@ -141,7 +151,7 @@ export function DataExporter() {
       const blob = await res.blob();
 
       // Try to parse CSV for preview
-      if (exp.id.startsWith("records-pdf") === false && blob.type.includes("csv") || exp.id === "appointments" || exp.id === "staff" || exp.id === "departments") {
+      if (exp.previewAsCsv) {
         try {
           const text = await blob.text();
           const lines = text.split("\n").filter(Boolean);

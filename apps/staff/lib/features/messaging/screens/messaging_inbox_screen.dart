@@ -71,8 +71,8 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
     try {
       _myUid = await ApiConfig.getStaffId();
       final results = await Future.wait([
-        ApiClient.get('/api/v1/messaging/inbox'),
-        ApiClient.get('/api/v1/messaging/unread-count'),
+        ApiClient.get('/messaging/inbox'),
+        ApiClient.get('/messaging/unread-count'),
       ]);
 
       final inboxResp = results[0];

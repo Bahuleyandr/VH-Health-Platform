@@ -61,7 +61,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
       _error = null;
     });
     try {
-      final response = await ApiClient.get('/bed/wards');
+      final response = await ApiClient.get('/wards');
       if (response.isSuccess) {
         final data = response.data;
         final list = data is List
@@ -86,7 +86,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
       _beds = [];
     });
     try {
-      final response = await ApiClient.get('/bed/ward/$wardId');
+      final response = await ApiClient.get('/beds/ward/$wardId');
       if (response.isSuccess) {
         final data = response.data;
         final list = data is List

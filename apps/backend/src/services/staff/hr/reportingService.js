@@ -66,7 +66,7 @@ const generateAttendanceReport = async (department, start_date, _end_date) => {
   
   if (start_date && _end_date) {
     const paramOffset = queryParams.length;
-    whereClause += ` AND DATE(sa.check_in_time) BETWEEN $${paramOffset + 1} AND $${paramOffset + 2}`;
+    whereClause += ` AND DATE(sa.check_in_time) BETWEEN $${paramOffset + 1}::date AND $${paramOffset + 2}::date`;
     queryParams.push(start_date, _end_date);
   }
 
@@ -81,13 +81,13 @@ const generateAttendanceReport = async (department, start_date, _end_date) => {
       sa.check_out_time,
       EXTRACT(EPOCH FROM (sa.check_out_time - sa.check_in_time))/3600 as hours_worked,
       sa.overtime_hours,
-      CASE WHEN TIME(sa.check_in_time) > '09:30:00' THEN 'Late' ELSE 'On Time' END as punctuality
+      CASE WHEN sa.check_in_time::time > TIME '09:30:00' THEN 'Late' ELSE 'On Time' END as punctuality
     FROM staff_attendance sa
-    JOIN staff s ON sa.staff_id = s.user_id
-    JOIN users u ON s.user_id = u.id
+    JOIN staff s ON sa.staff_uid = s.user_id OR sa.staff_id = s.id
+    JOIN users u ON s.user_id = u.uid
     ${whereClause}
     ORDER BY date DESC, u.name
-  `, queryParams);
+  `, ...queryParams);
 
   return result.map(row => ({
     ...row,

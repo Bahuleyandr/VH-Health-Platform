@@ -9,6 +9,7 @@
 
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
+import { normalizeAuditLogUserId } from './auditLogIdentity.js';
 
 let pendingSecurityLogs = 0;
 const MAX_PENDING_SECURITY_LOGS = 500;
@@ -45,7 +46,7 @@ export function logSecurityEvent(eventType, details = {}) {
            query_params, request_summary, status_code, response_time_ms, success, user_agent)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
       `, 
-        details.userId || null,
+        normalizeAuditLogUserId(details.userId),
         details.userName || null,
         details.userRole || null,
         details.ip || null,
