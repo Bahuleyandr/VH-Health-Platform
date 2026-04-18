@@ -50,6 +50,10 @@ class HealthSyncService {
   Timer? _periodicTimer;
   bool _permissionsGranted = false;
   bool _writePermissionsGranted = false;
+  // True once we've surfaced the write-permission sheet to the user this
+  // session. Once the user declines, don't re-prompt until the next launch
+  // (OS will suppress re-prompts anyway, but this avoids the channel round-trip).
+  bool _writePermissionsAsked = false;
 
   String get _sourceTag => Platform.isIOS ? 'healthkit' : 'google_fit';
 
@@ -222,14 +226,23 @@ class HealthSyncService {
     DateTime? recordedAt,
   }) async {
     if (!_writePermissionsGranted) {
+      if (_writePermissionsAsked) return; // user previously declined this session
       await _health.configure();
-      final has =
-          await _health.hasPermissions(_writableTypes, permissions:
-            List<HealthDataAccess>.filled(_writableTypes.length, HealthDataAccess.READ_WRITE),
-          ) ??
-              false;
-      if (!has) return;
-      _writePermissionsGranted = true;
+      final permissions =
+          List<HealthDataAccess>.filled(_writableTypes.length, HealthDataAccess.READ_WRITE);
+      final has = await _health.hasPermissions(_writableTypes, permissions: permissions) ?? false;
+      if (has) {
+        _writePermissionsGranted = true;
+      } else {
+        // First write of the session with no prior grant — prompt now so the
+        // mirror actually lands. After one decline, further saves in this
+        // session silently no-op (see [_writePermissionsAsked]).
+        _writePermissionsAsked = true;
+        final granted =
+            await _health.requestAuthorization(_writableTypes, permissions: permissions);
+        _writePermissionsGranted = granted;
+        if (!granted) return;
+      }
     }
 
     final at = recordedAt ?? DateTime.now();
