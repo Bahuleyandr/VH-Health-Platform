@@ -59,7 +59,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1032.0",
     "@aws-sdk/util-create-request": "^3.972.19",
     "@prisma/client": "^6.19.3",
-    "@sentry/node": "^10.46.0",
+    "@sentry/node": "^10.49.0",
     "axios": "^1.15.0",
     "bcrypt": "^6.0.0",
     "clamav.js": "^0.12.0",
