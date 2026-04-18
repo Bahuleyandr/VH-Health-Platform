@@ -1,0 +1,61 @@
+name: Release Patient App
+
+# Builds a release-mode APK + AAB for the patient app and attaches them
+# to a GitHub Release. Triggered by tags prefixed `patient-v*`
+# (e.g. `patient-v1.2.3`) so patient and staff releases don't collide
+# in the monorepo.
+#
+# Monorepo adaptations vs. the original standalone-repo workflow:
+#   - No secondary checkout of vhhealth-core (it's at packages/vhhealth_core).
+#   - dart pub get + melos bootstrap at the repo root before the per-app build.
+#   - working-directory: apps/patient for flutter build apk/appbundle.
+#   - Artifact paths updated to apps/patient/build/app/outputs/...
+
+on:
+  push:
+    tags: ['patient-v*']
+  workflow_dispatch:
+
+concurrency:
+  group: release-patient-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Activate Melos
+        run: dart pub global activate melos 7.5.1
+
+      - name: Bootstrap workspace
+        run: |
+          dart pub get
+          melos bootstrap
+
+      - name: Build release APK
+        working-directory: apps/patient
+        run: flutter build apk --release
+
+      - name: Build release AAB
+        working-directory: apps/patient
+        run: flutter build appbundle --release
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Patient ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            apps/patient/build/app/outputs/flutter-apk/app-release.apk
+            apps/patient/build/app/outputs/bundle/release/app-release.aab

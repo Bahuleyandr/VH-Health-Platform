@@ -1,0 +1,55 @@
+version: 2
+
+# Consolidated from the two identical configs that came in via subtree
+# merge (apps/patient/.github/dependabot.yml and apps/staff/.github/).
+# GitHub Dependabot only reads `.github/dependabot.yml` at the repo root,
+# so the per-app copies were inert.
+
+updates:
+  # Patient app
+  - package-ecosystem: "pub"
+    directory: "/apps/patient"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "patient"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # Workspace member — resolved by pub workspace, not pub.dev
+      - dependency-name: "vhhealth_core"
+
+  # Staff app
+  - package-ecosystem: "pub"
+    directory: "/apps/staff"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "staff"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vhhealth_core"
+
+  # Shared core package
+  - package-ecosystem: "pub"
+    directory: "/packages/vhhealth_core"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "core"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # GitHub Actions pinning (Flutter action, checkout, release action, etc.)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels: ["dependencies", "ci"]
