@@ -5,9 +5,12 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { API_ENDPOINTS, API_BASE_URL, getHeaders } from '@/lib/api-config';
 import styles from './Dashboard.module.css';
-import { AnimatedCounter } from './components/AnimatedCounter';
 import { DashboardSkeleton } from './components/DashboardSkeleton';
 import { SimpleChart } from './components/SimpleChart';
+import { StatsGrid } from './components/StatsGrid';
+import { ActivityFeed } from './components/ActivityFeed';
+import { CommandPalette } from './components/CommandPalette';
+import { NotificationsDropdown } from './components/NotificationsDropdown';
 import type {
   Activity,
   ActivityApiItem,
@@ -16,7 +19,6 @@ import type {
   Notification,
   StatCard,
 } from './dashboardTypes';
-import { formatTimeAgo } from './formatTimeAgo';
 import {
   DASHBOARD_DEMO_DATA,
   DASHBOARD_DEMO_NOTIFICATIONS,
@@ -206,28 +208,6 @@ useEffect(() => {
     );
   };
 
-  const executeCommand = (command: string) => {
-    const commands: { [key: string]: () => void } = {
-      'users': () => router.push('/dashboard/users'),
-      'doctors': () => router.push('/dashboard/doctors'),
-      'departments': () => router.push('/dashboard/departments'),
-      'appointments': () => router.push('/dashboard/appointments'),
-      'pharmacy': () => router.push('/dashboard/pharmacy'),
-      'reports': () => router.push('/dashboard/reporting'),
-      'notifications': () => router.push('/dashboard/notifications'),
-      'attendance': () => router.push('/dashboard/attendance'),
-      'emergency': () => router.push('/dashboard/sos'),
-      'system logs': () => router.push('/dashboard/system-logs'),
-      'settings': () => router.push('/dashboard/settings'),
-    };
-
-    const cmd = command.toLowerCase();
-    if (commands[cmd]) {
-      commands[cmd]();
-      setShowCommandPalette(false);
-    }
-  };
-
   const unreadNotifications = notifications.filter(n => !n.read).length;
 
   if (!dashboardData) {
@@ -370,32 +350,7 @@ useEffect(() => {
       </div>
 
       {/* Stats Cards */}
-      <div className={styles.statsGrid}>
-        {stats.map((stat) => (
-          <div key={stat.id} className={`${styles.statCard} ${styles[`statCard${stat.color.charAt(0).toUpperCase() + stat.color.slice(1)}`]}`}>
-            <div className={styles.statHeader}>
-              <span className={styles.statIcon}>{stat.icon}</span>
-              <span className={`${styles.statChange} ${stat.change > 0 ? styles.changePositive : styles.changeNegative}`}>
-                {stat.change > 0 ? '↑' : '↓'} {Math.abs(stat.change)}%
-              </span>
-            </div>
-            <div className={styles.statContent}>
-              <h3 className={styles.statTitle}>{stat.title}</h3>
-              <AnimatedCounter value={stat.value} suffix={stat.suffix} />
-            </div>
-            <div className={styles.statSparkline}>
-              <svg className={styles.sparklineSvg}>
-                <polyline
-                  points="0,20 20,15 40,18 60,10 80,12 100,8"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                />
-              </svg>
-            </div>
-          </div>
-        ))}
-      </div>
+      <StatsGrid stats={stats} />
 
       {/* Main Dashboard Grid */}
       <div className={styles.mainGrid}>
@@ -423,38 +378,7 @@ useEffect(() => {
         </div>
 
         {/* Activity Feed */}
-        <div className={styles.activityCard}>
-          <div className={styles.activityHeader}>
-            <h2 className={styles.activityTitle}>📋 Recent Activity</h2>
-            <button 
-              className={styles.viewAllBtn}
-              onClick={() => router.push('/dashboard/system-logs')}
-            >
-              View All →
-            </button>
-          </div>
-          <div className={styles.activityList}>
-            {dashboardData.recentActivity.map(activity => (
-              <div key={activity.id} className={styles.activityItem}>
-                <div className={styles.activityIcon}>
-                  {activity.department === 'ICU' ? '🏥' : 
-                   activity.department === 'Emergency' ? '🚨' : '👤'}
-                </div>
-                <div className={styles.activityContent}>
-                  <p className={styles.activityText}>
-                    <strong>{activity.user}</strong> {activity.action} <em>{activity.target}</em>
-                  </p>
-                  <div className={styles.activityMeta}>
-                    <span className={styles.activityDept}>{activity.department}</span>
-                    <span className={styles.activityTime}>
-                      {formatTimeAgo(activity.time)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <ActivityFeed activities={dashboardData.recentActivity} />
 
         {/* Quick Stats Widgets */}
         <div className={styles.widgetGrid}>
@@ -560,87 +484,16 @@ useEffect(() => {
 
       {/* Command Palette Modal */}
       {showCommandPalette && (
-        <div className={styles.modalOverlay} onClick={() => setShowCommandPalette(false)}>
-          <div className={styles.commandPalette} onClick={(e) => e.stopPropagation()}>
-            <input
-              type="text"
-              placeholder="Type a command or page name..."
-              className={styles.commandInput}
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && e.currentTarget.value) {
-                  executeCommand(e.currentTarget.value);
-                }
-              }}
-            />
-            <div className={styles.commandList}>
-              <button className={styles.commandItem} onClick={() => executeCommand('users')}>
-                <span>👥</span> User Management
-              </button>
-              <button className={styles.commandItem} onClick={() => executeCommand('doctors')}>
-                <span>🩺</span> Doctor Management
-              </button>
-              <button className={styles.commandItem} onClick={() => executeCommand('departments')}>
-                <span>🏥</span> Department Management
-              </button>
-              <button className={styles.commandItem} onClick={() => executeCommand('appointments')}>
-                <span>📅</span> Appointments
-              </button>
-              <button className={styles.commandItem} onClick={() => executeCommand('pharmacy')}>
-                <span>💊</span> Pharmacy Orders
-              </button>
-              <button className={styles.commandItem} onClick={() => executeCommand('reports')}>
-                <span>📊</span> Reports & Analytics
-              </button>
-              <button className={styles.commandItem} onClick={() => executeCommand('notifications')}>
-                <span>🔔</span> Notifications
-              </button>
-              <button className={styles.commandItem} onClick={() => executeCommand('attendance')}>
-                <span>✅</span> Staff Attendance
-              </button>
-              <button className={styles.commandItem} onClick={() => executeCommand('emergency')}>
-                <span>🚨</span> Emergency/SOS
-              </button>
-              <button className={styles.commandItem} onClick={() => executeCommand('system logs')}>
-                <span>📜</span> System Logs
-              </button>
-              <button className={styles.commandItem} onClick={() => executeCommand('settings')}>
-                <span>⚙️</span> System Settings
-              </button>
-            </div>
-          </div>
-        </div>
+        <CommandPalette onClose={() => setShowCommandPalette(false)} />
       )}
+
       {/* Notifications Dropdown */}
       {showNotifications && (
-        <div className={styles.notificationsDropdown}>
-          <div className={styles.notificationsHeader}>
-            <h3>Notifications</h3>
-            <button onClick={() => setNotifications([])}>Clear All</button>
-          </div>
-          <div className={styles.notificationsList}>
-
-            {notifications.map(notif => (
-              <div
-                key={notif.id}
-                className={`${styles.notificationItem} ${notif.read ? styles.notifRead : ''}`}
-                onClick={() => markNotificationAsRead(notif.id)}
-              >
-                <div className={styles.notifIcon}>
-                  {notif.type === 'critical' ? '🔴' : 
-                   notif.type === 'warning' ? '🟡' : 
-                   notif.type === 'success' ? '🟢' : '🔵'}
-                </div>
-                <div className={styles.notifContent}>
-                  <h4>{notif.title}</h4>
-                  <p>{notif.message}</p>
-                  <span className={styles.notifTime}>{formatTimeAgo(notif.time)}</span>
-                </div>
-              </div>
-            ))}
-
-          </div>
-        </div>
+        <NotificationsDropdown
+          notifications={notifications}
+          onMarkAsRead={markNotificationAsRead}
+          onClearAll={() => setNotifications([])}
+        />
       )}
 
       {/* Loading Overlay */}
