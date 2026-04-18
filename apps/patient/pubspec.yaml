@@ -2,6 +2,7 @@ name: vhhealth
 description: A new Flutter project for VH Health (with working Firebase OTP)
 publish_to: 'none'
 version: 1.0.0+1  # Added build number
+resolution: workspace
 
 environment:
   sdk: ">=3.8.1 <4.0.0"
@@ -14,8 +15,8 @@ dependencies:
     sdk: flutter
 
   # ── Shared core ────────────────────────────────────────────────────────────
-  vhhealth_core:
-    path: ../../packages/vhhealth_core
+  # In pub workspace mode, resolution happens by package name — no path needed.
+  vhhealth_core: any
     
   # ── Localisation ───────────────────────────────────────────────────────────
   flutter_localizations:

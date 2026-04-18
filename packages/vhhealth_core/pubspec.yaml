@@ -2,6 +2,7 @@ name: vhhealth_core
 description: Shared code for VHHealth patient and staff apps
 version: 0.1.0
 publish_to: 'none'
+resolution: workspace
 
 environment:
   sdk: ">=3.8.1 <4.0.0"

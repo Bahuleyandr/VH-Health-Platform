@@ -1,9 +1,48 @@
 name: vhhealth_workspace
 publish_to: none
-description: Root pubspec anchoring Melos for the VH Health Flutter monorepo.
+description: Root pubspec for the VH Health Flutter monorepo (Melos 7 + pub workspace).
 
 environment:
   sdk: ^3.8.0
 
+workspace:
+  - apps/patient
+  - apps/staff
+  - packages/vhhealth_core
+
 dev_dependencies:
-  melos: ^6.3.0
+  melos: ^7.5.1
+
+melos:
+  scripts:
+    analyze:
+      description: "flutter analyze across the workspace"
+      run: melos exec -- "flutter analyze --no-fatal-infos"
+
+    test:
+      description: "flutter test across the workspace (only packages with a test/ dir)"
+      run: melos exec --dir-exists=test -- "flutter test"
+
+    format:
+      description: "dart format (check only — CI-safe)"
+      run: melos exec -- "dart format --set-exit-if-changed ."
+
+    format-fix:
+      description: "dart format with writes"
+      run: melos exec -- "dart format ."
+
+    codegen:
+      description: "build_runner in packages that declare it"
+      run: melos exec --depends-on="build_runner" -- "dart run build_runner build --delete-conflicting-outputs"
+
+    codegen-watch:
+      description: "watch-mode build_runner"
+      run: melos exec --depends-on="build_runner" -- "dart run build_runner watch --delete-conflicting-outputs"
+
+    clean:
+      description: "flutter clean every package"
+      run: melos exec -- "flutter clean"
+
+    gen-l10n:
+      description: "generate l10n in packages that declare flutter_localizations"
+      run: melos exec --depends-on="flutter_localizations" -- "flutter gen-l10n"

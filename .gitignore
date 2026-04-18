@@ -1,6 +1,11 @@
-# Melos
+# Melos / pub
 .dart_tool/
 pubspec_overrides.yaml
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Flutter build output
+build/
 
 # IDEs
 .idea/

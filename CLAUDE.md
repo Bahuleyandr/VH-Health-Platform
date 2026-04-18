@@ -16,13 +16,12 @@ coordination uses
 ## Workflow
 
 ```bash
-# One-time setup (pin to 6.x — 7.x requires a pub workspace, which breaks on the
-# patient-vs-staff Firebase major-version split)
-dart pub global activate melos 6.3.0
+# One-time setup
+dart pub global activate melos 7.5.1
 
 # Every clone / after pulling
-dart pub get                 # installs the melos dev_dependency at the root
-melos bootstrap              # pub get across all three packages in parallel
+dart pub get                 # resolves the pub workspace (all 3 packages share a lockfile)
+melos bootstrap              # generates IDE files + runs post-bootstrap hooks
 
 # Daily commands
 melos run analyze            # flutter analyze everywhere
@@ -49,19 +48,23 @@ Those files predate the monorepo so sibling-repo path references
 old separate-repo layout. The actual dependency wiring is correct —
 each `pubspec.yaml` now uses `path: ../../packages/vhhealth_core`.
 
-## Path-dep invariant
+## Pub workspace invariant
 
-Both apps depend on `vhhealth_core` via relative path from the monorepo
-layout:
+This is a Dart pub workspace (Melos 7 + Dart 3.6+). All packages share
+one `pubspec.lock` at the repo root. Consequences:
 
-```yaml
-vhhealth_core:
-  path: ../../packages/vhhealth_core
-```
-
-Moving a package (e.g. renaming `apps/patient` to `apps/mobile`)
-requires updating every consumer's path. `melos bootstrap` will fail
-loudly if the path breaks.
+- Sub-packages depend on `vhhealth_core` by **name**, not path:
+  ```yaml
+  vhhealth_core: any
+  ```
+  The workspace resolver finds it because it's listed under
+  `workspace:` in the root `pubspec.yaml`.
+- Every dep must resolve to a single version across all workspace
+  members. If you introduce a version conflict (e.g. patient on
+  `firebase_core ^4` and staff on `^3`), `dart pub get` refuses. Align
+  the versions or move the odd-one-out out of the workspace.
+- Melos scripts live under the `melos:` key in `pubspec.yaml`, not in
+  a separate `melos.yaml` file.
 
 ## History
 
