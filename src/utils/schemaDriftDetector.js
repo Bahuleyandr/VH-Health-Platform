@@ -6,6 +6,12 @@ import logger from '../logging/logger.js';
  * Run at startup to catch mismatches early.
  */
 export async function detectSchemaDrift() {
+  // Tables whose absence would break a real route or service. Runtime-
+  // bookkeeping tables (e.g. `_migrations`, created lazily by
+  // `src/utils/migrations/runMigrations.js` at server startup) are excluded —
+  // they're not a schema invariant the drift detector should gate on, and
+  // CI's `scripts/ci-setup-db.mjs` bypasses the runtime migration runner by
+  // design, so `_migrations` never exists in the test DB.
   const expectedTables = [
     'users', 'appointments', 'doctors', 'departments',
     'health_records', 'patient_records', 'patient_allergies',
@@ -17,7 +23,6 @@ export async function detectSchemaDrift() {
     'audit_logs', 'hipaa_access_log',
     'appointment_documents', 'appointment_status_history',
     'wards', 'beds',
-    '_migrations',
   ];
 
   try {
