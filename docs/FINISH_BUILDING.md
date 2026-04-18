@@ -217,14 +217,22 @@ individual features — they're investments that make every future change
 cheaper. Numbered items have `[needs-decision]` when they require product
 input before we execute.
 
-- [~] **5.1 Melos monorepo** — 2026-04-14: *workspace* config at `melos.yaml`
-      landed so shared commands (`melos run pub_get`, `melos run codegen`,
-      `melos run analyze`) cover the three Dart packages in one pass.
-      Full history-preserving monorepo migration (`git subtree add` for
-      each repo into `C:/Dev/Projects/vhhealth/`) documented in
-      `docs/MONOREPO_MIGRATION.md` — **not executed here** because it's a
-      one-time operation that needs user supervision. Flip to `[x]` after
-      running the runbook.
+- [x] **5.1 Melos monorepo** — 2026-04-18: shipped. Live repo:
+      https://github.com/Bahuleyandr/VH-Health-MonoRepo (private).
+      Layout: `packages/vhhealth_core`, `apps/patient`, `apps/staff`.
+      Full history of the 3 source repos preserved via `git subtree add`
+      (`git log apps/patient/` walks every original commit). Uses
+      **Melos 7.5.1 + Dart pub workspace** — single `pubspec.lock` at
+      the root, scripts under the `melos:` key in the root `pubspec.yaml`.
+      Sub-packages reference `vhhealth_core: any` (no path — workspace
+      resolver finds it by name). Firebase aligned across apps as part
+      of the migration (staff bumped to `firebase_core ^4`,
+      `firebase_messaging ^16`, `firebase_crashlytics ^5`). `melos
+      bootstrap` + `melos run analyze` verified green.
+      Backend + admin portal intentionally stay in their own repos
+      (different stacks, different deploy cadences) — cross-stack
+      changes continue to follow `docs/CROSS_REPO_PR_CONVENTION.md`.
+      Old 3 Flutter repos not yet archived (owner-held).
 - [x] **5.2 Finish duplication migration** — 2026-04-14: patient + staff
       apps route through `vhhealth_core.VHHttpClient` via thin shims. Native
       ApiClient copies kept as deprecation-tagged façades so existing call
