@@ -1,0 +1,37 @@
+// Investigation types
+export const INVESTIGATION_TYPES = {
+  LAB: 'LAB',
+  RADIOLOGY: 'RADIOLOGY',
+  PATHOLOGY: 'PATHOLOGY',
+  CARDIOLOGY: 'CARDIOLOGY',
+  PULMONARY: 'PULMONARY',
+  ENDOSCOPY: 'ENDOSCOPY'
+};
+
+// Investigation status
+export const INVESTIGATION_STATUS = {
+  PENDING: 'PENDING',
+  SCHEDULED: 'SCHEDULED',
+  IN_PROGRESS: 'IN_PROGRESS',
+  COMPLETED: 'COMPLETED',
+  CANCELLED: 'CANCELLED'
+};
+
+// Priority levels
+export const PRIORITY_LEVELS = {
+  URGENT: 'URGENT',
+  HIGH: 'HIGH',
+  NORMAL: 'NORMAL',
+  LOW: 'LOW'
+};
+
+// Pagination defaults
+export const PAGINATION = {
+  DEFAULT_LIMIT: 20,
+  MAX_LIMIT: 100,
+  DEFAULT_PAGE: 1
+};
+
+// Access roles
+export const MEDICAL_STAFF_ROLES = ['DOCTOR', 'NURSE', 'LAB_TECHNICIAN', 'RADIOLOGIST', 'ADMIN'];
+export const LAB_STAFF_ROLES = ['LAB_TECHNICIAN', 'DOCTOR', 'RADIOLOGIST', 'ADMIN'];

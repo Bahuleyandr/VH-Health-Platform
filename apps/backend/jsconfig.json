@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "baseUrl": "./src",
+    "paths": {
+      "@config/*": ["config/*"],
+      "@utils/*": ["utils/*"],
+      "@middleware/*": ["middleware/*"],
+      "@controllers/*": ["controllers/*"],
+      "@routes/*": ["routes/*"],
+      "@logging/*": ["logging/*"],
+      "@docs/*": ["docs/*"],
+      "@scripts/*": ["scripts/*"],
+      "@bin/*": ["bin/*"]
+    },
+    "checkJs": true,
+    "allowJs": true,
+    "module": "ESNext",
+    "target": "ES2021",
+    "moduleResolution": "node"
+  },
+  "include": ["src"]
+}
