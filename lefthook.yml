@@ -1,16 +1,53 @@
 # One-time install per clone:  lefthook install
 #
-# Purpose: keep pre-push fast so local commits can't push red. Mirrors the
-# checks CI runs so "green locally → green in CI" holds.
+# Path-scoped hooks so Flutter changes don't try to run npm checks and vice
+# versa. pre-commit runs on staged files only; pre-push runs the same full
+# checks CI runs, scoped to what the push actually touches.
 
 pre-commit:
   parallel: true
   commands:
     dart-format:
-      glob: "*.dart"
+      glob: "apps/patient/**/*.dart apps/staff/**/*.dart packages/vhhealth_core/**/*.dart"
       run: dart format --set-exit-if-changed {staged_files}
+
+    admin-tsc:
+      root: apps/admin
+      glob: "*.{ts,tsx}"
+      run: npx tsc --noEmit
+
+    admin-lint:
+      root: apps/admin
+      glob: "*.{ts,tsx,js,jsx}"
+      run: npx next lint --file {staged_files}
+
+    backend-eslint:
+      root: apps/backend
+      glob: "*.{js,mjs,cjs}"
+      run: npx eslint --no-warn-ignored {staged_files}
 
 pre-push:
   commands:
-    analyze:
-      run: melos run analyze
+    flutter-analyze:
+      run: |
+        if git diff --name-only @{u}..HEAD 2>/dev/null | grep -qE '^(apps/(patient|staff)/|packages/vhhealth_core/|pubspec\.(yaml|lock))'; then
+          melos run analyze
+        else
+          echo "lefthook pre-push: no Flutter changes — skipping melos analyze"
+        fi
+
+    backend-lint:
+      run: |
+        if git diff --name-only @{u}..HEAD 2>/dev/null | grep -q '^apps/backend/'; then
+          (cd apps/backend && npm run --silent lint)
+        else
+          echo "lefthook pre-push: no backend changes — skipping backend lint"
+        fi
+
+    admin-jest:
+      run: |
+        if git diff --name-only @{u}..HEAD 2>/dev/null | grep -q '^apps/admin/'; then
+          (cd apps/admin && npx jest --passWithNoTests --silent)
+        else
+          echo "lefthook pre-push: no admin changes — skipping admin jest"
+        fi

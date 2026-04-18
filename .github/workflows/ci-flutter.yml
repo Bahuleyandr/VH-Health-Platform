@@ -1,13 +1,31 @@
-name: CI
+name: Flutter CI
+
+# Runs only when the Flutter side of the repo (apps/patient, apps/staff,
+# packages/vhhealth_core) or workspace-wide plumbing changes. Admin + backend
+# edits skip this workflow via path filters.
 
 on:
   push:
     branches: [main]
+    paths:
+      - 'apps/patient/**'
+      - 'apps/staff/**'
+      - 'packages/vhhealth_core/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/ci-flutter.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'apps/patient/**'
+      - 'apps/staff/**'
+      - 'packages/vhhealth_core/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/ci-flutter.yml'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-flutter-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

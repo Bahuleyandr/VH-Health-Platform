@@ -1,126 +1,153 @@
-# CLAUDE.md — VH Health Monorepo
+# CLAUDE.md — VH Health Platform (full-stack monorepo)
 
-Melos workspace unifying the three Flutter repos:
+Single repo for every component of the VH Health healthcare platform:
+Node/Express API, Next.js admin portal, two Flutter apps, and the
+shared Dart package they all consume.
 
-| Path | Package name | Role |
+## Layout
+
+| Path | Stack | Role |
 |---|---|---|
-| `packages/vhhealth_core` | `vhhealth_core` | Shared types, API client, codegen target |
-| `apps/patient` | `vhhealth` | Patient-facing Flutter app |
-| `apps/staff` | `vhhealth_staff` | Staff/clinical Flutter app |
-
-The Node backend (`VH-health-backend`) and Next.js admin portal
-(`VH-Health-Adminportal`) stay in their own GitHub repos — cross-stack
-coordination uses
-[`CROSS_REPO_PR_CONVENTION.md`](https://github.com/Bahuleyandr/VH-health-backend/blob/main/docs/CROSS_REPO_PR_CONVENTION.md).
-
-## Workflow
-
-```bash
-# One-time setup
-dart pub global activate melos 7.5.1
-
-# Every clone / after pulling
-dart pub get                 # resolves the pub workspace (all 3 packages share a lockfile)
-melos bootstrap              # generates IDE files + runs post-bootstrap hooks
-
-# Daily commands
-melos run analyze            # flutter analyze everywhere
-melos run test               # flutter test everywhere (skips packages with no test/)
-melos run format             # dart format --set-exit-if-changed (CI-safe)
-melos run format-fix         # dart format with writes
-melos run codegen            # build_runner in packages that declare it
-melos run clean              # flutter clean everywhere
-```
-
-`melos exec -- "<any command>"` runs an ad-hoc command in every package.
-Scope with `--scope="vhhealth_core"` etc.
-
-## Per-package docs
-
-Each package keeps its own `CLAUDE.md` next to its `pubspec.yaml`:
-
-- [`packages/vhhealth_core/CLAUDE.md`](packages/vhhealth_core/CLAUDE.md)
-- [`apps/patient/CLAUDE.md`](apps/patient/CLAUDE.md)
-- [`apps/staff/CLAUDE.md`](apps/staff/CLAUDE.md)
-
-Those files predate the monorepo so sibling-repo path references
-(e.g. `../vhhealth-core`, `../vhhealth-backend`) point at the
-old separate-repo layout. The actual dependency wiring is correct —
-each `pubspec.yaml` now uses `path: ../../packages/vhhealth_core`.
-
-## Pub workspace invariant
-
-This is a Dart pub workspace (Melos 7 + Dart 3.6+). All packages share
-one `pubspec.lock` at the repo root. Consequences:
-
-- Sub-packages depend on `vhhealth_core` by **name**, not path:
-  ```yaml
-  vhhealth_core: any
-  ```
-  The workspace resolver finds it because it's listed under
-  `workspace:` in the root `pubspec.yaml`.
-- Every dep must resolve to a single version across all workspace
-  members. If you introduce a version conflict (e.g. patient on
-  `firebase_core ^4` and staff on `^3`), `dart pub get` refuses. Align
-  the versions or move the odd-one-out out of the workspace.
-- Melos scripts live under the `melos:` key in `pubspec.yaml`, not in
-  a separate `melos.yaml` file.
+| `apps/backend` | Node.js 22 + Express 5 + PostgreSQL 15 (raw `pg`) | REST API consumed by every client |
+| `apps/admin` | Next.js 15 + React 19 + TypeScript | Admin/super-admin web portal |
+| `apps/patient` | Flutter 3.41 + Firebase OTP | Patient mobile app |
+| `apps/staff` | Flutter 3.41 + staff JWT | Staff/clinical mobile app |
+| `packages/vhhealth_core` | Dart shared package | API client, shared types, codegen target |
 
 ## History
 
-Created 2026-04-18 from three separate repos via `git subtree add`:
+Created 2026-04-18 from four separate repos via `git subtree add`.
+Full pre-monorepo history preserved — `git log apps/backend/` and
+friends walk every commit from the original repos.
 
 ```bash
-git subtree add --prefix=packages/vhhealth_core \
-  https://github.com/Bahuleyandr/vhhealth-core.git main
-git subtree add --prefix=apps/patient \
-  https://github.com/Bahuleyandr/VH-health.git main
-git subtree add --prefix=apps/staff \
-  https://github.com/Bahuleyandr/VHhealth-staff.git main
+# First three were merged 2026-04-18 (old monorepo migration):
+packages/vhhealth_core   ← Bahuleyandr/vhhealth-core
+apps/patient             ← Bahuleyandr/VH-health
+apps/staff               ← Bahuleyandr/VHhealth-staff
+
+# Backend + admin merged later same day (this commit):
+apps/backend             ← Bahuleyandr/VH-health-backend
+apps/admin               ← Bahuleyandr/VH-Health-Adminportal
 ```
 
-Full pre-monorepo history is preserved — `git log apps/patient/` and
-friends walk every commit from the original repos.
+All five source repos are archived on GitHub. Don't push to them.
+
+## Per-app documentation
+
+Each app keeps its own `CLAUDE.md` next to its manifest:
+
+- [`apps/backend/CLAUDE.md`](apps/backend/CLAUDE.md) — API structure, auth, security, DB patterns
+- [`apps/admin/CLAUDE.md`](apps/admin/CLAUDE.md) — Next.js routing, auth flow, god-page refactor pattern
+- [`apps/patient/CLAUDE.md`](apps/patient/CLAUDE.md) — routes, Firebase OTP flow, status enums
+- [`apps/staff/CLAUDE.md`](apps/staff/CLAUDE.md) — staff auth, test philosophy, role config
+- [`packages/vhhealth_core/CLAUDE.md`](packages/vhhealth_core/CLAUDE.md) — shared contracts
+
+Per-app CLAUDE.md files still reference the old separate-repo paths
+(e.g. `../vhhealth-core`, `../vhhealth-backend`). The actual wiring
+is correct — Flutter packages resolve `vhhealth_core` via the Dart pub
+workspace; backend and admin call each other over HTTP the same way
+they always did. Paths in the docs are historical clutter.
+
+## Cross-stack workflows
+
+### One-time per clone
+```bash
+# Global tooling (once per machine)
+dart pub global activate melos 7.5.1
+lefthook install                    # registers pre-commit/pre-push hooks
+
+# Per-stack installs
+cd apps/backend && npm install && cp .env.example .env     # fill secrets
+cd ../admin    && npm install && cp .env.local.example .env.local
+cd ../..
+dart pub get                                               # Flutter workspace
+melos bootstrap
+```
+
+### Daily commands
+
+**Flutter** (patient + staff + core — one workspace):
+```bash
+melos run analyze
+melos run test
+melos run format-fix
+melos run codegen
+```
+
+**Backend**:
+```bash
+cd apps/backend
+npm run dev              # nodemon on :5000
+npm test                 # Jest; needs Postgres on :5433
+npm run lint             # eslint + lint:raw-params
+```
+
+**Admin**:
+```bash
+cd apps/admin
+npm run dev              # Next.js on :3001
+npm test                 # Jest
+npm run build            # prod build
+```
+
+## Pub workspace invariant
+
+The Flutter side is a Dart pub workspace (Melos 7 + Dart 3.6+). All
+three Flutter packages share one `pubspec.lock` at the repo root.
+
+- Sub-packages depend on `vhhealth_core` by **name**, not path:
+  `vhhealth_core: any` — the workspace resolver finds it.
+- Every dep resolves to a single version across all workspace members.
+  Version conflicts (e.g. `firebase_core ^4` vs `^3`) fail
+  `dart pub get`.
+- Melos scripts live under the `melos:` key in the root `pubspec.yaml`.
+
+Backend and admin are independent npm packages — no npm workspace (yet).
+Each has its own `package-lock.json`. If cross-package sharing ever
+becomes useful, revisit.
+
+## CI (root `.github/workflows/`)
+
+Path-filtered so unrelated changes don't fan out:
+
+| Workflow | Fires when | What it runs |
+|---|---|---|
+| `ci-flutter.yml` | `apps/{patient,staff}/**`, `packages/vhhealth_core/**`, `pubspec.*` | `melos bootstrap → analyze → test → format` |
+| `ci-backend.yml` | `apps/backend/**` | lint → swagger → prisma → tests (with Postgres 16 service) + CodeQL + FHIR conformance |
+| `ci-admin.yml` | `apps/admin/**` | lint → type-check → jest → next build |
+| `deploy-patient-staging.yml` | push to main touching patient | Firebase App Distribution |
+| `deploy-staff-staging.yml` | push to main touching staff | Firebase App Distribution |
+| `release-patient.yml` | tag `patient-v*` | signed APK + AAB → GitHub Release |
+| `release-staff.yml` | tag `staff-v*` | signed APK + AAB → GitHub Release |
+
+Backend deploys to a Raspberry Pi 5 via `systemd`, not via GitHub Actions.
+Manual `deploy/deploy.sh` + systemctl restart on the host.
 
 ## Local CI (run workflows without pushing)
 
-Docker-in-WSL + `act` lets you run the same GitHub workflows locally,
-which is the fastest way to debug CI changes without burning push-test
-cycles. Windows wrapper at `D:\Dev\Tools\act\act.cmd` delegates into
-WSL where docker + act actually live.
+Docker-in-WSL + `act` lets you run any workflow locally. Windows wrapper at
+`D:\Dev\Tools\act\act.cmd` delegates into the Ubuntu-24.04 WSL distro where
+docker + act actually live.
 
-```
+```bash
 act -l                     # list workflows + jobs
-act push                   # simulate a push event
-act -j ci                  # run the root ci.yml job
-act --dryrun push          # show what would run without executing
+act push                   # simulate push (fires path-filtered workflows)
+act -j lint-and-test       # specific job by name
+act --dryrun push          # preview only
 ```
 
-First run downloads the `catthehacker/ubuntu:act-latest` runner image
-(~500MB) into the WSL VHD; subsequent runs reuse it.
+## Tag convention
 
-## CI
+- `patient-v1.2.3` — patient app release (fires `release-patient.yml`)
+- `staff-v1.2.3` — staff app release (fires `release-staff.yml`)
+- Backend + admin don't use tags — ship from main via systemd and web-host deploy
 
-`.github/workflows/ci.yml` runs on every push/PR to `main`:
+## Deleted but worth knowing
 
-1. Install Flutter stable
-2. `dart pub global activate melos`
-3. `melos bootstrap`
-4. `melos run analyze`
-5. `melos run test`
-6. `melos run format`
-
-Per-package `.github/workflows/*.yml` files under `apps/*` /
-`packages/*` are inert in a monorepo (GitHub only reads from the root
-`.github/workflows/`). They're retained for reference and will be
-removed once the staging-deploy workflows are ported to the root.
-
-## Follow-ups after migration
-
-- Port `apps/patient/.github/workflows/deploy-staging.yml` and
-  `apps/staff/.github/workflows/deploy-staging.yml` to root workflows
-  once staging secrets are configured on this repo.
-- Archive the three upstream repos (held off per owner request).
-- Consider `pubspec_overrides.yaml` at root to force shared-dep
-  versions across the apps (e.g. `go_router`, `shared_preferences`)
-  if they ever drift.
+- All per-app `.github/workflows/` files from the subtree sources are
+  removed — GitHub Actions only reads from the root, they were inert.
+- `apps/backend/node_modules/` was untracked 2026-04-18 (PR #45 in the
+  old repo before the full-stack merge). Fresh clones must `npm install`.
+- `melos.yaml` has been gone since the Melos 7 migration — scripts live
+  under the `melos:` key in the root `pubspec.yaml`.
