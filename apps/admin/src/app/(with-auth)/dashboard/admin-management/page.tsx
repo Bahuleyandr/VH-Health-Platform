@@ -1,0 +1,92 @@
+// src/app/(with-auth)/dashboard/admin-management/page.tsx
+"use client";
+
+import { getJSON } from "@/lib/api";
+import { API_ENDPOINTS } from "@/lib/api-config";
+import { normalizeList } from "@/lib/normalize-response";
+import type { AdminUser } from "@/lib/types";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { CreateAdminForm } from "./components/CreateAdminForm";
+import { AdminsTable } from "./components/AdminsTable";
+import { AdminStats } from "./components/AdminStats";
+import { PermissionsMatrix } from "./components/PermissionsMatrix";
+import { RequirePermissions } from "@/components/auth/RequirePermissions";
+
+const normalizeAdmins = normalizeList<AdminUser>("admins");
+
+export default function AdminManagementPage() {
+  const queryClient = useQueryClient();
+
+  const {
+    data: admins = [],
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ["admins"],
+    queryFn: async () => {
+      const data = await getJSON<unknown>(API_ENDPOINTS.auth.adminManagement);
+      return normalizeAdmins(data);
+    },
+  });
+
+  const handleAdminCreated = () =>
+    queryClient.invalidateQueries({ queryKey: ["admins"] });
+  const handleAdminUpdated = () =>
+    queryClient.invalidateQueries({ queryKey: ["admins"] });
+
+  if (isLoading) {
+    return (
+      <div className="p-6">
+        <div className="flex justify-center items-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded">
+          Error: {error instanceof Error ? error.message : "Failed to fetch administrators"}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6">
+      <h1 className="mb-6 text-3xl font-bold text-foreground">
+        Administrator Management
+      </h1>
+
+      <AdminStats admins={admins} />
+
+      {/* Only show creation UI to authorized users */}
+      <RequirePermissions
+        requiredRole="ADMIN"
+        requiredPermissions={["admin:create"]}
+      >
+        <CreateAdminForm onAdminCreated={handleAdminCreated} />
+      </RequirePermissions>
+
+      <div className="mt-8">
+        <h2 className="mb-4 text-xl font-semibold text-foreground">
+          Current Administrators
+        </h2>
+
+        {admins.length === 0 ? (
+          <div className="rounded-lg border border-border bg-muted p-8 text-center">
+            <p className="text-muted-foreground">No administrators found.</p>
+          </div>
+        ) : (
+          <AdminsTable admins={admins} onAdminUpdated={handleAdminUpdated} />
+        )}
+
+        <div className="mt-8">
+          <PermissionsMatrix admins={admins} />
+        </div>
+      </div>
+    </div>
+  );
+}

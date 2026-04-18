@@ -1,0 +1,214 @@
+// src/contexts/AuthContext.tsx
+"use client";
+
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  type ReactNode,
+  useCallback,
+} from "react";
+import { useRouter } from "next/navigation";
+import {
+  adminLogin,
+  staffLogin,
+  adminLogout,
+  getAdminProfile,
+  isAuthenticated,
+  getAdminUser,
+  clearAuthData,
+  verifyAdminMfa,
+} from "@/lib/api-client";
+import type { AdminUser } from "@/lib/types";
+
+/** Describes the second-factor challenge returned by `login` when the admin
+ *  account has MFA enabled. Callers must complete the flow via `verifyMfa`. */
+export interface MfaChallenge {
+  challengeToken: string;
+  expiresAt?: string;
+  adminHint?: { username?: string };
+}
+
+/** Discriminated result returned by `login` so the UI can distinguish "go to
+ *  dashboard" from "prompt for TOTP". */
+export type LoginOutcome =
+  | { kind: "success" }
+  | { kind: "mfa"; challenge: MfaChallenge };
+
+interface AuthContextType {
+  user: AdminUser | null;
+  loading: boolean;
+  error: string | null;
+  /** Admin password login. Returns a discriminated union so the caller can
+   *  render a TOTP prompt when the backend asks for a second factor. */
+  login: (username: string, password: string) => Promise<LoginOutcome>;
+  /** Completes the 2FA step after a `login()` that returned `{ kind: "mfa" }`. */
+  verifyMfa: (args: { challengeToken: string; code: string; useBackupCode?: boolean }) => Promise<void>;
+  loginStaff: (employeeId: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  checkAuth: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<AdminUser | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+
+  const checkAuth = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      if (!isAuthenticated()) {
+        setUser(null);
+        return;
+      }
+
+      // Use cached user first for instant UI
+      const cached = getAdminUser();
+      if (cached) setUser(cached);
+
+      // Then refresh from API (will redirect on 401 via api layer)
+      try {
+        const fresh = await getAdminProfile();
+        if (fresh) {
+          setUser(fresh);
+          if (typeof window !== "undefined") {
+            localStorage.setItem("adminUser", JSON.stringify(fresh));
+          }
+        }
+      } catch {
+        // If profile fails and no cached user, treat as unauthenticated
+        if (!cached) {
+          clearAuthData();
+          setUser(null);
+        }
+        // keep going; api layer may already have redirected on 401
+      }
+    } catch (e) {
+      console.error("Auth check failed:", e);
+      setError((e as Error).message ?? "Auth check failed");
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // initial mount
+    void checkAuth();
+  }, [checkAuth]);
+
+  const login = useCallback(
+    async (username: string, password: string): Promise<LoginOutcome> => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const result = await adminLogin(username, password);
+
+        // Backend requested a second factor — surface the challenge to the UI.
+        if (result.requiresTwoFactor) {
+          return {
+            kind: "mfa",
+            challenge: {
+              challengeToken: result.challengeToken,
+              expiresAt: result.expiresAt,
+              adminHint: result.admin?.username ? { username: result.admin.username } : undefined,
+            },
+          };
+        }
+
+        if (result?.admin) {
+          setUser(result.admin);
+          router.push("/dashboard");
+          return { kind: "success" };
+        }
+        throw new Error("Login successful but no admin data received");
+      } catch (e) {
+        const msg = (e as Error).message || "Login failed";
+        setError(msg);
+        throw e;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [router],
+  );
+
+  const verifyMfa = useCallback(
+    async (args: { challengeToken: string; code: string; useBackupCode?: boolean }) => {
+      try {
+        setLoading(true);
+        setError(null);
+        const result = await verifyAdminMfa(args);
+        if (result?.admin) setUser(result.admin);
+        router.push("/dashboard");
+      } catch (e) {
+        const msg = (e as Error).message || "MFA verification failed";
+        setError(msg);
+        throw e;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [router],
+  );
+
+  const loginStaff = useCallback(
+    async (employeeId: string, password: string) => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const result = await staffLogin(employeeId, password);
+        if (result.user) {
+          setUser(result.user);
+        }
+        router.push("/dashboard");
+      } catch (e) {
+        const msg = (e as Error).message || "Staff login failed";
+        setError(msg);
+        throw e;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [router],
+  );
+
+  const logout = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      await adminLogout(); // clears local storage inside
+    } catch (e) {
+      console.warn("Logout error:", e);
+      clearAuthData();
+    } finally {
+      // The httpOnly auth_token cookie is cleared server-side by the backend logout endpoint.
+      // No client-side document.cookie manipulation needed or safe here.
+      setUser(null);
+      setLoading(false);
+      router.push("/login");
+    }
+  }, [router]);
+
+  return (
+    <AuthContext.Provider
+      value={{ user, loading, error, login, verifyMfa, loginStaff, logout, checkAuth }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth(): AuthContextType {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used within an AuthProvider");
+  return ctx;
+}

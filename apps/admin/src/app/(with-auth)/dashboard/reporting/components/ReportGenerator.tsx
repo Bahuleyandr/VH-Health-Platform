@@ -1,0 +1,248 @@
+// src/app/(with-auth)/dashboard/reporting/components/ReportGenerator.tsx
+"use client";
+
+import { User, Doctor } from "@/lib/types";
+import { useState } from "react";
+import { FileTextIcon, BarChartIcon } from "@/components/icons";
+
+interface ReportGeneratorProps {
+  users: User[];
+  doctors: Doctor[];
+}
+
+export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
+  const [filters, setFilters] = useState({
+    patient_id: "",
+    doctor_id: "",
+    date_from: "",
+    date_to: "",
+    report_type: "all", // all, appointments, prescriptions, lab_results
+  });
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleFilterChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
+  ) => {
+    setFilters({ ...filters, [e.target.name]: e.target.value });
+  };
+
+  const handleExport = async (format: "pdf" | "excel") => {
+    setIsLoading(true);
+    setError("");
+
+    const queryParams = new URLSearchParams();
+    if (filters.patient_id) queryParams.set("patient_id", filters.patient_id);
+    if (filters.doctor_id) queryParams.set("doctor_id", filters.doctor_id);
+    if (filters.date_from) queryParams.set("date_from", filters.date_from);
+    if (filters.date_to) queryParams.set("date_to", filters.date_to);
+    if (filters.report_type !== "all")
+      queryParams.set("report_type", filters.report_type);
+
+    try {
+      // Auth is via httpOnly cookie — sent automatically with credentials: "include".
+      // Route through /api/proxy to ensure the backend API key is injected server-side.
+      const response = await fetch(
+        `/api/proxy/records/export/${format}?${queryParams.toString()}`,
+        {
+          credentials: "include",
+        },
+      );
+
+      if (!response.ok) {
+        const errorData = await response.text();
+        throw new Error(
+          errorData || `Export failed with status: ${response.status}`,
+        );
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+
+      // Generate filename with current date
+      const formattedDate = new Date()
+        .toLocaleDateString("en-GB")
+        .replace(/\//g, "-");
+      const reportType =
+        filters.report_type !== "all" ? `-${filters.report_type}` : "";
+      a.download = `medical-records${reportType}-${formattedDate}.${format === "pdf" ? "pdf" : "xlsx"}`;
+
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to generate report",
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const isFiltered =
+    filters.patient_id ||
+    filters.doctor_id ||
+    filters.date_from ||
+    filters.date_to ||
+    filters.report_type !== "all";
+
+  const clearFilters = () => {
+    setFilters({
+      patient_id: "",
+      doctor_id: "",
+      date_from: "",
+      date_to: "",
+      report_type: "all",
+    });
+  };
+
+  return (
+    <div>
+      {error && (
+        <div className="mb-4 p-3 bg-destructive/10 border border-destructive/30 text-destructive rounded">
+          {error}
+        </div>
+      )}
+
+      {/* Filters */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+        <div>
+          <label htmlFor="filter-patient" className="block text-sm font-medium text-foreground mb-1">
+            Patient
+          </label>
+          <select
+            id="filter-patient"
+            name="patient_id"
+            value={filters.patient_id}
+            onChange={handleFilterChange}
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="">All Patients</option>
+            {users.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.name} ({user.email})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label htmlFor="filter-doctor" className="block text-sm font-medium text-foreground mb-1">
+            Doctor
+          </label>
+          <select
+            id="filter-doctor"
+            name="doctor_id"
+            value={filters.doctor_id}
+            onChange={handleFilterChange}
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="">All Doctors</option>
+            {doctors.map((doctor) => (
+              <option key={doctor.user_id} value={doctor.user_id}>
+                Dr. {doctor.name} - {doctor.specialization}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label htmlFor="filter-report-type" className="block text-sm font-medium text-foreground mb-1">
+            Report Type
+          </label>
+          <select
+            id="filter-report-type"
+            name="report_type"
+            value={filters.report_type}
+            onChange={handleFilterChange}
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="all">All Records</option>
+            <option value="appointments">Appointments Only</option>
+            <option value="prescriptions">Prescriptions Only</option>
+            <option value="lab_results">Lab Results Only</option>
+          </select>
+        </div>
+
+        <div>
+          <label htmlFor="filter-date-from" className="block text-sm font-medium text-foreground mb-1">
+            From Date
+          </label>
+          <input
+            type="date"
+            id="filter-date-from"
+            name="date_from"
+            value={filters.date_from}
+            onChange={handleFilterChange}
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="filter-date-to" className="block text-sm font-medium text-foreground mb-1">
+            To Date
+          </label>
+          <input
+            type="date"
+            id="filter-date-to"
+            name="date_to"
+            value={filters.date_to}
+            onChange={handleFilterChange}
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+        </div>
+
+        {isFiltered && (
+          <div className="flex items-end">
+            <button
+              onClick={clearFilters}
+              className="px-4 py-2 text-muted-foreground hover:text-foreground underline"
+            >
+              Clear all filters
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Export Buttons */}
+      <div className="flex flex-wrap gap-4">
+        <button
+          onClick={() => handleExport("pdf")}
+          disabled={isLoading}
+          className="flex items-center gap-2 px-6 py-2 bg-destructive text-white rounded-md hover:bg-destructive/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          <FileTextIcon className="w-5 h-5" />
+          {isLoading ? "Generating..." : "Export as PDF"}
+        </button>
+
+        <button
+          onClick={() => handleExport("excel")}
+          disabled={isLoading}
+          className="flex items-center gap-2 px-6 py-2 bg-success text-white rounded-md hover:bg-success/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          <BarChartIcon className="w-5 h-5" />
+          {isLoading ? "Generating..." : "Export as Excel"}
+        </button>
+      </div>
+
+      {/* Export Information */}
+      <div className="mt-6 p-4 bg-primary/10 border border-primary/20 rounded-lg">
+        <h4 className="font-medium text-primary mb-2">Export Information</h4>
+        <ul className="text-sm text-primary space-y-1">
+          <li>
+            • PDF exports include formatted reports with headers and styling
+          </li>
+          <li>
+            • Excel exports provide raw data in spreadsheet format for further
+            analysis
+          </li>
+          <li>• Large exports may take a few moments to generate</li>
+          <li>• All timestamps are in your local timezone</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
