@@ -5,7 +5,7 @@ Node.js/Express REST API backend for the VHHealth hospital management system. Se
 
 ## Tech Stack
 - **Runtime**: Node.js 22, Express 5
-- **Database**: PostgreSQL (Docker container `vhhealth-db`, port 5433, user: vhhealth, db: vhhealth)
+- **Database**: PostgreSQL 17 native install (dev cluster at `D:\Dev\Tools\pgdata-vhhealth` on port **5433**, user `vhhealth`, db `vhhealth`). Prod runs managed Postgres; both speak the same wire protocol.
 - **ORM**: Prisma schema exists for documentation, but **all queries use raw `pg` Pool** via `src/config/database.js`
 - **Auth**: JWT (jsonwebtoken) + Firebase Admin SDK + bcrypt
 - **Storage**: Cloudflare R2 (vh-health-records bucket)
@@ -243,14 +243,21 @@ node --experimental-vm-modules node_modules/jest/bin/jest.js critical-paths --fo
 
 ## Database Access
 ```bash
-docker exec vhhealth-db psql -U vhhealth -d vhhealth
+# Native Postgres 17 dev cluster (not Docker). Start once with:
+#   "C:/Program Files/PostgreSQL/17/bin/pg_ctl" -D "D:/Dev/Tools/pgdata-vhhealth" -o "-p 5433" -l "D:/Dev/Tools/pgdata-vhhealth/logfile" start
+psql -h localhost -p 5433 -U vhhealth -d vhhealth
 ```
 
-## Related Repos
-- **Patient App** (Flutter): `../vhhealth-patient` — github.com/Bahuleyandr/VH-health
-- **Staff App** (Flutter): `../vhhealth-staff` — github.com/Bahuleyandr/vhhealth-staff
-- **Admin Portal** (Next.js): `../vhhealth-admin` — github.com/Bahuleyandr/VH-Health-Adminportal
-- **Core Package** (Dart): `../vhhealth-core` — github.com/Bahuleyandr/vhhealth-core
+## Sibling apps (same monorepo)
+
+See the [root `CLAUDE.md`](../../CLAUDE.md) for the cross-stack layout. Other apps in the same repo:
+
+- `apps/patient` — Flutter patient app
+- `apps/staff` — Flutter staff app
+- `apps/admin` — Next.js admin portal
+- `packages/vhhealth_core` — shared Dart package
+
+The five separate source repos these were merged from are archived on GitHub as of 2026-04-18.
 
 ## Conventions
 - Use `logger.info/warn/error()` (Winston), never `console.log` in production code

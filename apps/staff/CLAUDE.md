@@ -76,19 +76,18 @@ flutter create . --org com.vhhealth.staff
 ```
 
 ## Shared Core Package
-`../vhhealth-core` contains shared code (ApiConfig, AuthService, HttpClient, Theme, SOS widget).
-Currently this app has its own copies — can be migrated to use the core package by adding to pubspec.yaml:
-```yaml
-dependencies:
-  vhhealth_core:
-    path: ../vhhealth-core
-```
+Depends on `vhhealth_core` (at `packages/vhhealth_core/`) via the root Dart pub workspace — `vhhealth_core: any` in this app's `pubspec.yaml` resolves to the local package. Shared code: ApiConfig, AuthService, HttpClient, Theme, SOS widget, offline queue, connectivity sync, version gate, crash reporter adapter.
 
-## Related Repos
-- **Backend** (Node.js): `../vhhealth-backend` — github.com/Bahuleyandr/vh-health-backend
-- **Patient App** (Flutter): `../vhhealth-patient` — github.com/Bahuleyandr/VH-health
-- **Admin Portal** (Next.js): `../vhhealth-admin` — github.com/Bahuleyandr/VH-Health-Adminportal
-- **Core Package** (Dart): `../vhhealth-core` — github.com/Bahuleyandr/vhhealth-core
+## Sibling apps (same monorepo)
+
+See the [root `CLAUDE.md`](../../CLAUDE.md) for the cross-stack layout. Other apps in the same repo:
+
+- `apps/backend` — Node/Express API
+- `apps/admin` — Next.js admin portal
+- `apps/patient` — Flutter patient app
+- `packages/vhhealth_core` — shared Dart package
+
+The five separate source repos these were merged from are archived on GitHub as of 2026-04-18.
 
 ## Conventions
 - All HTTP calls use `await ApiConfig.authenticatedHeaders()` for auth

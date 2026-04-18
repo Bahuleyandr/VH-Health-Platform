@@ -86,11 +86,16 @@ Public URL: `https://admin.vhhealth.app`
 - `NEXT_PUBLIC_SENTRY_DSN` — activate Sentry in production. Instrumentation files already wired.
 - `JWT_SECRET` — used by `middleware.ts` `jose.jwtVerify` for signature validation. Fails closed in production when unset.
 
-## Related Repos
-- **Backend** (Node.js): `../vhhealth-backend` — github.com/Bahuleyandr/vh-health-backend
-- **Patient App** (Flutter): `../vhhealth-patient` — github.com/Bahuleyandr/VH-health
-- **Staff App** (Flutter): `../vhhealth-staff` — github.com/Bahuleyandr/vhhealth-staff
-- **Core Package** (Dart): `../vhhealth-core` — github.com/Bahuleyandr/vhhealth-core
+## Sibling apps (same monorepo)
+
+See the [root `CLAUDE.md`](../../CLAUDE.md) for the cross-stack layout. Other apps in the same repo:
+
+- `apps/backend` — Node/Express API
+- `apps/patient` — Flutter patient app
+- `apps/staff` — Flutter staff app
+- `packages/vhhealth_core` — shared Dart package
+
+The five separate source repos these were merged from are archived on GitHub as of 2026-04-18.
 
 ## God-page refactor pattern (added 2026-04-15)
 

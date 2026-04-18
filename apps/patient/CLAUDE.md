@@ -11,7 +11,7 @@ Flutter mobile app for patients of VHHealth hospital (Venkataeswara Hospital, Ch
 - **Auth**: Firebase OTP → backend JWT
 - **Storage**: flutter_secure_storage (JWT, user data), SharedPreferences (settings)
 - **Localisation**: Flutter intl (5 languages: en, hi, ta, te, ml)
-- **Shared Core**: `vhhealth_core` package (path dependency at `../vhhealth-core`) — provides `ApiConfig`
+- **Shared Core**: `vhhealth_core` package (resolved via the root Dart pub workspace — lives at `packages/vhhealth_core/` in the monorepo) — provides `ApiConfig`
 
 ## Repository Layout
 ```
@@ -285,29 +285,36 @@ final response = await ApiClient.multipart('/upload',
 | Unregister | `/devices/unregister` | DELETE |
 
 ## CI/CD
-GitHub Actions workflow (`.github/workflows/ci.yml`):
-- Triggers on push to `main` and all PRs
-- Checks out `vhhealth-core` alongside the repo (fixes path dependency)
-- Runs `flutter analyze` (continue-on-error: true)
-- Runs `flutter test` if test files exist
-- Currently only a smoke test exists (`test/widget_test.dart`)
+GitHub Actions workflows at the monorepo root:
+- `.github/workflows/ci-flutter.yml` — path-filtered to `apps/{patient,staff}/**` and `packages/vhhealth_core/**`; runs `melos bootstrap → analyze → test → format`
+- `.github/workflows/deploy-patient-staging.yml` — on push to main touching this app; builds debug APK, Firebase App Distribution upload
+- `.github/workflows/release-patient.yml` — triggered by `patient-v*` tag; signed APK + AAB → GitHub Release
 
 ## Running
-Requires Flutter SDK and the `vhhealth-core` package cloned at `../vhhealth-core`:
+Run from the monorepo root — the Dart pub workspace resolves `vhhealth_core` automatically:
 ```bash
-flutter pub get
-flutter run
-```
-Code generation (after changing assets/fonts/l10n):
-```bash
-dart run build_runner build --delete-conflicting-outputs
+# Once per clone
+dart pub global activate melos 7.5.1
+dart pub get
+melos bootstrap
+
+# Run the patient app
+cd apps/patient && flutter run
+
+# Code generation (after changing assets/fonts/l10n)
+cd apps/patient && dart run build_runner build --delete-conflicting-outputs
 ```
 
-## Related Repos
-- **Backend** (Node.js): `../vhhealth-backend` — github.com/Bahuleyandr/vh-health-backend
-- **Admin Portal** (Next.js): `../vhhealth-admin` — github.com/Bahuleyandr/VH-Health-Adminportal
-- **Staff App** (Flutter): `../vhhealth-staff` — github.com/Bahuleyandr/vhhealth-staff
-- **Core Package** (Dart): `../vhhealth-core` — github.com/Bahuleyandr/vhhealth-core
+## Sibling apps (same monorepo)
+
+See the [root `CLAUDE.md`](../../CLAUDE.md) for the cross-stack layout. Other apps in the same repo:
+
+- `apps/backend` — Node/Express API
+- `apps/admin` — Next.js admin portal
+- `apps/staff` — Flutter staff app
+- `packages/vhhealth_core` — shared Dart package
+
+The five separate source repos these were merged from are archived on GitHub as of 2026-04-18.
 
 ## Conventions
 - **ApiClient** is the standard for all authenticated HTTP calls — use `ApiClient.get/post/put/patch/delete/multipart`

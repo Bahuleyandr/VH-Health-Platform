@@ -100,13 +100,21 @@ SosButton(onBeforeTrigger: () => showSnackBar(...))
 ```
 
 ## Migration Status
-Both patient and staff apps currently have their own copies of ApiConfig and auth code. This package exists for future consolidation — when migrating, replace local copies with imports from this package.
+Patient and staff apps both depend on this package via the root Dart pub workspace. Historical migration of per-app copies (ApiConfig, auth code, offline queue, connectivity sync) into this package landed over 2026-04 Phase 5 work — see the barrel export in `lib/vhhealth_core.dart` for the current public surface.
 
-## Related Repos
-- **Backend** (Node.js): `../vhhealth-backend` — github.com/Bahuleyandr/vh-health-backend
-- **Patient App** (Flutter): `../vhhealth-patient` — github.com/Bahuleyandr/VH-health
-- **Staff App** (Flutter): `../vhhealth-staff` — github.com/Bahuleyandr/vhhealth-staff
-- **Admin Portal** (Next.js): `../vhhealth-admin` — github.com/Bahuleyandr/VH-Health-Adminportal
+## Sibling apps (same monorepo)
+
+See the [root `CLAUDE.md`](../../CLAUDE.md) for the cross-stack layout. Consumers of this package:
+
+- `apps/patient` — Flutter patient app
+- `apps/staff` — Flutter staff app
+
+Other apps in the same repo:
+
+- `apps/backend` — Node/Express API
+- `apps/admin` — Next.js admin portal
+
+The five separate source repos these were merged from are archived on GitHub as of 2026-04-18.
 
 ## Conventions
 - This is a library package — no `main.dart`, no runnable app
