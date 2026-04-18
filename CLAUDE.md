@@ -196,9 +196,24 @@ Protected (API key + JWT): `/api/v1/users/*`, `/api/v1/appointments/*`, `/api/v1
 Admin only: `/api/v1/admin/*`, `/api/v1/system/*`, `/api/v1/logs/*`
 
 ## Running
+
+### First-time setup (every clone)
+```bash
+npm install               # node_modules/ is gitignored; must run after fresh clone
+cp .env.example .env      # fill in JWT_SECRET, DATABASE_URL, API_KEY at minimum
+```
+
+> **Note (post-2026-04-18):** `node_modules/` was previously checked into this
+> repo and was untracked in PR #45. Existing clones keep their working-copy
+> `node_modules/` (unaffected by the untrack), but any `git clean -fd` or
+> fresh clone will need `npm install` to repopulate it. Fresh Jest/test runs
+> also need deps installed.
+
+### Running
 ```bash
 npm start                 # Production (systemd: vhhealth-backend.service)
 npm run dev               # Development with nodemon
+lefthook install          # one-time; wires the pre-commit/pre-push hooks this repo ships
 ```
 Public URL: `https://api.vhhealth.app` (via Cloudflare tunnel + nginx)
 
