@@ -16,10 +16,12 @@ coordination uses
 ## Workflow
 
 ```bash
-# One-time setup
-dart pub global activate melos
+# One-time setup (pin to 6.x — 7.x requires a pub workspace, which breaks on the
+# patient-vs-staff Firebase major-version split)
+dart pub global activate melos 6.3.0
 
 # Every clone / after pulling
+dart pub get                 # installs the melos dev_dependency at the root
 melos bootstrap              # pub get across all three packages in parallel
 
 # Daily commands

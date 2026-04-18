@@ -29,8 +29,11 @@ jobs:
           flutter --version
           dart --version
 
-      - name: Activate Melos
-        run: dart pub global activate melos
+      - name: Activate Melos (pinned 6.3.0)
+        run: dart pub global activate melos 6.3.0
+
+      - name: Install root dev deps
+        run: dart pub get
 
       - name: Bootstrap workspace
         run: melos bootstrap
