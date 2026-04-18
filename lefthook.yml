@@ -1,0 +1,16 @@
+# One-time install per clone:  lefthook install
+#
+# Purpose: keep pre-push fast so local commits can't push red. Mirrors the
+# checks CI runs so "green locally → green in CI" holds.
+
+pre-commit:
+  parallel: true
+  commands:
+    dart-format:
+      glob: "*.dart"
+      run: dart format --set-exit-if-changed {staged_files}
+
+pre-push:
+  commands:
+    analyze:
+      run: melos run analyze
