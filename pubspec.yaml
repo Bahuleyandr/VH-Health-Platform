@@ -1,0 +1,9 @@
+name: vhhealth_workspace
+publish_to: none
+description: Root pubspec anchoring Melos for the VH Health Flutter monorepo.
+
+environment:
+  sdk: ^3.8.0
+
+dev_dependencies:
+  melos: ^6.3.0

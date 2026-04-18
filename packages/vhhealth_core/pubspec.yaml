@@ -34,7 +34,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
+  flutter_lints: ^6.0.0
   # OpenAPI → Dart codegen. Runs via `dart run build_runner build` and reads
   # swagger/api.yaml, emitting models + chopper client stubs into
   # lib/api/generated/. See docs/API_CODEGEN.md for the migration playbook.
