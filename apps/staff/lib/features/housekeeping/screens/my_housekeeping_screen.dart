@@ -1,0 +1,567 @@
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
+import 'package:intl/intl.dart';
+import '../../../core/services/hr_api_service.dart';
+
+class MyHousekeepingScreen extends StatefulWidget {
+  const MyHousekeepingScreen({super.key});
+
+  @override
+  State<MyHousekeepingScreen> createState() => _MyHousekeepingScreenState();
+}
+
+class _MyHousekeepingScreenState extends State<MyHousekeepingScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  List<dynamic> _logs = [];
+  List<dynamic> _raisedRequests = [];
+  List<dynamic> _assignedRequests = [];
+  bool _loadingLogs = false;
+  bool _loadingRequests = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _loadLogs();
+    _loadRequests();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadLogs() async {
+    setState(() => _loadingLogs = true);
+    try {
+      final logs = await HrApiService.getMyCleaningLogs();
+      if (mounted) setState(() => _logs = logs);
+    } catch (e) {
+      debugPrint('my_housekeeping_screen.dart: $e');
+    } finally {
+      if (mounted) setState(() => _loadingLogs = false);
+    }
+  }
+
+  Future<void> _loadRequests() async {
+    setState(() => _loadingRequests = true);
+    try {
+      final data = await HrApiService.getMyHousekeepingRequests();
+      if (mounted) {
+        setState(() {
+          _raisedRequests = data['raised'] as List? ?? [];
+          _assignedRequests = data['assigned'] as List? ?? [];
+        });
+      }
+    } catch (e) {
+      debugPrint('my_housekeeping_screen.dart: $e');
+    } finally {
+      if (mounted) setState(() => _loadingRequests = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('My Activity'),
+        backgroundColor: const Color(0xFF007A64),
+        foregroundColor: Colors.white,
+        bottom: TabBar(
+          controller: _tabController,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          indicatorColor: Colors.white,
+          tabs: [
+            Tab(text: 'My Logs (${_logs.length})'),
+            Tab(
+                text:
+                    'Requests (${_raisedRequests.length + _assignedRequests.length})'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _LogsTab(
+              logs: _logs,
+              loading: _loadingLogs,
+              onRefresh: _loadLogs),
+          _RequestsTab(
+            raised: _raisedRequests,
+            assigned: _assignedRequests,
+            loading: _loadingRequests,
+            onRefresh: _loadRequests,
+            onCompleted: _loadRequests,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Logs Tab ─────────────────────────────────────────────────────────────────
+
+class _LogsTab extends StatelessWidget {
+  final List<dynamic> logs;
+  final bool loading;
+  final VoidCallback onRefresh;
+
+  const _LogsTab(
+      {required this.logs, required this.loading, required this.onRefresh});
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (logs.isEmpty) {
+      return Center(
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(Icons.cleaning_services_outlined,
+              size: 56, color: Colors.grey.shade400),
+          const SizedBox(height: 12),
+          const Text('No cleaning logs yet',
+              style: TextStyle(fontSize: 16, color: Colors.grey)),
+        ]),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: () async => onRefresh(),
+      child: ListView.builder(
+        padding: const EdgeInsets.all(12),
+        itemCount: logs.length,
+        itemBuilder: (_, i) => _LogCard(log: logs[i] as Map<String, dynamic>),
+      ),
+    );
+  }
+}
+
+class _LogCard extends StatelessWidget {
+  final Map<String, dynamic> log;
+
+  const _LogCard({required this.log});
+
+  @override
+  Widget build(BuildContext context) {
+    final status = log['status'] as String? ?? 'submitted';
+    final statusStyle = switch (status) {
+      'verified' => (color: Colors.green, label: 'VERIFIED'),
+      'flagged' => (color: Colors.red, label: 'FLAGGED'),
+      _ => (color: Colors.grey, label: 'SUBMITTED'),
+    };
+    final loggedAt = log['logged_at'] != null
+        ? DateFormat('dd MMM, HH:mm')
+            .format(DateTime.parse(log['logged_at'] as String).toLocal())
+        : '';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+                color: const Color(0xFF007A64).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8)),
+            child: const Icon(Icons.cleaning_services_outlined,
+                color: Color(0xFF007A64), size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Text(log['log_number'] as String? ?? '',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 13)),
+                const Spacer(),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                      color: statusStyle.color.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8)),
+                  child: Text(statusStyle.label,
+                      style: TextStyle(
+                          color: statusStyle.color,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold)),
+                ),
+              ]),
+              const SizedBox(height: 3),
+              Text(
+                  log['zone_name'] as String? ??
+                      log['location_text'] as String? ??
+                      'Unknown location',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              const SizedBox(height: 2),
+              Row(children: [
+                Text(
+                    (log['cleaning_type'] as String? ?? 'routine')
+                        .replaceAll('_', ' '),
+                    style: const TextStyle(
+                        fontSize: 11, color: Color(0xFF007A64))),
+                const Spacer(),
+                Text(loggedAt,
+                    style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              ]),
+              if (status == 'flagged' && log['flag_reason'] != null) ...[
+                const SizedBox(height: 4),
+                Text('⚠️ ${log['flag_reason']}',
+                    style: const TextStyle(
+                        fontSize: 11, color: Colors.red)),
+              ],
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+// ─── Requests Tab ─────────────────────────────────────────────────────────────
+
+class _RequestsTab extends StatefulWidget {
+  final List<dynamic> raised;
+  final List<dynamic> assigned;
+  final bool loading;
+  final VoidCallback onRefresh;
+  final VoidCallback onCompleted;
+
+  const _RequestsTab({
+    required this.raised,
+    required this.assigned,
+    required this.loading,
+    required this.onRefresh,
+    required this.onCompleted,
+  });
+
+  @override
+  State<_RequestsTab> createState() => _RequestsTabState();
+}
+
+class _RequestsTabState extends State<_RequestsTab>
+    with SingleTickerProviderStateMixin {
+  late TabController _subTab;
+
+  @override
+  void initState() {
+    super.initState();
+    _subTab = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _subTab.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return Column(children: [
+      Container(
+        color: Colors.white,
+        child: TabBar(
+          controller: _subTab,
+          labelColor: const Color(0xFF007A64),
+          unselectedLabelColor: Colors.grey,
+          indicatorColor: const Color(0xFF007A64),
+          tabs: [
+            Tab(text: 'Raised by me (${widget.raised.length})'),
+            Tab(text: 'Assigned to me (${widget.assigned.length})'),
+          ],
+        ),
+      ),
+      Expanded(
+        child: TabBarView(
+          controller: _subTab,
+          children: [
+            _RequestList(
+                requests: widget.raised,
+                showComplete: false,
+                onRefresh: widget.onRefresh,
+                onCompleted: widget.onCompleted),
+            _RequestList(
+                requests: widget.assigned,
+                showComplete: true,
+                onRefresh: widget.onRefresh,
+                onCompleted: widget.onCompleted),
+          ],
+        ),
+      ),
+    ]);
+  }
+}
+
+class _RequestList extends StatelessWidget {
+  final List<dynamic> requests;
+  final bool showComplete;
+  final VoidCallback onRefresh;
+  final VoidCallback onCompleted;
+
+  const _RequestList({
+    required this.requests,
+    required this.showComplete,
+    required this.onRefresh,
+    required this.onCompleted,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (requests.isEmpty) {
+      return Center(
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(Icons.inbox_outlined, size: 56, color: Colors.grey.shade400),
+          const SizedBox(height: 12),
+          const Text('No requests here',
+              style: TextStyle(fontSize: 16, color: Colors.grey)),
+        ]),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: () async => onRefresh(),
+      child: ListView.builder(
+        padding: const EdgeInsets.all(12),
+        itemCount: requests.length,
+        itemBuilder: (_, i) => _RequestCard(
+          req: requests[i] as Map<String, dynamic>,
+          showComplete: showComplete,
+          onCompleted: onCompleted,
+        ),
+      ),
+    );
+  }
+}
+
+class _RequestCard extends StatelessWidget {
+  final Map<String, dynamic> req;
+  final bool showComplete;
+  final VoidCallback onCompleted;
+
+  const _RequestCard(
+      {required this.req,
+      required this.showComplete,
+      required this.onCompleted});
+
+  @override
+  Widget build(BuildContext context) {
+    final urgency = req['urgency'] as String? ?? 'normal';
+    final urgencyColor = switch (urgency) {
+      'urgent' => Colors.red,
+      'high' => Colors.orange,
+      'low' => Colors.green,
+      _ => Colors.grey,
+    };
+    final status = req['status'] as String? ?? 'open';
+    final createdAt = req['created_at'] != null
+        ? DateFormat('dd MMM, HH:mm')
+            .format(DateTime.parse(req['created_at'] as String).toLocal())
+        : '';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                  color: urgencyColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                      color: urgencyColor.withValues(alpha: 0.3))),
+              child: Text(urgency.toUpperCase(),
+                  style: TextStyle(
+                      color: urgencyColor,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(width: 8),
+            Text(req['request_number'] as String? ?? '',
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold, fontSize: 13)),
+            const Spacer(),
+            Text(createdAt,
+                style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          ]),
+          const SizedBox(height: 6),
+          Text(
+              req['zone_name'] as String? ??
+                  req['location_text'] as String? ??
+                  '',
+              style: const TextStyle(fontSize: 13)),
+          if (req['description'] != null) ...[
+            const SizedBox(height: 4),
+            Text(req['description'] as String,
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis),
+          ],
+          const SizedBox(height: 8),
+          Row(children: [
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8)),
+              child: Text(status.replaceAll('_', ' ').toUpperCase(),
+                  style: TextStyle(
+                      color: Colors.blue.shade700,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold)),
+            ),
+            const Spacer(),
+            if (showComplete && status == 'assigned')
+              ElevatedButton(
+                onPressed: () =>
+                    _showCompleteDialog(context, req['id'].toString()),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF007A64),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+                child: const Text('Mark Complete',
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold)),
+              ),
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  void _showCompleteDialog(BuildContext context, String requestId) {
+    final notesCtrl = TextEditingController();
+    File? photo;
+    bool submitting = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Mark as Complete'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: notesCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Completion notes (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 3,
+                ),
+                const SizedBox(height: 12),
+                InkWell(
+                  onTap: () async {
+                    final picker = ImagePicker();
+                    final img = await picker.pickImage(
+                        source: ImageSource.camera, imageQuality: 70);
+                    if (img != null) {
+                      setDialogState(() => photo = File(img.path));
+                    }
+                  },
+                  child: Container(
+                    width: double.infinity,
+                    height: photo != null ? 160 : 72,
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade400),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: photo != null
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.file(photo!,
+                                fit: BoxFit.cover,
+                                width: double.infinity))
+                        : const Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.camera_alt_outlined,
+                                  color: Colors.grey),
+                              Text('Add completion photo',
+                                  style: TextStyle(
+                                      fontSize: 12, color: Colors.grey)),
+                            ],
+                          ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: submitting
+                  ? null
+                  : () async {
+                      setDialogState(() => submitting = true);
+                      try {
+                        await HrApiService.completeHousekeepingRequest(
+                          requestId: requestId,
+                          completionNotes: notesCtrl.text.trim().isNotEmpty
+                              ? notesCtrl.text.trim()
+                              : null,
+                        );
+                        if (ctx.mounted) {
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content:
+                                  Text('✅ Request marked as completed'),
+                              backgroundColor: Color(0xFF007A64),
+                            ),
+                          );
+                          onCompleted();
+                        }
+                      } catch (e) {
+                        if (ctx.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text(
+                                  e.toString().replaceFirst('Exception: ', '')),
+                              backgroundColor: Colors.red));
+                        }
+                      } finally {
+                        if (ctx.mounted) {
+                          setDialogState(() => submitting = false);
+                        }
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF007A64)),
+              child: submitting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                  : const Text('Submit',
+                      style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

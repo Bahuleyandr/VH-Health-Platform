@@ -1,0 +1,472 @@
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../core/theme/app_theme.dart';
+import '../services/login_service.dart';
+
+enum _LoginMode { password, pin, quickLogin }
+
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _empIdController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _pinController = TextEditingController();
+
+  _LoginMode _mode = _LoginMode.password;
+  bool _obscurePassword = true;
+  bool _loading = false;
+  bool _rememberMe = true;
+  bool _deviceRegistered = false;
+  String? _error;
+  bool _isLockedOut = false;
+
+  /// Matches the backend lockout message so we can render a distinct UI.
+  /// Backend currently throws
+  /// `Error('Account temporarily locked due to multiple failed attempts')`
+  /// — match generously in case the wording evolves.
+  static bool _looksLikeLockout(String msg) {
+    final lower = msg.toLowerCase();
+    return lower.contains('locked') ||
+        lower.contains('too many') ||
+        lower.contains('temporarily');
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedCredentials();
+  }
+
+  Future<void> _loadSavedCredentials() async {
+    final saved = await AuthService.getSavedCredentials();
+    if (saved != null && saved['employeeId'] != null && mounted) {
+      setState(() {
+        _empIdController.text = saved['employeeId']!;
+      });
+    }
+    // Check if device is registered for quick login
+    final registered = await AuthService.isDeviceRegistered();
+    if (mounted && registered && _empIdController.text.isNotEmpty) {
+      setState(() => _deviceRegistered = true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _empIdController.dispose();
+    _passwordController.dispose();
+    _pinController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+      _isLockedOut = false;
+    });
+    try {
+      if (_mode == _LoginMode.quickLogin) {
+        final deviceToken = await AuthService.getDeviceToken();
+        await AuthService.quickLogin(
+          employeeId: _empIdController.text,
+          pin: _pinController.text.isNotEmpty ? _pinController.text : null,
+          deviceToken: deviceToken,
+        );
+      } else if (_mode == _LoginMode.password) {
+        await LoginService.loginWithPassword(
+          employeeId: _empIdController.text,
+          password: _passwordController.text,
+        );
+      } else {
+        await LoginService.loginWithPin(
+          employeeId: _empIdController.text,
+          pin: _pinController.text,
+        );
+      }
+      if (mounted) context.go('/dashboard');
+    } catch (e) {
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() {
+        _error = msg;
+        _isLockedOut = _looksLikeLockout(msg);
+      });
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppTheme.primaryBlue,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 48, 24, 32),
+              child: Column(
+                children: [
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Icon(
+                      Icons.local_hospital,
+                      size: 48,
+                      color: AppTheme.primaryBlue,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'VHHealth Staff',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Hospital Staff Portal',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.8),
+                      fontSize: 15,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Card
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                decoration: const BoxDecoration(
+                  color: AppTheme.backgroundGrey,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 8),
+                        Text(
+                          'Sign In',
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineSmall
+                              ?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.textPrimary,
+                              ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Use your employee credentials to access the portal',
+                          style: TextStyle(color: AppTheme.textSecondary),
+                        ),
+                        const SizedBox(height: 24),
+
+                        // Employee ID
+                        TextFormField(
+                          controller: _empIdController,
+                          decoration: const InputDecoration(
+                            labelText: 'Employee ID',
+                            hintText: 'e.g. EMP-001',
+                            prefixIcon: Icon(Icons.badge_outlined),
+                          ),
+                          textCapitalization: TextCapitalization.characters,
+                          validator: LoginService.validateEmployeeId,
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Mode toggle
+                        Row(
+                          children: [
+                            _ModeChip(
+                              label: 'Password',
+                              selected: _mode == _LoginMode.password,
+                              onTap: () =>
+                                  setState(() => _mode = _LoginMode.password),
+                            ),
+                            const SizedBox(width: 8),
+                            _ModeChip(
+                              label: 'PIN',
+                              selected: _mode == _LoginMode.pin,
+                              onTap: () =>
+                                  setState(() => _mode = _LoginMode.pin),
+                            ),
+                            if (_deviceRegistered) ...[
+                              const SizedBox(width: 8),
+                              _ModeChip(
+                                label: 'Quick',
+                                selected: _mode == _LoginMode.quickLogin,
+                                onTap: () => setState(
+                                    () => _mode = _LoginMode.quickLogin),
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Password / PIN / Quick login field
+                        if (_mode == _LoginMode.quickLogin)
+                          TextFormField(
+                            controller: _pinController,
+                            obscureText: true,
+                            keyboardType: TextInputType.number,
+                            maxLength: 6,
+                            decoration: const InputDecoration(
+                              labelText: 'PIN (or use biometric)',
+                              hintText: 'Enter PIN for quick access',
+                              prefixIcon: Icon(Icons.speed),
+                            ),
+                            validator: (v) {
+                              if (v == null || v.isEmpty) {
+                                return 'Enter your PIN';
+                              }
+                              if (v.length < 4) return 'Minimum 4 digits';
+                              return null;
+                            },
+                          )
+                        else if (_mode == _LoginMode.password)
+                          TextFormField(
+                            controller: _passwordController,
+                            obscureText: _obscurePassword,
+                            decoration: InputDecoration(
+                              labelText: 'Password',
+                              prefixIcon: const Icon(Icons.lock_outlined),
+                              suffixIcon: IconButton(
+                                icon: Icon(_obscurePassword
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined),
+                                onPressed: () => setState(
+                                    () => _obscurePassword = !_obscurePassword),
+                              ),
+                            ),
+                            validator: LoginService.validatePassword,
+                          )
+                        else
+                          TextFormField(
+                            controller: _pinController,
+                            obscureText: true,
+                            keyboardType: TextInputType.number,
+                            maxLength: 6,
+                            decoration: const InputDecoration(
+                              labelText: 'PIN',
+                              hintText: '4–6 digits',
+                              prefixIcon: Icon(Icons.pin_outlined),
+                            ),
+                            validator: (v) {
+                              if (v == null || v.isEmpty) return 'PIN required';
+                              if (v.length < 4) return 'Minimum 4 digits';
+                              return null;
+                            },
+                          ),
+
+                        // Remember me
+                        Row(
+                          children: [
+                            SizedBox(
+                              height: 24,
+                              width: 24,
+                              child: Checkbox(
+                                value: _rememberMe,
+                                activeColor: AppTheme.primaryBlue,
+                                onChanged: (v) =>
+                                    setState(() => _rememberMe = v ?? true),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            GestureDetector(
+                              onTap: () =>
+                                  setState(() => _rememberMe = !_rememberMe),
+                              child: const Text(
+                                'Remember Employee ID',
+                                style: TextStyle(
+                                  color: AppTheme.textSecondary,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+
+                        if (_error != null) ...[
+                          const SizedBox(height: 12),
+                          _isLockedOut
+                              ? Container(
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.warningAmber
+                                        .withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: AppTheme.warningAmber
+                                          .withValues(alpha: 0.5),
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Icon(Icons.lock_clock,
+                                          color: AppTheme.warningAmber,
+                                          size: 22),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const Text(
+                                              'Account temporarily locked',
+                                              style: TextStyle(
+                                                color: AppTheme.warningAmber,
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              _error!,
+                                              style: const TextStyle(
+                                                  color: AppTheme.warningAmber,
+                                                  fontSize: 12.5),
+                                            ),
+                                            const SizedBox(height: 6),
+                                            const Text(
+                                              'Too many failed attempts. Try again in 15 minutes or contact your supervisor.',
+                                              style: TextStyle(
+                                                  color: AppTheme.warningAmber,
+                                                  fontSize: 11.5,
+                                                  fontStyle: FontStyle.italic),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              : Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.errorRed
+                                        .withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                        color: AppTheme.errorRed
+                                            .withValues(alpha: 0.3)),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.error_outline,
+                                          color: AppTheme.errorRed, size: 18),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          _error!,
+                                          style: const TextStyle(
+                                              color: AppTheme.errorRed,
+                                              fontSize: 13),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                        ],
+
+                        const SizedBox(height: 24),
+
+                        ElevatedButton(
+                          onPressed: _loading ? null : _submit,
+                          child: _loading
+                              ? const SizedBox(
+                                  height: 22,
+                                  width: 22,
+                                  child: CircularProgressIndicator(
+                                      color: Colors.white, strokeWidth: 2.5),
+                                )
+                              : Text(_mode == _LoginMode.password
+                                  ? 'Sign In with Password'
+                                  : _mode == _LoginMode.quickLogin
+                                      ? 'Quick Sign In'
+                                      : 'Sign In with PIN'),
+                        ),
+
+                        const SizedBox(height: 32),
+
+                        // Footer
+                        const Center(
+                          child: Text(
+                            'VHHealth · Staff Access Only',
+                            style: TextStyle(
+                                color: AppTheme.textSecondary, fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ModeChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ModeChip(
+      {required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? AppTheme.primaryBlue : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? AppTheme.primaryBlue : AppTheme.divider,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? Colors.white : AppTheme.textSecondary,
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+          ),
+        ),
+      ),
+    );
+  }
+}

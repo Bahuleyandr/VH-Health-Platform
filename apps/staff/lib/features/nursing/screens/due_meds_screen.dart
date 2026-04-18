@@ -1,0 +1,215 @@
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../../core/services/medical_api_service.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/staff_scaffold.dart';
+
+/// Nurse-facing "due meds" list. Calls `GET /clinical/mar/due` and renders
+/// one row per scheduled/held dose in a ±window around now. Tapping a row
+/// pushes [MarScanScreen] with the `ma_id` — this is the entry point that
+/// the MAR 5-rights scanner was missing (the scanner has always required a
+/// `ma_id` in its constructor, but nothing upstream fed it one).
+class DueMedsScreen extends StatefulWidget {
+  const DueMedsScreen({super.key});
+
+  @override
+  State<DueMedsScreen> createState() => _DueMedsScreenState();
+}
+
+class _DueMedsScreenState extends State<DueMedsScreen> {
+  List<Map<String, dynamic>> _rows = const [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final rows = await MedicalApiService.getDueMedications();
+      if (!mounted) return;
+      setState(() => _rows = rows);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StaffScaffold(
+      title: 'Due Medications',
+      body: RefreshIndicator(
+        onRefresh: _load,
+        child: _buildBody(),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loading && _rows.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null && _rows.isEmpty) {
+      return _errorView(_error!);
+    }
+    if (_rows.isEmpty) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: const [
+          SizedBox(height: 120),
+          Icon(Icons.check_circle_outline, size: 64, color: Colors.black26),
+          SizedBox(height: 12),
+          Center(
+            child: Text(
+              'No meds due in the window.',
+              style: TextStyle(color: Colors.black54),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return ListView.separated(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: _rows.length,
+      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemBuilder: (context, i) => _DueMedTile(
+        row: _rows[i],
+        onTap: () => _openScanner(_rows[i]),
+      ),
+    );
+  }
+
+  void _openScanner(Map<String, dynamic> row) {
+    final idRaw = row['id'];
+    final maId = idRaw is int ? idRaw : int.tryParse(idRaw?.toString() ?? '');
+    if (maId == null) return;
+    context.push('/mar/scan/$maId').then((_) {
+      if (mounted) _load();
+    });
+  }
+
+  Widget _errorView(String msg) {
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: [
+        const SizedBox(height: 80),
+        const Icon(Icons.error_outline, color: Colors.red, size: 48),
+        const SizedBox(height: 12),
+        Center(child: Text(msg, textAlign: TextAlign.center)),
+        const SizedBox(height: 16),
+        Center(
+          child: ElevatedButton(
+            onPressed: _load,
+            child: const Text('Retry'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DueMedTile extends StatelessWidget {
+  const _DueMedTile({required this.row, required this.onTap});
+
+  final Map<String, dynamic> row;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheduled = _parseTime(row['scheduled_time']);
+    final minutesDelta = scheduled == null
+        ? null
+        : DateTime.now().difference(scheduled).inMinutes;
+
+    final overdue = minutesDelta != null && minutesDelta > 0;
+    final color = overdue ? AppTheme.errorRed : AppTheme.successGreen;
+    final timeLabel = scheduled == null
+        ? 'unscheduled'
+        : _relativeLabel(minutesDelta!);
+
+    final patientName = (row['patient_name'] as String?)?.trim();
+    final bedNumber = (row['bed_number'] as String?)?.trim();
+    final wardName = (row['ward_name'] as String?)?.trim();
+    final med = (row['medication_name'] as String?)?.trim() ?? '(unnamed medication)';
+    final dose = (row['dose'] as String?) ?? (row['dosage'] as String?) ?? '';
+    final route = (row['route'] as String?) ?? '';
+    final status = (row['status'] as String?) ?? '';
+
+    final subtitle = <String>[
+      if (dose.isNotEmpty) dose,
+      if (route.isNotEmpty) route,
+      if (status == 'held') 'HELD',
+    ].join(' · ');
+
+    final whoLine = <String>[
+      patientName == null || patientName.isEmpty ? 'Unknown patient' : patientName,
+      if (bedNumber != null && bedNumber.isNotEmpty) 'Bed $bedNumber',
+      if (wardName != null && wardName.isNotEmpty) wardName,
+    ].join(' · ');
+
+    return ListTile(
+      onTap: onTap,
+      leading: CircleAvatar(
+        backgroundColor: color.withValues(alpha: 0.15),
+        child: Icon(overdue ? Icons.schedule : Icons.medication, color: color),
+      ),
+      title: Text(
+        med,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (subtitle.isNotEmpty)
+            Text(subtitle, style: const TextStyle(fontSize: 13)),
+          Text(
+            whoLine,
+            style: const TextStyle(fontSize: 12, color: Colors.black54),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+      trailing: Text(
+        timeLabel,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w600,
+          fontSize: 13,
+        ),
+      ),
+    );
+  }
+
+  static DateTime? _parseTime(Object? v) {
+    if (v == null) return null;
+    try {
+      return DateTime.parse(v.toString()).toLocal();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static String _relativeLabel(int minutesDelta) {
+    if (minutesDelta == 0) return 'now';
+    final abs = minutesDelta.abs();
+    final suffix = minutesDelta > 0 ? 'late' : 'in';
+    final value = abs < 60 ? '${abs}m' : '${(abs / 60).toStringAsFixed(abs % 60 == 0 ? 0 : 1)}h';
+    return suffix == 'late' ? '$value late' : 'in $value';
+  }
+}
