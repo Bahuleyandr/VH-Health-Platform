@@ -50,7 +50,7 @@ jobs:
         working-directory: apps/staff
         run: flutter build appbundle --release
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           name: Staff ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
