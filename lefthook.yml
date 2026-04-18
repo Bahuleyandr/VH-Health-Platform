@@ -1,0 +1,16 @@
+# One-time install per clone:  lefthook install
+#
+# pre-commit: fast checks on staged files only (<5s total)
+# pre-push:   the tighter lint + raw-params sweep that CI runs
+
+pre-commit:
+  parallel: true
+  commands:
+    eslint:
+      glob: "*.{js,mjs,cjs}"
+      run: npx eslint --no-warn-ignored {staged_files}
+
+pre-push:
+  commands:
+    lint:
+      run: npm run --silent lint
