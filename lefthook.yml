@@ -1,0 +1,19 @@
+# One-time install per clone:  lefthook install
+#
+# pre-commit: fast typecheck + next lint on staged files only
+# pre-push:   jest suite (matches the jest job on CI)
+
+pre-commit:
+  parallel: true
+  commands:
+    tsc:
+      glob: "*.{ts,tsx}"
+      run: npx tsc --noEmit
+    next-lint:
+      glob: "*.{ts,tsx,js,jsx}"
+      run: npx next lint --file {staged_files}
+
+pre-push:
+  commands:
+    jest:
+      run: npx jest --passWithNoTests --silent
