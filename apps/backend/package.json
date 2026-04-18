@@ -101,7 +101,7 @@
     "@sentry/cli": "^2.58.5",
     "@stoplight/spectral-cli": "^6.15.0",
     "@stoplight/spectral-core": "^1.21.0",
-    "@stoplight/spectral-rulesets": "^1.22.0",
+    "@stoplight/spectral-rulesets": "^1.22.1",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "eslint": "^9.39.4",
