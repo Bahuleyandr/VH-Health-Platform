@@ -1,0 +1,1102 @@
+{
+  "@@locale": "en",
+  "@@last_modified": "2025-06-13T14:29:24.000Z",
+  "authLoginTitle": "Login to your account",
+  "@authLoginTitle": {
+    "description": "Headline on the login screen"
+  },
+  "authPhoneNumber": "Phone number",
+  "@authPhoneNumber": {
+    "description": "Label for the phone number input field"
+  },
+  "authPhonePrefix": "+91 ",
+  "@authPhonePrefix": {
+    "description": "Prefix shown before the phone number text field (India country code)"
+  },
+  "authPhoneValidationEmpty": "Please enter your phone number",
+  "@authPhoneValidationEmpty": {
+    "description": "Validation error when phone field is left empty"
+  },
+  "authPhoneValidationInvalid": "Please enter a valid 10-digit phone number",
+  "@authPhoneValidationInvalid": {
+    "description": "Validation error when phone number format is incorrect"
+  },
+  "authGetOtp": "Get OTP",
+  "@authGetOtp": {
+    "description": "Button text to request an OTP"
+  },
+  "authSendingOtp": "Sending OTP…",
+  "@authSendingOtp": {
+    "description": "Status label shown while OTP request is in progress"
+  },
+  "authMagicLinkSent": "Magic link sent successfully",
+  "@authMagicLinkSent": {
+    "description": "Success message shown after the magic link email has been dispatched."
+  },
+  "authMagicLinkFailed": "Failed to send magic link",
+  "@authMagicLinkFailed": {
+    "description": "Error message shown when the server fails to send the magic link."
+  },
+  "authMagicLinkError": "Something went wrong while sending the magic link",
+  "@authMagicLinkError": {
+    "description": "Generic error message for unexpected issues during the magic link process."
+  },
+  "authContinueAsGuest": "Continue as Guest",
+  "@authContinueAsGuest": {
+    "description": "Button text for guest login flow"
+  },
+  "authByContinuingYouAgree": "By continuing, you agree to the",
+  "@authByContinuingYouAgree": {
+    "description": "Prefix text for the terms and conditions sentence"
+  },
+  "authTerms": "Terms",
+  "@authTerms": {
+    "description": "Clickable link text for Terms document"
+  },
+  "authConditions": "Conditions",
+  "@authConditions": {
+    "description": "Clickable link text for Conditions document"
+  },
+  "authAnd": "and",
+  "@authAnd": {
+    "description": "The conjunction between Conditions and Privacy Policy"
+  },
+  "authPrivacyPolicy": "Privacy Policy",
+  "@authPrivacyPolicy": {
+    "description": "Clickable link text for Privacy Policy document"
+  },
+  "authSosTooltip": "Send SOS",
+  "@authSosTooltip": {
+    "description": "Tooltip shown when hovering the SOS FloatingActionButton"
+  },
+  "authSosTriggered": "SOS alert has been triggered!",
+  "@authSosTriggered": {
+    "description": "Snack-bar message after SOS is successfully sent"
+  },
+  "authGuestUserSOS": "guest_user_sos",
+  "@authGuestUserSOS": {
+    "description": "Identifier used when SOS is triggered without a signed-in phone"
+  },
+  "otpVerifyOtpTitle": "Verify OTP",
+  "@otpVerifyOtpTitle": {
+    "description": "Title in the app bar of the OTP verification screen"
+  },
+  "otpOtpSentTo": "OTP sent to",
+  "@otpOtpSentTo": {
+    "description": "Prefix before the user phone number"
+  },
+  "otpEnterOtp": "Enter OTP",
+  "@otpEnterOtp": {
+    "description": "Label above the six-digit OTP input"
+  },
+  "otpPleaseEnterOtp": "Please enter the OTP",
+  "@otpPleaseEnterOtp": {
+    "description": "Validation message when OTP field is empty"
+  },
+  "otpOtpMustBe6Digits": "OTP must be 6 digits",
+  "@otpOtpMustBe6Digits": {
+    "description": "Validation message when OTP length is not six"
+  },
+  "otpVerify": "Verify",
+  "@otpVerify": {
+    "description": "Primary button text to verify OTP"
+  },
+  "otpResendOtpIn": "Resend OTP in",
+  "@otpResendOtpIn": {
+    "description": "Prefix before cooldown seconds, e.g. 'Resend OTP in 25 s'"
+  },
+  "otpResendOtp": "Resend OTP",
+  "@otpResendOtp": {
+    "description": "Clickable text to resend OTP once cooldown is over"
+  },
+  "otpErrorOccurred": "An error occurred",
+  "@otpErrorOccurred": {
+    "description": "Generic error prefix in snackbars"
+  },
+  "otpLoginSuccessful": "Login successful",
+  "@otpLoginSuccessful": {
+    "description": "Snackbar shown after successful login"
+  },
+  "otpLoginFailed": "Login failed",
+  "@otpLoginFailed": {
+    "description": "Snackbar when backend login fails"
+  },
+  "otpFailed": "Failed to verify OTP",
+  "@otpFailed": {
+    "description": "Generic OTP verification failure message"
+  },
+  "otpInvalidOtp": "Invalid OTP",
+  "@otpInvalidOtp": {
+    "description": "FirebaseAuthException: invalid-verification-code"
+  },
+  "otpOtpSessionExpired": "OTP session expired",
+  "@otpOtpSessionExpired": {
+    "description": "FirebaseAuthException: session-expired"
+  },
+  "otpOtpResendFailed": "Failed to resend OTP",
+  "@otpOtpResendFailed": {
+    "description": "Snackbar when resend attempt fails"
+  },
+  "otpOtpResentSuccessfully": "OTP resent successfully",
+  "@otpOtpResentSuccessfully": {
+    "description": "Snackbar when resend attempt succeeds"
+  },
+  "otpInvalidFirebaseToken": "Invalid Firebase token",
+  "@otpInvalidFirebaseToken": {
+    "description": "Edge-case error when Firebase returns null ID token"
+  },
+  "autoSignInSuccess": "You have been signed in automatically!",
+  "@autoSignInSuccess": {
+    "description": "Snackbar after Firebase phone auth auto-verification succeeds"
+  },
+  "commonTermsConditionsDisclaimerTitle": "Terms, Conditions & Privacy",
+  "@commonTermsConditionsDisclaimerTitle": {
+    "description": "App-bar title for Terms / Conditions / Privacy screen"
+  },
+  "commonTermsOfUse": "Terms of Use",
+  "@commonTermsOfUse": {
+    "description": "Section header for Terms of Use"
+  },
+  "commonConditions": "Conditions",
+  "@commonConditions": {
+    "description": "Section header for Conditions / Disclaimers"
+  },
+  "commonPrivacyPolicy": "Privacy Policy",
+  "@commonPrivacyPolicy": {
+    "description": "Section header for Privacy Policy"
+  },
+  "commonBackToLogin": "Back to Login",
+  "@commonBackToLogin": {
+    "description": "Button text to return to Login screen"
+  },
+  "backToDashboard": "Back to Dashboard",
+  "@backToDashboard": {
+    "description": "Button text to navigate back to the main dashboard screen"
+  },
+  "termsBody": "Welcome to VH Health. By accessing and using this mobile application, you agree to be bound by these Terms of Use.\n\n1. Purpose: VH Health is a mobile application designed to assist patients in managing their health records, appointments, prescriptions, investigations, and communication with the hospital.\n2. Eligibility: You must be at least 18 years old to use this app independently. Use by minors must be supervised by a guardian.\n3. Use of Services:\n   • You agree to provide accurate and complete information.\n   • You agree not to misuse or interfere with the app’s functionality or security.\n   • Any unlawful or prohibited use is strictly forbidden.\n4. Intellectual Property: All content within the app, including logos, text, images, and data, is the property of VH Health or its licensors and protected by applicable copyright and trademark laws.\n5. Modification: We reserve the right to modify or discontinue any feature or functionality at any time, with or without notice.\n6. Termination: VH Health may suspend or terminate access to any user found violating the Terms or engaging in misuse.",
+  "@termsBody": {
+    "description": "Entire Terms of Use content displayed in the Terms disclaimer screen"
+  },
+  "conditionsBody": "1. **Medical Advice Disclaimer:**\n   • The app is intended for general informational purposes and convenience.\n   • It does not replace direct consultation with qualified healthcare professionals.\n   • Always consult your doctor or hospital staff for diagnosis and treatment.\n\n2. Emergency Use:\n   • This app is not intended for emergency medical assistance.\n   • In case of emergency, please call your local emergency number or go to the nearest hospital.\n\n3. Service Availability:\n   • We strive for consistent availability, but do not guarantee uninterrupted access.\n   • Technical issues, updates, or network failures may occasionally impact access.\n\n4. Data Accuracy:\n   • Information such as appointment schedules and reports are retrieved from hospital systems and may be subject to manual entry.\n   • VH Health is not liable for errors caused by incorrect data entry or third-party system issues.",
+  "@conditionsBody": {
+    "description": "Entire Conditions / medical disclaimer text"
+  },
+  "privacyBody": "1. **Information Collection:**\n   • We collect your name, phone number, UID, medical records, appointment data, and uploads.\n   • We may also collect device identifiers and usage analytics for improving app performance.\n\n2. Use of Information:\n   • Your information is used strictly for providing services within the app.\n   • We do not sell your data or use it for advertising purposes.\n\n3. Data Sharing:\n   • Your data may be shared with authorized hospital staff and medical professionals involved in your care.\n   • We may also disclose data if required by law or in case of legal obligations.\n\n4. Data Security:\n   • We use industry-standard security practices to protect your data.\n   • However, no system is 100% secure; use of the app is at your own risk.\n\n5. Your Rights:\n   • You may request access to your stored information or request corrections.\n   • You may also request deletion of your account by contacting the hospital administration.\n\n6. Data Retention:\n   • Your data will be retained as long as necessary for healthcare or legal purposes.",
+  "@privacyBody": {
+    "description": "Entire Privacy Policy text"
+  },
+  "profileEditScreenTitle": "Edit Profile",
+  "@profileEditScreenTitle": {
+    "description": "Title of the profile edit screen"
+  },
+  "profileNameLabel": "Full name",
+  "@profileNameLabel": {
+    "description": "Label for name input"
+  },
+  "profileNameHint": "Enter your full name",
+  "@profileNameHint": {
+    "description": "Hint for name input"
+  },
+  "profileNameValidationRequired": "Name is required",
+  "@profileNameValidationRequired": {
+    "description": "Validation message when name is empty"
+  },
+  "profileEmailLabel": "Email address",
+  "@profileEmailLabel": {
+    "description": "Label for email input"
+  },
+  "profileEmailHint": "example@domain.com",
+  "@profileEmailHint": {
+    "description": "Hint for email input"
+  },
+  "profileEmailValidationInvalid": "Enter a valid email address",
+  "@profileEmailValidationInvalid": {
+    "description": "Validation message for invalid email"
+  },
+  "profileBirthdayLabel": "Birthday",
+  "@profileBirthdayLabel": {
+    "description": "Label for birthday field"
+  },
+  "profileBirthdayHint": "Select your birth date",
+  "@profileBirthdayHint": {
+    "description": "Hint for birthday field"
+  },
+  "profileSaveChangesButton": "Save changes",
+  "@profileSaveChangesButton": {
+    "description": "Button text to save profile edits"
+  },
+  "profileUpdatedSuccessfully": "Profile updated successfully",
+  "@profileUpdatedSuccessfully": {
+    "description": "Snackbar text after successful profile update"
+  },
+  "networkError": "Network error. Please try again.",
+  "@networkError": {
+    "description": "Snackbar text when a generic network error occurs"
+  },
+  "profileSetupTitle": "Set up your profile",
+  "@profileSetupTitle": {
+    "description": "App-bar title of profile setup screen"
+  },
+  "profileUploadProfilePic": "Add photo",
+  "@profileUploadProfilePic": {
+    "description": "Prompt inside empty avatar"
+  },
+  "profileSetupSaved": "Profile saved successfully",
+  "@profileSetupSaved": {
+    "description": "Snackbar after profile saved"
+  },
+  "profileSetupSaveFailed": "Unable to save profile",
+  "@profileSetupSaveFailed": {
+    "description": "Snackbar when save fails"
+  },
+  "profileGenderLabel": "Gender",
+  "@profileGenderLabel": {
+    "description": "Label for gender dropdown"
+  },
+  "profileGenderMale": "Male",
+  "@profileGenderMale": {
+    "description": "Gender option: male"
+  },
+  "profileGenderFemale": "Female",
+  "@profileGenderFemale": {
+    "description": "Gender option: female"
+  },
+  "profileGenderOther": "Other",
+  "@profileGenderOther": {
+    "description": "Gender option: other"
+  },
+  "profileGenderValidationRequired": "Please select a gender",
+  "@profileGenderValidationRequired": {
+    "description": "Validation when no gender chosen"
+  },
+  "profileEmailHintOptional": "Optional",
+  "@profileEmailHintOptional": {
+    "description": "Hint text showing email field is optional"
+  },
+  "profileBirthdaySelectLabel": "Select birthday",
+  "@profileBirthdaySelectLabel": {
+    "description": "Label when birthday not chosen"
+  },
+  "profileBirthdayLabelShort": "Birthday",
+  "@profileBirthdayLabelShort": {
+    "description": "Short label used before formatted date"
+  },
+  "profileAnniversarySelectLabel": "Select anniversary",
+  "@profileAnniversarySelectLabel": {
+    "description": "Label when anniversary not chosen"
+  },
+  "profileAnniversaryLabelShort": "Anniversary",
+  "@profileAnniversaryLabelShort": {
+    "description": "Short label used before formatted date"
+  },
+  "commonSkipButton": "Skip",
+  "@commonSkipButton": {
+    "description": "Secondary button that lets the user skip an optional step"
+  },
+  "commonSubmitButton": "Submit",
+  "@commonSubmitButton": {
+    "description": "Primary button used to confirm or finish an action"
+  },
+  "commonCancelButton": "Cancel",
+  "@commonCancelButton": {
+    "description": "Generic button label for cancelling a dialog or action"
+  },
+  "filesPickerError": "Could not pick file. Please try again.",
+  "@filesPickerError": {
+    "description": "Snackbar when image picker fails"
+  },
+  "hello": "Hello",
+  "@hello": {
+    "description": "Greeting used on dashboard app-bar"
+  },
+  "changeLanguage": "Change language",
+  "@changeLanguage": {
+    "description": "Tooltip for language switcher"
+  },
+  "lastAppointment": "Last appointment",
+  "@lastAppointment": {
+    "description": "Label before date of last appointment"
+  },
+  "upcomingAppointment": "Upcoming appointment",
+  "@upcomingAppointment": {
+    "description": "Label before next appointment date"
+  },
+  "notAvailable": "N/A",
+  "@notAvailable": {
+    "description": "Shown when a value is unavailable"
+  },
+  "yourHealth": "Your Health",
+  "@yourHealth": {
+    "description": "Dashboard tile: Your Health"
+  },
+  "appointments": "Appointments",
+  "@appointments": {
+    "description": "Dashboard tile: Appointments"
+  },
+  "pharmacy": "Pharmacy",
+  "@pharmacy": {
+    "description": "Dashboard tile: Pharmacy"
+  },
+  "investigations": "Investigations",
+  "@investigations": {
+    "description": "Dashboard tile: Investigations"
+  },
+  "askDoubt": "Ask a Doubt",
+  "@askDoubt": {
+    "description": "Dashboard tile: Ask a Doubt"
+  },
+  "triviaLabel": "Trivia",
+  "@triviaLabel": {
+    "description": "Dashboard tile: Trivia"
+  },
+  "departments": "Departments",
+  "@departments": {
+    "description": "Dashboard tile: Departments"
+  },
+  "aboutUsLabel": "About Us",
+  "@aboutUsLabel": {
+    "description": "Dashboard tile: About Us"
+  },
+  "yourHealthTitle": "Your Health",
+  "@yourHealthTitle": {
+    "description": "App-bar title for Your Health screen"
+  },
+  "yourHealthSortNewest": "Sort: newest first",
+  "@yourHealthSortNewest": {
+    "description": "Tooltip when list is oldest→newest; tapping switches to newest first"
+  },
+  "yourHealthSortOldest": "Sort: oldest first",
+  "@yourHealthSortOldest": {
+    "description": "Tooltip when list is newest→oldest; tapping switches to oldest first"
+  },
+  "yourHealthFilterByType": "Filter by type",
+  "@yourHealthFilterByType": {
+    "description": "Dropdown label for record type filter"
+  },
+  "yourHealthNoRecords": "No records found",
+  "@yourHealthNoRecords": {
+    "description": "Shown when the records list is empty"
+  },
+  "yourHealthUploaded": "Uploaded",
+  "@yourHealthUploaded": {
+    "description": "Prefix before upload date"
+  },
+  "yourHealthLoginToView": "Log in to access your medical records",
+  "@yourHealthLoginToView": {
+    "description": "Message shown to guest users"
+  },
+  "recordsLoadFailed": "Could not load records",
+  "@recordsLoadFailed": {
+    "description": "Snackbar text when API fetch fails"
+  },
+  "recordsShowingOffline": "Showing offline data",
+  "@recordsShowingOffline": {
+    "description": "Snackbar when cached data is displayed"
+  },
+  "fileQuarantined": "File is quarantined and cannot be downloaded",
+  "@fileQuarantined": {
+    "description": "Snackbar when backend indicates file quarantine"
+  },
+  "fileCouldNotOpen": "Unable to open file",
+  "@fileCouldNotOpen": {
+    "description": "Snackbar when file cannot be downloaded or opened"
+  },
+  "recordTypeAll": "All",
+  "@recordTypeAll": {
+    "description": "Record type option: all"
+  },
+  "recordTypeConsultation": "Consultation",
+  "@recordTypeConsultation": {
+    "description": "Record type option: consultation"
+  },
+  "recordTypeInvestigation": "Investigation",
+  "@recordTypeInvestigation": {
+    "description": "Record type option: investigation"
+  },
+  "recordTypeReport": "Report",
+  "@recordTypeReport": {
+    "description": "Record type option: report"
+  },
+  "login": "Login",
+  "@login": {
+    "description": "Generic login button label"
+  },
+  "requestAppointment": "Request Appointment",
+  "@requestAppointment": {
+    "description": "App-bar title"
+  },
+  "enterYourPhone": "Enter your phone number",
+  "@enterYourPhone": {
+    "description": "Heading for phone input when guest"
+  },
+  "enterValidPhone": "Please enter a valid 10-digit phone number",
+  "@enterValidPhone": {
+    "description": "Validation for phone field"
+  },
+  "chooseDepartmentOrDoctor": "Select department",
+  "@chooseDepartmentOrDoctor": {
+    "description": "Dropdown label for department select"
+  },
+  "selectDoctorPlaceholder": "Select doctor (optional)",
+  "@selectDoctorPlaceholder": {
+    "description": "Label for doctor dropdown"
+  },
+  "selectDoctorAndDate": "Please choose a department",
+  "@selectDoctorAndDate": {
+    "description": "Validation when no department chosen"
+  },
+  "submitRequest": "Submit request",
+  "@submitRequest": {
+    "description": "Button text to submit appointment request"
+  },
+  "appointmentConfirmationNote": "Appointment request received! We’ll confirm soon.",
+  "@appointmentConfirmationNote": {
+    "description": "Snackbar after successful submission"
+  },
+  "appointmentFailed": "Failed to book appointment",
+  "@appointmentFailed": {
+    "description": "Generic API failure message"
+  },
+  "genericError": "Something went wrong. Please try again.",
+  "@genericError": {
+    "description": "Generic network/error snackbar"
+  },
+  "calendarSyncTitle": "Add to Calendar?",
+  "@calendarSyncTitle": {
+    "description": "Dialog title for calendar sync"
+  },
+  "calendarSyncPrompt": "Do you want to add this appointment to your calendar?",
+  "@calendarSyncPrompt": {
+    "description": "Dialog body for calendar sync"
+  },
+  "yesAlways": "Yes, always",
+  "@yesAlways": {
+    "description": "Dialog button: always add to calendar"
+  },
+  "no": "No",
+  "@no": {
+    "description": "Dialog button: decline adding to calendar"
+  },
+  "calendarEventTitle": "VH Health Appointment",
+  "@calendarEventTitle": {
+    "description": "Title for calendar event"
+  },
+  "calendarEventDescription": "Appointment with {doctor}",
+  "@calendarEventDescription": {
+    "description": "Description for calendar event",
+    "placeholders": {
+      "doctor": {}
+    }
+  },
+  "calendarEventLocation": "VH Health Hospital",
+  "@calendarEventLocation": {
+    "description": "Location string for calendar event"
+  },
+  "generalDoctor": "the doctor",
+  "@generalDoctor": {
+    "description": "Fallback doctor name in calendar description"
+  },
+  "sosSent": "SOS alert sent!",
+  "@sosSent": {
+    "description": "Snackbar after SOS button tapped"
+  },
+  "requestAppointmentPhoneNumber": "Phone number",
+  "@requestAppointmentPhoneNumber": {
+    "description": "Label for phone text field"
+  },
+  "cardiology": "Cardiology",
+  "neurology": "Neurology",
+  "orthopedics": "Orthopedics",
+  "dermatology": "Dermatology",
+  "pediatrics": "Pediatrics",
+  "general_medicine": "General Medicine",
+  "pharmacyTitle": "Order Medicines",
+  "@pharmacyTitle": {
+    "description": "App-bar title for pharmacy screen"
+  },
+  "pharmacyPermissionsRequired": "Storage permission required to select files.",
+  "@pharmacyPermissionsRequired": {
+    "description": "Snackbar when user denies file-picker permissions"
+  },
+  "pharmacyFilePickerError": "Could not pick the file. Please try again.",
+  "@pharmacyFilePickerError": {
+    "description": "Snackbar when file-picker fails"
+  },
+  "pharmacyFormAndFileRequired": "Please complete the form and attach a prescription file.",
+  "@pharmacyFormAndFileRequired": {
+    "description": "Snackbar when submit pressed without form/file"
+  },
+  "pharmacyUploadFailed": "Upload failed. Please try again.",
+  "@pharmacyUploadFailed": {
+    "description": "Snackbar when prescription upload fails"
+  },
+  "pharmacySubmissionFailed": "Order submission failed.",
+  "@pharmacySubmissionFailed": {
+    "description": "Generic fallback message from backend error"
+  },
+  "pharmacyConfirmationNote": "Order placed! Our pharmacy will call to confirm.",
+  "@pharmacyConfirmationNote": {
+    "description": "Snackbar after successful order"
+  },
+  "pharmacyInfoBanner": "Upload your doctor’s prescription (PDF or image) and delivery address.",
+  "@pharmacyInfoBanner": {
+    "description": "Top banner with instructions"
+  },
+  "pharmacyUploadPrescriptionButton": "Upload prescription",
+  "@pharmacyUploadPrescriptionButton": {
+    "description": "Button text to pick a file"
+  },
+  "fileSelected": "Selected",
+  "@fileSelected": {
+    "description": "Prefix before selected filename"
+  },
+  "fileClearSelection": "Clear",
+  "@fileClearSelection": {
+    "description": "Link to remove selected file"
+  },
+  "pharmacyDeliveryAddressLabel": "Delivery address",
+  "@pharmacyDeliveryAddressLabel": {
+    "description": "Label for address textarea"
+  },
+  "pharmacyDeliveryAddressHint": "House / flat no., street, area, pin code…",
+  "@pharmacyDeliveryAddressHint": {
+    "description": "Hint inside address textarea"
+  },
+  "pharmacyDeliveryAddressValidationRequired": "Address is required",
+  "@pharmacyDeliveryAddressValidationRequired": {
+    "description": "Validation when address empty"
+  },
+  "pharmacySubmitOrderButton": "Submit order",
+  "@pharmacySubmitOrderButton": {
+    "description": "Primary button to submit pharmacy order"
+  },
+  "pharmacyCallButton": "Call pharmacy",
+  "@pharmacyCallButton": {
+    "description": "Button to trigger phone call to pharmacy"
+  },
+  "pharmacyCallFailed": "Could not launch dialer.",
+  "@pharmacyCallFailed": {
+    "description": "Snackbar when tel: launch fails"
+  },
+  "pharmacyPhoneNumberLabel": "Phone number",
+  "@pharmacyPhoneNumberLabel": {
+    "description": "Label for phone field (guest mode)"
+  },
+  "pharmacyPhoneNumberHint": "10-digit mobile number",
+  "@pharmacyPhoneNumberHint": {
+    "description": "Hint for phone field"
+  },
+  "pharmacyPhoneNumberValidationInvalid": "Enter a valid 10-digit phone number",
+  "@pharmacyPhoneNumberValidationInvalid": {
+    "description": "Validation error for phone input"
+  },
+  "investigationsTitle": "Request Investigation",
+  "@investigationsTitle": {
+    "description": "App-bar title"
+  },
+  "investigationsTestNameLabel": "Test name",
+  "@investigationsTestNameLabel": {
+    "description": "Label for investigation test name"
+  },
+  "investigationsTestNameHint": "e.g. Complete blood count",
+  "@investigationsTestNameHint": {
+    "description": "Hint in test name field"
+  },
+  "investigationsTestNameValidationRequired": "Test name is required",
+  "@investigationsTestNameValidationRequired": {
+    "description": "Validation when test name empty"
+  },
+  "investigationsUploadFileButtonLabel": "Upload doctor’s order",
+  "@investigationsUploadFileButtonLabel": {
+    "description": "Button text to pick file"
+  },
+  "investigationsSubmitRequestButton": "Submit request",
+  "@investigationsSubmitRequestButton": {
+    "description": "Primary button text"
+  },
+  "investigationsViewReportsButton": "View investigation reports",
+  "@investigationsViewReportsButton": {
+    "description": "Link to Your Health investigation filter"
+  },
+  "investigationsFormAndFileRequired": "Please complete the form and attach a file.",
+  "@investigationsFormAndFileRequired": {
+    "description": "Snackbar when form/file missing"
+  },
+  "investigationsConfirmationNote": "Request sent! We’ll contact you to schedule.",
+  "@investigationsConfirmationNote": {
+    "description": "Snackbar after successful submission"
+  },
+  "investigationsFailed": "Failed to submit request.",
+  "@investigationsFailed": {
+    "description": "Generic backend failure"
+  },
+  "investigationsUploadFailed": "File upload failed. Please try again.",
+  "@investigationsUploadFailed": {
+    "description": "Snackbar when upload fails"
+  },
+  "investigationsPermissionsRequired": "Storage permission required.",
+  "@investigationsPermissionsRequired": {
+    "description": "Snackbar when user denies permissions"
+  },
+  "investigationsFilePickerError": "Could not pick a file. Please try again.",
+  "@investigationsFilePickerError": {
+    "description": "Snackbar when file-picker throws"
+  },
+  "triviaTitle": "Health Trivia",
+  "@triviaTitle": {
+    "description": "App-bar title for trivia screen"
+  },
+  "triviaDidYouKnow": "Did you know?",
+  "@triviaDidYouKnow": {
+    "description": "Heading above the trivia fact"
+  },
+  "triviaNewTriviaButton": "Show another fact",
+  "@triviaNewTriviaButton": {
+    "description": "Button to load a new random trivia fact"
+  },
+  "triviaFact1": "The human heart beats about 100,000 times per day.",
+  "@triviaFact1": {
+    "description": "Random trivia fact #1"
+  },
+  "triviaFact2": "Laughing 100 times is roughly equivalent to 15 minutes of exercise on a stationary bike.",
+  "@triviaFact2": {
+    "description": "Random trivia fact #2"
+  },
+  "triviaFact3": "Your nose can remember 50,000 different scents.",
+  "@triviaFact3": {
+    "description": "Random trivia fact #3"
+  },
+  "triviaFact4": "Bones are about five times stronger than steel of the same weight.",
+  "@triviaFact4": {
+    "description": "Random trivia fact #4"
+  },
+  "triviaFact5": "The average adult skin covers about 2 square meters.",
+  "@triviaFact5": {
+    "description": "Random trivia fact #5"
+  },
+  "triviaFact6": "Your stomach lining replaces itself every few days to avoid digesting itself.",
+  "@triviaFact6": {
+    "description": "Random trivia fact #6"
+  },
+  "triviaFact7": "The strongest muscle (by weight) is the masseter—the jaw muscle.",
+  "@triviaFact7": {
+    "description": "Random trivia fact #7"
+  },
+  "triviaFact8": "People are about 1 cm taller in the morning than at night.",
+  "@triviaFact8": {
+    "description": "Random trivia fact #8"
+  },
+  "triviaFact9": "Sweat itself is odorless; bacteria on skin produce body odor.",
+  "@triviaFact9": {
+    "description": "Random trivia fact #9"
+  },
+  "triviaFact10": "Humans share 50% of their DNA with bananas.",
+  "@triviaFact10": {
+    "description": "Random trivia fact #10"
+  },
+  "departmentsTitle": "Hospital Departments",
+  "@departmentsTitle": {
+    "description": "App-bar title for departments screen"
+  },
+  "departmentsLoadFailed": "Unable to load departments. Please pull down to retry.",
+  "@departmentsLoadFailed": {
+    "description": "Snackbar when fetch fails"
+  },
+  "departmentsNoneFound": "No departments found.",
+  "@departmentsNoneFound": {
+    "description": "Shown when API returns empty list"
+  },
+  "departmentsUnknown": "Unknown department",
+  "@departmentsUnknown": {
+    "description": "Fallback name when department field missing"
+  },
+  "departmentsDoctor": "Doctor",
+  "@departmentsDoctor": {
+    "description": "Fallback doctor name"
+  },
+  "departmentsBook": "Book",
+  "@departmentsBook": {
+    "description": "Button text to book an appointment with a doctor"
+  },
+  "guestUser": "Guest",
+  "@guestUser": {
+    "description": "Display name for guest users"
+  },
+  "aboutUsContent": "Since our inception in 2003, Venkataeswara Hospitals has stood as a beacon of hope and healing in the heart of Chennai. Founded by the visionary cardiologist Dr. Thillai Vallal, we have transformed from a specialized cardiac care center into one of Chennai's most trusted multispecialty healthcare institutions, touching over a million lives with our commitment to compassionate care.\n\n## Our Mission: Prevention is Our Passion\nAt Venkataeswara Hospitals, we believe that the best treatment is prevention. Our primary mission extends beyond healing—we are dedicated to preventing the onset of lifestyle diseases through comprehensive screening, education, and personalized wellness programs. This proactive approach has helped thousands of patients avoid heart attacks, strokes, and other preventable conditions.\n\n## World-Class Facilities, Hometown Care\nOur 150-bed facility at Chamiers Road, Nandanam, combines cutting-edge technology with the warmth of personalized care. With over 100 distinguished doctors across multiple specialties and state-of-the-art infrastructure, we offer:\n\n- **Advanced Cardiac Care**: Over 100,000 successful cardiac procedures completed\n- **24/7 Emergency Services**: Round-the-clock trauma and critical care\n- **Comprehensive Specialties**: From cardiology to cosmetology, neurology to nephrology\n- **Modern ICU**: 25-bed closed ICU with 1:1 nurse-patient ratio and advanced monitoring systems\n- **Cutting-Edge Diagnostics**: MRI, CT scan, advanced pathology lab, and imaging facilities\n\n## Pioneering Medical Excellence\n### Latest Procedures & Technologies\n\n**Minimally Invasive Cardiac Interventions**\n- Advanced angioplasty techniques with drug-eluting stents\n- Transcatheter Aortic Valve Replacement (TAVR)\n- Leadless pacemaker implantation\n- 3D mapping for complex arrhythmia ablations\n- Intravascular ultrasound (IVUS) guided procedures\n\n**Robotic & Laparoscopic Surgery**\n- Robot-assisted surgeries for precise tumor removal\n- Single-incision laparoscopic procedures\n- Endoscopic spine surgeries with faster recovery\n- Laser-assisted surgeries for minimal scarring\n\n**Advanced Cancer Care**\n- Targeted therapy and immunotherapy protocols\n- Image-guided radiation therapy (IGRT)\n- CyberKnife radiosurgery for tumor treatment\n- Personalized cancer genomics testing\n- Pain-free chemotherapy delivery systems\n\n**Cutting-Edge Diagnostics**\n- 3 Tesla MRI for ultra-high resolution imaging\n- 256-slice CT scanner for cardiac and whole-body scans\n- PET-CT for early cancer detection\n- Advanced 4D ultrasound technology\n- AI-powered diagnostic interpretation systems\n\n**Innovative Treatment Approaches**\n- Stem cell therapy for cardiac regeneration\n- Platelet-rich plasma (PRP) therapy\n- Non-surgical body contouring and aesthetic procedures\n- Advanced wound healing with hyperbaric oxygen therapy\n- Integrated holistic healing combining Siddha and modern medicine\n\n## Recognition & Excellence\n- **Radio City Icon Award 2022** for Excellence in Heart Care\n- **NABH Accreditation** ensuring highest standards of patient care and safety\n- **4.7/5 Patient Satisfaction Rating** based on thousands of reviews\n- **Center of Excellence** designation in multiple specialties\n\n## Innovation in Healthcare Education\nBeyond patient care, we nurture the next generation of healthcare professionals through our Allied Health Sciences programs. Affiliated with The Tamil Nadu Dr. M.G.R. Medical University, we offer specialized courses in cardiac technology, critical care, and healthcare management.\n\n## Our Values, Your Trust\n**Kindness** – Every patient is family  \n**Excellence** – Pursuit of the highest medical standards  \n**Innovation** – Embracing advanced treatments and technologies  \n**Integrity** – Transparent, ethical healthcare delivery\n\n## Leadership That Inspires\nUnder the leadership of Dr. Thillai Vallal—an active member of the Cardiological Society of India, European Society of Cardiology, and Indian Medical Association—our hospital continues to pioneer integrated healthcare approaches, combining modern medicine with holistic wellness.\n\n## Your Health, Our Commitment\nFrom routine check-ups to complex surgeries, from preventive care to emergency interventions, Venkataeswara Hospitals stands ready to serve you 24/7. With cashless insurance facilities, affordable treatment options, and a patient-first approach, we ensure that quality healthcare remains accessible to all.\n\n**Visit us at:** \n36-A, Chamiers Road, Nandanam  \nChennai – 600035  \n(Near Devar Statue)\n\n*Where healing meets heart, and technology meets compassion—Welcome to Venkataeswara Hospitals, your partner in lifelong wellness.*",
+  "@aboutUsContent": {
+    "description": "Full markdown content for About Us screen"
+  },
+  "settingsTitle": "Settings",
+  "@settingsTitle": {
+    "description": "App-bar title"
+  },
+  "settingsEditProfile": "Edit profile",
+  "@settingsEditProfile": {
+    "description": "List-tile label to edit profile"
+  },
+  "settingsLanguage": "Language",
+  "@settingsLanguage": {
+    "description": "Section title for language"
+  },
+  "settingsAccessibility": "Accessibility",
+  "@settingsAccessibility": {
+    "description": "Section title for font size slider"
+  },
+  "settingsFontSize": "Font size",
+  "@settingsFontSize": {
+    "description": "Label for font size option"
+  },
+  "settingsFontSizeChanged": "Font size set to",
+  "@settingsFontSizeChanged": {
+    "description": "Snackbar prefix after font size change"
+  },
+  "settingsTheme": "Dark theme",
+  "@settingsTheme": {
+    "description": "Label for theme toggle"
+  },
+  "settingsDarkTheme": "Dark mode enabled",
+  "@settingsDarkTheme": {
+    "description": "Subtitle when dark mode on"
+  },
+  "settingsLightTheme": "Light mode enabled",
+  "@settingsLightTheme": {
+    "description": "Subtitle when dark mode off"
+  },
+  "settingsSecurity": "Security",
+  "@settingsSecurity": {
+    "description": "Section title for biometric login"
+  },
+  "settingsBiometricLogin": "Use biometric login",
+  "@settingsBiometricLogin": {
+    "description": "Label for biometric toggle"
+  },
+  "settingsBiometricNotSupported": "Biometrics not supported on this device.",
+  "@settingsBiometricNotSupported": {
+    "description": "Snackbar when device lacks biometrics"
+  },
+  "settingsLogout": "Log out",
+  "@settingsLogout": {
+    "description": "Label on logout button"
+  },
+  "settingsLogoutConfirmation": "Log out",
+  "@settingsLogoutConfirmation": {
+    "description": "Dialog title asking for logout confirmation"
+  },
+  "settingsAreYouSureLogout": "Are you sure you want to log out?",
+  "@settingsAreYouSureLogout": {
+    "description": "Dialog body for logout confirmation"
+  },
+  "settingsConfirmLogout": "Yes, log out",
+  "@settingsConfirmLogout": {
+    "description": "Dialog confirm button"
+  },
+  "calendarFullAccess": "My Health Calendar",
+  "@calendarFullAccess": {
+    "description": "App-bar title and permission prompt heading"
+  },
+  "calendarPermissionDenied": "Calendar permission denied.",
+  "@calendarPermissionDenied": {
+    "description": "Snackbar text when user denies calendar permission"
+  },
+  "calendarEnablePermissions": "Enable calendar permission in settings to view your events.",
+  "@calendarEnablePermissions": {
+    "description": "Message shown when permission not granted"
+  },
+  "openSettings": "Open settings",
+  "@openSettings": {
+    "description": "Button label to open system settings"
+  },
+  "settingsPermissionsTitle": "Permissions",
+  "@settingsPermissionsTitle": {
+    "description": "Section title for app permissions like calendar, camera, etc."
+  },
+  "settingsPermissionCalendar": "Calendar Access",
+  "@settingsPermissionCalendar": {
+    "description": "Label for calendar permission"
+  },
+  "settingsPermissionCalendarDesc": "Used to show appointments and investigations",
+  "@settingsPermissionCalendarDesc": {
+    "description": "Description of calendar permission use"
+  },
+  "settingsPermissionLocation": "Location Access",
+  "@settingsPermissionLocation": {
+    "description": "Label for location permission"
+  },
+  "settingsPermissionLocationDesc": "Used for SOS and nearby hospital finder",
+  "@settingsPermissionLocationDesc": {
+    "description": "Description of location permission use"
+  },
+  "settingsPermissionCamera": "Camera Access",
+  "@settingsPermissionCamera": {
+    "description": "Label for camera permission"
+  },
+  "settingsPermissionCameraDesc": "Used to scan prescriptions and upload images",
+  "@settingsPermissionCameraDesc": {
+    "description": "Description of camera permission use"
+  },
+  "settingsPermissionManage": "Manage",
+  "@settingsPermissionManage": {
+    "description": "Label for button that opens system settings for permission control"
+  },
+  "settingsPermissionGranted": "Granted",
+  "@settingsPermissionGranted": {
+    "description": "Label showing permission is granted"
+  },
+  "settingsPermissionDenied": "Denied",
+  "@settingsPermissionDenied": {
+    "description": "Label showing permission is denied"
+  },
+  "settingsDynamicColors": "Dynamic Theme Colors",
+  "@settingsDynamicColors": {
+    "description": "Label for the dynamic theme colors option"
+  },
+  "settingsDynamicColorsDesc": "Update app colors based on selected feature",
+  "@settingsDynamicColorsDesc": {
+    "description": "Description for the dynamic colors feature"
+  },
+  "settingsCurrentAccentColor": "Current Accent Color",
+  "@settingsCurrentAccentColor": {
+    "description": "Label for the current accent color display"
+  },
+  "settingsAccentColorDesc": "Applied from circular dial",
+  "@settingsAccentColorDesc": {
+    "description": "Description explaining where the accent color is applied from"
+  },
+  "settingsResetTheme": "Reset Theme Settings",
+  "@settingsResetTheme": {
+    "description": "Label for the option to reset theme settings"
+  },
+  "settingsResetThemeDesc": "Restore default theme configuration",
+  "@settingsResetThemeDesc": {
+    "description": "Description for the reset theme option"
+  },
+  "settingsResetThemeConfirm": "This will reset theme mode, font size, and dynamic colors to defaults.",
+  "@settingsResetThemeConfirm": {
+    "description": "Confirmation message shown when user taps the reset theme option"
+  },
+  "settingsThemeResetSuccess": "Theme settings reset to defaults",
+  "@settingsThemeResetSuccess": {
+    "description": "Snackbar message shown after theme settings have been reset"
+  },
+  "commonResetButton": "Reset",
+  "@commonResetButton": {
+    "description": "Generic label for a reset button"
+  },
+  "refreshCalendar": "Refresh events",
+  "@refreshCalendar": {
+    "description": "Tooltip on refresh icon"
+  },
+  "calendarLoadFailed": "Unable to load calendar events.",
+  "@calendarLoadFailed": {
+    "description": "Snackbar when API fetch fails"
+  },
+  "selectDayPrompt": "Select a day to view events",
+  "@selectDayPrompt": {
+    "description": "Shown when no date is selected"
+  },
+  "noEventsForDay": "No events for this day",
+  "@noEventsForDay": {
+    "description": "Shown when selected day has no events"
+  },
+  "unknownEvent": "Unknown event",
+  "@unknownEvent": {
+    "description": "Fallback title when event type/title missing"
+  },
+  "eventTypesAppointment": "Appointment",
+  "@eventTypesAppointment": {
+    "description": "Readable name for appointment events"
+  },
+  "eventTypesInvestigation": "Investigation",
+  "@eventTypesInvestigation": {
+    "description": "Readable name for investigation events"
+  },
+  "eventTypesPharmacyOrder": "Pharmacy order",
+  "@eventTypesPharmacyOrder": {
+    "description": "Readable name for pharmacy events"
+  },
+  "feedbackPhoneNumber": "Phone number",
+  "@feedbackPhoneNumber": {
+    "description": "Label for phone text field when guest users ask a doubt"
+  },
+  "feedbackPlaceholder": "Type your question here",
+  "@feedbackPlaceholder": {
+    "description": "Label on the multi-line question field"
+  },
+  "feedbackHint": "Example: Should I continue my medication after surgery?",
+  "@feedbackHint": {
+    "description": "Hint text inside the question input"
+  },
+  "questionCannotBeEmpty": "Question cannot be empty.",
+  "@questionCannotBeEmpty": {
+    "description": "Validation message when question field is blank"
+  },
+  "submit": "Submit",
+  "@submit": {
+    "description": "Generic submit button label"
+  },
+  "feedbackSuccess": "Your question has been sent! Our team will reply soon.",
+  "@feedbackSuccess": {
+    "description": "Snackbar after successful submission"
+  },
+  "feedbackFailed": "Could not send your question. Please try again.",
+  "@feedbackFailed": {
+    "description": "Fallback error message when API call fails"
+  },
+  "notifications": "Notifications",
+  "@notifications": {
+    "description": "App-bar title"
+  },
+  "failedToFetchNotifications": "Unable to fetch notifications. Please pull to refresh.",
+  "@failedToFetchNotifications": {
+    "description": "Snackbar when backend returns error status"
+  },
+  "errorFetchingNotifications": "Network error while fetching notifications.",
+  "@errorFetchingNotifications": {
+    "description": "Snackbar when request throws exception"
+  },
+  "noNotifications": "You have no notifications.",
+  "@noNotifications": {
+    "description": "Shown when notifications list is empty"
+  },
+  "notificationMarkedAsRead": "Notification marked as read",
+  "@notificationMarkedAsRead": {
+    "description": "Snackbar after user swipes to mark read"
+  },
+  "notification": "Notification",
+  "@notification": {
+    "description": "Fallback title when notification title missing"
+  },
+  "downloadPermissionDenied": "Storage permission is required to download files.",
+  "@downloadPermissionDenied": {
+    "description": "Shown when user refuses storage permission"
+  },
+  "yourHealthTabRecords": "Records",
+  "yourHealthTabConsultations": "Consultations",
+  "yourHealthTabSummary": "Summary",
+  "consultationDoctor": "Doctor",
+  "consultationDiagnosis": "Diagnosis",
+  "consultationNotes": "Notes",
+  "consultationDate": "Date",
+  "consultationsEmpty": "No consultations found",
+  "summaryAllergies": "Allergies",
+  "summaryConditions": "Conditions",
+  "summaryOverview": "Health Overview",
+  "summaryNoAllergies": "No known allergies",
+  "summaryNoConditions": "No known conditions",
+  "summaryNoData": "No health summary available",
+  "investigationsResultsTitle": "Investigation Results",
+  "investigationsTabUpload": "Upload",
+  "investigationsTabResults": "Results",
+  "investigationsStatusPending": "Pending",
+  "investigationsStatusCompleted": "Completed",
+  "investigationsNoResults": "No investigation results yet",
+  "investigationsDownloadReport": "Download Report",
+  "investigationsDownloadFailed": "Failed to download report",
+  "investigationsFiles": "Files",
+  "profileIncomplete": "Please complete your profile to continue",
+
+  "vitalsTitle": "Vitals",
+  "vitalsLogTab": "Log Vitals",
+  "vitalsHistoryTab": "History",
+  "vitalsLogHeading": "Log Your Daily Vitals",
+  "vitalsLogSubheading": "Fill in any vitals you want to record today.",
+  "vitalsBloodPressure": "Blood Pressure",
+  "vitalsSystolic": "Systolic",
+  "vitalsDiastolic": "Diastolic",
+  "vitalsHeartRate": "Heart Rate",
+  "vitalsTemperature": "Temperature",
+  "vitalsBloodSugar": "Blood Sugar",
+  "vitalsWeight": "Weight",
+  "vitalsSpO2": "SpO2",
+  "vitalsRecordButton": "Record Vitals",
+  "vitalsSubmitting": "Submitting...",
+  "vitalsRecordedSuccess": "Vitals recorded successfully",
+  "vitalsRecordFailed": "Failed to record vitals",
+  "vitalsAtLeastOne": "Please enter at least one vital sign",
+  "vitalsNoHistory": "No vitals recorded yet",
+  "vitalsNoHistoryHint": "Log your vitals using the Log Vitals tab.",
+  "vitalsHistoryFailed": "Failed to load vitals history",
+
+  "familyTitle": "Family Members",
+  "familyYourFamily": "Your Family",
+  "familyManageHint": "Manage family members linked to your account.",
+  "familyNoMembers": "No family members yet",
+  "familyNoMembersHint": "Add family members to manage shared care.",
+  "familyAddMember": "Add Family Member",
+  "familyFullName": "Full Name",
+  "familyPhone": "Phone Number",
+  "familyRelationship": "Relationship",
+  "familyDateOfBirth": "Date of Birth (optional)",
+  "familyAdding": "Adding...",
+  "familyAddedSuccess": "Family member added successfully",
+  "familyAddFailed": "Failed to add family member",
+  "familyRemoveTitle": "Remove Family Member",
+  "familyRemoveConfirm": "Are you sure you want to remove {name}?",
+  "@familyRemoveConfirm": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "familyRemoved": "{name} removed from family members",
+  "@familyRemoved": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "familyRemoveFailed": "Failed to remove member",
+
+  "refillTitle": "Prescription Refills",
+  "refillActivePrescriptions": "Active Prescriptions",
+  "refillHint": "Tap \"Request Refill\" to ask your doctor for a renewal.",
+  "refillNoActive": "No active prescriptions",
+  "refillNoActiveHint": "Your prescriptions from consultations will appear here.",
+  "refillRequestButton": "Request Refill",
+  "refillRequesting": "Requesting...",
+  "refillRetry": "Retry Refill Request",
+  "refillConfirmTitle": "Request Refill",
+  "refillConfirmBody": "Request a refill for {medication}?",
+  "@refillConfirmBody": {
+    "placeholders": {
+      "medication": { "type": "String" }
+    }
+  },
+  "refillRequested": "Refill requested for {medication}",
+  "@refillRequested": {
+    "placeholders": {
+      "medication": { "type": "String" }
+    }
+  },
+  "refillRequestFailed": "Failed to request refill",
+  "refillStatusActive": "ACTIVE",
+  "refillStatusExpired": "EXPIRED",
+
+  "stepsTitle": "Step Challenge",
+  "stepsProfile": "Profile",
+  "stepsHistory": "History",
+  "stepsLeaderboard": "Leaderboard",
+  "stepsRewards": "Rewards",
+  "stepsStartWalk": "Start Walk",
+  "stepsStopWalk": "Stop Walk",
+  "stepsSessionStarted": "Walk session started",
+  "stepsSessionStopped": "Walk done!",
+  "stepsNoHistory": "No walk sessions yet",
+  "stepsNoHistoryHint": "Start a walk to begin tracking your steps.",
+
+  "abdmTitle": "ABDM (Ayushman Bharat)",
+  "abdmRegister": "Register ABHA",
+  "abdmVerify": "Verify ABHA",
+  "abdmConsents": "Consents",
+  "abdmNoConsents": "No consent requests",
+
+  "medicationRemindersTitle": "Medication Reminders",
+  "medicationReminderAdd": "Add Reminder",
+  "medicationReminderName": "Medication Name",
+  "medicationReminderDosage": "Dosage",
+  "medicationReminderFrequency": "Frequency",
+  "medicationReminderNoReminders": "No medication reminders set",
+
+  "updateAvailableTitle": "Update Available",
+  "updateAvailableBody": "A new version of VH Health is available. Please update for the best experience.",
+  "updateNow": "Update Now",
+  "updateLater": "Later"
+}

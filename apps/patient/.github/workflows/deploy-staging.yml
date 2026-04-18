@@ -1,0 +1,69 @@
+name: Deploy Patient App — Staging
+
+# Builds a signed debug APK on main and uploads to Firebase App Distribution
+# under the "staging-testers" group. Skips the upload gracefully when the
+# FIREBASE_APP_ID / FIREBASE_TOKEN secrets aren't set — the build still
+# runs so we catch release-mode breakage.
+#
+# Production (Play Store / TestFlight) is a separate manual-approve workflow
+# gated on a git tag.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-distribute:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Bahuleyandr/vhhealth-core
+          path: vhhealth-core
+          token: ${{ secrets.GH_PAT }}
+
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable, cache: true }
+
+      - name: Rewire path dep for CI
+        run: |
+          sed -i 's|path: ../vhhealth-core|path: ./vhhealth-core|' pubspec.yaml
+
+      - name: Resolve deps
+        run: |
+          (cd vhhealth-core && flutter pub get)
+          flutter pub get
+
+      - name: Build debug APK
+        run: flutter build apk --debug --split-per-abi
+
+      - name: Check Firebase credentials
+        id: fb
+        run: |
+          if [ -z "${{ secrets.FIREBASE_APP_ID_PATIENT }}" ] || [ -z "${{ secrets.FIREBASE_TOKEN }}" ]; then
+            echo "Firebase App Distribution secrets missing — skipping upload."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload to Firebase App Distribution
+        if: steps.fb.outputs.skip == 'false'
+        uses: wzieba/Firebase-Distribution-Github-Action@v1
+        with:
+          appId: ${{ secrets.FIREBASE_APP_ID_PATIENT }}
+          token: ${{ secrets.FIREBASE_TOKEN }}
+          groups: staging-testers
+          releaseNotes: |
+            Build ${{ github.sha }} on ${{ github.ref_name }}
+          file: build/app/outputs/flutter-apk/app-armeabi-v7a-debug.apk
+
+      - name: Notify Discord on failure
+        if: failure()
+        run: |
+          curl -s -H "Content-Type: application/json" \
+            -d "{\"content\": \"🔴 **Patient App staging deploy failed** on \`${{ github.ref_name }}\`\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "${{ secrets.DISCORD_WEBHOOK_URL }}" || true

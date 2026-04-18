@@ -1,0 +1,38 @@
+// lib/core/services/backend_api_service.dart
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import 'package:vhhealth/core/config/api_config.dart';
+
+/// A singleton-like API service class for backend communication.
+class BackendApiService {
+  /// 🔐 Firebase OTP token login (called after OTP is verified)
+  static Future<http.Response> firebaseLogin(String token) async {
+    final response = await http.post(
+      Uri.parse('${ApiConfig.baseUrl}/auth/firebase/firebase-login'),
+      headers: ApiConfig.jsonHeaders,
+      body: jsonEncode({'idToken': token}),
+    ).timeout(const Duration(seconds: 15));
+    return response;
+  }
+
+  /// 📝 Save user profile after initial registration (post-OTP onboarding)
+  static Future<bool> saveUserProfile(Map<String, dynamic> profile) async {
+    final response = await http.post(
+      Uri.parse('${ApiConfig.baseUrl}/auth/firebase/complete-profile'),
+      headers: ApiConfig.jsonHeaders,
+      body: jsonEncode(profile),
+    ).timeout(const Duration(seconds: 15));
+    return response.statusCode == 200 || response.statusCode == 201;
+  }
+
+  /// 📤 Utility to parse response JSON safely
+  static Map<String, dynamic>? parseJson(http.Response response) {
+    try {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    } catch (e) {
+      debugPrint('BackendApiService.parseJson failed: $e');
+      return null;
+    }
+  }
+}
