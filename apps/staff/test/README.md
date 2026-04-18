@@ -15,9 +15,22 @@ flutter pub get
 flutter test
 ```
 
-## Deferred — needs mock scaffolding
+## Mock scaffolding (added 2026-04-18)
 
-These are the highest-value next tests; all need plugin-channel mocks that aren't present:
+Plugin-channel mocks now live under `test/helpers/`:
+
+- `plugin_channel_mocks.dart` — `mockLocalAuth(...)`, `mockConnectivity(...)`,
+  `mockMobileScanner()` + `clearAllPluginMocks()`. Use when the code under
+  test calls the plugin APIs directly.
+- `fake_biometric_auth_service.dart` — swap-in fake for `BiometricAuthService`.
+  Preferred over the raw local_auth channel mock because it's platform-agnostic.
+
+Sample: `test/features/auth/services/biometric_quick_login_test.dart` exercises
+both patterns (fake service + raw channel mock) across 6 passing test cases.
+
+## Deferred — now unblocked by the scaffolding above
+
+These are the highest-value next tests; they were waiting on the plugin-channel mocks that now exist:
 
 - **MAR 5-rights verification** (`features/nursing/screens/mar_scan_screen.dart` — the `_Step` state-machine walk: `scanWristband → scanDrug → verify → done`). Needs mocked barcode scanner + `ConnectivitySyncService` + `medical_api_service`.
 - **CDS allergy blocker** on Rx entry (`features/doctor/screens/prescriptions_screen.dart` — the modal that blocks save when patient allergy conflicts with the drug).
