@@ -76,8 +76,14 @@ jobs:
           file: apps/patient/build/app/outputs/flutter-apk/app-armeabi-v7a-debug.apk
 
       - name: Notify Discord on failure
-        if: failure() && secrets.DISCORD_WEBHOOK_URL != ''
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL not configured — skipping notification."
+            exit 0
+          fi
           curl -s -H "Content-Type: application/json" \
             -d "{\"content\": \"🔴 **Patient App staging deploy failed** on \`${{ github.ref_name }}\`\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
-            "${{ secrets.DISCORD_WEBHOOK_URL }}" || true
+            "$DISCORD_WEBHOOK_URL" || true
