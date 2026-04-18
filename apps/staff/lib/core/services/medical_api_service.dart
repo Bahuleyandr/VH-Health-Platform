@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
-import 'package:vhhealth_core/models/api_response.dart';
 import 'api_client.dart';
 
 /// Medical API calls: investigations, consultations, prescriptions, EMR,
@@ -53,9 +52,9 @@ class MedicalApiService {
     return _post('/staff/medical/consultations', {
       'phone': phone,
       'consultationType': consultationType,
-      if (patientName != null) 'patientName': patientName,
-      if (notes != null) 'notes': notes,
-      if (date != null) 'date': date,
+      'patientName': ?patientName,
+      'notes': ?notes,
+      'date': ?date,
       if (additionalData != null) ...additionalData,
     });
   }
@@ -78,9 +77,9 @@ class MedicalApiService {
       final fields = <String, String>{
         'phone': phone,
         'testType': testType,
-        if (result != null) 'result': result,
-        if (notes != null) 'notes': notes,
-        if (date != null) 'date': date,
+        'result': ?result,
+        'notes': ?notes,
+        'date': ?date,
       };
       final files = [
         await http.MultipartFile.fromPath('file', filePath,
@@ -97,10 +96,10 @@ class MedicalApiService {
     return _post('/staff/medical/investigations', {
       'phone': phone,
       'testType': testType,
-      if (result != null) 'result': result,
-      if (notes != null) 'notes': notes,
-      if (fileUrl != null) 'fileUrl': fileUrl,
-      if (date != null) 'date': date,
+      'result': ?result,
+      'notes': ?notes,
+      'fileUrl': ?fileUrl,
+      'date': ?date,
     });
   }
 
@@ -198,7 +197,7 @@ class MedicalApiService {
     String? notes,
   }) {
     return _post('/investigations/bookings/$id/collected', {
-      if (notes != null) 'collection_notes': notes,
+      'collection_notes': ?notes,
     });
   }
 
@@ -215,7 +214,7 @@ class MedicalApiService {
     String? fileName,
   }) async {
     final fields = <String, String>{
-      if (notes != null) 'result_notes': notes,
+      'result_notes': ?notes,
     };
     final files = [
       await http.MultipartFile.fromPath('file', filePath, filename: fileName)
@@ -246,10 +245,10 @@ class MedicalApiService {
     return _post('/health/records', {
       'patient_id': patientId,
       'record_type': 'VITALS',
-      if (vitalSigns != null) 'vital_signs': vitalSigns,
-      if (measurements != null) 'measurements': measurements,
-      if (notes != null) 'notes': notes,
-      if (recordedBy != null) 'recorded_by': recordedBy,
+      'vital_signs': ?vitalSigns,
+      'measurements': ?measurements,
+      'notes': ?notes,
+      'recorded_by': ?recordedBy,
     });
   }
 
@@ -261,7 +260,7 @@ class MedicalApiService {
   }) async {
     return _get('/health/patient/$patientId/trends', query: {
       if (days != null) 'days': days.toString(),
-      if (vitalType != null) 'vital_type': vitalType,
+      'vital_type': ?vitalType,
     });
   }
 
@@ -342,7 +341,7 @@ class MedicalApiService {
     return _post('/clinical/mar/$maId/administer-with-scan', {
       'scanned_patient_uid': scannedPatientUid,
       'scanned_barcode': scannedBarcode,
-      if (overrideReason != null) 'override_reason': overrideReason,
+      'override_reason': ?overrideReason,
     });
   }
 
@@ -382,9 +381,9 @@ class MedicalApiService {
     String? toDate,
   }) async {
     final data = await _get('/prescriptions/all', query: {
-      if (doctorId != null) 'doctor_id': doctorId,
-      if (fromDate != null) 'from_date': fromDate,
-      if (toDate != null) 'to_date': toDate,
+      'doctor_id': ?doctorId,
+      'from_date': ?fromDate,
+      'to_date': ?toDate,
     });
     return data['data'] as List? ?? [];
   }
@@ -405,11 +404,11 @@ class MedicalApiService {
       'patient_id': patientId,
       'record_type': 'PRESCRIPTION',
       'title': title,
-      if (description != null) 'description': description,
-      if (diagnosis != null) 'diagnosis': diagnosis,
-      if (treatment != null) 'treatment': treatment,
-      if (medications != null) 'medications': medications,
-      if (privacyLevel != null) 'privacy_level': privacyLevel,
+      'description': ?description,
+      'diagnosis': ?diagnosis,
+      'treatment': ?treatment,
+      'medications': ?medications,
+      'privacy_level': ?privacyLevel,
     });
   }
 
@@ -429,9 +428,9 @@ class MedicalApiService {
     int limit = 20,
   }) async {
     return _get('/records/records', query: {
-      if (type != null) 'type': type,
-      if (dateFrom != null) 'date_from': dateFrom,
-      if (dateTo != null) 'date_to': dateTo,
+      'type': ?type,
+      'date_from': ?dateFrom,
+      'date_to': ?dateTo,
       if (patientId != null) 'patient_id': patientId.toString(),
       if (doctorId != null) 'doctor_id': doctorId.toString(),
       'page': page.toString(),
@@ -502,7 +501,7 @@ class MedicalApiService {
   static Future<Map<String, dynamic>> getPatientNotes(String uid,
       {String? noteType}) async {
     return _get('/emr/notes/patient/$uid', query: {
-      if (noteType != null) 'note_type': noteType,
+      'note_type': ?noteType,
     });
   }
 
@@ -565,7 +564,7 @@ class MedicalApiService {
   static Future<Map<String, dynamic>> getIOBalance(String uid,
       {String? date}) async {
     return _get('/emr/io/$uid/balance', query: {
-      if (date != null) 'date': date,
+      'date': ?date,
     });
   }
 
@@ -618,10 +617,10 @@ class MedicalApiService {
       'order_id': orderId,
       'lat': lat,
       'lng': lng,
-      if (accuracy != null) 'accuracy': accuracy,
-      if (speed != null) 'speed': speed,
-      if (heading != null) 'heading': heading,
-      if (batteryLevel != null) 'battery_level': batteryLevel,
+      'accuracy': ?accuracy,
+      'speed': ?speed,
+      'heading': ?heading,
+      'battery_level': ?batteryLevel,
     });
   }
 

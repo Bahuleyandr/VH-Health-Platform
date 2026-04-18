@@ -56,7 +56,7 @@ class LeaveApiService {
       'start_date': startDate,
       'end_date': endDate,
       'reason': reason,
-      if (emergencyContact != null) 'emergency_contact': emergencyContact,
+      'emergency_contact': ?emergencyContact,
     });
   }
 
@@ -75,8 +75,7 @@ class LeaveApiService {
       'start_date': startDate,
       'end_date': endDate,
       'reason': reason,
-      if (replacementStaffId != null)
-        'replacement_staff_id': replacementStaffId,
+      'replacement_staff_id': ?replacementStaffId,
     });
   }
 
@@ -104,7 +103,7 @@ class LeaveApiService {
   }) async {
     return _post('/staff/hr/replacement/$requestId/respond', {
       'status': status,
-      if (message != null) 'message': message,
+      'message': ?message,
     });
   }
 }

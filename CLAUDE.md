@@ -82,6 +82,23 @@ git subtree add --prefix=apps/staff \
 Full pre-monorepo history is preserved — `git log apps/patient/` and
 friends walk every commit from the original repos.
 
+## Local CI (run workflows without pushing)
+
+Docker-in-WSL + `act` lets you run the same GitHub workflows locally,
+which is the fastest way to debug CI changes without burning push-test
+cycles. Windows wrapper at `D:\Dev\Tools\act\act.cmd` delegates into
+WSL where docker + act actually live.
+
+```
+act -l                     # list workflows + jobs
+act push                   # simulate a push event
+act -j ci                  # run the root ci.yml job
+act --dryrun push          # show what would run without executing
+```
+
+First run downloads the `catthehacker/ubuntu:act-latest` runner image
+(~500MB) into the WSL VHD; subsequent runs reuse it.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on every push/PR to `main`:

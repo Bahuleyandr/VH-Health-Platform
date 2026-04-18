@@ -55,10 +55,10 @@ class ScheduleApiService {
     int limit = 20,
   }) async {
     return _get('/appointments/list', query: {
-      if (department != null) 'department': department,
-      if (staffId != null) 'staffId': staffId,
-      if (date != null) 'date': date,
-      if (status != null) 'status': status,
+      'department': ?department,
+      'staffId': ?staffId,
+      'date': ?date,
+      'status': ?status,
       'page': page.toString(),
       'limit': limit.toString(),
     });
@@ -72,7 +72,7 @@ class ScheduleApiService {
   }) async {
     return _put('/appointments/$appointmentId/status', {
       'status': status,
-      if (notes != null) 'notes': notes,
+      'notes': ?notes,
     });
   }
 
@@ -84,8 +84,8 @@ class ScheduleApiService {
     String? department,
   }) async {
     final r = await _get('/appointments/queue/today', query: {
-      if (doctorId != null) 'doctor_id': doctorId,
-      if (department != null) 'department': department,
+      'doctor_id': ?doctorId,
+      'department': ?department,
     });
     return r['data'] as List? ?? (r is List ? r as List : []);
   }
@@ -97,9 +97,9 @@ class ScheduleApiService {
     String? doctorId,
   }) async {
     final r = await _get('/appointments/pending', query: {
-      if (fromDate != null) 'from_date': fromDate,
-      if (toDate != null) 'to_date': toDate,
-      if (doctorId != null) 'doctor_id': doctorId,
+      'from_date': ?fromDate,
+      'to_date': ?toDate,
+      'doctor_id': ?doctorId,
     });
     return r['data'] as List? ?? (r is List ? r as List : []);
   }
@@ -123,7 +123,7 @@ class ScheduleApiService {
     String? notes,
   }) async {
     return _post('/appointments/$id/complete', {
-      if (notes != null) 'notes': notes,
+      'notes': ?notes,
     });
   }
 
@@ -133,7 +133,7 @@ class ScheduleApiService {
     String? reason,
   }) async {
     return _post('/appointments/$id/cancel', {
-      if (reason != null) 'cancellation_reason': reason,
+      'cancellation_reason': ?reason,
     });
   }
 
@@ -148,7 +148,7 @@ class ScheduleApiService {
     final fields = <String, String>{
       'appointment_id': appointmentId.toString(),
       'document_type': documentType,
-      if (notes != null) 'notes': notes,
+      'notes': ?notes,
     };
     final files = [
       await http.MultipartFile.fromPath('file', filePath, filename: fileName)
@@ -175,7 +175,7 @@ class ScheduleApiService {
       'patient_phone': patientPhone,
       if (patientName != null && patientName.isNotEmpty)
         'patient_name': patientName,
-      if (doctorId != null) 'doctor_id': doctorId,
+      'doctor_id': ?doctorId,
       if (department != null && department.isNotEmpty)
         'department': department,
       'reason': reason ?? 'Walk-in consultation',

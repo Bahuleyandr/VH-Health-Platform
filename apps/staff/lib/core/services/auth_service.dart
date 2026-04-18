@@ -115,9 +115,9 @@ class AuthService {
       '/auth/staff/quick-login',
       body: {
         'employeeId': employeeId,
-        if (pin != null) 'pin': pin,
-        if (biometricToken != null) 'biometricToken': biometricToken,
-        if (deviceToken != null) 'deviceToken': deviceToken,
+        'pin': ?pin,
+        'biometricToken': ?biometricToken,
+        'deviceToken': ?deviceToken,
       },
     );
 

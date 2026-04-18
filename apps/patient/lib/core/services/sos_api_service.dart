@@ -21,10 +21,10 @@ class SosApiService {
       '/sos/',
       body: {
         'phone': phone,
-        if (latitude != null) 'latitude': latitude,
-        if (longitude != null) 'longitude': longitude,
+        'latitude': ?latitude,
+        'longitude': ?longitude,
         'emergencyType': emergencyType,
-        if (severity != null) 'severity': severity,
+        'severity': ?severity,
       },
     );
     if (response.isSuccess) {

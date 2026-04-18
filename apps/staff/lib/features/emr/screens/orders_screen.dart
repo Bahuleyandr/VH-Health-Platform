@@ -687,7 +687,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         itemCount: statuses.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 6),
+        separatorBuilder: (_, _) => const SizedBox(width: 6),
         itemBuilder: (ctx, i) {
           final selected = _filterStatus == statuses[i];
           return FilterChip(

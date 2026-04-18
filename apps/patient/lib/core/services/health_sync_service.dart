@@ -144,8 +144,8 @@ class HealthSyncService {
     final body = <String, dynamic>{
       if (heartRate != null) 'heartRate': heartRate.round(),
       if (spo2 != null) 'spO2': spo2.round(),
-      if (weight != null) 'weight': weight,
-      if (temperature != null) 'temperature': temperature,
+      'weight': ?weight,
+      'temperature': ?temperature,
       'source': _sourceTag,
       'recordedAtSource': (latestSampleAt ?? end).toIso8601String(),
     };

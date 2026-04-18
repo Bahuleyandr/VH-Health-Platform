@@ -43,7 +43,7 @@ class FeedbackApiService {
         body: {
           'phone': phone,
           'rating': rating,
-          if (appointmentId != null) 'appointment_id': appointmentId,
+          'appointment_id': ?appointmentId,
         },
       );
       return response.isSuccess;

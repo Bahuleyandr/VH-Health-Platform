@@ -190,7 +190,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                     height: 180,
                     width: double.infinity,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
+                    errorBuilder: (_, _, _) => Container(
                       height: 80,
                       color: Colors.grey.shade200,
                       child: const Center(child: Text('No preview')),

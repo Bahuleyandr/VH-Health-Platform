@@ -41,7 +41,7 @@ class AttendanceApiService {
     return _post('/staff/attendance', {
       'staffId': staffId,
       'action': action,
-      if (location != null) 'location': location,
+      'location': ?location,
     });
   }
 
@@ -79,8 +79,8 @@ class AttendanceApiService {
     return _post('/staff/attendance/$staffId/regularize', {
       'date': date,
       'reason': reason,
-      if (checkInTime != null) 'check_in_time': checkInTime,
-      if (checkOutTime != null) 'check_out_time': checkOutTime,
+      'check_in_time': ?checkInTime,
+      'check_out_time': ?checkOutTime,
     });
   }
 
@@ -93,8 +93,8 @@ class AttendanceApiService {
     int limit = 30,
   }) async {
     return _get('/staff/attendance/$staffId', query: {
-      if (startDate != null) 'startDate': startDate,
-      if (endDate != null) 'endDate': endDate,
+      'startDate': ?startDate,
+      'endDate': ?endDate,
       'page': page.toString(),
       'limit': limit.toString(),
     });
@@ -118,8 +118,8 @@ class AttendanceApiService {
     int? limit,
   }) async {
     return _get('/auth/staff/attendance/history', query: {
-      if (startDate != null) 'startDate': startDate,
-      if (endDate != null) 'endDate': endDate,
+      'startDate': ?startDate,
+      'endDate': ?endDate,
       if (page != null) 'page': page.toString(),
       if (limit != null) 'limit': limit.toString(),
     });
@@ -157,9 +157,8 @@ class AttendanceApiService {
       'date': date,
       'dispute_type': disputeType,
       'description': description,
-      if (requestedCheckIn != null) 'requested_check_in': requestedCheckIn,
-      if (requestedCheckOut != null)
-        'requested_check_out': requestedCheckOut,
+      'requested_check_in': ?requestedCheckIn,
+      'requested_check_out': ?requestedCheckOut,
     });
   }
 

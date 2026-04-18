@@ -84,7 +84,7 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: _rows.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (context, i) => _DueMedTile(
         row: _rows[i],
         onTap: () => _openScanner(_rows[i]),

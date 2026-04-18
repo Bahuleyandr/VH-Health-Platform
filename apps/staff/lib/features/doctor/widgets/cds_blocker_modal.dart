@@ -57,11 +57,11 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
     );
 
     return AlertDialog(
-      title: Row(
+      title: const Row(
         children: [
-          const Icon(Icons.block, color: Colors.red, size: 28),
-          const SizedBox(width: 8),
-          const Expanded(
+          Icon(Icons.block, color: Colors.red, size: 28),
+          SizedBox(width: 8),
+          Expanded(
             child: Text('Prescription blocked', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],

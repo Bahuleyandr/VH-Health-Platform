@@ -490,7 +490,7 @@ class _QueueCard extends StatelessWidget {
               ),
               if (waitTime != null && waitTime!.isNotEmpty)
                 Text(waitTime!, style: TextStyle(fontSize: 11, color: completed ? AppTheme.successGreen : AppTheme.warningAmber, fontWeight: FontWeight.w500)),
-              if (trailing != null) trailing!,
+              ?trailing,
               if (!completed && trailing == null) const Icon(Icons.chevron_right, color: AppTheme.textSecondary, size: 20),
             ],
           ),

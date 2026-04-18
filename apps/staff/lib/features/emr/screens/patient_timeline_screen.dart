@@ -281,7 +281,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         itemCount: _eventTypes.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 6),
+        separatorBuilder: (_, _) => const SizedBox(width: 6),
         itemBuilder: (ctx, i) {
           final type = _eventTypes[i];
           final selected =

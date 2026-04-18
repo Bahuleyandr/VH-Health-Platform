@@ -41,14 +41,14 @@ class PharmacyApiService {
       'phone': phone,
       'orderId': orderId,
       'status': status,
-      if (notes != null) 'notes': notes,
+      'notes': ?notes,
     });
   }
 
   /// GET /pharmacy-orders/orders/queue — pharmacy order queue
   static Future<List<dynamic>> getPharmacyOrderQueue({String? status}) async {
     final resp = await _get('/pharmacy-orders/orders/queue', query: {
-      if (status != null) 'status': status,
+      'status': ?status,
     });
     final data = resp['data'];
     if (data is List) return data;

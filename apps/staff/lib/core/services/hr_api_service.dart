@@ -76,8 +76,8 @@ class HrApiService {
     String? period,
   }) async {
     return _get('/staff/hr/performance-report', query: {
-      if (department != null) 'department': department,
-      if (period != null) 'period': period,
+      'department': ?department,
+      'period': ?period,
     });
   }
 
@@ -94,7 +94,7 @@ class HrApiService {
       'period': period,
       'overall_rating': overallRating,
       'comments': comments,
-      if (goals != null) 'goals': goals,
+      'goals': ?goals,
     });
   }
 
@@ -119,9 +119,9 @@ class HrApiService {
     String? department,
   }) async {
     return _get('/staff/hr/attendance-analytics', query: {
-      if (startDate != null) 'startDate': startDate,
-      if (endDate != null) 'endDate': endDate,
-      if (department != null) 'department': department,
+      'startDate': ?startDate,
+      'endDate': ?endDate,
+      'department': ?department,
     });
   }
 
@@ -132,9 +132,9 @@ class HrApiService {
     String? reportType,
   }) async {
     return _get('/staff/hr/export-report', query: {
-      if (format != null) 'format': format,
-      if (department != null) 'department': department,
-      if (reportType != null) 'reportType': reportType,
+      'format': ?format,
+      'department': ?department,
+      'reportType': ?reportType,
     });
   }
 
@@ -160,12 +160,11 @@ class HrApiService {
       'title': title,
       'description': description,
       'incident_date': incidentDate,
-      if (location != null) 'location': location,
+      'location': ?location,
       'patient_involved': patientInvolved,
-      if (patientName != null) 'patient_name': patientName,
-      if (witnesses != null) 'witnesses': witnesses,
-      if (immediateActionTaken != null)
-        'immediate_action_taken': immediateActionTaken,
+      'patient_name': ?patientName,
+      'witnesses': ?witnesses,
+      'immediate_action_taken': ?immediateActionTaken,
       'is_anonymous': isAnonymous,
     });
   }
@@ -197,9 +196,9 @@ class HrApiService {
       'grievance_type': grievanceType,
       'subject': subject,
       'description': description,
-      if (againstWhom != null) 'against_whom': againstWhom,
-      if (department != null) 'department': department,
-      if (incidentDate != null) 'incident_date': incidentDate,
+      'against_whom': ?againstWhom,
+      'department': ?department,
+      'incident_date': ?incidentDate,
       'is_anonymous': isAnonymous,
     });
   }
@@ -237,13 +236,13 @@ class HrApiService {
   }) async {
     return await _post('/staff/hr/housekeeping/log', {
       'cleaning_type': cleaningType,
-      if (zoneId != null) 'zone_id': zoneId,
-      if (locationText != null) 'location_text': locationText,
-      if (notes != null) 'notes': notes,
-      if (photoKey != null) 'photo_key': photoKey,
-      if (photoUrl != null) 'photo_url': photoUrl,
-      if (latitude != null) 'latitude': latitude,
-      if (longitude != null) 'longitude': longitude,
+      'zone_id': ?zoneId,
+      'location_text': ?locationText,
+      'notes': ?notes,
+      'photo_key': ?photoKey,
+      'photo_url': ?photoUrl,
+      'latitude': ?latitude,
+      'longitude': ?longitude,
     });
   }
 
@@ -270,12 +269,12 @@ class HrApiService {
       'location_text': locationText,
       'request_type': requestType,
       'urgency': urgency,
-      if (zoneId != null) 'zone_id': zoneId,
-      if (description != null) 'description': description,
-      if (photoKey != null) 'photo_key': photoKey,
-      if (photoUrl != null) 'photo_url': photoUrl,
-      if (latitude != null) 'latitude': latitude,
-      if (longitude != null) 'longitude': longitude,
+      'zone_id': ?zoneId,
+      'description': ?description,
+      'photo_key': ?photoKey,
+      'photo_url': ?photoUrl,
+      'latitude': ?latitude,
+      'longitude': ?longitude,
     });
   }
 
@@ -293,9 +292,9 @@ class HrApiService {
   }) async {
     return await _post(
         '/staff/hr/housekeeping/requests/$requestId/complete', {
-      if (completionNotes != null) 'completion_notes': completionNotes,
-      if (photoKey != null) 'completion_photo_key': photoKey,
-      if (photoUrl != null) 'completion_photo_url': photoUrl,
+      'completion_notes': ?completionNotes,
+      'completion_photo_key': ?photoKey,
+      'completion_photo_url': ?photoUrl,
     });
   }
 
@@ -434,9 +433,9 @@ class HrApiService {
   }) async {
     return _post('/auth/staff/quick-login', {
       'employeeId': employeeId,
-      if (pin != null) 'pin': pin,
-      if (biometricToken != null) 'biometricToken': biometricToken,
-      if (deviceToken != null) 'deviceToken': deviceToken,
+      'pin': ?pin,
+      'biometricToken': ?biometricToken,
+      'deviceToken': ?deviceToken,
     });
   }
 

@@ -278,7 +278,7 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(vertical: 8),
         itemCount: conversations.length,
-        separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+        separatorBuilder: (_, _) => const Divider(height: 1, indent: 72),
         itemBuilder: (context, index) {
           final conv = conversations[index];
           final msg = conv.latestMessage;
