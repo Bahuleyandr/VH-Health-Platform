@@ -31,6 +31,8 @@ dependencies:
   intl: ^0.20.2
   # Device integrity — used by DeviceIntegrityService to detect
   # rooted / jailbroken devices before issuing JWTs in release builds.
+  # Used by DeviceInfoPlusProbe for richer emulator/device-trust detection.
+  device_info_plus: ^12.1.0
 
 dev_dependencies:
   flutter_test:
