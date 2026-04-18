@@ -32,9 +32,24 @@ class HealthSyncService {
     HealthDataType.SLEEP_ASLEEP,
   ];
 
+  /// Subset of [_types] we also write back to HealthKit / Health Connect after
+  /// the user records them manually in-app. Kept narrower than [_types]
+  /// because some types (STEPS, SLEEP_ASLEEP) are passively sensor-derived
+  /// and writing them from the app would create duplicate or fake entries.
+  static const List<HealthDataType> _writableTypes = [
+    HealthDataType.HEART_RATE,
+    HealthDataType.BLOOD_OXYGEN,
+    HealthDataType.WEIGHT,
+    HealthDataType.BODY_TEMPERATURE,
+    HealthDataType.BLOOD_PRESSURE_SYSTOLIC,
+    HealthDataType.BLOOD_PRESSURE_DIASTOLIC,
+    HealthDataType.BLOOD_GLUCOSE,
+  ];
+
   final Health _health = Health();
   Timer? _periodicTimer;
   bool _permissionsGranted = false;
+  bool _writePermissionsGranted = false;
 
   String get _sourceTag => Platform.isIOS ? 'healthkit' : 'google_fit';
 
@@ -45,6 +60,20 @@ class HealthSyncService {
     final permissions = List<HealthDataAccess>.filled(_types.length, HealthDataAccess.READ);
     final granted = await _health.requestAuthorization(_types, permissions: permissions);
     _permissionsGranted = granted;
+    return granted;
+  }
+
+  /// Request WRITE permissions for the vitals we push back after manual entry.
+  /// Separate from [requestPermissions] so the read-only sync flow keeps a
+  /// narrow permission surface. Call from the vitals-entry screen just before
+  /// the user saves — iOS surfaces a single combined HealthKit sheet either way.
+  Future<bool> requestWritePermissions() async {
+    await _health.configure();
+    final permissions =
+        List<HealthDataAccess>.filled(_writableTypes.length, HealthDataAccess.READ_WRITE);
+    final granted =
+        await _health.requestAuthorization(_writableTypes, permissions: permissions);
+    _writePermissionsGranted = granted;
     return granted;
   }
 
@@ -169,6 +198,95 @@ class HealthSyncService {
   double? _numeric(HealthValue v) {
     if (v is NumericHealthValue) return v.numericValue.toDouble();
     return null;
+  }
+
+  // ── Write-back: push manually-recorded vitals into HealthKit / Health Connect ───
+
+  /// Write the vitals the user just recorded back into the system health store
+  /// so they show up in Apple Health / Google Health Connect alongside readings
+  /// from wearables. Fire-and-forget: all errors are swallowed + logged in
+  /// debug builds. Missing values are skipped.
+  ///
+  /// Call from the vitals save path (and from the medication-intake handler,
+  /// once medication tracking lands) AFTER the backend POST succeeds — the
+  /// backend is the source of truth; HealthKit mirror is a convenience for
+  /// cross-app visibility.
+  Future<void> writeVitalsToHealthStore({
+    int? heartRate,
+    int? spO2,
+    double? weight,
+    double? temperature,
+    int? systolic,
+    int? diastolic,
+    int? bloodGlucose,
+    DateTime? recordedAt,
+  }) async {
+    if (!_writePermissionsGranted) {
+      await _health.configure();
+      final has =
+          await _health.hasPermissions(_writableTypes, permissions:
+            List<HealthDataAccess>.filled(_writableTypes.length, HealthDataAccess.READ_WRITE),
+          ) ??
+              false;
+      if (!has) return;
+      _writePermissionsGranted = true;
+    }
+
+    final at = recordedAt ?? DateTime.now();
+    final writes = <Future<bool>>[];
+
+    if (heartRate != null) {
+      writes.add(_health.writeHealthData(
+        value: heartRate.toDouble(),
+        type: HealthDataType.HEART_RATE,
+        startTime: at,
+      ));
+    }
+    if (spO2 != null) {
+      writes.add(_health.writeHealthData(
+        value: spO2 / 100.0,
+        type: HealthDataType.BLOOD_OXYGEN,
+        startTime: at,
+      ));
+    }
+    if (weight != null) {
+      writes.add(_health.writeHealthData(
+        value: weight,
+        type: HealthDataType.WEIGHT,
+        startTime: at,
+      ));
+    }
+    if (temperature != null) {
+      writes.add(_health.writeHealthData(
+        value: temperature,
+        type: HealthDataType.BODY_TEMPERATURE,
+        startTime: at,
+      ));
+    }
+    if (bloodGlucose != null) {
+      writes.add(_health.writeHealthData(
+        value: bloodGlucose.toDouble(),
+        type: HealthDataType.BLOOD_GLUCOSE,
+        startTime: at,
+      ));
+    }
+    if (systolic != null && diastolic != null) {
+      writes.add(_health.writeBloodPressure(
+        systolic: systolic,
+        diastolic: diastolic,
+        startTime: at,
+      ));
+    }
+
+    try {
+      final results = await Future.wait(writes);
+      final ok = results.where((r) => r).length;
+      if (kDebugMode) {
+        debugPrint('HealthSyncService.writeVitalsToHealthStore: $ok/${results.length} writes succeeded');
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('HealthSyncService.writeVitalsToHealthStore failed: $e');
+    }
   }
 
   // ── Background sync (workmanager) ─────────────────────────────────────────

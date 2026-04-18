@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl/intl.dart';
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/services/health_sync_service.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 
 class VitalsScreen extends StatefulWidget {
@@ -140,6 +143,22 @@ class _VitalsFormTabState extends State<_VitalsFormTab> {
       if (!mounted) return;
 
       if (response.isSuccess) {
+        // Mirror into HealthKit / Health Connect so the entry shows up alongside
+        // wearable data. Fire-and-forget; backend is the source of truth.
+        unawaited(HealthSyncService.instance.writeVitalsToHealthStore(
+          heartRate: body['heartRate'] as int?,
+          spO2: body['spO2'] as int?,
+          weight: body['weight'] as double?,
+          temperature: body['temperature'] as double?,
+          systolic: body['bloodPressure'] is Map
+              ? (body['bloodPressure'] as Map)['systolic'] as int?
+              : null,
+          diastolic: body['bloodPressure'] is Map
+              ? (body['bloodPressure'] as Map)['diastolic'] as int?
+              : null,
+          bloodGlucose: body['bloodSugar'] as int?,
+        ));
+
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Vitals recorded successfully')),
         );
