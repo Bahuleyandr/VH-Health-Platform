@@ -3,11 +3,26 @@ name: Admin Portal CI
 on:
   push:
     branches: [main]
+    paths:
+      - 'apps/admin/**'
+      - '.github/workflows/ci-admin.yml'
   pull_request:
+    branches: [main]
+    paths:
+      - 'apps/admin/**'
+      - '.github/workflows/ci-admin.yml'
+
+concurrency:
+  group: ci-admin-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint-typecheck-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/admin
 
     env:
       NEXT_PUBLIC_API_URL: http://localhost:5000
@@ -18,12 +33,13 @@ jobs:
       NEXT_PUBLIC_X_API_KEY: test-api-key
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: apps/admin/package-lock.json
 
       - run: npm ci
 
@@ -39,8 +55,10 @@ jobs:
       - run: npx next build
 
       - name: Notify Discord on failure
-        if: failure()
+        if: failure() && env.DISCORD_WEBHOOK_URL != ''
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
           curl -s -H "Content-Type: application/json" \
             -d "{\"content\": \"🔴 **Admin Portal CI failed** on \`${{ github.ref_name }}\`\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
-            "${{ secrets.DISCORD_WEBHOOK_URL }}" || true
+            "$DISCORD_WEBHOOK_URL" || true

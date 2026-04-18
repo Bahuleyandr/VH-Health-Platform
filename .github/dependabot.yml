@@ -1,51 +1,70 @@
 version: 2
 
-# Consolidated from the two identical configs that came in via subtree
-# merge (apps/patient/.github/dependabot.yml and apps/staff/.github/).
-# GitHub Dependabot only reads `.github/dependabot.yml` at the repo root,
-# so the per-app copies were inert.
+# Single dependabot config for the full-stack monorepo. One update entry
+# per package-ecosystem × directory. Weekly cadence keeps the PR rate
+# manageable; major-version bumps are ignored (review manually).
 
 updates:
-  # Patient app
+  # ── Flutter / Dart workspace ────────────────────────────────────────────
   - package-ecosystem: "pub"
     directory: "/apps/patient"
     schedule:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
-    labels: ["dependencies", "patient"]
+    labels: ["dependencies", "flutter", "patient"]
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
-      # Workspace member — resolved by pub workspace, not pub.dev
       - dependency-name: "vhhealth_core"
 
-  # Staff app
   - package-ecosystem: "pub"
     directory: "/apps/staff"
     schedule:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
-    labels: ["dependencies", "staff"]
+    labels: ["dependencies", "flutter", "staff"]
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
       - dependency-name: "vhhealth_core"
 
-  # Shared core package
   - package-ecosystem: "pub"
     directory: "/packages/vhhealth_core"
     schedule:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
-    labels: ["dependencies", "core"]
+    labels: ["dependencies", "flutter", "core"]
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
 
-  # GitHub Actions pinning (Flutter action, checkout, release action, etc.)
+  # ── Node / Next.js ──────────────────────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/apps/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "backend"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "npm"
+    directory: "/apps/admin"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "admin"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # ── GitHub Actions (root workflows) ─────────────────────────────────────
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
