@@ -1,0 +1,19 @@
+# Melos
+.dart_tool/
+pubspec_overrides.yaml
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+melos_*.log
+
+# Node (tooling scripts only — real node_modules live in sibling repos)
+node_modules/
