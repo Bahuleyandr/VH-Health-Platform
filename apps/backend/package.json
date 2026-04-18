@@ -99,7 +99,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",
     "@sentry/cli": "^2.58.5",
-    "@stoplight/spectral-cli": "^6.15.0",
+    "@stoplight/spectral-cli": "^6.15.1",
     "@stoplight/spectral-core": "^1.21.0",
     "@stoplight/spectral-rulesets": "^1.22.0",
     "ajv": "^8.17.1",
