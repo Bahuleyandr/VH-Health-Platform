@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { User, Search, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
+import { Search, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
 import { getJSON } from "@/lib/api/core";
 import type { AuditLogRow, LogsResponse, ModulesResponse } from "../auditTypes";
 import {

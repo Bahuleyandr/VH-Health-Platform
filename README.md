@@ -1,9 +1,16 @@
 # VH Health Monorepo
 
-Flutter workspace for the VH Health platform. Contains the three
-Dart/Flutter repos that used to live separately, now unified under Melos
-so shared commands (`melos run pub_get`, `melos run analyze`,
-`melos run test`, `melos run codegen`) cover every package in one pass.
+Full-stack monorepo for the VH Health platform. It now contains:
+
+- Flutter patient app (`apps/patient`)
+- Flutter staff app (`apps/staff`)
+- Shared Dart package (`packages/vhhealth_core`)
+- Node/Express backend API (`apps/backend`)
+- Next.js admin portal (`apps/admin`)
+
+Flutter packages are unified under a Melos/Dart workspace so shared
+commands (`melos run analyze`, `melos run test`, `melos run codegen`)
+cover all Flutter packages in one pass.
 
 ## Packages
 
@@ -12,15 +19,14 @@ so shared commands (`melos run pub_get`, `melos run analyze`,
 | `packages/vhhealth_core` | `Bahuleyandr/vhhealth-core` | Shared types, API client, codegen target |
 | `apps/patient` | `Bahuleyandr/VH-health` | Patient-facing Flutter app |
 | `apps/staff` | `Bahuleyandr/VHhealth-staff` | Staff/clinical Flutter app |
+| `apps/backend` | `Bahuleyandr/VH-health-backend` | Node.js + Express healthcare API |
+| `apps/admin` | `Bahuleyandr/VH-Health-Adminportal` | Next.js admin/super-admin portal |
 
-## Sibling repos (still separate)
+## Migration status
 
-- `Bahuleyandr/VH-health-backend` — Node.js + Express API
-- `Bahuleyandr/VH-Health-Adminportal` — Next.js admin portal
-
-These are intentionally outside the monorepo (different stacks,
-different deploy cadences). Cross-repo changes follow
-[`VH-health-backend/docs/CROSS_REPO_PR_CONVENTION.md`](https://github.com/Bahuleyandr/VH-health-backend/blob/main/docs/CROSS_REPO_PR_CONVENTION.md).
+This repository was migrated from separate upstream repos. Legacy docs
+or scripts may still reference old standalone-repo paths; prefer
+paths under `apps/` and `packages/` in this monorepo.
 
 ## Quick start
 

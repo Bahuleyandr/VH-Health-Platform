@@ -27,11 +27,21 @@ function mockResponse(
 ): Response {
   const { status = 200, ok = status >= 200 && status < 300, contentType = "application/json" } = init;
   const json = typeof body === "string" ? body : JSON.stringify(body);
+  const parsedJson =
+    typeof body === "string"
+      ? (() => {
+          try {
+            return JSON.parse(body);
+          } catch {
+            return body;
+          }
+        })()
+      : body;
   return {
     ok,
     status,
     headers: new Headers({ "content-type": contentType }),
-    json: jest.fn().mockResolvedValue(typeof body === "string" ? JSON.parse(body) : body),
+    json: jest.fn().mockResolvedValue(parsedJson),
     text: jest.fn().mockResolvedValue(json),
   } as unknown as Response;
 }
@@ -210,6 +220,46 @@ describe("postJSON", () => {
     const init = mockedApiFetch.mock.calls[0][1] as RequestInit;
     expect(init.method).toBe("POST");
     expect(init.body).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// requestJSON non-JSON branches + thin wrappers
+// ---------------------------------------------------------------------------
+describe("non-JSON handling and thin wrappers", () => {
+  it("returns plain text body when response is non-JSON and successful", async () => {
+    mockedApiFetch.mockResolvedValueOnce(
+      mockResponse("pong", { status: 200, ok: true, contentType: "text/plain" }),
+    );
+
+    const result = await getJSON<string>("/api/v1/health/ping");
+    expect(result).toBe("pong");
+  });
+
+  it("uses fallback API error message for non-JSON error responses", async () => {
+    mockedApiFetch.mockResolvedValueOnce(
+      mockResponse("gateway failed", { status: 502, ok: false, contentType: "text/plain" }),
+    );
+
+    await expect(getJSON("/api/v1/failing")).rejects.toThrow("API Error: 502");
+  });
+
+  it("putJSON and deleteJSON send the expected HTTP verbs", async () => {
+    mockedApiFetch
+      .mockResolvedValueOnce(mockResponse({ success: true, data: { ok: true } }))
+      .mockResolvedValueOnce(mockResponse({ success: true, data: { ok: true } }));
+
+    const { putJSON, deleteJSON } = await import("@/lib/api");
+
+    await putJSON("/api/v1/resource/1", { name: "patched" });
+    await deleteJSON("/api/v1/resource/1");
+
+    expect(mockedApiFetch.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ method: "PUT" }),
+    );
+    expect(mockedApiFetch.mock.calls[1][1]).toEqual(
+      expect.objectContaining({ method: "DELETE" }),
+    );
   });
 });
 

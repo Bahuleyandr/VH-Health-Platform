@@ -299,10 +299,9 @@ function isRequest(input: RequestInfo | URL): input is Request {
  * Install the fetch guard.
  *
  * Auth is carried via the httpOnly auth_token cookie handled server-side by
- * /api/proxy — no client-side token injection. The legacy `getToken` parameter
- * is accepted for back-compat but ignored.
+ * /api/proxy — no client-side token injection.
  */
-export function installApiFetchGuard(_getToken?: () => string | undefined) {
+export function installApiFetchGuard() {
   if (installed || typeof window === 'undefined') return;
   installed = true;
 
