@@ -1,0 +1,10 @@
+node_modules
+.git
+.next
+.env*
+*.md
+tests
+coverage
+reset-password.js
+CODE_AUDIT.md
+CLAUDE.md
