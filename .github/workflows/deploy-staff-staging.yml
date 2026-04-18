@@ -1,0 +1,82 @@
+name: Deploy Staff App — Staging
+
+# Mirrors the patient app staging workflow. Builds a debug APK on main and
+# pushes it to Firebase App Distribution under a different App ID
+# (FIREBASE_APP_ID_STAFF). Skips upload if credentials missing; build runs
+# unconditionally so release-mode regressions surface immediately.
+#
+# Monorepo changes vs. the original standalone-repo workflow:
+#   - No secondary checkout of vhhealth-core — it lives at packages/vhhealth_core.
+#   - No sed-rewrite of the path dep — the pub workspace resolves it by name.
+#   - Melos bootstrap runs at the repo root before the per-app build.
+#   - Removed the `flutter create --platforms=android` scaffold step — the
+#     staff app's android/ folder is now committed to the monorepo.
+#   - Triggers on paths so unrelated commits (e.g. patient-only changes)
+#     don't rebuild the staff app.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/staff/**'
+      - 'packages/vhhealth_core/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/deploy-staff-staging.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-staff-staging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-distribute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Activate Melos
+        run: dart pub global activate melos 7.5.1
+
+      - name: Bootstrap workspace
+        run: |
+          dart pub get
+          melos bootstrap
+
+      - name: Build debug APK
+        working-directory: apps/staff
+        run: flutter build apk --debug --split-per-abi
+
+      - name: Check Firebase credentials
+        id: fb
+        run: |
+          if [ -z "${{ secrets.FIREBASE_APP_ID_STAFF }}" ] || [ -z "${{ secrets.FIREBASE_TOKEN }}" ]; then
+            echo "Firebase App Distribution secrets missing — skipping upload."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload to Firebase App Distribution
+        if: steps.fb.outputs.skip == 'false'
+        uses: wzieba/Firebase-Distribution-Github-Action@v1
+        with:
+          appId: ${{ secrets.FIREBASE_APP_ID_STAFF }}
+          token: ${{ secrets.FIREBASE_TOKEN }}
+          groups: staging-testers
+          releaseNotes: |
+            Staff ${{ github.sha }} on ${{ github.ref_name }}
+          file: apps/staff/build/app/outputs/flutter-apk/app-armeabi-v7a-debug.apk
+
+      - name: Notify Discord on failure
+        if: failure() && secrets.DISCORD_WEBHOOK_URL != ''
+        run: |
+          curl -s -H "Content-Type: application/json" \
+            -d "{\"content\": \"🔴 **Staff App staging deploy failed** on \`${{ github.ref_name }}\`\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "${{ secrets.DISCORD_WEBHOOK_URL }}" || true
