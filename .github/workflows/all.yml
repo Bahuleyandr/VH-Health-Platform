@@ -1,0 +1,48 @@
+name: Full Stack Sweep
+run-name: Full Stack Sweep (${{ github.event_name }}) @ ${{ github.ref_name }}
+
+# Periodic/manual full-stack run that complements the path-filtered per-stack
+# workflows. It catches cross-stack drift without forcing every PR to run
+# every suite.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 1 * * 1-5'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-stack-sweep-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flutter-workspace:
+    uses: ./.github/workflows/_reusable-flutter-workspace.yml
+    with:
+      notify_on_failure: true
+      notification_label: Full Stack Sweep / flutter
+    secrets: inherit
+
+  backend-lint-and-test:
+    uses: ./.github/workflows/_reusable-backend-lint-test.yml
+    with:
+      notify_on_failure: true
+      notification_label: Full Stack Sweep / backend
+    secrets: inherit
+
+  backend-fhir-conformance:
+    needs: backend-lint-and-test
+    uses: ./.github/workflows/_reusable-backend-fhir.yml
+    with:
+      notify_on_failure: true
+      notification_label: Full Stack Sweep / backend FHIR (non-blocking)
+    secrets: inherit
+
+  admin-lint-typecheck-build:
+    uses: ./.github/workflows/_reusable-admin-ci.yml
+    with:
+      notify_on_failure: true
+      notification_label: Full Stack Sweep / admin
+    secrets: inherit

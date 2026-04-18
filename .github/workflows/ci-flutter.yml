@@ -14,6 +14,7 @@ on:
       - 'pubspec.yaml'
       - 'pubspec.lock'
       - '.github/workflows/ci-flutter.yml'
+      - '.github/workflows/_reusable-flutter-workspace.yml'
   pull_request:
     branches: [main]
     paths:
@@ -23,6 +24,7 @@ on:
       - 'pubspec.yaml'
       - 'pubspec.lock'
       - '.github/workflows/ci-flutter.yml'
+      - '.github/workflows/_reusable-flutter-workspace.yml'
 
 concurrency:
   group: ci-flutter-${{ github.ref }}
@@ -30,38 +32,4 @@ concurrency:
 
 jobs:
   workspace:
-    name: Melos workspace (analyze + test + format)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: Print versions
-        run: |
-          flutter --version
-          dart --version
-
-      - name: Activate Melos
-        run: dart pub global activate melos 7.5.1
-
-      - name: Resolve pub workspace
-        run: dart pub get
-
-      - name: Bootstrap workspace
-        run: melos bootstrap
-
-      - name: Format check
-        run: melos run format
-        continue-on-error: true
-
-      - name: Analyze
-        run: melos run analyze
-
-      - name: Test
-        run: melos run test
+    uses: ./.github/workflows/_reusable-flutter-workspace.yml

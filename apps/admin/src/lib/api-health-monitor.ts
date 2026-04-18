@@ -1,3 +1,5 @@
+import { API_ENDPOINTS, buildProxyUrl } from "@/lib/api-config";
+
 type HealthStatus = 'healthy' | 'degraded' | 'down';
 
 interface HealthState {
@@ -55,7 +57,7 @@ class ApiHealthMonitor {
 
   private async check() {
     try {
-      const res = await fetch('/api/proxy/health-check', {
+      const res = await fetch(buildProxyUrl(API_ENDPOINTS.health.check), {
         method: 'GET',
         signal: AbortSignal.timeout(5000),
       });

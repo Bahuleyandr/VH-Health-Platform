@@ -749,8 +749,11 @@ export const calculateRevisionArrears = async (req, res) => {
 
 export const exportPayrollSummary = async (req, res) => {
   try {
-    const { month, year } = req.query;
-    if (!month || !year) return error(res, 'month and year required', HTTP_STATUS.BAD_REQUEST);
+    const month = Number(req.query.month);
+    const year = Number(req.query.year);
+    if (!Number.isInteger(month) || !Number.isInteger(year)) {
+      return error(res, 'month and year required', HTTP_STATUS.BAD_REQUEST);
+    }
 
     const payslips = await prisma.$queryRawUnsafe(`
       SELECT
@@ -830,8 +833,11 @@ export const exportPayrollSummary = async (req, res) => {
 // PF ECR (Electronic Challan cum Return) format
 export const exportPFRegister = async (req, res) => {
   try {
-    const { month, year } = req.query;
-    if (!month || !year) return error(res, 'month and year required', HTTP_STATUS.BAD_REQUEST);
+    const month = Number(req.query.month);
+    const year = Number(req.query.year);
+    if (!Number.isInteger(month) || !Number.isInteger(year)) {
+      return error(res, 'month and year required', HTTP_STATUS.BAD_REQUEST);
+    }
 
     const payslips = await prisma.$queryRawUnsafe(`
       SELECT u.name, ss.pf_uan, ss.employee_id, p.basic_earned, p.pf_employee
@@ -882,8 +888,11 @@ export const exportPFRegister = async (req, res) => {
 // ESI register
 export const exportESIRegister = async (req, res) => {
   try {
-    const { month, year } = req.query;
-    if (!month || !year) return error(res, 'month and year required', HTTP_STATUS.BAD_REQUEST);
+    const month = Number(req.query.month);
+    const year = Number(req.query.year);
+    if (!Number.isInteger(month) || !Number.isInteger(year)) {
+      return error(res, 'month and year required', HTTP_STATUS.BAD_REQUEST);
+    }
 
     const payslips = await prisma.$queryRawUnsafe(`
       SELECT u.name, ss.employee_id, p.gross_salary, p.esi_employee,

@@ -1,0 +1,103 @@
+name: Reusable Backend Lint and Test
+
+on:
+  workflow_call:
+    inputs:
+      notify_on_failure:
+        description: Send a Discord notification if the workflow fails.
+        required: false
+        type: boolean
+        default: false
+      notification_label:
+        description: Label to use in the Discord failure message.
+        required: false
+        type: string
+        default: Backend CI
+    secrets:
+      DISCORD_WEBHOOK_URL:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    name: Backend lint + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: apps/backend
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: vhhealth
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: vhhealth
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vhhealth"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://vhhealth:test@localhost:5432/vhhealth
+      API_KEY: test-api-key
+      JWT_SECRET: test-jwt-secret-for-ci-must-be-at-least-32-chars
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/backend/package-lock.json
+
+      - run: npm ci
+
+      - name: Security audit
+        run: |
+          npm audit --audit-level=critical
+          npx audit-ci --critical
+
+      - run: npm run lint
+
+      - name: Validate Swagger structure
+        run: npm run swagger:validate
+
+      - name: Lint OpenAPI with Spectral
+        run: npx spectral lint src/docs/swagger-complete.yaml
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Apply Prisma schema
+        run: npx prisma db push --force-reset --skip-generate
+
+      - name: Apply raw migrations + seed lookup data
+        run: node scripts/ci-setup-db.mjs
+
+      - name: Schema drift check
+        run: node scripts/ci-schema-drift.mjs
+
+      - name: Run tests
+        run: node --max-old-space-size=4096 --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --forceExit --detectOpenHandles
+
+      - name: Notify Discord on failure
+        if: failure() && inputs.notify_on_failure
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL not configured — skipping notification."
+            exit 0
+          fi
+          curl -s -H "Content-Type: application/json" \
+            -d "{\"content\": \"🔴 **${{ inputs.notification_label }} failed** on \`${{ github.ref_name }}\`\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$DISCORD_WEBHOOK_URL" || true
