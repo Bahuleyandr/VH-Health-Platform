@@ -132,26 +132,25 @@ export const adminDoctorController = {
 
       const doctorId = doctorCheck[0].id;
 
-      // Update doctors table (use actual column names: specialty not specialization)
+      // Update doctors table using the actual schema. Older API payloads may
+      // include fee/schedule fields that are not present in this table.
       const result = await prisma.$queryRawUnsafe(`
         UPDATE doctors SET
           name = COALESCE($1, name),
           specialty = COALESCE($2, specialty),
           department = COALESCE($3, department),
-          consultation_fee = COALESCE($4, consultation_fee),
-          available_days = COALESCE($5, available_days),
-          available_hours = COALESCE($6::jsonb, available_hours),
-          intro = COALESCE($7, intro),
+          intro = COALESCE($4, intro),
           updated_at = NOW()
-        WHERE id = $8
-        RETURNING id, name, department, specialty, intro, image_url, consultation_fee, available_days, is_available, is_active, created_at
+        WHERE id = $5
+        RETURNING id, name, department, specialty, intro, image_url,
+          NULL::numeric as consultation_fee,
+          NULL::text[] as available_days,
+          NULL::jsonb as available_hours,
+          is_available, is_active, created_at
       `,
         req.body.name || null,
         req.body.specialization || null,
         req.body.department || null,
-        req.body.consultation_fee != null ? parseFloat(req.body.consultation_fee) : null,
-        req.body.available_days || null,
-        req.body.available_hours ? JSON.stringify(req.body.available_hours) : null,
         req.body.bio || null,
         doctorId
       );

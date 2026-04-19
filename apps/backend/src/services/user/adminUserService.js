@@ -168,12 +168,20 @@ export class AdminUserService {
 
     const userRecord = userRows[0];
 
+    await prisma.$executeRaw`
+      UPDATE users
+      SET is_active = true,
+          status = 'active',
+          updated_at = NOW()
+      WHERE uid = ${userRecord.uid}::uuid
+    `;
+
     if (['NURSE', 'PHARMACY_STAFF', 'LAB_STAFF'].includes(userRecord.role)) {
-      await prisma.$queryRaw`
-        UPDATE staff SET is_active = true, updated_at = NOW() WHERE user_id = ${userRecord.id}
+      await prisma.$executeRaw`
+        UPDATE staff SET is_active = true, updated_at = NOW() WHERE user_id = ${userRecord.uid}::uuid
       `;
     } else if (userRecord.role === 'DOCTOR') {
-      await prisma.$queryRaw`
+      await prisma.$executeRaw`
         UPDATE doctors SET is_available = true, updated_at = NOW() WHERE user_id = ${userRecord.id}
       `;
     }
