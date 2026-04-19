@@ -243,6 +243,13 @@ $messageCreate = Invoke-SmokeRequest $results "messaging_send" "POST" "/api/v1/m
 $messageJson = Get-JsonContent $messageCreate
 $messageId = Get-JsonProperty (Get-JsonProperty $messageJson "data") "id"
 
+if ($messageId) {
+  $outboxCount = Invoke-Psql "SELECT COUNT(*) FROM notification_outbox no JOIN users u ON u.id::text = no.recipient_id::text WHERE u.uid = '$RecipientUid'::uuid AND no.payload->>'message_id' = '$messageId';"
+  Add-Result $results "messaging_notification_outbox" "DB" ([int]$outboxCount -ge 1) "queued=$outboxCount"
+} else {
+  Add-Result $results "messaging_notification_outbox" "SKIP" $false "message id not found after send"
+}
+
 Invoke-SmokeRequest $results "messaging_thread" "GET" "/api/v1/messaging/thread/$RecipientUid" | Out-Null
 Invoke-SmokeRequest $results "messaging_recipient_inbox" "GET" "/api/v1/messaging/inbox" -AuthToken $recipientToken | Out-Null
 Invoke-SmokeRequest $results "messaging_recipient_unread_count" "GET" "/api/v1/messaging/unread-count" -AuthToken $recipientToken | Out-Null

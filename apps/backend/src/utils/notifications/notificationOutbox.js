@@ -1,6 +1,13 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
+const toIntegerOrNull = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : null;
+};
+
 /**
  * Notification outbox — persist notification intent before sending.
  * Failed notifications can be retried by a background job.
@@ -18,24 +25,25 @@ class NotificationOutbox {
    */
   async queue(notification) {
     try {
+      const recipientId = toIntegerOrNull(notification.recipientId);
+
       const result = await prisma.$queryRawUnsafe(
         `INSERT INTO notification_outbox
           (type, recipient_id, recipient_phone, title, body, payload, status, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', NOW())
+         VALUES ($1, $2::int, $3, $4, $5, $6::jsonb, 'PENDING', NOW())
          RETURNING id, status`,
-        
+
           notification.type || 'push',
-          notification.recipientId || null,
+          recipientId,
           notification.recipientPhone || null,
           notification.title || '',
           notification.body || '',
           JSON.stringify(notification.data || {}),
-        
+
       );
       return result[0];
     } catch (err) {
-      // If outbox table doesn't exist yet, log and continue (graceful degradation)
-      logger.warn('Notification outbox queue failed (table may not exist):', err.message);
+      logger.warn('Notification outbox queue failed:', err.message);
       return null;
     }
   }
@@ -46,7 +54,11 @@ class NotificationOutbox {
   async markSent(outboxId) {
     try {
       await prisma.$queryRawUnsafe(
-        `UPDATE notification_outbox SET status = 'SENT', sent_at = NOW() WHERE id = $1`,
+        `UPDATE notification_outbox
+         SET status = 'SENT',
+             sent_at = NOW(),
+             last_attempt_at = NOW()
+         WHERE id = $1`,
         outboxId
       );
     } catch (err) {
@@ -61,7 +73,10 @@ class NotificationOutbox {
     try {
       await prisma.$queryRawUnsafe(
         `UPDATE notification_outbox
-         SET status = 'FAILED', failure_reason = $2, retry_count = retry_count + 1, last_attempt_at = NOW()
+         SET status = 'FAILED',
+             failure_reason = $2,
+             retry_count = retry_count + 1,
+             last_attempt_at = NOW()
          WHERE id = $1`,
         outboxId, reason
       );
