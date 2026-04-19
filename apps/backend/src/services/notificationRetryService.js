@@ -12,14 +12,20 @@ const query = async (sql, params = []) => {
   const isReadQuery = upperSql.startsWith('SELECT') || upperSql.startsWith('WITH') || usesReturning;
 
   if (isReadQuery) {
-    const rows = await prisma.$queryRawUnsafe(normalizedSql, ...params);
-    return { rows, rowCount: Array.isArray(rows) ? rows.length : 0 };
+    return prisma.$queryRawUnsafe(normalizedSql, ...params);
   }
 
   const rowCount = await prisma.$executeRawUnsafe(normalizedSql, ...params);
-  return { rows: [], rowCount: Number(rowCount) || 0 };
+  return { rowCount: Number(rowCount) || 0 };
 };
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const toUuidOrNull = (value) => {
+  if (!value) return null;
+  const normalized = String(value).trim();
+  return UUID_PATTERN.test(normalized) ? normalized : null;
+};
 
 /**
  * Send push notification with automatic retry on failure.
@@ -39,9 +45,16 @@ export async function sendPushWithRetry(deviceToken, payload, userId = null) {
     logger.warn(`[RetryService] Push failed for user ${userId}, queuing retry: ${err.message}`);
     try {
       await query(`
-        INSERT INTO failed_notifications (user_id, type, device_token, title, body, data, error_message)
-        VALUES ($1, 'push', $2, $3, $4, $5, $6)
-      `, [userId, deviceToken, payload.title, payload.body, JSON.stringify(payload.data || {}), err.message]);
+        INSERT INTO failed_notifications (user_id, type, device_token, title, body, data, error_message, next_retry_at)
+        VALUES ($1::uuid, 'push', $2, $3, $4, $5::jsonb, $6, NOW())
+      `, [
+        toUuidOrNull(userId),
+        deviceToken,
+        payload.title,
+        payload.body,
+        JSON.stringify(payload.data || {}),
+        err.message,
+      ]);
     } catch (dbErr) {
       logger.error(`[RetryService] Failed to queue push retry: ${dbErr.message}`);
     }
@@ -60,9 +73,9 @@ export async function sendSMSWithRetry(phone, message, userId = null) {
     logger.warn(`[RetryService] SMS failed for ${phone}, queuing retry: ${err.message}`);
     try {
       await query(`
-        INSERT INTO failed_notifications (user_id, type, phone, body, error_message)
-        VALUES ($1, 'sms', $2, $3, $4)
-      `, [userId, phone, message, err.message]);
+        INSERT INTO failed_notifications (user_id, type, phone, body, error_message, next_retry_at)
+        VALUES ($1::uuid, 'sms', $2, $3, $4, NOW())
+      `, [toUuidOrNull(userId), phone, message, err.message]);
     } catch (dbErr) {
       logger.error(`[RetryService] Failed to queue SMS retry: ${dbErr.message}`);
     }
@@ -78,7 +91,8 @@ export async function retryFailedNotifications() {
   let pending;
   try {
     pending = await query(`
-      SELECT id, phone, title, body, type, error_message, retry_count, last_retry_at, created_at FROM failed_notifications
+      SELECT id, user_id, phone, device_token, title, body, type, data, error_message, retry_count, max_retries, last_retry_at, created_at
+      FROM failed_notifications
       WHERE status = 'pending' AND next_retry_at <= NOW() AND retry_count < max_retries
       ORDER BY created_at ASC LIMIT 50
     `);
@@ -102,12 +116,12 @@ export async function retryFailedNotifications() {
           data: notif.data || {},
           userId: notif.user_id,
         });
-        await query(`UPDATE failed_notifications SET status='sent' WHERE id=$1`, [notif.id]);
+        await query(`UPDATE failed_notifications SET status='sent', last_retry_at=NOW() WHERE id=$1`, [notif.id]);
         logger.info(`[RetryService] Push retry succeeded for notification ${notif.id}`);
       } else if (notif.type === 'sms' && notif.phone) {
         const { sendSMS } = await import('./smsService.js');
         await sendSMS(notif.phone, notif.body);
-        await query(`UPDATE failed_notifications SET status='sent' WHERE id=$1`, [notif.id]);
+        await query(`UPDATE failed_notifications SET status='sent', last_retry_at=NOW() WHERE id=$1`, [notif.id]);
         logger.info(`[RetryService] SMS retry succeeded for notification ${notif.id}`);
       }
     } catch (err) {
@@ -116,14 +130,21 @@ export async function retryFailedNotifications() {
 
       if (newRetry >= notif.max_retries) {
         await query(
-          `UPDATE failed_notifications SET status='failed_permanent', retry_count=$1, error_message=$2 WHERE id=$3`,
+          `UPDATE failed_notifications
+           SET status='failed_permanent', retry_count=$1, error_message=$2, last_retry_at=NOW()
+           WHERE id=$3`,
           [newRetry, err.message, notif.id]
         );
         logger.warn(`[RetryService] Notification ${notif.id} permanently failed after ${newRetry} retries`);
       } else {
         await query(
-          `UPDATE failed_notifications SET retry_count=$1, next_retry_at=NOW()+INTERVAL '${backoffMinutes} minutes', error_message=$2 WHERE id=$3`,
-          [newRetry, err.message, notif.id]
+          `UPDATE failed_notifications
+           SET retry_count=$1,
+               next_retry_at=NOW() + ($2::int * INTERVAL '1 minute'),
+               error_message=$3,
+               last_retry_at=NOW()
+           WHERE id=$4`,
+          [newRetry, backoffMinutes, err.message, notif.id]
         );
         logger.info(`[RetryService] Notification ${notif.id} retry ${newRetry}/${notif.max_retries}, next in ${backoffMinutes}min`);
       }

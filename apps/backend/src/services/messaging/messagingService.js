@@ -23,6 +23,17 @@ const query = async (sql, params = []) => {
 
 const VALID_PRIORITIES = ['normal', 'urgent', 'critical'];
 
+const getUserIdForUid = async (uid) => {
+  if (!uid) return null;
+
+  const result = await query(
+    'SELECT id FROM users WHERE uid = $1::uuid LIMIT 1',
+    [uid]
+  );
+
+  return result[0]?.id ?? null;
+};
+
 const messagingService = {
   /**
    * Send a message from one staff member to another.
@@ -58,11 +69,12 @@ const messagingService = {
       );
 
       const message = result[0];
+      const recipientUserId = await getUserIdForUid(recipientUid);
 
-      // Queue notification for recipient (fire-and-forget)
-      notificationOutbox.queue({
+      // Persist notification intent without failing the message if delivery metadata is incomplete.
+      await notificationOutbox.queue({
         type: 'push',
-        recipientId: recipientUid,
+        recipientId: recipientUserId,
         title: priority === 'critical' ? '[CRITICAL] New staff message' : 'New staff message',
         body: subject || body.substring(0, 100),
         data: {
@@ -71,8 +83,6 @@ const messagingService = {
           sender_uid: senderUid,
           priority,
         },
-      }).catch((err) => {
-        logger.warn('Failed to queue notification for staff message:', err.message);
       });
 
       logger.info(`Staff message sent: ${message.id} from ${senderUid} to ${recipientUid} [${priority}]`);
