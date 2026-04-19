@@ -13,6 +13,53 @@ import { success, error } from '../utils/responseHelper.js';
 const router = express.Router();
 logger.info('✅ deviceRoutes loaded with RBAC protection');
 
+async function unregisterDeviceHandler(req, res) {
+  const phone = req.body?.phone || req.query?.phone || req.user?.phone;
+  const deviceId = req.body?.deviceId || req.query?.deviceId;
+
+  if (!phone || !deviceId) {
+    return error(res, 'Phone and device ID are required', HTTP_STATUS.BAD_REQUEST);
+  }
+
+  try {
+    const normalizedPhone = normalizePhone(phone);
+
+    // Role-based access control
+    if (req.user?.phone && normalizePhone(req.user.phone) !== normalizedPhone && req.user?.role !== 'ADMIN') {
+      return error(res, 'Can only unregister your own devices', HTTP_STATUS.FORBIDDEN);
+    }
+
+    const result = await prisma.$queryRawUnsafe(
+      `DELETE FROM user_devices
+       WHERE device_id = $1
+         AND user_uid = (SELECT uid FROM users WHERE phone = $2)
+       RETURNING device_name, platform`,
+      deviceId, normalizedPhone
+    );
+
+    if (result.length === 0) {
+      return error(res, 'Device not found or access denied', HTTP_STATUS.NOT_FOUND);
+    }
+
+    const deviceInfo = result[0];
+
+    logger.info(`🗑️ Device unregistered: ${deviceInfo.device_name} (${deviceInfo.platform}) for ${normalizedPhone} by ${req.user?.name || 'system'}`);
+
+    success(res, {
+      phone: normalizedPhone,
+      deviceId,
+      deviceName: deviceInfo.device_name,
+      platform: deviceInfo.platform,
+      unregisteredBy: req.user?.name,
+      unregisteredAt: new Date().toISOString()
+    }, 'Device unregistered successfully');
+
+  } catch (err) {
+    logger.error('Device Unregister Error:', err);
+    error(res, 'Failed to unregister device', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+}
+
 /**
  * ✅ Device Routes with RBAC protection
  * Comprehensive device management and FCM token handling
@@ -317,7 +364,7 @@ wrapAutoRBAC(
               `INSERT INTO user_devices (
                 user_uid, device_id, device_name, platform, app_version, 
                 os_version, fcm_token, last_active, created_at
-              ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+              ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, NOW(), NOW())
               ON CONFLICT (user_uid, device_id) 
               DO UPDATE SET 
                 device_name = EXCLUDED.device_name,
@@ -325,9 +372,8 @@ wrapAutoRBAC(
                 app_version = EXCLUDED.app_version,
                 os_version = EXCLUDED.os_version,
                 fcm_token = EXCLUDED.fcm_token,
-                last_active = NOW(),
-                updated_at = NOW()
-              RETURNING id, created_at = updated_at as is_new_registration`,
+                last_active = NOW()
+              RETURNING id, (xmax = 0) as is_new_registration`,
               user.uid, deviceId, deviceName, platform, appVersion, osVersion, fcmToken
             );
 
@@ -435,7 +481,7 @@ wrapAutoRBAC(
 
             const result = await prisma.$queryRawUnsafe(
               `UPDATE user_devices 
-               SET fcm_token = $1, last_active = NOW(), updated_at = NOW()
+               SET fcm_token = $1, last_active = NOW()
                WHERE device_id = $2 
                  AND user_uid = (SELECT uid FROM users WHERE phone = $3)
                RETURNING device_name`,
@@ -462,6 +508,12 @@ wrapAutoRBAC(
             error(res, 'Failed to update FCM token', HTTP_STATUS.INTERNAL_SERVER_ERROR);
           }
         }
+      ],
+
+      // 🗑️ Unregister Device (body-bearing alias used by mobile clients)
+      [
+        '/unregister',
+        unregisterDeviceHandler
       ]
     ],
 
@@ -469,51 +521,7 @@ wrapAutoRBAC(
       // 🗑️ Unregister Device
       [
         '/unregister',
-        async (req, res) => {
-          const { phone, deviceId } = req.body;
-
-          if (!phone || !deviceId) {
-            return error(res, 'Phone and device ID are required', HTTP_STATUS.BAD_REQUEST);
-          }
-
-          try {
-            const normalizedPhone = normalizePhone(phone);
-
-            // Role-based access control
-            if (req.user?.phone && normalizePhone(req.user.phone) !== normalizedPhone && req.user?.role !== 'ADMIN') {
-              return error(res, 'Can only unregister your own devices', HTTP_STATUS.FORBIDDEN);
-            }
-
-            const result = await prisma.$queryRawUnsafe(
-              `DELETE FROM user_devices 
-               WHERE device_id = $1 
-                 AND user_uid = (SELECT uid FROM users WHERE phone = $2)
-               RETURNING device_name, platform`,
-              deviceId, normalizedPhone
-            );
-
-            if (result.length === 0) {
-              return error(res, 'Device not found or access denied', HTTP_STATUS.NOT_FOUND);
-            }
-
-            const deviceInfo = result[0];
-            
-            logger.info(`🗑️ Device unregistered: ${deviceInfo.device_name} (${deviceInfo.platform}) for ${normalizedPhone} by ${req.user?.name || 'system'}`);
-
-            success(res, {
-              phone: normalizedPhone,
-              deviceId,
-              deviceName: deviceInfo.device_name,
-              platform: deviceInfo.platform,
-              unregisteredBy: req.user?.name,
-              unregisteredAt: new Date().toISOString()
-            }, 'Device unregistered successfully');
-
-          } catch (err) {
-            logger.error('Device Unregister Error:', err);
-            error(res, 'Failed to unregister device', HTTP_STATUS.INTERNAL_SERVER_ERROR);
-          }
-        }
+        unregisterDeviceHandler
       ],
 
       // 🧹 Cleanup Inactive Devices (Admin only)

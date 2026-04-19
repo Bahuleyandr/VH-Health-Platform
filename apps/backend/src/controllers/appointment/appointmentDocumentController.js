@@ -20,7 +20,7 @@ export const uploadAppointmentDocument = async (req, res) => {
       return error(res, 'appointment_id and file are required', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const appt = await prisma.$queryRawUnsafe('SELECT id, patient_id, doctor_id FROM appointments WHERE id=$1', appointment_id);
+    const appt = await prisma.$queryRawUnsafe('SELECT id, patient_id, doctor_id FROM appointments WHERE id=$1::int', appointment_id);
     if (!appt.length) return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
     const a = appt[0];
 
@@ -84,7 +84,7 @@ export const getAppointmentDocuments = async (req, res) => {
       `SELECT ad.id, ad.appointment_id, ad.patient_id, ad.doctor_id, ad.uploaded_by, ad.upload_role, ad.document_type, ad.file_key, ad.file_url, ad.file_name, ad.file_size, ad.file_mime, ad.notes, ad.created_at, u.name as uploaded_by_name
        FROM appointment_documents ad
        LEFT JOIN users u ON ad.uploaded_by = u.id
-       WHERE ad.appointment_id=$1 AND ad.is_visible_to_patient=TRUE
+       WHERE ad.appointment_id=$1::int AND ad.is_visible_to_patient=TRUE
        ORDER BY ad.created_at DESC`,
       appointment_id
     );
