@@ -223,12 +223,12 @@ export const API_ENDPOINTS = {
     byId: "/api/v1/doctors/:doctorId", // GET/DELETE
     profile: "/api/v1/doctors/profile", // POST
     profileById: "/api/v1/doctors/profile/:id", // GET
-    updateProfile: "/api/v1/doctors/:id/profile", // PUT
-    availability: "/api/v1/doctors/:id/availability", // PUT
+    updateProfile: "/api/v1/doctors/admin/:id/profile", // PUT
+    availability: "/api/v1/doctors/admin/:id/availability", // PUT
     byDepartment: "/api/v1/doctors/department/:department", // GET
     workloadAnalysis: "/api/v1/doctors/workload-analysis", // GET
     deactivate: "/api/v1/doctors/:id/deactivate", // DELETE
-    deleteAccount: "/api/v1/doctors/:id/account", // DELETE
+    deleteAccount: "/api/v1/doctors/admin/:id/account", // DELETE
 
     admin: {
       overview: "/api/v1/doctors/admin/overview", // GET
