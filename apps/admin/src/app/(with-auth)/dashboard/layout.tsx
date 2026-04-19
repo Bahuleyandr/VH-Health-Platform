@@ -1,7 +1,7 @@
 // src/app/(with-auth)/dashboard/layout.tsx
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { CommandPalette } from '@/components/CommandPalette';
@@ -99,16 +99,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className={styles.container}>
       {/* Skip link for accessibility */}
-      <a href="#main-content" className={styles.skipLink}>
+      <a key="skip-link" href="#main-content" className={styles.skipLink}>
         Skip to content
       </a>
 
-      <div className={styles.grid}>
+      <div key="dashboard-grid" className={styles.grid}>
         {/* Header */}
-        <header role="banner" className={styles.header}>
+        <header key="dashboard-header" role="banner" className={styles.header}>
           <div className={styles.headerContent}>
-            <div className={styles.headerLeft}>
+            <div key="header-left" className={styles.headerLeft}>
               <button
+                key="open-navigation"
                 type="button"
                 className={styles.menuButton}
                 onClick={() => setIsSidebarOpen(true)}
@@ -118,16 +119,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               >
                 <MenuIcon className="h-6 w-6" aria-hidden="true" />
               </button>
-              <Breadcrumbs />
+              <Breadcrumbs key="breadcrumbs" />
             </div>
 
-            <div className={styles.headerRight}>
-              <span className={styles.keyboardHint}>
-                Press <kbd className={styles.kbd}>⌘K</kbd>
+            <div key="header-right" className={styles.headerRight}>
+              <span key="keyboard-hint" className={styles.keyboardHint}>
+                Press <kbd key="command-palette-shortcut" className={styles.kbd}>⌘K</kbd>
               </span>
-              <CommandPalette />
-              <ThemeToggle />
+              <CommandPalette key="command-palette" />
+              <ThemeToggle key="theme-toggle" />
               <button
+                key="logout"
                 type="button"
                 onClick={() => void logout()}
                 className={styles.logoutButton}
@@ -139,11 +141,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </header>
 
         {/* Desktop Sidebar */}
-        <aside aria-label="Primary navigation" role="navigation" className={styles.sidebar}>
-          <div className={styles.sidebarHeader}>
+        <aside
+          key="desktop-sidebar"
+          aria-label="Primary navigation"
+          role="navigation"
+          className={styles.sidebar}
+        >
+          <div key="sidebar-header" className={styles.sidebarHeader}>
             <h1 className={styles.sidebarTitle}>VH Admin Portal</h1>
           </div>
-          <nav className={styles.nav}>
+          <nav key="desktop-nav" className={styles.nav}>
             {visibleNav.map((item) => {
               const active = isItemActive(pathname, item.href);
               return (
@@ -162,22 +169,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* Mobile Drawer */}
         {isSidebarOpen && (
-          <>
+          <Fragment key="mobile-sidebar">
             <div
+              key="mobile-overlay"
               className={styles.mobileOverlay}
               onClick={() => setIsSidebarOpen(false)}
               aria-hidden="true"
             />
             <div
+              key="mobile-drawer"
               id="mobile-sidebar"
               role="dialog"
               aria-modal="true"
               aria-label="Mobile navigation"
               className={styles.mobileDrawer}
             >
-              <div className={styles.mobileHeader}>
-                <span className={styles.sidebarTitle}>VH Admin Portal</span>
+              <div key="mobile-header" className={styles.mobileHeader}>
+                <span key="mobile-title" className={styles.sidebarTitle}>VH Admin Portal</span>
                 <button
+                  key="mobile-close"
                   type="button"
                   onClick={() => setIsSidebarOpen(false)}
                   className={styles.closeButton}
@@ -186,7 +196,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   ✕
                 </button>
               </div>
-              <nav className={styles.nav}>
+              <nav key="mobile-nav" className={styles.nav}>
                 {visibleNav.map((item) => {
                   const active = isItemActive(pathname, item.href);
                   return (
@@ -203,21 +213,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 })}
               </nav>
             </div>
-          </>
+          </Fragment>
         )}
 
         {/* Main Content */}
-        <main id="main-content" role="main" className={styles.main}>
-          <AnnouncementBanner />
-          {children}
+        <main key="main-content" id="main-content" role="main" className={styles.main}>
+          <AnnouncementBanner key="announcement-banner" />
+          <Fragment key="dashboard-page-content">{children}</Fragment>
         </main>
       </div>
 
       {/* Dev-only helper */}
-      <AuthDebugger />
+      <AuthDebugger key="auth-debugger" />
 
       {/* Keyboard shortcuts help modal — press ? to open */}
-      <KeyboardShortcutsModal />
+      <KeyboardShortcutsModal key="keyboard-shortcuts" />
     </div>
   );
 }

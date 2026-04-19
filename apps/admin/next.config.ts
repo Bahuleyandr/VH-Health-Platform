@@ -3,6 +3,23 @@ import { withSentryConfig } from '@sentry/nextjs';
 import type { NextConfig } from 'next';
 import type { Configuration as WebpackConfig } from 'webpack';
 
+const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.vhhealth.app';
+
+function toWebSocketOrigin(url: string) {
+  try {
+    const parsed = new URL(url);
+    parsed.protocol = parsed.protocol === 'http:' ? 'ws:' : 'wss:';
+    parsed.pathname = '';
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    if (url.startsWith('http://')) return url.replace(/^http:\/\//, 'ws://');
+    if (url.startsWith('https://')) return url.replace(/^https:\/\//, 'wss://');
+    return url;
+  }
+}
+
 const nextConfig: NextConfig = {
   // output: 'standalone' — DO NOT enable on Vercel; use only for self-hosted Docker/Node deployments
   // output: 'standalone',
@@ -24,6 +41,7 @@ const nextConfig: NextConfig = {
 
   async headers() {
     const allowedOrigin = process.env.NEXT_PUBLIC_ALLOWED_ORIGIN || 'http://localhost:3000';
+    const webSocketOrigin = toWebSocketOrigin(apiUrl);
     // unsafe-eval is required in production by Sentry SDK and workbox (PWA service worker)
     // Removing it causes EvalError in prod. It was mistakenly blocked in prod only.
     const scriptSrc = "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
@@ -56,7 +74,7 @@ const nextConfig: NextConfig = {
               "default-src 'self'",
               scriptSrc,
               "style-src 'self' 'unsafe-inline'",
-              `connect-src 'self' ${process.env.NEXT_PUBLIC_API_URL || 'https://api.vhhealth.app'} ${(process.env.NEXT_PUBLIC_API_URL || 'https://api.vhhealth.app').replace('https://', 'wss://')} https://*.sentry.io`,
+              `connect-src 'self' ${apiUrl} ${webSocketOrigin} https://*.sentry.io`,
               "img-src 'self' data: blob:",
               "font-src 'self' data:",
               "worker-src 'self' blob:",
