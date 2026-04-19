@@ -17,7 +17,7 @@ export async function logAudit(req, action, metadata = {}) {
   try {
     await prisma.$queryRawUnsafe(
       `INSERT INTO audit_logs (uid, role, action, ip_address, metadata)
-       VALUES ($1, $2, $3, $4, $5::jsonb)`,
+       VALUES ($1::uuid, $2, $3, $4, $5::jsonb)`,
       uid, role, action, ip, JSON.stringify(metadata ?? {})
     );
 

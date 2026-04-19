@@ -37,16 +37,6 @@ wrapRoutesWithValidation(
   }
 );
 
-// Catalog routes (before sub-routers)
-wrapAutoRBAC(router, 'pharmacyCatalogRoutes', {
-  get: [
-    ['/catalog', [], pharmacyOrderController.getCatalog]
-  ],
-  post: [
-    ['/catalog', [], pharmacyOrderController.upsertCatalog]
-  ]
-});
-
 // Mount sub-routers
 router.use('/orders', orderRoutes);
 router.use('/medications', medicationRoutes);
@@ -56,5 +46,16 @@ router.use('/admin', adminRoutes);
 // Re-route some paths for backward compatibility
 router.use('/category', medicationRoutes);
 router.use('/search', medicationRoutes);
+
+// Catalog routes must be registered after patient sub-routers because wrapAutoRBAC
+// installs router-level RBAC middleware for the routes that follow it.
+wrapAutoRBAC(router, 'pharmacyCatalogRoutes', {
+  get: [
+    ['/catalog', [], pharmacyOrderController.getCatalog]
+  ],
+  post: [
+    ['/catalog', [], pharmacyOrderController.upsertCatalog]
+  ]
+});
 
 export default router;

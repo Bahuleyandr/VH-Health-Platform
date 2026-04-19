@@ -441,9 +441,14 @@ export const getTestCatalog = async (req, res) => {
   try {
     const { category } = req.query;
     const where = category ? 'WHERE category=$1 AND is_active=TRUE' : 'WHERE is_active=TRUE';
+    const params = category ? [category] : [];
     const result = await prisma.$queryRawUnsafe(
-      `SELECT id, name, category, price, description, turnaround_time, sample_type, is_available, created_at FROM investigation_test_catalog ${where} ORDER BY category, name`,
-      category ? [category] : []
+      `SELECT id, name, code, category, description, normal_range, unit,
+              default_cost, home_collection_surcharge, turnaround_hours,
+              requires_fasting, patient_instructions, is_active, created_at
+         FROM investigation_test_catalog ${where}
+        ORDER BY category, name`,
+      ...params
     );
     success(res, result, 'Test catalog');
   } catch (err) {

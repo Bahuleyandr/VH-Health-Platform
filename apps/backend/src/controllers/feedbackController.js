@@ -305,7 +305,11 @@ export async function submitQuickRating(req, res) {
     }
 
     const result = await feedbackService.submitQuickRating({
-      phone: normalizedPhone, rating, category, appointment_id
+      phone: normalizedPhone,
+      uid: req.user?.uid || null,
+      rating,
+      category,
+      appointment_id
     });
 
     logger.info(`Quick rating submitted: ${normalizedPhone} rated ${rating}/5 by ${req.user?.name || 'system'}`);

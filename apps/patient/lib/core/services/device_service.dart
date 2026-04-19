@@ -71,10 +71,7 @@ class DeviceService {
       final deviceId = await _getDeviceId();
       final response = await ApiClient.post(
         '/devices/heartbeat',
-        body: {
-          'phone': phone,
-          'deviceId': deviceId,
-        },
+        body: {'phone': phone, 'deviceId': deviceId},
       );
       return response.isSuccess;
     } catch (e) {
@@ -92,11 +89,7 @@ class DeviceService {
       final deviceId = await _getDeviceId();
       final response = await ApiClient.post(
         '/devices/update-token',
-        body: {
-          'phone': phone,
-          'deviceId': deviceId,
-          'fcmToken': fcmToken,
-        },
+        body: {'phone': phone, 'deviceId': deviceId, 'fcmToken': fcmToken},
       );
       return response.isSuccess;
     } catch (e) {
@@ -105,10 +98,14 @@ class DeviceService {
     }
   }
 
-  /// Unregister this device (call on logout). Uses DELETE method.
+  /// Unregister this device (call on logout).
   static Future<bool> unregisterDevice(String phone) async {
     try {
-      final response = await ApiClient.delete('/devices/unregister');
+      final deviceId = await _getDeviceId();
+      final response = await ApiClient.post(
+        '/devices/unregister',
+        body: {'phone': phone, 'deviceId': deviceId},
+      );
       return response.isSuccess;
     } catch (e) {
       debugPrint('DeviceService.unregisterDevice error: $e');

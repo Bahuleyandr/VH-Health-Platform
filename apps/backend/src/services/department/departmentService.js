@@ -301,19 +301,19 @@ class DepartmentService {
                COUNT(doc.user_id) as doctor_count,
                json_agg(
                  json_build_object(
-                   'id', u.id,
-                   'name', u.name,
-                   'specialization', doc.specialization,
-                   'is_available', doc.is_available,
-                   'experience_years', doc.experience_years,
-                   'consultation_fee', doc.consultation_fee,
-                   'available_days', doc.available_days,
-                   'available_hours', doc.available_hours,
-                   'bio', doc.bio,
-                   'education', doc.education,
-                   'qualifications', doc.qualifications,
-                   'image_url', null
-                 )
+                  'id', u.id,
+                  'name', u.name,
+                  'specialization', doc.specialty,
+                  'is_available', doc.is_available,
+                  'experience_years', null,
+                  'consultation_fee', null,
+                  'available_days', null,
+                  'available_hours', null,
+                  'bio', doc.intro,
+                  'education', null,
+                  'qualifications', null,
+                  'image_url', doc.image_url
+                )
                ) FILTER (WHERE u.id IS NOT NULL) as doctors
         FROM departments d
         LEFT JOIN doctors doc ON doc.department_id = d.id

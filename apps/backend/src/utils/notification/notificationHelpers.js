@@ -170,7 +170,7 @@ export const formatNotificationResponse = (notification, includePrivateData = fa
   const formatted = {
     id: notification.id,
     title: notification.title,
-    message: notification.message,
+    message: notification.message ?? notification.body,
     type: notification.type,
     priority: notification.priority,
     is_read: notification.is_read,

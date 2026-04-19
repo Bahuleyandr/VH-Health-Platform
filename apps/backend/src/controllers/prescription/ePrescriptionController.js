@@ -328,7 +328,7 @@ export const createPrescription = async (req, res) => {
     // Fetch patient and doctor info for PDF
     const [patientRes, doctorRes] = await Promise.all([
       prisma.$queryRawUnsafe('SELECT id, name, phone, gender, birthday FROM users WHERE id=$1', patient_id),
-      prisma.$queryRawUnsafe(`SELECT u.id, u.name, u.phone, d.specialization, d.qualification
+      prisma.$queryRawUnsafe(`SELECT u.id, u.name, u.phone, d.specialty AS specialization, NULL::text AS qualification
                 FROM users u LEFT JOIN doctors d ON d.user_id = u.id
                 WHERE u.id=$1`, doctor_id),
     ]);
@@ -437,7 +437,7 @@ export const getPrescription = async (req, res) => {
     const result = await prisma.$queryRawUnsafe(
       `SELECT ep.*,
               p.name AS patient_name, p.phone AS patient_phone, p.gender AS patient_gender, p.birthday AS patient_birthday,
-              d.name AS doctor_name, doc.specialization AS doctor_specialization, doc.qualification AS doctor_qualification
+              d.name AS doctor_name, doc.specialty AS doctor_specialization, NULL::text AS doctor_qualification
        FROM e_prescriptions ep
        JOIN users p ON p.id = ep.patient_id
        JOIN users d ON d.id = ep.doctor_id
@@ -475,7 +475,7 @@ export const getPrescriptionByAppointment = async (req, res) => {
     const result = await prisma.$queryRawUnsafe(
       `SELECT ep.*,
               p.name AS patient_name, p.phone AS patient_phone,
-              d.name AS doctor_name, doc.specialization AS doctor_specialization
+              d.name AS doctor_name, doc.specialty AS doctor_specialization
        FROM e_prescriptions ep
        JOIN users p ON p.id = ep.patient_id
        JOIN users d ON d.id = ep.doctor_id
@@ -512,7 +512,7 @@ export const getMyPrescriptions = async (req, res) => {
 
     const result = await prisma.$queryRawUnsafe(
       `SELECT ep.*,
-              d.name AS doctor_name, doc.specialization AS doctor_specialization
+              d.name AS doctor_name, doc.specialty AS doctor_specialization
        FROM e_prescriptions ep
        JOIN users d ON d.id = ep.doctor_id
        LEFT JOIN doctors doc ON doc.user_id = ep.doctor_id
@@ -568,7 +568,7 @@ export const getAllPrescriptions = async (req, res) => {
     const result = await prisma.$queryRawUnsafe(
       `SELECT ep.*,
               p.name AS patient_name, p.phone AS patient_phone,
-              d.name AS doctor_name, doc.specialization AS doctor_specialization
+              d.name AS doctor_name, doc.specialty AS doctor_specialization
        FROM e_prescriptions ep
        JOIN users p ON p.id = ep.patient_id
        JOIN users d ON d.id = ep.doctor_id

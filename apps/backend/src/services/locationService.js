@@ -13,14 +13,16 @@ export const findNearbyEmergencyServices = async (latitude, longitude, radius = 
 export const findNearbyHospitals = async (latitude, longitude, radius) => {
   const result = await prisma.$queryRawUnsafe(`
     SELECT 
-      id, name, phone as hospital_phone, address, website,
+      id, name, phone as hospital_phone, address, NULL::text as website,
       latitude as hosp_lat, longitude as hosp_lon,
-      emergency_services, trauma_center, specialties,
-      beds_available, ambulance_available, contact_person,
-      operating_hours, emergency_contact
+      emergency_services, false as trauma_center, ARRAY[]::text[] as specialties,
+      NULL::int as beds_available, false as ambulance_available, NULL::text as contact_person,
+      NULL::text as operating_hours, phone as emergency_contact
     FROM hospitals 
     WHERE emergency_services = true
       AND status = 'active'
+      AND latitude IS NOT NULL
+      AND longitude IS NOT NULL
     ORDER BY 
       (6371 * acos(cos(radians($1)) * cos(radians(latitude)) * 
       cos(radians(longitude) - radians($2)) + sin(radians($1)) * 
@@ -48,10 +50,12 @@ export const findNearbyPharmacies = async (latitude, longitude, radius) => {
     SELECT 
       id, name, phone, address, 
       latitude as pharmacy_lat, longitude as pharmacy_lon,
-      is_24_hours, has_emergency_meds, delivery_available,
-      operating_hours, contact_person
+      false as is_24_hours, false as has_emergency_meds, false as delivery_available,
+      NULL::text as operating_hours, NULL::text as contact_person
     FROM pharmacies 
     WHERE status = 'active'
+      AND latitude IS NOT NULL
+      AND longitude IS NOT NULL
     ORDER BY 
       (6371 * acos(cos(radians($1)) * cos(radians(latitude)) * 
       cos(radians(longitude) - radians($2)) + sin(radians($1)) * 
@@ -77,10 +81,12 @@ export const findNearbyBloodBanks = async (latitude, longitude, radius) => {
     SELECT 
       id, name, phone, address, 
       latitude as blood_bank_lat, longitude as blood_bank_lon,
-      available_blood_types, emergency_contact,
-      operating_hours, is_24_hours, contact_person
+      ARRAY[]::text[] as available_blood_types, phone as emergency_contact,
+      NULL::text as operating_hours, false as is_24_hours, NULL::text as contact_person
     FROM blood_banks 
     WHERE status = 'active'
+      AND latitude IS NOT NULL
+      AND longitude IS NOT NULL
     ORDER BY 
       (6371 * acos(cos(radians($1)) * cos(radians(latitude)) * 
       cos(radians(longitude) - radians($2)) + sin(radians($1)) * 
