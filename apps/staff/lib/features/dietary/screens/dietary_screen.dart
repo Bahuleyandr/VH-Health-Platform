@@ -27,14 +27,16 @@ class _DietaryScreenState extends State<DietaryScreen> {
       _error = null;
     });
     try {
-      final response = await ApiClient.get('/dietary/orders');
+      final response = await ApiClient.get('/dietary/worklist');
       if (response.isSuccess) {
         final data = response.data;
         final list = data is List
             ? data
             : (data is Map ? data['orders'] ?? [] : []);
         _orders = List<Map<String, dynamic>>.from(
-          (list as List).map((o) => o is Map<String, dynamic> ? o : <String, dynamic>{}),
+          (list as List).map(
+            (o) => o is Map<String, dynamic> ? o : <String, dynamic>{},
+          ),
         );
       } else {
         _error = response.message ?? 'Failed to load dietary orders';
@@ -46,17 +48,17 @@ class _DietaryScreenState extends State<DietaryScreen> {
     }
   }
 
-  Future<void> _markAsServed(String orderId) async {
+  Future<void> _discontinueOrder(String orderId) async {
     try {
-      final response = await ApiClient.patch(
-        '/dietary/orders/$orderId',
-        body: {'status': 'served'},
+      final response = await ApiClient.put(
+        '/dietary/$orderId',
+        body: {'status': 'discontinued'},
       );
       if (mounted) {
         if (response.isSuccess) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Order marked as served'),
+              content: Text('Diet order discontinued'),
               backgroundColor: AppTheme.successGreen,
             ),
           );
@@ -84,25 +86,22 @@ class _DietaryScreenState extends State<DietaryScreen> {
 
   Future<void> _showCreateOrderDialog() async {
     final formKey = GlobalKey<FormState>();
-    final patientNameCtrl = TextEditingController();
-    final patientIdCtrl = TextEditingController();
+    final patientUidCtrl = TextEditingController();
     final restrictionsCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
     String? dietType;
     String? mealTime;
 
-    const dietTypes = [
-      'Regular',
-      'Diabetic',
-      'Low Sodium',
-      'Liquid',
-      'Soft',
-      'Pureed',
-      'NPO',
-      'Renal',
-      'Cardiac',
-      'Gluten Free',
-    ];
+    const dietTypes = {
+      'Regular': 'regular',
+      'Diabetic': 'diabetic',
+      'Cardiac': 'cardiac',
+      'Renal': 'renal',
+      'Soft': 'soft',
+      'Liquid': 'liquid',
+      'NPO': 'npo',
+      'Enteral': 'enteral',
+    };
 
     const mealTimes = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
 
@@ -121,21 +120,13 @@ class _DietaryScreenState extends State<DietaryScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     TextFormField(
-                      controller: patientNameCtrl,
+                      controller: patientUidCtrl,
                       decoration: const InputDecoration(
-                        labelText: 'Patient Name',
+                        labelText: 'Patient UID',
                         prefixIcon: Icon(Icons.person_outline),
                       ),
                       validator: (v) =>
                           (v == null || v.trim().isEmpty) ? 'Required' : null,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: patientIdCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Patient ID / Bed Number',
-                        prefixIcon: Icon(Icons.badge_outlined),
-                      ),
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
@@ -144,8 +135,13 @@ class _DietaryScreenState extends State<DietaryScreen> {
                         labelText: 'Diet Type',
                         prefixIcon: Icon(Icons.restaurant_menu),
                       ),
-                      items: dietTypes
-                          .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                      items: dietTypes.entries
+                          .map(
+                            (entry) => DropdownMenuItem(
+                              value: entry.value,
+                              child: Text(entry.key),
+                            ),
+                          )
                           .toList(),
                       onChanged: (v) => dietType = v,
                       validator: (v) => v == null ? 'Select diet type' : null,
@@ -158,7 +154,9 @@ class _DietaryScreenState extends State<DietaryScreen> {
                         prefixIcon: Icon(Icons.access_time),
                       ),
                       items: mealTimes
-                          .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                          .map(
+                            (t) => DropdownMenuItem(value: t, child: Text(t)),
+                          )
                           .toList(),
                       onChanged: (v) => mealTime = v,
                       validator: (v) => v == null ? 'Select meal time' : null,
@@ -199,12 +197,13 @@ class _DietaryScreenState extends State<DietaryScreen> {
                           final response = await ApiClient.post(
                             '/dietary/orders',
                             body: {
-                              'patientName': patientNameCtrl.text.trim(),
-                              'patientId': patientIdCtrl.text.trim(),
-                              'dietType': dietType,
-                              'mealTime': mealTime,
-                              'restrictions': restrictionsCtrl.text.trim(),
-                              'notes': notesCtrl.text.trim(),
+                              'patient_uid': patientUidCtrl.text.trim(),
+                              'diet_type': dietType,
+                              'meal_preferences': mealTime,
+                              'restrictions': _splitTextList(
+                                restrictionsCtrl.text,
+                              ),
+                              'special_instructions': notesCtrl.text.trim(),
                             },
                           );
                           if (!ctx.mounted) return;
@@ -214,8 +213,9 @@ class _DietaryScreenState extends State<DietaryScreen> {
                             setDialogState(() => submitting = false);
                             ScaffoldMessenger.of(ctx).showSnackBar(
                               SnackBar(
-                                content: Text(response.message ??
-                                    'Failed to create order'),
+                                content: Text(
+                                  response.message ?? 'Failed to create order',
+                                ),
                                 backgroundColor: AppTheme.errorRed,
                               ),
                             );
@@ -262,10 +262,37 @@ class _DietaryScreenState extends State<DietaryScreen> {
       _fetchOrders();
     }
 
-    patientNameCtrl.dispose();
-    patientIdCtrl.dispose();
+    patientUidCtrl.dispose();
     restrictionsCtrl.dispose();
     notesCtrl.dispose();
+  }
+
+  List<String> _splitTextList(String value) => value
+      .split(RegExp(r'[,\n;]'))
+      .map((item) => item.trim())
+      .where((item) => item.isNotEmpty)
+      .toList();
+
+  String _formatLabel(String value) {
+    if (value.isEmpty) return value;
+    return value
+        .split('_')
+        .map(
+          (word) => word.isEmpty
+              ? word
+              : '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}',
+        )
+        .join(' ');
+  }
+
+  String _joinTextList(dynamic value) {
+    if (value is List) {
+      return value
+          .map((item) => item.toString())
+          .where((item) => item.isNotEmpty)
+          .join(', ');
+    }
+    return (value ?? '').toString();
   }
 
   IconData _mealIcon(String? mealTime) {
@@ -285,11 +312,11 @@ class _DietaryScreenState extends State<DietaryScreen> {
 
   Color _statusColor(String? status) {
     switch (status?.toLowerCase()) {
-      case 'served':
+      case 'active':
         return AppTheme.successGreen;
-      case 'preparing':
+      case 'on_hold':
         return const Color(0xFFF9A825);
-      case 'cancelled':
+      case 'discontinued':
         return AppTheme.errorRed;
       default:
         return AppTheme.primaryBlue;
@@ -305,10 +332,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
         backgroundColor: AppTheme.primaryTeal,
         foregroundColor: Colors.white,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _fetchOrders,
-          ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _fetchOrders),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -321,18 +345,18 @@ class _DietaryScreenState extends State<DietaryScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? _buildError()
-              : _orders.isEmpty
-                  ? _buildEmpty()
-                  : RefreshIndicator(
-                      onRefresh: _fetchOrders,
-                      child: ListView.builder(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: _orders.length,
-                        itemBuilder: (context, index) =>
-                            _buildOrderCard(_orders[index]),
-                      ),
-                    ),
+          ? _buildError()
+          : _orders.isEmpty
+          ? _buildEmpty()
+          : RefreshIndicator(
+              onRefresh: _fetchOrders,
+              child: ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: _orders.length,
+                itemBuilder: (context, index) =>
+                    _buildOrderCard(_orders[index]),
+              ),
+            ),
     );
   }
 
@@ -381,15 +405,28 @@ class _DietaryScreenState extends State<DietaryScreen> {
   }
 
   Widget _buildOrderCard(Map<String, dynamic> order) {
-    final patientName = (order['patientName'] ?? order['patient']?['name'] ?? 'Patient').toString();
-    final dietType = (order['dietType'] ?? order['diet'] ?? '').toString();
-    final mealTime = (order['mealTime'] ?? order['meal'] ?? '').toString();
-    final restrictions = (order['restrictions'] ?? order['allergies'] ?? '').toString();
-    final status = (order['status'] ?? 'pending').toString();
+    final patientName =
+        (order['patientName'] ??
+                order['patient']?['name'] ??
+                order['patient_uid'] ??
+                'Patient')
+            .toString();
+    final dietType = _formatLabel(
+      (order['diet_type'] ?? order['dietType'] ?? order['diet'] ?? '')
+          .toString(),
+    );
+    final mealTime =
+        (order['meal_preferences'] ?? order['mealTime'] ?? order['meal'] ?? '')
+            .toString();
+    final restrictions = _joinTextList(
+      order['restrictions'] ?? order['allergies'],
+    );
+    final status = (order['status'] ?? 'active').toString();
     final orderId = (order['id'] ?? order['_id'] ?? '').toString();
-    final notes = (order['notes'] ?? '').toString();
+    final notes = (order['special_instructions'] ?? order['notes'] ?? '')
+        .toString();
     final createdAt = order['createdAt'] ?? order['created_at'] ?? '';
-    final isServed = status.toLowerCase() == 'served';
+    final isDiscontinued = status.toLowerCase() == 'discontinued';
     final color = _statusColor(status);
 
     String timeStr = '';
@@ -436,8 +473,10 @@ class _DietaryScreenState extends State<DietaryScreen> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        [if (dietType.isNotEmpty) dietType, if (mealTime.isNotEmpty) mealTime]
-                            .join(' - '),
+                        [
+                          if (dietType.isNotEmpty) dietType,
+                          if (mealTime.isNotEmpty) mealTime,
+                        ].join(' - '),
                         style: const TextStyle(
                           fontSize: 13,
                           color: AppTheme.textSecondary,
@@ -447,13 +486,19 @@ class _DietaryScreenState extends State<DietaryScreen> {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    status.isNotEmpty ? status[0].toUpperCase() + status.substring(1).toLowerCase() : status,
+                    status.isNotEmpty
+                        ? status[0].toUpperCase() +
+                              status.substring(1).toLowerCase()
+                        : status,
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
@@ -469,7 +514,11 @@ class _DietaryScreenState extends State<DietaryScreen> {
               const SizedBox(height: 10),
               Row(
                 children: [
-                  const Icon(Icons.warning_amber, size: 14, color: Color(0xFFF9A825)),
+                  const Icon(
+                    Icons.warning_amber,
+                    size: 14,
+                    color: Color(0xFFF9A825),
+                  ),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -490,7 +539,10 @@ class _DietaryScreenState extends State<DietaryScreen> {
               const SizedBox(height: 6),
               Text(
                 notes,
-                style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppTheme.textSecondary,
+                ),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -503,17 +555,23 @@ class _DietaryScreenState extends State<DietaryScreen> {
                 if (timeStr.isNotEmpty)
                   Text(
                     timeStr,
-                    style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppTheme.textSecondary,
+                    ),
                   ),
                 const Spacer(),
-                if (!isServed && orderId.isNotEmpty)
+                if (!isDiscontinued && orderId.isNotEmpty)
                   TextButton.icon(
-                    onPressed: () => _markAsServed(orderId),
-                    icon: const Icon(Icons.check_circle_outline, size: 16),
-                    label: const Text('Mark Served'),
+                    onPressed: () => _discontinueOrder(orderId),
+                    icon: const Icon(Icons.cancel_outlined, size: 16),
+                    label: const Text('Discontinue'),
                     style: TextButton.styleFrom(
-                      foregroundColor: AppTheme.successGreen,
-                      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                      foregroundColor: AppTheme.errorRed,
+                      textStyle: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
               ],

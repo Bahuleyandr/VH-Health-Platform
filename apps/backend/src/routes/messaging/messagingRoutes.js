@@ -18,11 +18,22 @@ const router = express.Router();
 // Sanitize message text fields
 const sanitizeMessageFields = sanitizeBody('body', 'subject');
 
+const normalizeSendPayload = (req, _res, next) => {
+  if (req.body && typeof req.body === 'object') {
+    req.body.recipient_uid = req.body.recipient_uid || req.body.to_uid;
+    req.body.body = req.body.body || req.body.content;
+    if (typeof req.body.priority === 'string') {
+      req.body.priority = req.body.priority.toLowerCase();
+    }
+  }
+  next();
+};
+
 /**
  * POST /messaging/send
  * Send a message to another staff member.
  */
-router.post('/send', requiredString('to_uid'), requiredString('content', 2000), validate, sanitizeMessageFields, async (req, res, next) => {
+router.post('/send', normalizeSendPayload, requiredString('recipient_uid'), requiredString('body', 2000), validate, sanitizeMessageFields, async (req, res, next) => {
   try {
     const senderUid = req.user?.uid;
     if (!senderUid) {
