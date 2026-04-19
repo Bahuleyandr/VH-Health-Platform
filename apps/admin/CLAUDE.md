@@ -7,7 +7,7 @@ Next.js 15 admin dashboard for the VHHealth hospital management system. Used by 
 - **Framework**: Next.js 15 (App Router), React 19, TypeScript
 - **State/Data**: TanStack Query v5 + React Context
 - **Styling**: Tailwind CSS v4
-- **Auth**: JWT stored in localStorage + synced to cookie for SSR middleware
+- **Auth**: JWT stored in an httpOnly cookie (`auth_token`); localStorage caches only non-sensitive profile/theme data
 - **API Client**: Custom 3-layer abstraction (apiFetch → requestJSON → domain functions)
 
 ## Repository Layout
@@ -40,7 +40,7 @@ src/
     types.ts                 # TypeScript interfaces
   contexts/
     AuthContext.tsx           # Auth state, login/logout, cookie sync
-  middleware.ts              # SSR auth guard (checks adminToken cookie)
+  middleware.ts              # SSR auth guard (checks auth_token cookie)
   components/                # Shared UI components
 ```
 

@@ -30,13 +30,39 @@ const config: Config = {
   transformIgnorePatterns: ["/node_modules/(?!(lucide-react|recharts)/)"],
 
   // Coverage configuration
+  coverageProvider: "v8",
   collectCoverageFrom: [
-    "src/**/*.{ts,tsx}",
-    "!src/**/*.d.ts",
-    "!src/**/index.ts",
-    "!src/app/**/layout.tsx",
-    "!src/app/**/loading.tsx",
+    // Start narrow: enforce coverage on high-risk request/auth surfaces first.
+    "src/lib/install-api-fetch-guard.ts",
+    "src/lib/api/investigations.ts",
+    "src/lib/api/core.ts",
   ],
+  coverageThreshold: {
+    global: {
+      branches: 40,
+      functions: 30,
+      lines: 70,
+      statements: 70,
+    },
+    "./src/lib/install-api-fetch-guard.ts": {
+      branches: 55,
+      functions: 70,
+      lines: 70,
+      statements: 70,
+    },
+    "./src/lib/api/investigations.ts": {
+      branches: 80,
+      functions: 30,
+      lines: 80,
+      statements: 80,
+    },
+    "./src/lib/api/core.ts": {
+      branches: 80,
+      functions: 10,
+      lines: 25,
+      statements: 25,
+    },
+  },
 };
 
 export default createJestConfig(config);

@@ -218,7 +218,6 @@ export function startBookingProcessing(id: number) {
 
 export async function uploadBookingResult(id: number, file: File, notes?: string) {
   const { apiFetch } = await import("../api-fetch");
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const formData = new FormData();
   formData.append("file", file);
   if (notes) formData.append("result_notes", notes);
@@ -226,7 +225,6 @@ export async function uploadBookingResult(id: number, file: File, notes?: string
   const res = await apiFetch(`/api/v1/investigations/bookings/${id}/result`, {
     method: "POST",
     body: formData,
-    token: token ?? undefined,
   });
   const json = await res.json();
   if (!res.ok) throw new Error(json.message ?? "Upload failed");

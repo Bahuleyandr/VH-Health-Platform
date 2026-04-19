@@ -17,10 +17,10 @@
 ## First-time setup
 
 ```bash
-cd vhhealth-core
+cd /workspace/VH-Health-Platform/packages/vhhealth_core
 
 # 1. Sync the spec from the backend.
-cp ../vh-health-backend/src/docs/swagger-complete.yaml swagger/api.yaml
+cp ../../apps/backend/src/docs/swagger-complete.yaml swagger/api.yaml
 
 # 2. Install build deps (first time only).
 flutter pub get
@@ -36,8 +36,8 @@ friends. The barrel `lib/api/vhhealth_api.dart` re-exports them.
 ## Every time the backend spec changes
 
 ```bash
-cd vhhealth-core
-cp ../vh-health-backend/src/docs/swagger-complete.yaml swagger/api.yaml
+cd /workspace/VH-Health-Platform/packages/vhhealth_core
+cp ../../apps/backend/src/docs/swagger-complete.yaml swagger/api.yaml
 dart run build_runner build --delete-conflicting-outputs
 ```
 
@@ -131,7 +131,7 @@ Usually a typo in the OpenAPI spec — a `$ref` pointing to a schema that
 isn't defined. Validate the spec:
 
 ```bash
-# From vh-health-backend
+# From /workspace/VH-Health-Platform/apps/backend
 npm run swagger:validate
 ```
 

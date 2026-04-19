@@ -51,7 +51,6 @@ export function PageErrorBoundary({ children }: PageErrorBoundaryProps) {
           },
         });
         if (process.env.NODE_ENV === "development") {
-          // eslint-disable-next-line no-console
           console.error("Page error:", error);
         }
       }}
