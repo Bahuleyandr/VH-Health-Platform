@@ -76,8 +76,8 @@ export default function BedsPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["beds"] }),
   });
 
-  const beds = bedsQuery.data ?? [];
-  const wards = wardsQuery.data ?? [];
+  const beds = useMemo(() => bedsQuery.data ?? [], [bedsQuery.data]);
+  const wards = useMemo(() => wardsQuery.data ?? [], [wardsQuery.data]);
 
   const filtered = useMemo(() => beds.filter((b) => {
     if (filterWard !== "all" && String(b.ward_id) !== filterWard) return false;

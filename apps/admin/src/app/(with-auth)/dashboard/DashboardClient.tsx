@@ -12,7 +12,6 @@ import { ActivityFeed } from './components/ActivityFeed';
 import { CommandPalette } from './components/CommandPalette';
 import { NotificationsDropdown } from './components/NotificationsDropdown';
 import type {
-  Activity,
   ActivityApiItem,
   ChartData,
   DashboardData,

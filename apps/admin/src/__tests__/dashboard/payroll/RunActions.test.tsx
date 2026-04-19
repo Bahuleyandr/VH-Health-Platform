@@ -48,7 +48,7 @@ type IssueMut = ReturnType<typeof useMutation<unknown, Error, IssueVariables>>;
 function makeIssueMut() {
   function Wrapper({ children }: { children: (m: IssueMut) => React.ReactElement }) {
     const m = useMutation<unknown, Error, IssueVariables>({
-      mutationFn: async (_data) => ({}),
+      mutationFn: async () => ({}),
     });
     return children(m);
   }

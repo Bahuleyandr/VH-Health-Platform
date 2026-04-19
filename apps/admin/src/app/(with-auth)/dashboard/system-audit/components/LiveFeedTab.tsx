@@ -1,14 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Activity, AlertTriangle, Clock, User, Search, RefreshCw } from "lucide-react";
+import { AlertTriangle, Clock, User, RefreshCw } from "lucide-react";
 import { getJSON } from "@/lib/api/core";
 import type { AuditSummary } from "../auditTypes";
 import {
   StatCard,
   methodBadge,
   statusBadge,
-  truncate,
   fmtTime,
   fmtMs,
 } from "./auditHelpers";

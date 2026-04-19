@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Activity, User, RefreshCw, Shield } from "lucide-react";
+import { RefreshCw, Shield } from "lucide-react";
 import { getJSON } from "@/lib/api/core";
 import type { UserHistory } from "../auditTypes";
 import {
@@ -9,7 +9,6 @@ import {
   methodBadge,
   statusBadge,
   moduleBadge,
-  truncate,
   fmtTime,
   fmtMs,
 } from "./auditHelpers";
