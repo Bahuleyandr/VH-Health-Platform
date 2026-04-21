@@ -1,6 +1,6 @@
 // src/middleware.ts
 import { NextRequest, NextResponse } from "next/server";
-import { jwtVerify } from "jose";
+import { jwtVerify } from "jose/jwt/verify";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const secretKey = JWT_SECRET

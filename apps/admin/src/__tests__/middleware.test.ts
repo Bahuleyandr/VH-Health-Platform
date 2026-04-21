@@ -16,7 +16,7 @@
 // jest.mock calls are hoisted above imports by the transformer, so the
 // factory must not reference outer variables declared with const/let.
 // ---------------------------------------------------------------------------
-jest.mock("jose", () => ({
+jest.mock("jose/jwt/verify", () => ({
   jwtVerify: jest.fn(),
 }));
 
@@ -43,7 +43,7 @@ jest.mock("next/server", () => ({
 import { middleware, config } from "@/middleware";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { jwtVerify } from "jose";
+import { jwtVerify } from "jose/jwt/verify";
 
 // Grab references to the mock functions for assertions
 const mockRedirect = NextResponse.redirect as jest.MockedFunction<typeof NextResponse.redirect>;

@@ -1,4 +1,4 @@
-/* eslint-env node */
+/* global console, process, require */
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 // scripts/clean.js
