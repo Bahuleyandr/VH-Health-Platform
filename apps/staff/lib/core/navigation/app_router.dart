@@ -93,6 +93,8 @@ final GoRouter appRouter = GoRouter(
   initialLocation: '/',
   redirect: (BuildContext context, GoRouterState state) async {
     final isLoggedIn = await ApiConfig.isLoggedIn();
+    if (!context.mounted) return null;
+
     final isOnLogin = state.matchedLocation == '/login';
     final isOnSplash = state.matchedLocation == '/';
 
@@ -101,7 +103,6 @@ final GoRouter appRouter = GoRouter(
 
     // Session idle timeout — force logout if expired
     try {
-      // ignore: use_build_context_synchronously
       final sessionProvider = Provider.of<SessionTimeoutProvider>(
         context,
         listen: false,
@@ -120,7 +121,6 @@ final GoRouter appRouter = GoRouter(
     if (isLoggedIn && isOnLogin) {
       // Start idle timer now that we know the user is authenticated
       try {
-        // ignore: use_build_context_synchronously
         Provider.of<SessionTimeoutProvider>(context, listen: false)
             .startTracking();
       } catch (_) {}
@@ -130,7 +130,6 @@ final GoRouter appRouter = GoRouter(
     // User is logged in and on a protected page — ensure timer is running
     if (isLoggedIn && !isOnLogin) {
       try {
-        // ignore: use_build_context_synchronously
         final sp = Provider.of<SessionTimeoutProvider>(context, listen: false);
         if (!sp.isSessionExpired) sp.recordActivity();
       } catch (_) {}

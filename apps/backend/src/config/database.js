@@ -128,6 +128,13 @@ class DatabaseManager {
    * Use for analytics, exports, dashboards — anything that doesn't need write consistency.
    */
   async readQuery(text, params) {
+    if (!this.readPool) {
+      const connected = await this.connect();
+      if (!connected) {
+        throw new Error('Database not available - running in debug mode');
+      }
+    }
+
     const start = Date.now();
     try {
       const result = await this.readPool.query(text, params);
@@ -191,6 +198,8 @@ class DatabaseManager {
       if (this.readPool && this.readPool !== this.pool) {
         await this.readPool.end();
       }
+      this.pool = null;
+      this.readPool = null;
       this.isConnected = false;
       logger.info('Database pools closed');
     }

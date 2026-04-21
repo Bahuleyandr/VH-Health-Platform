@@ -12,7 +12,51 @@
 const { TextDecoder, TextEncoder } = require('node:util');
 const { Blob } = require('node:buffer');
 const { ReadableStream, WritableStream, TransformStream } = require('node:stream/web');
-const { MessageChannel, MessagePort } = require('node:worker_threads');
+
+class TestMessagePort {
+  constructor() {
+    this.onmessage = null;
+    this._listeners = new Set();
+    this._peer = null;
+  }
+
+  postMessage(data) {
+    const peer = this._peer;
+    if (!peer) return;
+    setTimeout(() => {
+      const event = { data, target: peer, currentTarget: peer };
+      peer.onmessage?.(event);
+      for (const listener of peer._listeners) {
+        listener.call(peer, event);
+      }
+    }, 0);
+  }
+
+  addEventListener(type, listener) {
+    if (type === 'message') this._listeners.add(listener);
+  }
+
+  removeEventListener(type, listener) {
+    if (type === 'message') this._listeners.delete(listener);
+  }
+
+  start() {}
+
+  close() {
+    this.onmessage = null;
+    this._listeners.clear();
+    this._peer = null;
+  }
+}
+
+class TestMessageChannel {
+  constructor() {
+    this.port1 = new TestMessagePort();
+    this.port2 = new TestMessagePort();
+    this.port1._peer = this.port2;
+    this.port2._peer = this.port1;
+  }
+}
 
 if (typeof globalThis.TextEncoder === 'undefined') {
   Object.defineProperty(globalThis, 'TextEncoder', {
@@ -36,7 +80,7 @@ if (needsBlob) {
   });
 }
 for (const [name, impl] of Object.entries({
-  ReadableStream, WritableStream, TransformStream, MessageChannel, MessagePort,
+  ReadableStream, WritableStream, TransformStream, MessageChannel: TestMessageChannel, MessagePort: TestMessagePort,
 })) {
   if (typeof globalThis[name] === 'undefined') {
     Object.defineProperty(globalThis, name, { value: impl, writable: true, configurable: true });

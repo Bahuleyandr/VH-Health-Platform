@@ -147,17 +147,21 @@ export { getAuditLogs, toggleUserStatus };
 // Billing & Invoicing
 import {
   createInvoice, getPatientInvoices, getInvoiceDetail, recordPayment,
-  getRevenueStats, submitInsuranceClaim, getInsuranceClaims, updateInsuranceClaimStatus,
+  getRevenueStats, getARAging, getClaimQueue,
+  submitInsuranceClaim, getInsuranceClaims, updateInsuranceClaimStatus,
 } from "./billing";
 export type {
   Invoice, InvoiceDetail, InvoiceLineItem, CreateInvoicePayload,
   PaymentTransaction, RecordPaymentPayload, PaymentResult,
   InsuranceClaim, SubmitClaimPayload, UpdateClaimPayload,
-  RevenueStats, RevenueSummary, Pagination,
+  RevenueStats, RevenueSummary, ARAgingSummary, ARAgingBucket,
+  ARAgingInvoice, ClaimQueueResponse, ClaimQueueSummary, ClaimQueueItem,
+  Pagination,
 } from "./billing";
 export {
   createInvoice, getPatientInvoices, getInvoiceDetail, recordPayment,
-  getRevenueStats, submitInsuranceClaim, getInsuranceClaims, updateInsuranceClaimStatus,
+  getRevenueStats, getARAging, getClaimQueue,
+  submitInsuranceClaim, getInsuranceClaims, updateInsuranceClaimStatus,
 };
 
 // EMR (Electronic Medical Records)
@@ -298,6 +302,8 @@ export const api = {
   getInvoiceDetail,
   recordPayment,
   getRevenueStats,
+  getARAging,
+  getClaimQueue,
   submitInsuranceClaim,
   getInsuranceClaims,
   updateInsuranceClaimStatus,

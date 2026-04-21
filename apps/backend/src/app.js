@@ -165,6 +165,33 @@ import './utils/validateEnv.js';
 const app = express();
 app.set('trust proxy', 1); // Required for Render or Cloudflare
 
+const CLINICAL_STAFF_ROLES = [
+  'ADMIN',
+  'SUPER_ADMIN',
+  'DOCTOR',
+  'NURSING_STAFF',
+  'MEDICAL_RECORDS',
+];
+
+function pathMatchesPrefix(path, prefix) {
+  return path === prefix || path.startsWith(`${prefix}/`);
+}
+
+function phiAccessLoggerForPaths(recordType, matchers) {
+  const loggerMiddleware = phiAccessLogger(recordType);
+  return (req, res, next) => {
+    const requestPath = (req.originalUrl || req.url || '').split('?')[0].toLowerCase();
+    const shouldLog = matchers.some((matcher) => (
+      matcher instanceof RegExp
+        ? matcher.test(requestPath)
+        : pathMatchesPrefix(requestPath, matcher)
+    ));
+
+    if (!shouldLog) return next();
+    return loggerMiddleware(req, res, next);
+  };
+}
+
 // ====================================
 // SWAGGER SETUP
 // ====================================
@@ -394,23 +421,33 @@ app.use('/api/v1/documents', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURS
 // Clinical workflows: MAR, NEWS2, Nurse Handover
 app.use('/api/v1/clinical', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('CLINICAL_WORKFLOW'), clinicalRoutes);
 
-// EMR — Clinical Documentation (notes, timeline)
-app.use('/api/v1/emr', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('CLINICAL_NOTE'), clinicalNotesRoutes);
-
-// EMR — ADT (Admission/Discharge/Transfer)
-app.use('/api/v1/emr', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('ADMISSION'), admissionRoutes);
-
-// EMR — CPOE (Order Entry)
-app.use('/api/v1/emr', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('CLINICAL_ORDER'), orderRoutes);
-
-// EMR — Vitals Charting & I/O
-app.use('/api/v1/emr', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('VITAL_SIGN'), vitalsRoutes);
-
-// EMR — Clinical Decision Support (CDS) Engine
-app.use('/api/v1/emr', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('CLINICAL_DECISION'), cdsRoutes);
-
-// EMR — Diagnosis & Problem List
-app.use('/api/v1/emr', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('DIAGNOSIS'), diagnosisRoutes);
+// EMR — one role gate, then route-family PHI logging only for matching paths.
+app.use('/api/v1/emr', requireRole(...CLINICAL_STAFF_ROLES));
+app.use('/api/v1/emr', phiAccessLoggerForPaths('CLINICAL_NOTE', [
+  '/api/v1/emr/notes',
+  '/api/v1/emr/timeline',
+]), clinicalNotesRoutes);
+app.use('/api/v1/emr', phiAccessLoggerForPaths('ADMISSION', [
+  '/api/v1/emr/admit',
+  '/api/v1/emr/admission',
+  '/api/v1/emr/admissions',
+  /^\/api\/v1\/emr\/\d+\//,
+]), admissionRoutes);
+app.use('/api/v1/emr', phiAccessLoggerForPaths('CLINICAL_ORDER', [
+  '/api/v1/emr/orders',
+  '/api/v1/emr/order-sets',
+]), orderRoutes);
+app.use('/api/v1/emr', phiAccessLoggerForPaths('VITAL_SIGN', [
+  '/api/v1/emr/vitals',
+  '/api/v1/emr/io',
+]), vitalsRoutes);
+app.use('/api/v1/emr', phiAccessLoggerForPaths('CLINICAL_DECISION', [
+  '/api/v1/emr/cds',
+]), cdsRoutes);
+app.use('/api/v1/emr', phiAccessLoggerForPaths('DIAGNOSIS', [
+  '/api/v1/emr/diagnosis',
+  '/api/v1/emr/icd10',
+]), diagnosisRoutes);
 
 // Centralized admin namespace — IP allowlisted when ADMIN_IP_ALLOWLIST is set
 app.use('/api/v1/admin', requireRole('ADMIN', 'SUPER_ADMIN'), adminIpAllowlist, adminRateLimiter, adminDashboardRoutes);

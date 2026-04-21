@@ -5,9 +5,10 @@ import { useState, Suspense } from "react";
 import { RevenueSummaryTab } from "./components/RevenueSummaryTab";
 import { InvoicesTab } from "./components/InvoicesTab";
 import { InsuranceClaimsTab } from "./components/InsuranceClaimsTab";
+import { RevenueCycleTab } from "./components/RevenueCycleTab";
 
 function BillingContent() {
-  const [tab, setTab] = useState<"revenue" | "invoices" | "claims">("revenue");
+  const [tab, setTab] = useState<"revenue" | "invoices" | "claims" | "revenue-cycle">("revenue");
 
   return (
     <div className="p-6">
@@ -19,6 +20,7 @@ function BillingContent() {
           { key: "revenue" as const, label: "📊 Revenue" },
           { key: "invoices" as const, label: "🧾 Invoices" },
           { key: "claims" as const, label: "🏥 Insurance Claims" },
+          { key: "revenue-cycle" as const, label: "RCM" },
         ].map(({ key, label }) => (
           <button
             key={key}
@@ -37,6 +39,7 @@ function BillingContent() {
       {tab === "revenue" && <RevenueSummaryTab />}
       {tab === "invoices" && <InvoicesTab />}
       {tab === "claims" && <InsuranceClaimsTab />}
+      {tab === "revenue-cycle" && <RevenueCycleTab />}
     </div>
   );
 }

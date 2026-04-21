@@ -312,7 +312,6 @@ class HealthSyncService {
   static Future<void> enableBackgroundSync() async {
     await Workmanager().initialize(
       healthSyncBackgroundDispatcher,
-      isInDebugMode: kDebugMode,
     );
     await Workmanager().registerPeriodicTask(
       backgroundTaskName,

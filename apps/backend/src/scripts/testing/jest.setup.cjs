@@ -20,7 +20,10 @@ try {
 // minimal placeholder secrets.
 process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 if (!process.env.API_KEY) process.env.API_KEY = 'test-api-key';
-if (!process.env.DATABASE_URL) process.env.DATABASE_URL = 'postgresql://localhost:5432/vhhealth_test';
+if (!process.env.DATABASE_URL) {
+  process.env.DATABASE_URL =
+    process.env.TEST_DATABASE_URL || 'postgresql://postgres@127.0.0.1:55432/vhhealth_test';
+}
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
   process.env.JWT_SECRET = 'test-jwt-secret-at-least-32-chars';
 }

@@ -70,7 +70,7 @@ export default async function jwtMiddleware(req, res, next) {
   }
 
   // Check if all user tokens were revoked (force-logout)
-  const uid = decoded.uid ?? decoded.user_id ?? decoded.userId ?? decoded.id ?? decoded.sub;
+  const uid = decoded.uid ?? decoded.user_id ?? decoded.userId ?? decoded.sub ?? decoded.id;
   if (uid && decoded.iat) {
     const revoked = await isUserTokensRevoked(String(uid), decoded.iat);
     if (revoked) {
@@ -90,9 +90,9 @@ export default async function jwtMiddleware(req, res, next) {
     decoded.uid ??
     decoded.user_id ??
     decoded.userId ??
-    decoded.id ??
     decoded.sub ??
-    hasura?.['x-hasura-user-id'];
+    hasura?.['x-hasura-user-id'] ??
+    decoded.id;
 
   if (!uidRaw) {
     logger.warn('JWT denied: no uid-like claim present');

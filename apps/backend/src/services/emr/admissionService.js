@@ -183,7 +183,7 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
     const { rows: updated } = await dbTx.query(
       `UPDATE admissions
        SET status = $1, discharged_at = NOW(), discharge_type = $2,
-           discharge_summary = $3, updated_at = NOW()
+           discharge_summary = $3::jsonb, updated_at = NOW()
        WHERE id = $4
        RETURNING ${ADMISSION_RETURNING}`,
       [targetStatus, discharge_type,

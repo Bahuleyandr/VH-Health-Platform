@@ -30,7 +30,7 @@ jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
 }));
 
 // Dynamic imports happen after mocks so the server picks up the stubs.
-const { initWebSocket, broadcast, sendToUser } = await import('../../utils/websocket/wsServer.js');
+const { initWebSocket, closeWebSocket } = await import('../../utils/websocket/wsServer.js');
 const { authorizeChannel } = await import('../../utils/websocket/channelAuth.js');
 const {
   emitVitalAnomaly,
@@ -85,8 +85,9 @@ describe('realtime fabric contract', () => {
     ({ server, port } = await startServer());
   });
 
-  afterAll((done) => {
-    server.close(done);
+  afterAll(async () => {
+    await closeWebSocket();
+    await new Promise((resolve) => server.close(resolve));
   });
 
   // ---------------------------------------------------------------------------

@@ -32,16 +32,7 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
     configKey = null
   } = options;
 
-  // Conditionally apply RBAC only if roles are specified and not skipped
-  if (!skipRBAC && allowedRoles.length > 0) {
-    router.use(rbac(allowedRoles));
-  }
-
-  // Conditionally apply audit logging
   const auditSuppressed = skipAudit || (configKey && ROUTE_AUDIT_DISABLED[configKey]);
-  if (!auditSuppressed) {
-    router.use(auditLogger);
-  }
 
   // Process each HTTP method (get, post, etc.) in the route map
   for (const [methodKey, routes] of Object.entries(routeMap)) {
@@ -78,6 +69,14 @@ function applyWrappers(router, allowedRoles = [], routeMap = {}, options = {}) {
       }
 
       const middlewareStack = [];
+
+      if (!skipRBAC && allowedRoles.length > 0) {
+        middlewareStack.push(rbac(allowedRoles));
+      }
+
+      if (!auditSuppressed) {
+        middlewareStack.push(auditLogger);
+      }
 
       // Apply rate limiter per routeKey
       const routeKey = `${configKey || 'generic'}.${method}`;

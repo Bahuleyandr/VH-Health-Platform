@@ -13,12 +13,17 @@ const clients = new Map();
 const socketMeta = new Map();
 
 let wss = null;
+let heartbeatInterval = null;
 
 const HEARTBEAT_INTERVAL = 30_000; // 30s
 const MAX_BUFFERED_AMOUNT = 1024 * 1024; // 1MB buffer limit per client
 const MAX_CONNECTIONS_PER_USER = 5;
 
 export function initWebSocket(server) {
+  if (wss) {
+    closeWebSocket();
+  }
+
   wss = new WebSocketServer({ server, path: '/ws' });
 
   logger.info('🔌 WebSocket server initialized on /ws');
@@ -60,7 +65,7 @@ export function initWebSocket(server) {
   });
 
   // Heartbeat interval to detect dead connections
-  const interval = setInterval(() => {
+  heartbeatInterval = setInterval(() => {
     wss.clients.forEach((ws) => {
       if (!ws.isAlive) return ws.terminate();
       ws.isAlive = false;
@@ -68,7 +73,34 @@ export function initWebSocket(server) {
     });
   }, HEARTBEAT_INTERVAL);
 
-  wss.on('close', () => clearInterval(interval));
+  if (heartbeatInterval.unref) heartbeatInterval.unref();
+  wss.on('close', () => {
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+    heartbeatInterval = null;
+    clients.clear();
+    socketMeta.clear();
+  });
+}
+
+export function closeWebSocket() {
+  const activeServer = wss;
+  if (!activeServer) return Promise.resolve();
+
+  if (heartbeatInterval) clearInterval(heartbeatInterval);
+  heartbeatInterval = null;
+
+  for (const ws of activeServer.clients) {
+    ws.terminate();
+  }
+
+  return new Promise((resolve) => {
+    activeServer.close(() => {
+      if (wss === activeServer) wss = null;
+      clients.clear();
+      socketMeta.clear();
+      resolve();
+    });
+  });
 }
 
 /**

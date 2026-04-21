@@ -12,6 +12,12 @@ import { build837P } from '../../services/billing/ediGenerator.js';
 
 const router = express.Router();
 
+function parseLimit(value, fallback, max) {
+  const parsed = parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback;
+  return Math.min(parsed, max);
+}
+
 const SUBMITTER = {
   name: process.env.EDI_SUBMITTER_NAME || 'VH HEALTH',
   id: process.env.EDI_SUBMITTER_ID || 'VHHEALTH01',
@@ -34,7 +40,7 @@ const BILLING_PROVIDER = {
 router.get('/icd-cpt-map', async (req, res) => {
   try {
     const icd = req.query.icd10;
-    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+    const limit = parseLimit(req.query.limit, 50, 200);
     const rows = icd
       ? await prisma.$queryRawUnsafe(
           `SELECT id, icd10_code, cpt_code, description, default_charge
@@ -97,7 +103,7 @@ router.get('/denials/summary', async (req, res) => {
 /** GET /denials — paginated recent denials. */
 router.get('/denials', async (req, res) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+    const limit = parseLimit(req.query.limit, 50, 200);
     const rows = await prisma.$queryRawUnsafe(
       `SELECT d.id, d.invoice_id, d.payer, d.reason_code, d.reason_text,
               d.denied_amount, d.appealed, d.appeal_outcome, d.denied_at
@@ -110,6 +116,159 @@ router.get('/denials', async (req, res) => {
   } catch (err) {
     logger.error('denials list error:', err);
     return error(res, 'Failed to list denials', 500);
+  }
+});
+
+/** GET /ar-aging — accounts receivable aging from open invoices. */
+router.get('/ar-aging', async (req, res) => {
+  try {
+    const limit = parseLimit(req.query.limit, 25, 100);
+    const baseWhere = `
+      payment_status NOT IN ('paid', 'cancelled')
+      AND (total_amount - COALESCE(paid_amount, 0)) > 0
+    `;
+
+    const [overall] = await prisma.$queryRawUnsafe(
+      `SELECT
+         COUNT(*)::int AS invoice_count,
+         COALESCE(SUM(total_amount - COALESCE(paid_amount, 0)), 0)::float AS total_outstanding,
+         COALESCE(MAX(GREATEST(CURRENT_DATE - COALESCE(due_date, issued_at::date), 0)), 0)::int AS oldest_age_days
+       FROM invoices
+       WHERE ${baseWhere}`,
+    );
+
+    const buckets = await prisma.$queryRawUnsafe(
+      `WITH base AS (
+         SELECT
+           (total_amount - COALESCE(paid_amount, 0)) AS outstanding,
+           GREATEST(CURRENT_DATE - COALESCE(due_date, issued_at::date), 0) AS age_days
+         FROM invoices
+         WHERE ${baseWhere}
+       ),
+       bucketed AS (
+         SELECT
+           CASE
+             WHEN age_days <= 30 THEN '0-30'
+             WHEN age_days <= 60 THEN '31-60'
+             WHEN age_days <= 90 THEN '61-90'
+             ELSE '90+'
+           END AS bucket,
+           outstanding
+         FROM base
+       )
+       SELECT
+         bucket,
+         COUNT(*)::int AS invoice_count,
+         COALESCE(SUM(outstanding), 0)::float AS outstanding_amount
+       FROM bucketed
+       GROUP BY bucket
+       ORDER BY CASE bucket WHEN '0-30' THEN 1 WHEN '31-60' THEN 2 WHEN '61-90' THEN 3 ELSE 4 END`,
+    );
+
+    const invoices = await prisma.$queryRawUnsafe(
+      `SELECT
+         i.id,
+         i.invoice_number,
+         i.patient_uid,
+         u.name AS patient_name,
+         i.type,
+         i.payment_status,
+         i.total_amount::float,
+         COALESCE(i.paid_amount, 0)::float AS paid_amount,
+         (i.total_amount - COALESCE(i.paid_amount, 0))::float AS outstanding_amount,
+         i.due_date,
+         i.issued_at,
+         GREATEST(CURRENT_DATE - COALESCE(i.due_date, i.issued_at::date), 0)::int AS age_days
+       FROM invoices i
+       LEFT JOIN users u ON u.uid = i.patient_uid
+       WHERE ${baseWhere.replaceAll('payment_status', 'i.payment_status').replaceAll('total_amount', 'i.total_amount').replaceAll('paid_amount', 'i.paid_amount')}
+       ORDER BY age_days DESC, outstanding_amount DESC, i.issued_at ASC
+       LIMIT $1`,
+      limit,
+    );
+
+    return success(res, {
+      as_of: new Date().toISOString(),
+      overall,
+      buckets,
+      invoices,
+    }, 'A/R aging summary');
+  } catch (err) {
+    logger.error('A/R aging error:', err);
+    return error(res, 'Failed to load A/R aging', 500);
+  }
+});
+
+/** GET /claim-queue — actionable insurance claims for billing follow-up. */
+router.get('/claim-queue', async (req, res) => {
+  try {
+    const limit = parseLimit(req.query.limit, 50, 200);
+    const statuses = String(
+      req.query.status || 'submitted,under_review,partially_approved,rejected',
+    )
+      .split(',')
+      .map((status) => status.trim())
+      .filter(Boolean)
+      .join(',');
+
+    const summary = await prisma.$queryRawUnsafe(
+      `SELECT
+         status,
+         COUNT(*)::int AS count,
+         COALESCE(SUM(claim_amount), 0)::float AS claim_amount,
+         COALESCE(SUM(claim_amount - COALESCE(approved_amount, 0)), 0)::float AS payer_balance
+       FROM insurance_claims
+       WHERE status = ANY(string_to_array($1, ','))
+       GROUP BY status
+       ORDER BY count DESC`,
+      statuses,
+    );
+
+    const claims = await prisma.$queryRawUnsafe(
+      `SELECT
+         c.id,
+         c.claim_number,
+         c.patient_uid,
+         u.name AS patient_name,
+         c.invoice_id,
+         i.invoice_number,
+         c.insurance_provider,
+         c.policy_number,
+         c.claim_amount::float,
+         c.approved_amount::float,
+         (c.claim_amount - COALESCE(c.approved_amount, 0))::float AS payer_balance,
+         c.status,
+         c.submitted_at,
+         c.reviewed_at,
+         c.rejection_reason,
+         GREATEST(CURRENT_DATE - c.submitted_at::date, 0)::int AS days_in_queue
+       FROM insurance_claims c
+       LEFT JOIN invoices i ON i.id = c.invoice_id
+       LEFT JOIN users u ON u.uid = c.patient_uid
+       WHERE c.status = ANY(string_to_array($1, ','))
+       ORDER BY
+         CASE c.status
+           WHEN 'submitted' THEN 1
+           WHEN 'under_review' THEN 2
+           WHEN 'rejected' THEN 3
+           WHEN 'partially_approved' THEN 4
+           ELSE 5
+         END,
+         days_in_queue DESC,
+         c.submitted_at ASC
+       LIMIT $2`,
+      statuses,
+      limit,
+    );
+
+    return success(res, {
+      statuses: statuses ? statuses.split(',') : [],
+      summary,
+      claims,
+    }, 'Claim queue');
+  } catch (err) {
+    logger.error('claim queue error:', err);
+    return error(res, 'Failed to load claim queue', 500);
   }
 });
 

@@ -144,6 +144,70 @@ export interface RevenueStats {
   }>;
 }
 
+export interface ARAgingBucket {
+  bucket: "0-30" | "31-60" | "61-90" | "90+";
+  invoice_count: number;
+  outstanding_amount: number;
+}
+
+export interface ARAgingInvoice {
+  id: number;
+  invoice_number: string;
+  patient_uid: string;
+  patient_name: string | null;
+  type: string;
+  payment_status: string;
+  total_amount: number;
+  paid_amount: number;
+  outstanding_amount: number;
+  due_date: string | null;
+  issued_at: string;
+  age_days: number;
+}
+
+export interface ARAgingSummary {
+  as_of: string;
+  overall: {
+    invoice_count: number;
+    total_outstanding: number;
+    oldest_age_days: number;
+  };
+  buckets: ARAgingBucket[];
+  invoices: ARAgingInvoice[];
+}
+
+export interface ClaimQueueSummary {
+  status: string;
+  count: number;
+  claim_amount: number;
+  payer_balance: number;
+}
+
+export interface ClaimQueueItem {
+  id: number;
+  claim_number: string;
+  patient_uid: string;
+  patient_name: string | null;
+  invoice_id: number | null;
+  invoice_number: string | null;
+  insurance_provider: string;
+  policy_number: string;
+  claim_amount: number;
+  approved_amount: number | null;
+  payer_balance: number;
+  status: string;
+  submitted_at: string;
+  reviewed_at: string | null;
+  rejection_reason: string | null;
+  days_in_queue: number;
+}
+
+export interface ClaimQueueResponse {
+  statuses: string[];
+  summary: ClaimQueueSummary[];
+  claims: ClaimQueueItem[];
+}
+
 export interface Pagination {
   page: number;
   limit: number;
@@ -190,6 +254,16 @@ export function getRevenueStats(dateFrom: string, dateTo: string) {
     date_from: dateFrom,
     date_to: dateTo,
   });
+}
+
+/** Get open invoice aging buckets and oldest balances */
+export function getARAging(params?: QueryParams) {
+  return getJSON<ARAgingSummary>(API_ENDPOINTS.billing.revenueCycle.arAging, params);
+}
+
+/** Get actionable insurance claims for payer follow-up */
+export function getClaimQueue(params?: QueryParams) {
+  return getJSON<ClaimQueueResponse>(API_ENDPOINTS.billing.revenueCycle.claimQueue, params);
 }
 
 /** Submit an insurance claim */

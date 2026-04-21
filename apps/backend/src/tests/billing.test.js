@@ -255,6 +255,50 @@ describe('Billing API', () => {
     });
   });
 
+  // ─── Revenue cycle worklists ─────────────────────────────────────────
+  describe('revenue cycle worklists', () => {
+    it('returns A/R aging buckets and the oldest open invoices', async () => {
+      const daysAgo = (days) => {
+        const d = new Date();
+        d.setDate(d.getDate() - days);
+        return d.toISOString().slice(0, 10);
+      };
+
+      await admin.post('/api/v1/billing/invoice').send({
+        patient_uid: patientUidA,
+        type: 'procedure',
+        subtotal: 9000,
+        total_amount: 9000,
+        due_date: daysAgo(45),
+        items: [{ description: 'Procedure balance', amount: 9000 }],
+      });
+      await admin.post('/api/v1/billing/invoice').send({
+        patient_uid: patientUidA,
+        type: 'room_charge',
+        subtotal: 12000,
+        total_amount: 12000,
+        due_date: daysAgo(95),
+        items: [{ description: 'Room balance', amount: 12000 }],
+      });
+
+      const res = await admin.get('/api/v1/billing/ar-aging?limit=10');
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data.overall.invoice_count).toBeGreaterThanOrEqual(2);
+      expect(res.body.data.overall.total_outstanding).toBeGreaterThanOrEqual(21000);
+      expect(res.body.data.buckets.map((b) => b.bucket)).toEqual(
+        expect.arrayContaining(['31-60', '90+']),
+      );
+      expect(res.body.data.invoices[0]).toEqual(
+        expect.objectContaining({
+          invoice_number: expect.stringMatching(/^INV-\d{6}-\d{4}$/),
+          outstanding_amount: expect.any(Number),
+          age_days: expect.any(Number),
+        }),
+      );
+    });
+  });
+
   // ─── Insurance claims ─────────────────────────────────────────────────
   describe('insurance claims', () => {
     let claimId;
@@ -401,6 +445,24 @@ describe('Billing API', () => {
       );
       expect(res.statusCode).toBe(200);
       expect(res.body.data.every((c) => c.status === 'rejected')).toBe(true);
+    });
+
+    it('returns a claim queue for actionable payer follow-up', async () => {
+      const res = await admin.get('/api/v1/billing/claim-queue?limit=20');
+
+      expect(res.statusCode).toBe(200);
+      expect(Array.isArray(res.body.data.summary)).toBe(true);
+      expect(Array.isArray(res.body.data.claims)).toBe(true);
+      expect(res.body.data.claims.length).toBeGreaterThanOrEqual(2);
+      expect(res.body.data.claims.every((c) => c.status !== 'approved' && c.status !== 'paid')).toBe(true);
+      expect(res.body.data.claims[0]).toEqual(
+        expect.objectContaining({
+          claim_number: expect.stringMatching(/^CLM-\d{6}-\d{4}$/),
+          insurance_provider: 'TestCorp',
+          payer_balance: expect.any(Number),
+          days_in_queue: expect.any(Number),
+        }),
+      );
     });
   });
 });

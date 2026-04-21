@@ -437,6 +437,10 @@ export const API_ENDPOINTS = {
     patientInvoices: (patientUid: string) => `/api/v1/billing/invoices/patient/${patientUid}`, // GET
     recordPayment: (id: number) => `/api/v1/billing/invoice/${id}/payment`, // POST
     revenue: "/api/v1/billing/revenue", // GET
+    revenueCycle: {
+      arAging: "/api/v1/billing/ar-aging", // GET
+      claimQueue: "/api/v1/billing/claim-queue", // GET
+    },
     insurance: {
       submitClaim: "/api/v1/billing/insurance/claim", // POST
       listClaims: "/api/v1/billing/insurance/claims", // GET
