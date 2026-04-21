@@ -1,0 +1,443 @@
+<#
+.SYNOPSIS
+Runs a local staff clinical-safety API smoke matrix against the backend.
+
+.DESCRIPTION
+Assumes the local backend and Postgres smoke database are already running. The
+script applies the idempotent clinical-safety alignment migration, seeds
+disposable staff/patient data, and exercises MAR 5-rights plus CDS allergy
+blocking end to end.
+#>
+[CmdletBinding()]
+param(
+  [string]$BackendBase = "http://127.0.0.1:5206",
+  [string]$BackendDir = "",
+  [string]$StaffUid = "77777777-7777-4777-8777-777777777777",
+  [string]$PatientUid = "66666666-6666-4666-8666-666666666666",
+  [string]$WrongPatientUid = "99999999-9999-4999-8999-999999999999",
+  [string]$JwtSecret = "vhhealth-local-admin-smoke-secret-123456789",
+  [string]$ApiKey = "vhhealth-local-api-key",
+  [string]$PgHost = "127.0.0.1",
+  [int]$PgPort = 5433,
+  [string]$PgUser = "vhhealth",
+  [string]$PgDatabase = "vhhealth",
+  [string]$PgPassword = "test",
+  [string]$PsqlPath = "psql"
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+if ([string]::IsNullOrWhiteSpace($BackendDir)) {
+  $scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+  $BackendDir = Join-Path $scriptRoot "..\apps\backend"
+}
+
+function Assert-Command {
+  param([string]$Name)
+
+  if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
+    throw "Required command not found: $Name"
+  }
+}
+
+function Invoke-Psql {
+  param([Parameter(Mandatory)][string]$Sql)
+
+  $previousPassword = $env:PGPASSWORD
+  $env:PGPASSWORD = $PgPassword
+  try {
+    $output = & $PsqlPath -qAt -h $PgHost -p $PgPort -U $PgUser -d $PgDatabase -c $Sql
+    if ($LASTEXITCODE -ne 0) {
+      throw "psql exited with code $LASTEXITCODE"
+    }
+    return (($output | Out-String).Trim())
+  } finally {
+    $env:PGPASSWORD = $previousPassword
+  }
+}
+
+function Invoke-PsqlFile {
+  param([Parameter(Mandatory)][string]$Path)
+
+  $previousPassword = $env:PGPASSWORD
+  $previousPgOptions = $env:PGOPTIONS
+  $env:PGPASSWORD = $PgPassword
+  $env:PGOPTIONS = "-c client_min_messages=warning"
+  try {
+    & $PsqlPath -q -v ON_ERROR_STOP=1 -h $PgHost -p $PgPort -U $PgUser -d $PgDatabase -f $Path | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+      throw "psql -f exited with code $LASTEXITCODE for $Path"
+    }
+  } finally {
+    $env:PGPASSWORD = $previousPassword
+    $env:PGOPTIONS = $previousPgOptions
+  }
+}
+
+function New-SmokeToken {
+  param(
+    [Parameter(Mandatory)][string]$Uid,
+    [Parameter(Mandatory)][string]$Role
+  )
+
+  $previousSecret = $env:SMOKE_JWT_SECRET
+  $previousUid = $env:SMOKE_UID
+  $previousRole = $env:SMOKE_ROLE
+  $env:SMOKE_JWT_SECRET = $JwtSecret
+  $env:SMOKE_UID = $Uid
+  $env:SMOKE_ROLE = $Role
+
+  try {
+    Push-Location $BackendDir
+    try {
+      $script = @'
+const jwt = require('jsonwebtoken');
+const uid = process.env.SMOKE_UID;
+const role = process.env.SMOKE_ROLE;
+console.log(jwt.sign({
+  uid,
+  sub: uid,
+  role,
+  email: `${uid}@clinical-safety-smoke.local`
+}, process.env.SMOKE_JWT_SECRET, { expiresIn: '4h' }));
+'@
+      $token = & node -e $script
+      if ($LASTEXITCODE -ne 0) {
+        throw "node token generation failed with code $LASTEXITCODE"
+      }
+      return (($token | Out-String).Trim())
+    } finally {
+      Pop-Location
+    }
+  } finally {
+    $env:SMOKE_JWT_SECRET = $previousSecret
+    $env:SMOKE_UID = $previousUid
+    $env:SMOKE_ROLE = $previousRole
+  }
+}
+
+function Add-Result {
+  param(
+    [System.Collections.Generic.List[object]]$Results,
+    [Parameter(Mandatory)][string]$Name,
+    [Parameter(Mandatory)]$Status,
+    [Parameter(Mandatory)][bool]$Ok,
+    [string]$Detail = ""
+  )
+
+  $Results.Add([pscustomobject]@{
+    name = $Name
+    status = $Status
+    ok = $Ok
+    detail = $Detail
+  }) | Out-Null
+}
+
+function Invoke-SmokeRequest {
+  param(
+    [System.Collections.Generic.List[object]]$Results,
+    [Parameter(Mandatory)][string]$Name,
+    [Parameter(Mandatory)][string]$Method,
+    [Parameter(Mandatory)][string]$Path,
+    [object]$Body = $null,
+    [string]$AuthToken = $script:StaffToken,
+    [int]$ExpectedStatus = 0
+  )
+
+  $uri = "$($BackendBase.TrimEnd('/'))$Path"
+  $headers = @{
+    Authorization = "Bearer $AuthToken"
+    "x-api-key" = $ApiKey
+  }
+
+  try {
+    $params = @{
+      Uri = $uri
+      Method = $Method
+      Headers = $headers
+    }
+    if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey("SkipHttpErrorCheck")) {
+      $params.SkipHttpErrorCheck = $true
+    }
+
+    if ($null -ne $Body) {
+      $params.Body = ($Body | ConvertTo-Json -Depth 12)
+      $params.ContentType = "application/json"
+      $headers["Content-Type"] = "application/json"
+    }
+
+    $response = $null
+    try {
+      $response = Invoke-WebRequest @params
+    } catch {
+      $responseProperty = $_.Exception.PSObject.Properties["Response"]
+      if ($null -ne $responseProperty -and $null -ne $responseProperty.Value) {
+        $errorResponse = $responseProperty.Value
+        if ($errorResponse.PSObject.Methods["GetResponseStream"]) {
+          $reader = New-Object System.IO.StreamReader($errorResponse.GetResponseStream())
+          try {
+            $content = $reader.ReadToEnd()
+          } finally {
+            $reader.Dispose()
+          }
+        } elseif ($errorResponse.PSObject.Properties["Content"] -and $errorResponse.Content) {
+          $content = $errorResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        } else {
+          $content = ""
+        }
+        $response = [pscustomobject]@{
+          StatusCode = [int]$errorResponse.StatusCode
+          Content = $content
+        }
+      } else {
+        throw
+      }
+    }
+    $message = ""
+    if ($response.Content) {
+      try {
+        $json = $response.Content | ConvertFrom-Json
+        if ($json.message) {
+          $message = [string]$json.message
+        } elseif ($json.error) {
+          $message = [string]$json.error
+        }
+      } catch {
+        $message = $response.Content.Substring(0, [Math]::Min(160, $response.Content.Length))
+      }
+    }
+
+    $ok = if ($ExpectedStatus -gt 0) {
+      [int]$response.StatusCode -eq $ExpectedStatus
+    } else {
+      $response.StatusCode -ge 200 -and $response.StatusCode -lt 300
+    }
+    Add-Result $Results $Name ([int]$response.StatusCode) $ok $message
+    return $response
+  } catch {
+    Add-Result $Results $Name "ERR" $false $_.Exception.Message
+    return $null
+  }
+}
+
+function Get-JsonContent {
+  param($Response)
+
+  if ($null -eq $Response -or -not $Response.Content) {
+    return $null
+  }
+  return $Response.Content | ConvertFrom-Json
+}
+
+function Get-JsonProperty {
+  param(
+    $Object,
+    [Parameter(Mandatory)][string]$Name
+  )
+
+  if ($null -eq $Object) {
+    return $null
+  }
+
+  $property = $Object.PSObject.Properties[$Name]
+  if ($null -eq $property) {
+    return $null
+  }
+
+  return $property.Value
+}
+
+function Add-ContractResult {
+  param(
+    [System.Collections.Generic.List[object]]$Results,
+    [Parameter(Mandatory)][string]$Name,
+    [Parameter(Mandatory)][bool]$Ok,
+    [string]$Detail = ""
+  )
+
+  Add-Result $Results $Name "ASSERT" $Ok $Detail
+}
+
+Assert-Command "node"
+Assert-Command $PsqlPath
+
+$migrationPath = Join-Path $BackendDir "migrations\033_clinical_safety_runtime_alignment.sql"
+Invoke-PsqlFile $migrationPath
+
+$stamp = Get-Date -Format "yyyyMMddHHmmss"
+
+$patientId = Invoke-Psql @"
+DELETE FROM cds_alerts WHERE patient_uid = '$PatientUid'::uuid;
+DELETE FROM medication_administrations WHERE patient_uid = '$PatientUid'::uuid;
+DELETE FROM allergies WHERE patient_uid = '$PatientUid'::uuid;
+DELETE FROM patient_allergies WHERE patient_uid = '$PatientUid'::uuid;
+DELETE FROM prescriptions WHERE patient_uid = '$PatientUid'::uuid;
+
+INSERT INTO users (uid, phone, name, email, role, is_active, status, updated_at)
+VALUES
+  ('$StaffUid'::uuid, '8811000201', 'Clinical Safety Staff $stamp', 'clinical-safety-staff-$stamp@example.test', 'NURSE', true, 'active', NOW()),
+  ('$PatientUid'::uuid, '8811000202', 'Clinical Safety Patient $stamp', 'clinical-safety-patient-$stamp@example.test', 'PATIENT', true, 'active', NOW()),
+  ('$WrongPatientUid'::uuid, '8811000203', 'Clinical Safety Wrong Patient $stamp', 'clinical-safety-wrong-$stamp@example.test', 'PATIENT', true, 'active', NOW())
+ON CONFLICT (uid) DO UPDATE SET
+  name = EXCLUDED.name,
+  email = EXCLUDED.email,
+  role = EXCLUDED.role,
+  is_active = true,
+  status = 'active',
+  updated_at = NOW();
+
+INSERT INTO allergies (patient_uid, allergen, name, allergy_type, severity, reaction, status)
+VALUES ('$PatientUid'::uuid, 'amoxicillin', 'Amoxicillin', 'medication', 'severe', 'anaphylaxis', 'active');
+
+INSERT INTO patient_allergies (patient_id, patient_uid, allergy_name, severity, reaction, is_active)
+SELECT id, uid, 'penicillin', 'severe', 'rash', true
+FROM users
+WHERE uid = '$PatientUid'::uuid;
+
+SELECT id FROM users WHERE uid = '$PatientUid'::uuid;
+"@
+
+$script:StaffToken = New-SmokeToken -Uid $StaffUid -Role "NURSING_STAFF"
+$results = [System.Collections.Generic.List[object]]::new()
+$scheduledTime = (Get-Date).ToString("o")
+
+$schedule = Invoke-SmokeRequest $results "mar_schedule" "POST" "/api/v1/clinical/mar/schedule" @{
+  patient_uid = $PatientUid
+  prescription_id = $null
+  medications = @(
+    @{
+      medication_name = "Paracetamol"
+      dose = "500 mg"
+      route = "oral"
+      scheduled_time = $scheduledTime
+      notes = "Clinical safety smoke $stamp"
+    },
+    @{
+      medication_name = "Cetirizine"
+      dose = "10 mg"
+      route = "oral"
+      scheduled_time = $scheduledTime
+      notes = "Clinical safety override smoke $stamp"
+    }
+  )
+}
+$scheduleJson = Get-JsonContent $schedule
+$scheduleData = Get-JsonProperty $scheduleJson "data"
+$scheduledRows = if ($null -ne $scheduleData) { @($scheduleData) } else { @() }
+$scheduledCount = @($scheduledRows).Count
+$paracetamolRow = if ($scheduledCount -ge 1) { @($scheduledRows)[0] } else { $null }
+$cetirizineRow = if ($scheduledCount -ge 2) { @($scheduledRows)[1] } else { $null }
+$paracetamolId = Get-JsonProperty $paracetamolRow "id"
+$cetirizineId = Get-JsonProperty $cetirizineRow "id"
+Add-ContractResult $results "mar_schedule_contract" ($paracetamolId -and $cetirizineId) "paracetamol=$paracetamolId cetirizine=$cetirizineId"
+
+if ($paracetamolId) {
+  $verify = Invoke-SmokeRequest $results "mar_verify_all_rights" "POST" "/api/v1/clinical/mar/verify" @{
+    ma_id = [int]$paracetamolId
+    scanned_patient_uid = $PatientUid
+    scanned_barcode = "paracetamol"
+  }
+  $verifyJson = Get-JsonContent $verify
+  $verifyData = Get-JsonProperty $verifyJson "data"
+  $verifyAllPassed = Get-JsonProperty $verifyData "allPassed"
+  Add-ContractResult $results "mar_verify_all_rights_contract" ($verifyAllPassed -eq $true) "allPassed=$verifyAllPassed"
+
+  $wrongVerify = Invoke-SmokeRequest $results "mar_verify_wrong_patient" "POST" "/api/v1/clinical/mar/verify" @{
+    ma_id = [int]$paracetamolId
+    scanned_patient_uid = $WrongPatientUid
+    scanned_barcode = "paracetamol"
+  }
+  $wrongVerifyJson = Get-JsonContent $wrongVerify
+  $wrongVerifyData = Get-JsonProperty $wrongVerifyJson "data"
+  $wrongVerifyAllPassed = Get-JsonProperty $wrongVerifyData "allPassed"
+  $wrongVerifyRights = Get-JsonProperty $wrongVerifyData "rights"
+  $wrongPatientRight = Get-JsonProperty $wrongVerifyRights "patient"
+  Add-ContractResult $results "mar_verify_wrong_patient_contract" ($wrongVerifyAllPassed -eq $false -and $wrongPatientRight -eq $false) "patientRight=$wrongPatientRight"
+
+  Invoke-SmokeRequest $results "mar_administer_wrong_without_override" "POST" "/api/v1/clinical/mar/$paracetamolId/administer-with-scan" @{
+    scanned_patient_uid = $WrongPatientUid
+    scanned_barcode = "paracetamol"
+  } -ExpectedStatus 409 | Out-Null
+
+  $administer = Invoke-SmokeRequest $results "mar_administer_all_rights" "POST" "/api/v1/clinical/mar/$paracetamolId/administer-with-scan" @{
+    scanned_patient_uid = $PatientUid
+    scanned_barcode = "paracetamol"
+  }
+  $administerJson = Get-JsonContent $administer
+  $administerData = Get-JsonProperty $administerJson "data"
+  $administerStatus = Get-JsonProperty $administerData "status"
+  $administerAllRights = Get-JsonProperty $administerData "all_rights_passed"
+  Add-ContractResult $results "mar_administer_all_rights_contract" ($administerStatus -eq "administered" -and $administerAllRights -eq $true) "status=$administerStatus"
+} else {
+  Add-ContractResult $results "mar_verify_all_rights_contract" $false "paracetamol id missing"
+  Add-ContractResult $results "mar_verify_wrong_patient_contract" $false "paracetamol id missing"
+  Add-ContractResult $results "mar_administer_all_rights_contract" $false "paracetamol id missing"
+}
+
+if ($cetirizineId) {
+  $override = Invoke-SmokeRequest $results "mar_administer_override" "POST" "/api/v1/clinical/mar/$cetirizineId/administer-with-scan" @{
+    scanned_patient_uid = $PatientUid
+    scanned_barcode = "wrong-drug"
+    override_reason = "Clinical safety smoke override"
+  }
+  $overrideJson = Get-JsonContent $override
+  $overrideData = Get-JsonProperty $overrideJson "data"
+  $overrideStatus = Get-JsonProperty $overrideData "status"
+  $overrideAllRights = Get-JsonProperty $overrideData "all_rights_passed"
+  $overrideReason = Get-JsonProperty $overrideData "override_reason"
+  Add-ContractResult $results "mar_administer_override_contract" ($overrideStatus -eq "administered" -and $overrideAllRights -eq $false -and $overrideReason) "allRights=$overrideAllRights"
+} else {
+  Add-ContractResult $results "mar_administer_override_contract" $false "cetirizine id missing"
+}
+
+$cds = Invoke-SmokeRequest $results "cds_check_allergy_blocker" "POST" "/api/v1/emr/cds/check-order" @{
+  type = "medication"
+  medication_name = "Amoxicillin"
+  patient_uid = $PatientUid
+  encounter_id = "ENC-SMOKE-$stamp"
+}
+$cdsJson = Get-JsonContent $cds
+$cdsData = Get-JsonProperty $cdsJson "data"
+$cdsSafe = Get-JsonProperty $cdsData "safe"
+$cdsAlerts = @(Get-JsonProperty $cdsData "alerts")
+$allergyAlerts = @($cdsAlerts | Where-Object { (Get-JsonProperty $_ "type") -eq "allergy" })
+$allergyAlertCount = @($allergyAlerts).Count
+Add-ContractResult $results "cds_check_allergy_contract" ($cdsSafe -eq $false -and $allergyAlertCount -ge 1) "safe=$cdsSafe allergyAlerts=$allergyAlertCount"
+
+$alerts = Invoke-SmokeRequest $results "cds_active_alerts" "GET" "/api/v1/emr/cds/alerts/$PatientUid"
+$alertsJson = Get-JsonContent $alerts
+$rawActiveAlertsData = Get-JsonProperty $alertsJson "data"
+$activeAlertsData = if ($null -ne $rawActiveAlertsData) { @($rawActiveAlertsData) } else { @() }
+$activeAllergyAlert = @($activeAlertsData | Where-Object { (Get-JsonProperty $_ "alert_type") -eq "allergy" } | Select-Object -First 1)
+$activeAllergyCount = @($activeAllergyAlert).Count
+$activeAllergyRow = if ($activeAllergyCount -ge 1) { @($activeAllergyAlert)[0] } else { $null }
+$alertId = Get-JsonProperty $activeAllergyRow "id"
+Add-ContractResult $results "cds_active_alerts_contract" ($alertId -ne $null) "alertId=$alertId"
+
+if ($alertId) {
+  $ack = Invoke-SmokeRequest $results "cds_acknowledge_alert" "POST" "/api/v1/emr/cds/alerts/$alertId/acknowledge" @{
+    override_reason = "Reviewed by clinical safety smoke"
+  }
+  $ackJson = Get-JsonContent $ack
+  $ackData = Get-JsonProperty $ackJson "data"
+  $acknowledged = Get-JsonProperty $ackData "acknowledged"
+  $acknowledgedBy = Get-JsonProperty $ackData "acknowledged_by"
+  $ackOverrideReason = Get-JsonProperty $ackData "override_reason"
+  Add-ContractResult $results "cds_acknowledge_contract" ($acknowledged -eq $true -and $acknowledgedBy -eq $StaffUid -and $ackOverrideReason) "ackBy=$acknowledgedBy"
+} else {
+  Add-ContractResult $results "cds_acknowledge_contract" $false "alert id missing"
+}
+
+$ackCount = Invoke-Psql "SELECT COUNT(*) FROM cds_alerts WHERE patient_uid = '$PatientUid'::uuid AND alert_type = 'allergy' AND acknowledged = true AND ack_by = '$StaffUid'::uuid;"
+Add-ContractResult $results "cds_acknowledged_db_contract" ([int]$ackCount -ge 1) "acknowledged=$ackCount patientId=$patientId"
+
+$results | Format-Table -AutoSize
+
+$failed = @($results | Where-Object { -not $_.ok })
+if ($failed.Count -gt 0) {
+  Write-Error "Staff clinical-safety smoke failed: $($failed.Count) check(s) failed."
+  exit 1
+}
+
+Write-Host "Staff clinical-safety smoke passed: $($results.Count) check(s)."
