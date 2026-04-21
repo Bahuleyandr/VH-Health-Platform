@@ -48,8 +48,8 @@ export const getSystemHealth = async (req, res) => {
 
   // 4. SMS service
   checks.sms = {
-    status: process.env.MSG91_API_KEY ? 'configured' : 'dry_run',
-    provider: process.env.SMS_PROVIDER || (process.env.MSG91_API_KEY ? 'msg91' : 'none'),
+    status: 'dry_run',
+    provider: 'none',
   };
 
   // 5. Scheduler

@@ -9,6 +9,7 @@ is self-contained and aimed at whoever is on-call when the alert fires
 |----------|---------|----------|
 | Postgres primary is down / DB data loss | [`db-restore.md`](./db-restore.md) | **P0** |
 | R2 bucket inaccessible / object missing | [`r2-restore.md`](./r2-restore.md) | **P0** |
+| Service-account key / provider token exposed | [`credential-incident-response.md`](./credential-incident-response.md) | **P0** |
 | JWT signing key / API key rotation | [`cert-rotation.md`](./cert-rotation.md) | **P1** (routine) / **P0** (compromise) |
 | Code Blue alert fired but shouldn't have | [`code-blue-misfire.md`](./code-blue-misfire.md) | **P0** (patient safety) |
 | Chatbot LLM provider outage / key rotation | [`chatbot-provider-switch.md`](./chatbot-provider-switch.md) | **P2** (degraded feature) |

@@ -8,20 +8,30 @@ try {
   const projectId = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
   const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
-
-  if (!projectId || !clientEmail || !privateKey) {
-    throw new Error('Missing Firebase credentials in environment variables');
-  }
+  const hasCertCredentials = !!(projectId && clientEmail && privateKey);
+  const useApplicationDefault =
+    process.env.FIREBASE_USE_APPLICATION_DEFAULT === 'true' ||
+    !!process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
   if (!admin.apps.length) {
-    admin.initializeApp({
-      credential: admin.credential.cert({
+    if (hasCertCredentials) {
+      admin.initializeApp({
+        credential: admin.credential.cert({
+          projectId,
+          clientEmail,
+          privateKey
+        })
+      });
+      logger.info('Firebase Admin initialized from environment credentials');
+    } else if (projectId && useApplicationDefault) {
+      admin.initializeApp({
         projectId,
-        clientEmail,
-        privateKey
-      })
-    });
-    logger.info('✅ Firebase Admin initialized from .env');
+        credential: admin.credential.applicationDefault()
+      });
+      logger.info('Firebase Admin initialized from application default credentials');
+    } else {
+      throw new Error('Missing Firebase Admin credentials');
+    }
   }
 
   firebaseAdmin = admin;

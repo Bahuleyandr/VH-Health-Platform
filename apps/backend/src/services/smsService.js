@@ -1,12 +1,8 @@
 // src/services/smsService.js
 // SMS / WhatsApp notification service
-// Provider: MSG91 (if MSG91_API_KEY is set) — falls back to dry-run logging
+// No external SMS provider is configured. Calls are logged as dry-run events.
 
 import logger from '../logging/logger.js';
-
-// Supported: 'msg91' | 'none'
-// MSG91_API_KEY is the credential key name in .env
-const SMS_PROVIDER = process.env.SMS_PROVIDER || (process.env.MSG91_API_KEY ? 'msg91' : 'none');
 
 /**
  * Normalize a phone number to intl format (91XXXXXXXXXX)
@@ -30,39 +26,7 @@ export async function sendSMS(phone, message) {
     return;
   }
 
-  try {
-    if (SMS_PROVIDER === 'msg91' && process.env.MSG91_API_KEY) {
-      // MSG91 simple transactional SMS via v5 API
-      const body = JSON.stringify({
-        sender: process.env.MSG91_SENDER_ID || 'VHHLTH',
-        route: '4', // transactional
-        country: '91',
-        sms: [{ message, to: [intlPhone] }]
-      });
-
-      await fetch('https://api.msg91.com/api/v5/sendotp', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'authkey': process.env.MSG91_API_KEY
-        },
-        body
-      });
-
-      // MSG91 v5 transactional text SMS endpoint
-      const textResp = await fetch(`https://api.msg91.com/api/sendhttp.php?authkey=${process.env.MSG91_API_KEY}&mobiles=${intlPhone}&message=${encodeURIComponent(message)}&sender=${process.env.MSG91_SENDER_ID || 'VHHLTH'}&route=4&country=91`, {
-        method: 'GET'
-      });
-      const result = await textResp.text();
-      logger.info(`[SMS] MSG91 response for ${intlPhone}: ${result}`);
-    } else {
-      // Dry run — no credentials configured
-      logger.info(`[SMS DRY RUN] To: ${intlPhone} | ${message}`);
-    }
-  } catch (err) {
-    logger.warn(`[SMS] Send failed for ${phone}: ${err.message}`);
-    // Never throw — fire-and-forget
-  }
+  logger.info(`[SMS DRY RUN] To: ${intlPhone} | ${message}`);
 }
 
 /**

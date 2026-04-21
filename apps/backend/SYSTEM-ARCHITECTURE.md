@@ -57,7 +57,6 @@ DATABASE_URL, DEBUG_CORS
 FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY, FIREBASE_PROJECT_ID
 GENERIC_RATE_LIMIT_MAX_REQUESTS, GENERIC_RATE_LIMIT_WINDOW_MINUTES
 JWT_EXPIRES_IN, JWT_SECRET
-MSG91 (SMS provider)
 NODE_ENV, NODE_VERSION, PORT
 PATIENT_APP_ORIGINS, PATIENT_RATE_LIMIT_MAX_REQUESTS, PATIENT_RATE_LIMIT_WINDOW_MINUTES
 SENTRY_AUTH_TOKEN, SENTRY_DSN, SENTRY_ORG, SENTRY_PROJECT
@@ -1397,7 +1396,7 @@ UI components including `DataTable`, `MetricCard`, `ChartCard`, `CommandPalette`
 
 ### Notification Channels
 - **Push:** Firebase Cloud Messaging (FCM)
-- **SMS:** MSG91 provider
+- **SMS:** Dry-run logging only (no external provider configured)
 - **Email:** Configured email service
 - **In-app:** Database-stored notifications
 
@@ -1603,10 +1602,10 @@ UI components including `DataTable`, `MetricCard`, `ChartCard`, `CommandPalette`
                      │ │ WebSocket  │◄├──┤               │
                      │ └────────────┘ │  └───────────────┘
                      └───────┬────────┘
-                             │          ┌───────────────┐
-                     ┌───────▼────────┐ │ MSG91         │
-                     │  PostgreSQL    │ │ (SMS)         │
-                     │  15.13         │ └───────────────┘
+                             │
+                     ┌───────▼────────┐
+                     │  PostgreSQL    │
+                     │  15.13         │
                      │  (Docker)      │
                      │  99 tables     │ ┌───────────────┐
                      │  199 indexes   │ │ Sentry        │

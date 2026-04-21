@@ -61,9 +61,11 @@ router.get('/deep', async (_req, res) => {
   // R2 (Cloudflare) — check env vars are present
   try {
     const r2Configured = !!(
-      process.env.R2_ACCESS_KEY_ID &&
-      process.env.R2_SECRET_ACCESS_KEY &&
-      process.env.R2_ENDPOINT
+      process.env.CF_ACCOUNT_ID &&
+      process.env.CF_R2_BUCKET &&
+      process.env.CF_R2_URL &&
+      process.env.CF_R2_ACCESS_KEY_ID &&
+      process.env.CF_R2_SECRET_ACCESS_KEY
     );
     checks.r2 = { status: r2Configured ? 'configured' : 'not_configured' };
   } catch (_err) {

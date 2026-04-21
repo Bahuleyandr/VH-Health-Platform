@@ -10,6 +10,9 @@ pre-commit:
     secrets-scan:
       run: node scripts/scan-secrets.mjs
 
+    gitleaks-staged:
+      run: node scripts/gitleaks-scan.mjs staged
+
     dart-format:
       glob: "apps/patient/**/*.dart apps/staff/**/*.dart packages/vhhealth_core/**/*.dart"
       run: dart format --set-exit-if-changed {staged_files}
@@ -33,6 +36,9 @@ pre-push:
   commands:
     secrets-scan:
       run: node scripts/scan-secrets.mjs
+
+    gitleaks-pushed:
+      run: node scripts/gitleaks-scan.mjs range
 
     flutter-analyze:
       run: |
