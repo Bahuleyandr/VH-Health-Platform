@@ -71,26 +71,34 @@ Verified response:
   `http://localhost:3000/*`, and `http://127.0.0.1:3000/*`.
   Existing API targets were preserved.
 
-## Remaining Rotations From Historical Git Scan
+## Post-Rewrite Credential Follow-Up
 
-`gitleaks` still finds historical exposures in old commits:
+Historical secret files and credential literals have been removed from public
+Git history, and the local full-history `gitleaks` scan was clean after the
+rewrite. Still treat any credential that was ever public as compromised until
+the provider confirms revocation or rotation.
 
-- `.env.render`: `CF_R2_SECRET_ACCESS_KEY`
-- `.env.render`: `JWT_SECRET`
-- `.env.render`: deprecated SMS provider key
-- old test bearer JWTs
-- old Firebase Admin SDK private key
+Current status and remaining provider work:
 
-Rotate these where they are currently active:
-
-- Cloudflare R2: create a replacement R2 token, update deployment secrets, then
-  revoke the exposed access key.
-- Backend JWT: set a new `JWT_SECRET`, deploy, and force logout/re-auth for
-  existing sessions.
+- Firebase Admin SDK: exposed key
+  `af2ca5d7aa1663634f6c11eae3a1f4ceb7517720` is deleted.
+- Cloudflare R2: bucket `vh-health-records` was verified through the Cloudflare
+  API on `2026-04-21`, but the current Cloudflare connector cannot manage
+  account-owned API tokens (`9109 Unauthorized to access requested resource`).
+  Rotate manually in the Cloudflare dashboard: create a new scoped R2 token for
+  `vh-health-records`, update deployment secrets `CF_R2_ACCESS_KEY_ID` and
+  `CF_R2_SECRET_ACCESS_KEY`, deploy, verify upload/read/delete, then revoke the
+  old key.
+- Backend JWT: rotation requires deployment secret-store access. Before
+  rotating `JWT_SECRET` in production, set independent 32+ character
+  `FIELD_ENCRYPTION_KEY` and `TOTP_ENCRYPTION_KEY` values if encrypted fields
+  or TOTP secrets may exist, because those utilities currently fall back to
+  `JWT_SECRET`. Then set a new 64+ character `JWT_SECRET`, deploy, invalidate
+  existing sessions/refresh tokens, and require re-auth.
 - SMS provider: no external SMS provider is currently used. Remove any stale
-  provider key from deployment secrets instead of rotating it.
-- Test bearer tokens: invalidate any matching real tokens if the old test token
-  was ever accepted outside local tests.
+  `MSG91_*` or SMS provider key from deployment secrets instead of rotating it.
+- Test bearer tokens: historical-only unless a matching real token was accepted
+  outside local tests. Invalidate any matching real token if discovered.
 
 ## Secret Scanning
 
@@ -131,15 +139,20 @@ Full history GitGuardian scan:
 node scripts/ggshield-scan.mjs repo
 ```
 
-The full history scans are expected to fail until old public history is
-rewritten or accepted as permanently exposed after all affected credentials are
-revoked.
+After a history rewrite, full-history scans should pass. A failure means a new
+leak was introduced or the rewrite missed a path.
 
 ## Git History Rewrite Decision
 
 Rewrite public history only after coordinating with anyone who has cloned or
 forked the repo. Rewriting removes accidental exposure from normal browsing,
 but any already-fetched secret must still be treated as compromised.
+
+`2026-04-21` decision: rewrite public history. The rewrite removed historical
+secret files, hardcoded credential literals, and the old root deployment
+archives `vh-health-backend.zip` and `vh-health-portal.zip`. The current tracked
+ZIP is an app-local plugin sample asset, not the root deployment archives that
+triggered GitHub large-object warnings.
 
 Use rewrite if:
 
@@ -155,12 +168,14 @@ Skip or defer rewrite if:
 
 ## Post-Incident Checklist
 
-- [ ] Exposed credentials revoked or deleted.
+- [x] Exposed Firebase Admin SDK key revoked or deleted.
 - [ ] Runtime secret store updated.
-- [ ] No JSON key files or private keys in working tree.
-- [ ] `node scripts/scan-secrets.mjs` passes.
-- [ ] `node scripts/gitleaks-scan.mjs worktree` passes.
-- [ ] `node scripts/ggshield-scan.mjs worktree` passes.
+- [ ] Cloudflare R2 access key rotated in provider/deployment secrets.
+- [ ] Backend `JWT_SECRET` rotated in provider/deployment secrets.
+- [x] No JSON key files or private keys in working tree.
+- [x] `node scripts/scan-secrets.mjs` passes.
+- [x] `node scripts/gitleaks-scan.mjs worktree` passes.
+- [x] `node scripts/ggshield-scan.mjs worktree` passes.
 - [ ] Provider audit logs reviewed.
 - [x] Browser Firebase key referrer restrictions confirmed and applied.
-- [ ] History rewrite decision recorded.
+- [x] History rewrite decision recorded.
