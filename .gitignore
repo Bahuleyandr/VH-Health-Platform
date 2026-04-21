@@ -23,3 +23,16 @@ output/
 
 # Node (tooling scripts only — real node_modules live in sibling repos)
 node_modules/
+
+# Local environment files and credentials
+.env
+.env.*
+!.env.example
+!*.env.example
+
+# Service account keys and private credentials must never be committed.
+**/*firebase-adminsdk*.json
+**/*service-account*.json
+**/*service_account*.json
+**/*google-application-credentials*.json
+**/*.pem
