@@ -63,8 +63,13 @@ Verified response:
 - Project-level `roles/iam.serviceAccountTokenCreator` was removed from the
   Firebase Admin service account after no 90-day IAMCredentials usage was
   found.
-- Android and iOS Firebase API keys were app-restricted. Browser key still
-  needs allowed referrer domains before it can be safely restricted.
+- Android and iOS Firebase API keys were app-restricted.
+- Browser Firebase API key was restricted on `2026-04-21` to:
+  `https://admin.vhhealth.app/*`, `https://*.vhhealth.app/*`,
+  `https://vh-health-portal.vercel.app/*`,
+  `https://vhhealth.firebaseapp.com/*`, `https://vhhealth.web.app/*`,
+  `http://localhost:3000/*`, and `http://127.0.0.1:3000/*`.
+  Existing API targets were preserved.
 
 ## Remaining Rotations From Historical Git Scan
 
@@ -157,5 +162,5 @@ Skip or defer rewrite if:
 - [ ] `node scripts/gitleaks-scan.mjs worktree` passes.
 - [ ] `node scripts/ggshield-scan.mjs worktree` passes.
 - [ ] Provider audit logs reviewed.
-- [ ] Browser Firebase key referrer restrictions confirmed and applied.
+- [x] Browser Firebase key referrer restrictions confirmed and applied.
 - [ ] History rewrite decision recorded.
