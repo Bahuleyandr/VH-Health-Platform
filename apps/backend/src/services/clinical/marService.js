@@ -35,8 +35,8 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO medication_administrations
          (patient_uid, prescription_id, medication_name, dose, route, scheduled_time, notes, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'scheduled')
-       RETURNING id, patient_uid, medication_name, dosage, route, scheduled_time, status, administered_by, notes, created_at`,
+       VALUES ($1::uuid, $2, $3, $4, $5, $6::timestamptz AT TIME ZONE 'UTC', $7, 'scheduled')
+       RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, created_at`,
       
         patientUid,
         prescriptionId || null,
@@ -84,11 +84,11 @@ export async function recordAdministration(id, administeredBy, notes = null, wit
     `UPDATE medication_administrations
      SET status = 'administered',
          administered_at = NOW(),
-         administered_by = $2,
+         administered_by = $2::uuid,
          notes = COALESCE($3, notes),
-         witness_uid = $4
+         witness_uid = $4::uuid
      WHERE id = $1
-     RETURNING id, patient_uid, medication_name, dosage, route, scheduled_time, status, administered_by, notes, created_at`,
+     RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, witness_uid, created_at`,
     id, administeredBy, notes, witnessUid
   );
 
@@ -120,7 +120,7 @@ export async function recordMissed(id, reason) {
     `UPDATE medication_administrations
      SET status = 'missed', notes = COALESCE($2, notes)
      WHERE id = $1
-     RETURNING id, patient_uid, medication_name, dosage, route, scheduled_time, status, administered_by, notes, created_at`,
+     RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, created_at`,
     id, reason
   );
 
@@ -157,7 +157,7 @@ export async function holdMedication(id, reason, heldBy) {
     `UPDATE medication_administrations
      SET status = 'held', hold_reason = $2, administered_by = $3::uuid
      WHERE id = $1
-     RETURNING id, patient_uid, medication_name, dosage, route, scheduled_time, status, administered_by, notes, created_at`,
+     RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, hold_reason, notes, created_at`,
     id, reason, heldBy
   );
 
@@ -179,7 +179,7 @@ export async function getPatientMAR(patientUid, date) {
             scheduled_time, administered_at, administered_by, status,
             hold_reason, refusal_reason, notes, witness_uid, created_at
      FROM medication_administrations
-     WHERE patient_uid = $1
+     WHERE patient_uid = $1::uuid
        AND scheduled_time >= $2::date
        AND scheduled_time < ($2::date + INTERVAL '1 day')
      ORDER BY scheduled_time ASC`,
@@ -217,7 +217,7 @@ export async function getOverdueMedications(wardId) {
 
   query += ' ORDER BY ma.scheduled_time ASC';
 
-  const rows = await prisma.$queryRawUnsafe(query, params);
+  const rows = await prisma.$queryRawUnsafe(query, ...params);
   return rows;
 }
 
