@@ -6,11 +6,15 @@ on:
     paths:
       - 'apps/backend/**'
       - '.github/workflows/ci-backend.yml'
+      - '.github/workflows/_reusable-backend-lint-test.yml'
+      - '.github/workflows/_reusable-backend-fhir.yml'
   pull_request:
     branches: [main]
     paths:
       - 'apps/backend/**'
       - '.github/workflows/ci-backend.yml'
+      - '.github/workflows/_reusable-backend-lint-test.yml'
+      - '.github/workflows/_reusable-backend-fhir.yml'
 
 concurrency:
   group: ci-backend-${{ github.ref }}
@@ -18,145 +22,15 @@ concurrency:
 
 jobs:
   lint-and-test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    defaults:
-      run:
-        working-directory: apps/backend
-
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: vhhealth
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: vhhealth
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U vhhealth"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    env:
-      DATABASE_URL: postgresql://<user>:<password>@localhost:5432/vhhealth
-      API_KEY: test-api-key
-      JWT_SECRET: test-jwt-secret-for-ci-must-be-at-least-32-chars
-      NODE_ENV: test
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: apps/backend/package-lock.json
-
-      - run: npm ci
-
-      - name: Security audit
-        run: |
-          npm audit --audit-level=critical
-          npx audit-ci --critical
-
-      - run: npm run lint
-
-      - name: Validate Swagger structure
-        run: npm run swagger:validate
-
-      - name: Lint OpenAPI with Spectral
-        run: npx spectral lint src/docs/swagger-complete.yaml
-
-      - name: Generate Prisma client
-        run: npx prisma generate
-
-      - name: Apply Prisma schema
-        run: npx prisma db push --force-reset --skip-generate
-
-      - name: Apply raw migrations + seed lookup data
-        run: node scripts/ci-setup-db.mjs
-
-      - name: Schema drift check
-        run: node scripts/ci-schema-drift.mjs
-
-      - name: Run tests
-        run: node --max-old-space-size=4096 --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --forceExit --detectOpenHandles
-
-      - name: Notify Discord on failure
-        if: failure() && env.DISCORD_WEBHOOK_URL != ''
-        env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: |
-          curl -s -H "Content-Type: application/json" \
-            -d "{\"content\": \"🔴 **Backend CI failed** on \`${{ github.ref_name }}\`\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
-            "$DISCORD_WEBHOOK_URL" || true
+    uses: ./.github/workflows/_reusable-backend-lint-test.yml
+    with:
+      notify_on_failure: true
+      notification_label: Backend CI
+    secrets: inherit
 
   fhir-conformance:
-    runs-on: ubuntu-latest
     needs: lint-and-test
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
-    continue-on-error: true
-    defaults:
-      run:
-        working-directory: apps/backend
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up JDK 17 (validator requires Java)
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - name: Cache validator JAR
-        id: cache-validator
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/fhir-validator
-          key: fhir-validator-6.3.11
-
-      - name: Download validator JAR
-        if: steps.cache-validator.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p ~/.cache/fhir-validator
-          curl -L -o ~/.cache/fhir-validator/validator_cli.jar \
-            https://github.com/hapifhir/org.hl7.fhir.core/releases/download/6.3.11/validator_cli.jar
-
-      - name: Validate sample bundles (R4)
-        run: |
-          if [ ! -d src/services/fhir/__samples__ ]; then
-            echo "No __samples__/ directory — skipping conformance run."
-            exit 0
-          fi
-          set -e
-          shopt -s nullglob
-          for f in src/services/fhir/__samples__/*.json; do
-            echo "=== Validating (informational) $f ==="
-            java -jar ~/.cache/fhir-validator/validator_cli.jar "$f" -version 4.0.1 || true
-          done
-
-      - name: Validate golden bundles strict (R4)
-        run: |
-          if [ ! -d src/services/fhir/__samples__/golden ]; then
-            echo "No golden/ subdirectory — skipping strict run."
-            exit 0
-          fi
-          shopt -s nullglob
-          failed=0
-          for f in src/services/fhir/__samples__/golden/*.json; do
-            echo "=== Validating (STRICT) $f ==="
-            if ! java -jar ~/.cache/fhir-validator/validator_cli.jar "$f" -version 4.0.1; then
-              failed=$((failed + 1))
-            fi
-          done
-          if [ "$failed" -gt 0 ]; then
-            echo "✗ $failed golden bundle(s) failed FHIR R4 validation."
-            exit 1
-          fi
-          echo "✓ All golden bundles validated clean."
+    uses: ./.github/workflows/_reusable-backend-fhir.yml
 
   codeql:
     runs-on: ubuntu-latest

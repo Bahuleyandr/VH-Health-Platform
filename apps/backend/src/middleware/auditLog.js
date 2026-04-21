@@ -12,6 +12,7 @@
 
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
+import { normalizeAuditLogUserId } from '../utils/auditLogIdentity.js';
 
 let pendingAuditLogs = 0;
 const MAX_PENDING_AUDIT_LOGS = 1000;
@@ -191,12 +192,12 @@ export function auditLogMiddleware(req, res, next) {
       const { method, originalUrl, query, body, ip, headers } = req;
       const cleanPath = originalUrl ? originalUrl.split('?')[0] : (req.path || '');
       const user = req.user;
-      const userId = user?.uid || user?.id || null;
+      const userId = normalizeAuditLogUserId(user?.id ?? user?.userId ?? user?.user_id ?? null);
       try {
         if (shouldSkip(method, cleanPath)) return;
 
         // userId already declared above for catch block access
-        const userName = user?.name || user?.displayName || user?.email || null;
+        const userName = user?.name || user?.displayName || user?.username || user?.email || null;
         const userRole = user?.role || user?.claims?.role || null;
 
         const statusCode    = res.statusCode;
@@ -207,7 +208,7 @@ export function auditLogMiddleware(req, res, next) {
           INSERT INTO audit_log
             (user_id, user_name, user_role, ip_address, method, path, module, action,
              query_params, request_summary, status_code, response_time_ms, success, user_agent)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,CAST($9 AS jsonb),$10,$11,$12,$13,$14)
         `,
           userId,
           userName,

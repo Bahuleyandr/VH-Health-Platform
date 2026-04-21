@@ -66,8 +66,12 @@ export const createBooking = async (req, res) => {
         collection_lat, collection_lng,
         preferred_date, preferred_time_slot,
         estimated_cost
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-      RETURNING id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::date,$14,$15)
+      RETURNING id, booking_number, patient_id, patient_name, patient_phone,
+        selected_tests, custom_test_names, slip_photo_key, notes,
+        collection_type, collection_address, collection_landmark,
+        preferred_date, preferred_time_slot, estimated_cost,
+        status, created_at, updated_at
     `, 
       patientId, patient[0]?.phone, patient[0]?.name,
       parsedTests || null, custom_test_names || null, slipPhotoKey, notes || null,
@@ -119,10 +123,12 @@ export const getMyBookings = async (req, res) => {
     const offset = Math.max(parseInt(req.query.offset) || 0, 0);
 
     const result = await prisma.$queryRawUnsafe(`
-      SELECT ib.id, ib.investigation_id, ib.patient_id, ib.patient_name, ib.patient_phone,
-        ib.test_name, ib.status, ib.scheduled_date, ib.phlebotomist_id, ib.notes,
-        ib.created_at, ib.updated_at,
-        (SELECT json_agg(t) FROM investigation_test_catalog t WHERE t.id = ANY(ib.selected_tests)) as test_details
+      SELECT ib.id, ib.booking_number, ib.patient_id, ib.patient_name, ib.patient_phone,
+        ib.selected_tests, ib.custom_test_names, ib.status, ib.notes,
+        ib.collection_type, ib.collection_address, ib.collection_landmark,
+        ib.preferred_date, ib.preferred_time_slot, ib.estimated_cost, ib.final_cost,
+        ib.slip_photo_key, ib.result_file_key, ib.created_at, ib.updated_at,
+        (SELECT json_agg(t) FROM investigation_test_catalog t WHERE t.id = ANY(COALESCE(ib.selected_tests, ARRAY[]::int[]))) as test_details
       FROM investigation_bookings ib
       WHERE ib.patient_id = $1
       ORDER BY ib.created_at DESC

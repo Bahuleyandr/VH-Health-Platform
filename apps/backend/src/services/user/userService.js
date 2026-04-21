@@ -319,11 +319,20 @@ export class UserService {
       throw new Error('User not found');
     }
 
+    const isActive = status === USER_CONFIG.USER_STATUS.ACTIVE;
+    await prisma.$executeRaw`
+      UPDATE users
+      SET is_active = ${isActive},
+          status = ${status},
+          updated_at = NOW()
+      WHERE uid = ${user.uid}::uuid
+    `;
+
     if (['NURSE', 'PHARMACY_STAFF', 'LAB_STAFF', 'RECEPTIONIST'].includes(user.role)) {
       await prisma.staff.updateMany({
         where: { user_id: user.uid },
         data: {
-          is_active: status === USER_CONFIG.USER_STATUS.ACTIVE,
+          is_active: isActive,
           ...(reason !== undefined ? { notes: reason } : {}),
         },
       });
@@ -331,7 +340,7 @@ export class UserService {
       await prisma.doctors.updateMany({
         where: { user_id: user.id },
         data: {
-          is_available: status === USER_CONFIG.USER_STATUS.ACTIVE,
+          is_available: isActive,
         },
       });
     }
@@ -349,7 +358,7 @@ export class UserService {
 
     logger.info(`User status changed: ${user.uid} to ${status} by ${changedBy}`);
 
-    return { ...user, status };
+    return { ...user, is_active: isActive, status };
   }
 
   // Deactivate user (soft delete)

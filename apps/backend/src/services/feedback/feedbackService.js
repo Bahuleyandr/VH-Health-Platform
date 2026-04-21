@@ -12,7 +12,7 @@ class FeedbackService {
     const result = await prisma.$queryRawUnsafe(
       `SELECT
         f.id, f.rating, f.comment, f.category, f.created_at,
-        f.anonymous, f.improvement_suggestions, f.response_status,
+        f.is_anonymous AS anonymous, NULL::text AS improvement_suggestions, f.response_status,
         f.responded_at,
         d.name as doctor_name,
         dept.name as department_name,
@@ -42,15 +42,15 @@ class FeedbackService {
   async getFeedbackStats(phone) {
     const result = await prisma.$queryRawUnsafe(
       `SELECT
-        COUNT(*) as total_feedback,
+        COUNT(*)::int as total_feedback,
         ROUND(AVG(rating), 2) as average_rating,
-        COUNT(*) FILTER (WHERE rating >= 4) as positive_feedback,
-        COUNT(*) FILTER (WHERE rating <= 2) as negative_feedback,
-        COUNT(*) FILTER (WHERE rating = 3) as neutral_feedback,
+        COUNT(*) FILTER (WHERE rating >= 4)::int as positive_feedback,
+        COUNT(*) FILTER (WHERE rating <= 2)::int as negative_feedback,
+        COUNT(*) FILTER (WHERE rating = 3)::int as neutral_feedback,
         array_agg(DISTINCT category) as categories_used,
         MIN(created_at) as first_feedback,
         MAX(created_at) as latest_feedback,
-        COUNT(*) FILTER (WHERE response_status = 'responded') as responded_count
+        COUNT(*) FILTER (WHERE response_status = 'responded')::int as responded_count
        FROM feedback
        WHERE phone = $1`,
       phone
@@ -173,7 +173,7 @@ class FeedbackService {
       `
       SELECT
         f.id, f.phone, f.rating, f.comment, f.category, f.created_at,
-        f.anonymous, f.improvement_suggestions, f.response_status,
+        f.is_anonymous AS anonymous, NULL::text AS improvement_suggestions, f.response_status,
         u.name as user_name,
         d.name as doctor_name,
         dept.name as department_name,
@@ -348,24 +348,26 @@ class FeedbackService {
       appointment_id, doctor_id, department_id,
       anonymous, improvement_suggestions
     } = data;
+    const combinedComment = [comment, improvement_suggestions && `Improvement suggestions: ${improvement_suggestions}`]
+      .filter(Boolean)
+      .join('\n\n') || null;
 
     const result = await prisma.$queryRawUnsafe(
       `INSERT INTO feedback (
-        phone, user_uid, rating, comment, category,
+        phone, uid, rating, comment, category,
         appointment_id, doctor_id, department_id,
-        anonymous, improvement_suggestions, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
-      RETURNING id, uid, phone, type, comment, rating, status, created_at, updated_at`,
+        is_anonymous, created_at, updated_at
+      ) VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+      RETURNING id, uid, phone, comment, rating, category, status, is_anonymous AS anonymous, created_at, updated_at`,
       phone,
       userUid,
       rating,
-      comment,
+      combinedComment,
       category,
       appointment_id,
       doctor_id,
       department_id,
-      anonymous,
-      improvement_suggestions,
+      Boolean(anonymous),
     );
 
     const feedback = result[0];
@@ -396,13 +398,14 @@ class FeedbackService {
    * Extracted from submitQuickRating controller.
    */
   async submitQuickRating(data) {
-    const { phone, rating, category, appointment_id } = data;
+    const { phone, uid, rating, category, appointment_id } = data;
 
     const result = await prisma.$queryRawUnsafe(
       `INSERT INTO feedback (
-        phone, rating, category, appointment_id, created_at
-      ) VALUES ($1, $2, $3, $4, NOW())
-      RETURNING id, rating, created_at`,
+        uid, phone, rating, category, appointment_id, created_at, updated_at
+      ) VALUES ($1::uuid, $2, $3, $4, $5, NOW(), NOW())
+      RETURNING id, uid, phone, rating, category, created_at, updated_at`,
+      uid,
       phone,
       rating,
       category,
@@ -498,12 +501,20 @@ class FeedbackService {
    * Used by the basic submitFeedback controller.
    */
   async submitSimpleFeedback(phone, rating, comment, question) {
+    const normalizedRating = Number.isInteger(Number(rating)) ? Number(rating) : 3;
+    const category = question && !comment ? 'QUESTION' : 'GENERAL';
+    const combinedComment = [comment, question && `Question: ${question}`]
+      .filter(Boolean)
+      .join('\n\n') || null;
+
     const result = await prisma.$queryRawUnsafe(
-      'INSERT INTO feedback (phone, rating, comment, question) VALUES ($1, $2, $3, $4) RETURNING id, phone, rating, comment, question, created_at',
+      `INSERT INTO feedback (phone, rating, comment, category, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, NOW(), NOW())
+       RETURNING id, phone, rating, comment, NULL::text AS question, category, created_at, updated_at`,
       phone,
-      rating || null,
-      comment || null,
-      question || null,
+      Math.min(Math.max(normalizedRating, 1), 5),
+      combinedComment,
+      category,
     );
     return result[0];
   }

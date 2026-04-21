@@ -1,5 +1,4 @@
 // src/services/doctor/adminDoctorService.js
-import db from '../../config/database.js';
 import { DOCTOR_CONFIG, DOCTOR_MESSAGES } from '../../config/doctorConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
@@ -16,8 +15,8 @@ export class AdminDoctorService {
             COUNT(CASE WHEN d.is_available = true THEN 1 END) as available_doctors,
             COUNT(CASE WHEN d.is_available = false THEN 1 END) as unavailable_doctors,
             COUNT(CASE WHEN d.created_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as new_doctors_30d,
-            AVG(d.experience_years) as avg_experience,
-            AVG(d.consultation_fee) as avg_consultation_fee
+            NULL::numeric as avg_experience,
+            NULL::numeric as avg_consultation_fee
           FROM doctors d
           WHERE d.is_active = true
         `),
@@ -74,8 +73,6 @@ export class AdminDoctorService {
         department,
         specialization,
         status,
-        experience_min,
-        experience_max,
         search
       } = filters;
       
@@ -131,12 +128,16 @@ export class AdminDoctorService {
       params.push(limit, offset);
       
       const [doctors, total] = await Promise.all([
-        prisma.$queryRawUnsafe(query, params),
+        prisma.$queryRawUnsafe(query, ...params),
         this.countManagementDoctors(filters)
       ]);
       
       return {
-        doctors: doctors,
+        doctors: doctors.map((doctor) => ({
+          ...doctor,
+          total_appointments: Number(doctor.total_appointments || 0),
+          recent_appointments: Number(doctor.recent_appointments || 0),
+        })),
         pagination: {
           page,
           limit,
@@ -156,7 +157,7 @@ export class AdminDoctorService {
   // Count doctors for management list
   async countManagementDoctors(filters) {
     try {
-      const { department, specialization, status, experience_min, experience_max, search } = filters;
+      const { department, specialization, status, search } = filters;
       
       let query = 'SELECT COUNT(*) FROM doctors d LEFT JOIN users u ON u.id = d.user_id AND u.role = \'DOCTOR\' WHERE d.is_active = true';
       const params = [];
@@ -179,7 +180,7 @@ export class AdminDoctorService {
         params.push(`%${search}%`);
       }
       
-      const result = await prisma.$queryRawUnsafe(query, params);
+      const result = await prisma.$queryRawUnsafe(query, ...params);
       return parseInt(result[0].count);
     } catch (error) {
       logger.error('Error counting management doctors:', error);
@@ -190,7 +191,7 @@ export class AdminDoctorService {
   // Create comprehensive doctor account
   async createDoctorAccount(doctorData) {
     try {
-      const { name, department, specialization, phone, email, consultation_fee } = doctorData;
+      const { name, department, specialization, phone, email } = doctorData;
 
       // Check if doctor with same name+department already exists
       const existing = await prisma.$queryRaw`
@@ -200,16 +201,15 @@ export class AdminDoctorService {
         throw new Error('Doctor with this name already exists in this department');
       }
 
-      // Insert doctor record using actual table schema
-      const consultationFee = doctorData.consultation_fee ? parseFloat(doctorData.consultation_fee) : null;
-      const availableDays = doctorData.available_days || null;  // text[]
-      const availableHours = doctorData.available_hours || null; // jsonb
-
       const rows = await prisma.$queryRawUnsafe(`
-        INSERT INTO doctors (name, department, specialty, intro, consultation_fee, available_days, available_hours, is_available, is_active, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, true, true, NOW(), NOW())
-        RETURNING id, name, department, specialty, intro, image_url, consultation_fee, available_days, available_hours, is_available, is_active, created_at
-      `, name, department, specialization || null, doctorData.intro || null, consultationFee, availableDays, availableHours ? JSON.stringify(availableHours) : null);
+        INSERT INTO doctors (name, department, specialty, intro, is_available, is_active, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, true, true, NOW(), NOW())
+        RETURNING id, name, department, specialty, intro, image_url,
+          NULL::numeric as consultation_fee,
+          NULL::text[] as available_days,
+          NULL::jsonb as available_hours,
+          is_available, is_active, created_at
+      `, name, department, specialization || null, doctorData.intro || null);
 
       logger.info(`Doctor created: ${name} (${department})`);
 
@@ -312,22 +312,19 @@ async performBulkOperation(operation, doctorIds, data = {}) {
 
   // Update doctor availability with appointment handling
   async updateDoctorAvailability(id, availabilityData) {
-    const client = await db.pool.connect();
-    
     try {
-      await client.query('BEGIN');
+      const doctorIdentifier = parseInt(id, 10);
+      const { is_available, reason } = availabilityData;
       
-      const { is_available, available_days, available_hours, reason } = availabilityData;
-      
-      const result = await client.query(`
+      const result = await prisma.$queryRawUnsafe(`
         UPDATE doctors SET 
           is_available = $1,
           updated_at = NOW()
-        WHERE user_id = $2
+        WHERE id = $2 OR user_id = $2
         RETURNING id, user_id, specialty as specialization, department, is_available, created_at, updated_at
-      `, [is_available, id]);
+      `, is_available, doctorIdentifier);
       
-      if (result.rows.length === 0) {
+      if (result.length === 0) {
         throw new Error(DOCTOR_MESSAGES.NOT_FOUND);
       }
       
@@ -335,60 +332,60 @@ async performBulkOperation(operation, doctorIds, data = {}) {
       
       // If making unavailable, update scheduled appointments
       if (!is_available) {
-        const appointmentResult = await client.query(`
+        const doctorIds = [result[0].id, result[0].user_id].filter(Boolean).map(Number);
+        const doctorIdList = doctorIds.join(',');
+        const appointmentResult = await prisma.$queryRawUnsafe(`
           UPDATE appointments SET 
             status = 'CANCELLED',
             notes = COALESCE(notes || ' ', '') || 'Doctor became unavailable: ' || COALESCE($1, 'Administrative decision'),
             updated_at = NOW()
-          WHERE doctor_id = $2 AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
+          WHERE doctor_id = ANY(ARRAY[${doctorIdList}]::int[]) AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
           RETURNING id, appointment_date, appointment_time
-        `, [reason, id]);
+        `, reason || null);
         
-        affectedAppointments = appointmentResult.rows;
+        affectedAppointments = appointmentResult;
       }
       
-      await client.query('COMMIT');
-      
       return {
-        doctor: result.rows[0],
+        doctor: result[0],
         affected_appointments: affectedAppointments.length,
         cancelled_appointments: affectedAppointments
       };
     } catch (error) {
-      await client.query('ROLLBACK');
       logger.error('Error updating doctor availability:', error);
       throw error;
-    } finally {
-      client.release();
     }
   }
 
   // Delete doctor account with appointment handling
   async deleteDoctorAccount(id, options = {}) {
-    const client = await db.pool.connect();
-    
     try {
-      await client.query('BEGIN');
-      
+      const doctorIdentifier = parseInt(id, 10);
       const { reason, transfer_patients_to } = options;
       
       // Verify doctor exists
-      const doctorCheck = await client.query(
-        'SELECT u.name, d.department FROM users u JOIN doctors d ON u.id = d.user_id WHERE u.id = $1',
-        [id]
+      const doctorCheck = await prisma.$queryRawUnsafe(
+        `SELECT d.id, d.user_id, COALESCE(u.name, d.name) as name, d.department
+         FROM doctors d
+         LEFT JOIN users u ON u.id = d.user_id
+         WHERE d.id = $1 OR d.user_id = $1`,
+        doctorIdentifier
       );
       
-      if (doctorCheck.rows.length === 0) {
+      if (doctorCheck.length === 0) {
         throw new Error(DOCTOR_MESSAGES.NOT_FOUND);
       }
       
+      const doctorIds = [doctorCheck[0].id, doctorCheck[0].user_id].filter(Boolean).map(Number);
+      const doctorIdList = doctorIds.join(',');
+
       // Check for future appointments
-      const futureAppointments = await client.query(
-        'SELECT COUNT(*) as count FROM appointments WHERE doctor_id = $1 AND status = $2 AND appointment_date > CURRENT_DATE',
-        [id, 'SCHEDULED']
+      const futureAppointments = await prisma.$queryRawUnsafe(
+        `SELECT COUNT(*)::int as count FROM appointments WHERE doctor_id = ANY(ARRAY[${doctorIdList}]::int[]) AND status = $1 AND appointment_date > CURRENT_DATE`,
+        'SCHEDULED'
       );
       
-      const futureCount = parseInt(futureAppointments.rows[0].count);
+      const futureCount = parseInt(futureAppointments[0].count);
       
       if (futureCount > 0 && !transfer_patients_to) {
         throw new Error(`Doctor has ${futureCount} future appointments. Provide transfer_patients_to doctor ID or cancel appointments first`);
@@ -397,44 +394,43 @@ async performBulkOperation(operation, doctorIds, data = {}) {
       // Transfer or cancel future appointments
       if (futureCount > 0) {
         if (transfer_patients_to) {
+          const transferTarget = parseInt(transfer_patients_to, 10);
           // Verify transfer target doctor exists
-          const transferDoctor = await client.query(
+          const transferDoctor = await prisma.$queryRawUnsafe(
             'SELECT name FROM users WHERE id = $1 AND role = $2',
-            [transfer_patients_to, 'DOCTOR']
+            transferTarget, 'DOCTOR'
           );
           
-          if (transferDoctor.rows.length === 0) {
+          if (transferDoctor.length === 0) {
             throw new Error('Transfer target doctor not found');
           }
           
-          await client.query(`
+          await prisma.$executeRawUnsafe(`
             UPDATE appointments SET 
               doctor_id = $1,
               notes = COALESCE(notes || ' ', '') || 'Transferred due to doctor account deletion',
               updated_at = NOW()
-            WHERE doctor_id = $2 AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
-          `, [transfer_patients_to, id]);
+            WHERE doctor_id = ANY(ARRAY[${doctorIdList}]::int[]) AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
+          `, transferTarget);
         } else {
-          await client.query(`
+          await prisma.$executeRawUnsafe(`
             UPDATE appointments SET 
               status = 'CANCELLED',
               notes = COALESCE(notes || ' ', '') || 'Doctor account deleted: ' || COALESCE($1, 'Administrative decision'),
               updated_at = NOW()
-            WHERE doctor_id = $2 AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
-          `, [reason, id]);
+            WHERE doctor_id = ANY(ARRAY[${doctorIdList}]::int[]) AND status = 'SCHEDULED' AND appointment_date > CURRENT_DATE
+          `, reason || null);
         }
       }
       
       // Soft delete: deactivate doctor
-      await client.query(
-        'UPDATE doctors SET is_available = false, updated_at = NOW() WHERE user_id = $1',
-        [id]
+      await prisma.$executeRawUnsafe(
+        'UPDATE doctors SET is_available = false, is_active = false, updated_at = NOW() WHERE id = $1 OR user_id = $1',
+        doctorIdentifier
       );
       
-      await client.query('COMMIT');
-      
       return {
-        doctor: doctorCheck.rows[0],
+        doctor: doctorCheck[0],
         appointments_handled: {
           future_appointments: futureCount,
           action: transfer_patients_to ? 'transferred' : 'cancelled',
@@ -443,11 +439,8 @@ async performBulkOperation(operation, doctorIds, data = {}) {
         deletion_reason: reason
       };
     } catch (error) {
-      await client.query('ROLLBACK');
       logger.error('Error deleting doctor account:', error);
       throw error;
-    } finally {
-      client.release();
     }
   }
 }

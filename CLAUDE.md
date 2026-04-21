@@ -109,10 +109,15 @@ becomes useful, revisit.
 
 ## CI (root `.github/workflows/`)
 
-Path-filtered so unrelated changes don't fan out:
+Mostly path-filtered so unrelated changes don't fan out; `all.yml` is the
+scheduled/manual sweep that runs the whole stack together:
+
+Shared job definitions live under `.github/workflows/_reusable-*.yml` so
+the path-filtered CI and the scheduled sweep stay in sync.
 
 | Workflow | Fires when | What it runs |
 |---|---|---|
+| `all.yml` | `workflow_dispatch` + weekdays at 01:30 UTC | Flutter workspace + backend lint/swagger/prisma/tests + backend FHIR conformance + admin lint/type-check/jest/build |
 | `ci-flutter.yml` | `apps/{patient,staff}/**`, `packages/vhhealth_core/**`, `pubspec.*` | `melos bootstrap → analyze → test → format` |
 | `ci-backend.yml` | `apps/backend/**` | lint → swagger → prisma → tests (with Postgres 16 service) + CodeQL + FHIR conformance |
 | `ci-admin.yml` | `apps/admin/**` | lint → type-check → jest → next build |
@@ -133,6 +138,7 @@ docker + act actually live.
 ```bash
 act -l                     # list workflows + jobs
 act push                   # simulate push (fires path-filtered workflows)
+act workflow_dispatch -W .github/workflows/all.yml --dryrun
 act -j lint-and-test       # specific job by name
 act --dryrun push          # preview only
 ```

@@ -23,11 +23,11 @@ const query = async (sql, params = []) => {
 
   if (isReadQuery) {
     const rows = await prisma.$queryRawUnsafe(normalizedSql, ...params);
-    return { rows, rowCount: Array.isArray(rows) ? rows.length : 0 };
+    return rows;
   }
 
   const rowCount = await prisma.$executeRawUnsafe(normalizedSql, ...params);
-  return { rows: [], rowCount: Number(rowCount) || 0 };
+  return { rowCount: Number(rowCount) || 0 };
 };
 
 
@@ -86,8 +86,8 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
 
       // Check access for patients
       if (userRole === 'PATIENT') {
-        const userResult = await query('SELECT phone FROM users WHERE uid = $1', [user.uid]);
-        if (userResult.length === 0 || userResult[0].phone !== normalizedPhone) {
+        const userResult = await query('SELECT phone FROM users WHERE uid = $1::uuid', [user.uid]);
+        if (userResult.length === 0 || normalizePhone(userResult[0].phone) !== normalizedPhone) {
           throw new Error('Access denied: Cannot view other user notifications');
         }
       }
@@ -96,7 +96,11 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
       const safeOffset = parseInt(offset) || 0;
 
       const result = await query(
-        `SELECT id, phone, title, body, type, is_read, data, created_at FROM notifications WHERE phone = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+        `SELECT id, phone, title, body AS message, type, priority, is_read, data, created_at
+         FROM notifications
+         WHERE phone = $1
+         ORDER BY created_at DESC
+         LIMIT $2 OFFSET $3`,
         [normalizedPhone, safeLimit, safeOffset]
       );
 
@@ -127,7 +131,7 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
       
       // Check access for patients
       if (userRole === 'PATIENT') {
-        const userResult = await query('SELECT id FROM users WHERE uid = $1', [user.uid]);
+        const userResult = await query('SELECT id FROM users WHERE uid = $1::uuid', [user.uid]);
         if (userResult.length === 0 || userResult[0].id !== parseInt(userId)) {
           throw new Error('Access denied: Cannot view other user notifications');
         }
@@ -193,7 +197,7 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
 
       // Patients can only view their own notifications
       if (userRole === 'PATIENT') {
-        const userResult = await query('SELECT id FROM users WHERE uid = $1', [user.uid]);
+        const userResult = await query('SELECT id FROM users WHERE uid = $1::uuid', [user.uid]);
         if (userResult.length === 0) {
           throw new Error('User not found');
         }
@@ -247,7 +251,7 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
 
       // Patients can only see their own notifications
       if (userRole === 'PATIENT') {
-        const userResult = await query('SELECT id FROM users WHERE uid = $1', [user.uid]);
+        const userResult = await query('SELECT id FROM users WHERE uid = $1::uuid', [user.uid]);
         if (userResult.length === 0) {
           throw new Error('User not found');
         }
@@ -316,7 +320,7 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
 
       // Patients can only mark their own notifications as read
       if (userRole === 'PATIENT') {
-        const userResult = await query('SELECT id FROM users WHERE uid = $1', [user.uid]);
+        const userResult = await query('SELECT id FROM users WHERE uid = $1::uuid', [user.uid]);
         if (userResult.length === 0) {
           throw new Error('User not found');
         }
@@ -353,8 +357,8 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
 
       // Access control: patients can only mark their own notifications as read
       if (userRole === 'PATIENT') {
-        const userResult = await query('SELECT phone FROM users WHERE uid = $1', [user.uid]);
-        if (userResult.length === 0 || userResult[0].phone !== normalizedPhone) {
+        const userResult = await query('SELECT phone FROM users WHERE uid = $1::uuid', [user.uid]);
+        if (userResult.length === 0 || normalizePhone(userResult[0].phone) !== normalizedPhone) {
           throw new Error('Access denied: Cannot modify other user notifications');
         }
       }
@@ -365,7 +369,7 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
       `, [normalizedPhone]);
 
       return {
-        updated_count: result.length || 0,
+        updated_count: result.rowCount || 0,
         phone: normalizedPhone
       };
     } catch (error) {
@@ -383,7 +387,7 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
 
       // Access control: users can only mark their own notifications as read
       if (userRole === 'PATIENT') {
-        const userResult = await query('SELECT id FROM users WHERE uid = $1', [user.uid]);
+        const userResult = await query('SELECT id FROM users WHERE uid = $1::uuid', [user.uid]);
         if (userResult.length === 0 || userResult[0].id !== parseInt(userId)) {
           throw new Error('Access denied: Cannot modify other user notifications');
         }
@@ -397,7 +401,7 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
       `, [userId]);
 
       return {
-        updated_count: result.length || 0,
+        updated_count: result.rowCount || 0,
         user_id: userId
       };
     } catch (error) {
@@ -418,35 +422,35 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
         throw new Error('Access denied: Medical staff privileges required');
       }
 
-      const { 
+      const {
         user_id, title, message, 
         type = NOTIFICATION_TYPES.SYSTEM, 
         priority = NOTIFICATION_PRIORITIES.MEDIUM,
-        sender_id = null, scheduled_for = null, data: extraData = null 
+        scheduled_for = null, data: extraData = null
       } = data;
 
       // Verify recipient user exists
-      const userCheck = await query('SELECT id, name, phone FROM users WHERE id = $1', [user_id]);
+      const userCheck = await query('SELECT id, uid, name, phone FROM users WHERE id = $1', [user_id]);
       if (userCheck.length === 0) {
         throw new Error('Recipient user not found');
       }
 
-      // Verify sender exists if provided
-      if (sender_id) {
-        const senderCheck = await query('SELECT id FROM users WHERE id = $1', [sender_id]);
-        if (senderCheck.length === 0) {
-          throw new Error('Sender user not found');
-        }
-      }
-
       const result = await query(`
         INSERT INTO notifications (
-          user_id, title, message, type, priority, sender_id,
-          scheduled_for, data, is_read, created_at, created_by, phone
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, NOW(), $9, $10)
-        RETURNING id, phone, title, body, type, is_read, created_at
-      `, [user_id, title, message, type.toUpperCase(), priority.toUpperCase(),
-          sender_id, scheduled_for, extraData, user.uid, userCheck[0].phone]);
+          uid, phone, title, body, type, priority,
+          scheduled_for, data, is_read, created_at, updated_at
+        ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, false, NOW(), NOW())
+        RETURNING id, phone, title, body AS message, type, priority, is_read, created_at
+      `, [
+        userCheck[0].uid,
+        userCheck[0].phone,
+        title,
+        message,
+        type.toUpperCase(),
+        priority.toUpperCase(),
+        scheduled_for,
+        extraData,
+      ]);
 
       return {
         notification: formatNotificationResponse(result[0], true),

@@ -1,6 +1,7 @@
 // src/hooks/useUploads.ts
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
+import { API_ENDPOINTS } from "@/lib/api-config";
 import toast from "react-hot-toast";
 
 // ---------- Types ----------
@@ -62,8 +63,7 @@ const QK = {
 export const useUploadSummary = () => {
   return useQuery({
     queryKey: QK.summary(),
-    queryFn: () =>
-      fetchAdminAPI<UploadSummary>("/admin/uploads/summary"),
+    queryFn: () => fetchAdminAPI<UploadSummary>(API_ENDPOINTS.admin.uploads.summary),
     staleTime: 60_000,
   });
 };
@@ -73,7 +73,7 @@ export const useQuarantinedFiles = (limit = 50, offset = 0) => {
     queryKey: QK.quarantined(limit, offset),
     queryFn: () =>
       fetchAdminAPI<{ files: QuarantinedFile[]; total: number }>(
-        `/admin/uploads/quarantined?limit=${limit}&offset=${offset}`
+        `${API_ENDPOINTS.admin.uploads.quarantined}?limit=${limit}&offset=${offset}`
       ),
   });
 };
@@ -84,13 +84,12 @@ export const useHipaaAuditReport = (filters?: HipaaAuditFilters) => {
     queryKey: QK.hipaaAudit(filters),
     queryFn: ({ signal }) =>
       fetchAdminAPI<{ entries: HipaaAuditEntry[]; total: number }>(
-        "/admin/uploads/hipaa-audit",
+        `${API_ENDPOINTS.admin.uploads.hipaaAudit}?limit=${filters?.limit ?? 50}&offset=${filters?.offset ?? 0}${filters?.startDate ? `&start_date=${encodeURIComponent(filters.startDate)}` : ""}${filters?.endDate ? `&end_date=${encodeURIComponent(filters.endDate)}` : ""}`,
         {
-          method: "POST",
-          body: JSON.stringify(filters ?? {}),
+          method: "GET",
           // pass AbortSignal so React Query can cancel in-flight requests
           signal,
-        } as RequestInit
+        } as RequestInit & { signal: AbortSignal }
       ),
     enabled: false,
   });
@@ -102,7 +101,7 @@ export const useCleanupExpiredFiles = () => {
 
   return useMutation<CleanupResult, Error, boolean>({
     mutationFn: (dryRun: boolean) =>
-      fetchAdminAPI<CleanupResult>("/admin/uploads/cleanup", {
+      fetchAdminAPI<CleanupResult>(API_ENDPOINTS.admin.uploads.cleanup, {
         method: "POST",
         body: JSON.stringify({ dryRun }),
       }),
@@ -130,7 +129,7 @@ export const useBulkUpdateHipaa = () => {
     { ids: string[]; protect: boolean }
   >({
     mutationFn: ({ ids, protect }) =>
-      fetchAdminAPI<BulkUpdateResult>("/admin/uploads/hipaa-bulk", {
+      fetchAdminAPI<BulkUpdateResult>(API_ENDPOINTS.admin.uploads.bulkHipaa, {
         method: "POST",
         body: JSON.stringify({ ids, protect }),
       }),

@@ -6,11 +6,13 @@ on:
     paths:
       - 'apps/admin/**'
       - '.github/workflows/ci-admin.yml'
+      - '.github/workflows/_reusable-admin-ci.yml'
   pull_request:
     branches: [main]
     paths:
       - 'apps/admin/**'
       - '.github/workflows/ci-admin.yml'
+      - '.github/workflows/_reusable-admin-ci.yml'
 
 concurrency:
   group: ci-admin-${{ github.ref }}
@@ -18,47 +20,8 @@ concurrency:
 
 jobs:
   lint-typecheck-build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: apps/admin
-
-    env:
-      NEXT_PUBLIC_API_URL: http://localhost:5000
-      NEXT_PUBLIC_API_KEY: test-api-key
-      NEXT_PUBLIC_APP_NAME: VHHealth Admin
-      NEXT_PUBLIC_APP_ORIGIN: http://localhost:3000
-      NEXT_PUBLIC_WS_URL: ws://localhost:5000
-      NEXT_PUBLIC_X_API_KEY: test-api-key
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: apps/admin/package-lock.json
-
-      - run: npm ci
-
-      - name: Security audit
-        run: npm audit --audit-level=critical
-
-      - run: npm run lint
-
-      - run: npm run type-check
-
-      - run: npm test
-
-      - run: npx next build
-
-      - name: Notify Discord on failure
-        if: failure() && env.DISCORD_WEBHOOK_URL != ''
-        env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: |
-          curl -s -H "Content-Type: application/json" \
-            -d "{\"content\": \"🔴 **Admin Portal CI failed** on \`${{ github.ref_name }}\`\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
-            "$DISCORD_WEBHOOK_URL" || true
+    uses: ./.github/workflows/_reusable-admin-ci.yml
+    with:
+      notify_on_failure: true
+      notification_label: Admin Portal CI
+    secrets: inherit

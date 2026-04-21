@@ -46,6 +46,7 @@ wrapRoutesWithValidation(
 wrapAutoRBAC(router, 'notificationRoutes', {
   get: [
     // Get notifications by phone or user ID
+    ['/my', notificationRoutes],
     ['/:phone', notificationRoutes],
     ['/user/:user_id', notificationRoutes],
     ['/detail/:id', notificationRoutes],
@@ -53,6 +54,7 @@ wrapAutoRBAC(router, 'notificationRoutes', {
   ],
   patch: [
     // Mark notifications as read
+    ['/my/mark-all-read', notificationRoutes],
     ['/:id/read', notificationRoutes],
     ['/:phone/mark-all-read', notificationRoutes],
     ['/user/:user_id/read-all', notificationRoutes]

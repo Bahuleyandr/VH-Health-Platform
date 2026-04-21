@@ -1,5 +1,5 @@
 // src/services/admin.service.ts
-import { API_ENDPOINTS } from "@/lib/api-config";
+import { API_ENDPOINTS, buildProxyUrl } from "@/lib/api-config";
 
 class AdminService {
   // Token is no longer read from localStorage (XSS risk).
@@ -23,9 +23,7 @@ class AdminService {
   private async request(path: string, init?: RequestInit) {
     // Route through /api/proxy which uses the httpOnly cookie for auth
     // and injects the API key server-side.
-    const proxyPath = path.startsWith("/api/v1/")
-      ? `/api/proxy/${path.slice("/api/v1/".length)}`
-      : `/api/proxy${path}`;
+    const proxyPath = buildProxyUrl(path);
 
     const res = await fetch(proxyPath, {
       ...init,
@@ -232,21 +230,15 @@ class AdminService {
       end_date?: string | null;
     } = {},
   ) {
-    // hipaaAudit is POST in your config
-    const path = API_ENDPOINTS.admin.uploads.hipaaAudit;
-    return this.request(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(p ?? {}),
-    });
+    const path = this.buildQuery(API_ENDPOINTS.admin.uploads.hipaaAudit, p);
+    return this.request(path);
   }
 
   async rescanFile(fileId: string) {
-    // rescan is a string endpoint; send fileId in the body
-    return this.request(API_ENDPOINTS.admin.uploads.rescan, {
+    const path = API_ENDPOINTS.admin.uploads.rescan.replace(":fileId", encodeURIComponent(fileId));
+    return this.request(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fileId }),
     });
   }
 

@@ -119,14 +119,14 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
     `UPDATE medication_administrations
        SET status              = 'administered',
            administered_at     = NOW(),
-           administered_by     = $2,
+           administered_by     = $2::uuid,
            scanned_patient_uid = $3::uuid,
            scanned_barcode     = $4,
            rights_passed       = $5::jsonb,
            all_rights_passed   = $6,
            override_reason     = $7
      WHERE id = $1
-     RETURNING id, patient_uid, medication_name, dosage, route, status,
+     RETURNING id, patient_uid, medication_name, dose, dosage, route, status,
                administered_at, administered_by, rights_passed,
                all_rights_passed, override_reason`,
     ma_id,
