@@ -266,6 +266,19 @@ router.get('/mar/due', async (req, res, next) => {
 // ===================================================================
 
 /**
+ * POST /clinical/handover/generate
+ * Generate a draft handover summary from the patient timeline.
+ */
+router.post('/handover/generate', requiredUUID('patient_uid'), validate, async (req, res, next) => {
+  try {
+    const draft = await handoverService.generateHandoverDraft(req.body.patient_uid, req.user.uid);
+    return success(res, draft, 'Handover draft generated');
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /clinical/handover
  * Create a nurse handover note.
  */

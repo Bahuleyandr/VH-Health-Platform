@@ -454,11 +454,17 @@ export const API_ENDPOINTS = {
     admissionDetail: (id: number) => `/api/v1/emr/admission/${id}`, // GET - single admission
     admissionStats: "/api/v1/emr/admissions/stats",                // GET - ?date_from=&date_to=
     timeline: (uid: string) => `/api/v1/emr/timeline/${uid}`,      // GET - patient timeline
+    clinicalAiConfig: "/api/v1/emr/clinical-ai/config",            // GET - local AI provider status
+    downtimeSnapshot: (uid: string) => `/api/v1/emr/downtime-snapshot/${uid}`, // POST
     notes: (uid: string) => `/api/v1/emr/notes/patient/${uid}`,    // GET - clinical notes
     orders: (uid: string) => `/api/v1/emr/orders/patient/${uid}`,  // GET - clinical orders
     diagnosis: (uid: string) => `/api/v1/emr/diagnosis/patient/${uid}`, // GET - active problem list
     cdsAlerts: (uid: string) => `/api/v1/emr/cds/alerts/${uid}`,   // GET - clinical decision support alerts
     icd10Search: "/api/v1/emr/icd10/search",                      // GET - ?q=search_term
+  },
+
+  clinical: {
+    handoverDraft: "/api/v1/clinical/handover/generate", // POST
   },
 
   // Infrastructure / Admin Tools
@@ -517,6 +523,7 @@ export const PROTECTED_ROUTES: string[] = [
   "/api/v1/feedback",
   "/api/v1/billing/*",
   "/api/v1/emr/*",
+  "/api/v1/clinical/*",
 ];
 
 // Standard JSON headers for client-side requests.

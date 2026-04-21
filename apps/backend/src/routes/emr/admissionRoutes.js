@@ -18,6 +18,16 @@ function wrapAsync(fn) {
 }
 
 // ---------------------------------------------------------------------------
+// GET /clinical-ai/config - Local clinical AI provider status
+// ---------------------------------------------------------------------------
+router.get(
+  '/clinical-ai/config',
+  wrapAsync(async (_req, res) => {
+    success(res, dischargeSummaryGenerator.getDischargeSummaryAiConfig(), 'Clinical AI config retrieved');
+  })
+);
+
+// ---------------------------------------------------------------------------
 // POST /admit — Admit a patient
 // ---------------------------------------------------------------------------
 router.post(

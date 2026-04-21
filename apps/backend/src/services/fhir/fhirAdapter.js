@@ -661,6 +661,9 @@ export function toFhirEncounter(admission) {
  */
 export function toFhirDocumentReference(note) {
   if (!note) return null;
+  const contentText = typeof note.content === 'string'
+    ? note.content
+    : JSON.stringify(note.content || {});
 
   const resource = {
     resourceType: 'DocumentReference',
@@ -688,8 +691,8 @@ export function toFhirDocumentReference(note) {
     {
       attachment: {
         contentType: 'text/plain',
-        data: note.content
-          ? Buffer.from(note.content).toString('base64')
+        data: contentText
+          ? Buffer.from(contentText).toString('base64')
           : undefined,
         title: note.title || note.note_type || 'Clinical Note',
       },

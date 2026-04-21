@@ -4,6 +4,7 @@
 
 import express from 'express';
 import prisma from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
 import {
   toFhirPatient,
   toFhirAppointment,
@@ -45,6 +46,19 @@ function buildBundle(resourceType, entries) {
   };
 }
 
+function buildEverythingBundle(resources) {
+  const entries = resources.filter(Boolean);
+  return {
+    resourceType: 'Bundle',
+    type: 'collection',
+    total: entries.length,
+    entry: entries.map((resource) => ({
+      fullUrl: `${resource.resourceType}/${resource.id}`,
+      resource,
+    })),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Helper: async route wrapper
 // ---------------------------------------------------------------------------
@@ -59,6 +73,23 @@ function parsePagination(query) {
   const _count = Math.min(Math.max(parseInt(query._count, 10) || 200, 1), 1000);
   const _offset = Math.max(parseInt(query._offset, 10) || 0, 0);
   return { _count, _offset };
+}
+
+function isMissingSchemaError(err) {
+  const message = String(err?.message || '');
+  return /does not exist|column .* does not exist|relation .* does not exist/i.test(message);
+}
+
+async function optionalFhirQuery(sql, ...params) {
+  try {
+    return await prisma.$queryRawUnsafe(sql, ...params);
+  } catch (err) {
+    if (isMissingSchemaError(err)) {
+      logger.warn('Optional FHIR source skipped', { error: err.message });
+      return [];
+    }
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +248,124 @@ router.get(
 // GET /Patient/:id — Read a single Patient resource
 // ---------------------------------------------------------------------------
 router.get(
+  '/Patient/:id/$everything',
+  wrapAsync(async (req, res) => {
+    const { id } = req.params;
+    const { _count } = parsePagination(req.query);
+
+    const [
+      patientRows,
+      observations,
+      meds,
+      conditions,
+      procedures,
+      reports,
+      allergies,
+      encounters,
+      documents,
+      serviceRequests,
+    ] = await Promise.all([
+      prisma.$queryRawUnsafe(
+        `SELECT uid, phone, name, gender, email, birthday, address, profile_picture, is_active
+         FROM users WHERE uid = $1::uuid LIMIT 1`,
+        id
+      ),
+      optionalFhirQuery(
+        `SELECT CONCAT(v.id, '-', obs.type) AS id, v.patient_uid, obs.type,
+                obs.value, obs.unit, v.recorded_at AS recorded_date, v.recorded_by
+         FROM vitals_chart v
+         CROSS JOIN LATERAL (VALUES
+           ('heart_rate', v.heart_rate::text, 'beats/min'),
+           ('systolic', v.systolic_bp::text, 'mmHg'),
+           ('diastolic', v.diastolic_bp::text, 'mmHg'),
+           ('temperature', v.temperature::text, 'Cel'),
+           ('spo2', v.spo2::text, '%'),
+           ('respiratory_rate', v.respiratory_rate::text, 'breaths/min'),
+           ('blood_glucose', v.blood_glucose::text, 'mg/dL')
+        ) AS obs(type, value, unit)
+         WHERE v.patient_uid = $1::uuid AND obs.value IS NOT NULL
+         ORDER BY v.recorded_at DESC LIMIT $2`,
+        id, _count
+      ),
+      optionalFhirQuery(
+        `SELECT id, uid, phone, status, medication, order_note, prescribed_by,
+                priority, urgent, ordered_at, created_at
+         FROM pharmacy_orders WHERE uid = $1::uuid
+         ORDER BY created_at DESC LIMIT $2`,
+        id, _count
+      ),
+      optionalFhirQuery(
+        `SELECT id, patient_uid, status, icd10_code, icd10_description, description,
+                onset_date, resolved_date, diagnosed_by, notes, created_at
+         FROM diagnoses WHERE patient_uid = $1::uuid
+         ORDER BY created_at DESC LIMIT $2`,
+        id, _count
+      ),
+      optionalFhirQuery(
+        `SELECT id, patient_uid, note_type, title, content, status, procedure_name,
+                performed_at, performed_by, author_id, outcome, complications, notes, created_at
+         FROM clinical_notes
+         WHERE patient_uid = $1::uuid AND LOWER(note_type) = 'procedure'
+         ORDER BY created_at DESC LIMIT $2`,
+        id, _count
+      ),
+      optionalFhirQuery(
+        `SELECT id, patient_uid, uid, status, test_name, investigation_type, results,
+                conclusion, interpretation, ordered_at, completed_at, created_at
+         FROM investigations WHERE patient_uid = $1::uuid OR uid = $1::uuid
+         ORDER BY created_at DESC LIMIT $2`,
+        id, _count
+      ),
+      optionalFhirQuery(
+        `SELECT id, patient_uid, allergen, description, name, severity, reaction, recorded_at
+         FROM allergies WHERE patient_uid = $1::uuid
+         ORDER BY recorded_at DESC LIMIT $2`,
+        id, _count
+      ),
+      optionalFhirQuery(
+        `SELECT id, patient_uid, status, priority, admission_type, reason, reason_for_admission,
+                admitting_doctor, attending_doctor, admitted_at, discharged_at,
+                discharge_disposition, discharge_type, ward, bed_number
+         FROM admissions WHERE patient_uid = $1::uuid
+         ORDER BY admitted_at DESC LIMIT $2`,
+        id, _count
+      ),
+      optionalFhirQuery(
+        `SELECT id, patient_uid, note_type, type, title, content, author_id, created_by, created_at
+         FROM clinical_notes WHERE patient_uid = $1::uuid
+         ORDER BY created_at DESC LIMIT $2`,
+        id, _count
+      ),
+      optionalFhirQuery(
+        `SELECT id, patient_uid, status, priority, referring_doctor, requester_id,
+                referred_to_doctor, performer_id, referred_to_department,
+                reason, clinical_notes, notes, created_at
+         FROM referrals WHERE patient_uid = $1::uuid
+         ORDER BY created_at DESC LIMIT $2`,
+        id, _count
+      ),
+    ]);
+
+    if (!patientRows.length) throw AppError.notFound('Patient not found');
+
+    const resources = [
+      toFhirPatient(patientRows[0]),
+      ...observations.map(toFhirObservation),
+      ...meds.map(toFhirMedicationRequest),
+      ...conditions.map(toFhirCondition),
+      ...procedures.map(toFhirProcedure),
+      ...reports.map(toFhirDiagnosticReport),
+      ...allergies.map(toFhirAllergyIntolerance),
+      ...encounters.map(toFhirEncounter),
+      ...documents.map(toFhirDocumentReference),
+      ...serviceRequests.map(toFhirServiceRequest),
+    ];
+
+    return res.json(buildEverythingBundle(resources));
+  })
+);
+
+router.get(
   '/Patient/:id',
   wrapAsync(async (req, res) => {
     const { id } = req.params;
@@ -310,19 +459,19 @@ router.get(
     let idx = 1;
 
     if (patient) {
-      conditions.push(`patient_uid = $${idx}`);
+      conditions.push(`v.patient_uid = $${idx}::uuid`);
       params.push(patient);
       idx++;
     }
 
     if (code) {
-      conditions.push(`type ILIKE $${idx}`);
+      conditions.push(`obs.type ILIKE $${idx}`);
       params.push(`%${code}%`);
       idx++;
     }
 
     if (date) {
-      conditions.push(`recorded_date::date = $${idx}::date`);
+      conditions.push(`v.recorded_at::date = $${idx}::date`);
       params.push(date);
       idx++;
     }
@@ -330,8 +479,20 @@ router.get(
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT id, patient_uid, type, value, unit, recorded_date, recorded_by
-       FROM vital_signs ${where} ORDER BY recorded_date DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+      `SELECT CONCAT(v.id, '-', obs.type) AS id, v.patient_uid, obs.type,
+              obs.value, obs.unit, v.recorded_at AS recorded_date, v.recorded_by
+       FROM vitals_chart v
+       CROSS JOIN LATERAL (VALUES
+         ('heart_rate', v.heart_rate::text, 'beats/min'),
+         ('systolic', v.systolic_bp::text, 'mmHg'),
+         ('diastolic', v.diastolic_bp::text, 'mmHg'),
+         ('temperature', v.temperature::text, 'Cel'),
+         ('spo2', v.spo2::text, '%'),
+         ('respiratory_rate', v.respiratory_rate::text, 'breaths/min'),
+         ('blood_glucose', v.blood_glucose::text, 'mg/dL')
+       ) AS obs(type, value, unit)
+       ${where ? `${where} AND obs.value IS NOT NULL` : 'WHERE obs.value IS NOT NULL'}
+       ORDER BY v.recorded_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
       ...params, _count, _offset
     );
 
@@ -439,12 +600,13 @@ router.get(
       idx++;
     }
 
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    conditions.push(`LOWER(note_type) = 'procedure'`);
+    const where = `WHERE ${conditions.join(' AND ')}`;
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, note_type, title, content, status, procedure_name,
               performed_at, performed_by, author_id, outcome, complications, notes, created_at
-       FROM clinical_notes ${where} AND note_type = 'PROCEDURE' ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+       FROM clinical_notes ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
       ...params, _count, _offset
     );
 
@@ -606,7 +768,7 @@ router.get(
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await optionalFhirQuery(
       `SELECT id, patient_uid, status, priority, referring_doctor, requester_id,
               referred_to_doctor, performer_id, referred_to_department,
               reason, clinical_notes, notes, created_at

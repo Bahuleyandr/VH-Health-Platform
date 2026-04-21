@@ -50,6 +50,38 @@ export interface AdmissionStats {
   dischargeBreakdown: Record<string, number>;
 }
 
+export interface ClinicalAiConfig {
+  provider: string;
+  model: string;
+  enabled: boolean;
+  baseUrlConfigured: boolean;
+}
+
+export interface ClinicalAiGeneration {
+  id: number;
+  patient_uid?: string;
+  patient_name?: string;
+  admission_id?: number;
+  task_type: string;
+  provider: string;
+  model?: string;
+  status: string;
+  used_ai: boolean;
+  safety_flags: Array<{ severity: string; code: string; message: string }>;
+  created_at: string;
+}
+
+export interface ClinicalAiSafetyFlag {
+  generation_id: number;
+  patient_uid?: string;
+  patient_name?: string;
+  admission_id?: number;
+  severity: string;
+  code: string;
+  message: string;
+  created_at: string;
+}
+
 // API functions
 export async function getActiveAdmissions(params?: { page?: number; limit?: number; ward?: string; status?: string }) {
   const query = new URLSearchParams();
@@ -68,6 +100,19 @@ export async function getPatientOrders(uid: string) { return getJSON(`/emr/order
 export async function getActiveProblemList(uid: string) { return getJSON(`/emr/diagnosis/patient/${uid}`); }
 export async function getActiveAlerts(uid: string) { return getJSON(`/emr/cds/alerts/${uid}`); }
 export async function searchICD10(query: string) { return getJSON(`/emr/icd10/search?q=${encodeURIComponent(query)}`); }
+export async function getClinicalAiConfig() { return getJSON<ClinicalAiConfig>('/emr/clinical-ai/config'); }
+export async function generateHandoverDraft(patientUid: string) {
+  return postJSON('/clinical/handover/generate', { patient_uid: patientUid });
+}
+export async function createDowntimeSnapshot(patientUid: string, hoursToLive = 12) {
+  return postJSON(`/emr/downtime-snapshot/${patientUid}`, { hours_to_live: hoursToLive });
+}
+export async function getClinicalAiGenerations() {
+  return getJSON<{ generations: ClinicalAiGeneration[]; count: number }>('/admin/clinical-ai/generations');
+}
+export async function getClinicalAiSafetyFlags() {
+  return getJSON<{ flags: ClinicalAiSafetyFlag[]; count: number }>('/admin/clinical-ai/safety-flags');
+}
 
 // Discharge Summary
 export interface DischargeSummary {

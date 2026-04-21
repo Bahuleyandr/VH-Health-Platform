@@ -76,6 +76,19 @@ export default function DischargeSummaryPage() {
     warning_signs: warningSigns,
   });
 
+  const safetyFlags = Array.isArray(summary?.safety_flags)
+    ? (summary.safety_flags as Array<{ severity?: string; code?: string; message?: string }>)
+    : [];
+  const aiMetadata =
+    summary?.ai_metadata && typeof summary.ai_metadata === "object"
+      ? (summary.ai_metadata as {
+          provider?: string;
+          model?: string;
+          used_ai?: boolean;
+          fallback_reason?: string | null;
+        })
+      : null;
+
   const handleSave = async () => {
     setLoading(true);
     try {
@@ -186,6 +199,44 @@ export default function DischargeSummaryPage() {
               <span className="font-medium">
                 Signed — This summary is official and immutable
               </span>
+            </div>
+          )}
+
+          {aiMetadata && (
+            <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+              <div className="font-semibold">Clinical AI Draft</div>
+              <div className="mt-1">
+                Provider: {aiMetadata.provider ?? "template"} | Model:{" "}
+                {aiMetadata.model ?? "not configured"} | Local AI:{" "}
+                {aiMetadata.used_ai ? "used" : "template fallback"}
+              </div>
+              {aiMetadata.fallback_reason && (
+                <div className="mt-1 text-blue-700">
+                  Fallback: {aiMetadata.fallback_reason}
+                </div>
+              )}
+            </div>
+          )}
+
+          {safetyFlags.length > 0 && (
+            <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <div className="text-sm font-semibold text-amber-900">
+                Safety Review Needed
+              </div>
+              <div className="mt-3 grid gap-2">
+                {safetyFlags.map((flag, index) => (
+                  <div
+                    key={`${flag.code ?? "flag"}-${index}`}
+                    className="rounded-md border border-amber-200 bg-white px-3 py-2 text-sm"
+                  >
+                    <div className="font-medium text-amber-900">
+                      {(flag.severity ?? "info").toUpperCase()} -{" "}
+                      {flag.code ?? "CHECK"}
+                    </div>
+                    <div className="text-amber-800">{flag.message}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

@@ -1,6 +1,9 @@
 // src/services/clinical/handoverService.js
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { generateClinicalText } from '../ai/localLlmClient.js';
+import { publishEvent } from '../events/eventOutboxService.js';
+import { getPatientTimeline } from '../emr/clinicalTimelineService.js';
 import { AppError } from '../../utils/AppError.js';
 import { emitHandover } from '../../utils/websocket/realtimeEmitter.js';
 
@@ -9,6 +12,110 @@ import { emitHandover } from '../../utils/websocket/realtimeEmitter.js';
 // ===================================================================
 
 const VALID_SHIFTS = ['morning', 'afternoon', 'night'];
+
+function recent(events, type, count = 5) {
+  return events.filter((event) => event.event_type === type).slice(0, count);
+}
+
+function buildHandoverFallback(patientUid, timeline) {
+  const latestVitals = recent(timeline, 'vitals', 1)[0];
+  const activeMeds = recent(timeline, 'medication', 8)
+    .filter((event) => /scheduled|held|administered/i.test(String(event.sub_type || '')));
+  const pendingInvestigations = recent(timeline, 'investigation', 8)
+    .filter((event) => /pending|requested|ordered/i.test(String(event.sub_type || '')));
+  const diagnoses = recent(timeline, 'diagnosis', 5).map((event) => event.summary);
+  const notes = recent(timeline, 'clinical_note', 5).map((event) => event.summary);
+
+  return {
+    patient_uid: patientUid,
+    patient_summary: [
+      diagnoses.length ? `Problems: ${diagnoses.join('; ')}.` : 'Problems: not documented.',
+      notes.length ? `Recent notes: ${notes.join(' ')}` : 'Recent notes: not documented.',
+      latestVitals ? `Latest vitals: ${latestVitals.summary}.` : 'Latest vitals: not documented.',
+    ].join('\n'),
+    active_issues: [
+      ...pendingInvestigations.map((event) => `Pending investigation: ${event.summary}`),
+      ...(latestVitals && /high|medium|low spo2/i.test(`${latestVitals.summary} ${latestVitals.payload?.clinical_risk || ''}`)
+        ? [`Review vitals risk: ${latestVitals.summary}`]
+        : []),
+    ],
+    pending_tasks: pendingInvestigations.map((event) => `Follow up ${event.summary}`),
+    medications_due: activeMeds.map((event) => event.summary),
+    special_instructions: 'Review allergies, code status, pending orders, and escalation plan before accepting handover.',
+  };
+}
+
+export async function generateHandoverDraft(patientUid, requestedBy) {
+  if (!patientUid) throw AppError.badRequest('patientUid is required');
+
+  const timeline = await getPatientTimeline(patientUid, { limit: 120 });
+  const fallback = buildHandoverFallback(patientUid, timeline);
+  const systemPrompt = [
+    'You are a hospital nurse handover assistant.',
+    'Use only the provided EMR timeline.',
+    'Return a concise JSON object with patient_summary, active_issues, pending_tasks, medications_due, special_instructions.',
+    'Never invent undocumented facts. Use "not documented" when missing.',
+  ].join('\n');
+  const userPrompt = JSON.stringify({
+    patient_uid: patientUid,
+    timeline: timeline.map((event) => ({
+      type: event.event_type,
+      sub_type: event.sub_type,
+      id: event.id,
+      timestamp: event.timestamp,
+      summary: event.summary,
+    })),
+  });
+
+  const aiResult = await generateClinicalText({
+    systemPrompt,
+    userPrompt,
+    taskType: 'handover_summary',
+  });
+
+  let parsed = null;
+  if (aiResult.usedAi) {
+    try {
+      parsed = JSON.parse(aiResult.text.replace(/^```json\s*/i, '').replace(/```$/i, ''));
+    } catch (err) {
+      logger.warn('Handover AI returned non-JSON; using fallback', { error: err.message });
+    }
+  }
+
+  const draft = {
+    ...fallback,
+    ...(parsed && typeof parsed === 'object' ? parsed : {}),
+    patient_uid: patientUid,
+    generated_at: new Date().toISOString(),
+    generated_by: requestedBy || null,
+    ai_metadata: {
+      provider: aiResult.provider,
+      model: aiResult.model,
+      used_ai: aiResult.usedAi && Boolean(parsed),
+      fallback_reason: parsed ? null : (aiResult.reason || 'AI output was not valid JSON'),
+    },
+    source_citations: timeline.slice(0, 80).map((event) => ({
+      source_type: event.event_type,
+      source_id: event.id ? String(event.id) : null,
+      timestamp: event.timestamp,
+      label: event.summary,
+    })),
+  };
+
+  await publishEvent({
+    eventType: 'clinical_ai.handover.generated',
+    aggregateType: 'patient',
+    aggregateId: patientUid,
+    patientUid,
+    payload: {
+      generated_by: requestedBy || null,
+      used_ai: draft.ai_metadata.used_ai,
+      source_count: draft.source_citations.length,
+    },
+  });
+
+  return draft;
+}
 
 /**
  * Create a nurse handover note.
@@ -43,7 +150,7 @@ export async function createHandover(data) {
        (patient_uid, ward, bed_number, outgoing_nurse, incoming_nurse, shift,
         patient_summary, active_issues, pending_tasks, medications_due,
         special_instructions)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     VALUES ($1::uuid, $2, $3, $4::uuid, $5::uuid, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11)
      RETURNING id, patient_uid, outgoing_nurse, incoming_nurse, summary, pending_tasks, alerts, status, created_at`,
     
       patient_uid,
@@ -53,9 +160,9 @@ export async function createHandover(data) {
       incoming_nurse || null,
       shift.toLowerCase(),
       patient_summary,
-      active_issues,
-      pending_tasks,
-      medications_due,
+      JSON.stringify(active_issues),
+      JSON.stringify(pending_tasks),
+      JSON.stringify(medications_due),
       special_instructions || null,
     
   );
@@ -63,6 +170,19 @@ export async function createHandover(data) {
   logger.info(`Handover created by nurse ${outgoing_nurse} for patient ${patient_uid} (${shift} shift)`);
   const created = { ...rows[0], patient_uid, ward: ward || null, bed_number: bed_number || null, outgoing_nurse, incoming_nurse: incoming_nurse || null, shift: shift.toLowerCase() };
   emitHandover(created);
+
+  await publishEvent({
+    eventType: 'clinical.handover.created',
+    aggregateType: 'nurse_handover',
+    aggregateId: rows[0].id,
+    patientUid: patient_uid,
+    payload: {
+      shift: shift.toLowerCase(),
+      outgoing_nurse,
+      incoming_nurse: incoming_nurse || null,
+    },
+  });
+
   return rows[0];
 }
 
@@ -97,6 +217,13 @@ export async function acknowledgeHandover(id, nurseUid) {
   );
 
   logger.info(`Handover ${id} acknowledged by nurse ${nurseUid}`);
+  await publishEvent({
+    eventType: 'clinical.handover.acknowledged',
+    aggregateType: 'nurse_handover',
+    aggregateId: id,
+    patientUid: rows[0].patient_uid,
+    payload: { acknowledged_by: nurseUid },
+  });
   return rows[0];
 }
 
@@ -143,6 +270,7 @@ export async function getPatientHandoverHistory(patientUid, limit = 50) {
 }
 
 export default {
+  generateHandoverDraft,
   createHandover,
   acknowledgeHandover,
   getActiveHandovers,

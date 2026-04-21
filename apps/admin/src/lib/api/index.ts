@@ -169,13 +169,20 @@ import {
   getActiveAdmissions, getAdmissionDetail, getAdmissionStats,
   getPatientTimeline, getPatientNotes, getPatientOrders,
   getActiveProblemList, getActiveAlerts, searchICD10,
+  getClinicalAiConfig, generateHandoverDraft, createDowntimeSnapshot,
+  getClinicalAiGenerations, getClinicalAiSafetyFlags,
   generateDischargeSummary, saveDischargeSummary, signDischargeSummary,
 } from "./emr";
-export type { Admission, ClinicalNote, ClinicalOrder, AdmissionStats, DischargeSummary } from "./emr";
+export type {
+  Admission, ClinicalNote, ClinicalOrder, AdmissionStats, ClinicalAiConfig,
+  ClinicalAiGeneration, ClinicalAiSafetyFlag, DischargeSummary,
+} from "./emr";
 export {
   getActiveAdmissions, getAdmissionDetail, getAdmissionStats,
   getPatientTimeline, getPatientNotes, getPatientOrders,
   getActiveProblemList, getActiveAlerts, searchICD10,
+  getClinicalAiConfig, generateHandoverDraft, createDowntimeSnapshot,
+  getClinicalAiGenerations, getClinicalAiSafetyFlags,
   generateDischargeSummary, saveDischargeSummary, signDischargeSummary,
 };
 
@@ -292,6 +299,11 @@ export const api = {
   getActiveProblemList,
   getActiveAlerts,
   searchICD10,
+  getClinicalAiConfig,
+  generateHandoverDraft,
+  createDowntimeSnapshot,
+  getClinicalAiGenerations,
+  getClinicalAiSafetyFlags,
   generateDischargeSummary,
   saveDischargeSummary,
   signDischargeSummary,

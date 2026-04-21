@@ -426,6 +426,7 @@ app.use('/api/v1/emr', requireRole(...CLINICAL_STAFF_ROLES));
 app.use('/api/v1/emr', phiAccessLoggerForPaths('CLINICAL_NOTE', [
   '/api/v1/emr/notes',
   '/api/v1/emr/timeline',
+  '/api/v1/emr/downtime-snapshot',
 ]), clinicalNotesRoutes);
 app.use('/api/v1/emr', phiAccessLoggerForPaths('ADMISSION', [
   '/api/v1/emr/admit',

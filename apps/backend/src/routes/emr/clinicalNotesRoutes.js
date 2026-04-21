@@ -1,6 +1,8 @@
 // src/routes/emr/clinicalNotesRoutes.js
 import express from 'express';
 import clinicalNotesService from '../../services/emr/clinicalNotesService.js';
+import { createDowntimeSnapshot } from '../../services/emr/clinicalTimelineService.js';
+import { publishEvent } from '../../services/events/eventOutboxService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 
@@ -226,6 +228,47 @@ router.get('/timeline/:patientUid', async (req, res, next) => {
     });
 
     return success(res, timeline, 'Patient timeline retrieved');
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ===================================================================
+// POST /emr/downtime-snapshot/:patientUid - Create offline chart packet
+// ===================================================================
+
+router.post('/downtime-snapshot/:patientUid', async (req, res, next) => {
+  try {
+    const { patientUid } = req.params;
+    const hoursToLive = Math.min(Math.max(parseInt(req.body?.hours_to_live, 10) || 12, 1), 72);
+    const snapshot = await createDowntimeSnapshot(patientUid, req.user.uid, {
+      scope: req.body?.scope || 'patient_chart',
+      hoursToLive,
+    });
+
+    logPhiAccess({
+      userId: req.user.uid,
+      userRole: req.user.role,
+      patientId: patientUid,
+      recordType: 'downtime_snapshot',
+      action: 'CREATE',
+      ip: req.ip,
+      requestId: req.id,
+    });
+
+    await publishEvent({
+      eventType: 'downtime.snapshot.created',
+      aggregateType: 'downtime_snapshot',
+      aggregateId: snapshot.id,
+      patientUid,
+      payload: {
+        scope: snapshot.scope,
+        expires_at: snapshot.expires_at,
+        generated_by: req.user.uid,
+      },
+    });
+
+    return success(res, snapshot, 'Downtime snapshot created', 201);
   } catch (err) {
     next(err);
   }

@@ -1,446 +1,541 @@
-// src/services/emr/dischargeSummaryGenerator.js
-//
-// Auto-generates a discharge summary by aggregating all clinical data from
-// an admission encounter: notes, vitals, orders, medications, investigations,
-// diagnoses, and procedures.
-//
-// Architecture: The generator collects all data and builds a structured summary.
-// It exposes a pluggable `summarizeWithAI` hook — currently returns the raw
-// aggregated data, but can be replaced with a local LLM call (e.g., Ollama,
-// llama.cpp, or any OpenAI-compatible API) for narrative summarization.
-//
-// The generated summary is ALWAYS a draft. It must be reviewed, edited, and
-// signed by a doctor before it becomes the official discharge summary.
-
+import crypto from 'node:crypto';
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { generateClinicalText, getClinicalAiConfig } from '../ai/localLlmClient.js';
+import { publishEvent } from '../events/eventOutboxService.js';
 import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
+import { collectAdmissionClinicalContext } from './clinicalTimelineService.js';
 
-// ===================================================================
-// AI Summarization Hook — PLUGGABLE
-// Replace this function with your local LLM integration when ready.
-// It receives structured clinical data and should return a narrative string.
-// ===================================================================
+const PROMPT_VERSION = 'clinical-discharge-v1';
 
-/**
- * Default summarizer — formats collected data into a readable structured summary.
- * Replace with AI model call for narrative generation.
- *
- * To integrate a local LLM (e.g., Ollama):
- *   1. Set AI_SUMMARIZE_URL=http://localhost:11434/api/generate in .env
- *   2. Set AI_SUMMARIZE_MODEL=llama3 (or your model name)
- *   3. The function will POST the clinical context and return the AI narrative
- */
-async function summarizeWithAI(clinicalData) {
-  const aiUrl = process.env.AI_SUMMARIZE_URL;
-  const aiModel = process.env.AI_SUMMARIZE_MODEL || 'llama3';
-
-  if (aiUrl) {
-    try {
-      const prompt = buildAIPrompt(clinicalData);
-      const response = await fetch(aiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: aiModel,
-          prompt,
-          stream: false,
-          options: { temperature: 0.3, num_predict: 2000 },
-        }),
-        signal: AbortSignal.timeout(30000),
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        const narrative = result.response || result.choices?.[0]?.text || '';
-        if (narrative.trim()) {
-          logger.info('Discharge summary generated via AI model');
-          return narrative.trim();
-        }
-      }
-      logger.warn('AI summarization returned empty — falling back to template');
-    } catch (err) {
-      logger.warn(`AI summarization failed (${err.message}) — falling back to template`);
-    }
-  }
-
-  // Fallback: structured template summary
-  return buildTemplateSummary(clinicalData);
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
 }
 
-// ===================================================================
-// Build AI prompt from clinical data
-// ===================================================================
-function buildAIPrompt(data) {
-  return `You are a medical professional writing a discharge summary for a hospital patient.
-Based on the following clinical data, write a concise, professional discharge summary.
-Include: hospital course, key findings, procedures performed, discharge diagnosis,
-medications on discharge, follow-up instructions, and any warning signs the patient
-should watch for. Use clear medical terminology.
-
-PATIENT: ${data.patient.name || 'Unknown'}, ${data.patient.gender || 'Unknown'} gender
-ADMISSION DATE: ${data.admission.admitted_at}
-DISCHARGE DATE: ${new Date().toISOString().split('T')[0]}
-ADMITTING DIAGNOSIS: ${data.admission.admitting_diagnosis || 'Not recorded'}
-CHIEF COMPLAINT: ${data.admission.chief_complaint || 'Not recorded'}
-LENGTH OF STAY: ${data.admission.actual_los_days || 'N/A'} days
-
-DIAGNOSES:
-${data.diagnoses.map(d => `- ${d.icd10_code || ''} ${d.description} (${d.status})`).join('\n') || 'None recorded'}
-
-CLINICAL NOTES (chronological):
-${data.notes.map(n => `[${n.note_type.toUpperCase()} - ${n.created_at}] ${JSON.stringify(n.content)}`).join('\n\n') || 'None'}
-
-PROCEDURES:
-${data.procedures.map(p => `- ${p.content?.procedure_name || 'Procedure'}: ${p.content?.findings || 'No findings noted'}`).join('\n') || 'None'}
-
-VITALS (most recent):
-${data.latestVitals ? `HR: ${data.latestVitals.heart_rate}, BP: ${data.latestVitals.systolic_bp}/${data.latestVitals.diastolic_bp}, Temp: ${data.latestVitals.temperature}, SpO2: ${data.latestVitals.spo2}, RR: ${data.latestVitals.respiratory_rate}` : 'Not recorded'}
-
-INVESTIGATIONS:
-${data.investigations.map(i => `- ${i.test_name || i.type}: ${i.status} ${i.result_summary || ''}`).join('\n') || 'None'}
-
-MEDICATIONS GIVEN DURING STAY:
-${data.medications.map(m => `- ${m.medication_name} ${m.dose} ${m.route} (${m.status})`).join('\n') || 'None'}
-
-ACTIVE ORDERS AT DISCHARGE:
-${data.activeOrders.map(o => `- [${o.order_type}] ${JSON.stringify(o.details)}`).join('\n') || 'None'}
-
-Write the discharge summary now:`;
+function text(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value).trim();
 }
 
-// ===================================================================
-// Template-based summary (no AI — structured format)
-// ===================================================================
-function buildTemplateSummary(data) {
-  const sections = [];
+function formatDate(value) {
+  if (!value) return 'not documented';
+  return new Date(value).toISOString().slice(0, 10);
+}
 
-  // Hospital course
-  const los = data.admission.actual_los_days || Math.max(1, Math.ceil(
-    (new Date() - new Date(data.admission.admitted_at)) / (1000 * 60 * 60 * 24)
-  ));
-  sections.push(`Patient was admitted on ${new Date(data.admission.admitted_at).toLocaleDateString()} ` +
-    `with chief complaint of "${data.admission.chief_complaint || 'not recorded'}". ` +
-    `Length of stay: ${los} day(s).`);
+function makeSourceHash(context) {
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify({
+      patient: context.patient?.uid,
+      admission: context.admission?.id,
+      timeline: context.timeline.map((event) => ({
+        type: event.event_type,
+        id: event.id,
+        timestamp: event.timestamp,
+        summary: event.summary,
+      })),
+    }))
+    .digest('hex');
+}
 
-  // Diagnoses
-  if (data.diagnoses.length > 0) {
-    const primary = data.diagnoses.find(d => d.diagnosis_type === 'primary');
-    const secondary = data.diagnoses.filter(d => d.diagnosis_type !== 'primary');
-    if (primary) sections.push(`Primary Diagnosis: ${primary.icd10_code || ''} ${primary.description}`);
-    if (secondary.length) {
-      sections.push('Secondary Diagnoses: ' + secondary.map(d =>
-        `${d.icd10_code || ''} ${d.description}`
-      ).join('; '));
-    }
+function diagnosisText(event) {
+  const payload = event.payload || {};
+  return text(`${payload.icd10_code || ''} ${payload.description || payload.icd10_description || event.summary}`.trim());
+}
+
+function latestByType(events, predicate = () => true) {
+  return [...events]
+    .filter(predicate)
+    .sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0))[0] || null;
+}
+
+function buildCitations(context, limit = 80) {
+  return context.citations.slice(0, limit);
+}
+
+function buildSafetyFlags(context, summary = {}) {
+  const flags = [];
+  const diagnoses = asArray(context.diagnoses);
+  const meds = asArray(summary.medications_on_discharge);
+  const investigations = asArray(context.investigations);
+  const orders = asArray(context.orders);
+  const allergies = asArray(context.allergies);
+
+  if (!diagnoses.some((event) => /primary/i.test(text(event.payload?.diagnosis_type)))) {
+    flags.push({
+      severity: 'medium',
+      code: 'NO_PRIMARY_DIAGNOSIS',
+      message: 'No primary diagnosis is clearly documented.',
+    });
   }
 
-  // Key clinical notes
-  if (data.notes.length > 0) {
-    const soapNotes = data.notes.filter(n => n.note_type === 'soap');
-    if (soapNotes.length > 0) {
-      const lastSoap = soapNotes[soapNotes.length - 1];
-      sections.push(`Most recent assessment: ${lastSoap.content?.assessment || 'See clinical notes'}`);
-      sections.push(`Plan at discharge: ${lastSoap.content?.plan || 'See clinical notes'}`);
-    }
+  const activeOrders = orders.filter((event) => !/completed|cancelled|discontinued/i.test(text(event.payload?.status)));
+  if (activeOrders.length > 0) {
+    flags.push({
+      severity: 'medium',
+      code: 'ACTIVE_ORDERS_AT_DISCHARGE',
+      message: `${activeOrders.length} active order(s) still need review before discharge.`,
+    });
   }
 
-  // Procedures
-  if (data.procedures.length > 0) {
-    sections.push('Procedures performed: ' + data.procedures.map(p =>
-      p.content?.procedure_name || 'Procedure'
-    ).join(', '));
+  const pendingInvestigations = investigations.filter((event) => /pending|requested|ordered/i.test(text(event.payload?.status)));
+  if (pendingInvestigations.length > 0) {
+    flags.push({
+      severity: 'high',
+      code: 'PENDING_INVESTIGATIONS',
+      message: `${pendingInvestigations.length} investigation(s) appear pending.`,
+    });
   }
 
-  // Latest vitals
-  if (data.latestVitals) {
-    const v = data.latestVitals;
-    sections.push(`Vitals at discharge: HR ${v.heart_rate || '-'}, ` +
-      `BP ${v.systolic_bp || '-'}/${v.diastolic_bp || '-'}, ` +
-      `Temp ${v.temperature || '-'}°F, SpO2 ${v.spo2 || '-'}%`);
+  const latestVitals = latestByType(context.vitals);
+  const vitalsPayload = latestVitals?.payload || {};
+  if (Number(vitalsPayload.spo2) > 0 && Number(vitalsPayload.spo2) < 92) {
+    flags.push({
+      severity: 'high',
+      code: 'LOW_SPO2',
+      message: `Latest SpO2 is ${vitalsPayload.spo2}%. Confirm discharge safety.`,
+    });
+  }
+  if (/high|medium/i.test(text(vitalsPayload.clinical_risk))) {
+    flags.push({
+      severity: /high/i.test(text(vitalsPayload.clinical_risk)) ? 'high' : 'medium',
+      code: 'RECENT_NEWS2_RISK',
+      message: `Recent NEWS2 risk is ${vitalsPayload.clinical_risk}.`,
+    });
   }
 
-  // Investigations summary
-  if (data.investigations.length > 0) {
-    sections.push('Key investigations: ' + data.investigations.map(i =>
-      `${i.test_name || i.type} (${i.status})`
-    ).join(', '));
+  const allergyTerms = allergies
+    .flatMap((row) => [row.allergen, row.name, row.allergy_name])
+    .map((term) => text(term).toLowerCase())
+    .filter(Boolean);
+  const allergyHits = meds.filter((med) => {
+    const name = text(med.name || med.medication_name).toLowerCase();
+    return allergyTerms.some((term) => term.length >= 3 && name.includes(term));
+  });
+  if (allergyHits.length > 0) {
+    flags.push({
+      severity: 'critical',
+      code: 'DISCHARGE_MED_ALLERGY_MATCH',
+      message: `Possible allergy conflict in discharge medications: ${allergyHits.map((m) => m.name || m.medication_name).join(', ')}.`,
+    });
+  }
+
+  if (!text(summary.follow_up_instructions)) {
+    flags.push({
+      severity: 'medium',
+      code: 'MISSING_FOLLOW_UP',
+      message: 'Follow-up instructions are empty.',
+    });
+  }
+
+  return flags;
+}
+
+function buildTemplateHospitalCourse(context) {
+  const admission = context.admission || {};
+  const patient = context.patient || {};
+  const diagnoses = context.diagnoses.map(diagnosisText).filter(Boolean);
+  const noteHighlights = context.notes
+    .slice(-5)
+    .map((event) => event.summary)
+    .filter(Boolean);
+  const procedureNames = context.notes
+    .filter((event) => /procedure/i.test(text(event.sub_type)))
+    .map((event) => event.payload?.content?.procedure_name || event.summary)
+    .filter(Boolean);
+  const investigationHighlights = context.investigations
+    .slice(-8)
+    .map((event) => event.summary)
+    .filter(Boolean);
+
+  const sections = [
+    `${patient.name || 'The patient'} was admitted on ${formatDate(admission.admitted_at)} with ${admission.chief_complaint || admission.admitting_diagnosis || 'the documented presenting complaint not specified'}.`,
+  ];
+
+  if (diagnoses.length > 0) {
+    sections.push(`Documented diagnoses include: ${diagnoses.join('; ')}.`);
+  } else if (admission.admitting_diagnosis) {
+    sections.push(`Admitting diagnosis: ${admission.admitting_diagnosis}.`);
+  }
+
+  if (noteHighlights.length > 0) {
+    sections.push(`Clinical course highlights: ${noteHighlights.join(' ')}`);
+  }
+
+  if (procedureNames.length > 0) {
+    sections.push(`Procedures performed: ${procedureNames.join('; ')}.`);
+  }
+
+  if (investigationHighlights.length > 0) {
+    sections.push(`Investigations: ${investigationHighlights.join('; ')}.`);
   }
 
   return sections.join('\n\n');
 }
 
-// ===================================================================
-// Collect all clinical data for an admission encounter
-// ===================================================================
-async function collectClinicalData(admissionId) {
-  // Get admission details
-  const admRows = await prisma.$queryRawUnsafe(
-    `SELECT a.*, u.name as patient_name, u.gender, u.phone, u.birthday, u.allergies as patient_allergies
-     FROM admissions a
-     LEFT JOIN users u ON a.patient_uid = u.uid
-     WHERE a.id = $1`,
-    admissionId
-  );
-  if (!admRows.length) throw AppError.notFound('Admission not found');
-  const admission = admRows[0];
+function buildDischargeMedications(context) {
+  const activeMedicationOrders = context.orders
+    .filter((event) => event.payload?.order_type === 'medication')
+    .filter((event) => !/cancelled|discontinued/i.test(text(event.payload?.status)));
 
-  // Get all clinical notes for this encounter
-  const notes = await prisma.$queryRawUnsafe(
-    `SELECT id, note_type, content, author_uid, is_signed, created_at
-     FROM clinical_notes
-     WHERE encounter_id = $1
-     ORDER BY created_at ASC`,
-    admission.encounter_id
-  );
-
-  // Get procedure notes specifically
-  const procedures = notes.filter(n => n.note_type === 'procedure');
-
-  // Get diagnoses
-  const diagnoses = await prisma.$queryRawUnsafe(
-    `SELECT icd10_code, description, diagnosis_type, status, severity, onset_date
-     FROM diagnoses
-     WHERE encounter_id = $1
-     ORDER BY diagnosis_type ASC`,
-    admission.encounter_id
-  );
-
-  // Get latest vitals
-  const vitalsRows = await prisma.$queryRawUnsafe(
-    `SELECT heart_rate, systolic_bp, diastolic_bp, temperature, spo2,
-            respiratory_rate, blood_glucose, pain_score, gcs_score, consciousness
-     FROM vitals_chart
-     WHERE encounter_id = $1
-     ORDER BY recorded_at DESC LIMIT 1`,
-    admission.encounter_id
-  );
-
-  // Get medication administrations
-  const medications = await prisma.$queryRawUnsafe(
-    `SELECT medication_name, dose, route, status, administered_at
-     FROM medication_administrations
-     WHERE patient_uid = $1 AND created_at >= $2
-     ORDER BY created_at DESC`,
-    admission.patient_uid, admission.admitted_at
-  );
-
-  // Get investigations
-  const investigations = await prisma.$queryRawUnsafe(
-    `SELECT type, test_name, status, result_summary, created_at
-     FROM investigations
-     WHERE patient_uid = $1 AND created_at >= $2
-     ORDER BY created_at DESC`,
-    admission.patient_uid, admission.admitted_at
-  );
-
-  // Get active orders
-  const activeOrders = await prisma.$queryRawUnsafe(
-    `SELECT order_type, details, status, priority
-     FROM clinical_orders
-     WHERE encounter_id = $1 AND status NOT IN ('completed', 'cancelled', 'discontinued')
-     ORDER BY created_at DESC`,
-    admission.encounter_id
-  );
-
-  return {
-    admission: {
-      id: admission.id,
-      encounter_id: admission.encounter_id,
-      chief_complaint: admission.chief_complaint,
-      admitting_diagnosis: admission.admitting_diagnosis,
-      admitted_at: admission.admitted_at,
-      department: admission.department,
-      ward: admission.ward,
-      code_status: admission.code_status,
-      allergies: admission.allergies,
-      actual_los_days: admission.actual_los_days,
-    },
-    patient: {
-      uid: admission.patient_uid,
-      name: admission.patient_name,
-      gender: admission.gender,
-      phone: admission.phone,
-      birthday: admission.birthday,
-      allergies: admission.patient_allergies,
-    },
-    notes,
-    procedures,
-    diagnoses,
-    latestVitals: vitalsRows[0] || null,
-    medications,
-    investigations,
-    activeOrders,
-  };
+  return activeMedicationOrders.map((event) => {
+    const details = event.payload?.details || {};
+    return {
+      name: details.medication_name || details.name || 'Medication not named',
+      dose: details.dose || details.dosage || '',
+      route: details.route || '',
+      frequency: details.frequency || '',
+      duration: details.duration || '',
+      source_order_id: event.id,
+    };
+  });
 }
 
-// ===================================================================
-// Generate discharge summary — returns editable draft
-// ===================================================================
-async function generateDischargeSummary(admissionId, requestedBy, req) {
-  logger.info(`Generating discharge summary for admission ${admissionId}`);
+function buildStructuredSummary(context, hospitalCourse, aiResult) {
+  const admission = context.admission || {};
+  const diagnoses = context.diagnoses.map(diagnosisText).filter(Boolean);
+  const latestVitals = latestByType(context.vitals);
+  const vitals = latestVitals?.payload || {};
+  const procedures = context.notes
+    .filter((event) => /procedure/i.test(text(event.sub_type)))
+    .map((event) => event.payload?.content?.procedure_name || event.summary)
+    .filter(Boolean);
+  const investigations = context.investigations.slice(-12).map((event) => ({
+    test: event.payload?.test_name || event.payload?.test_type || event.payload?.investigation_type || 'Investigation',
+    status: event.payload?.status || 'unknown',
+    result: event.payload?.result_summary || event.payload?.conclusion || event.payload?.interpretation || 'See source record',
+    source_id: event.id,
+  }));
 
-  // Collect all clinical data
-  const clinicalData = await collectClinicalData(admissionId);
+  const summary = {
+    hospital_course: hospitalCourse || buildTemplateHospitalCourse(context),
+    discharge_diagnosis: diagnoses.join('; ') || admission.admitting_diagnosis || 'Not documented',
+    discharge_condition: latestVitals
+      ? `Latest documented vitals: HR ${vitals.heart_rate ?? '-'}, BP ${vitals.systolic_bp ?? '-'}/${vitals.diastolic_bp ?? '-'}, SpO2 ${vitals.spo2 ?? '-'}%.`
+      : 'Final discharge condition must be documented by the signing doctor.',
+    medications_on_discharge: buildDischargeMedications(context),
+    follow_up_instructions: 'Review with treating physician as advised. Return urgently for worsening symptoms, fever, breathlessness, chest pain, bleeding, confusion, or any new concerning symptom.',
+    activity_restrictions: '',
+    diet_instructions: '',
+    warning_signs: 'Seek emergency care for chest pain, breathing difficulty, fainting, high fever, severe pain, worsening weakness, bleeding, or reduced consciousness.',
+    procedures_performed: procedures,
+    investigations_summary: investigations,
+    generated_at: new Date().toISOString(),
+    generated_by: null,
+    is_draft: true,
+    is_signed: false,
+    signed_by: null,
+    signed_at: null,
+    ai_metadata: {
+      provider: aiResult.provider,
+      model: aiResult.model,
+      used_ai: aiResult.usedAi,
+      prompt_version: PROMPT_VERSION,
+      fallback_reason: aiResult.reason || null,
+    },
+    source_citations: buildCitations(context),
+  };
 
-  // Log PHI access
+  summary.safety_flags = buildSafetyFlags(context, summary);
+  return summary;
+}
+
+function buildPrompt(context) {
+  const patient = context.patient || {};
+  const admission = context.admission || {};
+  const compactTimeline = context.timeline.map((event) => ({
+    type: event.event_type,
+    sub_type: event.sub_type,
+    id: event.id,
+    timestamp: event.timestamp,
+    summary: event.summary,
+  }));
+
+  const systemPrompt = [
+    'You are a clinical documentation assistant inside a hospital EMR.',
+    'Use only the provided source data.',
+    'Never invent diagnoses, procedures, medications, dates, or follow-up plans.',
+    'If something is not documented, say "not documented".',
+    'Return concise professional hospital-course prose only, not JSON.',
+    'The output is a draft for doctor review and must not claim to be signed.',
+  ].join('\n');
+
+  const userPrompt = JSON.stringify({
+    task: 'Draft hospital course for a discharge summary',
+    patient: {
+      uid: patient.uid,
+      name: patient.name,
+      gender: patient.gender,
+      birthday: patient.birthday,
+    },
+    admission: {
+      id: admission.id,
+      admitted_at: admission.admitted_at,
+      discharged_at: admission.discharged_at,
+      ward: admission.ward,
+      chief_complaint: admission.chief_complaint,
+      admitting_diagnosis: admission.admitting_diagnosis,
+      code_status: admission.code_status,
+    },
+    allergies: context.allergies,
+    timeline: compactTimeline,
+  });
+
+  return { systemPrompt, userPrompt };
+}
+
+async function saveAiGeneration(context, summary, requestedBy, sourceHash) {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO clinical_ai_generations
+       (patient_uid, admission_id, task_type, provider, model, prompt_version,
+        source_hash, status, used_ai, safety_flags, citations, draft, generated_by,
+        created_at, updated_at)
+     VALUES ($1::uuid, $2, 'discharge_summary', $3, $4, $5, $6, 'draft',
+             $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::uuid, NOW(), NOW())
+     RETURNING id, provider, model, used_ai, status, created_at`,
+    context.admission.patient_uid,
+    context.admission.id,
+    summary.ai_metadata.provider,
+    summary.ai_metadata.model,
+    PROMPT_VERSION,
+    sourceHash,
+    summary.ai_metadata.used_ai,
+    JSON.stringify(summary.safety_flags || []),
+    JSON.stringify(summary.source_citations || []),
+    JSON.stringify(summary),
+    requestedBy || null
+  );
+
+  return rows[0];
+}
+
+export async function collectClinicalData(admissionId) {
+  return collectAdmissionClinicalContext(admissionId);
+}
+
+export async function generateDischargeSummary(admissionId, requestedBy, req) {
+  if (!requestedBy) throw AppError.badRequest('requestedBy is required');
+
+  const context = await collectAdmissionClinicalContext(admissionId);
+  const prompt = buildPrompt(context);
+  const aiResult = await generateClinicalText({
+    ...prompt,
+    taskType: 'discharge_summary',
+  });
+  const hospitalCourse = aiResult.usedAi ? aiResult.text : buildTemplateHospitalCourse(context);
+  const summary = buildStructuredSummary(context, hospitalCourse, aiResult);
+  summary.generated_by = requestedBy;
+
+  const sourceHash = makeSourceHash(context);
+  const generation = await saveAiGeneration(context, summary, requestedBy, sourceHash);
+  summary.draft_generation_id = generation.id;
+
   logPhiAccess({
     userId: requestedBy,
-    patientId: clinicalData.patient.uid,
+    userRole: req?.user?.role,
+    patientId: context.patient?.uid || context.admission.patient_uid,
     recordType: 'discharge_summary_generation',
     action: 'GENERATE',
     ip: req?.ip,
     requestId: req?.id,
   });
 
-  // Generate summary text (template or AI)
-  const hospitalCourse = await summarizeWithAI(clinicalData);
+  await publishEvent({
+    eventType: 'clinical_ai.discharge_summary.generated',
+    aggregateType: 'admission',
+    aggregateId: admissionId,
+    patientUid: context.admission.patient_uid,
+    payload: {
+      generation_id: generation.id,
+      used_ai: generation.used_ai,
+      provider: generation.provider,
+      safety_flag_count: summary.safety_flags.length,
+    },
+  });
 
-  // Build structured discharge summary
-  const dischargeSummary = {
-    hospital_course: hospitalCourse,
-    discharge_diagnosis: clinicalData.diagnoses
-      .filter(d => d.status === 'active' || d.diagnosis_type === 'primary')
-      .map(d => `${d.icd10_code || ''} ${d.description}`.trim())
-      .join('; ') || clinicalData.admission.admitting_diagnosis || 'See clinical notes',
-    discharge_condition: clinicalData.latestVitals
-      ? `Vitals stable: HR ${clinicalData.latestVitals.heart_rate}, BP ${clinicalData.latestVitals.systolic_bp}/${clinicalData.latestVitals.diastolic_bp}, SpO2 ${clinicalData.latestVitals.spo2}%`
-      : 'See final vitals chart',
-    medications_on_discharge: clinicalData.activeOrders
-      .filter(o => o.order_type === 'medication')
-      .map(o => ({
-        name: o.details?.medication_name || 'Unknown',
-        dose: o.details?.dose || '',
-        route: o.details?.route || '',
-        frequency: o.details?.frequency || '',
-        duration: o.details?.duration || '',
-      })),
-    follow_up_instructions: 'Review with treating physician within 1 week. Report to emergency if symptoms worsen.',
-    activity_restrictions: '',
-    diet_instructions: '',
-    warning_signs: 'Return immediately if: high fever, difficulty breathing, chest pain, severe pain, or any new concerning symptoms.',
-    procedures_performed: clinicalData.procedures.map(p => p.content?.procedure_name || 'Procedure'),
-    investigations_summary: clinicalData.investigations.map(i => ({
-      test: i.test_name || i.type,
-      status: i.status,
-      result: i.result_summary || 'Pending',
-    })),
-    generated_at: new Date().toISOString(),
-    generated_by: requestedBy,
-    is_draft: true,
-    is_signed: false,
-    signed_by: null,
-    signed_at: null,
-  };
+  logger.info('Discharge summary draft generated', {
+    admissionId,
+    patientUid: context.admission.patient_uid,
+    provider: generation.provider,
+    usedAi: generation.used_ai,
+  });
 
-  return dischargeSummary;
+  return summary;
 }
 
-// ===================================================================
-// Save edited discharge summary as clinical note (draft or final)
-// ===================================================================
-async function saveDischargeSummary(admissionId, summary, savedBy) {
+export async function saveDischargeSummary(admissionId, summary, savedBy) {
+  if (!savedBy) throw AppError.badRequest('savedBy is required');
+  if (!summary || typeof summary !== 'object') throw AppError.badRequest('summary is required');
+
   const admRows = await prisma.$queryRawUnsafe(
     `SELECT encounter_id, patient_uid, status FROM admissions WHERE id = $1`,
     admissionId
   );
   if (!admRows.length) throw AppError.notFound('Admission not found');
-
   const admission = admRows[0];
 
-  // Check if a discharge note already exists for this encounter
+  const content = {
+    ...summary,
+    is_draft: true,
+    is_signed: false,
+    reviewed_by: savedBy,
+    reviewed_at: new Date().toISOString(),
+  };
+
   const existing = await prisma.$queryRawUnsafe(
-    `SELECT id FROM clinical_notes
-     WHERE encounter_id = $1 AND note_type = 'discharge'
-     ORDER BY version DESC LIMIT 1`,
+    `SELECT id, is_signed
+     FROM clinical_notes
+     WHERE encounter_id = $1::uuid AND note_type = 'discharge' AND is_addendum = false
+     ORDER BY version DESC, id DESC
+     LIMIT 1`,
     admission.encounter_id
   );
 
+  let result;
   if (existing.length) {
-    // Update existing draft (only if not signed)
-    const note = await prisma.$queryRawUnsafe(
-      `SELECT is_signed FROM clinical_notes WHERE id = $1`,
-      existing[0].id
-    );
-    if (note[0]?.is_signed) {
+    if (existing[0].is_signed) {
       throw AppError.badRequest('Signed discharge summary cannot be modified. Add an addendum instead.');
     }
 
-    await prisma.$queryRawUnsafe(
+    const rows = await prisma.$queryRawUnsafe(
       `UPDATE clinical_notes
-       SET content = $1, version = version + 1, updated_at = NOW()
-       WHERE id = $2`,
-      JSON.stringify(summary), existing[0].id
+       SET content = $1::jsonb,
+           version = version + 1,
+           ai_generation_id = $2,
+           updated_at = NOW()
+       WHERE id = $3
+       RETURNING id`,
+      JSON.stringify(content),
+      content.draft_generation_id || null,
+      existing[0].id
     );
-
-    return { noteId: existing[0].id, action: 'updated' };
+    result = { noteId: rows[0].id, action: 'updated' };
+  } else {
+    const rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO clinical_notes
+         (encounter_id, patient_uid, author_uid, author_role, note_type, title,
+          content, version, is_addendum, is_signed, ai_generation_id, created_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, 'DOCTOR', 'discharge', 'Draft discharge summary',
+               $4::jsonb, 1, false, false, $5, NOW(), NOW())
+       RETURNING id`,
+      admission.encounter_id,
+      admission.patient_uid,
+      savedBy,
+      JSON.stringify(content),
+      content.draft_generation_id || null
+    );
+    result = { noteId: rows[0].id, action: 'created' };
   }
 
-  // Create new discharge note
-  const created = await prisma.$queryRawUnsafe(
-    `INSERT INTO clinical_notes
-     (encounter_id, patient_uid, author_uid, author_role, note_type, content, version, is_signed)
-     VALUES ($1, $2, $3, 'DOCTOR', 'discharge', $4, 1, false)
-     RETURNING id`,
-    admission.encounter_id, admission.patient_uid, savedBy, JSON.stringify(summary)
-  );
+  if (content.draft_generation_id) {
+    await prisma.$queryRawUnsafe(
+      `UPDATE clinical_ai_generations
+       SET draft = $1::jsonb, reviewed_by = $2::uuid, status = 'reviewed', updated_at = NOW()
+       WHERE id = $3`,
+      JSON.stringify(content),
+      savedBy,
+      content.draft_generation_id
+    );
+  }
 
-  return { noteId: created[0].id, action: 'created' };
+  await publishEvent({
+    eventType: 'clinical_document.discharge_summary.saved',
+    aggregateType: 'clinical_note',
+    aggregateId: result.noteId,
+    patientUid: admission.patient_uid,
+    payload: {
+      admission_id: admissionId,
+      action: result.action,
+      generation_id: content.draft_generation_id || null,
+    },
+  });
+
+  return result;
 }
 
-// ===================================================================
-// Sign discharge summary — makes it official and immutable
-// ===================================================================
-async function signDischargeSummary(admissionId, doctorUid) {
+export async function signDischargeSummary(admissionId, doctorUid) {
+  if (!doctorUid) throw AppError.badRequest('doctorUid is required');
+
   const admRows = await prisma.$queryRawUnsafe(
     `SELECT encounter_id, patient_uid FROM admissions WHERE id = $1`,
     admissionId
   );
   if (!admRows.length) throw AppError.notFound('Admission not found');
+  const admission = admRows[0];
 
-  // Verify the signer is a doctor — Medical Records staff can edit but NOT sign
-  const { canSignDischargeSummary } = await import('../../utils/roleHelpers.js');
-  const userRows = await prisma.$queryRawUnsafe(
-    `SELECT role FROM users WHERE uid = $1`,
-    doctorUid
-  );
-  const role = userRows[0]?.role?.toUpperCase() || '';
-  if (!canSignDischargeSummary(role) && role !== 'SUPER_ADMIN') {
-    throw AppError.forbidden('Only doctors can sign discharge summaries');
-  }
-
-  // Find the discharge note
   const noteRows = await prisma.$queryRawUnsafe(
-    `SELECT id, is_signed FROM clinical_notes
-     WHERE encounter_id = $1 AND note_type = 'discharge'
-     ORDER BY version DESC LIMIT 1`,
-    admRows[0].encounter_id
+    `SELECT id, is_signed, ai_generation_id
+     FROM clinical_notes
+     WHERE encounter_id = $1::uuid AND note_type = 'discharge' AND is_addendum = false
+     ORDER BY version DESC, id DESC
+     LIMIT 1`,
+    admission.encounter_id
   );
   if (!noteRows.length) throw AppError.notFound('No discharge summary found. Generate one first.');
   if (noteRows[0].is_signed) throw AppError.badRequest('Discharge summary is already signed');
 
-  // Sign the note — this makes it immutable
-  await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `UPDATE clinical_notes
-     SET is_signed = true, signed_at = NOW(), signed_by = $1
-     WHERE id = $2`,
-    doctorUid, noteRows[0].id
+     SET is_signed = true, signed_at = NOW(), signed_by = $1::uuid, updated_at = NOW(),
+         content = jsonb_set(
+           jsonb_set(content, '{is_signed}', 'true'::jsonb, true),
+           '{signed_at}', to_jsonb(NOW()), true
+         )
+     WHERE id = $2
+     RETURNING id, signed_at`,
+    doctorUid,
+    noteRows[0].id
   );
 
-  // Audit log
+  if (noteRows[0].ai_generation_id) {
+    await prisma.$queryRawUnsafe(
+      `UPDATE clinical_ai_generations
+       SET status = 'signed', reviewed_by = $1::uuid, signed_note_id = $2, updated_at = NOW()
+       WHERE id = $3`,
+      doctorUid,
+      noteRows[0].id,
+      noteRows[0].ai_generation_id
+    );
+  }
+
   await prisma.$queryRawUnsafe(
     `INSERT INTO audit_logs (uid, action, resource, resource_id, metadata, created_at)
      VALUES ($1::uuid, 'SIGN_DISCHARGE_SUMMARY', 'clinical_notes', $2, $3::jsonb, NOW())`,
-    doctorUid, String(noteRows[0].id), JSON.stringify({
+    doctorUid,
+    String(noteRows[0].id),
+    JSON.stringify({
       admission_id: admissionId,
-      patient_uid: admRows[0].patient_uid,
+      patient_uid: admission.patient_uid,
+      ai_generation_id: noteRows[0].ai_generation_id || null,
     })
   );
 
-  logger.info(`Discharge summary signed for admission ${admissionId} by doctor ${doctorUid}`);
-  return { noteId: noteRows[0].id, signed: true, signedAt: new Date().toISOString() };
+  await publishEvent({
+    eventType: 'clinical_document.discharge_summary.signed',
+    aggregateType: 'clinical_note',
+    aggregateId: noteRows[0].id,
+    patientUid: admission.patient_uid,
+    payload: {
+      admission_id: admissionId,
+      signed_by: doctorUid,
+      signed_at: rows[0].signed_at,
+      ai_generation_id: noteRows[0].ai_generation_id || null,
+    },
+  });
+
+  return {
+    noteId: noteRows[0].id,
+    signed: true,
+    signedAt: rows[0].signed_at,
+  };
+}
+
+export function getDischargeSummaryAiConfig() {
+  return getClinicalAiConfig();
 }
 
 export default {
@@ -448,4 +543,5 @@ export default {
   saveDischargeSummary,
   signDischargeSummary,
   collectClinicalData,
+  getDischargeSummaryAiConfig,
 };
