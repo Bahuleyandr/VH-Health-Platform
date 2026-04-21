@@ -101,14 +101,28 @@ Working tree gitleaks scan:
 node scripts/gitleaks-scan.mjs worktree
 ```
 
+Working tree GitGuardian scan:
+
+```powershell
+& "D:\Dev\Tools\ggshield\ggshield.exe" auth login
+node scripts/ggshield-scan.mjs worktree
+```
+
 Full history gitleaks scan:
 
 ```powershell
 & "D:\Dev\Tools\gitleaks\gitleaks.exe" git . --config .gitleaks.toml --redact=100 --no-banner --verbose
 ```
 
-The full history scan is expected to fail until old public history is rewritten
-or accepted as permanently exposed after all affected credentials are revoked.
+Full history GitGuardian scan:
+
+```powershell
+node scripts/ggshield-scan.mjs repo
+```
+
+The full history scans are expected to fail until old public history is
+rewritten or accepted as permanently exposed after all affected credentials are
+revoked.
 
 ## Git History Rewrite Decision
 
@@ -135,6 +149,7 @@ Skip or defer rewrite if:
 - [ ] No JSON key files or private keys in working tree.
 - [ ] `node scripts/scan-secrets.mjs` passes.
 - [ ] `node scripts/gitleaks-scan.mjs worktree` passes.
+- [ ] `node scripts/ggshield-scan.mjs worktree` passes.
 - [ ] Provider audit logs reviewed.
 - [ ] Browser Firebase key referrer restrictions confirmed and applied.
 - [ ] History rewrite decision recorded.

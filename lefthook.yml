@@ -13,6 +13,9 @@ pre-commit:
     gitleaks-staged:
       run: node scripts/gitleaks-scan.mjs staged
 
+    ggshield-staged:
+      run: node scripts/ggshield-scan.mjs staged --optional
+
     dart-format:
       glob: "apps/patient/**/*.dart apps/staff/**/*.dart packages/vhhealth_core/**/*.dart"
       run: dart format --set-exit-if-changed {staged_files}
@@ -39,6 +42,9 @@ pre-push:
 
     gitleaks-pushed:
       run: node scripts/gitleaks-scan.mjs range
+
+    ggshield-pushed:
+      run: node scripts/ggshield-scan.mjs range --optional
 
     flutter-analyze:
       run: |
