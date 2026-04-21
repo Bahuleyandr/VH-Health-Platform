@@ -7,6 +7,9 @@
 pre-commit:
   parallel: true
   commands:
+    secrets-scan:
+      run: node scripts/scan-secrets.mjs
+
     dart-format:
       glob: "apps/patient/**/*.dart apps/staff/**/*.dart packages/vhhealth_core/**/*.dart"
       run: dart format --set-exit-if-changed {staged_files}
@@ -28,6 +31,9 @@ pre-commit:
 
 pre-push:
   commands:
+    secrets-scan:
+      run: node scripts/scan-secrets.mjs
+
     flutter-analyze:
       run: |
         if git diff --name-only @{u}..HEAD 2>/dev/null | grep -qE '^(apps/(patient|staff)/|packages/vhhealth_core/|pubspec\.(yaml|lock))'; then
