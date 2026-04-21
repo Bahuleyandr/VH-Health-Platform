@@ -13,16 +13,26 @@ const query = async (sql, params = []) => {
   const isReadQuery = upperSql.startsWith('SELECT') || upperSql.startsWith('WITH') || usesReturning;
 
   if (isReadQuery) {
-    const rows = await prisma.$queryRawUnsafe(normalizedSql, ...params);
-    return { rows, rowCount: Array.isArray(rows) ? rows.length : 0 };
+    return prisma.$queryRawUnsafe(normalizedSql, ...params);
   }
 
   const rowCount = await prisma.$executeRawUnsafe(normalizedSql, ...params);
-  return { rows: [], rowCount: Number(rowCount) || 0 };
+  return { rowCount: Number(rowCount) || 0 };
 };
 
 
 const VALID_PRIORITIES = ['normal', 'urgent', 'critical'];
+
+const getUserIdForUid = async (uid) => {
+  if (!uid) return null;
+
+  const result = await query(
+    'SELECT id FROM users WHERE uid = $1::uuid LIMIT 1',
+    [uid]
+  );
+
+  return result[0]?.id ?? null;
+};
 
 const messagingService = {
   /**
@@ -53,17 +63,18 @@ const messagingService = {
       const result = await query(
         `INSERT INTO staff_messages
           (sender_uid, recipient_uid, patient_uid, subject, body, priority, is_read, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, false, NOW())
+         VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, false, NOW())
          RETURNING id, sender_uid, recipient_uid, patient_uid, subject, body, priority, is_read, created_at`,
         [senderUid, recipientUid, patientUid, subject, body, priority]
       );
 
       const message = result[0];
+      const recipientUserId = await getUserIdForUid(recipientUid);
 
-      // Queue notification for recipient (fire-and-forget)
-      notificationOutbox.queue({
+      // Persist notification intent without failing the message if delivery metadata is incomplete.
+      await notificationOutbox.queue({
         type: 'push',
-        recipientId: recipientUid,
+        recipientId: recipientUserId,
         title: priority === 'critical' ? '[CRITICAL] New staff message' : 'New staff message',
         body: subject || body.substring(0, 100),
         data: {
@@ -72,8 +83,6 @@ const messagingService = {
           sender_uid: senderUid,
           priority,
         },
-      }).catch((err) => {
-        logger.warn('Failed to queue notification for staff message:', err.message);
       });
 
       logger.info(`Staff message sent: ${message.id} from ${senderUid} to ${recipientUid} [${priority}]`);
@@ -98,14 +107,14 @@ const messagingService = {
 
     try {
       const countResult = await query(
-        `SELECT COUNT(*)::int AS total FROM staff_messages WHERE recipient_uid = $1`,
+        `SELECT COUNT(*)::int AS total FROM staff_messages WHERE recipient_uid = $1::uuid`,
         [staffUid]
       );
 
       const result = await query(
         `SELECT id, sender_uid, recipient_uid, patient_uid, subject, body, priority, is_read, read_at, created_at
          FROM staff_messages
-         WHERE recipient_uid = $1
+         WHERE recipient_uid = $1::uuid
          ORDER BY created_at DESC
          LIMIT $2 OFFSET $3`,
         [staffUid, safeLimit, offset]
@@ -133,23 +142,23 @@ const messagingService = {
    */
   async getThread(staffUid, otherStaffUid, patientUid = null) {
     try {
-      let query = `
+      let sql = `
         SELECT id, sender_uid, recipient_uid, patient_uid, subject, body, priority, is_read, read_at, created_at
         FROM staff_messages
         WHERE (
-          (sender_uid = $1 AND recipient_uid = $2)
-          OR (sender_uid = $2 AND recipient_uid = $1)
+          (sender_uid = $1::uuid AND recipient_uid = $2::uuid)
+          OR (sender_uid = $2::uuid AND recipient_uid = $1::uuid)
         )`;
       const params = [staffUid, otherStaffUid];
 
       if (patientUid) {
-        query += ` AND patient_uid = $3`;
+        sql += ` AND patient_uid = $3::uuid`;
         params.push(patientUid);
       }
 
-      query += ` ORDER BY created_at ASC`;
+      sql += ` ORDER BY created_at ASC`;
 
-      const result = await query(query, params);
+      const result = await query(sql, params);
       return result;
     } catch (err) {
       logger.error('Error fetching thread:', err.message);
@@ -169,7 +178,7 @@ const messagingService = {
       const result = await query(
         `UPDATE staff_messages
          SET is_read = true, read_at = NOW()
-         WHERE id = $1 AND recipient_uid = $2 AND is_read = false
+         WHERE id = $1 AND recipient_uid = $2::uuid AND is_read = false
          RETURNING id, is_read, read_at`,
         [messageId, staffUid]
       );
@@ -211,7 +220,7 @@ const messagingService = {
       const result = await query(
         `SELECT COUNT(*)::int AS unread_count
          FROM staff_messages
-         WHERE recipient_uid = $1 AND is_read = false`,
+         WHERE recipient_uid = $1::uuid AND is_read = false`,
         [staffUid]
       );
 
@@ -232,7 +241,7 @@ const messagingService = {
       const result = await query(
         `SELECT id, sender_uid, recipient_uid, patient_uid, subject, body, priority, is_read, read_at, created_at
          FROM staff_messages
-         WHERE patient_uid = $1
+         WHERE patient_uid = $1::uuid
          ORDER BY created_at ASC`,
         [patientUid]
       );

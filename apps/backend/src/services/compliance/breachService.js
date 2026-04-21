@@ -5,6 +5,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { normalizeAuditLogUserId } from '../../utils/auditLogIdentity.js';
 
 const VALID_SEVERITIES = ['low', 'medium', 'high', 'critical'];
 
@@ -244,7 +245,7 @@ function logBreachAudit(userId, action, breachId, details) {
            request_summary, status_code, success)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         
-          userId || null,
+          normalizeAuditLogUserId(userId),
           null,
           null,
           null,

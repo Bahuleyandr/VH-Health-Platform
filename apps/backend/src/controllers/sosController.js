@@ -22,8 +22,8 @@ export const createEmergencyAlert = async (req, res) => {
     }
 
     const alertData = {
-      phone,
       ...req.body,
+      phone,
       ip_address: req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null,
       userAgent: req.headers['user-agent'] || null,
       createdBy: req.user?.uid || 'patient_app'

@@ -9,6 +9,23 @@ import * as patientHealthService from '../../services/health/patientHealthServic
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 
+let vitalsSourceColumnsSupported;
+
+async function hasVitalsSourceColumns() {
+  if (vitalsSourceColumnsSupported !== undefined) {
+    return vitalsSourceColumnsSupported;
+  }
+
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT COUNT(*)::int AS count
+       FROM information_schema.columns
+      WHERE table_name = 'patient_vitals'
+        AND column_name IN ('source', 'recorded_at_source')`
+  );
+  vitalsSourceColumnsSupported = Number(rows[0]?.count || 0) === 2;
+  return vitalsSourceColumnsSupported;
+}
+
 export async function getPatientSummary(req, res) {
   try {
     const { patient_id } = req.params;
@@ -210,10 +227,7 @@ export async function recordPatientVitals(req, res) {
       return error(res, 'recordedAtSource must be a valid ISO-8601 timestamp', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const result = await prisma.$queryRawUnsafe(
-      `INSERT INTO patient_vitals (patient_uid, blood_pressure, heart_rate, temperature, blood_sugar, weight, spo2, mood, source, recorded_at_source)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING id, recorded_at, source, recorded_at_source`,
+    const baseParams = [
       uid,
       bloodPressure ? JSON.stringify(bloodPressure) : null,
       heartRate != null ? parseInt(heartRate, 10) : null,
@@ -222,9 +236,24 @@ export async function recordPatientVitals(req, res) {
       weight != null ? parseFloat(weight) : null,
       spO2 != null ? parseInt(spO2, 10) : null,
       moodNorm,
-      sourceNorm,
-      recordedAtSourceTs,
-    );
+    ];
+
+    const supportsSourceColumns = await hasVitalsSourceColumns();
+    const result = supportsSourceColumns
+      ? await prisma.$queryRawUnsafe(
+        `INSERT INTO patient_vitals (patient_uid, blood_pressure, heart_rate, temperature, blood_sugar, weight, spo2, mood, source, recorded_at_source)
+         VALUES ($1::uuid, $2::jsonb, $3, $4, $5, $6, $7, $8, $9, $10)
+         RETURNING id, recorded_at, source, recorded_at_source`,
+        ...baseParams,
+        sourceNorm,
+        recordedAtSourceTs,
+      )
+      : await prisma.$queryRawUnsafe(
+        `INSERT INTO patient_vitals (patient_uid, blood_pressure, heart_rate, temperature, blood_sugar, weight, spo2, mood)
+         VALUES ($1::uuid, $2::jsonb, $3, $4, $5, $6, $7, $8)
+         RETURNING id, recorded_at`,
+        ...baseParams,
+      );
 
     logPhiAccess({
       userId: uid,
@@ -244,8 +273,8 @@ export async function recordPatientVitals(req, res) {
     success(res, {
       id: result[0].id,
       recordedAt: result[0].recorded_at,
-      source: result[0].source,
-      recordedAtSource: result[0].recorded_at_source,
+      source: result[0].source || sourceNorm,
+      recordedAtSource: result[0].recorded_at_source || recordedAtSourceTs,
     }, 'Vitals recorded successfully');
   } catch (err) {
     logger.error('Record vitals error:', err);
@@ -268,13 +297,21 @@ export async function getVitalsSyncStatus(req, res) {
       return error(res, 'Access denied — you can only view your own sync status', HTTP_STATUS.FORBIDDEN);
     }
 
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT source, MAX(COALESCE(recorded_at_source, recorded_at)) AS last_at
-         FROM patient_vitals
-        WHERE patient_uid = $1
-        GROUP BY source`,
-      patient_id,
-    );
+    const supportsSourceColumns = await hasVitalsSourceColumns();
+    const rows = supportsSourceColumns
+      ? await prisma.$queryRawUnsafe(
+        `SELECT source, MAX(COALESCE(recorded_at_source, recorded_at)) AS last_at
+           FROM patient_vitals
+          WHERE patient_uid = $1::uuid
+          GROUP BY source`,
+        patient_id,
+      )
+      : await prisma.$queryRawUnsafe(
+        `SELECT 'manual'::text AS source, MAX(recorded_at) AS last_at
+           FROM patient_vitals
+          WHERE patient_uid = $1::uuid`,
+        patient_id,
+      );
     const bySource = {};
     for (const r of rows) bySource[r.source] = r.last_at;
 
@@ -307,12 +344,16 @@ export async function getPatientVitals(req, res) {
       requestId: req.id
     });
 
+    const supportsSourceColumns = await hasVitalsSourceColumns();
+    const sourceColumns = supportsSourceColumns
+      ? ', source, recorded_at_source AS "recordedAtSource"'
+      : ', \'manual\'::text AS source, NULL::timestamp AS "recordedAtSource"';
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, blood_pressure AS "bloodPressure", heart_rate AS "heartRate",
               temperature, blood_sugar AS "bloodSugar", weight, spo2 AS "spO2",
-              recorded_at AS "createdAt"
+              recorded_at AS "createdAt"${sourceColumns}
        FROM patient_vitals
-       WHERE patient_uid = $1
+       WHERE patient_uid = $1::uuid
        ORDER BY recorded_at DESC
        LIMIT 100`,
       patient_id

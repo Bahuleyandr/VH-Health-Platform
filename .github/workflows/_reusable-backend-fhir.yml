@@ -1,0 +1,100 @@
+name: Reusable Backend FHIR Conformance
+
+on:
+  workflow_call:
+    inputs:
+      notify_on_failure:
+        description: Send a Discord notification if the workflow fails.
+        required: false
+        type: boolean
+        default: false
+      notification_label:
+        description: Label to use in the Discord failure message.
+        required: false
+        type: string
+        default: Backend FHIR conformance
+    secrets:
+      DISCORD_WEBHOOK_URL:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  fhir-conformance:
+    name: Backend FHIR conformance
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/backend
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up JDK 17 (validator requires Java)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Cache validator JAR
+        id: cache-validator
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/fhir-validator
+          key: fhir-validator-6.3.11
+
+      - name: Download validator JAR
+        if: steps.cache-validator.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.cache/fhir-validator
+          curl -L -o ~/.cache/fhir-validator/validator_cli.jar \
+            https://github.com/hapifhir/org.hl7.fhir.core/releases/download/6.3.11/validator_cli.jar
+
+      - name: Validate sample bundles (R4)
+        run: |
+          if [ ! -d src/services/fhir/__samples__ ]; then
+            echo "No __samples__/ directory — skipping conformance run."
+            exit 0
+          fi
+          set -e
+          shopt -s nullglob
+          for f in src/services/fhir/__samples__/*.json; do
+            echo "=== Validating (informational) $f ==="
+            java -jar ~/.cache/fhir-validator/validator_cli.jar "$f" -version 4.0.1 || true
+          done
+
+      - name: Validate golden bundles strict (R4)
+        run: |
+          if [ ! -d src/services/fhir/__samples__/golden ]; then
+            echo "No golden/ subdirectory — skipping strict run."
+            exit 0
+          fi
+          shopt -s nullglob
+          failed=0
+          for f in src/services/fhir/__samples__/golden/*.json; do
+            echo "=== Validating (STRICT) $f ==="
+            if ! java -jar ~/.cache/fhir-validator/validator_cli.jar "$f" -version 4.0.1; then
+              failed=$((failed + 1))
+            fi
+          done
+          if [ "$failed" -gt 0 ]; then
+            echo "✗ $failed golden bundle(s) failed FHIR R4 validation."
+            exit 1
+          fi
+          echo "✓ All golden bundles validated clean."
+
+      - name: Notify Discord on failure
+        if: failure() && inputs.notify_on_failure
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL not configured — skipping notification."
+            exit 0
+          fi
+          curl -s -H "Content-Type: application/json" \
+            -d "{\"content\": \"🔴 **${{ inputs.notification_label }} failed** on \`${{ github.ref_name }}\`\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$DISCORD_WEBHOOK_URL" || true

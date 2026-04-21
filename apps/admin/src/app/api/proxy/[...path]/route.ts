@@ -77,6 +77,8 @@ function forwardableHeaders(incoming: Headers): HeadersInit {
     const k = key.toLowerCase();
     if (HOP_BY_HOP.has(k)) return;
     if (k === "host") return;
+    // The proxy may normalize or omit the body, so let fetch compute this.
+    if (k === "content-length") return;
     out[key] = value;
   });
   return out;
@@ -164,7 +166,9 @@ async function handleProxy(req: NextRequest) {
     const ct = req.headers.get("content-type") ?? "";
     if (ct.includes("application/json")) {
       const text = await req.text();
-      init.body = text;
+      if (text.length > 0) {
+        init.body = text;
+      }
       // Ensure content-type is set (normalize to lowercase, no duplicates)
       delete (headers as Record<string,string>)["content-type"];
       (headers as Record<string,string>)["content-type"] = "application/json";
@@ -174,7 +178,10 @@ async function handleProxy(req: NextRequest) {
     ) {
       init.body = await req.formData();
     } else {
-      init.body = await req.arrayBuffer();
+      const body = await req.arrayBuffer();
+      if (body.byteLength > 0) {
+        init.body = body;
+      }
     }
   }
 

@@ -3,60 +3,67 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { formatDate } from '../../utils/department/departmentHelpers.js';
 
+async function getDepartmentColumns() {
+  const rows = await prisma.$queryRaw`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'departments'
+  `;
+
+  return new Set(rows.map((row) => row.column_name));
+}
+
 class DepartmentExportService {
   async exportDepartmentsToCSV(filters = {}) {
     try {
       const { status = 'all' } = filters;
+      const departmentColumns = await getDepartmentColumns();
+      const hasHeadDoctor = departmentColumns.has('head_doctor_id');
+      const locationSelect = departmentColumns.has('location')
+        ? 'd.location'
+        : 'NULL::text AS location';
+      const contactSelect = departmentColumns.has('contact_number')
+        ? 'd.contact_number'
+        : 'NULL::text AS contact_number';
+      const budgetSelect = departmentColumns.has('budget')
+        ? 'd.budget'
+        : 'NULL::numeric AS budget';
+      const headDoctorSelect = hasHeadDoctor
+        ? 'u.name as head_doctor_name'
+        : 'NULL::text AS head_doctor_name';
+      const headDoctorJoin = hasHeadDoctor
+        ? 'LEFT JOIN users u ON d.head_doctor_id = u.id'
+        : '';
+      const whereClause = status === 'active'
+        ? 'WHERE d.is_active = true'
+        : status === 'inactive'
+          ? 'WHERE d.is_active = false'
+          : '';
+      const groupByExtras = [
+        departmentColumns.has('location') ? ', d.location' : '',
+        departmentColumns.has('contact_number') ? ', d.contact_number' : '',
+        departmentColumns.has('budget') ? ', d.budget' : '',
+        hasHeadDoctor ? ', u.name' : '',
+      ].join('');
 
-      let rows;
-      if (status === 'active') {
-        rows = await prisma.$queryRaw`
-          SELECT d.id, d.name, d.description, d.is_active, d.location,
-                 d.contact_number, d.budget, d.created_at, d.updated_at,
-                 u.name as head_doctor_name,
-                 COUNT(DISTINCT doc.user_id) as doctor_count,
-                 COUNT(DISTINCT s.user_id) as staff_count
-          FROM departments d
-          LEFT JOIN users u ON d.head_doctor_id = u.id
-          LEFT JOIN doctors doc ON doc.department = d.name
-          LEFT JOIN staff s ON s.department = d.name AND s.is_active = true
-          WHERE d.is_active = true
-          GROUP BY d.id, d.name, d.description, d.is_active, d.location,
-                   d.contact_number, d.budget, d.created_at, d.updated_at, u.name
-          ORDER BY d.name
-        `;
-      } else if (status === 'inactive') {
-        rows = await prisma.$queryRaw`
-          SELECT d.id, d.name, d.description, d.is_active, d.location,
-                 d.contact_number, d.budget, d.created_at, d.updated_at,
-                 u.name as head_doctor_name,
-                 COUNT(DISTINCT doc.user_id) as doctor_count,
-                 COUNT(DISTINCT s.user_id) as staff_count
-          FROM departments d
-          LEFT JOIN users u ON d.head_doctor_id = u.id
-          LEFT JOIN doctors doc ON doc.department = d.name
-          LEFT JOIN staff s ON s.department = d.name AND s.is_active = true
-          WHERE d.is_active = false
-          GROUP BY d.id, d.name, d.description, d.is_active, d.location,
-                   d.contact_number, d.budget, d.created_at, d.updated_at, u.name
-          ORDER BY d.name
-        `;
-      } else {
-        rows = await prisma.$queryRaw`
-          SELECT d.id, d.name, d.description, d.is_active, d.location,
-                 d.contact_number, d.budget, d.created_at, d.updated_at,
-                 u.name as head_doctor_name,
-                 COUNT(DISTINCT doc.user_id) as doctor_count,
-                 COUNT(DISTINCT s.user_id) as staff_count
-          FROM departments d
-          LEFT JOIN users u ON d.head_doctor_id = u.id
-          LEFT JOIN doctors doc ON doc.department = d.name
-          LEFT JOIN staff s ON s.department = d.name AND s.is_active = true
-          GROUP BY d.id, d.name, d.description, d.is_active, d.location,
-                   d.contact_number, d.budget, d.created_at, d.updated_at, u.name
-          ORDER BY d.name
-        `;
-      }
+      const rows = await prisma.$queryRawUnsafe(`
+        SELECT d.id, d.name, d.description, d.is_active,
+               ${locationSelect},
+               ${contactSelect},
+               ${budgetSelect},
+               d.created_at, d.updated_at,
+               ${headDoctorSelect},
+               COUNT(DISTINCT doc.user_id) as doctor_count,
+               COUNT(DISTINCT s.user_id) as staff_count
+        FROM departments d
+        ${headDoctorJoin}
+        LEFT JOIN doctors doc ON doc.department_id = d.id OR doc.department = d.name
+        LEFT JOIN staff s ON s.department = d.name AND s.is_active = true
+        ${whereClause}
+        GROUP BY d.id, d.name, d.description, d.is_active, d.created_at, d.updated_at
+                 ${groupByExtras}
+        ORDER BY d.name
+      `);
 
       const headers = [
         'ID', 'Name', 'Description', 'Status', 'Location',
@@ -92,13 +99,23 @@ class DepartmentExportService {
 
   async exportDepartmentReport(departmentId) {
     try {
+      const departmentColumns = await getDepartmentColumns();
+      const hasHeadDoctor = departmentColumns.has('head_doctor_id');
+      const deptInfoQuery = hasHeadDoctor
+        ? prisma.$queryRaw`
+            SELECT d.*, u.name as head_doctor_name
+            FROM departments d
+            LEFT JOIN users u ON d.head_doctor_id = u.id
+            WHERE d.id = ${departmentId}
+          `
+        : prisma.$queryRaw`
+            SELECT d.*, NULL::text as head_doctor_name
+            FROM departments d
+            WHERE d.id = ${departmentId}
+          `;
+
       const [deptInfo, stats, recentActivities] = await Promise.all([
-        prisma.$queryRaw`
-          SELECT d.*, u.name as head_doctor_name
-          FROM departments d
-          LEFT JOIN users u ON d.head_doctor_id = u.id
-          WHERE d.id = ${departmentId}
-        `,
+        deptInfoQuery,
         prisma.$queryRaw`
           SELECT
             COUNT(DISTINCT doc.user_id) as total_doctors,

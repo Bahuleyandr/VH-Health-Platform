@@ -174,12 +174,12 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
 
         if (date_from) {
           params.push(date_from);
-          whereConditions.push(`a.appointment_date >= $${params.length}`);
+          whereConditions.push(`a.appointment_date >= $${params.length}::date`);
         }
 
         if (date_to) {
           params.push(date_to);
-          whereConditions.push(`a.appointment_date <= $${params.length}`);
+          whereConditions.push(`a.appointment_date <= $${params.length}::date`);
         }
 
         const whereClause = whereConditions.length > 0 
@@ -348,23 +348,31 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
     ['/export', async (req, res) => {
       try {
         const { format = 'json', date_from, date_to, department_id } = req.query;
-
+        const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+        const dateFrom = date_from ? String(date_from).trim() : null;
+        const dateTo = date_to ? String(date_to).trim() : null;
+        const departmentId = department_id ? String(department_id).trim() : null;
         const whereConditions = [];
-        const params = [];
 
-        if (date_from) {
-          params.push(date_from);
-          whereConditions.push(`a.appointment_date >= $${params.length}`);
+        if (dateFrom) {
+          if (!isoDatePattern.test(dateFrom)) {
+            return error(res, 'date_from must be in YYYY-MM-DD format', HTTP_STATUS.BAD_REQUEST);
+          }
+          whereConditions.push(`a.appointment_date >= DATE '${dateFrom}'`);
         }
 
-        if (date_to) {
-          params.push(date_to);
-          whereConditions.push(`a.appointment_date <= $${params.length}`);
+        if (dateTo) {
+          if (!isoDatePattern.test(dateTo)) {
+            return error(res, 'date_to must be in YYYY-MM-DD format', HTTP_STATUS.BAD_REQUEST);
+          }
+          whereConditions.push(`a.appointment_date <= DATE '${dateTo}'`);
         }
 
-        if (department_id) {
-          params.push(department_id);
-          whereConditions.push(`doc.department_id = $${params.length}`);
+        if (departmentId) {
+          if (!/^\d+$/.test(departmentId)) {
+            return error(res, 'department_id must be a numeric ID', HTTP_STATUS.BAD_REQUEST);
+          }
+          whereConditions.push(`doc.department_id = ${departmentId}`);
         }
 
         const whereClause = whereConditions.length > 0 
@@ -375,28 +383,29 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           SELECT 
             a.id,
             a.appointment_date,
+            a.appointment_time,
             a.status,
             a.reason,
-            p.name as patient_name,
-            p.phone as patient_phone,
-            d.name as doctor_name,
-            dept.name as department,
-            a.consultation_duration_minutes,
+            COALESCE(a.patient_name, p.name) as patient_name,
+            COALESCE(p.phone, a.phone) as patient_phone,
+            COALESCE(a.doctor_name, d.name, doc.name) as doctor_name,
+            COALESCE(a.department, dept.name, doc.department) as department,
+            NULL::integer as consultation_duration_minutes,
             a.notes
           FROM appointments a
-          JOIN users p ON a.patient_id = p.id
-          JOIN doctors doc ON a.doctor_id = doc.id
-          JOIN users d ON doc.user_id = d.id
-          JOIN departments dept ON doc.department_id = dept.id
+          LEFT JOIN users p ON a.patient_id = p.id
+          LEFT JOIN doctors doc ON a.doctor_id = doc.id
+          LEFT JOIN users d ON doc.user_id = d.id
+          LEFT JOIN departments dept ON doc.department_id = dept.id
           ${whereClause}
-          ORDER BY a.appointment_date DESC
-        `, params);
+          ORDER BY a.appointment_date DESC, a.appointment_time DESC NULLS LAST
+        `);
 
         if (format === 'csv') {
           const csv = [
             'ID,Date,Time,Patient,Phone,Doctor,Department,Status,Duration(min),Reason',
             ...appointments.map(a => 
-              `${a.id},"${new Date(a.appointment_date).toLocaleDateString()}","${new Date(a.appointment_date).toLocaleTimeString()}","${a.patient_name}","${a.patient_phone}","${a.doctor_name}","${a.department}","${a.status}",${a.consultation_duration_minutes || ''},"${a.reason || ''}"`
+              `${a.id},"${new Date(a.appointment_date).toLocaleDateString()}","${a.appointment_time || ''}","${a.patient_name || ''}","${a.patient_phone || ''}","${a.doctor_name || ''}","${a.department || ''}","${a.status || ''}",${a.consultation_duration_minutes || ''},"${a.reason || ''}"`
             )
           ].join('\n');
 
@@ -409,7 +418,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           appointments: appointments,
           count: appointments.length,
           exportDate: new Date().toISOString(),
-          filters: { date_from, date_to, department_id },
+          filters: { date_from: dateFrom, date_to: dateTo, department_id: departmentId },
           requestedBy: req.user?.name
         }, 'Appointments exported successfully');
 

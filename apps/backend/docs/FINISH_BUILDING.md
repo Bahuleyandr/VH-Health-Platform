@@ -277,6 +277,11 @@ input before we execute.
 Cross-cutting plumbing that doesn't map to any single roadmap bullet but
 is required before pointing real users at this.
 
+- [x] **4.0** Scheduled full-stack CI sweep — 2026-04-18: root
+      `.github/workflows/all.yml` runs Flutter workspace checks, backend
+      lint/swagger/prisma/tests + FHIR conformance, and admin lint/type-check/
+      jest/build on weekday cron + `workflow_dispatch`. Catches cross-stack
+      drift that the path-filtered PR workflows intentionally skip.
 - [ ] **4.1** CI: matrix workflow that runs backend jest, each Flutter analyze+test,
       and admin jest on every PR. Block merge on failure.
 - [ ] **4.2** CD: staging deploy pipeline per repo, production manual-approve.

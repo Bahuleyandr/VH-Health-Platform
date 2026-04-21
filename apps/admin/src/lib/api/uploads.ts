@@ -16,11 +16,18 @@ export function getHipaaAuditReport<T = unknown>(params?: {
   startDate?: string | null;
   endDate?: string | null;
 }) {
-  return postJSON<T>(API_ENDPOINTS.admin.uploads.hipaaAudit, params || {});
+  return getJSON<T>(API_ENDPOINTS.admin.uploads.hipaaAudit, {
+    limit: params?.limit,
+    offset: params?.offset,
+    start_date: params?.startDate ?? undefined,
+    end_date: params?.endDate ?? undefined,
+  });
 }
 
 export function rescanFile<T = unknown>(fileId: string) {
-  return postJSON<T>(API_ENDPOINTS.admin.uploads.rescan, { fileId });
+  return postJSON<T>(
+    API_ENDPOINTS.admin.uploads.rescan.replace(":fileId", encodeURIComponent(fileId)),
+  );
 }
 
 export function cleanupExpiredFiles<T = unknown>(dryRun = true) {

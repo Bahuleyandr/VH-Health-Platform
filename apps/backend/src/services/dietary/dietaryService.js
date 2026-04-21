@@ -7,6 +7,16 @@ import { AppError } from '../../utils/AppError.js';
 const VALID_DIET_TYPES = ['regular', 'diabetic', 'cardiac', 'renal', 'soft', 'liquid', 'npo', 'enteral'];
 const VALID_STATUSES = ['active', 'on_hold', 'discontinued'];
 
+const toTextArray = (value) => {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value.split(/[,\n;]/).map((item) => item.trim()).filter(Boolean);
+  }
+  return [];
+};
+
 class DietaryService {
 
   /**
@@ -27,15 +37,18 @@ class DietaryService {
       throw AppError.badRequest(`Invalid diet_type. Must be one of: ${VALID_DIET_TYPES.join(', ')}`);
     }
 
+    const normalizedRestrictions = toTextArray(restrictions);
+    const normalizedAllergies = toTextArray(allergies);
+
     const result = await prisma.$queryRawUnsafe(
       `INSERT INTO diet_orders
         (patient_uid, encounter_id, diet_type, restrictions, allergies, meal_preferences,
          calories_target, special_instructions, status, ordered_by, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', $9, NOW())
+       VALUES ($1::uuid, $2, $3, $4::text[], $5::text[], $6, $7, $8, 'active', $9::uuid, NOW())
        RETURNING id, patient_uid, encounter_id, diet_type, restrictions, allergies,
                  meal_preferences, calories_target, special_instructions, status, ordered_by, created_at`,
       
-        patient_uid, encounter_id || null, diet_type, restrictions, allergies,
+        patient_uid, encounter_id || null, diet_type, normalizedRestrictions, normalizedAllergies,
         meal_preferences || null, calories_target || null, special_instructions || null, ordered_by
       
     );
@@ -117,13 +130,16 @@ class DietaryService {
            calories_target = COALESCE($5, calories_target),
            special_instructions = COALESCE($6, special_instructions),
            status = COALESCE($7, status),
-           reviewed_by = COALESCE($8, reviewed_by)
+           reviewed_by = COALESCE($8::uuid, reviewed_by),
+           updated_at = NOW()
        WHERE id = $9
        RETURNING id, patient_uid, encounter_id, diet_type, restrictions, allergies,
                  meal_preferences, calories_target, special_instructions, status,
                  ordered_by, reviewed_by, created_at`,
       
-        diet_type || null, restrictions || null, allergies || null,
+        diet_type || null,
+        restrictions !== undefined ? toTextArray(restrictions) : null,
+        allergies !== undefined ? toTextArray(allergies) : null,
         meal_preferences || null, calories_target || null,
         special_instructions || null, status || null,
         reviewed_by || null, id
@@ -142,7 +158,7 @@ class DietaryService {
     const offset = (Math.max(1, parseInt(page, 10)) - 1) * parseInt(limit, 10);
 
     const countResult = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*) FROM diet_orders WHERE patient_uid = $1`,
+      `SELECT COUNT(*) FROM diet_orders WHERE patient_uid = $1::uuid`,
       patientUid
     );
     const total = parseInt(countResult[0].count, 10);
@@ -152,7 +168,7 @@ class DietaryService {
               meal_preferences, calories_target, special_instructions, status,
               ordered_by, reviewed_by, created_at
        FROM diet_orders
-       WHERE patient_uid = $1
+       WHERE patient_uid = $1::uuid
        ORDER BY created_at DESC
        LIMIT $2 OFFSET $3`,
       patientUid, parseInt(limit, 10), offset
@@ -194,7 +210,7 @@ class DietaryService {
 
     const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM diet_orders ${whereClause}`,
-      params
+      ...params
     );
     const total = parseInt(countResult[0].count, 10);
 
@@ -209,7 +225,7 @@ class DietaryService {
        ${whereClause}
        ORDER BY created_at DESC
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
-      params
+      ...params
     );
 
     return {

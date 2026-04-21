@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "react-hot-toast";
+import { buildProxyUrl } from "@/lib/api-config";
 import {
   getComplianceCalendar,
   getFnFList,
@@ -57,6 +58,10 @@ function sum80D(d: InvestmentDeclaration): number {
 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
+function proxyDownloadHref(path: string): string {
+  return buildProxyUrl(path);
+}
+
 // ─── Section A: Compliance Calendar ──────────────────────────────────────────
 
 function ComplianceCalendarSection() {
@@ -65,6 +70,9 @@ function ComplianceCalendarSection() {
     queryFn: () => getComplianceCalendar(),
   });
   const cal = unwrap<{ deadlines: ComplianceDeadline[]; current_month: number; current_year: number }>(calRaw);
+  const exportMonth = cal?.current_month ?? new Date().getMonth() + 1;
+  const exportYear = cal?.current_year ?? new Date().getFullYear();
+  const exportQuery = `month=${exportMonth}&year=${exportYear}`;
 
   if (isLoading) return <div className="py-8 text-center text-gray-400">Loading calendar...</div>;
   if (!cal) return null;
@@ -77,13 +85,13 @@ function ComplianceCalendarSection() {
         </h3>
         <div className="flex gap-2">
           <a
-            href="/api/v1/staff/admin/payroll/export/pf"
+            href={proxyDownloadHref(`/api/v1/staff/admin/payroll/export/pf?${exportQuery}`)}
             className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
           >
             ⬇ PF ECR
           </a>
           <a
-            href="/api/v1/staff/admin/payroll/export/esi"
+            href={proxyDownloadHref(`/api/v1/staff/admin/payroll/export/esi?${exportQuery}`)}
             className="px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700"
           >
             ⬇ ESI Register

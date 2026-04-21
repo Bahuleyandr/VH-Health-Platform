@@ -37,7 +37,7 @@ export async function exportRecordsToPDF(filters, userRole) {
     doc.text(record.patient_name || 'N/A', 150, yPosition);
     doc.text(record.record_type, 250, yPosition);
     doc.text(record.doctor_name || 'N/A', 350, yPosition);
-    doc.text(record.title.substring(0, 30), 450, yPosition);
+    doc.text((record.title || '').substring(0, 30), 450, yPosition);
     
     yPosition += 20;
   });

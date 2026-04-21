@@ -4,6 +4,7 @@
 import { User, Doctor } from "@/lib/types";
 import { useState } from "react";
 import { FileTextIcon, BarChartIcon } from "@/components/icons";
+import { API_ENDPOINTS, buildProxyUrl } from "@/lib/api-config";
 
 interface ReportGeneratorProps {
   users: User[];
@@ -37,13 +38,16 @@ export function ReportGenerator({ users, doctors }: ReportGeneratorProps) {
     if (filters.date_from) queryParams.set("date_from", filters.date_from);
     if (filters.date_to) queryParams.set("date_to", filters.date_to);
     if (filters.report_type !== "all")
-      queryParams.set("report_type", filters.report_type);
+      queryParams.set("type", filters.report_type);
 
     try {
       // Auth is via httpOnly cookie — sent automatically with credentials: "include".
       // Route through /api/proxy to ensure the backend API key is injected server-side.
+      const endpoint =
+        format === "pdf" ? API_ENDPOINTS.records.exportPdf : API_ENDPOINTS.records.exportExcel;
+      const query = queryParams.toString();
       const response = await fetch(
-        `/api/proxy/records/export/${format}?${queryParams.toString()}`,
+        `${buildProxyUrl(endpoint)}${query ? `?${query}` : ""}`,
         {
           credentials: "include",
         },
