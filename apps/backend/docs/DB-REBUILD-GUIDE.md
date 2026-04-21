@@ -22,10 +22,12 @@ This document is the single source of truth for rebuilding the VHHealth PostgreS
 ### Docker (local / Pi)
 
 ```bash
+export VH_POSTGRES_PASSWORD="<choose-strong-local-password>"
+
 docker run -d \
   --name vhhealth-db \
   -e POSTGRES_USER=vhhealth \
-  -e POSTGRES_PASSWORD='<local-db-password>' \
+  -e POSTGRES_PASSWORD="$VH_POSTGRES_PASSWORD" \
   -e POSTGRES_DB=vhhealth \
   -p 127.0.0.1:5433:5432 \
   --restart unless-stopped \
@@ -37,7 +39,7 @@ docker run -d \
 Create a database, get the connection string. Set in `.env`:
 
 ```
-DATABASE_URL=postgresql://<user>:<password>@host:5432/vhhealth?sslmode=require
+DATABASE_URL=postgresql://<user>:<password>@<host>:5432/vhhealth?sslmode=require
 ```
 
 ---
@@ -63,7 +65,7 @@ This applies:
 These migrations add the remaining 100+ tables, extended columns, and features. **Order matters.**
 
 ```bash
-DB_URL="postgresql://vhhealth:<local-db-password-urlencoded>@localhost:5433/vhhealth"
+DB_URL="${DATABASE_URL:?Set DATABASE_URL before applying migrations}"
 
 MIGRATIONS=(
   "002_investigations_notification.sql"
@@ -124,6 +126,7 @@ Expected output: `164`, `0`, `0`
 
 ```bash
 cd vhhealth-backend
+export ADMIN_BOOTSTRAP_PASSWORD="<choose-strong-admin-password>"
 node src/scripts/create-admin.js
 ```
 
@@ -173,7 +176,7 @@ The file `docs/schema-dump.sql` in this repo is the canonical schema snapshot â€
 
 ```
 # Local Docker (Pi)
-DATABASE_URL=postgresql://vhhealth:<local-db-password-urlencoded>@localhost:5433/vhhealth
+DATABASE_URL=postgresql://<local-user>:<local-password>@localhost:5433/vhhealth
 
 # Production template (replace with actual credentials)
 DATABASE_URL=postgresql://<user>:<password>@<host>:5432/vhhealth?sslmode=require

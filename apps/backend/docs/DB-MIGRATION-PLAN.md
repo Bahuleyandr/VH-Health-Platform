@@ -85,7 +85,7 @@ All four services use standard PostgreSQL — migration between them later is st
 ```bash
 # Example: Neon
 # 1. Create project at neon.tech
-# 2. Get connection string: postgresql://<user>:<password>@host/dbname?sslmode=require
+# 2. Get connection string: postgresql://<user>:<password>@<host>/<database>?sslmode=require
 # 3. Set as DATABASE_URL in production env
 
 # Example: Railway

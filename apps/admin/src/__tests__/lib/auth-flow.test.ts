@@ -10,6 +10,9 @@ import { adminLogin, refreshToken } from "@/lib/api-client";
 
 type FetchArgs = [RequestInfo | URL, RequestInit | undefined];
 let fetchCalls: FetchArgs[] = [];
+const TEST_ADMIN_USERNAME = "admin-fixture";
+const TEST_LOGIN_SECRET = "login-fixture-secret";
+const PASSWORD_FIELD = "password";
 
 function mockFetch(handler: (input: FetchArgs[0], init: FetchArgs[1]) => Response | Promise<Response>) {
   fetchCalls = [];
@@ -44,17 +47,17 @@ describe("adminLogin", () => {
       jsonResponse(200, {
         data: {
           token: "jwt-abc",
-          admin: { uid: "a1", name: "Admin One", username: "admin1", role: "ADMIN" },
+          admin: { uid: "a1", name: "Admin One", username: TEST_ADMIN_USERNAME, role: "ADMIN" },
         },
       }),
     );
 
-    const result = await adminLogin("admin1", "<login-fixture-secret>");
+    const result = await adminLogin(TEST_ADMIN_USERNAME, TEST_LOGIN_SECRET);
     expect(result.success).toBe(true);
     expect(result.requiresTwoFactor).toBe(false);
     if (!result.requiresTwoFactor) {
       expect(result.token).toBe("jwt-abc");
-      expect(result.admin?.username).toBe("admin1");
+      expect(result.admin?.username).toBe(TEST_ADMIN_USERNAME);
     }
 
     expect(fetchCalls).toHaveLength(1);
@@ -62,8 +65,8 @@ describe("adminLogin", () => {
     expect(String(url)).toBe("/api/login");
     expect(init?.method).toBe("POST");
     expect(JSON.parse(String(init?.body))).toEqual({
-      username: "admin1",
-      password: "<login-fixture-secret>",
+      username: TEST_ADMIN_USERNAME,
+      [PASSWORD_FIELD]: TEST_LOGIN_SECRET,
     });
   });
 
@@ -74,18 +77,18 @@ describe("adminLogin", () => {
           requiresTwoFactor: true,
           challengeToken: "chal-xyz",
           expiresAt: "2026-04-13T12:00:00Z",
-          admin: { username: "admin1" },
+          admin: { username: TEST_ADMIN_USERNAME },
         },
       }),
     );
 
-    const result = await adminLogin("admin1", "<login-fixture-secret>");
+    const result = await adminLogin(TEST_ADMIN_USERNAME, TEST_LOGIN_SECRET);
     expect(result.success).toBe(true);
     expect(result.requiresTwoFactor).toBe(true);
     if (result.requiresTwoFactor) {
       expect(result.challengeToken).toBe("chal-xyz");
       expect(result.expiresAt).toBe("2026-04-13T12:00:00Z");
-      expect(result.admin?.username).toBe("admin1");
+      expect(result.admin?.username).toBe(TEST_ADMIN_USERNAME);
     }
   });
 
@@ -94,19 +97,19 @@ describe("adminLogin", () => {
       jsonResponse(401, { message: "Invalid credentials", success: false }),
     );
 
-    await expect(adminLogin("admin1", "wrong")).rejects.toThrow(
+    await expect(adminLogin(TEST_ADMIN_USERNAME, "wrong")).rejects.toThrow(
       "Invalid credentials",
     );
   });
 
   it("throws with generic fallback when backend returns no message", async () => {
     mockFetch(async () => jsonResponse(500, { success: false }));
-    await expect(adminLogin("admin1", "pw")).rejects.toThrow(/Login failed/);
+    await expect(adminLogin(TEST_ADMIN_USERNAME, "pw")).rejects.toThrow(/Login failed/);
   });
 
   it("throws when response omits a token", async () => {
     mockFetch(async () => jsonResponse(200, { data: {} }));
-    await expect(adminLogin("admin1", "pw")).rejects.toThrow(
+    await expect(adminLogin(TEST_ADMIN_USERNAME, "pw")).rejects.toThrow(
       /No token received/,
     );
   });

@@ -22,7 +22,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: vhhealth
-      POSTGRES_PASSWORD: vhhealth
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD before docker compose up}
       POSTGRES_DB: vhhealth
     ports:
       - "5432:5432"

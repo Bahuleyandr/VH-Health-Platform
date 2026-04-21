@@ -11,6 +11,11 @@ const pool = new Pool({
   ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : false,
 });
 
+const adminUsername = process.env.ADMIN_BOOTSTRAP_USERNAME || 'admin';
+const adminEmail = process.env.ADMIN_BOOTSTRAP_EMAIL || 'admin@vhhealth.com';
+const adminName = process.env.ADMIN_BOOTSTRAP_NAME || 'Super Admin';
+const adminPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD;
+
 async function run(client, sql, label) {
   try {
     await client.query(sql);
@@ -858,30 +863,32 @@ async function initDB() {
 
     // ─── Seed Admin User ───────────────────────────────────────────────────────
     console.log('\n🔑 Seeding admin user...');
-    // ⚠️  CHANGE THIS PASSWORD IMMEDIATELY AFTER FIRST LOGIN — do not use in production
-    const password = '<admin-bootstrap-password>';
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    const existing = await client.query(
-      'SELECT username FROM admins WHERE username = $1',
-      ['admin']
-    );
-
-    if (existing.rows.length > 0) {
-      await client.query(
-        'UPDATE admins SET password_hash = $1, is_active = true, status = $2 WHERE username = $3',
-        [passwordHash, 'active', 'admin']
-      );
-      console.log('  ✅ Admin password reset (user already existed)');
+    if (!adminPassword) {
+      console.log('  ⚠️  Skipped admin seed; set ADMIN_BOOTSTRAP_PASSWORD to create or reset the first admin.');
     } else {
-      await client.query(`
-        INSERT INTO admins (username, password_hash, email, name, role, is_active, status, permissions)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      `, [
-        'admin', passwordHash, 'admin@vhhealth.com',
-        'Super Admin', 'SUPER_ADMIN', true, 'active', ['all']
-      ]);
-      console.log('  ✅ Admin user created (admin / <admin-bootstrap-password>)  ← CHANGE PASSWORD IMMEDIATELY');
+      const passwordHash = await bcrypt.hash(adminPassword, 10);
+
+      const existing = await client.query(
+        'SELECT username FROM admins WHERE username = $1',
+        [adminUsername]
+      );
+
+      if (existing.rows.length > 0) {
+        await client.query(
+          'UPDATE admins SET password_hash = $1, is_active = true, status = $2 WHERE username = $3',
+          [passwordHash, 'active', adminUsername]
+        );
+        console.log('  ✅ Admin password reset from ADMIN_BOOTSTRAP_PASSWORD');
+      } else {
+        await client.query(`
+          INSERT INTO admins (username, password_hash, email, name, role, is_active, status, permissions)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `, [
+          adminUsername, passwordHash, adminEmail,
+          adminName, 'SUPER_ADMIN', true, 'active', ['all']
+        ]);
+        console.log(`  ✅ Admin user created (${adminUsername})`);
+      }
     }
 
     await client.query('COMMIT');

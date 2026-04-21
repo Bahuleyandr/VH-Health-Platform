@@ -95,7 +95,7 @@ VH Health Backend is a production-ready, enterprise-grade hospital management sy
 4. **Required Environment Variables**
    ```env
    # Database Configuration
-   DATABASE_URL=postgresql://<user>:<password>@localhost:5432/vh_health
+   DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<database>
    
    # Security Keys
    API_KEY=your-secure-api-key
@@ -441,7 +441,7 @@ logger.debug('Debug information');
 # Production environment variables
 NODE_ENV=production
 PORT=5000
-DATABASE_URL=postgresql://<user>:<password>@prod-host:5432/vh_health_prod
+DATABASE_URL=postgresql://<user>:<password>@<host>:5432/<database>
 
 # Security
 API_KEY=your-production-api-key

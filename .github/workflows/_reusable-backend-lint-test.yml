@@ -34,7 +34,7 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_USER: vhhealth
-          POSTGRES_PASSWORD: test
+          POSTGRES_PASSWORD: ${{ github.run_id }}
           POSTGRES_DB: vhhealth
         ports:
           - 5432:5432
@@ -45,7 +45,7 @@ jobs:
           --health-retries 5
 
     env:
-      DATABASE_URL: postgresql://<user>:<password>@localhost:5432/vhhealth
+      DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@localhost:5432/vhhealth
       API_KEY: test-api-key
       JWT_SECRET: test-jwt-secret-for-ci-must-be-at-least-32-chars
       NODE_ENV: test

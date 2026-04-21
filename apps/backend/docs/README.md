@@ -28,6 +28,6 @@ DB size:    ~18 MB (dev data only)
 
 ```
 # Local / Pi
-DATABASE_URL=postgresql://vhhealth:<local-db-password-urlencoded>@localhost:5433/vhhealth
+DATABASE_URL=postgresql://<local-user>:<local-password>@localhost:5433/vhhealth
 docker exec vhhealth-db psql -U vhhealth -d vhhealth
 ```

@@ -1,14 +1,36 @@
 title = "VH Health gitleaks config"
 
+[[rules]]
+id = "vh-postgres-url-with-credentials"
+description = "PostgreSQL URL with inline literal credentials"
+regex = '''postgres(?:ql)?://[A-Za-z0-9._~%-]+:[A-Za-z0-9._~!$&'()*+,;=%-]+@'''
+keywords = [
+  "postgres://",
+  "postgresql://",
+]
+
+[[rules]]
+id = "vh-hardcoded-password-assignment"
+description = "Hardcoded password-like assignment with credential-shaped literal"
+regex = '''(?i)\b(?:password|passwd|pwd|secret)\b["']?\s*[:=]\s*["'][A-Za-z0-9_./-]*[0-9!@#$%^&*][A-Za-z0-9_!@#$%^&*().,+=/-]{3,}["']'''
+keywords = [
+  "password",
+  "passwd",
+  "secret",
+]
+
 [extend]
 useDefault = true
 
 [allowlist]
 description = "Repo-specific generated files, public Firebase client config, and test placeholders."
 paths = [
+  '''(^|/)\.dart_tool/''',
   '''(^|/)apps/admin/\.next/''',
   '''(^|/)apps/patient/build/''',
+  '''(^|/)apps/staff/build/''',
   '''(^|/)output/''',
+  '''(^|/)packages/vhhealth_core/build/''',
   '''(^|/)scripts/scan-secrets\.mjs$''',
   '''(^|/)firebase_options\.dart$''',
   '''(^|/)google-services\.json$''',

@@ -10,6 +10,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 dotenv.config({ path: join(__dirname, '../../.env.local') });
 
+const adminUsername = process.env.ADMIN_BOOTSTRAP_USERNAME || 'admin';
+const adminEmail = process.env.ADMIN_BOOTSTRAP_EMAIL || 'admin@vhhealth.com';
+const adminName = process.env.ADMIN_BOOTSTRAP_NAME || 'Super Admin';
+const adminPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD;
+
+if (!adminPassword) {
+  console.error('ADMIN_BOOTSTRAP_PASSWORD is required. Refusing to create a default admin password.');
+  process.exit(1);
+}
+
 // Create database connection
 const { Pool } = pg;
 const pool = new Pool({
@@ -55,15 +65,12 @@ async function createTestAdmin() {
       console.log('✅ Admins table created successfully!');
     }
     
-    // Hash the password
-    // ⚠️  CHANGE THIS PASSWORD IMMEDIATELY AFTER FIRST LOGIN — do not use in production
-    const password = '<admin-bootstrap-password>';
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(adminPassword, 10);
     
     // Check if admin already exists
     const existing = await client.query(
       'SELECT username FROM admins WHERE username = $1',
-      ['admin']
+      [adminUsername]
     );
     
     if (existing.rows.length > 0) {
@@ -72,9 +79,9 @@ async function createTestAdmin() {
       // Update the password for existing admin
       await client.query(
         'UPDATE admins SET password_hash = $1 WHERE username = $2',
-        [passwordHash, 'admin']
+        [passwordHash, adminUsername]
       );
-      console.log('✅ Admin password updated!');
+      console.log('✅ Admin password updated from ADMIN_BOOTSTRAP_PASSWORD.');
       return;
     }
     
@@ -84,10 +91,10 @@ async function createTestAdmin() {
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING uid, username, email, name, role
     `, [
-      'admin', 
+      adminUsername,
       passwordHash, 
-      'admin@vhhealth.com', 
-      'Super Admin', 
+      adminEmail,
+      adminName,
       'SUPER_ADMIN', 
       true,
       ['all'] // Give all permissions
@@ -95,9 +102,9 @@ async function createTestAdmin() {
     
     console.log('\n✅ Admin created successfully!');
     console.log('=====================================');
-    console.log('🔑 Username: admin');
-    console.log('🔐 Password: <admin-bootstrap-password>  ← CHANGE THIS IMMEDIATELY');
-    console.log('📧 Email: admin@vhhealth.com');
+    console.log(`🔑 Username: ${adminUsername}`);
+    console.log('🔐 Password: loaded from ADMIN_BOOTSTRAP_PASSWORD');
+    console.log(`📧 Email: ${adminEmail}`);
     console.log('=====================================\n');
     console.log('Admin details:', result.rows[0]);
     
