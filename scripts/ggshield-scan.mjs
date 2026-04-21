@@ -17,11 +17,42 @@ const ggshieldBin = process.env.GGSHIELD_BIN ||
     : 'ggshield');
 
 const commonScanOptions = ['--no-check-for-updates'];
+const pathSkipPatterns = [
+  /^apps\/admin\/\.env\.example$/,
+  /^apps\/backend\/backups\//,
+  /^apps\/backend\/src\/docs\/swagger.*\.json$/,
+  /^apps\/patient\/(macos|windows|ios|linux|web)\//,
+  /^apps\/patient\/assets\/fonts\//,
+  /^apps\/patient\/local_plugins\//,
+  /^apps\/staff\/(macos|windows|ios|linux|web)\//,
+  /^packages\/vhhealth_core\/lib\/api\/generated\//,
+  /^apps\/[^/]+\/build\//,
+  /^packages\/[^/]+\/build\//,
+  /\.zip$/i,
+  /\.tar\.gz$/i,
+  /\.tgz$/i,
+  /\.gz$/i,
+  /\.(png|jpg|jpeg|gif|webp|ico|pdf|xib)$/i,
+  /\.(ttf|otf|woff|woff2|lnk)$/i,
+];
+
+const pathIncludePatterns = [
+  /^\.github\//,
+  /^scripts\//,
+  /^apps\/admin\/(src|docs|scripts|public)\//,
+  /^apps\/backend\/(src|docs|deploy|migrations|prisma|scripts)\//,
+  /^apps\/patient\/(android|lib|test)\//,
+  /^apps\/staff\/(android|lib|test)\//,
+  /^packages\/vhhealth_core\/(lib|test)\//,
+  /(^|\/)(Dockerfile|docker-compose[^/]*\.ya?ml|package\.json|package-lock\.json|pubspec\.ya?ml|pubspec\.lock|melos\.ya?ml|lefthook\.yml|CLAUDE\.md|README\.md|\.gitignore|\.gitleaks\.toml|.*\.env\.example|.*\.properties|.*\.gradle\.kts|.*\.plist)$/i,
+  /\.(js|mjs|cjs|ts|tsx|jsx|dart|json|ya?ml|toml|md|sql|ps1|sh|html|css|scss|xml|txt)$/i,
+];
 function run(command, args, options = {}) {
   return spawnSync(command, args, {
     cwd: repoRoot,
     encoding: 'utf8',
     stdio: options.capture ? 'pipe' : ['ignore', 'pipe', 'pipe'],
+    input: options.input,
     shell: false,
   });
 }
@@ -66,26 +97,67 @@ function hasCommits(commitRange) {
   return Number.parseInt(result.stdout.trim(), 10) > 0;
 }
 
-function trackedPathListArg() {
+function listAllCandidatePaths() {
   const result = run('git', ['ls-files', '--cached', '--others', '--exclude-standard'], { capture: true });
   if (result.status !== 0) {
     console.error(result.stderr || 'Unable to list git-tracked paths for GitGuardian scan.');
     process.exit(result.status ?? 1);
   }
 
-  const paths = result.stdout
+  return result.stdout
     .split(/\r?\n/)
     .map((path) => path.trim())
     .filter(Boolean);
+}
 
-  if (paths.length === 0) {
-    console.log('GitGuardian working tree scan skipped: no files to scan.');
+function listChangedCandidatePaths() {
+  const candidates = new Set();
+  const upstream = getOutput('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
+  if (upstream) {
+    const diff = getOutput('git', ['diff', '--name-only', `${upstream}..HEAD`]);
+    diff.split(/\r?\n/).map((path) => path.trim()).filter(Boolean).forEach((path) => candidates.add(path));
+  }
+
+  const unstaged = getOutput('git', ['diff', '--name-only']);
+  unstaged.split(/\r?\n/).map((path) => path.trim()).filter(Boolean).forEach((path) => candidates.add(path));
+
+  const staged = getOutput('git', ['diff', '--name-only', '--cached']);
+  staged.split(/\r?\n/).map((path) => path.trim()).filter(Boolean).forEach((path) => candidates.add(path));
+
+  const untracked = getOutput('git', ['ls-files', '--others', '--exclude-standard']);
+  untracked.split(/\r?\n/).map((path) => path.trim()).filter(Boolean).forEach((path) => candidates.add(path));
+
+  return [...candidates];
+}
+
+function filteredPathListArg(paths, label) {
+  const existingPaths = paths.filter((path) => existsSync(resolve(repoRoot, path)));
+
+  const ignored = run('git', ['check-ignore', '--no-index', '--stdin'], {
+    capture: true,
+    input: `${existingPaths.join('\n')}\n`,
+  });
+  const ignoredPaths = new Set(
+    (ignored.stdout || '')
+      .split(/\r?\n/)
+      .map((path) => path.trim())
+      .filter(Boolean)
+  );
+
+  const scannablePaths = existingPaths.filter((path) =>
+    !ignoredPaths.has(path) &&
+    !pathSkipPatterns.some((pattern) => pattern.test(path)) &&
+    pathIncludePatterns.some((pattern) => pattern.test(path))
+  );
+
+  if (scannablePaths.length === 0) {
+    console.log(`GitGuardian ${label} scan skipped: no files to scan.`);
     process.exit(0);
   }
 
   const tempDir = mkdtempSync(resolve(tmpdir(), 'vhhealth-ggshield-'));
   const pathList = resolve(tempDir, 'paths.txt');
-  writeFileSync(pathList, `${paths.join('\n')}\n`, 'utf8');
+  writeFileSync(pathList, `${scannablePaths.join('\n')}\n`, 'utf8');
   return { arg: `@${pathList}`, tempDir };
 }
 
@@ -122,9 +194,13 @@ function finish(result) {
 let args;
 let cleanupDir;
 if (mode === 'worktree') {
-  const pathList = trackedPathListArg();
+  const pathList = filteredPathListArg(listChangedCandidatePaths(), 'worktree');
   cleanupDir = pathList.tempDir;
-  args = ['secret', 'scan', 'path', ...commonScanOptions, pathList.arg];
+  args = ['secret', 'scan', 'path', ...commonScanOptions, '--yes', pathList.arg];
+} else if (mode === 'all-worktree') {
+  const pathList = filteredPathListArg(listAllCandidatePaths(), 'all-worktree');
+  cleanupDir = pathList.tempDir;
+  args = ['secret', 'scan', 'path', ...commonScanOptions, '--yes', pathList.arg];
 } else if (mode === 'staged') {
   args = ['secret', 'scan', 'pre-commit', ...commonScanOptions];
 } else if (mode === 'range') {

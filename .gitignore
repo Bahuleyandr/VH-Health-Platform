@@ -36,3 +36,6 @@ node_modules/
 **/*service_account*.json
 **/*google-application-credentials*.json
 **/*.pem
+
+# Added by ggshield
+.cache_ggshield

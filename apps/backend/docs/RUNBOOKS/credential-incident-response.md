@@ -101,11 +101,17 @@ Working tree gitleaks scan:
 node scripts/gitleaks-scan.mjs worktree
 ```
 
-Working tree GitGuardian scan:
+Changed-file GitGuardian scan:
 
 ```powershell
 & "D:\Dev\Tools\ggshield\ggshield.exe" auth login
 node scripts/ggshield-scan.mjs worktree
+```
+
+Full current-tree GitGuardian scan:
+
+```powershell
+node scripts/ggshield-scan.mjs all-worktree
 ```
 
 Full history gitleaks scan:
