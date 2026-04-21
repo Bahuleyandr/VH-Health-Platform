@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
@@ -16,26 +17,6 @@ const ggshieldBin = process.env.GGSHIELD_BIN ||
     : 'ggshield');
 
 const commonScanOptions = ['--no-check-for-updates'];
-const pathScanOptions = [
-  '--recursive',
-  '--yes',
-  '--use-gitignore',
-  '--exclude',
-  '.git/**',
-  '--exclude',
-  '.dart_tool/**',
-  '--exclude',
-  'node_modules/**',
-  '--exclude',
-  'apps/*/.next/**',
-  '--exclude',
-  'apps/*/build/**',
-  '--exclude',
-  'packages/*/build/**',
-  '--exclude',
-  'output/**',
-];
-
 function run(command, args, options = {}) {
   return spawnSync(command, args, {
     cwd: repoRoot,
@@ -85,6 +66,29 @@ function hasCommits(commitRange) {
   return Number.parseInt(result.stdout.trim(), 10) > 0;
 }
 
+function trackedPathListArg() {
+  const result = run('git', ['ls-files', '--cached', '--others', '--exclude-standard'], { capture: true });
+  if (result.status !== 0) {
+    console.error(result.stderr || 'Unable to list git-tracked paths for GitGuardian scan.');
+    process.exit(result.status ?? 1);
+  }
+
+  const paths = result.stdout
+    .split(/\r?\n/)
+    .map((path) => path.trim())
+    .filter(Boolean);
+
+  if (paths.length === 0) {
+    console.log('GitGuardian working tree scan skipped: no files to scan.');
+    process.exit(0);
+  }
+
+  const tempDir = mkdtempSync(resolve(tmpdir(), 'vhhealth-ggshield-'));
+  const pathList = resolve(tempDir, 'paths.txt');
+  writeFileSync(pathList, `${paths.join('\n')}\n`, 'utf8');
+  return { arg: `@${pathList}`, tempDir };
+}
+
 function isMissingAuth(result) {
   const text = `${result.stdout || ''}\n${result.stderr || ''}`;
   return text.includes('A GitGuardian API key is needed to use ggshield') ||
@@ -116,8 +120,11 @@ function finish(result) {
 }
 
 let args;
+let cleanupDir;
 if (mode === 'worktree') {
-  args = ['secret', 'scan', 'path', ...commonScanOptions, ...pathScanOptions, '.'];
+  const pathList = trackedPathListArg();
+  cleanupDir = pathList.tempDir;
+  args = ['secret', 'scan', 'path', ...commonScanOptions, pathList.arg];
 } else if (mode === 'staged') {
   args = ['secret', 'scan', 'pre-commit', ...commonScanOptions];
 } else if (mode === 'range') {
@@ -136,4 +143,6 @@ if (mode === 'worktree') {
   process.exit(2);
 }
 
-finish(run(ggshieldBin, args));
+const result = run(ggshieldBin, args);
+if (cleanupDir) rmSync(cleanupDir, { recursive: true, force: true });
+finish(result);
