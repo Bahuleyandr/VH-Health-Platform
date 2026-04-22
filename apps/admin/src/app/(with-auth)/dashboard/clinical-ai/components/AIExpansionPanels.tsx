@@ -48,8 +48,11 @@ import {
   generateRosterSuggestion,
   generateSepsisBundleAudit,
   getBedDischargeForecast,
+  getImagingPacsStatus,
   getPharmacyStockoutForecast,
+  importImagingStudyFromPacs,
   ingestDocumentIntake,
+  ingestImagingInference,
   listAbnormalResultTriages,
   listAmbientEncounters,
   listCanaryCases,
@@ -74,6 +77,7 @@ import {
   predictOtCaseTime,
   publishRosterRun,
   recordPriorAuthPayerDecision,
+  registerImagingStudy,
   resolveVirtualWardEscalation,
   runCanary,
   runPrivacySentinelScan,
@@ -96,6 +100,7 @@ import {
   type DeteriorationSnapshot,
   type DocumentIntake,
   type ImagingFinding,
+  type ImagingInferenceItem,
   type ImagingSeverity,
   type InfectionControlAudit,
   type InfectionControlRiskBand,
@@ -167,11 +172,30 @@ const DEFAULT_CANARY_INPUT_PACKET = JSON.stringify(
   2,
 );
 
+const DEFAULT_IMAGING_INFERENCE_RESULTS = JSON.stringify(
+  [
+    { label: "pneumonia", confidence: 0.82 },
+    { label: "pleural_effusion", confidence: 0.64 },
+  ],
+  null,
+  2,
+);
+
 function parseJsonObject(value: string): Record<string, unknown> | null {
   try {
     const parsed: unknown = JSON.parse(value);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
     return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function parseJsonArray<T = unknown>(value: string): T[] | null {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return null;
+    return parsed as T[];
   } catch {
     return null;
   }
@@ -3327,6 +3351,31 @@ export function ImagingAIPanel() {
   const queryClient = useQueryClient();
   const [decisionFilter, setDecisionFilter] = useState("pending");
   const [severityFilter, setSeverityFilter] = useState<ImagingSeverity | "">("");
+  const [studyMode, setStudyMode] = useState<"pacs" | "manual">("pacs");
+  const [patientUid, setPatientUid] = useState("");
+  const [admissionId, setAdmissionId] = useState("");
+  const [studyUid, setStudyUid] = useState("");
+  const [accessionNumber, setAccessionNumber] = useState("");
+  const [studyProvider, setStudyProvider] = useState("orthanc");
+  const [modality, setModality] = useState("XR");
+  const [bodyPart, setBodyPart] = useState("CHEST");
+  const [studyDate, setStudyDate] = useState(defaultDate(0));
+  const [inferenceStudyUid, setInferenceStudyUid] = useState("");
+  const [inferenceProvider, setInferenceProvider] = useState("local_model_runner");
+  const [inferenceModel, setInferenceModel] = useState("vh-radiology-triage");
+  const [inferenceModelVersion, setInferenceModelVersion] = useState("v1");
+  const [heatmapUrl, setHeatmapUrl] = useState("");
+  const [inferenceResults, setInferenceResults] = useState(DEFAULT_IMAGING_INFERENCE_RESULTS);
+  const parsedInferenceResults = parseJsonArray<ImagingInferenceItem>(inferenceResults);
+  const canSubmitStudy = studyMode === "pacs"
+    ? Boolean(patientUid.trim() && (studyUid.trim() || accessionNumber.trim()))
+    : Boolean(patientUid.trim() && studyUid.trim() && modality.trim());
+  const canIngestInference = Boolean(inferenceStudyUid.trim() && inferenceProvider.trim() && parsedInferenceResults?.length);
+  const pacsStatus = useQuery({
+    queryKey: ["clinical-ai", "imaging", "pacs-status"],
+    queryFn: () => getImagingPacsStatus(),
+    staleTime: 60_000,
+  });
   const findings = useQuery({
     queryKey: ["clinical-ai", "imaging", decisionFilter, severityFilter],
     queryFn: () =>
@@ -3334,6 +3383,81 @@ export function ImagingAIPanel() {
         decision: decisionFilter || undefined,
         severity: severityFilter || undefined,
       }),
+  });
+  const registerStudy = useMutation({
+    mutationFn: () => {
+      const admission = admissionId.trim();
+      const body = bodyPart.trim();
+      const source = studyProvider.trim();
+      return registerImagingStudy({
+        patient_uid: patientUid.trim(),
+        study_instance_uid: studyUid.trim(),
+        modality: modality.trim(),
+        series_count: 1,
+        instance_count: 1,
+        source_system: source || "admin_console",
+        metadata: { intake_surface: "admin_clinical_ai", intake_mode: "manual" },
+        ...(admission ? { admission_id: admission } : {}),
+        ...(body ? { body_part: body } : {}),
+        ...(studyDate ? { study_date: studyDate } : {}),
+      });
+    },
+    onSuccess: (study) => {
+      toast.success("Imaging study registered");
+      setInferenceStudyUid(study.study_instance_uid);
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "imaging"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Study registration failed"),
+  });
+  const importStudy = useMutation({
+    mutationFn: () => {
+      const admission = admissionId.trim();
+      const uid = studyUid.trim();
+      const accession = accessionNumber.trim();
+      const provider = studyProvider.trim();
+      return importImagingStudyFromPacs({
+        patient_uid: patientUid.trim(),
+        metadata: { intake_surface: "admin_clinical_ai", intake_mode: "pacs" },
+        ...(admission ? { admission_id: admission } : {}),
+        ...(uid ? { study_instance_uid: uid } : {}),
+        ...(accession ? { accession_number: accession } : {}),
+        ...(provider ? { provider } : {}),
+      });
+    },
+    onSuccess: (result) => {
+      if (result.imported) {
+        const importedUid = result.study?.study_instance_uid ?? studyUid.trim();
+        if (importedUid) setInferenceStudyUid(importedUid);
+        toast.success("PACS study imported");
+      } else {
+        toast(`PACS import skipped: ${result.reason ?? result.pacs_status}`);
+      }
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "imaging"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "PACS import failed"),
+  });
+  const ingestInference = useMutation({
+    mutationFn: () => {
+      const parsed = parseJsonArray<ImagingInferenceItem>(inferenceResults);
+      if (!parsed?.length) throw new Error("Inference results must be a non-empty JSON array");
+      const model = inferenceModel.trim();
+      const modelVersion = inferenceModelVersion.trim();
+      const heatmap = heatmapUrl.trim();
+      return ingestImagingInference({
+        study_instance_uid: inferenceStudyUid.trim(),
+        provider: inferenceProvider.trim(),
+        results: parsed,
+        raw_provider_payload: { intake_surface: "admin_clinical_ai" },
+        ...(model ? { model } : {}),
+        ...(modelVersion ? { model_version: modelVersion } : {}),
+        ...(heatmap ? { heatmap_url: heatmap } : {}),
+      });
+    },
+    onSuccess: (result) => {
+      toast.success(`Inference ingested: ${result.overall_severity}`);
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "imaging"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Inference ingest failed"),
   });
   const decide = useMutation({
     mutationFn: ({ id, decision, note }: { id: number; decision: "confirmed" | "revised" | "rejected" | "escalated"; note?: string }) =>
@@ -3345,6 +3469,15 @@ export function ImagingAIPanel() {
     onError: (err: Error) => toast.error(err.message || "Decision failed"),
   });
   const rows: ImagingFinding[] = findings.data?.findings ?? [];
+  const pacsStatusData = pacsStatus.data;
+  const pacsBadgeClass = pacsStatusData?.configured
+    ? "border-emerald-200 bg-emerald-100 text-emerald-800"
+    : "border-amber-200 bg-amber-100 text-amber-800";
+  const pacsLabel = pacsStatus.isLoading
+    ? "Checking"
+    : pacsStatusData?.configured
+      ? "PACS ready"
+      : "PACS off";
 
   return (
     <section className="space-y-3">
@@ -3380,9 +3513,203 @@ export function ImagingAIPanel() {
           </select>
         </div>
       </div>
-      <p className="text-xs text-muted-foreground">
-        External-model inference ingested via POST /admin/clinical-ai/imaging/inference. Critical findings sort to the top. Radiologist decision is authoritative.
-      </p>
+      <div className="grid gap-3 xl:grid-cols-2">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold">Study intake</h3>
+              <p className="text-xs text-muted-foreground">
+                {pacsStatusData
+                  ? `${pacsStatusData.provider ?? "pacs"} · ${pacsStatusData.api_mode ?? "adapter"}${pacsStatusData.reason ? ` · ${pacsStatusData.reason}` : ""}`
+                  : "PACS adapter status pending"}
+              </p>
+            </div>
+            <span className={`w-fit rounded-full border px-2 py-0.5 text-xs font-medium ${pacsBadgeClass}`}>{pacsLabel}</span>
+          </div>
+          <div className="mt-3 inline-flex rounded-md border border-border bg-muted/40 p-0.5 text-xs font-medium">
+            <button
+              type="button"
+              onClick={() => setStudyMode("pacs")}
+              className={`rounded px-3 py-1 ${studyMode === "pacs" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              PACS
+            </button>
+            <button
+              type="button"
+              onClick={() => setStudyMode("manual")}
+              className={`rounded px-3 py-1 ${studyMode === "manual" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              Manual
+            </button>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Patient UID</span>
+              <input
+                value={patientUid}
+                onChange={(event) => setPatientUid(event.target.value)}
+                className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm font-mono"
+                placeholder="patient uuid"
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Admission ID</span>
+              <input
+                value={admissionId}
+                onChange={(event) => setAdmissionId(event.target.value)}
+                className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+                placeholder="optional"
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Study UID</span>
+              <input
+                value={studyUid}
+                onChange={(event) => {
+                  setStudyUid(event.target.value);
+                  setInferenceStudyUid(event.target.value);
+                }}
+                className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm font-mono"
+                placeholder="study instance uid"
+              />
+            </label>
+            {studyMode === "pacs" ? (
+              <>
+                <label className="space-y-1 text-sm">
+                  <span className="text-muted-foreground">Accession</span>
+                  <input
+                    value={accessionNumber}
+                    onChange={(event) => setAccessionNumber(event.target.value)}
+                    className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+                    placeholder="optional"
+                  />
+                </label>
+                <label className="space-y-1 text-sm md:col-span-2">
+                  <span className="text-muted-foreground">Provider</span>
+                  <input
+                    value={studyProvider}
+                    onChange={(event) => setStudyProvider(event.target.value)}
+                    className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+                    placeholder="orthanc"
+                  />
+                </label>
+              </>
+            ) : (
+              <>
+                <label className="space-y-1 text-sm">
+                  <span className="text-muted-foreground">Modality</span>
+                  <input
+                    value={modality}
+                    onChange={(event) => setModality(event.target.value)}
+                    className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+                    placeholder="XR"
+                  />
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="text-muted-foreground">Body part</span>
+                  <input
+                    value={bodyPart}
+                    onChange={(event) => setBodyPart(event.target.value)}
+                    className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+                    placeholder="CHEST"
+                  />
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="text-muted-foreground">Study date</span>
+                  <input
+                    type="date"
+                    value={studyDate}
+                    onChange={(event) => setStudyDate(event.target.value)}
+                    className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+                  />
+                </label>
+              </>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => (studyMode === "pacs" ? importStudy.mutate() : registerStudy.mutate())}
+            disabled={!canSubmitStudy || importStudy.isPending || registerStudy.isPending}
+            className="mt-3 inline-flex items-center gap-2 rounded-md border border-border bg-foreground px-3 py-1.5 text-sm font-medium text-background hover:opacity-90 disabled:opacity-50"
+          >
+            {studyMode === "pacs" ? <CloudDownload className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+            {studyMode === "pacs" ? "Import study" : "Register study"}
+          </button>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold">Inference intake</h3>
+              <p className="text-xs text-muted-foreground">External model output enters the radiologist review queue.</p>
+            </div>
+            <span className={`w-fit rounded-full border px-2 py-0.5 text-xs font-medium ${parsedInferenceResults ? "border-emerald-200 bg-emerald-100 text-emerald-800" : "border-red-200 bg-red-100 text-red-800"}`}>
+              {parsedInferenceResults ? "JSON valid" : "JSON invalid"}
+            </span>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            <label className="space-y-1 text-sm md:col-span-2">
+              <span className="text-muted-foreground">Study UID</span>
+              <input
+                value={inferenceStudyUid}
+                onChange={(event) => setInferenceStudyUid(event.target.value)}
+                className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm font-mono"
+                placeholder="study instance uid"
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Provider</span>
+              <input
+                value={inferenceProvider}
+                onChange={(event) => setInferenceProvider(event.target.value)}
+                className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Model</span>
+              <input
+                value={inferenceModel}
+                onChange={(event) => setInferenceModel(event.target.value)}
+                className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Version</span>
+              <input
+                value={inferenceModelVersion}
+                onChange={(event) => setInferenceModelVersion(event.target.value)}
+                className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Heatmap URL</span>
+              <input
+                value={heatmapUrl}
+                onChange={(event) => setHeatmapUrl(event.target.value)}
+                className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+                placeholder="optional"
+              />
+            </label>
+            <label className="space-y-1 text-sm md:col-span-2">
+              <span className="text-muted-foreground">Results JSON</span>
+              <textarea
+                value={inferenceResults}
+                onChange={(event) => setInferenceResults(event.target.value)}
+                rows={5}
+                className="w-full rounded-md border border-border bg-background px-2 py-1 font-mono text-xs"
+              />
+            </label>
+          </div>
+          <button
+            type="button"
+            onClick={() => ingestInference.mutate()}
+            disabled={!canIngestInference || ingestInference.isPending}
+            className="mt-3 inline-flex items-center gap-2 rounded-md border border-border bg-foreground px-3 py-1.5 text-sm font-medium text-background hover:opacity-90 disabled:opacity-50"
+          >
+            <PlayCircle className="h-4 w-4" />
+            Ingest inference
+          </button>
+        </div>
+      </div>
       <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
@@ -3400,7 +3727,7 @@ export function ImagingAIPanel() {
             {rows.length === 0 ? (
               <tr>
                 <td className="px-4 py-8 text-center text-muted-foreground" colSpan={7}>
-                  No imaging findings. Register studies via POST /imaging/studies then ingest inference via POST /imaging/inference.
+                  No imaging findings awaiting this filter.
                 </td>
               </tr>
             ) : (

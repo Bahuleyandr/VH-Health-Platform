@@ -1095,6 +1095,18 @@ export async function listTrialSyncRuns() {
 
 export type ImagingSeverity = 'normal' | 'incidental' | 'actionable' | 'critical' | 'unreadable';
 
+export interface ImagingStudy {
+  id: number;
+  tenant_id?: string;
+  patient_uid: string | null;
+  study_instance_uid: string;
+  modality: string;
+  body_part: string | null;
+  study_date: string | null;
+  pacs_url: string | null;
+  created_at: string;
+}
+
 export interface ImagingFinding {
   id: number;
   study_id: number;
@@ -1114,6 +1126,99 @@ export interface ImagingFinding {
   body_part: string | null;
   study_date: string | null;
   study_instance_uid: string;
+}
+
+export interface ImagingPacsStatus {
+  configured: boolean;
+  reason: string | null;
+  provider: string | null;
+  api_mode: string | null;
+  base_url_configured: boolean;
+  auth_configured: boolean;
+  timeout_ms: number | null;
+  tenant_region: string | null;
+  allowed_regions: string[];
+}
+
+export interface ImagingPacsImportResponse {
+  imported: boolean;
+  pacs_status: string;
+  reason?: string | null;
+  provider?: string | null;
+  api_mode?: string | null;
+  config?: ImagingPacsStatus | null;
+  study?: ImagingStudy | null;
+  pacs_metadata?: Record<string, unknown> | null;
+  module_key: string;
+  decision_support_only: boolean;
+}
+
+export type ImagingInferenceItem = {
+  label: string;
+  confidence: number;
+  severity?: string;
+  actionable?: boolean;
+  [key: string]: unknown;
+};
+
+export interface ImagingInferenceResponse {
+  finding_id: number | null;
+  study_id: number;
+  study_instance_uid: string;
+  generation_id: number | null;
+  findings: Array<{ label: string; confidence: number; severity: string; actionable: boolean }>;
+  overall_severity: ImagingSeverity;
+  confidence_pct: number | null;
+  narrative_draft: string | null;
+  heatmap_url: string | null;
+  safety_flags: Array<Record<string, unknown>>;
+  radiologist_decision: 'pending';
+  module_key: string;
+  decision_support_only: boolean;
+}
+
+export async function getImagingPacsStatus() {
+  return getJSON<ImagingPacsStatus>('/admin/clinical-ai/imaging/pacs/status');
+}
+
+export async function registerImagingStudy(payload: {
+  patient_uid: string;
+  admission_id?: string | number;
+  study_instance_uid: string;
+  modality: string;
+  body_part?: string;
+  study_date?: string;
+  series_count?: number;
+  instance_count?: number;
+  pacs_url?: string;
+  storage_key?: string;
+  source_system?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  return postJSON<ImagingStudy>('/admin/clinical-ai/imaging/studies', payload);
+}
+
+export async function importImagingStudyFromPacs(payload: {
+  patient_uid: string;
+  admission_id?: string | number;
+  study_instance_uid?: string;
+  accession_number?: string;
+  provider?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  return postJSON<ImagingPacsImportResponse>('/admin/clinical-ai/imaging/studies/import-pacs', payload);
+}
+
+export async function ingestImagingInference(payload: {
+  study_instance_uid: string;
+  provider: string;
+  model?: string;
+  model_version?: string;
+  results: ImagingInferenceItem[];
+  heatmap_url?: string;
+  raw_provider_payload?: Record<string, unknown> | null;
+}) {
+  return postJSON<ImagingInferenceResponse>('/admin/clinical-ai/imaging/inference', payload);
 }
 
 export async function listImagingFindings(params: { decision?: string; severity?: ImagingSeverity } = {}) {
