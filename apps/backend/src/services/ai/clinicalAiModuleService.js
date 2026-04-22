@@ -540,6 +540,23 @@ export const CLINICAL_AI_MODULES = [
     },
   },
   {
+    module_key: 'consent_phi_policy_sentinel',
+    display_name: 'Consent & PHI Policy Sentinel',
+    description: 'Audits AI generations for active consent, external-provider boundaries, PHI exposure, missing citations, safety flags, and stale human review.',
+    enabled: false,
+    settings: {
+      surface: 'governance',
+      risk: 'critical',
+      status: 'available',
+      requiresClinicianSignoff: false,
+      requiresCitations: false,
+      reviewRoles: ['ADMIN', 'SUPER_ADMIN', 'IT_ADMIN', 'COMPLIANCE_OFFICER'],
+      approvalPolicy: 'privacy_governance_review',
+      outputSchema: { type: 'object', required: ['risk_score', 'risk_band', 'findings', 'consent_snapshot'] },
+      retentionDays: 3650,
+    },
+  },
+  {
     module_key: 'virtual_ward_triage',
     display_name: 'Virtual Ward Triage',
     description: 'Post-discharge daily symptom + wearable check-in pipeline. Auto-triages green/amber/red and queues red escalations for care manager.',

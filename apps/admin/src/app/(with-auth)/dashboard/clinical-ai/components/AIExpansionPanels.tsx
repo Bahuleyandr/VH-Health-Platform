@@ -27,6 +27,7 @@ import { toast } from "react-hot-toast";
 import {
   acknowledgeVirtualWardEscalation,
   decideChartCompletionAudit,
+  decidePrivacySentinelAudit,
   concludePromptExperiment,
   decideChargeCaptureAudit,
   decideDocumentIntake,
@@ -46,6 +47,7 @@ import {
   listDocumentIntakes,
   listImagingFindings,
   listPolypharmacyReviews,
+  listPrivacySentinelAudits,
   listPriorAuthorizations,
   listPromptExperiments,
   listRcaDrafts,
@@ -58,6 +60,7 @@ import {
   recordPriorAuthPayerDecision,
   resolveVirtualWardEscalation,
   runCanary,
+  runPrivacySentinelScan,
   submitPriorAuthorization,
   triggerTrialCatalogSync,
   type AmbientEncounter,
@@ -71,6 +74,8 @@ import {
   type ImagingFinding,
   type ImagingSeverity,
   type PolypharmacyReview,
+  type PrivacySentinelAudit,
+  type PrivacySentinelRiskBand,
   type PriorAuthRequest,
   type PromptExperiment,
   type RcaDraftSummary,
@@ -161,6 +166,7 @@ function documentFactCount(row: DocumentIntake) {
 }
 
 const CHART_RISK_BANDS: ChartGapRiskBand[] = ["critical", "high", "medium", "low"];
+const PRIVACY_RISK_BANDS: PrivacySentinelRiskBand[] = ["critical", "high", "medium", "low"];
 
 function chartRiskClass(risk: string) {
   if (risk === "critical") return "bg-red-100 text-red-800 border-red-200";
@@ -674,6 +680,234 @@ export function ChartCompletionPanel() {
                           className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
                         >
                           Reject
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">{fmt(row.reviewed_at)}</span>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Consent & PHI Policy Sentinel
+// ---------------------------------------------------------------------------
+export function PrivacySentinelPanel() {
+  const queryClient = useQueryClient();
+  const [riskFilter, setRiskFilter] = useState<PrivacySentinelRiskBand | "">("");
+  const [decisionFilter, setDecisionFilter] = useState("pending");
+  const [moduleFilter, setModuleFilter] = useState("");
+  const [windowDays, setWindowDays] = useState("7");
+
+  const audits = useQuery({
+    queryKey: ["clinical-ai", "privacy-sentinel", riskFilter, decisionFilter, moduleFilter],
+    queryFn: () =>
+      listPrivacySentinelAudits({
+        riskBand: riskFilter || undefined,
+        decision: decisionFilter || undefined,
+        moduleKey: moduleFilter.trim() || undefined,
+        limit: 100,
+      }),
+  });
+  const scan = useMutation({
+    mutationFn: () =>
+      runPrivacySentinelScan({
+        windowDays: Number.parseInt(windowDays.trim(), 10) || 7,
+        limit: 100,
+      }),
+    onSuccess: (result) => {
+      toast.success(`Privacy scan complete: ${result.summary.findings} finding(s)`);
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "privacy-sentinel"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "audit"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Privacy scan failed"),
+  });
+  const decide = useMutation({
+    mutationFn: ({ id, decision }: { id: number; decision: "acknowledged" | "escalated" | "dismissed" }) =>
+      decidePrivacySentinelAudit(id, decision),
+    onSuccess: () => {
+      toast.success("Privacy sentinel review saved");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "privacy-sentinel"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "audit"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Review failed"),
+  });
+
+  const rows: PrivacySentinelAudit[] = audits.data?.audits ?? [];
+  const criticalCount = rows.filter((row) => row.risk_band === "critical").length;
+  const externalCount = rows.filter((row) => Boolean(row.metadata?.external_provider)).length;
+  const pendingCount = rows.filter((row) => row.reviewer_decision === "pending").length;
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Consent & PHI Policy Sentinel</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={moduleFilter}
+            onChange={(event) => setModuleFilter(event.target.value)}
+            placeholder="module key"
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          />
+          <select
+            value={riskFilter}
+            onChange={(event) => setRiskFilter(event.target.value as PrivacySentinelRiskBand | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All risk</option>
+            {PRIVACY_RISK_BANDS.map((risk) => (
+              <option key={risk} value={risk}>{risk}</option>
+            ))}
+          </select>
+          <select
+            value={decisionFilter}
+            onChange={(event) => setDecisionFilter(event.target.value)}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="pending">Pending</option>
+            <option value="acknowledged">Acknowledged</option>
+            <option value="escalated">Escalated</option>
+            <option value="dismissed">Dismissed</option>
+            <option value="">All decisions</option>
+          </select>
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Critical</div>
+          <div className="mt-1 text-2xl font-semibold text-red-700">{criticalCount}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">External provider</div>
+          <div className="mt-1 text-2xl font-semibold">{externalCount}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Pending review</div>
+          <div className="mt-1 text-2xl font-semibold">{pendingCount}</div>
+        </div>
+      </div>
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Scan window (days)</span>
+            <input
+              value={windowDays}
+              onChange={(event) => setWindowDays(event.target.value)}
+              inputMode="numeric"
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <button
+            onClick={() => scan.mutate()}
+            disabled={scan.isPending}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+          >
+            <PlayCircle className="h-4 w-4" />
+            {scan.isPending ? "Scanning..." : "Run Scan"}
+          </button>
+        </div>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Generation</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Risk</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Findings</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Consent</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Review</th>
+              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
+                  No privacy sentinel audits found
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3">
+                    <div className="font-mono text-xs">gen #{row.generation_id || "-"}</div>
+                    <div className="font-medium">{row.module_key || "-"}</div>
+                    <div className="text-xs text-muted-foreground">{row.provider || "template"} / {fmt(row.generation_created_at || row.created_at)}</div>
+                    {row.patient_name ? <div className="text-xs text-muted-foreground">{row.patient_name}</div> : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-lg font-semibold">{row.risk_score}</div>
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${chartRiskClass(row.risk_band)}`}>
+                      {row.risk_band}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex max-w-xl flex-wrap gap-1">
+                      {row.findings.slice(0, 4).map((finding) => (
+                        <span key={finding.code} className={`rounded-full border px-2 py-0.5 text-xs font-medium ${severityBadgeClass(finding.severity)}`}>
+                          {finding.code}
+                        </span>
+                      ))}
+                      {row.findings.length === 0 ? <span className="text-xs text-muted-foreground">none</span> : null}
+                    </div>
+                    {row.findings[0]?.recommendation ? (
+                      <div className="mt-1 max-w-xl text-xs text-muted-foreground">{row.findings[0].recommendation}</div>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-xs">
+                      {row.consent_snapshot?.active_count ?? 0} active
+                    </div>
+                    <div className="mt-1 flex max-w-sm flex-wrap gap-1">
+                      {(row.consent_snapshot?.active_types || []).slice(0, 3).map((type) => (
+                        <span key={type} className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs">
+                          {type}
+                        </span>
+                      ))}
+                      {(row.consent_snapshot?.active_types || []).length === 0 ? (
+                        <span className="text-xs text-muted-foreground">none</span>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${documentStatusClass(row.reviewer_decision)}`}>
+                      {row.reviewer_decision}
+                    </span>
+                    <div className="mt-1 text-xs text-muted-foreground">{fmt(row.created_at)}</div>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {row.reviewer_decision === "pending" ? (
+                      <div className="inline-flex gap-1">
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "acknowledged" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                        >
+                          Ack
+                        </button>
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "escalated" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
+                        >
+                          Escalate
+                        </button>
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "dismissed" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-100 disabled:opacity-50"
+                        >
+                          Dismiss
                         </button>
                       </div>
                     ) : (

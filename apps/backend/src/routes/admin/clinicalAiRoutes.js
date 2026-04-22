@@ -97,6 +97,11 @@ import {
   listChartCompletionAudits,
 } from '../../services/ai/chartCompletionAuditorService.js';
 import {
+  decideConsentPhiPolicyAudit,
+  listConsentPhiPolicyAudits,
+  runConsentPhiPolicyScan,
+} from '../../services/ai/consentPhiPolicySentinelService.js';
+import {
   discardRoster,
   generateRoster,
   listRosterRuns,
@@ -934,6 +939,72 @@ router.patch('/chart-completion/audits/:id', async (req, res, next) => {
       result
     );
     return success(res, result, 'Chart completion audit reviewed');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Consent & PHI policy sentinel
+// ---------------------------------------------------------------------------
+router.post('/privacy-sentinel/scans', async (req, res, next) => {
+  try {
+    const result = await runConsentPhiPolicyScan({
+      req,
+      generationId: req.body?.generation_id || null,
+      windowDays: req.body?.window_days || 7,
+      limit: req.body?.limit || 100,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_PRIVACY_SENTINEL_SCAN_COMPLETED',
+      String(req.body?.generation_id || req.tenantId || 'tenant'),
+      null,
+      {
+        generation_id: req.body?.generation_id || null,
+        window_days: req.body?.window_days || 7,
+        summary: result.summary,
+      }
+    );
+    return success(res, result, 'Privacy sentinel scan completed', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/privacy-sentinel/audits', async (req, res, next) => {
+  try {
+    const result = await listConsentPhiPolicyAudits({
+      tenantId: req.tenantId,
+      riskBand: req.query?.risk_band || null,
+      decision: req.query?.decision || null,
+      moduleKey: req.query?.module_key || null,
+      patientUid: req.query?.patient_uid || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Privacy sentinel audits retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/privacy-sentinel/audits/:id', async (req, res, next) => {
+  try {
+    const result = await decideConsentPhiPolicyAudit({
+      tenantId: req.tenantId,
+      auditId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_PRIVACY_SENTINEL_AUDIT_REVIEWED',
+      String(result.id),
+      null,
+      result
+    );
+    return success(res, result, 'Privacy sentinel audit reviewed');
   } catch (err) {
     return next(err);
   }

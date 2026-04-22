@@ -1248,6 +1248,109 @@ export async function decideChartCompletionAudit(
 }
 
 // ---------------------------------------------------------------------------
+// Consent & PHI policy sentinel
+// ---------------------------------------------------------------------------
+export type PrivacySentinelDecision = 'pending' | 'acknowledged' | 'escalated' | 'dismissed';
+export type PrivacySentinelRiskBand = 'low' | 'medium' | 'high' | 'critical' | 'unknown';
+
+export interface PrivacySentinelFinding {
+  severity: string;
+  code: string;
+  title: string;
+  recommendation?: string;
+  evidence?: Array<Record<string, unknown>>;
+}
+
+export interface PrivacySentinelAudit {
+  id: number;
+  tenant_id?: string;
+  generation_id: number | null;
+  patient_uid: string | null;
+  patient_name?: string | null;
+  module_key: string | null;
+  provider: string | null;
+  risk_band: PrivacySentinelRiskBand;
+  risk_score: number;
+  findings: PrivacySentinelFinding[];
+  consent_snapshot: {
+    available?: boolean;
+    active_count?: number;
+    active_types?: string[];
+    has_treatment_consent?: boolean;
+    has_data_access_consent?: boolean;
+    has_ai_processing_consent?: boolean;
+    latest_granted_at?: string | null;
+    [key: string]: unknown;
+  };
+  reviewer_decision: PrivacySentinelDecision;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  reviewer_note: string | null;
+  metadata: Record<string, unknown>;
+  generation_status?: string | null;
+  generation_created_at?: string | null;
+  total_tokens?: number | null;
+  estimated_cost_minor?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listPrivacySentinelAudits(params: {
+  riskBand?: string;
+  decision?: string;
+  moduleKey?: string;
+  patientUid?: string;
+  limit?: number;
+} = {}) {
+  const query: Record<string, string> = {};
+  if (params.riskBand) query.risk_band = params.riskBand;
+  if (params.decision) query.decision = params.decision;
+  if (params.moduleKey) query.module_key = params.moduleKey;
+  if (params.patientUid) query.patient_uid = params.patientUid;
+  if (params.limit) query.limit = String(params.limit);
+  return getJSON<{ audits: PrivacySentinelAudit[]; count: number }>(
+    '/admin/clinical-ai/privacy-sentinel/audits',
+    query
+  );
+}
+
+export async function runPrivacySentinelScan(payload: {
+  generationId?: number | null;
+  windowDays?: number;
+  limit?: number;
+} = {}) {
+  return postJSON<{
+    audits: PrivacySentinelAudit[];
+    count: number;
+    summary: {
+      scanned: number;
+      critical: number;
+      high: number;
+      medium: number;
+      low: number;
+      findings: number;
+    };
+    module_key: string;
+    decision_support_only: boolean;
+  }>('/admin/clinical-ai/privacy-sentinel/scans', {
+    generation_id: payload.generationId || null,
+    window_days: payload.windowDays || 7,
+    limit: payload.limit || 100,
+  });
+}
+
+export async function decidePrivacySentinelAudit(
+  id: number,
+  decision: 'acknowledged' | 'escalated' | 'dismissed',
+  note?: string
+) {
+  return fetchAdminAPI<PrivacySentinelAudit>(`/admin/clinical-ai/privacy-sentinel/audits/${id}`, {
+    method: 'PATCH',
+    body: { decision, note },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Ambient clinical documentation
 // ---------------------------------------------------------------------------
 export interface AmbientEncounter {
