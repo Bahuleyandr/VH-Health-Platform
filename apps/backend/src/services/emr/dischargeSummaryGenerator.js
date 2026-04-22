@@ -296,7 +296,7 @@ function buildPrompt(context) {
   return { systemPrompt, userPrompt };
 }
 
-async function saveAiGeneration(context, summary, requestedBy, sourceHash) {
+async function saveAiGeneration(context, summary, requestedBy, sourceHash, tenantId = null) {
   const metadata = {
     fallback_reason: summary.ai_metadata.fallback_reason,
     usage: {
@@ -307,14 +307,15 @@ async function saveAiGeneration(context, summary, requestedBy, sourceHash) {
   };
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO clinical_ai_generations
-       (patient_uid, admission_id, task_type, module_key, provider, model, prompt_version,
+       (tenant_id, patient_uid, admission_id, task_type, module_key, provider, model, prompt_version,
         source_hash, status, used_ai, safety_flags, citations, draft, generated_by,
         prompt_tokens, completion_tokens, total_tokens, estimated_cost_minor,
         latency_ms, provider_request_id, finish_reason, metadata, created_at, updated_at)
-     VALUES ($1::uuid, $2, 'discharge_summary', $3, $4, $5, $6, $7, 'draft',
-             $8, $9::jsonb, $10::jsonb, $11::jsonb, $12::uuid,
-             $13, $14, $15, $16, $17, $18, $19, $20::jsonb, NOW(), NOW())
+     VALUES ($1::uuid, $2::uuid, $3, 'discharge_summary', $4, $5, $6, $7, $8, 'draft',
+             $9, $10::jsonb, $11::jsonb, $12::jsonb, $13::uuid,
+             $14, $15, $16, $17, $18, $19, $20, $21::jsonb, NOW(), NOW())
      RETURNING id, provider, model, used_ai, status, created_at`,
+    tenantId || '00000000-0000-4000-8000-000000000001',
     context.admission.patient_uid,
     context.admission.id,
     summary.ai_metadata.module_key || 'discharge_summary',
@@ -358,7 +359,7 @@ export async function generateDischargeSummary(admissionId, requestedBy, req) {
   summary.generated_by = requestedBy;
 
   const sourceHash = makeSourceHash(context);
-  const generation = await saveAiGeneration(context, summary, requestedBy, sourceHash);
+  const generation = await saveAiGeneration(context, summary, requestedBy, sourceHash, req?.tenantId || null);
   summary.draft_generation_id = generation.id;
 
   logPhiAccess({

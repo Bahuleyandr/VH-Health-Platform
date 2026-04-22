@@ -121,6 +121,10 @@ export default async function jwtMiddleware(req, res, next) {
   const idRaw = decoded.id ?? decoded.userId ?? decoded.user_id ?? hasura?.['x-hasura-user-int-id'] ?? null;
   const idInt = idRaw != null && /^\d+$/.test(String(idRaw)) ? parseInt(String(idRaw), 10) : null;
 
+  // tenant_id is optional in the token — tenantContextMiddleware will
+  // resolve/default downstream if the claim is missing.
+  const tenantId = decoded.tenant_id || decoded.tenantId || null;
+
   req.user = {
     uid: String(uidRaw),
     role,
@@ -128,6 +132,7 @@ export default async function jwtMiddleware(req, res, next) {
     phone,
     email,
     id: idInt,
+    tenant_id: tenantId,
   };
 
   logger.info(`JWT OK: uid=${req.user.uid} role=${req.user.role}`);

@@ -76,6 +76,23 @@ function isExternalUrl(baseUrl) {
   }
 }
 
+/**
+ * Tenants outside the externally-allowed region list can never route their
+ * PHI to an external model. DPDP / GDPR / HIPAA all hard-block cross-region
+ * PHI egress; this guard is the last mile that enforces it.
+ *
+ * `CLINICAL_AI_EXTERNAL_REGIONS` is a comma-separated allowlist of regions
+ * (e.g. `US,AP`). Empty or unset means every region is allowed — fine for
+ * single-tenant pilots, but MUST be set the moment a second region onboards.
+ */
+function tenantCanUseExternal(tenantRegion) {
+  if (!tenantRegion) return true;
+  const raw = (process.env.CLINICAL_AI_EXTERNAL_REGIONS || '').trim();
+  if (!raw) return true;
+  const allowed = raw.split(',').map((r) => r.trim().toUpperCase()).filter(Boolean);
+  return allowed.includes(String(tenantRegion).toUpperCase());
+}
+
 function getProviderConfig(module = null, guardrails = null) {
   const provider = normalizeProvider(
     module?.provider_override || process.env.CLINICAL_AI_PROVIDER || process.env.AI_PROVIDER || 'template'
@@ -365,13 +382,34 @@ export function getClinicalAiConfig() {
   return serializeClinicalAiConfig(config, readiness);
 }
 
-export async function generateClinicalText({ systemPrompt, userPrompt, taskType }) {
+export async function generateClinicalText({ systemPrompt, userPrompt, taskType, tenantRegion = null }) {
   const module = await getClinicalAiModule(taskType);
   const guardrails = await getClinicalAiGuardrails();
   const budgetStatus = await getClinicalAiBudgetStatus({ days: 1, guardrails });
   const config = getProviderConfig(module, guardrails);
   const readiness = getReadiness(config, budgetStatus);
   const baseUsage = emptyUsage();
+
+  // Region-safety: block external PHI egress for tenants whose region is not
+  // on the allowlist. Local providers pass through; external ones fall back
+  // to the template with a clear reason written to the draft metadata.
+  if (config.externalProvider && !tenantCanUseExternal(tenantRegion)) {
+    logger.warn('External provider blocked by region policy', {
+      taskType,
+      provider: config.provider,
+      tenantRegion,
+    });
+    return {
+      text: '',
+      usedAi: false,
+      provider: 'template',
+      model: config.model,
+      moduleKey: config.moduleKey || taskType || null,
+      reason: `external_provider_blocked_for_region:${String(tenantRegion).toUpperCase()}`,
+      usage: baseUsage,
+      estimatedCostMinor: null,
+    };
+  }
 
   if (!readiness.ready) {
     return {

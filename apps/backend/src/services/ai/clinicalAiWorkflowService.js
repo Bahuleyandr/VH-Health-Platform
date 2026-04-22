@@ -6,6 +6,15 @@ import { collectAdmissionClinicalContext } from '../emr/clinicalTimelineService.
 import { publishEvent } from '../events/eventOutboxService.js';
 import { generateClinicalText } from './localLlmClient.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+
+// Multi-tenant helper. Every query that writes to or reads from a tenant-scoped
+// clinical_ai_* table must pass tenantId. Null means "all tenants" and is only
+// allowed for SUPER_ADMIN callers (enforced at the route boundary, not here).
+function resolveTenantId(options = {}) {
+  if (options.tenantId === null) return null;
+  return options.tenantId || DEFAULT_TENANT_ID;
+}
 
 const MODULE_PROMPT_FALLBACK = {
   version: 'v1',
@@ -405,16 +414,19 @@ function buildAdmissionFallback(moduleKey, context) {
   return builders[moduleKey]?.(context) || patientRecordSummary(context);
 }
 
-async function getActivePrompt(moduleKey) {
+async function getActivePrompt(moduleKey, options = {}) {
+  const tenantId = resolveTenantId(options);
   try {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, module_key, version, title, system_prompt, user_prompt_template,
               output_schema, status, active, created_at, activated_at
        FROM clinical_ai_prompts
        WHERE module_key = $1
+         AND tenant_id = $2::uuid
        ORDER BY active DESC, activated_at DESC NULLS LAST, created_at DESC
        LIMIT 1`,
-      moduleKey
+      moduleKey,
+      tenantId
     );
     return rows[0] || { ...MODULE_PROMPT_FALLBACK, module_key: moduleKey };
   } catch (err) {
@@ -423,14 +435,15 @@ async function getActivePrompt(moduleKey) {
   }
 }
 
-async function saveContextSnapshot({ patientUid = null, admissionId = null, contextType, payload, createdBy = null }) {
+async function saveContextSnapshot({ tenantId = null, patientUid = null, admissionId = null, contextType, payload, createdBy = null }) {
   try {
     const hash = sourceHash(payload);
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_ai_context_snapshots
-         (patient_uid, admission_id, context_type, source_hash, payload, created_by, created_at)
-       VALUES ($1::uuid, $2, $3, $4, $5::jsonb, $6::uuid, NOW())
+         (tenant_id, patient_uid, admission_id, context_type, source_hash, payload, created_by, created_at)
+       VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::jsonb, $7::uuid, NOW())
        RETURNING id, source_hash, created_at`,
+      resolveTenantId({ tenantId }),
       patientUid,
       admissionId,
       contextType,
@@ -452,6 +465,7 @@ function citationCoverage(citations) {
 }
 
 async function saveGeneration({
+  tenantId = null,
   patientUid = null,
   admissionId = null,
   moduleKey,
@@ -467,15 +481,16 @@ async function saveGeneration({
   const usage = aiResult?.usage || {};
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO clinical_ai_generations
-       (patient_uid, admission_id, task_type, module_key, provider, model, prompt_version,
+       (tenant_id, patient_uid, admission_id, task_type, module_key, provider, model, prompt_version,
         source_hash, status, used_ai, safety_flags, citations, draft, generated_by,
         prompt_tokens, completion_tokens, total_tokens, estimated_cost_minor, latency_ms,
         provider_request_id, finish_reason, metadata, created_at, updated_at)
      VALUES
-       ($1::uuid, $2, $3, $3, $4, $5, $6, $7, 'draft', $8, $9::jsonb,
-        $10::jsonb, $11::jsonb, $12::uuid, $13, $14, $15, $16, $17, $18, $19,
-        $20::jsonb, NOW(), NOW())
+       ($1::uuid, $2::uuid, $3, $4, $4, $5, $6, $7, $8, 'draft', $9, $10::jsonb,
+        $11::jsonb, $12::jsonb, $13::uuid, $14, $15, $16, $17, $18, $19, $20,
+        $21::jsonb, NOW(), NOW())
      RETURNING id, status, created_at`,
+    resolveTenantId({ tenantId }),
     patientUid,
     admissionId,
     moduleKey,
@@ -503,7 +518,7 @@ async function saveGeneration({
   return rows[0];
 }
 
-async function runSafetyReview({ generationId, moduleKey, citations, safetyFlags }) {
+async function runSafetyReview({ tenantId = null, generationId, moduleKey, citations, safetyFlags }) {
   const findings = [
     ...(citationCoverage(citations) < 100
       ? [{
@@ -523,8 +538,9 @@ async function runSafetyReview({ generationId, moduleKey, citations, safetyFlags
   try {
     await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_ai_safety_reviews
-         (generation_id, module_key, status, findings, citation_coverage_pct, created_at)
-       VALUES ($1, $2, $3, $4::jsonb, $5, NOW())`,
+         (tenant_id, generation_id, module_key, status, findings, citation_coverage_pct, created_at)
+       VALUES ($1::uuid, $2, $3, $4, $5::jsonb, $6, NOW())`,
+      resolveTenantId({ tenantId }),
       generationId,
       moduleKey,
       status,
@@ -540,7 +556,7 @@ async function runSafetyReview({ generationId, moduleKey, citations, safetyFlags
   return { status, findings, citation_coverage_pct: citationCoverage(citations) };
 }
 
-async function createReviewPlaceholder({ generationId, module, patientUid = null, admissionId = null }) {
+async function createReviewPlaceholder({ tenantId = null, generationId, module, patientUid = null, admissionId = null }) {
   if (!module?.settings?.requiresClinicianSignoff && !module?.settings?.reviewRoles?.length) {
     return null;
   }
@@ -548,9 +564,10 @@ async function createReviewPlaceholder({ generationId, module, patientUid = null
   try {
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_ai_reviews
-         (generation_id, module_key, patient_uid, admission_id, decision, metadata, created_at, updated_at)
-       VALUES ($1, $2, $3::uuid, $4, 'pending', $5::jsonb, NOW(), NOW())
+         (tenant_id, generation_id, module_key, patient_uid, admission_id, decision, metadata, created_at, updated_at)
+       VALUES ($1::uuid, $2, $3, $4::uuid, $5, 'pending', $6::jsonb, NOW(), NOW())
        RETURNING id, decision`,
+      resolveTenantId({ tenantId }),
       generationId,
       module.module_key,
       patientUid,
@@ -604,12 +621,14 @@ export async function generateAdmissionAiDraft(admissionId, moduleKey, requested
   const key = cleanText(moduleKey).toLowerCase();
   if (!ADMISSION_MODULES.has(key)) throw AppError.badRequest('Unsupported admission AI module');
 
+  const tenantId = resolveTenantId({ tenantId: req?.tenantId });
   const module = await requireEnabledModule(key);
   const context = await collectAdmissionClinicalContext(admissionId);
   const packet = buildChartPacket(context);
-  const prompt = await getActivePrompt(key);
+  const prompt = await getActivePrompt(key, { tenantId });
   const fallbackDraft = buildAdmissionFallback(key, context);
   const snapshot = await saveContextSnapshot({
+    tenantId,
     patientUid: context.admission.patient_uid,
     admissionId,
     contextType: key,
@@ -620,6 +639,7 @@ export async function generateAdmissionAiDraft(admissionId, moduleKey, requested
     taskType: key,
     systemPrompt: prompt.system_prompt,
     userPrompt: `${prompt.user_prompt_template}\n\n${JSON.stringify({ module_key: key, chart_packet: packet })}`,
+    tenantRegion: req?.tenant?.region,
   });
   const draft = safeJsonParse(aiResult.text, fallbackDraft);
   const citations = uniqueCitations(packet.citations);
@@ -632,6 +652,7 @@ export async function generateAdmissionAiDraft(admissionId, moduleKey, requested
     });
   }
   const generation = await saveGeneration({
+    tenantId,
     patientUid: context.admission.patient_uid,
     admissionId,
     moduleKey: key,
@@ -645,15 +666,18 @@ export async function generateAdmissionAiDraft(admissionId, moduleKey, requested
     metadata: {
       request_id: req?.id || null,
       context_snapshot_id: snapshot.id || null,
+      tenant_region: req?.tenant?.region || null,
     },
   });
   const safetyReview = await runSafetyReview({
+    tenantId,
     generationId: generation.id,
     moduleKey: key,
     citations,
     safetyFlags,
   });
   const review = await createReviewPlaceholder({
+    tenantId,
     generationId: generation.id,
     module,
     patientUid: context.admission.patient_uid,
@@ -664,7 +688,7 @@ export async function generateAdmissionAiDraft(admissionId, moduleKey, requested
     aggregateType: 'clinical_ai_generation',
     aggregateId: generation.id,
     patientUid: context.admission.patient_uid,
-    payload: { module_key: key, admission_id: admissionId, review_id: review?.id || null },
+    payload: { tenant_id: tenantId, module_key: key, admission_id: admissionId, review_id: review?.id || null },
   });
 
   return standardDraftResponse({ module, prompt, draft, citations, safetyFlags, aiResult, generation, review, safetyReview });
@@ -692,6 +716,7 @@ function wardBriefDraft(ward, contexts) {
 }
 
 export async function generateWardRoundBrief({ ward = null, limit = 20, requestedBy = null, req = null } = {}) {
+  const tenantId = resolveTenantId({ tenantId: req?.tenantId });
   const module = await requireEnabledModule('daily_ward_round_brief');
   const safeLimit = clampInt(limit, { min: 1, max: 50, fallback: 20 });
   const admissions = await prisma.$queryRawUnsafe(
@@ -709,13 +734,14 @@ export async function generateWardRoundBrief({ ward = null, limit = 20, requeste
     contexts.push(await collectAdmissionClinicalContext(admission.id));
   }
 
-  const prompt = await getActivePrompt('daily_ward_round_brief');
+  const prompt = await getActivePrompt('daily_ward_round_brief', { tenantId });
   const fallbackDraft = wardBriefDraft(ward, contexts);
   const packet = {
     ward,
     admissions: contexts.map(buildChartPacket),
   };
   const snapshot = await saveContextSnapshot({
+    tenantId,
     contextType: 'daily_ward_round_brief',
     payload: packet,
     createdBy: requestedBy,
@@ -724,6 +750,7 @@ export async function generateWardRoundBrief({ ward = null, limit = 20, requeste
     taskType: 'daily_ward_round_brief',
     systemPrompt: prompt.system_prompt,
     userPrompt: `${prompt.user_prompt_template}\n\n${JSON.stringify(packet)}`,
+    tenantRegion: req?.tenant?.region,
   });
   const draft = safeJsonParse(aiResult.text, fallbackDraft);
   const citations = uniqueCitations(contexts.flatMap((context) => context.citations));
@@ -731,6 +758,7 @@ export async function generateWardRoundBrief({ ward = null, limit = 20, requeste
     ? []
     : [{ severity: 'medium', code: 'NO_ACTIVE_ADMISSIONS', message: 'No admitted patients were available for this ward brief.' }];
   const generation = await saveGeneration({
+    tenantId,
     moduleKey: 'daily_ward_round_brief',
     promptVersion: prompt.version || 'v1',
     sourceHash: snapshot.source_hash,
@@ -743,20 +771,22 @@ export async function generateWardRoundBrief({ ward = null, limit = 20, requeste
       request_id: req?.id || null,
       ward,
       context_snapshot_id: snapshot.id || null,
+      tenant_region: req?.tenant?.region || null,
     },
   });
   const safetyReview = await runSafetyReview({
+    tenantId,
     generationId: generation.id,
     moduleKey: 'daily_ward_round_brief',
     citations,
     safetyFlags,
   });
-  const review = await createReviewPlaceholder({ generationId: generation.id, module });
+  const review = await createReviewPlaceholder({ tenantId, generationId: generation.id, module });
   await publishEvent({
     eventType: 'clinical_ai.ward_brief_generated',
     aggregateType: 'clinical_ai_generation',
     aggregateId: generation.id,
-    payload: { module_key: 'daily_ward_round_brief', ward, review_id: review?.id || null },
+    payload: { tenant_id: tenantId, module_key: 'daily_ward_round_brief', ward, review_id: review?.id || null },
   });
   return standardDraftResponse({ module, prompt, draft, citations, safetyFlags, aiResult, generation, review, safetyReview });
 }
@@ -786,6 +816,7 @@ function denialRiskDraft(claim) {
 }
 
 export async function generateDenialRiskAssist(claimId, requestedBy, req = null) {
+  const tenantId = resolveTenantId({ tenantId: req?.tenantId });
   const module = await requireEnabledModule('denial_risk_assist');
   const id = Number.parseInt(claimId, 10);
   if (!Number.isFinite(id)) throw AppError.badRequest('Invalid claim ID');
@@ -806,9 +837,10 @@ export async function generateDenialRiskAssist(claimId, requestedBy, req = null)
   const claim = rows[0] || null;
   if (!claim) throw AppError.notFound('Insurance claim not found');
 
-  const prompt = await getActivePrompt('denial_risk_assist');
+  const prompt = await getActivePrompt('denial_risk_assist', { tenantId });
   const fallbackDraft = denialRiskDraft(claim);
   const snapshot = await saveContextSnapshot({
+    tenantId,
     patientUid: claim.patient_uid,
     contextType: 'denial_risk_assist',
     payload: claim,
@@ -818,6 +850,7 @@ export async function generateDenialRiskAssist(claimId, requestedBy, req = null)
     taskType: 'denial_risk_assist',
     systemPrompt: prompt.system_prompt,
     userPrompt: `${prompt.user_prompt_template}\n\n${JSON.stringify({ claim })}`,
+    tenantRegion: req?.tenant?.region,
   });
   const draft = safeJsonParse(aiResult.text, fallbackDraft);
   const citations = [
@@ -830,6 +863,7 @@ export async function generateDenialRiskAssist(claimId, requestedBy, req = null)
     message: gap,
   }));
   const generation = await saveGeneration({
+    tenantId,
     patientUid: claim.patient_uid,
     moduleKey: 'denial_risk_assist',
     promptVersion: prompt.version || 'v1',
@@ -843,15 +877,18 @@ export async function generateDenialRiskAssist(claimId, requestedBy, req = null)
       request_id: req?.id || null,
       claim_id: id,
       context_snapshot_id: snapshot.id || null,
+      tenant_region: req?.tenant?.region || null,
     },
   });
   const safetyReview = await runSafetyReview({
+    tenantId,
     generationId: generation.id,
     moduleKey: 'denial_risk_assist',
     citations,
     safetyFlags,
   });
   const review = await createReviewPlaceholder({
+    tenantId,
     generationId: generation.id,
     module,
     patientUid: claim.patient_uid,
@@ -859,7 +896,8 @@ export async function generateDenialRiskAssist(claimId, requestedBy, req = null)
   return standardDraftResponse({ module, prompt, draft, citations, safetyFlags, aiResult, generation, review, safetyReview });
 }
 
-export async function getBedForecast({ ward = null, windowHours = 24 } = {}) {
+export async function getBedForecast({ ward = null, windowHours = 24, tenantId = null } = {}) {
+  const tid = resolveTenantId({ tenantId });
   await requireEnabledModule('bed_discharge_forecast');
   const safeHours = clampInt(windowHours, { min: 1, max: 168, fallback: 24 });
   const rows = await prisma.$queryRawUnsafe(
@@ -898,8 +936,9 @@ export async function getBedForecast({ ward = null, windowHours = 24 } = {}) {
   };
   await prisma.$queryRawUnsafe(
     `INSERT INTO clinical_ai_bed_forecasts
-       (ward, forecast_window_hours, forecast, created_at)
-     VALUES ($1, $2, $3::jsonb, NOW())`,
+       (tenant_id, ward, forecast_window_hours, forecast, created_at)
+     VALUES ($1::uuid, $2, $3, $4::jsonb, NOW())`,
+    tid,
     ward || null,
     safeHours,
     JSON.stringify(forecast)
@@ -907,7 +946,8 @@ export async function getBedForecast({ ward = null, windowHours = 24 } = {}) {
   return forecast;
 }
 
-export async function getPharmacyStockoutForecast({ days = 7 } = {}) {
+export async function getPharmacyStockoutForecast({ days = 7, tenantId = null } = {}) {
+  const tid = resolveTenantId({ tenantId });
   await requireEnabledModule('pharmacy_stockout_predictor');
   const safeDays = clampInt(days, { min: 1, max: 90, fallback: 7 });
   const rows = await prisma.$queryRawUnsafe(
@@ -936,8 +976,9 @@ export async function getPharmacyStockoutForecast({ days = 7 } = {}) {
   for (const item of highUsageMeds.slice(0, 20)) {
     await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_ai_pharmacy_forecasts
-         (medication_name, risk_level, forecast, created_at)
-       VALUES ($1, $2, $3::jsonb, NOW())`,
+         (tenant_id, medication_name, risk_level, forecast, created_at)
+       VALUES ($1::uuid, $2, $3, $4::jsonb, NOW())`,
+      tid,
       item.medication_name,
       item.risk_level,
       JSON.stringify(item)
@@ -946,16 +987,19 @@ export async function getPharmacyStockoutForecast({ days = 7 } = {}) {
   return forecast;
 }
 
-export async function listPrompts({ moduleKey = null, status = null, limit = 100 } = {}) {
+export async function listPrompts({ moduleKey = null, status = null, limit = 100, tenantId = null } = {}) {
+  const tid = resolveTenantId({ tenantId });
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, module_key, version, title, system_prompt, user_prompt_template,
             output_schema, status, active, created_by, activated_by, activated_at,
             created_at, updated_at
      FROM clinical_ai_prompts
-     WHERE ($1::text IS NULL OR module_key = $1)
-       AND ($2::text IS NULL OR status = $2)
+     WHERE tenant_id = $1::uuid
+       AND ($2::text IS NULL OR module_key = $2)
+       AND ($3::text IS NULL OR status = $3)
      ORDER BY module_key, active DESC, created_at DESC
-     LIMIT $3`,
+     LIMIT $4`,
+    tid,
     moduleKey || null,
     status || null,
     clampInt(limit, { min: 1, max: 500, fallback: 100 })
@@ -963,17 +1007,19 @@ export async function listPrompts({ moduleKey = null, status = null, limit = 100
   return { prompts: rows, count: rows.length };
 }
 
-export async function createPrompt(data = {}, createdBy = null) {
+export async function createPrompt(data = {}, createdBy = null, options = {}) {
+  const tid = resolveTenantId(options);
   const moduleKey = cleanText(data.module_key).toLowerCase();
   if (!moduleKey) throw AppError.badRequest('module_key is required');
   await getClinicalAiModule(moduleKey);
   const version = cleanText(data.version, `v${Date.now()}`);
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO clinical_ai_prompts
-       (module_key, version, title, system_prompt, user_prompt_template,
+       (tenant_id, module_key, version, title, system_prompt, user_prompt_template,
         output_schema, status, active, created_by, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, 'draft', false, $7::uuid, NOW(), NOW())
+     VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::jsonb, 'draft', false, $8::uuid, NOW(), NOW())
      RETURNING id, module_key, version, title, status, active, created_at`,
+    tid,
     moduleKey,
     version,
     cleanText(data.title, `${moduleKey} ${version}`),
@@ -985,25 +1031,30 @@ export async function createPrompt(data = {}, createdBy = null) {
   return rows[0];
 }
 
-export async function getApprovalById(approvalId) {
+export async function getApprovalById(approvalId, options = {}) {
   if (!approvalId) return null;
+  const tid = resolveTenantId(options);
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, approval_type, module_key, status, requested_by, approved_by,
             rejected_by, reason, payload, expires_at, decided_at, created_at
      FROM clinical_ai_approvals
      WHERE id = $1
+       AND tenant_id = $2::uuid
      LIMIT 1`,
-    Number.parseInt(approvalId, 10)
+    Number.parseInt(approvalId, 10),
+    tid
   );
   return rows[0] || null;
 }
 
-export async function createApproval(data = {}, requestedBy = null) {
+export async function createApproval(data = {}, requestedBy = null, options = {}) {
+  const tid = resolveTenantId(options);
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO clinical_ai_approvals
-       (approval_type, module_key, status, requested_by, reason, payload, expires_at, created_at, updated_at)
-     VALUES ($1, $2, 'pending', $3::uuid, $4, $5::jsonb, $6::timestamptz, NOW(), NOW())
+       (tenant_id, approval_type, module_key, status, requested_by, reason, payload, expires_at, created_at, updated_at)
+     VALUES ($1::uuid, $2, $3, 'pending', $4::uuid, $5, $6::jsonb, $7::timestamptz, NOW(), NOW())
      RETURNING id, approval_type, module_key, status, requested_by, reason, payload, expires_at, created_at`,
+    tid,
     cleanText(data.approval_type, 'governance_change'),
     data.module_key ? cleanText(data.module_key).toLowerCase() : null,
     requestedBy,
@@ -1014,12 +1065,13 @@ export async function createApproval(data = {}, requestedBy = null) {
   return rows[0];
 }
 
-export async function decideApproval(approvalId, decision, actorUid, reason = null) {
+export async function decideApproval(approvalId, decision, actorUid, reason = null, options = {}) {
+  const tid = resolveTenantId(options);
   const normalized = cleanText(decision).toLowerCase();
   if (!['approved', 'rejected'].includes(normalized)) {
     throw AppError.badRequest('decision must be approved or rejected');
   }
-  const approval = await getApprovalById(approvalId);
+  const approval = await getApprovalById(approvalId, { tenantId: tid });
   if (!approval) throw AppError.notFound('Clinical AI approval not found');
   if (approval.status !== 'pending') throw AppError.conflict('Clinical AI approval was already decided');
   if (approval.requested_by && approval.requested_by === actorUid) {
@@ -1035,57 +1087,66 @@ export async function decideApproval(approvalId, decision, actorUid, reason = nu
          decided_at = NOW(),
          updated_at = NOW()
      WHERE id = $1
+       AND tenant_id = $5::uuid
      RETURNING id, approval_type, module_key, status, requested_by, approved_by,
                rejected_by, reason, payload, expires_at, decided_at, created_at`,
     Number.parseInt(approvalId, 10),
     normalized,
     actorUid,
-    reason || null
+    reason || null,
+    tid
   );
   return rows[0];
 }
 
-export async function activatePrompt(promptId, activatedBy, approvalId = null) {
+export async function activatePrompt(promptId, activatedBy, approvalId = null, options = {}) {
+  const tid = resolveTenantId(options);
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, module_key, version, title, status
      FROM clinical_ai_prompts
      WHERE id = $1
+       AND tenant_id = $2::uuid
      LIMIT 1`,
-    Number.parseInt(promptId, 10)
+    Number.parseInt(promptId, 10),
+    tid
   );
   const prompt = rows[0];
   if (!prompt) throw AppError.notFound('Clinical AI prompt not found');
 
-  const approval = await getApprovalById(approvalId);
+  const approval = await getApprovalById(approvalId, { tenantId: tid });
   if (!approval || approval.status !== 'approved') {
     const pending = await createApproval({
       approval_type: 'prompt_activation',
       module_key: prompt.module_key,
       reason: `Activate prompt ${prompt.version} for ${prompt.module_key}`,
       payload: { prompt_id: prompt.id, version: prompt.version },
-    }, activatedBy);
+    }, activatedBy, { tenantId: tid });
     return { approval_required: true, approval: pending, prompt };
   }
 
   await prisma.$queryRawUnsafe(
     `UPDATE clinical_ai_prompts
      SET active = false, status = CASE WHEN status = 'active' THEN 'superseded' ELSE status END, updated_at = NOW()
-     WHERE module_key = $1 AND active = true`,
-    prompt.module_key
+     WHERE module_key = $1 AND tenant_id = $2::uuid AND active = true`,
+    prompt.module_key,
+    tid
   );
   const updated = await prisma.$queryRawUnsafe(
     `UPDATE clinical_ai_prompts
      SET active = true, status = 'active', activated_by = $2::uuid,
          activated_at = NOW(), updated_at = NOW()
      WHERE id = $1
+       AND tenant_id = $3::uuid
      RETURNING id, module_key, version, title, status, active, activated_by, activated_at`,
     prompt.id,
-    activatedBy
+    activatedBy,
+    tid
   );
   return { approval_required: false, prompt: updated[0] };
 }
 
-export async function listReviews({ decision = null, moduleKey = null, limit = 100 } = {}) {
+export async function listReviews({ decision = null, moduleKey = null, limit = 100, tenantId = null } = {}) {
+  const tid = resolveTenantId({ tenantId });
   const rows = await prisma.$queryRawUnsafe(
     `SELECT r.id, r.generation_id, r.module_key, r.patient_uid, u.name AS patient_name,
             r.admission_id, r.reviewer_uid, r.reviewer_role, r.decision,
@@ -1094,10 +1155,12 @@ export async function listReviews({ decision = null, moduleKey = null, limit = 1
      FROM clinical_ai_reviews r
      LEFT JOIN users u ON u.uid = r.patient_uid
      LEFT JOIN clinical_ai_generations g ON g.id = r.generation_id
-     WHERE ($1::text IS NULL OR r.decision = $1)
-       AND ($2::text IS NULL OR r.module_key = $2)
+     WHERE r.tenant_id = $1::uuid
+       AND ($2::text IS NULL OR r.decision = $2)
+       AND ($3::text IS NULL OR r.module_key = $3)
      ORDER BY r.created_at DESC
-     LIMIT $3`,
+     LIMIT $4`,
+    tid,
     decision || null,
     moduleKey || null,
     clampInt(limit, { min: 1, max: 500, fallback: 100 })
@@ -1105,7 +1168,8 @@ export async function listReviews({ decision = null, moduleKey = null, limit = 1
   return { reviews: rows, count: rows.length };
 }
 
-export async function updateReview(reviewId, data = {}, reviewerUid = null, reviewerRole = null) {
+export async function updateReview(reviewId, data = {}, reviewerUid = null, reviewerRole = null, options = {}) {
+  const tid = resolveTenantId(options);
   const decision = cleanText(data.decision || 'pending').toLowerCase();
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE clinical_ai_reviews
@@ -1117,6 +1181,7 @@ export async function updateReview(reviewId, data = {}, reviewerUid = null, revi
          metadata = metadata || $7::jsonb,
          updated_at = NOW()
      WHERE id = $1
+       AND tenant_id = $8::uuid
      RETURNING id, generation_id, module_key, patient_uid, admission_id,
                reviewer_uid, reviewer_role, decision, edited_draft,
                rejection_reason, metadata, created_at, updated_at`,
@@ -1126,7 +1191,8 @@ export async function updateReview(reviewId, data = {}, reviewerUid = null, revi
     decision,
     data.edited_draft ? JSON.stringify(data.edited_draft) : null,
     data.rejection_reason || null,
-    JSON.stringify({ reviewed_at: new Date().toISOString() })
+    JSON.stringify({ reviewed_at: new Date().toISOString() }),
+    tid
   );
   const review = rows[0];
   if (!review) throw AppError.notFound('Clinical AI review not found');
@@ -1135,23 +1201,28 @@ export async function updateReview(reviewId, data = {}, reviewerUid = null, revi
   await prisma.$queryRawUnsafe(
     `UPDATE clinical_ai_generations
      SET status = $2, reviewed_by = $3::uuid, updated_at = NOW()
-     WHERE id = $1`,
+     WHERE id = $1
+       AND tenant_id = $4::uuid`,
     review.generation_id,
     generationStatus,
-    reviewerUid
+    reviewerUid,
+    tid
   );
   return review;
 }
 
-export async function listApprovals({ status = null, moduleKey = null, limit = 100 } = {}) {
+export async function listApprovals({ status = null, moduleKey = null, limit = 100, tenantId = null } = {}) {
+  const tid = resolveTenantId({ tenantId });
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, approval_type, module_key, status, requested_by, approved_by,
             rejected_by, reason, payload, expires_at, decided_at, created_at, updated_at
      FROM clinical_ai_approvals
-     WHERE ($1::text IS NULL OR status = $1)
-       AND ($2::text IS NULL OR module_key = $2)
+     WHERE tenant_id = $1::uuid
+       AND ($2::text IS NULL OR status = $2)
+       AND ($3::text IS NULL OR module_key = $3)
      ORDER BY created_at DESC
-     LIMIT $3`,
+     LIMIT $4`,
+    tid,
     status || null,
     moduleKey || null,
     clampInt(limit, { min: 1, max: 500, fallback: 100 })
@@ -1159,13 +1230,15 @@ export async function listApprovals({ status = null, moduleKey = null, limit = 1
   return { approvals: rows, count: rows.length };
 }
 
-export async function startBreakGlass(data = {}, startedBy = null) {
+export async function startBreakGlass(data = {}, startedBy = null, options = {}) {
+  const tid = resolveTenantId(options);
   const hours = clampInt(data.expires_in_hours, { min: 1, max: 24, fallback: 2 });
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO clinical_ai_break_glass_sessions
-       (scope, reason, status, started_by, approved_by, expires_at, created_at, updated_at)
-     VALUES ($1, $2, 'active', $3::uuid, $4::uuid, NOW() + ($5::int * INTERVAL '1 hour'), NOW(), NOW())
+       (tenant_id, scope, reason, status, started_by, approved_by, expires_at, created_at, updated_at)
+     VALUES ($1::uuid, $2, $3, 'active', $4::uuid, $5::uuid, NOW() + ($6::int * INTERVAL '1 hour'), NOW(), NOW())
      RETURNING id, scope, reason, status, started_by, approved_by, expires_at, created_at`,
+    tid,
     cleanText(data.scope, 'clinical_ai'),
     cleanText(data.reason, 'Emergency Clinical AI governance access'),
     startedBy,
@@ -1175,31 +1248,39 @@ export async function startBreakGlass(data = {}, startedBy = null) {
   return rows[0];
 }
 
-export async function endBreakGlass(sessionId, endedBy = null) {
+export async function endBreakGlass(sessionId, endedBy = null, options = {}) {
+  const tid = resolveTenantId(options);
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE clinical_ai_break_glass_sessions
      SET status = 'ended', ended_at = NOW(), updated_at = NOW()
-     WHERE id = $1 AND status = 'active'
+     WHERE id = $1
+       AND tenant_id = $2::uuid
+       AND status = 'active'
      RETURNING id, scope, reason, status, started_by, approved_by, expires_at, ended_at, created_at`,
-    Number.parseInt(sessionId, 10)
+    Number.parseInt(sessionId, 10),
+    tid
   );
   if (!rows[0]) throw AppError.notFound('Active break-glass session not found');
   await publishEvent({
     eventType: 'clinical_ai.break_glass_ended',
     aggregateType: 'clinical_ai_break_glass',
     aggregateId: rows[0].id,
-    payload: { ended_by: endedBy },
+    payload: { tenant_id: tid, ended_by: endedBy },
   });
   return rows[0];
 }
 
-export async function getActiveBreakGlass() {
+export async function getActiveBreakGlass(options = {}) {
+  const tid = resolveTenantId(options);
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, scope, reason, status, started_by, approved_by, expires_at, created_at
      FROM clinical_ai_break_glass_sessions
-     WHERE status = 'active' AND expires_at > NOW()
+     WHERE tenant_id = $1::uuid
+       AND status = 'active'
+       AND expires_at > NOW()
      ORDER BY expires_at DESC
-     LIMIT 20`
+     LIMIT 20`,
+    tid
   );
   return { sessions: rows, count: rows.length };
 }

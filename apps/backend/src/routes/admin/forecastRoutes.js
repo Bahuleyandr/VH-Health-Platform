@@ -10,6 +10,7 @@ const router = express.Router();
 router.get('/beds', async (req, res, next) => {
   try {
     const forecast = await getBedForecast({
+      tenantId: req.tenantId,
       ward: req.query.ward || null,
       windowHours: req.query.window_hours || 24,
     });
@@ -22,6 +23,7 @@ router.get('/beds', async (req, res, next) => {
 router.get('/pharmacy-stockouts', async (req, res, next) => {
   try {
     const forecast = await getPharmacyStockoutForecast({
+      tenantId: req.tenantId,
       days: req.query.days || 7,
     });
     return success(res, forecast, 'Pharmacy stockout forecast retrieved');

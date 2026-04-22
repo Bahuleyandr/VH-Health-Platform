@@ -46,7 +46,7 @@ function buildHandoverFallback(patientUid, timeline) {
   };
 }
 
-async function saveHandoverAiGeneration(patientUid, draft, requestedBy) {
+async function saveHandoverAiGeneration(patientUid, draft, requestedBy, tenantId) {
   const metadata = {
     fallback_reason: draft.ai_metadata?.fallback_reason || null,
     usage: {
@@ -57,14 +57,15 @@ async function saveHandoverAiGeneration(patientUid, draft, requestedBy) {
   };
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO clinical_ai_generations
-       (patient_uid, task_type, module_key, provider, model, prompt_version,
+       (tenant_id, patient_uid, task_type, module_key, provider, model, prompt_version,
         status, used_ai, safety_flags, citations, draft, generated_by,
         prompt_tokens, completion_tokens, total_tokens, estimated_cost_minor,
         latency_ms, provider_request_id, finish_reason, metadata, created_at, updated_at)
-     VALUES ($1::uuid, 'handover_summary', $2, $3, $4, $5,
-             'draft', $6, '[]'::jsonb, $7::jsonb, $8::jsonb, $9::uuid,
-             $10, $11, $12, $13, $14, $15, $16, $17::jsonb, NOW(), NOW())
+     VALUES ($1::uuid, $2::uuid, 'handover_summary', $3, $4, $5, $6,
+             'draft', $7, '[]'::jsonb, $8::jsonb, $9::jsonb, $10::uuid,
+             $11, $12, $13, $14, $15, $16, $17, $18::jsonb, NOW(), NOW())
      RETURNING id`,
+    tenantId || '00000000-0000-4000-8000-000000000001',
     patientUid,
     draft.ai_metadata?.module_key || 'handover_summary',
     draft.ai_metadata?.provider || 'template',
@@ -86,7 +87,7 @@ async function saveHandoverAiGeneration(patientUid, draft, requestedBy) {
   return rows[0]?.id || null;
 }
 
-export async function generateHandoverDraft(patientUid, requestedBy) {
+export async function generateHandoverDraft(patientUid, requestedBy, tenantId = null) {
   if (!patientUid) throw AppError.badRequest('patientUid is required');
 
   const timeline = await getPatientTimeline(patientUid, { limit: 120 });
@@ -163,7 +164,7 @@ export async function generateHandoverDraft(patientUid, requestedBy) {
     },
   });
 
-  draft.draft_generation_id = await saveHandoverAiGeneration(patientUid, draft, requestedBy);
+  draft.draft_generation_id = await saveHandoverAiGeneration(patientUid, draft, requestedBy, tenantId);
 
   return draft;
 }

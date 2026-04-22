@@ -70,6 +70,7 @@ export const generateTokenPayload = (user) => {
     id: user.id,
     phone: user.phone,
     role: user.role,
+    tenant_id: user.tenant_id || undefined,
     firebaseUid: user.firebase_uid || undefined,
     iat: Math.floor(Date.now() / 1000)
   };

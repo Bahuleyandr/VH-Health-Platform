@@ -57,12 +57,12 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`, PATIENT_UID, DOCTOR_UID, ADMIN_UID, IT_UID);
 
     await prisma.$executeRawUnsafe(
-      `INSERT INTO users (uid, phone, name, role, gender, is_active, updated_at)
+      `INSERT INTO users (uid, phone, name, role, gender, is_active, tenant_id, updated_at)
        VALUES
-         ($1::uuid, '9000091001', 'Clinical AI Patient', 'PATIENT', 'female', true, NOW()),
-         ($2::uuid, '9000091002', 'Clinical AI Doctor', 'DOCTOR', 'male', true, NOW()),
-         ($3::uuid, '9000091003', 'Clinical AI Admin', 'ADMIN', 'male', true, NOW()),
-         ($4::uuid, '9000091004', 'Clinical AI IT Admin', 'IT_ADMIN', 'female', true, NOW())`,
+         ($1::uuid, '9000091001', 'Clinical AI Patient', 'PATIENT', 'female', true, '00000000-0000-4000-8000-000000000001', NOW()),
+         ($2::uuid, '9000091002', 'Clinical AI Doctor', 'DOCTOR', 'male', true, '00000000-0000-4000-8000-000000000001', NOW()),
+         ($3::uuid, '9000091003', 'Clinical AI Admin', 'ADMIN', 'male', true, '00000000-0000-4000-8000-000000000001', NOW()),
+         ($4::uuid, '9000091004', 'Clinical AI IT Admin', 'IT_ADMIN', 'female', true, '00000000-0000-4000-8000-000000000001', NOW())`,
       PATIENT_UID, DOCTOR_UID, ADMIN_UID, IT_UID
     );
 
@@ -347,6 +347,63 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expectStatus(denial, 200, 'denial risk draft');
     expectDraftShape(denial.body.data, 'denial_risk_assist');
     expect(denial.body.data.safety_flags.some((flag) => flag.code === 'DENIAL_RISK_GAP')).toBe(true);
+  });
+
+  it('isolates clinical AI review queue between tenants', async () => {
+    const otherTenantId = 'c2222222-2222-4222-8222-222222222001';
+    const otherPatientUid = 'c2222222-2222-4222-8222-222222222002';
+
+    // Seed an isolated tenant + a draft review owned by that tenant.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name, region, compliance_profile)
+       VALUES ($1::uuid, 'isolation-test', 'Isolation Test Tenant', 'IN', 'DPDP')
+       ON CONFLICT (id) DO NOTHING`,
+      otherTenantId
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO clinical_ai_generations
+         (tenant_id, patient_uid, task_type, module_key, provider, model, prompt_version,
+          source_hash, status, used_ai, safety_flags, citations, draft,
+          prompt_tokens, completion_tokens, total_tokens, metadata, created_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, 'patient_record_summary', 'patient_record_summary', 'template',
+               'seed', 'v1', 'isolation-hash', 'draft', false,
+               '[]'::jsonb, '[]'::jsonb, '{}'::jsonb,
+               0, 0, 0, '{}'::jsonb, NOW(), NOW())`,
+      otherTenantId,
+      otherPatientUid
+    );
+    const genRows = await prisma.$queryRawUnsafe(
+      `SELECT id FROM clinical_ai_generations
+       WHERE tenant_id = $1::uuid AND source_hash = 'isolation-hash'`,
+      otherTenantId
+    );
+    const otherGenerationId = genRows[0].id;
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO clinical_ai_reviews
+         (tenant_id, generation_id, module_key, patient_uid, decision, metadata, created_at, updated_at)
+       VALUES ($1::uuid, $2, 'patient_record_summary', $3::uuid, 'pending', '{}'::jsonb, NOW(), NOW())`,
+      otherTenantId,
+      otherGenerationId,
+      otherPatientUid
+    );
+
+    const reviews = await admin.get('/api/v1/admin/clinical-ai/reviews?decision=pending&module_key=patient_record_summary');
+    expectStatus(reviews, 200, 'list reviews (default tenant)');
+    const defaultTenantIds = reviews.body.data.reviews.map((row) => row.generation_id);
+    expect(defaultTenantIds.includes(otherGenerationId)).toBe(false);
+
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_ai_reviews WHERE tenant_id = $1::uuid`,
+      otherTenantId
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_ai_generations WHERE tenant_id = $1::uuid`,
+      otherTenantId
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM tenants WHERE id = $1::uuid`,
+      otherTenantId
+    ).catch(() => {});
   });
 
   it('supports prompt activation approval, two-person rejection of self-approval, and break-glass lifecycle', async () => {

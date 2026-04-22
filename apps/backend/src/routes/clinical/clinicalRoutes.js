@@ -271,7 +271,7 @@ router.get('/mar/due', async (req, res, next) => {
  */
 router.post('/handover/generate', requiredUUID('patient_uid'), validate, async (req, res, next) => {
   try {
-    const draft = await handoverService.generateHandoverDraft(req.body.patient_uid, req.user.uid);
+    const draft = await handoverService.generateHandoverDraft(req.body.patient_uid, req.user.uid, req.tenantId);
     return success(res, draft, 'Handover draft generated');
   } catch (err) {
     next(err);

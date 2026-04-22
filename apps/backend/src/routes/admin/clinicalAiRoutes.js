@@ -197,6 +197,7 @@ router.patch('/modules/:moduleKey', async (req, res, next) => {
 router.get('/prompts', async (req, res, next) => {
   try {
     const prompts = await listPrompts({
+      tenantId: req.tenantId,
       moduleKey: req.query.module_key || null,
       status: req.query.status || null,
       limit: req.query.limit,
@@ -209,7 +210,7 @@ router.get('/prompts', async (req, res, next) => {
 
 router.post('/prompts', async (req, res, next) => {
   try {
-    const prompt = await createPrompt(req.body || {}, req.user?.uid || null);
+    const prompt = await createPrompt(req.body || {}, req.user?.uid || null, { tenantId: req.tenantId });
     await logClinicalAiAudit(
       req,
       'CLINICAL_AI_PROMPT_CREATED',
@@ -228,7 +229,8 @@ router.patch('/prompts/:id/activate', async (req, res, next) => {
     const result = await activatePrompt(
       req.params.id,
       req.user?.uid || null,
-      req.body?.approval_id || null
+      req.body?.approval_id || null,
+      { tenantId: req.tenantId }
     );
     await logClinicalAiAudit(
       req,
@@ -255,6 +257,7 @@ router.patch('/prompts/:id/activate', async (req, res, next) => {
 router.get('/reviews', async (req, res, next) => {
   try {
     const reviews = await listReviews({
+      tenantId: req.tenantId,
       decision: req.query.decision || null,
       moduleKey: req.query.module_key || null,
       limit: req.query.limit,
@@ -271,7 +274,8 @@ router.patch('/reviews/:id', async (req, res, next) => {
       req.params.id,
       req.body || {},
       req.user?.uid || null,
-      normalizeRole(req.user?.role)
+      normalizeRole(req.user?.role),
+      { tenantId: req.tenantId }
     );
     await logClinicalAiAudit(
       req,
@@ -289,6 +293,7 @@ router.patch('/reviews/:id', async (req, res, next) => {
 router.get('/approvals', async (req, res, next) => {
   try {
     const approvals = await listApprovals({
+      tenantId: req.tenantId,
       status: req.query.status || null,
       moduleKey: req.query.module_key || null,
       limit: req.query.limit,
@@ -301,7 +306,7 @@ router.get('/approvals', async (req, res, next) => {
 
 router.post('/approvals', async (req, res, next) => {
   try {
-    const approval = await createApproval(req.body || {}, req.user?.uid || null);
+    const approval = await createApproval(req.body || {}, req.user?.uid || null, { tenantId: req.tenantId });
     await logClinicalAiAudit(
       req,
       'CLINICAL_AI_APPROVAL_REQUESTED',
@@ -321,7 +326,8 @@ router.patch('/approvals/:id', async (req, res, next) => {
       req.params.id,
       req.body?.decision,
       req.user?.uid || null,
-      req.body?.reason || null
+      req.body?.reason || null,
+      { tenantId: req.tenantId }
     );
     await logClinicalAiAudit(
       req,
@@ -338,7 +344,7 @@ router.patch('/approvals/:id', async (req, res, next) => {
 
 router.post('/break-glass', async (req, res, next) => {
   try {
-    const session = await startBreakGlass(req.body || {}, req.user?.uid || null);
+    const session = await startBreakGlass(req.body || {}, req.user?.uid || null, { tenantId: req.tenantId });
     await logClinicalAiAudit(
       req,
       'CLINICAL_AI_BREAK_GLASS_STARTED',
@@ -354,7 +360,7 @@ router.post('/break-glass', async (req, res, next) => {
 
 router.patch('/break-glass/:id/end', async (req, res, next) => {
   try {
-    const session = await endBreakGlass(req.params.id, req.user?.uid || null);
+    const session = await endBreakGlass(req.params.id, req.user?.uid || null, { tenantId: req.tenantId });
     await logClinicalAiAudit(
       req,
       'CLINICAL_AI_BREAK_GLASS_ENDED',
@@ -368,9 +374,9 @@ router.patch('/break-glass/:id/end', async (req, res, next) => {
   }
 });
 
-router.get('/break-glass', async (_req, res, next) => {
+router.get('/break-glass', async (req, res, next) => {
   try {
-    const sessions = await getActiveBreakGlass();
+    const sessions = await getActiveBreakGlass({ tenantId: req.tenantId });
     return success(res, sessions, 'Active Clinical AI break-glass sessions retrieved');
   } catch (err) {
     return next(err);

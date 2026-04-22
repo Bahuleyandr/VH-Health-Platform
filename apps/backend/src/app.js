@@ -19,6 +19,8 @@ import corsMiddleware, { corsErrorHandler } from './middleware/corsMiddleware.js
 import { errorHandlerMiddleware } from './middleware/errorHandlerMiddleware.js';
 import { adminIpAllowlist } from './middleware/ipAllowlistMiddleware.js';
 import jwtAuth from './middleware/jwtMiddleware.js';
+import tenantContextMiddleware from './middleware/tenantContextMiddleware.js';
+import tenantRoutes from './routes/admin/tenantRoutes.js';
 import loggingMiddleware from './middleware/loggingMiddleware.js';
 import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
 import { phiAccessLogger } from './middleware/phiAccessMiddleware.js';
@@ -354,6 +356,7 @@ app.use('/api/v1/config', configRoutes);
 app.use('/api/v1/hl7', hl7Routes);
 
 app.use(jwtAuth);  // Single JWT middleware for all authenticated routes
+app.use(tenantContextMiddleware);  // Resolves req.tenantId after JWT auth
 app.use(normalizeIdentityFields); // runs AFTER JWT auth
 
 // ====================================
@@ -474,6 +477,13 @@ app.use(
   adminIpAllowlist,
   adminRateLimiter,
   adminForecastRoutes
+);
+app.use(
+  '/api/v1/admin/tenants',
+  requireRole('SUPER_ADMIN'),
+  adminIpAllowlist,
+  adminRateLimiter,
+  tenantRoutes
 );
 app.use('/api/v1/admin', requireRole('ADMIN', 'SUPER_ADMIN'), adminIpAllowlist, adminRateLimiter, adminDashboardRoutes);
 app.use('/api/v1/admin/gamification', requireRole('ADMIN', 'SUPER_ADMIN'), adminIpAllowlist, adminRateLimiter, adminGamificationRoutes);
