@@ -4,7 +4,31 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
 }));
 
-const { generateClinicalText, getClinicalAiConfig } = await import('../../services/ai/localLlmClient.js');
+let mockModule = {
+  module_key: 'discharge_summary',
+  display_name: 'Discharge Summary Drafts',
+  enabled: true,
+  external_allowed: false,
+  provider_override: null,
+  model_override: null,
+  max_tokens: null,
+  temperature: null,
+  settings: {},
+};
+
+jest.unstable_mockModule('../../services/ai/clinicalAiModuleService.js', () => ({
+  getClinicalAiModule: jest.fn(async () => mockModule),
+  getClinicalAiUsageSummary: jest.fn(async () => ({
+    window_days: 7,
+    overall: { generation_count: 0, ai_generation_count: 0, prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+    by_module: [],
+    by_provider: [],
+    recent_failures: [],
+  })),
+  listClinicalAiModules: jest.fn(async () => [mockModule]),
+}));
+
+const { generateClinicalText, getClinicalAiConfig, getClinicalAiRuntimeStatus } = await import('../../services/ai/localLlmClient.js');
 
 const ORIGINAL_ENV = { ...process.env };
 const CLINICAL_ENV_KEYS = [
@@ -44,6 +68,17 @@ function okJson(payload) {
 describe('clinical AI provider client', () => {
   beforeEach(() => {
     resetClinicalEnv();
+    mockModule = {
+      module_key: 'discharge_summary',
+      display_name: 'Discharge Summary Drafts',
+      enabled: true,
+      external_allowed: false,
+      provider_override: null,
+      model_override: null,
+      max_tokens: null,
+      temperature: null,
+      settings: {},
+    };
     global.fetch = jest.fn();
   });
 
@@ -87,8 +122,11 @@ describe('clinical AI provider client', () => {
     process.env.CLINICAL_AI_MODEL = 'gpt-test-model';
     process.env.CLINICAL_AI_ALLOW_EXTERNAL = 'true';
     process.env.OPENAI_API_KEY = 'test-openai-key';
+    mockModule = { ...mockModule, external_allowed: true };
     global.fetch.mockResolvedValue(okJson({
+      id: 'chatcmpl-test',
       choices: [{ message: { content: 'OpenAI draft' } }],
+      usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
     }));
 
     const result = await generateClinicalText({
@@ -97,7 +135,12 @@ describe('clinical AI provider client', () => {
       taskType: 'discharge_summary',
     });
 
-    expect(result).toMatchObject({ usedAi: true, provider: 'openai', text: 'OpenAI draft' });
+    expect(result).toMatchObject({
+      usedAi: true,
+      provider: 'openai',
+      text: 'OpenAI draft',
+      usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
+    });
     expect(global.fetch).toHaveBeenCalledWith(
       'https://api.openai.com/v1/chat/completions',
       expect.objectContaining({
@@ -119,8 +162,11 @@ describe('clinical AI provider client', () => {
     process.env.CLINICAL_AI_MODEL = 'claude-test-model';
     process.env.CLINICAL_AI_ALLOW_EXTERNAL = 'true';
     process.env.ANTHROPIC_API_KEY = 'test-anthropic-key';
+    mockModule = { ...mockModule, external_allowed: true };
     global.fetch.mockResolvedValue(okJson({
+      id: 'msg-test',
       content: [{ type: 'text', text: 'Anthropic draft' }],
+      usage: { input_tokens: 13, output_tokens: 5 },
     }));
 
     const result = await generateClinicalText({
@@ -129,7 +175,12 @@ describe('clinical AI provider client', () => {
       taskType: 'handover',
     });
 
-    expect(result).toMatchObject({ usedAi: true, provider: 'anthropic', text: 'Anthropic draft' });
+    expect(result).toMatchObject({
+      usedAi: true,
+      provider: 'anthropic',
+      text: 'Anthropic draft',
+      usage: { prompt_tokens: 13, completion_tokens: 5, total_tokens: 18 },
+    });
     expect(global.fetch).toHaveBeenCalledWith(
       'https://api.anthropic.com/v1/messages',
       expect.objectContaining({
@@ -153,6 +204,7 @@ describe('clinical AI provider client', () => {
     process.env.CLINICAL_AI_MODEL = 'local-model';
     global.fetch.mockResolvedValue(okJson({
       choices: [{ message: { content: [{ text: 'Local gateway draft' }] } }],
+      usage: { prompt_tokens: 9, completion_tokens: 4, total_tokens: 13 },
     }));
 
     const result = await generateClinicalText({
@@ -165,6 +217,7 @@ describe('clinical AI provider client', () => {
       usedAi: true,
       provider: 'openai-compatible',
       text: 'Local gateway draft',
+      usage: { prompt_tokens: 9, completion_tokens: 4, total_tokens: 13 },
     });
     expect(global.fetch).toHaveBeenCalledWith(
       'http://localhost:1234/v1/chat/completions',
@@ -172,5 +225,28 @@ describe('clinical AI provider client', () => {
         headers: expect.not.objectContaining({ Authorization: expect.any(String) }),
       })
     );
+  });
+
+  it('turns disabled modules into template fallback without calling the provider', async () => {
+    process.env.CLINICAL_AI_PROVIDER = 'ollama';
+    mockModule = { ...mockModule, enabled: false };
+
+    const result = await generateClinicalText({
+      systemPrompt: 'System safety prompt',
+      userPrompt: 'Patient context',
+      taskType: 'discharge_summary',
+    });
+
+    expect(result.usedAi).toBe(false);
+    expect(result.reason).toMatch(/module disabled/i);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('returns runtime status with modules and usage', async () => {
+    const status = await getClinicalAiRuntimeStatus();
+
+    expect(status.modules).toHaveLength(1);
+    expect(status.usage.overall.total_tokens).toBe(0);
+    expect(status.providerHealth.status).toBe('blocked');
   });
 });

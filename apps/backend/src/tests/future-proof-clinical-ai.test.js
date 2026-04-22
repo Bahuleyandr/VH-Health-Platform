@@ -163,6 +163,18 @@ describe('future-proof clinical AI and privacy foundations', () => {
     const generations = await admin.get('/api/v1/admin/clinical-ai/generations');
     expectStatus(generations, 200, 'list AI generations');
     expect(generations.body.data.generations.length).toBeGreaterThan(0);
+    expect(generations.body.data.generations[0]).toHaveProperty('total_tokens');
+
+    const status = await admin.get('/api/v1/admin/clinical-ai/status');
+    expectStatus(status, 200, 'clinical AI status');
+    expect(status.body.data.modules.some((module) => module.module_key === 'discharge_summary')).toBe(true);
+    expect(status.body.data.usage.overall).toHaveProperty('total_tokens');
+
+    const toggled = await admin.patch('/api/v1/admin/clinical-ai/modules/patient_aftercare_instructions').send({
+      enabled: true,
+    });
+    expectStatus(toggled, 200, 'toggle clinical AI module');
+    expect(toggled.body.data.enabled).toBe(true);
   });
 
   it('exposes timeline, handover draft, FHIR everything, and downtime packet', async () => {

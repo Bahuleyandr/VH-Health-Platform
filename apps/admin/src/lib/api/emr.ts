@@ -1,4 +1,4 @@
-import { getJSON, postJSON, putJSON } from './core';
+import { fetchAdminAPI, getJSON, postJSON, putJSON } from './core';
 
 // Types
 export interface Admission {
@@ -51,6 +51,7 @@ export interface AdmissionStats {
 }
 
 export interface ClinicalAiConfig {
+  moduleKey?: string | null;
   provider: string;
   model: string;
   enabled: boolean;
@@ -62,16 +63,90 @@ export interface ClinicalAiConfig {
   supportedProviders?: string[];
 }
 
+export interface ClinicalAiModule {
+  module_key: string;
+  display_name: string;
+  description?: string | null;
+  enabled: boolean;
+  provider_override?: string | null;
+  model_override?: string | null;
+  external_allowed: boolean;
+  max_tokens?: number | null;
+  temperature?: number | null;
+  settings?: Record<string, unknown>;
+  updated_at?: string | null;
+}
+
+export interface ClinicalAiUsageSummary {
+  window_days: number;
+  overall: {
+    generation_count: number;
+    ai_generation_count: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    estimated_cost_minor?: number | null;
+    avg_latency_ms?: number | null;
+    last_generation_at?: string | null;
+  };
+  by_module: Array<{
+    module_key: string;
+    generation_count: number;
+    ai_generation_count: number;
+    total_tokens: number;
+    estimated_cost_minor?: number | null;
+    avg_latency_ms?: number | null;
+    last_generation_at?: string | null;
+  }>;
+  by_provider: Array<{
+    provider: string;
+    generation_count: number;
+    ai_generation_count: number;
+    total_tokens: number;
+    avg_latency_ms?: number | null;
+    last_generation_at?: string | null;
+  }>;
+  recent_failures: Array<{
+    id: number;
+    module_key?: string | null;
+    task_type: string;
+    provider: string;
+    model?: string | null;
+    metadata?: Record<string, unknown>;
+    created_at: string;
+  }>;
+}
+
+export interface ClinicalAiStatus {
+  config: ClinicalAiConfig;
+  providerHealth: {
+    ok: boolean;
+    status: string;
+    reason?: string | null;
+    latencyMs?: number | null;
+    httpStatus?: number;
+  };
+  modules: ClinicalAiModule[];
+  usage: ClinicalAiUsageSummary;
+}
+
 export interface ClinicalAiGeneration {
   id: number;
   patient_uid?: string;
   patient_name?: string;
   admission_id?: number;
   task_type: string;
+  module_key?: string | null;
   provider: string;
   model?: string;
   status: string;
   used_ai: boolean;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  estimated_cost_minor?: number | null;
+  latency_ms?: number | null;
+  finish_reason?: string | null;
   safety_flags: Array<{ severity: string; code: string; message: string }>;
   created_at: string;
 }
@@ -81,6 +156,7 @@ export interface ClinicalAiSafetyFlag {
   patient_uid?: string;
   patient_name?: string;
   admission_id?: number;
+  module_key?: string | null;
   severity: string;
   code: string;
   message: string;
@@ -106,6 +182,18 @@ export async function getActiveProblemList(uid: string) { return getJSON(`/emr/d
 export async function getActiveAlerts(uid: string) { return getJSON(`/emr/cds/alerts/${uid}`); }
 export async function searchICD10(query: string) { return getJSON(`/emr/icd10/search?q=${encodeURIComponent(query)}`); }
 export async function getClinicalAiConfig() { return getJSON<ClinicalAiConfig>('/emr/clinical-ai/config'); }
+export async function getClinicalAiStatus(days = 7) {
+  return getJSON<ClinicalAiStatus>('/admin/clinical-ai/status', { days });
+}
+export async function getClinicalAiModules() {
+  return getJSON<{ modules: ClinicalAiModule[]; count: number }>('/admin/clinical-ai/modules');
+}
+export async function updateClinicalAiModule(moduleKey: string, payload: Partial<ClinicalAiModule>) {
+  return fetchAdminAPI<ClinicalAiModule>(`/admin/clinical-ai/modules/${encodeURIComponent(moduleKey)}`, {
+    method: 'PATCH',
+    body: payload,
+  });
+}
 export async function generateHandoverDraft(patientUid: string) {
   return postJSON('/clinical/handover/generate', { patient_uid: patientUid });
 }

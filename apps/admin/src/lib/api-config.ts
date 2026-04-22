@@ -454,7 +454,7 @@ export const API_ENDPOINTS = {
     admissionDetail: (id: number) => `/api/v1/emr/admission/${id}`, // GET - single admission
     admissionStats: "/api/v1/emr/admissions/stats",                // GET - ?date_from=&date_to=
     timeline: (uid: string) => `/api/v1/emr/timeline/${uid}`,      // GET - patient timeline
-    clinicalAiConfig: "/api/v1/emr/clinical-ai/config",            // GET - local AI provider status
+    clinicalAiConfig: "/api/v1/emr/clinical-ai/config",            // GET - clinical AI provider status
     downtimeSnapshot: (uid: string) => `/api/v1/emr/downtime-snapshot/${uid}`, // POST
     notes: (uid: string) => `/api/v1/emr/notes/patient/${uid}`,    // GET - clinical notes
     orders: (uid: string) => `/api/v1/emr/orders/patient/${uid}`,  // GET - clinical orders

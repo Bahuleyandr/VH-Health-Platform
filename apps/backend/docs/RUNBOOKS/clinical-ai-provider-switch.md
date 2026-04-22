@@ -11,6 +11,8 @@ are intentionally blocked unless `CLINICAL_AI_ALLOW_EXTERNAL=true` is set.
 - Treat all prompts and outputs as PHI-bearing clinical data.
 - Use `template`, `ollama`, or a local `openai-compatible` endpoint unless a
   compliant external-provider agreement and approval are already in place.
+- External/cloud providers require two gates: `CLINICAL_AI_ALLOW_EXTERNAL=true`
+  and the specific Clinical AI module's `external_allowed=true`.
 - AI output is always a draft. A clinician must review, edit if needed, and
   sign the final discharge note.
 - Never put API keys in source files. Store them in the deployment secret
@@ -27,6 +29,13 @@ CLINICAL_AI_ALLOW_EXTERNAL    # must be true for openai/anthropic/external gatew
 CLINICAL_AI_TIMEOUT_MS        # default 45000
 CLINICAL_AI_MAX_TOKENS        # default 2200
 CLINICAL_AI_TEMPERATURE       # default 0.15
+```
+
+Optional cost estimate inputs:
+
+```
+CLINICAL_AI_INPUT_COST_PER_MILLION_MINOR
+CLINICAL_AI_OUTPUT_COST_PER_MILLION_MINOR
 ```
 
 Provider-specific key aliases:
@@ -58,6 +67,29 @@ $ curl -s -H "x-api-key: $API_KEY_ADMIN" -H "Authorization: Bearer $ADMIN_JWT" \
 ```
 
 Expected: `enabled=true`, `provider="ollama"`, `externalProvider=false`.
+
+## Module controls
+
+Admin can activate/deactivate Clinical AI modules from `/dashboard/clinical-ai`.
+The backend API is:
+
+```bash
+$ curl -s -X PATCH http://localhost:5000/api/v1/admin/clinical-ai/modules/discharge_summary \
+    -H "x-api-key: $API_KEY_ADMIN" \
+    -H "Authorization: Bearer $ADMIN_JWT" \
+    -H "Content-Type: application/json" \
+    -d '{"enabled":true,"external_allowed":false}' | jq .data
+```
+
+If a module is disabled, the workflow stays available but uses deterministic
+fallback templates and records `used_ai=false`.
+
+Usage and provider status are visible at:
+
+```bash
+$ curl -s -H "x-api-key: $API_KEY_ADMIN" -H "Authorization: Bearer $ADMIN_JWT" \
+    "http://localhost:5000/api/v1/admin/clinical-ai/status?days=7" | jq .data.usage
+```
 
 ### Option B — local OpenAI-compatible gateway
 

@@ -12,6 +12,7 @@ import { emitHandover } from '../../utils/websocket/realtimeEmitter.js';
 // ===================================================================
 
 const VALID_SHIFTS = ['morning', 'afternoon', 'night'];
+const HANDOVER_PROMPT_VERSION = 'handover-doc-v1';
 
 function recent(events, type, count = 5) {
   return events.filter((event) => event.event_type === type).slice(0, count);
@@ -43,6 +44,46 @@ function buildHandoverFallback(patientUid, timeline) {
     medications_due: activeMeds.map((event) => event.summary),
     special_instructions: 'Review allergies, code status, pending orders, and escalation plan before accepting handover.',
   };
+}
+
+async function saveHandoverAiGeneration(patientUid, draft, requestedBy) {
+  const metadata = {
+    fallback_reason: draft.ai_metadata?.fallback_reason || null,
+    usage: {
+      prompt_tokens: draft.ai_metadata?.prompt_tokens || 0,
+      completion_tokens: draft.ai_metadata?.completion_tokens || 0,
+      total_tokens: draft.ai_metadata?.total_tokens || 0,
+    },
+  };
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO clinical_ai_generations
+       (patient_uid, task_type, module_key, provider, model, prompt_version,
+        status, used_ai, safety_flags, citations, draft, generated_by,
+        prompt_tokens, completion_tokens, total_tokens, estimated_cost_minor,
+        latency_ms, provider_request_id, finish_reason, metadata, created_at, updated_at)
+     VALUES ($1::uuid, 'handover_summary', $2, $3, $4, $5,
+             'draft', $6, '[]'::jsonb, $7::jsonb, $8::jsonb, $9::uuid,
+             $10, $11, $12, $13, $14, $15, $16, $17::jsonb, NOW(), NOW())
+     RETURNING id`,
+    patientUid,
+    draft.ai_metadata?.module_key || 'handover_summary',
+    draft.ai_metadata?.provider || 'template',
+    draft.ai_metadata?.model || null,
+    HANDOVER_PROMPT_VERSION,
+    Boolean(draft.ai_metadata?.used_ai),
+    JSON.stringify(draft.source_citations || []),
+    JSON.stringify(draft),
+    requestedBy || null,
+    draft.ai_metadata?.prompt_tokens || 0,
+    draft.ai_metadata?.completion_tokens || 0,
+    draft.ai_metadata?.total_tokens || 0,
+    draft.ai_metadata?.estimated_cost_minor || null,
+    draft.ai_metadata?.latency_ms || null,
+    draft.ai_metadata?.provider_request_id || null,
+    draft.ai_metadata?.finish_reason || null,
+    JSON.stringify(metadata)
+  );
+  return rows[0]?.id || null;
 }
 
 export async function generateHandoverDraft(patientUid, requestedBy) {
@@ -91,7 +132,15 @@ export async function generateHandoverDraft(patientUid, requestedBy) {
     ai_metadata: {
       provider: aiResult.provider,
       model: aiResult.model,
+      module_key: aiResult.moduleKey,
       used_ai: aiResult.usedAi && Boolean(parsed),
+      prompt_tokens: aiResult.usage?.prompt_tokens || 0,
+      completion_tokens: aiResult.usage?.completion_tokens || 0,
+      total_tokens: aiResult.usage?.total_tokens || 0,
+      estimated_cost_minor: aiResult.estimatedCostMinor || null,
+      latency_ms: aiResult.usage?.latency_ms || null,
+      provider_request_id: aiResult.usage?.provider_request_id || null,
+      finish_reason: aiResult.usage?.finish_reason || null,
       fallback_reason: parsed ? null : (aiResult.reason || 'AI output was not valid JSON'),
     },
     source_citations: timeline.slice(0, 80).map((event) => ({
@@ -113,6 +162,8 @@ export async function generateHandoverDraft(patientUid, requestedBy) {
       source_count: draft.source_citations.length,
     },
   });
+
+  draft.draft_generation_id = await saveHandoverAiGeneration(patientUid, draft, requestedBy);
 
   return draft;
 }

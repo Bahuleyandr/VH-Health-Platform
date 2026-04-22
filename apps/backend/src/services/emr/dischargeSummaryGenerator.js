@@ -233,7 +233,15 @@ function buildStructuredSummary(context, hospitalCourse, aiResult) {
     ai_metadata: {
       provider: aiResult.provider,
       model: aiResult.model,
+      module_key: aiResult.moduleKey,
       used_ai: aiResult.usedAi,
+      prompt_tokens: aiResult.usage?.prompt_tokens || 0,
+      completion_tokens: aiResult.usage?.completion_tokens || 0,
+      total_tokens: aiResult.usage?.total_tokens || 0,
+      estimated_cost_minor: aiResult.estimatedCostMinor || null,
+      latency_ms: aiResult.usage?.latency_ms || null,
+      provider_request_id: aiResult.usage?.provider_request_id || null,
+      finish_reason: aiResult.usage?.finish_reason || null,
       prompt_version: PROMPT_VERSION,
       fallback_reason: aiResult.reason || null,
     },
@@ -289,16 +297,27 @@ function buildPrompt(context) {
 }
 
 async function saveAiGeneration(context, summary, requestedBy, sourceHash) {
+  const metadata = {
+    fallback_reason: summary.ai_metadata.fallback_reason,
+    usage: {
+      prompt_tokens: summary.ai_metadata.prompt_tokens || 0,
+      completion_tokens: summary.ai_metadata.completion_tokens || 0,
+      total_tokens: summary.ai_metadata.total_tokens || 0,
+    },
+  };
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO clinical_ai_generations
-       (patient_uid, admission_id, task_type, provider, model, prompt_version,
+       (patient_uid, admission_id, task_type, module_key, provider, model, prompt_version,
         source_hash, status, used_ai, safety_flags, citations, draft, generated_by,
-        created_at, updated_at)
-     VALUES ($1::uuid, $2, 'discharge_summary', $3, $4, $5, $6, 'draft',
-             $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::uuid, NOW(), NOW())
+        prompt_tokens, completion_tokens, total_tokens, estimated_cost_minor,
+        latency_ms, provider_request_id, finish_reason, metadata, created_at, updated_at)
+     VALUES ($1::uuid, $2, 'discharge_summary', $3, $4, $5, $6, $7, 'draft',
+             $8, $9::jsonb, $10::jsonb, $11::jsonb, $12::uuid,
+             $13, $14, $15, $16, $17, $18, $19, $20::jsonb, NOW(), NOW())
      RETURNING id, provider, model, used_ai, status, created_at`,
     context.admission.patient_uid,
     context.admission.id,
+    summary.ai_metadata.module_key || 'discharge_summary',
     summary.ai_metadata.provider,
     summary.ai_metadata.model,
     PROMPT_VERSION,
@@ -307,7 +326,15 @@ async function saveAiGeneration(context, summary, requestedBy, sourceHash) {
     JSON.stringify(summary.safety_flags || []),
     JSON.stringify(summary.source_citations || []),
     JSON.stringify(summary),
-    requestedBy || null
+    requestedBy || null,
+    summary.ai_metadata.prompt_tokens || 0,
+    summary.ai_metadata.completion_tokens || 0,
+    summary.ai_metadata.total_tokens || 0,
+    summary.ai_metadata.estimated_cost_minor || null,
+    summary.ai_metadata.latency_ms || null,
+    summary.ai_metadata.provider_request_id || null,
+    summary.ai_metadata.finish_reason || null,
+    JSON.stringify(metadata)
   );
 
   return rows[0];

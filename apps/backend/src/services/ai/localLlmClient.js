@@ -1,4 +1,9 @@
 import logger from '../../logging/logger.js';
+import {
+  getClinicalAiModule,
+  getClinicalAiUsageSummary,
+  listClinicalAiModules,
+} from './clinicalAiModuleService.js';
 
 const DEFAULT_TIMEOUT_MS = 45_000;
 const DEFAULT_MODEL = 'llama3.1:8b';
@@ -9,6 +14,11 @@ const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
 
 function boolEnv(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').toLowerCase().trim());
+}
+
+function safeInt(value, fallback = 0) {
+  const n = Number.parseInt(value, 10);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 function normalizeProvider(value) {
@@ -64,30 +74,34 @@ function isExternalUrl(baseUrl) {
   }
 }
 
-function getProviderConfig() {
-  const provider = normalizeProvider(process.env.CLINICAL_AI_PROVIDER || process.env.AI_PROVIDER || 'template');
+function getProviderConfig(module = null) {
+  const provider = normalizeProvider(
+    module?.provider_override || process.env.CLINICAL_AI_PROVIDER || process.env.AI_PROVIDER || 'template'
+  );
   const explicitBaseUrl = process.env.CLINICAL_AI_BASE_URL || process.env.AI_SUMMARIZE_URL || '';
   const baseUrl = normalizeBaseUrl(explicitBaseUrl || defaultBaseUrl(provider));
-  const model = process.env.CLINICAL_AI_MODEL || process.env.AI_SUMMARIZE_MODEL || DEFAULT_MODEL;
+  const model = module?.model_override || process.env.CLINICAL_AI_MODEL || process.env.AI_SUMMARIZE_MODEL || DEFAULT_MODEL;
   const timeoutMs = Math.min(
     Math.max(parseInt(process.env.CLINICAL_AI_TIMEOUT_MS, 10) || DEFAULT_TIMEOUT_MS, 5_000),
     120_000
   );
   const maxTokens = Math.min(
-    Math.max(parseInt(process.env.CLINICAL_AI_MAX_TOKENS, 10) || DEFAULT_MAX_TOKENS, 256),
+    Math.max(parseInt(module?.max_tokens ?? process.env.CLINICAL_AI_MAX_TOKENS, 10) || DEFAULT_MAX_TOKENS, 256),
     8000
   );
-  const temperature = Math.min(
-    Math.max(Number.parseFloat(process.env.CLINICAL_AI_TEMPERATURE || '0.15'), 0),
-    1
-  );
+  const temperatureRaw = module?.temperature ?? process.env.CLINICAL_AI_TEMPERATURE ?? '0.15';
+  const temperature = Math.min(Math.max(Number.parseFloat(temperatureRaw), 0), 1);
   const apiKey = getApiKey(provider);
-  const allowExternal = boolEnv(process.env.CLINICAL_AI_ALLOW_EXTERNAL);
+  const allowExternal = module
+    ? boolEnv(process.env.CLINICAL_AI_ALLOW_EXTERNAL) && Boolean(module.external_allowed)
+    : boolEnv(process.env.CLINICAL_AI_ALLOW_EXTERNAL);
   const externalProvider = EXTERNAL_PROVIDERS.has(provider) || (
     provider === 'openai-compatible' && isExternalUrl(baseUrl)
   );
 
   return {
+    module,
+    moduleKey: module?.module_key || null,
     provider,
     baseUrl,
     model,
@@ -113,6 +127,32 @@ function buildMessages({ systemPrompt, userPrompt, systemRole = 'system' }) {
   ];
 }
 
+function emptyUsage(extra = {}) {
+  return {
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0,
+    provider_request_id: null,
+    finish_reason: null,
+    latency_ms: null,
+    raw: null,
+    ...extra,
+  };
+}
+
+function estimateCostMinor(config, usage) {
+  const inputRate = safeInt(process.env.CLINICAL_AI_INPUT_COST_PER_MILLION_MINOR, 0);
+  const outputRate = safeInt(process.env.CLINICAL_AI_OUTPUT_COST_PER_MILLION_MINOR, 0);
+  if (!inputRate && !outputRate) return null;
+  return Math.round(
+    ((usage.prompt_tokens || 0) * inputRate + (usage.completion_tokens || 0) * outputRate) / 1_000_000
+  );
+}
+
+function responseHeader(response, name) {
+  return response.headers?.get?.(name) || null;
+}
+
 function readOpenAIText(payload) {
   const content = payload.choices?.[0]?.message?.content ?? payload.choices?.[0]?.text ?? '';
   if (Array.isArray(content)) {
@@ -136,6 +176,9 @@ function getReadiness(config) {
   if (!config.supported) {
     return { ready: false, reason: `Unsupported clinical AI provider: ${config.provider}` };
   }
+  if (config.module && !config.module.enabled) {
+    return { ready: false, reason: `Clinical AI module disabled: ${config.module.display_name}` };
+  }
   if (config.provider === 'template') {
     return { ready: false, reason: 'Clinical AI provider is template fallback' };
   }
@@ -156,6 +199,7 @@ function getReadiness(config) {
 
 async function callOllama(config, prompt, systemPrompt) {
   const url = joinEndpoint(config.baseUrl, '/api/generate');
+  const startedAt = Date.now();
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -178,11 +222,25 @@ async function callOllama(config, prompt, systemPrompt) {
   }
 
   const payload = await response.json();
-  return payload.response || '';
+  const usage = emptyUsage({
+    prompt_tokens: safeInt(payload.prompt_eval_count, 0),
+    completion_tokens: safeInt(payload.eval_count, 0),
+    total_tokens: safeInt(payload.prompt_eval_count, 0) + safeInt(payload.eval_count, 0),
+    finish_reason: payload.done_reason || null,
+    latency_ms: payload.total_duration ? Math.round(Number(payload.total_duration) / 1_000_000) : Date.now() - startedAt,
+    raw: {
+      total_duration: payload.total_duration || null,
+      load_duration: payload.load_duration || null,
+      prompt_eval_duration: payload.prompt_eval_duration || null,
+      eval_duration: payload.eval_duration || null,
+    },
+  });
+  return { text: payload.response || '', usage };
 }
 
 async function callOpenAICompatible(config, userPrompt, systemPrompt) {
   const url = joinEndpoint(config.baseUrl, '/v1/chat/completions');
+  const startedAt = Date.now();
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -215,11 +273,22 @@ async function callOpenAICompatible(config, userPrompt, systemPrompt) {
   }
 
   const payload = await response.json();
-  return readOpenAIText(payload);
+  const usage = emptyUsage({
+    prompt_tokens: safeInt(payload.usage?.prompt_tokens, 0),
+    completion_tokens: safeInt(payload.usage?.completion_tokens, 0),
+    total_tokens: safeInt(payload.usage?.total_tokens, 0),
+    provider_request_id: responseHeader(response, 'x-request-id') || payload.id || null,
+    finish_reason: payload.choices?.[0]?.finish_reason || null,
+    latency_ms: Date.now() - startedAt,
+    raw: payload.usage || null,
+  });
+  if (!usage.total_tokens) usage.total_tokens = usage.prompt_tokens + usage.completion_tokens;
+  return { text: readOpenAIText(payload), usage };
 }
 
 async function callAnthropic(config, userPrompt, systemPrompt) {
   const url = joinEndpoint(config.baseUrl, '/v1/messages');
+  const startedAt = Date.now();
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -242,13 +311,27 @@ async function callAnthropic(config, userPrompt, systemPrompt) {
   }
 
   const payload = await response.json();
-  return readAnthropicText(payload);
+  const inputTokens = safeInt(payload.usage?.input_tokens, 0)
+    + safeInt(payload.usage?.cache_creation_input_tokens, 0)
+    + safeInt(payload.usage?.cache_read_input_tokens, 0);
+  const outputTokens = safeInt(payload.usage?.output_tokens, 0);
+  const usage = emptyUsage({
+    prompt_tokens: inputTokens,
+    completion_tokens: outputTokens,
+    total_tokens: inputTokens + outputTokens,
+    provider_request_id: responseHeader(response, 'request-id') || payload.id || null,
+    finish_reason: payload.stop_reason || null,
+    latency_ms: Date.now() - startedAt,
+    raw: payload.usage || null,
+  });
+  return { text: readAnthropicText(payload), usage };
 }
 
 export function getClinicalAiConfig() {
   const config = getProviderConfig();
   const readiness = getReadiness(config);
   return {
+    moduleKey: config.moduleKey,
     provider: config.provider,
     model: config.model,
     enabled: readiness.ready,
@@ -262,8 +345,10 @@ export function getClinicalAiConfig() {
 }
 
 export async function generateClinicalText({ systemPrompt, userPrompt, taskType }) {
-  const config = getProviderConfig();
+  const module = await getClinicalAiModule(taskType);
+  const config = getProviderConfig(module);
   const readiness = getReadiness(config);
+  const baseUsage = emptyUsage();
 
   if (!readiness.ready) {
     return {
@@ -271,29 +356,37 @@ export async function generateClinicalText({ systemPrompt, userPrompt, taskType 
       usedAi: false,
       provider: config.provider === 'template' ? 'template' : config.provider,
       model: config.model,
+      moduleKey: config.moduleKey || taskType || null,
       reason: readiness.reason,
+      usage: baseUsage,
+      estimatedCostMinor: null,
     };
   }
 
   try {
-    let text = '';
+    let result;
     if (looksLikeOllama(config)) {
-      text = await callOllama(config, userPrompt, systemPrompt);
+      result = await callOllama(config, userPrompt, systemPrompt);
     } else if (config.provider === 'anthropic') {
-      text = await callAnthropic(config, userPrompt, systemPrompt);
+      result = await callAnthropic(config, userPrompt, systemPrompt);
     } else {
-      text = await callOpenAICompatible(config, userPrompt, systemPrompt);
+      result = await callOpenAICompatible(config, userPrompt, systemPrompt);
     }
+    const { text, usage } = result;
 
     if (!String(text || '').trim()) {
       throw new Error('Model returned empty content');
     }
+    const estimatedCostMinor = estimateCostMinor(config, usage);
 
     return {
       text: String(text).trim(),
       usedAi: true,
       provider: looksLikeOllama(config) ? 'ollama' : config.provider,
       model: config.model,
+      moduleKey: config.moduleKey || taskType || null,
+      usage,
+      estimatedCostMinor,
     };
   } catch (err) {
     logger.warn('Clinical AI generation failed; falling back to template', {
@@ -307,12 +400,76 @@ export async function generateClinicalText({ systemPrompt, userPrompt, taskType 
       usedAi: false,
       provider: looksLikeOllama(config) ? 'ollama' : config.provider,
       model: config.model,
+      moduleKey: config.moduleKey || taskType || null,
+      reason: err.message,
+      usage: baseUsage,
+      estimatedCostMinor: null,
+    };
+  }
+}
+
+async function probeProvider(config) {
+  const readiness = getReadiness(config);
+  if (!readiness.ready) {
+    return { ok: false, status: 'blocked', reason: readiness.reason, latencyMs: null };
+  }
+
+  const startedAt = Date.now();
+  let url = '';
+  const headers = {};
+  if (looksLikeOllama(config)) {
+    url = joinEndpoint(config.baseUrl, '/api/tags');
+  } else if (config.provider === 'anthropic') {
+    url = joinEndpoint(config.baseUrl, `/v1/models/${encodeURIComponent(config.model)}`);
+    headers['x-api-key'] = config.apiKey;
+    headers['anthropic-version'] = process.env.ANTHROPIC_VERSION || process.env.ANTHROPIC_API_VERSION || '2023-06-01';
+  } else {
+    url = joinEndpoint(config.baseUrl, '/v1/models');
+    if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers,
+      signal: AbortSignal.timeout(Math.min(config.timeoutMs, 8_000)),
+    });
+    return {
+      ok: response.ok,
+      status: response.ok ? 'reachable' : 'error',
+      httpStatus: response.status,
+      latencyMs: Date.now() - startedAt,
+      reason: response.ok ? null : `HTTP ${response.status}`,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 'error',
+      latencyMs: Date.now() - startedAt,
       reason: err.message,
     };
   }
 }
 
+export async function getClinicalAiRuntimeStatus({ live = false, days = 7 } = {}) {
+  const modules = await listClinicalAiModules();
+  const config = getProviderConfig();
+  const readiness = getReadiness(config);
+  const usage = await getClinicalAiUsageSummary({ days });
+  const providerHealth = live
+    ? await probeProvider(config)
+    : { ok: readiness.ready, status: readiness.ready ? 'configured' : 'blocked', reason: readiness.reason, latencyMs: null };
+
+  return {
+    config: getClinicalAiConfig(),
+    providerHealth,
+    modules,
+    usage,
+  };
+}
+
 export default {
   generateClinicalText,
   getClinicalAiConfig,
+  getClinicalAiRuntimeStatus,
 };
