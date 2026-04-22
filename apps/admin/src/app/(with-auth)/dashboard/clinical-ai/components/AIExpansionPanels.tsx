@@ -43,6 +43,8 @@ import {
   generateInfectionControlAudit,
   generateRosterSuggestion,
   generateSepsisBundleAudit,
+  getBedDischargeForecast,
+  getPharmacyStockoutForecast,
   ingestDocumentIntake,
   listAbnormalResultTriages,
   listAmbientEncounters,
@@ -76,6 +78,7 @@ import {
   type AbnormalResultTriageDraft,
   type AbnormalTriageBand,
   type AmbientEncounter,
+  type BedDischargeForecast,
   type CanaryRunSummary,
   type ChartCompletionAudit,
   type ChartGapRiskBand,
@@ -89,6 +92,8 @@ import {
   type InfectionControlRiskBand,
   type NoShowRiskPrediction,
   type OtCaseTimePrediction,
+  type PharmacyStockoutForecast,
+  type PharmacyStockoutForecastItem,
   type PolypharmacyReview,
   type PrivacySentinelAudit,
   type PrivacySentinelRiskBand,
@@ -1767,6 +1772,225 @@ export function DriftCanaryPanel() {
             )}
           </tbody>
         </table>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Capacity Forecasts
+// ---------------------------------------------------------------------------
+export function ForecastWorkbenchPanel() {
+  const [ward, setWard] = useState("");
+  const [windowHours, setWindowHours] = useState("24");
+  const [stockoutDays, setStockoutDays] = useState("7");
+  const [bedForecast, setBedForecast] = useState<BedDischargeForecast | null>(null);
+  const [pharmacyForecast, setPharmacyForecast] = useState<PharmacyStockoutForecast | null>(null);
+
+  const bedWindow = Number.parseInt(windowHours.trim(), 10);
+  const stockoutWindow = Number.parseInt(stockoutDays.trim(), 10);
+  const canRunBedForecast = Number.isFinite(bedWindow) && bedWindow >= 1;
+  const canRunStockoutForecast = Number.isFinite(stockoutWindow) && stockoutWindow >= 1;
+
+  const beds = useMutation({
+    mutationFn: () =>
+      getBedDischargeForecast({
+        ward: ward.trim() || undefined,
+        windowHours: bedWindow,
+      }),
+    onSuccess: (result) => {
+      setBedForecast(result);
+      toast.success("Bed forecast refreshed");
+    },
+    onError: (err: Error) => toast.error(err.message || "Bed forecast failed"),
+  });
+
+  const pharmacy = useMutation({
+    mutationFn: () => getPharmacyStockoutForecast(stockoutWindow),
+    onSuccess: (result) => {
+      setPharmacyForecast(result);
+      toast.success("Stockout forecast refreshed");
+    },
+    onError: (err: Error) => toast.error(err.message || "Stockout forecast failed"),
+  });
+
+  const dischargeRows = bedForecast?.patients.slice(0, 6) ?? [];
+  const stockoutRows: PharmacyStockoutForecastItem[] =
+    pharmacyForecast?.stockout_risks.slice(0, 6) ?? [];
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Activity className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-lg font-semibold">Capacity Forecasts</h2>
+      </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="grid gap-3 md:grid-cols-[1fr_8rem_auto] md:items-end">
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Ward</span>
+              <input
+                value={ward}
+                onChange={(event) => setWard(event.target.value)}
+                placeholder="All wards"
+                className="w-full rounded-md border border-border bg-background px-3 py-2"
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Hours</span>
+              <input
+                value={windowHours}
+                onChange={(event) => setWindowHours(event.target.value)}
+                inputMode="numeric"
+                className="w-full rounded-md border border-border bg-background px-3 py-2"
+              />
+            </label>
+            <button
+              onClick={() => beds.mutate()}
+              disabled={beds.isPending || !canRunBedForecast}
+              className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+            >
+              <PlayCircle className="h-4 w-4" />
+              {beds.isPending ? "Forecasting..." : "Run Bed Forecast"}
+            </button>
+          </div>
+          {bedForecast ? (
+            <div className="mt-4 space-y-3">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-md border border-border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">Admitted</div>
+                  <div className="text-xl font-semibold">{bedForecast.admitted_count}</div>
+                </div>
+                <div className="rounded-md border border-border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">24h Discharges</div>
+                  <div className="text-xl font-semibold">{bedForecast.likely_discharges_24h}</div>
+                </div>
+                <div className="rounded-md border border-border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">48h Discharges</div>
+                  <div className="text-xl font-semibold">{bedForecast.likely_discharges_48h}</div>
+                </div>
+              </div>
+              <div className="overflow-x-auto rounded-md border border-border">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Bed</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Remaining</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Flags</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {dischargeRows.length === 0 ? (
+                      <tr>
+                        <td className="px-3 py-5 text-center text-muted-foreground" colSpan={3}>
+                          No admitted patients in scope
+                        </td>
+                      </tr>
+                    ) : (
+                      dischargeRows.map((patient) => (
+                        <tr key={patient.admission_id}>
+                          <td className="px-3 py-2">
+                            <div className="font-medium">{patient.bed_number ?? "-"}</div>
+                            <div className="text-xs text-muted-foreground">{patient.ward ?? "-"}</div>
+                          </td>
+                          <td className="px-3 py-2">{patient.remaining_hours_estimate}h</td>
+                          <td className="px-3 py-2">
+                            <div className="flex flex-wrap gap-1">
+                              {patient.likely_discharge_24h ? (
+                                <span className="rounded-full border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                                  24h
+                                </span>
+                              ) : null}
+                              {patient.likely_discharge_48h ? (
+                                <span className="rounded-full border border-cyan-200 bg-cyan-100 px-2 py-0.5 text-xs font-medium text-cyan-800">
+                                  48h
+                                </span>
+                              ) : null}
+                              {!patient.likely_discharge_48h ? (
+                                <span className="text-xs text-muted-foreground">monitor</span>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Lookback days</span>
+              <input
+                value={stockoutDays}
+                onChange={(event) => setStockoutDays(event.target.value)}
+                inputMode="numeric"
+                className="w-full rounded-md border border-border bg-background px-3 py-2"
+              />
+            </label>
+            <button
+              onClick={() => pharmacy.mutate()}
+              disabled={pharmacy.isPending || !canRunStockoutForecast}
+              className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+            >
+              <PlayCircle className="h-4 w-4" />
+              {pharmacy.isPending ? "Forecasting..." : "Run Stockout Forecast"}
+            </button>
+          </div>
+          {pharmacyForecast ? (
+            <div className="mt-4 space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-md border border-border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">High Usage Meds</div>
+                  <div className="text-xl font-semibold">{pharmacyForecast.high_usage_meds.length}</div>
+                </div>
+                <div className="rounded-md border border-border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">Stockout Risks</div>
+                  <div className="text-xl font-semibold">{pharmacyForecast.stockout_risks.length}</div>
+                </div>
+              </div>
+              <div className="overflow-x-auto rounded-md border border-border">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Medication</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Orders</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Risk</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {stockoutRows.length === 0 ? (
+                      <tr>
+                        <td className="px-3 py-5 text-center text-muted-foreground" colSpan={3}>
+                          No stockout risks in scope
+                        </td>
+                      </tr>
+                    ) : (
+                      stockoutRows.map((item) => (
+                        <tr key={item.medication_name}>
+                          <td className="px-3 py-2">
+                            <div className="font-medium">{item.medication_name}</div>
+                            <div className="text-xs text-muted-foreground">{item.recommended_action}</div>
+                          </td>
+                          <td className="px-3 py-2">{item.order_count}</td>
+                          <td className="px-3 py-2">
+                            <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${chartRiskClass(item.risk_level)}`}>
+                              {item.risk_level}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
     </section>
   );

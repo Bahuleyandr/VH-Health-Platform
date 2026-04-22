@@ -975,11 +975,13 @@ export async function getBedForecast({ ward = null, windowHours = 24, tenantId =
   await requireEnabledModule('bed_discharge_forecast');
   const safeHours = clampInt(windowHours, { min: 1, max: 168, fallback: 24 });
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, patient_uid, ward, bed_number, admitted_at, expected_los_days, status
-     FROM admissions
-     WHERE status = 'admitted'
-       AND ($1::text IS NULL OR ward = $1)
-     ORDER BY admitted_at ASC NULLS LAST`,
+    `SELECT a.id, a.patient_uid, a.ward, a.bed_number, a.admitted_at, a.expected_los_days, a.status
+     FROM admissions a
+     JOIN users u ON u.uid = a.patient_uid AND u.tenant_id = $1::uuid
+     WHERE a.status = 'admitted'
+       AND ($2::text IS NULL OR a.ward = $2)
+     ORDER BY a.admitted_at ASC NULLS LAST`,
+    tid,
     ward || null
   );
 
@@ -1025,15 +1027,17 @@ export async function getPharmacyStockoutForecast({ days = 7, tenantId = null } 
   await requireEnabledModule('pharmacy_stockout_predictor');
   const safeDays = clampInt(days, { min: 1, max: 90, fallback: 7 });
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT COALESCE(details->>'medication_name', details->>'name', 'Unknown medication') AS medication_name,
+    `SELECT COALESCE(co.details->>'medication_name', co.details->>'name', 'Unknown medication') AS medication_name,
             COUNT(*)::int AS order_count
-     FROM clinical_orders
-     WHERE order_type = 'medication'
-       AND created_at >= NOW() - ($1::int * INTERVAL '1 day')
-     GROUP BY COALESCE(details->>'medication_name', details->>'name', 'Unknown medication')
+     FROM clinical_orders co
+     JOIN users u ON u.uid = co.patient_uid AND u.tenant_id = $2::uuid
+     WHERE co.order_type = 'medication'
+       AND co.created_at >= NOW() - ($1::int * INTERVAL '1 day')
+     GROUP BY COALESCE(co.details->>'medication_name', co.details->>'name', 'Unknown medication')
      ORDER BY order_count DESC, medication_name
      LIMIT 50`,
-    safeDays
+    safeDays,
+    tid
   );
   const highUsageMeds = rows.map((row) => ({
     medication_name: row.medication_name,

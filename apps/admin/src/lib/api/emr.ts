@@ -728,9 +728,54 @@ export async function runCanary() {
 }
 
 // ---------------------------------------------------------------------------
-// Operational AI: no-show, OT duration, and charge capture
+// Operational AI: capacity forecasting, no-show, OT duration, and charge capture
 // ---------------------------------------------------------------------------
 export type OperationalRiskBand = 'low' | 'medium' | 'high';
+
+export interface BedForecastPatient {
+  admission_id: number;
+  patient_uid: string;
+  ward: string | null;
+  bed_number: string | null;
+  likely_discharge_24h: boolean;
+  likely_discharge_48h: boolean;
+  remaining_hours_estimate: number;
+}
+
+export interface BedDischargeForecast {
+  ward: string;
+  forecast_window_hours: number;
+  admitted_count: number;
+  likely_discharges_24h: number;
+  likely_discharges_48h: number;
+  patients: BedForecastPatient[];
+  generated_at: string;
+}
+
+export interface PharmacyStockoutForecastItem {
+  medication_name: string;
+  order_count: number;
+  risk_level: OperationalRiskBand;
+  recommended_action: string;
+}
+
+export interface PharmacyStockoutForecast {
+  window_days: number;
+  high_usage_meds: PharmacyStockoutForecastItem[];
+  stockout_risks: PharmacyStockoutForecastItem[];
+  generated_at: string;
+}
+
+export async function getBedDischargeForecast(params: { ward?: string; windowHours?: number } = {}) {
+  const query: Record<string, string | number> = {};
+  if (params.ward) query.ward = params.ward;
+  if (params.windowHours) query.window_hours = params.windowHours;
+  return getJSON<BedDischargeForecast>('/admin/forecast/beds', query);
+}
+
+export async function getPharmacyStockoutForecast(days = 7) {
+  return getJSON<PharmacyStockoutForecast>('/admin/forecast/pharmacy-stockouts', { days });
+}
 
 export interface NoShowRiskPrediction {
   appointment_id: number;

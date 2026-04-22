@@ -40,6 +40,7 @@ import {
   DeteriorationPanel,
   DocumentIntelligencePanel,
   DriftCanaryPanel,
+  ForecastWorkbenchPanel,
   ImagingAIPanel,
   InfectionControlSentinelPanel,
   OperationalPredictionPanel,
@@ -659,6 +660,8 @@ export default function ClinicalAiGovernancePage() {
       <TrialMatchesPanel />
 
       <RcaDraftsPanel />
+
+      <ForecastWorkbenchPanel />
 
       <OperationalPredictionPanel />
 
