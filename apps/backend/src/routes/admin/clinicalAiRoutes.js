@@ -92,6 +92,11 @@ import {
   listClinicalDocumentIntakes,
 } from '../../services/ai/documentIntelligenceService.js';
 import {
+  decideChartCompletionAudit,
+  generateChartCompletionAudit,
+  listChartCompletionAudits,
+} from '../../services/ai/chartCompletionAuditorService.js';
+import {
   discardRoster,
   generateRoster,
   listRosterRuns,
@@ -862,6 +867,73 @@ router.patch('/documents/intake/:id', async (req, res, next) => {
       result
     );
     return success(res, result, 'Document intake reviewed');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Chart completion auditor
+// ---------------------------------------------------------------------------
+router.post('/chart-completion/audits', async (req, res, next) => {
+  try {
+    const result = await generateChartCompletionAudit({
+      req,
+      admissionId: req.body?.admission_id,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_CHART_COMPLETION_AUDIT_GENERATED',
+      String(result.audit_id || result.generation_id || req.body?.admission_id || 'inline'),
+      null,
+      {
+        audit_id: result.audit_id,
+        generation_id: result.generation_id,
+        admission_id: req.body?.admission_id,
+        completion_score: result.draft?.completion_score,
+        risk_band: result.draft?.risk_band,
+        safety_flag_count: result.safety_flags?.length || 0,
+      }
+    );
+    return success(res, result, 'Chart completion audit generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/chart-completion/audits', async (req, res, next) => {
+  try {
+    const result = await listChartCompletionAudits({
+      tenantId: req.tenantId,
+      admissionId: req.query?.admission_id || null,
+      patientUid: req.query?.patient_uid || null,
+      decision: req.query?.decision || null,
+      riskBand: req.query?.risk_band || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Chart completion audits retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/chart-completion/audits/:id', async (req, res, next) => {
+  try {
+    const result = await decideChartCompletionAudit({
+      tenantId: req.tenantId,
+      auditId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_CHART_COMPLETION_AUDIT_REVIEWED',
+      String(result.id),
+      null,
+      result
+    );
+    return success(res, result, 'Chart completion audit reviewed');
   } catch (err) {
     return next(err);
   }

@@ -1155,6 +1155,99 @@ export async function decideDocumentIntake(
 }
 
 // ---------------------------------------------------------------------------
+// Chart completion auditor
+// ---------------------------------------------------------------------------
+export type ChartGapDecision = 'pending' | 'accepted' | 'deferred' | 'rejected';
+export type ChartGapRiskBand = 'low' | 'medium' | 'high' | 'critical' | 'unknown';
+
+export interface ChartGapItem {
+  severity: string;
+  code: string;
+  label: string;
+  owner_role?: string;
+  suggested_action?: string;
+  evidence?: Array<{ summary?: string; citation?: Record<string, unknown> }>;
+}
+
+export interface ChartCompletionAudit {
+  id: number;
+  tenant_id?: string;
+  admission_id: number;
+  patient_uid: string | null;
+  patient_name?: string | null;
+  generation_id: number | null;
+  completion_score: number;
+  risk_band: ChartGapRiskBand;
+  gap_summary: {
+    checklist?: Record<string, boolean>;
+    gap_counts?: Record<string, number>;
+    summary?: string | null;
+    [key: string]: unknown;
+  };
+  blockers: ChartGapItem[];
+  recommendations: Array<{ code?: string; owner_role?: string; action?: string; priority?: string }>;
+  source_citations: Array<{ source_type: string; source_id: string | null; label: string; timestamp?: string | null }>;
+  safety_flags: Array<{ severity: string; code: string; message: string }>;
+  reviewer_decision: ChartGapDecision;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  reviewer_note: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listChartCompletionAudits(params: {
+  admissionId?: number | string;
+  patientUid?: string;
+  decision?: string;
+  riskBand?: string;
+  limit?: number;
+} = {}) {
+  const query: Record<string, string> = {};
+  if (params.admissionId) query.admission_id = String(params.admissionId);
+  if (params.patientUid) query.patient_uid = params.patientUid;
+  if (params.decision) query.decision = params.decision;
+  if (params.riskBand) query.risk_band = params.riskBand;
+  if (params.limit) query.limit = String(params.limit);
+  return getJSON<{ audits: ChartCompletionAudit[]; count: number }>(
+    '/admin/clinical-ai/chart-completion/audits',
+    query
+  );
+}
+
+export async function generateChartCompletionAudit(admissionId: number) {
+  return postJSON<{
+    audit_id: number | null;
+    generation_id: number | null;
+    review_id: number | null;
+    draft: {
+      completion_score: number;
+      risk_band: ChartGapRiskBand;
+      gaps: ChartGapItem[];
+      recommendations: Array<{ code?: string; owner_role?: string; action?: string; priority?: string }>;
+      checklist?: Record<string, boolean>;
+      gap_counts?: Record<string, number>;
+    };
+    source_citations: Array<{ source_type: string; source_id: string | null; label: string; timestamp?: string | null }>;
+    safety_flags: Array<{ severity: string; code: string; message: string }>;
+    module_key: string;
+    decision_support_only: boolean;
+  }>('/admin/clinical-ai/chart-completion/audits', { admission_id: admissionId });
+}
+
+export async function decideChartCompletionAudit(
+  id: number,
+  decision: 'accepted' | 'deferred' | 'rejected',
+  note?: string
+) {
+  return fetchAdminAPI<ChartCompletionAudit>(`/admin/clinical-ai/chart-completion/audits/${id}`, {
+    method: 'PATCH',
+    body: { decision, note },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Ambient clinical documentation
 // ---------------------------------------------------------------------------
 export interface AmbientEncounter {

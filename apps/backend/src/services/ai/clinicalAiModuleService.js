@@ -523,6 +523,23 @@ export const CLINICAL_AI_MODULES = [
     },
   },
   {
+    module_key: 'chart_completion_auditor',
+    display_name: 'Chart Completion Auditor',
+    description: 'Scores admission chart completeness and highlights unsigned notes, missing identifiers, pending investigations, active orders, missing discharge artefacts, and review blockers.',
+    enabled: false,
+    settings: {
+      surface: 'medical_records',
+      risk: 'high',
+      status: 'available',
+      requiresClinicianSignoff: true,
+      requiresCitations: true,
+      reviewRoles: ['MEDICAL_RECORDS', 'DOCTOR', 'NURSING_STAFF', 'BILLING_STAFF'],
+      approvalPolicy: 'chart_gap_review',
+      outputSchema: { type: 'object', required: ['completion_score', 'risk_band', 'gaps', 'recommendations'] },
+      retentionDays: 3650,
+    },
+  },
+  {
     module_key: 'virtual_ward_triage',
     display_name: 'Virtual Ward Triage',
     description: 'Post-discharge daily symptom + wearable check-in pipeline. Auto-triages green/amber/red and queues red escalations for care manager.',

@@ -385,6 +385,9 @@ export async function ingestClinicalDocument({
     source: 'deterministic_extraction',
   };
   const module = await getClinicalAiModule(MODULE_KEY);
+  if (!module.enabled) {
+    throw AppError.forbidden(`Clinical AI module is disabled: ${module.display_name}`);
+  }
   const systemPrompt = [
     'You extract structured clinical facts from OCR text for hospital medical-records review.',
     'Return JSON only with keys: document_type, extracted_fields, normalized_sections, confidence, source_citations, safety_flags.',

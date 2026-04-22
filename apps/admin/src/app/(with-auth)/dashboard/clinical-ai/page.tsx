@@ -34,6 +34,7 @@ import {
 import {
   AIExpansionHeader,
   AmbientDocumentationPanel,
+  ChartCompletionPanel,
   ChargeCapturePanel,
   DeteriorationPanel,
   DocumentIntelligencePanel,
@@ -631,6 +632,8 @@ export default function ClinicalAiGovernancePage() {
       <VirtualWardPanel />
 
       <DocumentIntelligencePanel />
+
+      <ChartCompletionPanel />
 
       <AmbientDocumentationPanel />
 
