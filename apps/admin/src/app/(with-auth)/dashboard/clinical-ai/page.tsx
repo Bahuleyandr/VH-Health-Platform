@@ -33,6 +33,7 @@ import {
 } from "./components/GovernancePanels";
 import {
   AIExpansionHeader,
+  AmbientDocumentationPanel,
   ChargeCapturePanel,
   DeteriorationPanel,
   DriftCanaryPanel,
@@ -41,6 +42,7 @@ import {
   PriorAuthorizationPanel,
   PromptExperimentsPanel,
   RcaDraftsPanel,
+  RosterOptimizerPanel,
   TrialCatalogSyncPanel,
   TrialMatchesPanel,
   VirtualWardPanel,
@@ -626,6 +628,10 @@ export default function ClinicalAiGovernancePage() {
       <ImagingAIPanel />
 
       <VirtualWardPanel />
+
+      <AmbientDocumentationPanel />
+
+      <RosterOptimizerPanel />
 
       <PolypharmacyPanel />
 

@@ -1060,3 +1060,135 @@ export async function recordPriorAuthPayerDecision(id: number, decision: 'approv
     body: { decision, reason },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Ambient clinical documentation
+// ---------------------------------------------------------------------------
+export interface AmbientEncounter {
+  id: number;
+  tenant_id?: string;
+  patient_uid: string;
+  admission_id: number | null;
+  recording_started_at: string;
+  recording_ended_at: string | null;
+  duration_seconds: number | null;
+  clinician_uid: string | null;
+  recorded_by: string | null;
+  stt_provider: string;
+  stt_language: string | null;
+  diarization_provider: string | null;
+  speaker_count: number;
+  transcript_status: 'completed' | 'skipped' | 'pending' | string;
+  generation_id: number | null;
+  created_at: string;
+}
+
+export async function listAmbientEncounters(params: { patientUid?: string; limit?: number } = {}) {
+  const query: Record<string, string> = {};
+  if (params.patientUid) query.patient_uid = params.patientUid;
+  if (params.limit) query.limit = String(params.limit);
+  return getJSON<{ encounters: AmbientEncounter[]; count: number }>(
+    '/clinical/ambient/encounters',
+    query
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Staff roster optimizer
+// ---------------------------------------------------------------------------
+export interface RosterAssignment {
+  date: string;
+  shift_code: 'morning' | 'evening' | 'night' | string;
+  start_hour: number;
+  end_hour: number;
+  staff_uid: string;
+  staff_name: string | null;
+  preferred: boolean;
+}
+
+export interface RosterCoverageGap {
+  date: string;
+  shift_code: string;
+  needed: number;
+  filled: number;
+  shortfall: number;
+  reasons_sample?: Array<{ staff_uid?: string; reason: string }>;
+}
+
+export interface RosterPreferenceConflict {
+  staff_uid: string;
+  staff_name: string | null;
+  date: string;
+  shift_code: string;
+  preferred: string[];
+  message: string;
+}
+
+export interface RosterRun {
+  id: number;
+  department: string;
+  start_date: string;
+  end_date: string;
+  status: 'suggested' | 'edited' | 'published' | 'discarded' | string;
+  total_slots: number;
+  filled_slots: number;
+  coverage_gap_count: number;
+  preference_conflict_count: number;
+  published_at: string | null;
+  created_at: string;
+}
+
+export interface RosterSuggestion {
+  run_id: number | null;
+  department: string;
+  start_date: string;
+  end_date: string;
+  assignments: RosterAssignment[];
+  coverage_gaps: RosterCoverageGap[];
+  preference_conflicts: RosterPreferenceConflict[];
+  total_slots: number;
+  filled_slots: number;
+  staff_pool_size: number;
+  module_key: string;
+  status?: string;
+  decision_support_only: boolean;
+}
+
+export async function listRosterRuns(params: { department?: string; status?: string; limit?: number } = {}) {
+  const query: Record<string, string> = {};
+  if (params.department) query.department = params.department;
+  if (params.status) query.status = params.status;
+  if (params.limit) query.limit = String(params.limit);
+  return getJSON<{ runs: RosterRun[]; count: number }>(
+    '/admin/clinical-ai/roster',
+    query
+  );
+}
+
+export async function generateRosterSuggestion(payload: {
+  department: string;
+  start_date: string;
+  end_date: string;
+}) {
+  return postJSON<RosterSuggestion>('/admin/clinical-ai/roster', payload);
+}
+
+export async function publishRosterRun(id: number) {
+  return fetchAdminAPI<{ id: number; status: string; published_at: string; published_by: string | null }>(
+    `/admin/clinical-ai/roster/${id}/publish`,
+    {
+      method: 'PATCH',
+      body: {},
+    }
+  );
+}
+
+export async function discardRosterRun(id: number) {
+  return fetchAdminAPI<{ id: number; status: string }>(
+    `/admin/clinical-ai/roster/${id}/discard`,
+    {
+      method: 'PATCH',
+      body: {},
+    }
+  );
+}

@@ -6,17 +6,21 @@ import {
   Activity,
   AlertTriangle,
   Beaker,
+  CalendarDays,
   ClipboardCheck,
+  Clock3,
   CloudDownload,
   DollarSign,
   FlaskConical,
   Heart,
   Image,
   Microscope,
+  Mic2,
   PlayCircle,
   Receipt,
   Stethoscope,
   TrendingUp,
+  UsersRound,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import {
@@ -25,8 +29,11 @@ import {
   decideChargeCaptureAudit,
   decideImagingFinding,
   decidePolypharmacyReview,
+  discardRosterRun,
   decideRcaDraft,
   decideTrialMatch,
+  generateRosterSuggestion,
+  listAmbientEncounters,
   listCanaryRuns,
   listChargeCaptureAudits,
   listDeteriorationSnapshots,
@@ -35,15 +42,18 @@ import {
   listPriorAuthorizations,
   listPromptExperiments,
   listRcaDrafts,
+  listRosterRuns,
   listTrialMatches,
   listTrialSyncRuns,
   listVirtualWardEnrollments,
   listVirtualWardEscalations,
+  publishRosterRun,
   recordPriorAuthPayerDecision,
   resolveVirtualWardEscalation,
   runCanary,
   submitPriorAuthorization,
   triggerTrialCatalogSync,
+  type AmbientEncounter,
   type CanaryRunSummary,
   type ChargeCaptureAudit,
   type DeteriorationBand,
@@ -54,6 +64,10 @@ import {
   type PriorAuthRequest,
   type PromptExperiment,
   type RcaDraftSummary,
+  type RosterCoverageGap,
+  type RosterPreferenceConflict,
+  type RosterRun,
+  type RosterSuggestion,
   type TrialMatch,
   type TrialSyncRun,
   type VirtualWardEnrollment,
@@ -80,12 +94,32 @@ function fmtMoneyMinor(value?: number | null) {
   return `₹${(Number(value) / 100).toLocaleString("en-IN")}`;
 }
 
+function fmtDuration(seconds?: number | null) {
+  if (!seconds) return "-";
+  const minutes = Math.floor(seconds / 60);
+  const remainder = Math.round(seconds % 60);
+  return `${minutes}m ${remainder}s`;
+}
+
 function severityBadgeClass(severity: string) {
   const s = (severity || "").toLowerCase();
   if (s === "critical") return "bg-red-100 text-red-800 border-red-200";
   if (s === "high") return "bg-orange-100 text-orange-800 border-orange-200";
   if (s === "medium") return "bg-amber-100 text-amber-800 border-amber-200";
   return "bg-slate-100 text-slate-700 border-slate-200";
+}
+
+function rosterStatusClass(status: string) {
+  if (status === "published") return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  if (status === "discarded") return "bg-slate-100 text-slate-700 border-slate-200";
+  if (status === "edited") return "bg-cyan-100 text-cyan-800 border-cyan-200";
+  return "bg-amber-100 text-amber-800 border-amber-200";
+}
+
+function defaultDate(offsetDays: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
 }
 
 // ---------------------------------------------------------------------------
@@ -1405,6 +1439,462 @@ export function VirtualWardPanel() {
                       </div>
                     ) : (
                       <span className="text-xs text-muted-foreground">{row.resolution}</span>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Ambient clinical documentation
+// ---------------------------------------------------------------------------
+export function AmbientDocumentationPanel() {
+  const [patientFilter, setPatientFilter] = useState("");
+  const [appliedPatientUid, setAppliedPatientUid] = useState("");
+  const encounters = useQuery({
+    queryKey: ["clinical-ai", "ambient", appliedPatientUid],
+    queryFn: () =>
+      listAmbientEncounters({
+        patientUid: appliedPatientUid || undefined,
+        limit: 50,
+      }),
+    refetchInterval: 60_000,
+  });
+  const rows: AmbientEncounter[] = encounters.data?.encounters ?? [];
+  const completed = rows.filter((row) => row.transcript_status === "completed").length;
+  const totalDuration = rows.reduce((sum, row) => sum + Number(row.duration_seconds || 0), 0);
+  const avgSpeakers = rows.length
+    ? Math.round(rows.reduce((sum, row) => sum + Number(row.speaker_count || 0), 0) / rows.length)
+    : 0;
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <Mic2 className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Ambient Documentation</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={patientFilter}
+            onChange={(event) => setPatientFilter(event.target.value)}
+            placeholder="patient uid"
+            className="min-w-72 rounded-md border border-border bg-card px-2 py-1 text-sm"
+          />
+          <button
+            onClick={() => setAppliedPatientUid(patientFilter.trim())}
+            className="rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-accent"
+          >
+            Filter
+          </button>
+          <button
+            onClick={() => {
+              setPatientFilter("");
+              setAppliedPatientUid("");
+            }}
+            className="rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-accent"
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <ClipboardCheck className="h-4 w-4" />
+            Completed transcripts
+          </div>
+          <div className="mt-1 text-2xl font-semibold">{completed}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <UsersRound className="h-4 w-4" />
+            Avg speakers
+          </div>
+          <div className="mt-1 text-2xl font-semibold">{avgSpeakers}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Clock3 className="h-4 w-4" />
+            Audio reviewed
+          </div>
+          <div className="mt-1 text-2xl font-semibold">{fmtDuration(totalDuration)}</div>
+        </div>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Patient</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Recording</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">STT</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Speakers</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Generation</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
+                  No ambient encounters found
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${row.transcript_status === "completed" ? "bg-emerald-100 text-emerald-800 border-emerald-200" : "bg-amber-100 text-amber-800 border-amber-200"}`}>
+                      {row.transcript_status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="font-mono text-xs">{row.patient_uid}</div>
+                    {row.admission_id ? (
+                      <div className="text-xs text-muted-foreground">admission #{row.admission_id}</div>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div>{fmt(row.recording_started_at)}</div>
+                    <div className="text-xs text-muted-foreground">{fmtDuration(row.duration_seconds)}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div>{row.stt_provider || "-"}</div>
+                    <div className="text-xs text-muted-foreground">{row.diarization_provider || "no diarization provider"}</div>
+                  </td>
+                  <td className="px-4 py-3 font-semibold">{row.speaker_count}</td>
+                  <td className="px-4 py-3">
+                    {row.generation_id ? (
+                      <span className="font-mono text-xs">#{row.generation_id}</span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">not saved</span>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Staff roster optimizer
+// ---------------------------------------------------------------------------
+function RosterFindingsList({
+  gaps,
+  conflicts,
+}: {
+  gaps: RosterCoverageGap[];
+  conflicts: RosterPreferenceConflict[];
+}) {
+  return (
+    <div className="grid gap-4 xl:grid-cols-2">
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Gap</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Needed</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Short</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {gaps.length === 0 ? (
+              <tr>
+                <td className="px-4 py-6 text-center text-muted-foreground" colSpan={3}>
+                  No coverage gaps
+                </td>
+              </tr>
+            ) : (
+              gaps.slice(0, 8).map((gap) => (
+                <tr key={`${gap.date}-${gap.shift_code}`}>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{gap.date}</div>
+                    <div className="text-xs text-muted-foreground">{gap.shift_code}</div>
+                  </td>
+                  <td className="px-4 py-3">{gap.filled} / {gap.needed}</td>
+                  <td className="px-4 py-3 font-semibold text-amber-700">{gap.shortfall}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Staff</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Assigned</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Prefers</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {conflicts.length === 0 ? (
+              <tr>
+                <td className="px-4 py-6 text-center text-muted-foreground" colSpan={3}>
+                  No preference conflicts
+                </td>
+              </tr>
+            ) : (
+              conflicts.slice(0, 8).map((conflict) => (
+                <tr key={`${conflict.staff_uid}-${conflict.date}-${conflict.shift_code}`}>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{conflict.staff_name ?? "-"}</div>
+                    <div className="font-mono text-xs text-muted-foreground">{conflict.staff_uid}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div>{conflict.date}</div>
+                    <div className="text-xs text-muted-foreground">{conflict.shift_code}</div>
+                  </td>
+                  <td className="px-4 py-3 text-xs">{conflict.preferred.join(", ") || "-"}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export function RosterOptimizerPanel() {
+  const queryClient = useQueryClient();
+  const [statusFilter, setStatusFilter] = useState("suggested");
+  const [departmentFilter, setDepartmentFilter] = useState("");
+  const [department, setDepartment] = useState("NURSING");
+  const [startDate, setStartDate] = useState(() => defaultDate(1));
+  const [endDate, setEndDate] = useState(() => defaultDate(7));
+  const [latestSuggestion, setLatestSuggestion] = useState<RosterSuggestion | null>(null);
+  const runs = useQuery({
+    queryKey: ["clinical-ai", "roster", departmentFilter, statusFilter],
+    queryFn: () =>
+      listRosterRuns({
+        department: departmentFilter || undefined,
+        status: statusFilter || undefined,
+        limit: 50,
+      }),
+  });
+  const generate = useMutation({
+    mutationFn: () =>
+      generateRosterSuggestion({
+        department: department.trim(),
+        start_date: startDate,
+        end_date: endDate,
+      }),
+    onSuccess: (result) => {
+      setLatestSuggestion(result);
+      toast.success("Roster suggestion generated");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "roster"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Roster generation failed"),
+  });
+  const publish = useMutation({
+    mutationFn: (id: number) => publishRosterRun(id),
+    onSuccess: () => {
+      toast.success("Roster published");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "roster"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Publish failed"),
+  });
+  const discard = useMutation({
+    mutationFn: (id: number) => discardRosterRun(id),
+    onSuccess: () => {
+      toast.success("Roster discarded");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "roster"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Discard failed"),
+  });
+  const rows: RosterRun[] = runs.data?.runs ?? [];
+  const openRuns = rows.filter((row) => ["suggested", "edited"].includes(row.status));
+  const totalGaps = rows.reduce((sum, row) => sum + Number(row.coverage_gap_count || 0), 0);
+  const totalConflicts = rows.reduce((sum, row) => sum + Number(row.preference_conflict_count || 0), 0);
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <CalendarDays className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Staff Roster Optimizer</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={departmentFilter}
+            onChange={(event) => setDepartmentFilter(event.target.value)}
+            placeholder="department filter"
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          />
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="suggested">Suggested</option>
+            <option value="edited">Edited</option>
+            <option value="published">Published</option>
+            <option value="discarded">Discarded</option>
+            <option value="">All</option>
+          </select>
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Open runs</div>
+          <div className="mt-1 text-2xl font-semibold">{openRuns.length}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Coverage gaps</div>
+          <div className="mt-1 text-2xl font-semibold text-amber-700">{totalGaps}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Preference conflicts</div>
+          <div className="mt-1 text-2xl font-semibold">{totalConflicts}</div>
+        </div>
+      </div>
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="grid gap-3 md:grid-cols-4">
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Department</span>
+            <input
+              value={department}
+              onChange={(event) => setDepartment(event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Start</span>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(event) => setStartDate(event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">End</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(event) => setEndDate(event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <div className="flex items-end">
+            <button
+              onClick={() => generate.mutate()}
+              disabled={generate.isPending || !department.trim() || !startDate || !endDate}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+            >
+              <PlayCircle className="h-4 w-4" />
+              {generate.isPending ? "Generating…" : "Generate"}
+            </button>
+          </div>
+        </div>
+      </div>
+      {latestSuggestion ? (
+        <div className="space-y-3 rounded-lg border border-border bg-card p-4">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="font-semibold">{latestSuggestion.department} suggestion</div>
+              <div className="text-xs text-muted-foreground">
+                {latestSuggestion.filled_slots} / {latestSuggestion.total_slots} slots · {latestSuggestion.staff_pool_size} staff
+              </div>
+            </div>
+            {latestSuggestion.run_id ? (
+              <div className="inline-flex gap-1">
+                <button
+                  onClick={() => publish.mutate(Number(latestSuggestion.run_id))}
+                  disabled={publish.isPending}
+                  className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                >
+                  Publish
+                </button>
+                <button
+                  onClick={() => discard.mutate(Number(latestSuggestion.run_id))}
+                  disabled={discard.isPending}
+                  className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
+                >
+                  Discard
+                </button>
+              </div>
+            ) : null}
+          </div>
+          <RosterFindingsList
+            gaps={latestSuggestion.coverage_gaps}
+            conflicts={latestSuggestion.preference_conflicts}
+          />
+        </div>
+      ) : null}
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Department</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Range</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Coverage</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Findings</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
+              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
+                  No roster runs found
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{row.department}</div>
+                    <div className="text-xs text-muted-foreground">{fmt(row.created_at)}</div>
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    {String(row.start_date).slice(0, 10)} → {String(row.end_date).slice(0, 10)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="font-semibold">{row.filled_slots} / {row.total_slots}</div>
+                    <div className="text-xs text-muted-foreground">filled slots</div>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    {row.coverage_gap_count} gaps · {row.preference_conflict_count} conflicts
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${rosterStatusClass(row.status)}`}>
+                      {row.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {["suggested", "edited"].includes(row.status) ? (
+                      <div className="inline-flex gap-1">
+                        <button
+                          onClick={() => publish.mutate(row.id)}
+                          disabled={publish.isPending}
+                          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                        >
+                          Publish
+                        </button>
+                        <button
+                          onClick={() => discard.mutate(row.id)}
+                          disabled={discard.isPending}
+                          className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
+                        >
+                          Discard
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">{row.published_at ? fmt(row.published_at) : "-"}</span>
                     )}
                   </td>
                 </tr>
