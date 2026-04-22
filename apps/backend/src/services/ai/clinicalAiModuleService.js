@@ -538,6 +538,21 @@ export const CLINICAL_AI_MODULES = [
       retentionDays: 365,
     },
   },
+  {
+    module_key: 'staff_roster_optimizer',
+    display_name: 'Staff Roster Optimizer',
+    description: 'Heuristic scheduler: suggests shift assignments from historical demand + preferences. Manager reviews and publishes.',
+    enabled: false,
+    settings: {
+      surface: 'operations',
+      risk: 'low',
+      status: 'available',
+      requiresClinicianSignoff: false,
+      reviewRoles: ['ADMIN', 'HR_STAFF', 'DEPARTMENT_HEAD'],
+      outputSchema: { type: 'object', required: ['assignments', 'coverage_gaps', 'preference_conflicts'] },
+      retentionDays: 365,
+    },
+  },
 ];
 
 export const DEFAULT_CLINICAL_AI_GUARDRAILS = {

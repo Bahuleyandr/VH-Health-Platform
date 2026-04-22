@@ -87,6 +87,12 @@ import {
   resolveEscalation,
 } from '../../services/ai/virtualWardService.js';
 import {
+  discardRoster,
+  generateRoster,
+  listRosterRuns,
+  publishRoster,
+} from '../../services/ai/rosterOptimizerService.js';
+import {
   decideRcaDraft,
   generateRcaDraft,
   listRcaDrafts,
@@ -779,6 +785,72 @@ router.post('/canary/cases', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_CANARY_CASE_UPSERTED', String(saved.id), null, saved);
     return success(res, saved, 'Canary case saved', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Staff roster optimizer
+// ---------------------------------------------------------------------------
+router.post('/roster', async (req, res, next) => {
+  try {
+    const result = await generateRoster({
+      req,
+      department: req.body?.department,
+      startDate: req.body?.start_date,
+      endDate: req.body?.end_date,
+      demandOverride: req.body?.demand || null,
+      staffOverride: req.body?.staff || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_ROSTER_SUGGESTED', String(result.run_id || 'inline'), null, {
+      department: result.department,
+      total_slots: result.total_slots,
+      filled_slots: result.filled_slots,
+      gaps: result.coverage_gaps.length,
+    });
+    return success(res, result, 'Roster suggested', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/roster', async (req, res, next) => {
+  try {
+    const result = await listRosterRuns({
+      tenantId: req.tenantId,
+      department: req.query?.department || null,
+      status: req.query?.status || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Roster runs retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/roster/:id/publish', async (req, res, next) => {
+  try {
+    const published = await publishRoster({
+      tenantId: req.tenantId,
+      runId: req.params.id,
+      publishedBy: req.user?.uid || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_ROSTER_PUBLISHED', String(published.id), null, published);
+    return success(res, published, 'Roster published');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/roster/:id/discard', async (req, res, next) => {
+  try {
+    const discarded = await discardRoster({
+      tenantId: req.tenantId,
+      runId: req.params.id,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_ROSTER_DISCARDED', String(discarded.id), null, discarded);
+    return success(res, discarded, 'Roster discarded');
   } catch (err) {
     return next(err);
   }
