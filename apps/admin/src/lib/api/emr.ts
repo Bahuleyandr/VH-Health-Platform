@@ -634,3 +634,296 @@ export async function getLongitudinalRiskOverview(band?: RiskBand) {
     query
   );
 }
+
+// ---------------------------------------------------------------------------
+// Governance: prompt A/B experiments + drift canary
+// ---------------------------------------------------------------------------
+export interface PromptExperiment {
+  id: number;
+  module_key: string;
+  name: string;
+  variant_a_prompt_id: number;
+  variant_b_prompt_id: number;
+  traffic_split_a: number;
+  status: 'draft' | 'running' | 'paused' | 'concluded';
+  started_at: string | null;
+  concluded_at: string | null;
+  winning_variant: 'A' | 'B' | null;
+  created_at: string;
+}
+
+export interface PromptExperimentVariantStats {
+  total_assignments: number;
+  accepted_count?: number;
+  rejected_count?: number;
+  revision_count?: number;
+  acceptance_rate_pct?: number | null;
+  avg_tokens?: number | null;
+  avg_latency_ms?: number | null;
+  avg_flags?: number;
+}
+
+export interface PromptExperimentStats {
+  variant_a: PromptExperimentVariantStats;
+  variant_b: PromptExperimentVariantStats;
+  winner_hint: 'A' | 'B' | null;
+}
+
+export async function listPromptExperiments(status?: string) {
+  const query: Record<string, string> = {};
+  if (status) query.status = status;
+  return getJSON<{ experiments: PromptExperiment[]; count: number }>(
+    '/admin/clinical-ai/experiments',
+    query
+  );
+}
+
+export async function createPromptExperiment(payload: {
+  module_key: string;
+  name?: string;
+  variant_a_prompt_id: number;
+  variant_b_prompt_id: number;
+  traffic_split_a?: number;
+}) {
+  return postJSON<PromptExperiment>('/admin/clinical-ai/experiments', payload);
+}
+
+export async function getPromptExperimentStats(id: number) {
+  return getJSON<PromptExperimentStats>(`/admin/clinical-ai/experiments/${id}/stats`);
+}
+
+export async function concludePromptExperiment(id: number, winningVariant?: 'A' | 'B') {
+  return fetchAdminAPI<PromptExperiment>(`/admin/clinical-ai/experiments/${id}/conclude`, {
+    method: 'PATCH',
+    body: winningVariant ? { winning_variant: winningVariant } : {},
+  });
+}
+
+export interface CanaryRunSummary {
+  id: number;
+  run_scope: string;
+  total_cases: number;
+  pass_count: number;
+  fail_count: number;
+  drift_detected: boolean;
+  metadata: Record<string, unknown>;
+  started_at: string;
+  finished_at: string | null;
+}
+
+export async function listCanaryRuns() {
+  return getJSON<{ runs: CanaryRunSummary[]; count: number }>('/admin/clinical-ai/canary/runs');
+}
+
+export async function runCanary() {
+  return postJSON<{
+    total_cases: number;
+    pass_count: number;
+    fail_count: number;
+    pass_rate_pct?: number;
+    baseline_pct?: number | null;
+    drift_detected: boolean;
+    findings: Array<{ case_id?: number; label: string; module_key: string; passed: boolean }>;
+  }>('/admin/clinical-ai/canary/runs', { scope: 'manual' });
+}
+
+// ---------------------------------------------------------------------------
+// Operational AI: charge capture (no-show + OT predictions are per-entity, not listed here)
+// ---------------------------------------------------------------------------
+export interface ChargeCaptureAudit {
+  id: number;
+  admission_id: number;
+  patient_uid: string | null;
+  mentioned_codes: Array<{ code: string; description: string }>;
+  missed_codes: Array<{ code: string; description: string; est_revenue_minor: number }>;
+  estimated_revenue_minor: number;
+  reviewer_decision: 'pending' | 'captured' | 'rejected';
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  scanned_at: string;
+}
+
+export async function listChargeCaptureAudits(decision?: string) {
+  const query: Record<string, string> = {};
+  if (decision) query.decision = decision;
+  return getJSON<{ audits: ChargeCaptureAudit[]; count: number }>(
+    '/admin/clinical-ai/operational/charge-capture',
+    query
+  );
+}
+
+export async function decideChargeCaptureAudit(id: number, decision: 'captured' | 'rejected') {
+  return fetchAdminAPI<ChargeCaptureAudit>(`/admin/clinical-ai/operational/charge-capture/${id}`, {
+    method: 'PATCH',
+    body: { decision },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Clinical safety: deterioration snapshots + polypharmacy reviews
+// ---------------------------------------------------------------------------
+export type DeteriorationBand = 'stable' | 'watch' | 'concerning' | 'critical';
+
+export interface DeteriorationSnapshot {
+  id: number;
+  patient_uid: string;
+  admission_id: number | null;
+  score: number;
+  band: DeteriorationBand;
+  news2_component: number;
+  trend_component: number;
+  lab_component: number;
+  contributors: Record<string, unknown>;
+  recommendations: Array<{ severity: string; message: string }>;
+  vitals_sample_count: number;
+  scored_at: string;
+}
+
+export async function listDeteriorationSnapshots(band?: DeteriorationBand) {
+  const query: Record<string, string> = {};
+  if (band) query.band = band;
+  return getJSON<{ snapshots: DeteriorationSnapshot[]; count: number }>(
+    '/admin/clinical-ai/safety/deterioration',
+    query
+  );
+}
+
+export interface PolypharmacyReview {
+  id: number;
+  patient_uid: string;
+  admission_id: number | null;
+  medications: Array<{ name?: string; medication_name?: string; dose?: string; frequency?: string }>;
+  rule_findings: Array<{ severity: string; code: string; message: string; source: string }>;
+  ai_findings: Array<{ severity: string; code: string; message: string; source: string }>;
+  combined_severity: 'low' | 'medium' | 'high' | 'critical';
+  provider: string;
+  reviewer_decision: 'pending' | 'acknowledged' | 'overridden' | 'prescription_changed';
+  reviewer_note: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  scored_at: string;
+}
+
+export async function listPolypharmacyReviews(decision?: string) {
+  const query: Record<string, string> = {};
+  if (decision) query.decision = decision;
+  return getJSON<{ reviews: PolypharmacyReview[]; count: number }>(
+    '/admin/clinical-ai/safety/polypharmacy',
+    query
+  );
+}
+
+export async function decidePolypharmacyReview(id: number, decision: 'acknowledged' | 'overridden' | 'prescription_changed', note?: string) {
+  return fetchAdminAPI<PolypharmacyReview>(`/admin/clinical-ai/safety/polypharmacy/${id}`, {
+    method: 'PATCH',
+    body: { decision, note },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Research: trial matches + RCA drafts
+// ---------------------------------------------------------------------------
+export interface TrialMatch {
+  id: number;
+  patient_uid: string;
+  patient_name: string | null;
+  admission_id: number | null;
+  trial_id: number;
+  nct_id: string;
+  title: string;
+  phase: string | null;
+  match_score: number;
+  match_reasons: Array<{ kind: string; [key: string]: unknown }>;
+  coordinator_decision: 'pending' | 'offered' | 'enrolled' | 'declined' | 'ineligible';
+  decided_by: string | null;
+  decided_at: string | null;
+  scored_at: string;
+}
+
+export async function listTrialMatches(decision?: string) {
+  const query: Record<string, string> = {};
+  if (decision) query.decision = decision;
+  return getJSON<{ matches: TrialMatch[]; count: number }>(
+    '/admin/clinical-ai/trials/matches',
+    query
+  );
+}
+
+export async function decideTrialMatch(id: number, decision: 'offered' | 'enrolled' | 'declined' | 'ineligible') {
+  return fetchAdminAPI<TrialMatch>(`/admin/clinical-ai/trials/matches/${id}`, {
+    method: 'PATCH',
+    body: { decision },
+  });
+}
+
+export interface RcaDraftSummary {
+  id: number;
+  admission_id: number;
+  patient_uid: string | null;
+  case_type: 'mortality' | 'readmission' | 'infection' | 'never_event' | 'complaint';
+  reviewer_decision: 'pending' | 'accepted' | 'revised' | 'rejected';
+  reviewer_note: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+}
+
+export async function listRcaDrafts(decision?: string) {
+  const query: Record<string, string> = {};
+  if (decision) query.decision = decision;
+  return getJSON<{ drafts: RcaDraftSummary[]; count: number }>(
+    '/admin/clinical-ai/rca',
+    query
+  );
+}
+
+export async function decideRcaDraft(id: number, decision: 'accepted' | 'revised' | 'rejected', note?: string) {
+  return fetchAdminAPI<RcaDraftSummary>(`/admin/clinical-ai/rca/${id}`, {
+    method: 'PATCH',
+    body: { decision, note },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Revenue cycle: prior authorization
+// ---------------------------------------------------------------------------
+export interface PriorAuthRequest {
+  id: number;
+  admission_id: number | null;
+  patient_uid: string;
+  payer_name: string;
+  policy_number: string | null;
+  procedure_code: string;
+  procedure_description: string | null;
+  requested_service_type: string | null;
+  status: 'draft' | 'submitted' | 'approved' | 'denied' | 'withdrawn';
+  reviewer_decision: 'pending' | 'submitted' | 'rejected' | 'edited';
+  submitted_at: string | null;
+  payer_decided_at: string | null;
+  payer_decision_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listPriorAuthorizations(status?: string) {
+  const query: Record<string, string> = {};
+  if (status) query.status = status;
+  return getJSON<{ prior_auths: PriorAuthRequest[]; count: number }>(
+    '/admin/clinical-ai/prior-auth',
+    query
+  );
+}
+
+export async function submitPriorAuthorization(id: number, payerReferenceId?: string) {
+  return fetchAdminAPI<PriorAuthRequest>(`/admin/clinical-ai/prior-auth/${id}/submit`, {
+    method: 'PATCH',
+    body: { payer_reference_id: payerReferenceId },
+  });
+}
+
+export async function recordPriorAuthPayerDecision(id: number, decision: 'approved' | 'denied' | 'withdrawn', reason?: string) {
+  return fetchAdminAPI<PriorAuthRequest>(`/admin/clinical-ai/prior-auth/${id}/payer-decision`, {
+    method: 'PATCH',
+    body: { decision, reason },
+  });
+}

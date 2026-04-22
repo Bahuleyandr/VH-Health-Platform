@@ -31,6 +31,17 @@ import {
   SelfHealingPanel,
   TranslationsPanel,
 } from "./components/GovernancePanels";
+import {
+  AIExpansionHeader,
+  ChargeCapturePanel,
+  DeteriorationPanel,
+  DriftCanaryPanel,
+  PolypharmacyPanel,
+  PriorAuthorizationPanel,
+  PromptExperimentsPanel,
+  RcaDraftsPanel,
+  TrialMatchesPanel,
+} from "./components/AIExpansionPanels";
 
 function fmt(value?: string | null) {
   if (!value) return "-";
@@ -600,6 +611,24 @@ export default function ClinicalAiGovernancePage() {
       <DeadLetterPanel />
 
       <SelfHealingPanel />
+
+      <AIExpansionHeader />
+
+      <PromptExperimentsPanel />
+
+      <DriftCanaryPanel />
+
+      <DeteriorationPanel />
+
+      <PolypharmacyPanel />
+
+      <TrialMatchesPanel />
+
+      <RcaDraftsPanel />
+
+      <ChargeCapturePanel />
+
+      <PriorAuthorizationPanel />
 
       <section className="space-y-3">
         <div className="flex items-center gap-2">
