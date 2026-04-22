@@ -48,6 +48,7 @@ import {
   PromptExperimentsPanel,
   RcaDraftsPanel,
   RosterOptimizerPanel,
+  SepsisBundleSentinelPanel,
   TrialCatalogSyncPanel,
   TrialMatchesPanel,
   VirtualWardPanel,
@@ -641,6 +642,8 @@ export default function ClinicalAiGovernancePage() {
       <AbnormalResultTriagePanel />
 
       <InfectionControlSentinelPanel />
+
+      <SepsisBundleSentinelPanel />
 
       <PrivacySentinelPanel />
 

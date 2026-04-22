@@ -104,6 +104,11 @@ import {
   listInfectionControlAudits,
 } from '../../services/ai/infectionControlSentinelService.js';
 import {
+  decideSepsisBundleAudit,
+  generateSepsisBundleAudit,
+  listSepsisBundleAudits,
+} from '../../services/ai/sepsisBundleSentinelService.js';
+import {
   decideConsentPhiPolicyAudit,
   listConsentPhiPolicyAudits,
   runConsentPhiPolicyScan,
@@ -1059,6 +1064,75 @@ router.patch('/infection-control/audits/:id', async (req, res, next) => {
       result
     );
     return success(res, result, 'Infection-control audit reviewed');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Sepsis bundle sentinel
+// ---------------------------------------------------------------------------
+router.post('/sepsis-bundle/audits', async (req, res, next) => {
+  try {
+    const result = await generateSepsisBundleAudit({
+      req,
+      admissionId: req.body?.admission_id,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_SEPSIS_BUNDLE_AUDIT_GENERATED',
+      String(result.audit_id || result.generation_id || req.body?.admission_id || 'inline'),
+      null,
+      {
+        audit_id: result.audit_id,
+        generation_id: result.generation_id,
+        admission_id: req.body?.admission_id,
+        risk_score: result.draft?.risk_score,
+        risk_band: result.draft?.risk_band,
+        criterion_count: result.draft?.criteria?.length || 0,
+        bundle_gap_count: result.draft?.bundle_gaps?.length || 0,
+        safety_flag_count: result.safety_flags?.length || 0,
+      }
+    );
+    return success(res, result, 'Sepsis bundle audit generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/sepsis-bundle/audits', async (req, res, next) => {
+  try {
+    const result = await listSepsisBundleAudits({
+      tenantId: req.tenantId,
+      admissionId: req.query?.admission_id || null,
+      patientUid: req.query?.patient_uid || null,
+      decision: req.query?.decision || null,
+      riskBand: req.query?.risk_band || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Sepsis bundle audits retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/sepsis-bundle/audits/:id', async (req, res, next) => {
+  try {
+    const result = await decideSepsisBundleAudit({
+      tenantId: req.tenantId,
+      auditId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_SEPSIS_BUNDLE_AUDIT_REVIEWED',
+      String(result.id),
+      null,
+      result
+    );
+    return success(res, result, 'Sepsis bundle audit reviewed');
   } catch (err) {
     return next(err);
   }

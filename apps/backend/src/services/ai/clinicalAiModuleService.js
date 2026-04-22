@@ -574,6 +574,23 @@ export const CLINICAL_AI_MODULES = [
     },
   },
   {
+    module_key: 'sepsis_bundle_sentinel',
+    display_name: 'Sepsis Bundle Sentinel',
+    description: 'Audits suspected sepsis bundle completion from cited vitals, lactate/culture evidence, antibiotics, fluids, and vasopressor signals.',
+    enabled: false,
+    settings: {
+      surface: 'clinical_safety',
+      risk: 'critical',
+      status: 'available',
+      requiresClinicianSignoff: true,
+      requiresCitations: true,
+      reviewRoles: ['DOCTOR', 'NURSING_STAFF', 'ICU_TEAM', 'ADMIN'],
+      approvalPolicy: 'sepsis_bundle_review',
+      outputSchema: { type: 'object', required: ['risk_score', 'risk_band', 'criteria', 'bundle_gaps', 'recommendations'] },
+      retentionDays: 3650,
+    },
+  },
+  {
     module_key: 'virtual_ward_triage',
     display_name: 'Virtual Ward Triage',
     description: 'Post-discharge daily symptom + wearable check-in pipeline. Auto-triages green/amber/red and queues red escalations for care manager.',
