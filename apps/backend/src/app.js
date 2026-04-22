@@ -39,6 +39,7 @@ import { success, error } from './utils/responseHelper.js';
 // Public / mixed modules
 import { callbackRouter as abdmCallbackRoutes, patientRouter as abdmPatientRoutes } from './routes/abdm/abdmRoutes.js';
 import adminDashboardRoutes from './routes/admin/index.js';
+import clinicalAiAdminRoutes from './routes/admin/clinicalAiRoutes.js';
 import appointmentRoutes from './routes/appointment/index.js';
 import totpRoutes from './routes/auth/totpRoutes.js';
 import bedManagementRoutes from './routes/bed/bedManagementRoutes.js';
@@ -171,6 +172,14 @@ const CLINICAL_STAFF_ROLES = [
   'DOCTOR',
   'NURSING_STAFF',
   'MEDICAL_RECORDS',
+];
+const CLINICAL_AI_CONTROL_ROLES = [
+  'ADMIN',
+  'SUPER_ADMIN',
+  'IT',
+  'IT_ADMIN',
+  'IT_STAFF',
+  'SYSTEM_ADMIN',
 ];
 
 function pathMatchesPrefix(path, prefix) {
@@ -451,6 +460,13 @@ app.use('/api/v1/emr', phiAccessLoggerForPaths('DIAGNOSIS', [
 ]), diagnosisRoutes);
 
 // Centralized admin namespace — IP allowlisted when ADMIN_IP_ALLOWLIST is set
+app.use(
+  '/api/v1/admin/clinical-ai',
+  requireRole(...CLINICAL_AI_CONTROL_ROLES),
+  adminIpAllowlist,
+  adminRateLimiter,
+  clinicalAiAdminRoutes
+);
 app.use('/api/v1/admin', requireRole('ADMIN', 'SUPER_ADMIN'), adminIpAllowlist, adminRateLimiter, adminDashboardRoutes);
 app.use('/api/v1/admin/gamification', requireRole('ADMIN', 'SUPER_ADMIN'), adminIpAllowlist, adminRateLimiter, adminGamificationRoutes);
 

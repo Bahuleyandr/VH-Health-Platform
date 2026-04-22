@@ -2,15 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, AlertTriangle, Cpu, Gauge, RefreshCw, ShieldCheck, ToggleLeft, ToggleRight } from "lucide-react";
+import { Activity, AlertTriangle, Cpu, Gauge, History, RefreshCw, ShieldCheck, ToggleLeft, ToggleRight } from "lucide-react";
 import { toast } from "react-hot-toast";
 import {
+  getClinicalAiAuditLogs,
   getClinicalAiGenerations,
   getClinicalAiSafetyFlags,
   getClinicalAiStatus,
   updateClinicalAiGuardrails,
   updateClinicalAiModule,
   type ClinicalAiBudgetStatus,
+  type ClinicalAiAuditLog,
   type ClinicalAiGeneration,
   type ClinicalAiGuardrails,
   type ClinicalAiModule,
@@ -71,6 +73,25 @@ function statusClass(status?: string) {
 
 function boundaryLabel(module: ClinicalAiModule) {
   return module.external_allowed ? "External allowed" : "Local only";
+}
+
+function auditActionLabel(action: string) {
+  return action
+    .replace(/^CLINICAL_AI_/, "")
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function auditActor(log: ClinicalAiAuditLog) {
+  const role = log.metadata?.actor?.role || log.role || "-";
+  const uid = log.metadata?.actor?.uid || log.uid;
+  return uid ? `${role} / ${uid.slice(0, 8)}` : role;
+}
+
+function auditChangedFields(log: ClinicalAiAuditLog) {
+  const fields = log.metadata?.changed_fields ?? [];
+  return fields.length ? fields.join(", ") : "-";
 }
 
 function ModuleToggle({
@@ -335,12 +356,17 @@ export default function ClinicalAiGovernancePage() {
     queryKey: ["clinical-ai-safety-flags"],
     queryFn: getClinicalAiSafetyFlags,
   });
+  const auditLogs = useQuery({
+    queryKey: ["clinical-ai-audit"],
+    queryFn: () => getClinicalAiAuditLogs(50),
+  });
 
   const toggleModule = useMutation({
     mutationFn: (module: ClinicalAiModule) =>
       updateClinicalAiModule(module.module_key, { enabled: !module.enabled }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clinical-ai-status"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
       toast.success("Clinical AI module updated");
     },
     onError: (err: Error) => toast.error(err.message || "Module update failed"),
@@ -350,6 +376,7 @@ export default function ClinicalAiGovernancePage() {
     mutationFn: (payload: Partial<ClinicalAiGuardrails>) => updateClinicalAiGuardrails(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clinical-ai-status"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
       toast.success("Clinical AI guardrails updated");
     },
     onError: (err: Error) => toast.error(err.message || "Guardrail update failed"),
@@ -357,6 +384,7 @@ export default function ClinicalAiGovernancePage() {
 
   const generationRows: ClinicalAiGeneration[] = generations.data?.generations ?? [];
   const flagRows: ClinicalAiSafetyFlag[] = flags.data?.flags ?? [];
+  const auditRows: ClinicalAiAuditLog[] = auditLogs.data?.logs ?? [];
   const modules = status.data?.modules ?? [];
   const usage = status.data?.usage;
   const providerHealth = status.data?.providerHealth;
@@ -377,6 +405,7 @@ export default function ClinicalAiGovernancePage() {
             status.refetch();
             generations.refetch();
             flags.refetch();
+            auditLogs.refetch();
           }}
           className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium transition-colors hover:bg-accent"
         >
@@ -512,6 +541,45 @@ export default function ClinicalAiGovernancePage() {
                     </tr>
                   );
                 })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <History className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Audit Trail</h2>
+        </div>
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50">
+              <tr>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Action</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Actor</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Target</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Changed</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Created</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {auditRows.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
+                    No Clinical AI audit entries found
+                  </td>
+                </tr>
+              ) : (
+                auditRows.map((log) => (
+                  <tr key={log.id}>
+                    <td className="px-4 py-3">{auditActionLabel(log.action)}</td>
+                    <td className="px-4 py-3 font-mono text-xs">{auditActor(log)}</td>
+                    <td className="px-4 py-3">{log.resource_id ?? log.resource ?? "-"}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{auditChangedFields(log)}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(log.created_at)}</td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>

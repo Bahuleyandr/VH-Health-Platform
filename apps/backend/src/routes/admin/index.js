@@ -14,7 +14,6 @@ import adminPharmacyRoutes from '../pharmacy/adminRoutes.js';
 import adminRecordRoutes from '../record/adminRoutes.js';
 import adminUserRoutes from '../user/adminUserRoutes.js';
 import auditRoutes from './auditRoutes.js';
-import clinicalAiRoutes from './clinicalAiRoutes.js';
 import eventOutboxRoutes from './eventOutboxRoutes.js';
 import executiveKpiRoutes from './executiveKpiRoutes.js';
 import featureFlagRoutes from './featureFlagRoutes.js';
@@ -605,7 +604,6 @@ wrapAutoRBAC(router, 'adminDashboard', {
 /* -------------------------------------------------------------------------- */
 
 router.use('/audit', auditRoutes);
-router.use('/clinical-ai', clinicalAiRoutes);
 router.use('/events', eventOutboxRoutes);
 router.use('/appointments', appointmentAdminRoutes);
 router.use('/doctors', adminDoctorRoutes);

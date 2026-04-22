@@ -13,6 +13,10 @@ export const HR_STAFF      = 'HR_STAFF';
 export const MEDICAL_RECORDS = 'MEDICAL_RECORDS';
 export const RECEPTIONIST    = 'RECEPTIONIST';
 export const DELIVERY_STAFF  = 'DELIVERY_STAFF';
+export const IT              = 'IT';
+export const IT_STAFF        = 'IT_STAFF';
+export const IT_ADMIN        = 'IT_ADMIN';
+export const SYSTEM_ADMIN    = 'SYSTEM_ADMIN';
 
 // Clinical specialty
 export const RADIOLOGIST     = 'RADIOLOGIST';
@@ -62,6 +66,10 @@ export const ALL_ROLES = [
   GENERAL_STAFF,
   RECEPTIONIST,
   DELIVERY_STAFF,
+  IT,
+  IT_STAFF,
+  IT_ADMIN,
+  SYSTEM_ADMIN,
   DIETITIAN,
   PHYSIOTHERAPIST,
   SOCIAL_WORKER,

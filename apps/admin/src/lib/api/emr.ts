@@ -212,6 +212,30 @@ export interface ClinicalAiSafetyFlag {
   created_at: string;
 }
 
+export interface ClinicalAiAuditLog {
+  id: number;
+  uid?: string | null;
+  role?: string | null;
+  action: string;
+  resource?: string | null;
+  resource_id?: string | null;
+  metadata?: {
+    changed_fields?: string[];
+    actor?: {
+      uid?: string | null;
+      id?: string | number | null;
+      role?: string | null;
+      email?: string | null;
+      phone?: string | null;
+    };
+    before?: Record<string, unknown>;
+    after?: Record<string, unknown>;
+  } | null;
+  ip_address?: string | null;
+  user_agent?: string | null;
+  created_at: string;
+}
+
 // API functions
 export async function getActiveAdmissions(params?: { page?: number; limit?: number; ward?: string; status?: string }) {
   const query = new URLSearchParams();
@@ -263,6 +287,9 @@ export async function getClinicalAiGenerations() {
 }
 export async function getClinicalAiSafetyFlags() {
   return getJSON<{ flags: ClinicalAiSafetyFlag[]; count: number }>('/admin/clinical-ai/safety-flags');
+}
+export async function getClinicalAiAuditLogs(limit = 50) {
+  return getJSON<{ logs: ClinicalAiAuditLog[]; count: number }>('/admin/clinical-ai/audit', { limit });
 }
 
 // Discharge Summary

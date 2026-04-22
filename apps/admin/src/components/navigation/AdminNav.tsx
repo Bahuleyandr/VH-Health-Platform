@@ -8,6 +8,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 type NavItem = {
   name: string;
   href: string;
+  allowedRoles?: string[];
 };
 
 type NavSection = {
@@ -16,6 +17,15 @@ type NavSection = {
   minRole: "STAFF" | "HR" | "ADMIN" | "SUPER_ADMIN" | null;
   items: NavItem[];
 };
+
+const CLINICAL_AI_CONTROL_ROLES = [
+  "ADMIN",
+  "SUPER_ADMIN",
+  "IT",
+  "IT_ADMIN",
+  "IT_STAFF",
+  "SYSTEM_ADMIN",
+];
 
 const navSections: NavSection[] = [
   {
@@ -44,6 +54,17 @@ const navSections: NavSection[] = [
       { name: "Appointments",    href: "/dashboard/appointments" },
       { name: "Housekeeping",    href: "/dashboard/housekeeping" },
       { name: "Emergency / SOS", href: "/dashboard/sos" },
+    ],
+  },
+  {
+    title: "AI Governance",
+    minRole: null,
+    items: [
+      {
+        name: "Clinical AI",
+        href: "/dashboard/clinical-ai",
+        allowedRoles: CLINICAL_AI_CONTROL_ROLES,
+      },
     ],
   },
   {
@@ -105,6 +126,13 @@ const ROLE_RANK: Record<string, number> = {
   SUPER_ADMIN: 4,
 };
 
+function canSeeItem(item: NavItem, role: string | null, isSuperAdmin: boolean) {
+  if (!item.allowedRoles) return true;
+  if (isSuperAdmin) return true;
+  const normalized = (role ?? "").trim().toUpperCase();
+  return item.allowedRoles.includes(normalized);
+}
+
 export default function AdminNav() {
   const pathname = usePathname();
   const { role, isSuperAdmin } = usePermissions();
@@ -121,6 +149,8 @@ export default function AdminNav() {
         // Determine if this section is visible to current user
         const minRank = section.minRole ? (ROLE_RANK[section.minRole] ?? 99) : -Infinity;
         if (userRank < minRank) return null;
+        const visibleItems = section.items.filter((item) => canSeeItem(item, role, isSuperAdmin));
+        if (visibleItems.length === 0) return null;
 
         return (
           <div key={section.title}>
@@ -128,7 +158,7 @@ export default function AdminNav() {
               {section.title}
             </p>
             <div className="space-y-0.5">
-              {section.items.map((item) => {
+              {visibleItems.map((item) => {
                 const active =
                   item.href === "/dashboard"
                     ? pathname === item.href

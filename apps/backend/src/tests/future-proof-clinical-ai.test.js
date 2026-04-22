@@ -7,6 +7,7 @@ const PATIENT_UID = 'c1111111-1111-4111-8111-111111111a01';
 const DOCTOR_UID = 'c1111111-1111-4111-8111-111111111a02';
 const ADMIN_UID = 'c1111111-1111-4111-8111-111111111a03';
 const ENCOUNTER_ID = 'c1111111-1111-4111-8111-111111111a04';
+const IT_UID = 'c1111111-1111-4111-8111-111111111a05';
 
 function authed(role, uid) {
   const token = generateTestToken(role, { uid, id: role === 'PATIENT' ? 7001 : 7002 });
@@ -28,9 +29,11 @@ describe('future-proof clinical AI and privacy foundations', () => {
   let admissionId;
   const doctor = authed('DOCTOR', DOCTOR_UID);
   const admin = authed('ADMIN', ADMIN_UID);
+  const itAdminClient = authed('IT_ADMIN', IT_UID);
   const patient = authed('PATIENT', PATIENT_UID);
 
   beforeAll(async () => {
+    await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE resource = 'clinical_ai' OR action LIKE 'CLINICAL_AI_%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM event_outbox WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_generations WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM downtime_snapshots WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -44,15 +47,16 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM patient_consents WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`, PATIENT_UID, DOCTOR_UID, ADMIN_UID);
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`, PATIENT_UID, DOCTOR_UID, ADMIN_UID, IT_UID);
 
     await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, gender, is_active, updated_at)
        VALUES
          ($1::uuid, '9000091001', 'Clinical AI Patient', 'PATIENT', 'female', true, NOW()),
          ($2::uuid, '9000091002', 'Clinical AI Doctor', 'DOCTOR', 'male', true, NOW()),
-         ($3::uuid, '9000091003', 'Clinical AI Admin', 'ADMIN', 'male', true, NOW())`,
-      PATIENT_UID, DOCTOR_UID, ADMIN_UID
+         ($3::uuid, '9000091003', 'Clinical AI Admin', 'ADMIN', 'male', true, NOW()),
+         ($4::uuid, '9000091004', 'Clinical AI IT Admin', 'IT_ADMIN', 'female', true, NOW())`,
+      PATIENT_UID, DOCTOR_UID, ADMIN_UID, IT_UID
     );
 
     await prisma.$executeRawUnsafe(
@@ -124,6 +128,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
   });
 
   afterAll(async () => {
+    await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE resource = 'clinical_ai' OR action LIKE 'CLINICAL_AI_%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM event_outbox WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_generations WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM downtime_snapshots WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -137,7 +142,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM patient_consents WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`, PATIENT_UID, DOCTOR_UID, ADMIN_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`, PATIENT_UID, DOCTOR_UID, ADMIN_UID, IT_UID).catch(() => {});
   });
 
   it('generates, saves, and signs an auditable local-AI discharge draft', async () => {
@@ -172,21 +177,37 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expect(status.body.data.guardrails.enabled).toBe(true);
     expect(status.body.data.budget.token_budget).toHaveProperty('used');
 
+    const itStatus = await itAdminClient.get('/api/v1/admin/clinical-ai/status');
+    expectStatus(itStatus, 200, 'clinical AI status for IT admin');
+
+    const doctorStatus = await doctor.get('/api/v1/admin/clinical-ai/status');
+    expectStatus(doctorStatus, 403, 'clinical AI status denied for doctor');
+
+    const nextRequestLimit = status.body.data.guardrails.request_token_limit === 1200 ? 1400 : 1200;
     const guardrails = await admin.patch('/api/v1/admin/clinical-ai/guardrails').send({
       external_ai_enabled: true,
       daily_token_limit: 1000000,
-      request_token_limit: 1200,
+      request_token_limit: nextRequestLimit,
       fallback_rate_alert_pct: 80,
     });
     expectStatus(guardrails, 200, 'update clinical AI guardrails');
-    expect(guardrails.body.data.guardrails.request_token_limit).toBe(1200);
+    expect(guardrails.body.data.guardrails.request_token_limit).toBe(nextRequestLimit);
     expect(guardrails.body.data.budget.tripped).toBe(false);
 
+    const aftercareModule = status.body.data.modules.find((module) => module.module_key === 'patient_aftercare_instructions');
     const toggled = await admin.patch('/api/v1/admin/clinical-ai/modules/patient_aftercare_instructions').send({
-      enabled: true,
+      enabled: !aftercareModule.enabled,
     });
     expectStatus(toggled, 200, 'toggle clinical AI module');
-    expect(toggled.body.data.enabled).toBe(true);
+    expect(toggled.body.data.enabled).toBe(!aftercareModule.enabled);
+
+    const audit = await admin.get('/api/v1/admin/clinical-ai/audit');
+    expectStatus(audit, 200, 'clinical AI audit logs');
+    const auditActions = audit.body.data.logs.map((row) => row.action);
+    expect(auditActions).toContain('CLINICAL_AI_GUARDRAILS_UPDATED');
+    expect(auditActions).toContain('CLINICAL_AI_MODULE_UPDATED');
+    const moduleAudit = audit.body.data.logs.find((row) => row.action === 'CLINICAL_AI_MODULE_UPDATED');
+    expect(moduleAudit.metadata.changed_fields).toContain('enabled');
   });
 
   it('exposes timeline, handover draft, FHIR everything, and downtime packet', async () => {

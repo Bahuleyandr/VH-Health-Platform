@@ -147,6 +147,10 @@ Knock them out now before the next feature wave.
 - [ ] **2.13** Data-table bulk-edit + keyboard shortcuts.
 - [ ] **2.14** Deeper `DashboardClient.tsx` split (still 746L — extract
       `StatsGrid`, `NotificationsDrawer`, `CommandPalette`, `ActivityFeed`).
+- [x] **2.15** Clinical AI governance control plane — 2026-04-22:
+      `/api/v1/admin/clinical-ai` is limited to Admin/Super Admin/IT control
+      roles, module/guardrail changes write structured `audit_logs`, and the
+      admin dashboard exposes the audit trail next to token/provider status.
 
 ## Phase 3 — Close Phase 3 "Still Open" Items (Week 3–8)
 

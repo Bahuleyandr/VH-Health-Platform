@@ -332,6 +332,48 @@ describe("ADMIN_ONLY_PATHS", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Clinical AI control-plane route
+// ---------------------------------------------------------------------------
+describe("CLINICAL_AI_CONTROL_PATHS", () => {
+  it("blocks DOCTOR from Clinical AI governance", async () => {
+    const token = fakeJwt({
+      role: "DOCTOR",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest("/dashboard/clinical-ai", token);
+    await middleware(req);
+
+    expect(mockRedirect).toHaveBeenCalledTimes(1);
+    const redirectUrl = mockRedirect.mock.calls[0][0] as URL;
+    expect(redirectUrl.pathname).toBe("/dashboard");
+  });
+
+  it("allows IT_ADMIN to access Clinical AI governance", async () => {
+    const token = fakeJwt({
+      role: "IT_ADMIN",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest("/dashboard/clinical-ai", token);
+    await middleware(req);
+
+    expect(mockNext).toHaveBeenCalledTimes(1);
+    expect(mockRedirect).not.toHaveBeenCalled();
+  });
+
+  it("allows ADMIN to access Clinical AI governance", async () => {
+    const token = fakeJwt({
+      role: "ADMIN",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest("/dashboard/clinical-ai/settings", token);
+    await middleware(req);
+
+    expect(mockNext).toHaveBeenCalledTimes(1);
+    expect(mockRedirect).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // HR_PLUS_PATHS enforcement
 // ---------------------------------------------------------------------------
 describe("HR_PLUS_PATHS", () => {

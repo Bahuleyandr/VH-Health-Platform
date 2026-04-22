@@ -85,6 +85,20 @@ const ADMIN_ONLY_PATHS = [
   "/dashboard/admin-management",
 ];
 
+// Clinical AI is a control-plane surface: ADMIN/SUPER_ADMIN plus IT operators.
+const CLINICAL_AI_CONTROL_PATHS = [
+  "/dashboard/clinical-ai",
+];
+
+const CLINICAL_AI_CONTROL_ROLES = new Set([
+  "ADMIN",
+  "SUPER_ADMIN",
+  "IT",
+  "IT_ADMIN",
+  "IT_STAFF",
+  "SYSTEM_ADMIN",
+]);
+
 // Routes available to HR | ADMIN | SUPER_ADMIN
 const HR_PLUS_PATHS = [
   "/dashboard/leave-approvals",
@@ -101,6 +115,14 @@ const ROLE_RANK: Record<string, number> = {
   ADMIN: 3,
   SUPER_ADMIN: 4,
 };
+
+function matchesPath(pathname: string, restricted: string): boolean {
+  return pathname === restricted || pathname.startsWith(restricted + "/");
+}
+
+function hasClinicalAiControlRole(role: string | null): boolean {
+  return CLINICAL_AI_CONTROL_ROLES.has((role ?? "").trim().toUpperCase());
+}
 
 /**
  * Optional IP allowlist. Set `ADMIN_IP_ALLOWLIST` to a comma-separated list
@@ -163,11 +185,18 @@ export async function middleware(request: NextRequest) {
 
     const userRank = role ? (ROLE_RANK[role] ?? -1) : -1;
 
+    const isClinicalAiControlPath = CLINICAL_AI_CONTROL_PATHS.some((restricted) =>
+      matchesPath(pathname, restricted),
+    );
+    if (isClinicalAiControlPath && !hasClinicalAiControlRole(role)) {
+      return NextResponse.redirect(new URL("/dashboard", request.url));
+    }
+
     // Block STAFF/DOCTOR from HR+ paths
     const isHRPlus = userRank >= ROLE_RANK.HR;
     if (!isHRPlus) {
       for (const restricted of HR_PLUS_PATHS) {
-        if (pathname === restricted || pathname.startsWith(restricted + "/")) {
+        if (matchesPath(pathname, restricted)) {
           return NextResponse.redirect(new URL("/dashboard", request.url));
         }
       }
@@ -177,7 +206,7 @@ export async function middleware(request: NextRequest) {
     const isAdmin = userRank >= ROLE_RANK.ADMIN;
     if (!isAdmin) {
       for (const restricted of ADMIN_ONLY_PATHS) {
-        if (pathname === restricted || pathname.startsWith(restricted + "/")) {
+        if (matchesPath(pathname, restricted)) {
           return NextResponse.redirect(new URL("/dashboard", request.url));
         }
       }
