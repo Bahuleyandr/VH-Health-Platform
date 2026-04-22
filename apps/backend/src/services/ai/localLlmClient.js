@@ -110,7 +110,18 @@ function getProviderConfig(module = null, guardrails = null) {
   );
   const requestTokenLimit = guardrails?.enabled ? safeInt(guardrails.request_token_limit, 0) : 0;
   const maxTokens = requestTokenLimit ? Math.min(configuredMaxTokens, requestTokenLimit) : configuredMaxTokens;
-  const temperatureRaw = module?.temperature ?? process.env.CLINICAL_AI_TEMPERATURE ?? '0.15';
+  // High-risk modules must not be creative. Risk tier on settings.risk wins
+  // unless the module has an explicit temperature override (SUPER_ADMIN only).
+  const riskTier = String(module?.settings?.risk || '').toLowerCase();
+  const riskDefault = riskTier === 'critical' ? 0.0
+    : riskTier === 'high' ? 0.15
+    : riskTier === 'medium' ? 0.3
+    : riskTier === 'low' ? 0.5
+    : null;
+  const temperatureRaw = module?.temperature
+    ?? riskDefault
+    ?? process.env.CLINICAL_AI_TEMPERATURE
+    ?? '0.15';
   const temperature = Math.min(Math.max(Number.parseFloat(temperatureRaw), 0), 1);
   const apiKey = getApiKey(provider);
   const allowExternal = module

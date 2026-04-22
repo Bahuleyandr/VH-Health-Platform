@@ -455,6 +455,11 @@ router.get('/generations', async (req, res, next) => {
     const params = [];
     let idx = 1;
 
+    // Tenant isolation — admins only see their own tenant's generations.
+    conditions.push(`g.tenant_id = $${idx}::uuid`);
+    params.push(req.tenantId);
+    idx++;
+
     if (req.query.patient_uid) {
       conditions.push(`g.patient_uid = $${idx}::uuid`);
       params.push(req.query.patient_uid);
@@ -545,6 +550,7 @@ router.get('/safety-flags', async (req, res, next) => {
        FROM clinical_ai_generations g
        LEFT JOIN users u ON u.uid = g.patient_uid
        CROSS JOIN LATERAL jsonb_array_elements(COALESCE(g.safety_flags, '[]'::jsonb)) AS flag
+       WHERE g.tenant_id = $1::uuid
        ORDER BY
          CASE flag->>'severity'
            WHEN 'critical' THEN 1
@@ -553,11 +559,39 @@ router.get('/safety-flags', async (req, res, next) => {
            ELSE 4
          END,
          g.created_at DESC
-       LIMIT $1`,
+       LIMIT $2`,
+      req.tenantId,
       limit
     );
 
     return success(res, { flags: rows, count: rows.length }, 'Clinical AI safety flags retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * Dead-letter list — generations that failed defenses (status='failed').
+ * Always tenant-scoped. Platform admins use this to triage PHI leaks and
+ * schema violations that blocked drafts from reaching the review queue.
+ */
+router.get('/dead-letter', async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT g.id, g.patient_uid, u.name AS patient_name, g.admission_id,
+              g.task_type, g.module_key, g.provider, g.model, g.status,
+              g.safety_flags, g.metadata, g.created_at
+       FROM clinical_ai_generations g
+       LEFT JOIN users u ON u.uid = g.patient_uid
+       WHERE g.tenant_id = $1::uuid
+         AND g.status = 'failed'
+       ORDER BY g.created_at DESC
+       LIMIT $2`,
+      req.tenantId,
+      limit
+    );
+    return success(res, { generations: rows, count: rows.length }, 'Clinical AI dead-letter queue retrieved');
   } catch (err) {
     return next(err);
   }

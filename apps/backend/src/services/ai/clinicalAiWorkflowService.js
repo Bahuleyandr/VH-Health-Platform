@@ -7,6 +7,10 @@ import { publishEvent } from '../events/eventOutboxService.js';
 import { generateClinicalText } from './localLlmClient.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import {
+  runOutputDefenses,
+  temperatureForRisk,
+} from './hallucinationDefenses.js';
 
 // Multi-tenant helper. Every query that writes to or reads from a tenant-scoped
 // clinical_ai_* table must pass tenantId. Null means "all tenants" and is only
@@ -476,6 +480,8 @@ async function saveGeneration({
   safetyFlags,
   generatedBy = null,
   aiResult,
+  status = 'draft',
+  failureReason = null,
   metadata = {},
 }) {
   const usage = aiResult?.usage || {};
@@ -486,9 +492,9 @@ async function saveGeneration({
         prompt_tokens, completion_tokens, total_tokens, estimated_cost_minor, latency_ms,
         provider_request_id, finish_reason, metadata, created_at, updated_at)
      VALUES
-       ($1::uuid, $2::uuid, $3, $4, $4, $5, $6, $7, $8, 'draft', $9, $10::jsonb,
-        $11::jsonb, $12::jsonb, $13::uuid, $14, $15, $16, $17, $18, $19, $20,
-        $21::jsonb, NOW(), NOW())
+       ($1::uuid, $2::uuid, $3, $4, $4, $5, $6, $7, $8, $9, $10, $11::jsonb,
+        $12::jsonb, $13::jsonb, $14::uuid, $15, $16, $17, $18, $19, $20, $21,
+        $22::jsonb, NOW(), NOW())
      RETURNING id, status, created_at`,
     resolveTenantId({ tenantId }),
     patientUid,
@@ -498,6 +504,7 @@ async function saveGeneration({
     aiResult?.model || null,
     promptVersion || 'v1',
     sourceHash,
+    status,
     Boolean(aiResult?.usedAi),
     JSON.stringify(safetyFlags || []),
     JSON.stringify(citations || []),
@@ -512,6 +519,7 @@ async function saveGeneration({
     usage.finish_reason || null,
     JSON.stringify({
       ...metadata,
+      failure_reason: failureReason,
       fallback_reason: aiResult?.usedAi ? null : aiResult?.reason || 'template_or_rule_output',
     })
   );
@@ -644,6 +652,10 @@ export async function generateAdmissionAiDraft(admissionId, moduleKey, requested
   const draft = safeJsonParse(aiResult.text, fallbackDraft);
   const citations = uniqueCitations(packet.citations);
   const safetyFlags = buildCommonSafetyFlags(context, module, citations);
+  // Layer the hallucination-defense matrix on top — PHI leaks, unverified
+  // numerics, and required-field schema violations surface as additional
+  // flags that reviewers must triage.
+  safetyFlags.push(...runOutputDefenses({ draft, module, context, citations }));
   if (key === 'clinical_coding_assist' && !asArray(context.notes).some((event) => event.payload?.is_signed === true)) {
     safetyFlags.push({
       severity: 'high',
@@ -651,6 +663,10 @@ export async function generateAdmissionAiDraft(admissionId, moduleKey, requested
       message: 'Coding assistant is restricted to signed documentation and no signed note was found.',
     });
   }
+  // Critical defense failures (PHI leaks, unsafe allergies) mark the draft
+  // as failed so it never enters the review queue — it lands in the
+  // dead-letter dashboard for platform admins to investigate instead.
+  const hasCriticalFlag = safetyFlags.some((flag) => flag.severity === 'critical');
   const generation = await saveGeneration({
     tenantId,
     patientUid: context.admission.patient_uid,
@@ -663,10 +679,15 @@ export async function generateAdmissionAiDraft(admissionId, moduleKey, requested
     safetyFlags,
     generatedBy: requestedBy,
     aiResult,
+    status: hasCriticalFlag ? 'failed' : 'draft',
+    failureReason: hasCriticalFlag
+      ? safetyFlags.find((flag) => flag.severity === 'critical')?.code || 'critical_defense_failure'
+      : null,
     metadata: {
       request_id: req?.id || null,
       context_snapshot_id: snapshot.id || null,
       tenant_region: req?.tenant?.region || null,
+      defense_flag_codes: safetyFlags.map((flag) => flag.code),
     },
   });
   const safetyReview = await runSafetyReview({
@@ -757,6 +778,7 @@ export async function generateWardRoundBrief({ ward = null, limit = 20, requeste
   const safetyFlags = citations.length
     ? []
     : [{ severity: 'medium', code: 'NO_ACTIVE_ADMISSIONS', message: 'No admitted patients were available for this ward brief.' }];
+  safetyFlags.push(...runOutputDefenses({ draft, module, context: { admissions: contexts }, citations }));
   const generation = await saveGeneration({
     tenantId,
     moduleKey: 'daily_ward_round_brief',
@@ -877,6 +899,7 @@ export async function generateDenialRiskAssist(claimId, requestedBy, req = null)
     code: 'DENIAL_RISK_GAP',
     message: gap,
   }));
+  safetyFlags.push(...runOutputDefenses({ draft, module, context: { claim }, citations }));
   const generation = await saveGeneration({
     tenantId,
     patientUid: claim.patient_uid,
