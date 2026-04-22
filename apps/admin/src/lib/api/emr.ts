@@ -1392,6 +1392,31 @@ export interface PriorAuthRequest {
   updated_at: string;
 }
 
+export interface PriorAuthGeneratePayload {
+  admission_id: string | number;
+  payer_name: string;
+  policy_number?: string | null;
+  procedure_code: string;
+  procedure_description?: string | null;
+  requested_service_type?: string | null;
+}
+
+export interface PriorAuthGenerationResponse {
+  prior_auth_id: number | null;
+  tenant_id: string;
+  admission_id: number;
+  patient_uid: string;
+  packet: Record<string, unknown>;
+  citations: ClinicalAiSourceCitation[];
+  safety_flags: ClinicalAiSafetyFlagSummary[];
+  used_ai: boolean;
+  provider: string;
+  status: 'draft';
+  reviewer_decision: 'pending';
+  module_key: string;
+  decision_support_only: boolean;
+}
+
 export async function listPriorAuthorizations(status?: string) {
   const query: Record<string, string> = {};
   if (status) query.status = status;
@@ -1399,6 +1424,10 @@ export async function listPriorAuthorizations(status?: string) {
     '/admin/clinical-ai/prior-auth',
     query
   );
+}
+
+export async function generatePriorAuthorization(payload: PriorAuthGeneratePayload) {
+  return postJSON<PriorAuthGenerationResponse>('/admin/clinical-ai/prior-auth', payload);
 }
 
 export async function submitPriorAuthorization(id: number, payerReferenceId?: string) {

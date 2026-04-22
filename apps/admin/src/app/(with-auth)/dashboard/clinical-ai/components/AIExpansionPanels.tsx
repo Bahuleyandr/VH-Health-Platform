@@ -45,6 +45,7 @@ import {
   generateAbnormalResultTriage,
   generateChartCompletionAudit,
   generateInfectionControlAudit,
+  generatePriorAuthorization,
   generateRcaDraft,
   generateRosterSuggestion,
   generateSepsisBundleAudit,
@@ -3332,9 +3333,35 @@ function priorAuthStatusClass(status: string) {
 export function PriorAuthorizationPanel() {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("draft");
+  const [admissionId, setAdmissionId] = useState("");
+  const [payerName, setPayerName] = useState("");
+  const [policyNumber, setPolicyNumber] = useState("");
+  const [procedureCode, setProcedureCode] = useState("");
+  const [procedureDescription, setProcedureDescription] = useState("");
+  const [requestedServiceType, setRequestedServiceType] = useState("inpatient_procedure");
+  const canGenerate = Boolean(admissionId.trim() && payerName.trim() && procedureCode.trim());
   const auths = useQuery({
     queryKey: ["clinical-ai", "prior-auth", statusFilter],
     queryFn: () => listPriorAuthorizations(statusFilter || undefined),
+  });
+  const generate = useMutation({
+    mutationFn: () =>
+      generatePriorAuthorization({
+        admission_id: admissionId.trim(),
+        payer_name: payerName.trim(),
+        procedure_code: procedureCode.trim(),
+        requested_service_type: requestedServiceType,
+        ...(policyNumber.trim() ? { policy_number: policyNumber.trim() } : {}),
+        ...(procedureDescription.trim() ? { procedure_description: procedureDescription.trim() } : {}),
+      }),
+    onSuccess: (result) => {
+      toast.success(`Prior auth draft ${result.prior_auth_id ? `#${result.prior_auth_id}` : ""} generated`);
+      setStatusFilter("draft");
+      setProcedureCode("");
+      setProcedureDescription("");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "prior-auth"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Generation failed"),
   });
   const submit = useMutation({
     mutationFn: (id: number) => submitPriorAuthorization(id),
@@ -3375,6 +3402,89 @@ export function PriorAuthorizationPanel() {
           <option value="">All</option>
         </select>
       </div>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (canGenerate) generate.mutate();
+        }}
+        className="rounded-lg border border-border bg-card/60 p-3"
+      >
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold">Generate Packet</h3>
+            <p className="text-xs text-muted-foreground">Creates a review-only payer packet from the admission chart.</p>
+          </div>
+          <button
+            type="submit"
+            disabled={!canGenerate || generate.isPending}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+          >
+            <FileSearch className="h-4 w-4" />
+            {generate.isPending ? "Generating..." : "Generate"}
+          </button>
+        </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          <label className="text-xs text-muted-foreground">
+            Admission ID
+            <input
+              value={admissionId}
+              onChange={(event) => setAdmissionId(event.target.value)}
+              placeholder="123"
+              className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+            />
+          </label>
+          <label className="text-xs text-muted-foreground">
+            Payer
+            <input
+              value={payerName}
+              onChange={(event) => setPayerName(event.target.value)}
+              placeholder="Insurance or TPA"
+              className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+            />
+          </label>
+          <label className="text-xs text-muted-foreground">
+            Policy number
+            <input
+              value={policyNumber}
+              onChange={(event) => setPolicyNumber(event.target.value)}
+              placeholder="Optional"
+              className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+            />
+          </label>
+          <label className="text-xs text-muted-foreground">
+            Procedure code
+            <input
+              value={procedureCode}
+              onChange={(event) => setProcedureCode(event.target.value)}
+              placeholder="CPT / internal code"
+              className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+            />
+          </label>
+          <label className="text-xs text-muted-foreground md:col-span-2">
+            Procedure description
+            <input
+              value={procedureDescription}
+              onChange={(event) => setProcedureDescription(event.target.value)}
+              placeholder="Procedure or treatment requested"
+              className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+            />
+          </label>
+          <label className="text-xs text-muted-foreground">
+            Service type
+            <select
+              value={requestedServiceType}
+              onChange={(event) => setRequestedServiceType(event.target.value)}
+              className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+            >
+              <option value="inpatient_procedure">Inpatient procedure</option>
+              <option value="planned_admission">Planned admission</option>
+              <option value="diagnostic_imaging">Diagnostic imaging</option>
+              <option value="medication">Medication</option>
+              <option value="therapy">Therapy</option>
+            </select>
+          </label>
+        </div>
+      </form>
       <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
