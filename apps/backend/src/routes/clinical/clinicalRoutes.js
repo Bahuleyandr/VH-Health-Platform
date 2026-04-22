@@ -10,6 +10,7 @@ import voiceSoapService from '../../services/ai/voiceSoapService.js';
 import { describeSttConfig } from '../../services/ai/sttService.js';
 import { reviewPolypharmacy } from '../../services/ai/polypharmacyAiService.js';
 import { scoreDeterioration } from '../../services/ai/deteriorationEarlyWarningService.js';
+import { createAmbientEncounter, listAmbientEncounters } from '../../services/ai/ambientDocumentationService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import {
   requiredUUID, requiredString, requiredNumber, optionalString, optionalNumber,
@@ -476,6 +477,62 @@ router.post('/safety/polypharmacy', async (req, res, next) => {
       req,
     });
     return success(res, result, 'Polypharmacy review complete');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ===================================================================
+// Ambient clinical documentation (full-encounter multi-speaker note)
+// ===================================================================
+
+/**
+ * POST /clinical/ambient/encounters
+ * Body:
+ *   patient_uid, admission_id?, clinician_uid?, recording_started_at,
+ *   recording_ended_at?, duration_seconds?, audio_storage_key?, audio_mime?,
+ *   stt_provider?, stt_model?, stt_language?, diarization_provider?,
+ *   transcript_segments: [{ speaker:'doctor'|'patient'|'caregiver'|'other',
+ *                           text, start_seconds, end_seconds }],
+ *   consent_reference
+ *
+ * Returns the generated structured visit note with citations back to
+ * transcript segments. Enters the review queue.
+ */
+router.post('/ambient/encounters', async (req, res, next) => {
+  try {
+    const result = await createAmbientEncounter({
+      req,
+      patientUid: req.body?.patient_uid,
+      admissionId: req.body?.admission_id || null,
+      clinicianUid: req.body?.clinician_uid || req.user?.uid || null,
+      recordedBy: req.user?.uid || null,
+      recordingStartedAt: req.body?.recording_started_at,
+      recordingEndedAt: req.body?.recording_ended_at || null,
+      durationSeconds: req.body?.duration_seconds || null,
+      audioStorageKey: req.body?.audio_storage_key || null,
+      audioMime: req.body?.audio_mime || null,
+      sttProvider: req.body?.stt_provider || 'none',
+      sttModel: req.body?.stt_model || null,
+      sttLanguage: req.body?.stt_language || null,
+      diarizationProvider: req.body?.diarization_provider || null,
+      transcriptSegments: req.body?.transcript_segments || [],
+      consentReference: req.body?.consent_reference || null,
+    });
+    return success(res, result, 'Ambient visit note draft generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/ambient/encounters', async (req, res, next) => {
+  try {
+    const result = await listAmbientEncounters({
+      tenantId: req.tenantId,
+      patientUid: req.query?.patient_uid || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Ambient encounters retrieved');
   } catch (err) {
     return next(err);
   }

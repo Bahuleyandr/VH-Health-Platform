@@ -521,6 +521,23 @@ export const CLINICAL_AI_MODULES = [
       retentionDays: 365,
     },
   },
+  {
+    module_key: 'ambient_visit_documentation',
+    display_name: 'Ambient Visit Documentation',
+    description: 'Multi-speaker encounter transcript → structured visit note with speaker attribution. Consent-gated; clinician signs off.',
+    enabled: false,
+    settings: {
+      surface: 'clinical',
+      risk: 'high',
+      status: 'available',
+      requiresClinicianSignoff: true,
+      requiresCitations: true,
+      reviewRoles: ['DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'],
+      approvalPolicy: 'clinician_signoff',
+      outputSchema: { type: 'object', required: ['chief_complaint', 'hpi', 'assessment', 'plan'] },
+      retentionDays: 365,
+    },
+  },
 ];
 
 export const DEFAULT_CLINICAL_AI_GUARDRAILS = {
