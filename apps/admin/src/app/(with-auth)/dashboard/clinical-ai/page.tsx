@@ -1,14 +1,18 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Cpu, Gauge, RefreshCw, ShieldCheck, ToggleLeft, ToggleRight } from "lucide-react";
+import { Activity, AlertTriangle, Cpu, Gauge, RefreshCw, ShieldCheck, ToggleLeft, ToggleRight } from "lucide-react";
 import { toast } from "react-hot-toast";
 import {
   getClinicalAiGenerations,
   getClinicalAiSafetyFlags,
   getClinicalAiStatus,
+  updateClinicalAiGuardrails,
   updateClinicalAiModule,
+  type ClinicalAiBudgetStatus,
   type ClinicalAiGeneration,
+  type ClinicalAiGuardrails,
   type ClinicalAiModule,
   type ClinicalAiSafetyFlag,
 } from "@/lib/api/emr";
@@ -33,6 +37,21 @@ function fmtNumber(value?: number | null) {
 
 function fmtLatency(value?: number | null) {
   return value ? `${fmtNumber(value)} ms` : "-";
+}
+
+function fmtCostMinor(value?: number | null) {
+  return value === null || value === undefined ? "-" : `${fmtNumber(value)} minor`;
+}
+
+function capPercent(value?: number | null) {
+  return Math.min(Math.max(value ?? 0, 0), 100);
+}
+
+function toOptionalNumber(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function severityClass(severity?: string) {
@@ -80,6 +99,227 @@ function ModuleToggle({
   );
 }
 
+type GuardrailDraft = {
+  daily_token_limit: string;
+  daily_cost_limit_minor: string;
+  request_token_limit: string;
+  fallback_rate_alert_pct: string;
+  max_fallbacks_per_day: string;
+  latency_alert_ms: string;
+};
+
+function guardrailDraftFrom(guardrails?: ClinicalAiGuardrails): GuardrailDraft {
+  return {
+    daily_token_limit: guardrails?.daily_token_limit?.toString() ?? "",
+    daily_cost_limit_minor: guardrails?.daily_cost_limit_minor?.toString() ?? "",
+    request_token_limit: guardrails?.request_token_limit?.toString() ?? "",
+    fallback_rate_alert_pct: guardrails?.fallback_rate_alert_pct?.toString() ?? "50",
+    max_fallbacks_per_day: guardrails?.max_fallbacks_per_day?.toString() ?? "",
+    latency_alert_ms: guardrails?.latency_alert_ms?.toString() ?? "15000",
+  };
+}
+
+function GuardrailEditor({
+  guardrails,
+  budget,
+  disabled,
+  onSave,
+  onToggleEnabled,
+  onToggleExternal,
+}: {
+  guardrails?: ClinicalAiGuardrails;
+  budget?: ClinicalAiBudgetStatus;
+  disabled: boolean;
+  onSave: (payload: Partial<ClinicalAiGuardrails>) => void;
+  onToggleEnabled: () => void;
+  onToggleExternal: () => void;
+}) {
+  const [draft, setDraft] = useState<GuardrailDraft>(() => guardrailDraftFrom(guardrails));
+
+  useEffect(() => {
+    setDraft(guardrailDraftFrom(guardrails));
+  }, [guardrails]);
+
+  const setField = (field: keyof GuardrailDraft, value: string) => {
+    setDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  const save = () => {
+    onSave({
+      daily_token_limit: toOptionalNumber(draft.daily_token_limit),
+      daily_cost_limit_minor: toOptionalNumber(draft.daily_cost_limit_minor),
+      request_token_limit: toOptionalNumber(draft.request_token_limit),
+      fallback_rate_alert_pct: toOptionalNumber(draft.fallback_rate_alert_pct) ?? 50,
+      max_fallbacks_per_day: toOptionalNumber(draft.max_fallbacks_per_day),
+      latency_alert_ms: toOptionalNumber(draft.latency_alert_ms) ?? 15000,
+    });
+  };
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-lg font-semibold">Budget Guardrails</h2>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={onToggleEnabled}
+            disabled={!guardrails || disabled}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-50"
+          >
+            {guardrails?.enabled ? (
+              <ToggleRight className="h-4 w-4 text-emerald-600" />
+            ) : (
+              <ToggleLeft className="h-4 w-4 text-muted-foreground" />
+            )}
+            Guardrails
+          </button>
+          <button
+            onClick={onToggleExternal}
+            disabled={!guardrails || disabled}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-50"
+          >
+            {guardrails?.external_ai_enabled ? (
+              <ToggleRight className="h-4 w-4 text-emerald-600" />
+            ) : (
+              <ToggleLeft className="h-4 w-4 text-muted-foreground" />
+            )}
+            External AI
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Daily Tokens</div>
+          <div className="mt-1 text-xl font-semibold">
+            {fmtNumber(budget?.token_budget.used)} / {budget?.token_budget.limit ? fmtNumber(budget.token_budget.limit) : "-"}
+          </div>
+          <div className="mt-3 h-2 rounded-full bg-muted">
+            <div
+              className={`h-2 rounded-full ${budget?.token_budget.tripped ? "bg-red-500" : "bg-emerald-500"}`}
+              style={{ width: `${capPercent(budget?.token_budget.percent_used)}%` }}
+            />
+          </div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Daily Cost</div>
+          <div className="mt-1 text-xl font-semibold">
+            {fmtCostMinor(budget?.cost_budget.used)} / {fmtCostMinor(budget?.cost_budget.limit)}
+          </div>
+          <div className="mt-3 h-2 rounded-full bg-muted">
+            <div
+              className={`h-2 rounded-full ${budget?.cost_budget.tripped ? "bg-red-500" : "bg-cyan-500"}`}
+              style={{ width: `${capPercent(budget?.cost_budget.percent_used)}%` }}
+            />
+          </div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Fallback Rate</div>
+          <div className="mt-1 text-xl font-semibold">{fmtNumber(budget?.fallback_rate_pct)}%</div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            Alert at {fmtNumber(guardrails?.fallback_rate_alert_pct)}%
+          </div>
+        </div>
+      </div>
+
+      {(budget?.alerts ?? []).length > 0 ? (
+        <div className="space-y-2">
+          {(budget?.alerts ?? []).map((alert) => (
+            <div
+              key={alert.code}
+              className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${
+                alert.severity === "block"
+                  ? "border-red-200 bg-red-50 text-red-800"
+                  : "border-amber-200 bg-amber-50 text-amber-800"
+              }`}
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4" />
+              <div>
+                <div className="font-medium">{alert.code}</div>
+                <div>{alert.message}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="grid gap-3 md:grid-cols-3">
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Daily token cap</span>
+            <input
+              type="number"
+              min={0}
+              value={draft.daily_token_limit}
+              onChange={(event) => setField("daily_token_limit", event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Daily cost cap</span>
+            <input
+              type="number"
+              min={0}
+              value={draft.daily_cost_limit_minor}
+              onChange={(event) => setField("daily_cost_limit_minor", event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Output token cap</span>
+            <input
+              type="number"
+              min={256}
+              value={draft.request_token_limit}
+              onChange={(event) => setField("request_token_limit", event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Fallback alert %</span>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={draft.fallback_rate_alert_pct}
+              onChange={(event) => setField("fallback_rate_alert_pct", event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Fallback count alert</span>
+            <input
+              type="number"
+              min={0}
+              value={draft.max_fallbacks_per_day}
+              onChange={(event) => setField("max_fallbacks_per_day", event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Latency alert ms</span>
+            <input
+              type="number"
+              min={1000}
+              value={draft.latency_alert_ms}
+              onChange={(event) => setField("latency_alert_ms", event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+        </div>
+        <div className="mt-4 flex justify-end">
+          <button
+            onClick={save}
+            disabled={!guardrails || disabled}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+          >
+            Save Guardrails
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function ClinicalAiGovernancePage() {
   const queryClient = useQueryClient();
   const status = useQuery({
@@ -106,11 +346,22 @@ export default function ClinicalAiGovernancePage() {
     onError: (err: Error) => toast.error(err.message || "Module update failed"),
   });
 
+  const saveGuardrails = useMutation({
+    mutationFn: (payload: Partial<ClinicalAiGuardrails>) => updateClinicalAiGuardrails(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-status"] });
+      toast.success("Clinical AI guardrails updated");
+    },
+    onError: (err: Error) => toast.error(err.message || "Guardrail update failed"),
+  });
+
   const generationRows: ClinicalAiGeneration[] = generations.data?.generations ?? [];
   const flagRows: ClinicalAiSafetyFlag[] = flags.data?.flags ?? [];
   const modules = status.data?.modules ?? [];
   const usage = status.data?.usage;
   const providerHealth = status.data?.providerHealth;
+  const guardrails = status.data?.guardrails;
+  const budget = status.data?.budget;
 
   return (
     <div className="space-y-6">
@@ -134,7 +385,7 @@ export default function ClinicalAiGovernancePage() {
         </button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
         <div className="rounded-lg border border-border bg-card p-4">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Cpu className="h-4 w-4" />
@@ -180,7 +431,36 @@ export default function ClinicalAiGovernancePage() {
           <div className="mt-1 text-xl font-semibold">{flagRows.length}</div>
           <div className="mt-1 text-xs text-muted-foreground">{fmt(usage?.overall.last_generation_at)}</div>
         </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <AlertTriangle className="h-4 w-4" />
+            Budget
+          </div>
+          <div className="mt-2">
+            <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${budget?.tripped ? "border-red-200 bg-red-100 text-red-800" : "border-emerald-200 bg-emerald-100 text-emerald-800"}`}>
+              {budget?.tripped ? "Blocked" : "Clear"}
+            </span>
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {budget?.alerts.length ? `${budget.alerts.length} alerts` : "No alerts"}
+          </div>
+        </div>
       </div>
+
+      <GuardrailEditor
+        guardrails={guardrails}
+        budget={budget}
+        disabled={saveGuardrails.isPending}
+        onSave={(payload) => saveGuardrails.mutate(payload)}
+        onToggleEnabled={() => {
+          if (!guardrails) return;
+          saveGuardrails.mutate({ enabled: !guardrails.enabled });
+        }}
+        onToggleExternal={() => {
+          if (!guardrails) return;
+          saveGuardrails.mutate({ external_ai_enabled: !guardrails.external_ai_enabled });
+        }}
+      />
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Modules</h2>

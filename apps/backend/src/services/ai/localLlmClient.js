@@ -1,5 +1,7 @@
 import logger from '../../logging/logger.js';
 import {
+  getClinicalAiBudgetStatus,
+  getClinicalAiGuardrails,
   getClinicalAiModule,
   getClinicalAiUsageSummary,
   listClinicalAiModules,
@@ -74,7 +76,7 @@ function isExternalUrl(baseUrl) {
   }
 }
 
-function getProviderConfig(module = null) {
+function getProviderConfig(module = null, guardrails = null) {
   const provider = normalizeProvider(
     module?.provider_override || process.env.CLINICAL_AI_PROVIDER || process.env.AI_PROVIDER || 'template'
   );
@@ -85,10 +87,12 @@ function getProviderConfig(module = null) {
     Math.max(parseInt(process.env.CLINICAL_AI_TIMEOUT_MS, 10) || DEFAULT_TIMEOUT_MS, 5_000),
     120_000
   );
-  const maxTokens = Math.min(
+  const configuredMaxTokens = Math.min(
     Math.max(parseInt(module?.max_tokens ?? process.env.CLINICAL_AI_MAX_TOKENS, 10) || DEFAULT_MAX_TOKENS, 256),
     8000
   );
+  const requestTokenLimit = guardrails?.enabled ? safeInt(guardrails.request_token_limit, 0) : 0;
+  const maxTokens = requestTokenLimit ? Math.min(configuredMaxTokens, requestTokenLimit) : configuredMaxTokens;
   const temperatureRaw = module?.temperature ?? process.env.CLINICAL_AI_TEMPERATURE ?? '0.15';
   const temperature = Math.min(Math.max(Number.parseFloat(temperatureRaw), 0), 1);
   const apiKey = getApiKey(provider);
@@ -102,6 +106,7 @@ function getProviderConfig(module = null) {
   return {
     module,
     moduleKey: module?.module_key || null,
+    guardrails,
     provider,
     baseUrl,
     model,
@@ -109,7 +114,7 @@ function getProviderConfig(module = null) {
     maxTokens,
     temperature,
     apiKey,
-    allowExternal,
+    allowExternal: allowExternal && (guardrails?.external_ai_enabled !== false),
     externalProvider,
     supported: SUPPORTED_PROVIDERS.includes(provider),
     baseUrlConfigured: Boolean(explicitBaseUrl) || Boolean(defaultBaseUrl(provider)),
@@ -172,7 +177,7 @@ function readAnthropicText(payload) {
     .trim();
 }
 
-function getReadiness(config) {
+function getReadiness(config, budgetStatus = null) {
   if (!config.supported) {
     return { ready: false, reason: `Unsupported clinical AI provider: ${config.provider}` };
   }
@@ -186,9 +191,21 @@ function getReadiness(config) {
     return { ready: false, reason: 'No clinical AI endpoint configured' };
   }
   if (config.externalProvider && !config.allowExternal) {
+    if (config.guardrails?.external_ai_enabled === false) {
+      return {
+        ready: false,
+        reason: 'External clinical AI disabled by admin guardrail',
+      };
+    }
     return {
       ready: false,
       reason: 'External clinical AI providers require CLINICAL_AI_ALLOW_EXTERNAL=true',
+    };
+  }
+  if (config.guardrails?.enabled && budgetStatus?.tripped) {
+    return {
+      ready: false,
+      reason: budgetStatus.blocking_reasons?.[0] || 'Clinical AI budget guardrail is active',
     };
   }
   if (EXTERNAL_PROVIDERS.has(config.provider) && !config.apiKey) {
@@ -327,9 +344,7 @@ async function callAnthropic(config, userPrompt, systemPrompt) {
   return { text: readAnthropicText(payload), usage };
 }
 
-export function getClinicalAiConfig() {
-  const config = getProviderConfig();
-  const readiness = getReadiness(config);
+function serializeClinicalAiConfig(config, readiness) {
   return {
     moduleKey: config.moduleKey,
     provider: config.provider,
@@ -344,10 +359,18 @@ export function getClinicalAiConfig() {
   };
 }
 
+export function getClinicalAiConfig() {
+  const config = getProviderConfig();
+  const readiness = getReadiness(config);
+  return serializeClinicalAiConfig(config, readiness);
+}
+
 export async function generateClinicalText({ systemPrompt, userPrompt, taskType }) {
   const module = await getClinicalAiModule(taskType);
-  const config = getProviderConfig(module);
-  const readiness = getReadiness(config);
+  const guardrails = await getClinicalAiGuardrails();
+  const budgetStatus = await getClinicalAiBudgetStatus({ days: 1, guardrails });
+  const config = getProviderConfig(module, guardrails);
+  const readiness = getReadiness(config, budgetStatus);
   const baseUsage = emptyUsage();
 
   if (!readiness.ready) {
@@ -453,16 +476,20 @@ async function probeProvider(config) {
 
 export async function getClinicalAiRuntimeStatus({ live = false, days = 7 } = {}) {
   const modules = await listClinicalAiModules();
-  const config = getProviderConfig();
-  const readiness = getReadiness(config);
+  const guardrails = await getClinicalAiGuardrails();
+  const config = getProviderConfig(null, guardrails);
   const usage = await getClinicalAiUsageSummary({ days });
+  const budget = await getClinicalAiBudgetStatus({ days: 1, guardrails });
+  const readiness = getReadiness(config, budget);
   const providerHealth = live
     ? await probeProvider(config)
     : { ok: readiness.ready, status: readiness.ready ? 'configured' : 'blocked', reason: readiness.reason, latencyMs: null };
 
   return {
-    config: getClinicalAiConfig(),
+    config: serializeClinicalAiConfig(config, readiness),
     providerHealth,
+    guardrails,
+    budget,
     modules,
     usage,
   };

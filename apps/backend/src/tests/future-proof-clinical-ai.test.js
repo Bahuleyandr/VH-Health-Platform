@@ -169,6 +169,18 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expectStatus(status, 200, 'clinical AI status');
     expect(status.body.data.modules.some((module) => module.module_key === 'discharge_summary')).toBe(true);
     expect(status.body.data.usage.overall).toHaveProperty('total_tokens');
+    expect(status.body.data.guardrails.enabled).toBe(true);
+    expect(status.body.data.budget.token_budget).toHaveProperty('used');
+
+    const guardrails = await admin.patch('/api/v1/admin/clinical-ai/guardrails').send({
+      external_ai_enabled: true,
+      daily_token_limit: 1000000,
+      request_token_limit: 1200,
+      fallback_rate_alert_pct: 80,
+    });
+    expectStatus(guardrails, 200, 'update clinical AI guardrails');
+    expect(guardrails.body.data.guardrails.request_token_limit).toBe(1200);
+    expect(guardrails.body.data.budget.tripped).toBe(false);
 
     const toggled = await admin.patch('/api/v1/admin/clinical-ai/modules/patient_aftercare_instructions').send({
       enabled: true,

@@ -3,8 +3,11 @@ import prisma from '../../lib/prisma.js';
 import { success } from '../../utils/responseHelper.js';
 import { getClinicalAiRuntimeStatus } from '../../services/ai/localLlmClient.js';
 import {
+  getClinicalAiBudgetStatus,
+  getClinicalAiGuardrails,
   getClinicalAiUsageSummary,
   listClinicalAiModules,
+  updateClinicalAiGuardrails,
   updateClinicalAiModule,
 } from '../../services/ai/clinicalAiModuleService.js';
 
@@ -45,6 +48,27 @@ router.get('/usage', async (req, res, next) => {
     const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 90);
     const usage = await getClinicalAiUsageSummary({ days });
     return success(res, usage, 'Clinical AI usage retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/guardrails', async (_req, res, next) => {
+  try {
+    const guardrails = await getClinicalAiGuardrails({ refresh: true });
+    const budget = await getClinicalAiBudgetStatus({ days: 1, guardrails });
+    return success(res, { guardrails, budget }, 'Clinical AI guardrails retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/guardrails', async (req, res, next) => {
+  try {
+    const updatedBy = req.user?.uid || null;
+    const guardrails = await updateClinicalAiGuardrails(req.body || {}, updatedBy);
+    const budget = await getClinicalAiBudgetStatus({ days: 1, guardrails });
+    return success(res, { guardrails, budget }, 'Clinical AI guardrails updated');
   } catch (err) {
     return next(err);
   }

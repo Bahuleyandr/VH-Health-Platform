@@ -91,6 +91,33 @@ $ curl -s -H "x-api-key: $API_KEY_ADMIN" -H "Authorization: Bearer $ADMIN_JWT" \
     "http://localhost:5000/api/v1/admin/clinical-ai/status?days=7" | jq .data.usage
 ```
 
+## Budget guardrails
+
+Admin can set daily token/cost caps, output-token caps, fallback alerts, latency
+alerts, and the external-AI emergency switch from `/dashboard/clinical-ai`.
+
+```bash
+$ curl -s -X PATCH http://localhost:5000/api/v1/admin/clinical-ai/guardrails \
+    -H "x-api-key: $API_KEY_ADMIN" \
+    -H "Authorization: Bearer $ADMIN_JWT" \
+    -H "Content-Type: application/json" \
+    -d '{"daily_token_limit":200000,"request_token_limit":1800,"fallback_rate_alert_pct":40}' | jq .data
+```
+
+When a daily token or cost cap is exhausted, generation requests do not call the
+provider. They continue through deterministic fallback templates and record the
+budget reason in `clinical_ai_generations.metadata.fallback_reason`.
+
+The emergency external-AI switch is separate from environment and module gates:
+
+```bash
+$ curl -s -X PATCH http://localhost:5000/api/v1/admin/clinical-ai/guardrails \
+    -H "x-api-key: $API_KEY_ADMIN" \
+    -H "Authorization: Bearer $ADMIN_JWT" \
+    -H "Content-Type: application/json" \
+    -d '{"external_ai_enabled":false}' | jq .data.guardrails.external_ai_enabled
+```
+
 ### Option B — local OpenAI-compatible gateway
 
 Use this for LM Studio, vLLM, llama.cpp server, LiteLLM on-prem, or a hospital

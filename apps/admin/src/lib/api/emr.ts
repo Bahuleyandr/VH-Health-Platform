@@ -82,10 +82,12 @@ export interface ClinicalAiUsageSummary {
   overall: {
     generation_count: number;
     ai_generation_count: number;
+    fallback_count?: number;
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
     estimated_cost_minor?: number | null;
+    safety_flag_count?: number;
     avg_latency_ms?: number | null;
     last_generation_at?: string | null;
   };
@@ -93,6 +95,9 @@ export interface ClinicalAiUsageSummary {
     module_key: string;
     generation_count: number;
     ai_generation_count: number;
+    fallback_count?: number;
+    prompt_tokens?: number;
+    completion_tokens?: number;
     total_tokens: number;
     estimated_cost_minor?: number | null;
     avg_latency_ms?: number | null;
@@ -102,7 +107,11 @@ export interface ClinicalAiUsageSummary {
     provider: string;
     generation_count: number;
     ai_generation_count: number;
+    fallback_count?: number;
+    prompt_tokens?: number;
+    completion_tokens?: number;
     total_tokens: number;
+    estimated_cost_minor?: number | null;
     avg_latency_ms?: number | null;
     last_generation_at?: string | null;
   }>;
@@ -117,6 +126,44 @@ export interface ClinicalAiUsageSummary {
   }>;
 }
 
+export interface ClinicalAiGuardrails {
+  id: number;
+  enabled: boolean;
+  external_ai_enabled: boolean;
+  daily_token_limit?: number | null;
+  daily_cost_limit_minor?: number | null;
+  request_token_limit?: number | null;
+  fallback_rate_alert_pct: number;
+  max_fallbacks_per_day?: number | null;
+  latency_alert_ms: number;
+  updated_at?: string | null;
+}
+
+export interface ClinicalAiBudgetStatus {
+  window_days: number;
+  enabled: boolean;
+  external_ai_enabled: boolean;
+  token_budget: {
+    used: number;
+    limit?: number | null;
+    remaining?: number | null;
+    percent_used?: number | null;
+    tripped: boolean;
+  };
+  cost_budget: {
+    used: number;
+    limit?: number | null;
+    remaining?: number | null;
+    percent_used?: number | null;
+    tripped: boolean;
+  };
+  request_token_limit?: number | null;
+  fallback_rate_pct: number;
+  alerts: Array<{ severity: string; code: string; message: string }>;
+  blocking_reasons: string[];
+  tripped: boolean;
+}
+
 export interface ClinicalAiStatus {
   config: ClinicalAiConfig;
   providerHealth: {
@@ -126,6 +173,8 @@ export interface ClinicalAiStatus {
     latencyMs?: number | null;
     httpStatus?: number;
   };
+  guardrails: ClinicalAiGuardrails;
+  budget: ClinicalAiBudgetStatus;
   modules: ClinicalAiModule[];
   usage: ClinicalAiUsageSummary;
 }
@@ -193,6 +242,15 @@ export async function updateClinicalAiModule(moduleKey: string, payload: Partial
     method: 'PATCH',
     body: payload,
   });
+}
+export async function updateClinicalAiGuardrails(payload: Partial<ClinicalAiGuardrails>) {
+  return fetchAdminAPI<{ guardrails: ClinicalAiGuardrails; budget: ClinicalAiBudgetStatus }>(
+    '/admin/clinical-ai/guardrails',
+    {
+      method: 'PATCH',
+      body: payload,
+    }
+  );
 }
 export async function generateHandoverDraft(patientUid: string) {
   return postJSON('/clinical/handover/generate', { patient_uid: patientUid });

@@ -15,8 +15,29 @@ let mockModule = {
   temperature: null,
   settings: {},
 };
+let mockGuardrails = {
+  enabled: true,
+  external_ai_enabled: true,
+  daily_token_limit: null,
+  daily_cost_limit_minor: null,
+  request_token_limit: null,
+  fallback_rate_alert_pct: 50,
+  max_fallbacks_per_day: null,
+  latency_alert_ms: 15000,
+};
+let mockBudgetStatus = {
+  enabled: true,
+  external_ai_enabled: true,
+  tripped: false,
+  blocking_reasons: [],
+  alerts: [],
+  token_budget: { used: 0, limit: null, remaining: null, percent_used: null, tripped: false },
+  cost_budget: { used: 0, limit: null, remaining: null, percent_used: null, tripped: false },
+};
 
 jest.unstable_mockModule('../../services/ai/clinicalAiModuleService.js', () => ({
+  getClinicalAiBudgetStatus: jest.fn(async () => mockBudgetStatus),
+  getClinicalAiGuardrails: jest.fn(async () => mockGuardrails),
   getClinicalAiModule: jest.fn(async () => mockModule),
   getClinicalAiUsageSummary: jest.fn(async () => ({
     window_days: 7,
@@ -78,6 +99,25 @@ describe('clinical AI provider client', () => {
       max_tokens: null,
       temperature: null,
       settings: {},
+    };
+    mockGuardrails = {
+      enabled: true,
+      external_ai_enabled: true,
+      daily_token_limit: null,
+      daily_cost_limit_minor: null,
+      request_token_limit: null,
+      fallback_rate_alert_pct: 50,
+      max_fallbacks_per_day: null,
+      latency_alert_ms: 15000,
+    };
+    mockBudgetStatus = {
+      enabled: true,
+      external_ai_enabled: true,
+      tripped: false,
+      blocking_reasons: [],
+      alerts: [],
+      token_budget: { used: 0, limit: null, remaining: null, percent_used: null, tripped: false },
+      cost_budget: { used: 0, limit: null, remaining: null, percent_used: null, tripped: false },
     };
     global.fetch = jest.fn();
   });
@@ -247,6 +287,46 @@ describe('clinical AI provider client', () => {
 
     expect(status.modules).toHaveLength(1);
     expect(status.usage.overall.total_tokens).toBe(0);
+    expect(status.guardrails.enabled).toBe(true);
+    expect(status.budget.tripped).toBe(false);
     expect(status.providerHealth.status).toBe('blocked');
+  });
+
+  it('blocks external providers when the admin guardrail disables external AI', async () => {
+    process.env.CLINICAL_AI_PROVIDER = 'openai';
+    process.env.CLINICAL_AI_ALLOW_EXTERNAL = 'true';
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+    mockModule = { ...mockModule, external_allowed: true };
+    mockGuardrails = { ...mockGuardrails, external_ai_enabled: false };
+
+    const result = await generateClinicalText({
+      systemPrompt: 'System safety prompt',
+      userPrompt: 'Patient context',
+      taskType: 'discharge_summary',
+    });
+
+    expect(result.usedAi).toBe(false);
+    expect(result.reason).toMatch(/admin guardrail/i);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('blocks provider calls when daily budget guardrails are tripped', async () => {
+    process.env.CLINICAL_AI_PROVIDER = 'openai-compatible';
+    process.env.CLINICAL_AI_BASE_URL = 'http://localhost:1234/v1';
+    mockBudgetStatus = {
+      ...mockBudgetStatus,
+      tripped: true,
+      blocking_reasons: ['Daily clinical AI token budget exhausted'],
+    };
+
+    const result = await generateClinicalText({
+      systemPrompt: 'System safety prompt',
+      userPrompt: 'Patient context',
+      taskType: 'discharge_summary',
+    });
+
+    expect(result.usedAi).toBe(false);
+    expect(result.reason).toMatch(/token budget/i);
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });
