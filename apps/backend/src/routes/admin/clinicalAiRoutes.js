@@ -1699,6 +1699,17 @@ router.post('/operational/no-show/:appointmentId', async (req, res, next) => {
       tenantId: req.tenantId,
       appointmentId: req.params.appointmentId,
     });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_NO_SHOW_RISK_SCORED',
+      String(req.params.appointmentId),
+      null,
+      {
+        appointment_id: result.appointment_id,
+        risk_score: result.risk_score,
+        band: result.band,
+      }
+    );
     return success(res, result, 'No-show risk scored');
   } catch (err) {
     return next(err);
@@ -1711,6 +1722,17 @@ router.post('/operational/ot/:scheduleId', async (req, res, next) => {
       tenantId: req.tenantId,
       scheduleId: req.params.scheduleId,
     });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_OT_CASE_TIME_PREDICTED',
+      String(req.params.scheduleId),
+      null,
+      {
+        ot_schedule_id: result.ot_schedule_id,
+        predicted_minutes: result.predicted_minutes,
+        confidence_pct: result.confidence_pct,
+      }
+    );
     return success(res, result, 'OT case-time predicted');
   } catch (err) {
     return next(err);

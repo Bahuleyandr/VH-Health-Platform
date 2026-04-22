@@ -728,8 +728,39 @@ export async function runCanary() {
 }
 
 // ---------------------------------------------------------------------------
-// Operational AI: charge capture (no-show + OT predictions are per-entity, not listed here)
+// Operational AI: no-show, OT duration, and charge capture
 // ---------------------------------------------------------------------------
+export type OperationalRiskBand = 'low' | 'medium' | 'high';
+
+export interface NoShowRiskPrediction {
+  appointment_id: number;
+  risk_score: number;
+  band: OperationalRiskBand;
+  contributors: Record<string, unknown>;
+  recommended_action: string;
+  module_key: string;
+  decision_support_only: boolean;
+}
+
+export interface OtCaseTimePrediction {
+  ot_schedule_id: number;
+  procedure_name: string | null;
+  predicted_minutes: number;
+  confidence_pct: number;
+  sample_size: number;
+  contributors: Record<string, unknown>;
+  module_key: string;
+  decision_support_only: boolean;
+}
+
+export async function scoreNoShowRisk(appointmentId: number) {
+  return postJSON<NoShowRiskPrediction>(`/admin/clinical-ai/operational/no-show/${appointmentId}`, {});
+}
+
+export async function predictOtCaseTime(scheduleId: number) {
+  return postJSON<OtCaseTimePrediction>(`/admin/clinical-ai/operational/ot/${scheduleId}`, {});
+}
+
 export interface ChargeCaptureAudit {
   id: number;
   admission_id: number;

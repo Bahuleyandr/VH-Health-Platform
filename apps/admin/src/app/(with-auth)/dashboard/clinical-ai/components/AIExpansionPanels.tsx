@@ -64,11 +64,13 @@ import {
   listTrialSyncRuns,
   listVirtualWardEnrollments,
   listVirtualWardEscalations,
+  predictOtCaseTime,
   publishRosterRun,
   recordPriorAuthPayerDecision,
   resolveVirtualWardEscalation,
   runCanary,
   runPrivacySentinelScan,
+  scoreNoShowRisk,
   submitPriorAuthorization,
   triggerTrialCatalogSync,
   type AbnormalResultTriageDraft,
@@ -85,6 +87,8 @@ import {
   type ImagingSeverity,
   type InfectionControlAudit,
   type InfectionControlRiskBand,
+  type NoShowRiskPrediction,
+  type OtCaseTimePrediction,
   type PolypharmacyReview,
   type PrivacySentinelAudit,
   type PrivacySentinelRiskBand,
@@ -1763,6 +1767,128 @@ export function DriftCanaryPanel() {
             )}
           </tbody>
         </table>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Operational Predictions
+// ---------------------------------------------------------------------------
+export function OperationalPredictionPanel() {
+  const [appointmentId, setAppointmentId] = useState("");
+  const [otScheduleId, setOtScheduleId] = useState("");
+  const [noShowResult, setNoShowResult] = useState<NoShowRiskPrediction | null>(null);
+  const [otResult, setOtResult] = useState<OtCaseTimePrediction | null>(null);
+
+  const noShow = useMutation({
+    mutationFn: () => scoreNoShowRisk(Number.parseInt(appointmentId.trim(), 10)),
+    onSuccess: (result) => {
+      setNoShowResult(result);
+      toast.success(`No-show risk: ${result.band}`);
+    },
+    onError: (err: Error) => toast.error(err.message || "No-show scoring failed"),
+  });
+  const ot = useMutation({
+    mutationFn: () => predictOtCaseTime(Number.parseInt(otScheduleId.trim(), 10)),
+    onSuccess: (result) => {
+      setOtResult(result);
+      toast.success(`OT estimate: ${result.predicted_minutes} min`);
+    },
+    onError: (err: Error) => toast.error(err.message || "OT prediction failed"),
+  });
+
+  const canScoreAppointment = Number.isFinite(Number.parseInt(appointmentId.trim(), 10));
+  const canScoreOt = Number.isFinite(Number.parseInt(otScheduleId.trim(), 10));
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <TrendingUp className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-lg font-semibold">Operational Predictions</h2>
+      </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Appointment ID</span>
+              <input
+                value={appointmentId}
+                onChange={(event) => setAppointmentId(event.target.value)}
+                inputMode="numeric"
+                className="w-full rounded-md border border-border bg-background px-3 py-2"
+              />
+            </label>
+            <button
+              onClick={() => noShow.mutate()}
+              disabled={noShow.isPending || !canScoreAppointment}
+              className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+            >
+              <PlayCircle className="h-4 w-4" />
+              {noShow.isPending ? "Scoring..." : "Score No-Show"}
+            </button>
+          </div>
+          {noShowResult ? (
+            <div className="mt-4 rounded-lg border border-border bg-background p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm text-muted-foreground">Risk score</div>
+                  <div className="text-2xl font-semibold">{noShowResult.risk_score}</div>
+                </div>
+                <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${chartRiskClass(noShowResult.band)}`}>
+                  {noShowResult.band}
+                </span>
+              </div>
+              <div className="mt-2 text-sm">{noShowResult.recommended_action}</div>
+              <div className="mt-2 text-xs text-muted-foreground">
+                {Object.entries(noShowResult.contributors || {}).slice(0, 4).map(([key, value]) => `${key}: ${String(value)}`).join(" / ") || "No contributors returned"}
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">OT schedule ID</span>
+              <input
+                value={otScheduleId}
+                onChange={(event) => setOtScheduleId(event.target.value)}
+                inputMode="numeric"
+                className="w-full rounded-md border border-border bg-background px-3 py-2"
+              />
+            </label>
+            <button
+              onClick={() => ot.mutate()}
+              disabled={ot.isPending || !canScoreOt}
+              className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+            >
+              <PlayCircle className="h-4 w-4" />
+              {ot.isPending ? "Predicting..." : "Predict OT Time"}
+            </button>
+          </div>
+          {otResult ? (
+            <div className="mt-4 rounded-lg border border-border bg-background p-3">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div>
+                  <div className="text-sm text-muted-foreground">Predicted</div>
+                  <div className="text-2xl font-semibold">{otResult.predicted_minutes}m</div>
+                </div>
+                <div>
+                  <div className="text-sm text-muted-foreground">Confidence</div>
+                  <div className="text-2xl font-semibold">{otResult.confidence_pct}%</div>
+                </div>
+                <div>
+                  <div className="text-sm text-muted-foreground">Sample</div>
+                  <div className="text-2xl font-semibold">{otResult.sample_size}</div>
+                </div>
+              </div>
+              <div className="mt-2 text-sm">{otResult.procedure_name || "Procedure not named"}</div>
+              <div className="mt-2 text-xs text-muted-foreground">
+                {Object.entries(otResult.contributors || {}).slice(0, 4).map(([key, value]) => `${key}: ${String(value)}`).join(" / ") || "No contributors returned"}
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
     </section>
   );
