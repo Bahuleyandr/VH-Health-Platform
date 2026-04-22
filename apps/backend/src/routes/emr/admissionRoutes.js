@@ -13,6 +13,10 @@ import {
   listTranslations,
   translateGeneration,
 } from '../../services/ai/translationService.js';
+import {
+  getLatestRisk,
+  scoreLongitudinalRisk,
+} from '../../services/ai/longitudinalRiskService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { canEditDischargeSummary, canSignDischargeSummary } from '../../utils/roleHelpers.js';
 
@@ -407,6 +411,29 @@ router.get(
       limit: req.query?.limit,
     });
     success(res, result, 'Translations retrieved');
+  })
+);
+
+// M5 — ABDM longitudinal risk score for an admission. Decision support,
+// never auto-actions; clinicians read the card and decide.
+router.post(
+  '/:id/longitudinal-risk',
+  wrapAsync(async (req, res) => {
+    const admissionId = parseAdmissionId(req, res);
+    if (admissionId === null) return;
+    const result = await scoreLongitudinalRisk({ admissionId, req });
+    success(res, result, 'Longitudinal risk score computed');
+  })
+);
+
+router.get(
+  '/:id/longitudinal-risk',
+  wrapAsync(async (req, res) => {
+    const admissionId = parseAdmissionId(req, res);
+    if (admissionId === null) return;
+    const latest = await getLatestRisk({ admissionId, tenantId: req.tenantId });
+    if (!latest) return error(res, 'No risk snapshot yet for this admission', HTTP_STATUS.NOT_FOUND);
+    success(res, latest, 'Latest longitudinal risk snapshot retrieved');
   })
 );
 

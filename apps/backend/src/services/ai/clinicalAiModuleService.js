@@ -327,6 +327,23 @@ export const CLINICAL_AI_MODULES = [
       supported_languages: ['en', 'hi', 'ta', 'te', 'ml', 'mr', 'bn', 'kn'],
     },
   },
+  {
+    module_key: 'abdm_longitudinal_risk',
+    display_name: 'ABDM Longitudinal Risk Score',
+    description: 'Readmission risk card combining adherence ONNX/heuristic + local admission history + optional ABDM prior records. Decision support only; never auto-actions.',
+    enabled: false,
+    settings: {
+      surface: 'emr',
+      risk: 'medium',
+      status: 'available',
+      requiresClinicianSignoff: false,
+      requiresCitations: true,
+      reviewRoles: ['DOCTOR', 'ADMIN'],
+      approvalPolicy: 'clinician_review',
+      outputSchema: { type: 'object', required: ['overall_score', 'band', 'contributors'] },
+      retentionDays: 365,
+    },
+  },
 ];
 
 export const DEFAULT_CLINICAL_AI_GUARDRAILS = {

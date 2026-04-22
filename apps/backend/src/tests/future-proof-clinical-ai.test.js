@@ -43,6 +43,8 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_context_snapshots WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM insurance_claims WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_voice_notes WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_longitudinal_risk WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_translations WHERE source_generation_id IN (SELECT id FROM clinical_ai_generations WHERE patient_uid = $1::uuid)`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_generations WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM downtime_snapshots WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM patient_data_rights_requests WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -146,6 +148,8 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_context_snapshots WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM insurance_claims WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_voice_notes WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_longitudinal_risk WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_translations WHERE source_generation_id IN (SELECT id FROM clinical_ai_generations WHERE patient_uid = $1::uuid)`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_generations WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM downtime_snapshots WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM patient_data_rights_requests WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -349,6 +353,44 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expectStatus(denial, 200, 'denial risk draft');
     expectDraftShape(denial.body.data, 'denial_risk_assist');
     expect(denial.body.data.safety_flags.some((flag) => flag.code === 'DENIAL_RISK_GAP')).toBe(true);
+  });
+
+  it('computes an ABDM longitudinal risk score with contributors and recommendations', async () => {
+    await enableModule('abdm_longitudinal_risk');
+
+    // First call — compute + persist.
+    const scored = await doctor.post(`/api/v1/emr/${admissionId}/longitudinal-risk`).send({});
+    expectStatus(scored, 200, 'longitudinal risk score');
+    const body = scored.body.data;
+    expect(body.module_key).toBe('abdm_longitudinal_risk');
+    expect(body.admission_id).toBe(admissionId);
+    expect(typeof body.overall_score).toBe('number');
+    expect(['low', 'medium', 'high', 'critical']).toContain(body.band);
+    expect(body.contributors).toHaveProperty('adherence');
+    expect(body.contributors).toHaveProperty('readmission');
+    expect(body.contributors).toHaveProperty('comorbidity');
+    expect(body.contributors.weights).toMatchObject({
+      adherence: 0.4,
+      readmission: 0.4,
+      comorbidity: 0.2,
+    });
+    expect(Array.isArray(body.recommendations)).toBe(true);
+    expect(body.decision_support_only).toBe(true);
+
+    // GET returns the latest snapshot.
+    const latest = await doctor.get(`/api/v1/emr/${admissionId}/longitudinal-risk`);
+    expectStatus(latest, 200, 'latest risk snapshot');
+    expect(latest.body.data.admission_id).toBe(admissionId);
+    expect(['low', 'medium', 'high', 'critical']).toContain(latest.body.data.band);
+
+    // Unknown admission → 404 surfaced.
+    const missing = await doctor.post('/api/v1/emr/99999999/longitudinal-risk').send({});
+    expectStatus(missing, 404, 'missing admission for risk scoring');
+
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_longitudinal_risk WHERE admission_id = $1`,
+      admissionId
+    ).catch(() => {});
   });
 
   it('refuses to translate unreviewed drafts and produces a translation once accepted', async () => {
