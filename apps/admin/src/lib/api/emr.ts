@@ -261,6 +261,43 @@ export interface ClinicalAiSafetyFlag {
   created_at: string;
 }
 
+export interface ClinicalAiSafetyReviewSummary {
+  window_days: number;
+  reason?: string | null;
+  overall: {
+    review_count: number;
+    passed_count: number;
+    needs_review_count: number;
+    blocked_count: number;
+    avg_citation_coverage_pct?: number | null;
+    low_citation_count: number;
+    finding_count: number;
+    high_or_critical_finding_count: number;
+    last_review_at?: string | null;
+  };
+  by_module: Array<{
+    module_key: string;
+    review_count: number;
+    passed_count: number;
+    needs_review_count: number;
+    blocked_count: number;
+    avg_citation_coverage_pct?: number | null;
+    high_or_critical_finding_count: number;
+    last_review_at?: string | null;
+  }>;
+  recent_findings: Array<{
+    review_id: number;
+    generation_id?: number | null;
+    module_key: string;
+    status: string;
+    citation_coverage_pct: number;
+    severity?: string | null;
+    code?: string | null;
+    message?: string | null;
+    created_at: string;
+  }>;
+}
+
 export interface ClinicalAiAuditLog {
   id: number;
   uid?: string | null;
@@ -394,6 +431,9 @@ export async function getClinicalAiGenerations() {
 }
 export async function getClinicalAiSafetyFlags() {
   return getJSON<{ flags: ClinicalAiSafetyFlag[]; count: number }>('/admin/clinical-ai/safety-flags');
+}
+export async function getClinicalAiSafetyReviewSummary(days = 7) {
+  return getJSON<ClinicalAiSafetyReviewSummary>('/admin/clinical-ai/safety-reviews/summary', { days });
 }
 export async function getClinicalAiAuditLogs(limit = 50) {
   return getJSON<{ logs: ClinicalAiAuditLog[]; count: number }>('/admin/clinical-ai/audit', { limit });

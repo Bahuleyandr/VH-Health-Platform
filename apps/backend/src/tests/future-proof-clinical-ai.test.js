@@ -199,6 +199,12 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expect(status.body.data.budget.token_budget).toHaveProperty('used');
     expect(status.body.data.adapters.some((adapter) => adapter.key === 'prior_auth_payer')).toBe(true);
 
+    const safetyReviews = await admin.get('/api/v1/admin/clinical-ai/safety-reviews/summary');
+    expectStatus(safetyReviews, 200, 'clinical AI safety review summary');
+    expect(safetyReviews.body.data.overall).toHaveProperty('review_count');
+    expect(Array.isArray(safetyReviews.body.data.by_module)).toBe(true);
+    expect(Array.isArray(safetyReviews.body.data.recent_findings)).toBe(true);
+
     const itStatus = await itAdminClient.get('/api/v1/admin/clinical-ai/status');
     expectStatus(itStatus, 200, 'clinical AI status for IT admin');
 
@@ -335,6 +341,11 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expectStatus(record, 200, 'patient record summary draft');
     expectDraftShape(record.body.data, 'patient_record_summary');
     expect(record.body.data.requires_signoff).toBe(true);
+
+    const safetyReviews = await admin.get('/api/v1/admin/clinical-ai/safety-reviews/summary');
+    expectStatus(safetyReviews, 200, 'clinical AI safety review summary with modular draft');
+    expect(safetyReviews.body.data.overall.review_count).toBeGreaterThan(0);
+    expect(safetyReviews.body.data.by_module.some((row) => row.module_key === 'patient_record_summary')).toBe(true);
 
     const aftercare = await doctor.post(`/api/v1/emr/${admissionId}/aftercare-instructions`).send({});
     expectStatus(aftercare, 200, 'aftercare draft');

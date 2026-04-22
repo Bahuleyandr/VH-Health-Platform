@@ -662,6 +662,30 @@ let moduleCacheAt = 0;
 let guardrailCache = null;
 let guardrailCacheAt = 0;
 
+function isMissingSchemaError(err) {
+  return /does not exist|column .* does not exist|relation .* does not exist/i.test(String(err?.message || ''));
+}
+
+function emptySafetyReviewSummary(windowDays, reason = null) {
+  return {
+    window_days: windowDays,
+    reason,
+    overall: {
+      review_count: 0,
+      passed_count: 0,
+      needs_review_count: 0,
+      blocked_count: 0,
+      avg_citation_coverage_pct: null,
+      low_citation_count: 0,
+      finding_count: 0,
+      high_or_critical_finding_count: 0,
+      last_review_at: null,
+    },
+    by_module: [],
+    recent_findings: [],
+  };
+}
+
 function sanitizeModuleKey(value) {
   return String(value || '').toLowerCase().trim().replace(/[^a-z0-9_-]/g, '');
 }
@@ -1306,6 +1330,129 @@ export async function getClinicalAiUsageSummary({ days = 7, tenantId = null } = 
   };
 }
 
+export async function getClinicalAiSafetyReviewSummary({ days = 7, tenantId = null } = {}) {
+  const windowDays = Math.min(Math.max(parseInt(days, 10) || 7, 1), 90);
+  const tid = tenantId || DEFAULT_TENANT_ID;
+
+  try {
+    const [overallRows, byModule, recentFindings] = await Promise.all([
+      prisma.$queryRawUnsafe(
+        `WITH review_rows AS (
+           SELECT id, generation_id, module_key, status, findings, citation_coverage_pct, created_at
+           FROM clinical_ai_safety_reviews
+           WHERE tenant_id = $1::uuid
+             AND created_at >= NOW() - ($2::int * INTERVAL '1 day')
+         ),
+         normalized AS (
+           SELECT
+             *,
+             CASE
+               WHEN jsonb_typeof(COALESCE(findings, '[]'::jsonb)) = 'array'
+               THEN jsonb_array_length(COALESCE(findings, '[]'::jsonb))
+               ELSE 0
+             END AS finding_count,
+             (
+               SELECT COUNT(*)::int
+               FROM jsonb_array_elements(CASE
+                 WHEN jsonb_typeof(COALESCE(findings, '[]'::jsonb)) = 'array'
+                 THEN COALESCE(findings, '[]'::jsonb)
+                 ELSE '[]'::jsonb
+               END) AS finding
+               WHERE LOWER(finding->>'severity') IN ('high', 'critical')
+             ) AS high_or_critical_finding_count
+           FROM review_rows
+         )
+         SELECT
+           COUNT(*)::int AS review_count,
+           COALESCE(SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END), 0)::int AS passed_count,
+           COALESCE(SUM(CASE WHEN status IN ('needs_review', 'warning') THEN 1 ELSE 0 END), 0)::int AS needs_review_count,
+           COALESCE(SUM(CASE WHEN status IN ('blocked', 'failed') THEN 1 ELSE 0 END), 0)::int AS blocked_count,
+           ROUND(AVG(citation_coverage_pct))::int AS avg_citation_coverage_pct,
+           COALESCE(SUM(CASE WHEN citation_coverage_pct < 100 THEN 1 ELSE 0 END), 0)::int AS low_citation_count,
+           COALESCE(SUM(finding_count), 0)::int AS finding_count,
+           COALESCE(SUM(high_or_critical_finding_count), 0)::int AS high_or_critical_finding_count,
+           MAX(created_at) AS last_review_at
+         FROM normalized`,
+        tid,
+        windowDays
+      ),
+      prisma.$queryRawUnsafe(
+        `WITH normalized AS (
+           SELECT
+             module_key,
+             status,
+             citation_coverage_pct,
+             created_at,
+             (
+               SELECT COUNT(*)::int
+               FROM jsonb_array_elements(CASE
+                 WHEN jsonb_typeof(COALESCE(findings, '[]'::jsonb)) = 'array'
+                 THEN COALESCE(findings, '[]'::jsonb)
+                 ELSE '[]'::jsonb
+               END) AS finding
+               WHERE LOWER(finding->>'severity') IN ('high', 'critical')
+             ) AS high_or_critical_finding_count
+           FROM clinical_ai_safety_reviews
+           WHERE tenant_id = $1::uuid
+             AND created_at >= NOW() - ($2::int * INTERVAL '1 day')
+         )
+         SELECT
+           module_key,
+           COUNT(*)::int AS review_count,
+           COALESCE(SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END), 0)::int AS passed_count,
+           COALESCE(SUM(CASE WHEN status IN ('needs_review', 'warning') THEN 1 ELSE 0 END), 0)::int AS needs_review_count,
+           COALESCE(SUM(CASE WHEN status IN ('blocked', 'failed') THEN 1 ELSE 0 END), 0)::int AS blocked_count,
+           ROUND(AVG(citation_coverage_pct))::int AS avg_citation_coverage_pct,
+           COALESCE(SUM(high_or_critical_finding_count), 0)::int AS high_or_critical_finding_count,
+           MAX(created_at) AS last_review_at
+         FROM normalized
+         GROUP BY module_key
+         ORDER BY blocked_count DESC, high_or_critical_finding_count DESC, needs_review_count DESC, review_count DESC, module_key
+         LIMIT 25`,
+        tid,
+        windowDays
+      ),
+      prisma.$queryRawUnsafe(
+        `SELECT
+           sr.id AS review_id,
+           sr.generation_id,
+           sr.module_key,
+           sr.status,
+           sr.citation_coverage_pct,
+           finding->>'severity' AS severity,
+           finding->>'code' AS code,
+           finding->>'message' AS message,
+           sr.created_at
+         FROM clinical_ai_safety_reviews sr
+         CROSS JOIN LATERAL jsonb_array_elements(CASE
+           WHEN jsonb_typeof(COALESCE(sr.findings, '[]'::jsonb)) = 'array'
+           THEN COALESCE(sr.findings, '[]'::jsonb)
+           ELSE '[]'::jsonb
+         END) AS finding
+         WHERE sr.tenant_id = $1::uuid
+           AND sr.created_at >= NOW() - ($2::int * INTERVAL '1 day')
+         ORDER BY sr.created_at DESC
+         LIMIT 25`,
+        tid,
+        windowDays
+      ),
+    ]);
+
+    return {
+      window_days: windowDays,
+      reason: null,
+      overall: overallRows[0] || emptySafetyReviewSummary(windowDays).overall,
+      by_module: byModule || [],
+      recent_findings: recentFindings || [],
+    };
+  } catch (err) {
+    if (isMissingSchemaError(err)) {
+      return emptySafetyReviewSummary(windowDays, 'safety_review_table_unavailable');
+    }
+    throw err;
+  }
+}
+
 function limitState(used, limit) {
   if (!limit || limit <= 0) {
     return {
@@ -1397,6 +1544,7 @@ export default {
   getClinicalAiBudgetStatus,
   getClinicalAiGuardrails,
   getClinicalAiModule,
+  getClinicalAiSafetyReviewSummary,
   getClinicalAiTenantModule,
   getClinicalAiUsageSummary,
   listClinicalAiModules,

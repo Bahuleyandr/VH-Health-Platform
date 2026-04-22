@@ -8,6 +8,7 @@ import {
   getClinicalAiBudgetStatus,
   getClinicalAiGuardrails,
   getClinicalAiModule,
+  getClinicalAiSafetyReviewSummary,
   getClinicalAiTenantModule,
   getClinicalAiUsageSummary,
   listClinicalAiModules,
@@ -565,6 +566,16 @@ router.get('/usage', async (req, res, next) => {
     const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 90);
     const usage = await getClinicalAiUsageSummary({ days, tenantId: req.tenantId });
     return success(res, usage, 'Clinical AI usage retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/safety-reviews/summary', async (req, res, next) => {
+  try {
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 90);
+    const summary = await getClinicalAiSafetyReviewSummary({ days, tenantId: req.tenantId });
+    return success(res, summary, 'Clinical AI safety review summary retrieved');
   } catch (err) {
     return next(err);
   }

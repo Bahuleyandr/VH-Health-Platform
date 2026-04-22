@@ -8,6 +8,7 @@ import {
   getClinicalAiAuditLogs,
   getClinicalAiGenerations,
   getClinicalAiSafetyFlags,
+  getClinicalAiSafetyReviewSummary,
   getClinicalAiStatus,
   resetClinicalAiTenantModule,
   updateClinicalAiGuardrails,
@@ -20,6 +21,7 @@ import {
   type ClinicalAiModule,
   type ClinicalAiModulePatch,
   type ClinicalAiSafetyFlag,
+  type ClinicalAiSafetyReviewSummary,
 } from "@/lib/api/emr";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -86,6 +88,10 @@ function fmtCostMinor(value?: number | null) {
   return value === null || value === undefined ? "-" : `${fmtNumber(value)} minor`;
 }
 
+function fmtPercent(value?: number | null) {
+  return value === null || value === undefined ? "-" : `${fmtNumber(value)}%`;
+}
+
 function capPercent(value?: number | null) {
   return Math.min(Math.max(value ?? 0, 0), 100);
 }
@@ -117,6 +123,14 @@ function statusClass(status?: string) {
   if (s === "reachable" || s === "configured") return "bg-emerald-100 text-emerald-800 border-emerald-200";
   if (s === "blocked") return "bg-amber-100 text-amber-800 border-amber-200";
   return "bg-red-100 text-red-800 border-red-200";
+}
+
+function safetyReviewStatusClass(status?: string) {
+  const s = (status || "").toLowerCase();
+  if (s === "passed") return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  if (s === "needs_review" || s === "warning") return "bg-amber-100 text-amber-800 border-amber-200";
+  if (s === "blocked" || s === "failed") return "bg-red-100 text-red-800 border-red-200";
+  return "bg-slate-100 text-slate-700 border-slate-200";
 }
 
 function adapterStatusClass(adapter: ClinicalAiAdapterStatus) {
@@ -576,6 +590,10 @@ export default function ClinicalAiGovernancePage() {
     queryKey: ["clinical-ai-safety-flags"],
     queryFn: getClinicalAiSafetyFlags,
   });
+  const safetyReviews = useQuery({
+    queryKey: ["clinical-ai-safety-review-summary"],
+    queryFn: () => getClinicalAiSafetyReviewSummary(7),
+  });
   const auditLogs = useQuery({
     queryKey: ["clinical-ai-audit"],
     queryFn: () => getClinicalAiAuditLogs(50),
@@ -625,6 +643,7 @@ export default function ClinicalAiGovernancePage() {
 
   const generationRows: ClinicalAiGeneration[] = generations.data?.generations ?? [];
   const flagRows: ClinicalAiSafetyFlag[] = flags.data?.flags ?? [];
+  const safetyReviewSummary: ClinicalAiSafetyReviewSummary | undefined = safetyReviews.data;
   const auditRows: ClinicalAiAuditLog[] = auditLogs.data?.logs ?? [];
   const modules = status.data?.modules ?? [];
   const usage = status.data?.usage;
@@ -649,6 +668,7 @@ export default function ClinicalAiGovernancePage() {
             status.refetch();
             generations.refetch();
             flags.refetch();
+            safetyReviews.refetch();
             auditLogs.refetch();
           }}
           className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium transition-colors hover:bg-accent"
@@ -1062,6 +1082,143 @@ export default function ClinicalAiGovernancePage() {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Safety Review Scorecard</h2>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <div className="rounded-lg border border-border bg-card p-4">
+            <div className="text-sm text-muted-foreground">Reviews</div>
+            <div className="mt-1 text-xl font-semibold">{fmtNumber(safetyReviewSummary?.overall.review_count)}</div>
+            <div className="mt-1 text-xs text-muted-foreground">{fmt(safetyReviewSummary?.overall.last_review_at)}</div>
+          </div>
+          <div className="rounded-lg border border-border bg-card p-4">
+            <div className="text-sm text-muted-foreground">Passed</div>
+            <div className="mt-1 text-xl font-semibold">{fmtNumber(safetyReviewSummary?.overall.passed_count)}</div>
+            <div className="mt-1 text-xs text-muted-foreground">{safetyReviewSummary?.reason ? readableKey(safetyReviewSummary.reason) : "Current window"}</div>
+          </div>
+          <div className="rounded-lg border border-border bg-card p-4">
+            <div className="text-sm text-muted-foreground">Needs Review</div>
+            <div className="mt-1 text-xl font-semibold">{fmtNumber(safetyReviewSummary?.overall.needs_review_count)}</div>
+            <div className="mt-1 text-xs text-muted-foreground">{fmtNumber(safetyReviewSummary?.overall.low_citation_count)} citation gaps</div>
+          </div>
+          <div className="rounded-lg border border-border bg-card p-4">
+            <div className="text-sm text-muted-foreground">Blocked</div>
+            <div className="mt-1 text-xl font-semibold">{fmtNumber(safetyReviewSummary?.overall.blocked_count)}</div>
+            <div className="mt-1 text-xs text-muted-foreground">{fmtNumber(safetyReviewSummary?.overall.high_or_critical_finding_count)} high risk</div>
+          </div>
+          <div className="rounded-lg border border-border bg-card p-4">
+            <div className="text-sm text-muted-foreground">Citation Coverage</div>
+            <div className="mt-1 text-xl font-semibold">{fmtPercent(safetyReviewSummary?.overall.avg_citation_coverage_pct)}</div>
+            <div className="mt-1 text-xs text-muted-foreground">{fmtNumber(safetyReviewSummary?.overall.finding_count)} findings</div>
+          </div>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-2">
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold">Module Review Health</h3>
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Module</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Reviews</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Citations</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Updated</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {(safetyReviewSummary?.by_module ?? []).length === 0 ? (
+                    <tr>
+                      <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
+                        No safety reviews found
+                      </td>
+                    </tr>
+                  ) : (
+                    safetyReviewSummary?.by_module.map((module) => (
+                      <tr key={module.module_key}>
+                        <td className="px-4 py-3">
+                          <div className="font-medium">{readableKey(module.module_key)}</div>
+                          <div className="text-xs text-muted-foreground">{module.module_key}</div>
+                        </td>
+                        <td className="px-4 py-3">{fmtNumber(module.review_count)}</td>
+                        <td className="px-4 py-3">
+                          <div>{fmtNumber(module.passed_count)} passed</div>
+                          <div className="text-xs text-muted-foreground">
+                            {fmtNumber(module.needs_review_count)} review / {fmtNumber(module.blocked_count)} blocked
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div>{fmtPercent(module.avg_citation_coverage_pct)}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {fmtNumber(module.high_or_critical_finding_count)} high risk
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(module.last_review_at)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold">Recent Review Findings</h3>
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Severity</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Module</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Finding</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Created</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {(safetyReviewSummary?.recent_findings ?? []).length === 0 ? (
+                    <tr>
+                      <td className="px-4 py-8 text-center text-muted-foreground" colSpan={4}>
+                        No review findings found
+                      </td>
+                    </tr>
+                  ) : (
+                    safetyReviewSummary?.recent_findings.map((finding) => (
+                      <tr key={`${finding.review_id}-${finding.code}-${finding.created_at}`}>
+                        <td className="px-4 py-3">
+                          <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${severityClass(finding.severity ?? finding.status)}`}>
+                            {finding.severity || readableKey(finding.status)}
+                          </span>
+                          <div className="mt-1">
+                            <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${safetyReviewStatusClass(finding.status)}`}>
+                              {readableKey(finding.status)}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div>{readableKey(finding.module_key)}</div>
+                          <div className="text-xs text-muted-foreground">generation {finding.generation_id ?? "-"}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="font-mono text-xs">{finding.code || "-"}</div>
+                          <div className="text-muted-foreground">{finding.message || "-"}</div>
+                          <div className="text-xs text-muted-foreground">
+                            citations {fmtPercent(finding.citation_coverage_pct)}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(finding.created_at)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </section>
