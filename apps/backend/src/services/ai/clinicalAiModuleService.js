@@ -292,6 +292,23 @@ export const CLINICAL_AI_MODULES = [
       readOnlyDefault: true,
     },
   },
+  {
+    module_key: 'soap_from_dictation',
+    display_name: 'SOAP from Dictation',
+    description: 'Bedside dictation transcribed to a structured SOAP draft. Draft enters the review queue; clinician must confirm before it becomes part of the chart.',
+    enabled: false,
+    settings: {
+      surface: 'clinical',
+      risk: 'high',
+      status: 'available',
+      requiresClinicianSignoff: true,
+      requiresCitations: true,
+      reviewRoles: ['DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'],
+      approvalPolicy: 'clinician_signoff',
+      outputSchema: { type: 'object', required: ['subjective', 'objective', 'assessment', 'plan'] },
+      retentionDays: 365,
+    },
+  },
 ];
 
 export const DEFAULT_CLINICAL_AI_GUARDRAILS = {

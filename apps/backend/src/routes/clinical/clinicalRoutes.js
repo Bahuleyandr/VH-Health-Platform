@@ -1,15 +1,38 @@
 // src/routes/clinical/clinicalRoutes.js
 import express from 'express';
+import multer from 'multer';
 import { validationResult } from 'express-validator';
 import handoverService from '../../services/clinical/handoverService.js';
 import marService from '../../services/clinical/marService.js';
 import marFiveRightsService from '../../services/clinical/marFiveRightsService.js';
 import news2Service from '../../services/clinical/news2Service.js';
+import voiceSoapService from '../../services/ai/voiceSoapService.js';
+import { describeSttConfig } from '../../services/ai/sttService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import {
   requiredUUID, requiredString, requiredNumber, optionalString, optionalNumber,
   optionalEnum, paramId,
 } from '../../validators/sharedValidators.js';
+
+// Dedicated audio uploader — memory-backed, 20MB cap, audio-mime allowlist.
+// Kept separate from the hospital-wide file uploader so voice-note-specific
+// limits don't leak into the patient/radiology/pharmacy upload paths.
+const AUDIO_MIMES = new Set([
+  'audio/wav', 'audio/wave', 'audio/x-wav',
+  'audio/mpeg', 'audio/mp4', 'audio/m4a', 'audio/x-m4a',
+  'audio/ogg', 'audio/webm', 'audio/aac',
+]);
+const audioUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const type = String(file.mimetype || '').toLowerCase();
+    if (!AUDIO_MIMES.has(type)) {
+      return cb(new Error(`Unsupported audio type: ${type}`));
+    }
+    cb(null, true);
+  },
+});
 
 const router = express.Router();
 
@@ -337,6 +360,75 @@ router.get('/handover/patient/:patientUid', async (req, res, next) => {
     return success(res, records, 'Patient handover history retrieved');
   } catch (err) {
     next(err);
+  }
+});
+
+// ===================================================================
+// Voice-to-SOAP routes (M3)
+// ===================================================================
+
+/**
+ * GET /clinical/voice-note/config
+ * Returns the configured STT provider so clients can show the right UI
+ * (e.g. disable recording if no provider is reachable).
+ */
+router.get('/voice-note/config', (_req, res) => {
+  return success(res, describeSttConfig(), 'STT configuration retrieved');
+});
+
+/**
+ * POST /clinical/voice-note/transcribe (multipart)
+ * Field: audio (file). Optional query/body: patient_uid, admission_id, language.
+ */
+router.post('/voice-note/transcribe', audioUpload.single('audio'), async (req, res, next) => {
+  try {
+    if (!req.file) return error(res, 'audio file required', 400);
+
+    const saved = await voiceSoapService.createAndTranscribeVoiceNote({
+      req,
+      audioBuffer: req.file.buffer,
+      mimeType: req.file.mimetype,
+      patientUid: req.body?.patient_uid || req.query?.patient_uid || null,
+      admissionId: req.body?.admission_id ? Number.parseInt(req.body.admission_id, 10) : null,
+      durationSeconds: req.body?.duration_seconds ? Number(req.body.duration_seconds) : null,
+      language: req.body?.language || null,
+    });
+    return success(res, saved, 'Voice note stored', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * POST /clinical/voice-note/:id/generate-soap
+ * Convert a completed transcript into a SOAP draft. Enters the review queue.
+ */
+router.post('/voice-note/:id/generate-soap', async (req, res, next) => {
+  try {
+    const draft = await voiceSoapService.generateSoapDraftFromVoiceNote({
+      req,
+      voiceNoteId: req.params.id,
+    });
+    return success(res, draft, 'SOAP draft generated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * GET /clinical/voice-note/my
+ * List this clinician's recent voice notes (tenant-scoped).
+ */
+router.get('/voice-note/my', async (req, res, next) => {
+  try {
+    const result = await voiceSoapService.listVoiceNotes({
+      tenantId: req.tenantId,
+      recordedBy: req.user?.uid || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Voice notes retrieved');
+  } catch (err) {
+    return next(err);
   }
 });
 

@@ -42,6 +42,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_break_glass_sessions WHERE reason LIKE '%[test]%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_context_snapshots WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM insurance_claims WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_voice_notes WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_generations WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM downtime_snapshots WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM patient_data_rights_requests WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -144,6 +145,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_break_glass_sessions WHERE reason LIKE '%[test]%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_context_snapshots WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM insurance_claims WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_voice_notes WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_generations WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM downtime_snapshots WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM patient_data_rights_requests WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -347,6 +349,63 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expectStatus(denial, 200, 'denial risk draft');
     expectDraftShape(denial.body.data, 'denial_risk_assist');
     expect(denial.body.data.safety_flags.some((flag) => flag.code === 'DENIAL_RISK_GAP')).toBe(true);
+  });
+
+  it('transcribes voice notes with mock STT and generates a SOAP draft into the review queue', async () => {
+    const previousProvider = process.env.CLINICAL_AI_STT_PROVIDER;
+    process.env.CLINICAL_AI_STT_PROVIDER = 'mock';
+
+    try {
+      // Enable the SOAP-from-dictation module as admin.
+      const toggled = await admin.patch('/api/v1/admin/clinical-ai/modules/soap_from_dictation').send({
+        enabled: true,
+      });
+      expectStatus(toggled, 200, 'enable soap_from_dictation');
+
+      // Upload a tiny synthetic WAV buffer. Mock STT returns a canned transcript.
+      const fakeWav = Buffer.from('RIFFmockWAVEfmt fakeaudio', 'ascii');
+      const uploaded = await request(app)
+        .post('/api/v1/clinical/voice-note/transcribe')
+        .set('x-api-key', API_KEY)
+        .set('Authorization', `Bearer ${generateTestToken('DOCTOR', { uid: DOCTOR_UID, id: 7002 })}`)
+        .field('patient_uid', PATIENT_UID)
+        .field('admission_id', String(admissionId))
+        .field('language', 'en-IN')
+        .attach('audio', fakeWav, { filename: 'dictation.wav', contentType: 'audio/wav' });
+
+      expectStatus(uploaded, 201, 'upload voice note');
+      const voiceNoteId = uploaded.body.data.id;
+      expect(uploaded.body.data.transcript_status).toBe('completed');
+      expect(uploaded.body.data.stt_provider).toBe('mock');
+      expect(String(uploaded.body.data.transcript || '')).toMatch(/mock transcript/i);
+
+      // Generate SOAP draft from transcript.
+      const generated = await doctor.post(`/api/v1/clinical/voice-note/${voiceNoteId}/generate-soap`).send({});
+      expectStatus(generated, 200, 'generate SOAP from voice note');
+      const draft = generated.body.data;
+      expect(draft.module_key).toBe('soap_from_dictation');
+      expect(draft.voice_note_id).toBe(voiceNoteId);
+      expect(draft.draft).toHaveProperty('subjective');
+      expect(draft.draft).toHaveProperty('plan');
+      expect(draft.review_status).toMatch(/pending|failed/);
+      expect(draft.source_citations.some((c) => c.source_type === 'clinical_voice_note')).toBe(true);
+
+      // A pending review must exist in the queue for this generation.
+      const reviews = await admin.get('/api/v1/admin/clinical-ai/reviews?module_key=soap_from_dictation');
+      expectStatus(reviews, 200, 'list SOAP reviews');
+      const found = reviews.body.data.reviews.find((row) => row.generation_id === draft.generation_id);
+      expect(found).toBeTruthy();
+
+      // Generating again must fail — idempotent per voice-note.
+      const regenerated = await doctor.post(`/api/v1/clinical/voice-note/${voiceNoteId}/generate-soap`).send({});
+      expectStatus(regenerated, 409, 'regenerate rejected');
+
+      // Clean up so we don't leak rows across tests.
+      await prisma.$executeRawUnsafe(`DELETE FROM clinical_voice_notes WHERE id = $1`, voiceNoteId).catch(() => {});
+    } finally {
+      if (previousProvider === undefined) delete process.env.CLINICAL_AI_STT_PROVIDER;
+      else process.env.CLINICAL_AI_STT_PROVIDER = previousProvider;
+    }
   });
 
   it('isolates clinical AI review queue between tenants', async () => {
