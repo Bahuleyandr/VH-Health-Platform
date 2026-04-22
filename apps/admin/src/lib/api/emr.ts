@@ -242,6 +242,52 @@ export interface ClinicalAiAuditLog {
   created_at: string;
 }
 
+export type AdmissionAiDraftModuleKey =
+  | 'patient_record_summary'
+  | 'patient_aftercare_instructions'
+  | 'medication_reconciliation'
+  | 'discharge_readiness'
+  | 'referral_letter'
+  | 'clinical_coding_assist'
+  | 'quality_case_review';
+
+export interface ClinicalAiSourceCitation {
+  source_type: string;
+  source_id?: string | number | null;
+  label: string;
+  timestamp?: string | null;
+  [key: string]: unknown;
+}
+
+export interface ClinicalAiSafetyFlagSummary {
+  severity: string;
+  code: string;
+  message: string;
+  [key: string]: unknown;
+}
+
+export interface ClinicalAiDraftResponse<Draft = Record<string, unknown>> {
+  draft: Draft;
+  module_key: string;
+  prompt_version: string;
+  source_citations: ClinicalAiSourceCitation[];
+  safety_flags: ClinicalAiSafetyFlagSummary[];
+  ai_metadata?: {
+    provider?: string | null;
+    model?: string | null;
+    used_ai?: boolean;
+    fallback_reason?: string | null;
+    usage?: Record<string, unknown>;
+    safety_review?: unknown;
+    [key: string]: unknown;
+  };
+  review_status: string;
+  review_id: number | null;
+  generation_id: number | null;
+  draft_generation_id?: number | null;
+  requires_signoff: boolean;
+}
+
 // API functions
 export async function getActiveAdmissions(params?: { page?: number; limit?: number; ward?: string; status?: string }) {
   const query = new URLSearchParams();
@@ -296,6 +342,22 @@ export async function getClinicalAiSafetyFlags() {
 }
 export async function getClinicalAiAuditLogs(limit = 50) {
   return getJSON<{ logs: ClinicalAiAuditLog[]; count: number }>('/admin/clinical-ai/audit', { limit });
+}
+
+export async function generateAdmissionAiDraft(admissionId: number, moduleKey: AdmissionAiDraftModuleKey) {
+  const pathByModule: Record<AdmissionAiDraftModuleKey, string> = {
+    patient_record_summary: `/emr/${admissionId}/ai/patient-record-summary`,
+    patient_aftercare_instructions: `/emr/${admissionId}/aftercare-instructions`,
+    medication_reconciliation: `/emr/${admissionId}/medication-reconciliation`,
+    discharge_readiness: `/emr/${admissionId}/discharge-readiness`,
+    referral_letter: `/emr/${admissionId}/referral-letter`,
+    clinical_coding_assist: `/emr/${admissionId}/clinical-coding-assist`,
+    quality_case_review: `/emr/${admissionId}/quality-case-review`,
+  };
+  const endpoint = pathByModule[moduleKey];
+  return moduleKey === 'discharge_readiness'
+    ? getJSON<ClinicalAiDraftResponse>(endpoint)
+    : postJSON<ClinicalAiDraftResponse>(endpoint, {});
 }
 
 // Discharge Summary

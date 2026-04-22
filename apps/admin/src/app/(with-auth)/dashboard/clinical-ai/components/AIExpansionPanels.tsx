@@ -38,6 +38,7 @@ import {
   discardRosterRun,
   decideRcaDraft,
   decideTrialMatch,
+  generateAdmissionAiDraft,
   generateAbnormalResultTriage,
   generateChartCompletionAudit,
   generateInfectionControlAudit,
@@ -77,12 +78,14 @@ import {
   triggerTrialCatalogSync,
   type AbnormalResultTriageDraft,
   type AbnormalTriageBand,
+  type AdmissionAiDraftModuleKey,
   type AmbientEncounter,
   type BedDischargeForecast,
   type CanaryRunSummary,
   type ChartCompletionAudit,
   type ChartGapRiskBand,
   type ChargeCaptureAudit,
+  type ClinicalAiDraftResponse,
   type DeteriorationBand,
   type DeteriorationSnapshot,
   type DocumentIntake,
@@ -208,6 +211,30 @@ function triageBandClass(band: string) {
   if (band === "watch") return "bg-amber-100 text-amber-800 border-amber-200";
   if (band === "routine") return "bg-emerald-100 text-emerald-800 border-emerald-200";
   return "bg-slate-100 text-slate-700 border-slate-200";
+}
+
+const ADMISSION_DRAFT_MODULES: Array<{
+  key: AdmissionAiDraftModuleKey;
+  label: string;
+  owner: string;
+}> = [
+  { key: "patient_record_summary", label: "Patient Summary", owner: "Doctor" },
+  { key: "patient_aftercare_instructions", label: "Aftercare", owner: "Doctor" },
+  { key: "medication_reconciliation", label: "Med Reconciliation", owner: "Pharmacist" },
+  { key: "discharge_readiness", label: "Readiness", owner: "Care team" },
+  { key: "referral_letter", label: "Referral Letter", owner: "Doctor" },
+  { key: "clinical_coding_assist", label: "Coding Assist", owner: "Coder" },
+  { key: "quality_case_review", label: "Quality Review", owner: "Quality" },
+];
+
+function formatDraftValue(value: unknown) {
+  if (typeof value === "string") return value;
+  if (value == null) return "-";
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -498,6 +525,166 @@ export function DocumentIntelligencePanel() {
           </tbody>
         </table>
       </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Admission AI Drafts
+// ---------------------------------------------------------------------------
+export function AdmissionAiDraftWorkbenchPanel() {
+  const queryClient = useQueryClient();
+  const [admissionId, setAdmissionId] = useState("");
+  const [runningModule, setRunningModule] = useState<AdmissionAiDraftModuleKey | null>(null);
+  const [result, setResult] = useState<ClinicalAiDraftResponse | null>(null);
+
+  const parsedAdmissionId = Number.parseInt(admissionId.trim(), 10);
+  const canGenerate = Number.isFinite(parsedAdmissionId);
+  const resultModule = ADMISSION_DRAFT_MODULES.find((module) => module.key === result?.module_key);
+  const citations = result?.source_citations ?? [];
+  const safetyFlags = result?.safety_flags ?? [];
+
+  const generate = useMutation({
+    mutationFn: (moduleKey: AdmissionAiDraftModuleKey) => generateAdmissionAiDraft(parsedAdmissionId, moduleKey),
+    onSuccess: (draft) => {
+      setResult(draft);
+      toast.success("Admission draft queued for review");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "reviews"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "usage"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "audit"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Admission draft failed"),
+    onSettled: () => setRunningModule(null),
+  });
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <FileSearch className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-lg font-semibold">Admission AI Drafts</h2>
+      </div>
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="grid gap-3 lg:grid-cols-[16rem_1fr] lg:items-end">
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Admission ID</span>
+            <input
+              value={admissionId}
+              onChange={(event) => setAdmissionId(event.target.value)}
+              inputMode="numeric"
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {ADMISSION_DRAFT_MODULES.map((module) => {
+              const isRunning = generate.isPending && runningModule === module.key;
+              return (
+                <button
+                  key={module.key}
+                  onClick={() => {
+                    setRunningModule(module.key);
+                    generate.mutate(module.key);
+                  }}
+                  disabled={generate.isPending || !canGenerate}
+                  className="inline-flex min-h-12 items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2 text-left text-sm font-medium hover:bg-accent disabled:opacity-50"
+                >
+                  <span>
+                    <span className="block">{isRunning ? "Generating..." : module.label}</span>
+                    <span className="block text-xs font-normal text-muted-foreground">{module.owner}</span>
+                  </span>
+                  <PlayCircle className="h-4 w-4 shrink-0" />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {result ? (
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.6fr)]">
+          <div className="rounded-lg border border-border bg-card p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-sm text-muted-foreground">{resultModule?.owner ?? "Clinical review"}</div>
+                <div className="text-lg font-semibold">{resultModule?.label ?? result.module_key}</div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${documentStatusClass(result.review_status)}`}>
+                  {result.review_status}
+                </span>
+                {result.requires_signoff ? (
+                  <span className="rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                    signoff
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <pre className="max-h-[30rem] overflow-auto rounded-md border border-border bg-background p-3 text-xs leading-relaxed text-foreground">
+              {formatDraftValue(result.draft)}
+            </pre>
+          </div>
+          <div className="space-y-4">
+            <div className="rounded-lg border border-border bg-card p-4">
+              <div className="text-sm font-medium">Generation</div>
+              <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <dt className="text-xs text-muted-foreground">ID</dt>
+                  <dd className="font-mono">{result.generation_id ?? "-"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Review</dt>
+                  <dd className="font-mono">{result.review_id ?? "-"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Prompt</dt>
+                  <dd>{result.prompt_version}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Provider</dt>
+                  <dd>{result.ai_metadata?.provider ?? "template"}</dd>
+                </div>
+                <div className="col-span-2">
+                  <dt className="text-xs text-muted-foreground">Fallback</dt>
+                  <dd>{result.ai_metadata?.fallback_reason ?? "-"}</dd>
+                </div>
+              </dl>
+            </div>
+            <div className="rounded-lg border border-border bg-card p-4">
+              <div className="mb-2 text-sm font-medium">Safety Flags</div>
+              <div className="flex flex-wrap gap-1">
+                {safetyFlags.length ? (
+                  safetyFlags.slice(0, 8).map((flag, index) => (
+                    <span
+                      key={`${flag.code}-${index}`}
+                      className={`rounded-full border px-2 py-0.5 text-xs font-medium ${severityBadgeClass(flag.severity)}`}
+                    >
+                      {flag.code}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-sm text-muted-foreground">none</span>
+                )}
+              </div>
+            </div>
+            <div className="rounded-lg border border-border bg-card p-4">
+              <div className="mb-2 text-sm font-medium">Citations</div>
+              <div className="space-y-2">
+                {citations.length ? (
+                  citations.slice(0, 6).map((citation, index) => (
+                    <div key={`${citation.source_type}-${citation.source_id ?? index}`} className="rounded-md border border-border bg-background p-2">
+                      <div className="text-sm font-medium">{citation.label}</div>
+                      <div className="font-mono text-xs text-muted-foreground">
+                        {citation.source_type} / {citation.source_id ?? "-"}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-sm text-muted-foreground">No citations returned</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
