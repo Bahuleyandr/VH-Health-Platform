@@ -13,9 +13,11 @@ expects:
 
 Run (offline, on a machine with Python 3.10+ and a copy of production data):
 
+    node scripts/ml/export_adherence_training_csv.mjs \\
+        --out data/labelled_adherence.csv
     pip install -r scripts/ml/requirements.txt
     python scripts/ml/train_adherence_model.py \\
-        --csv path/to/labelled_adherence.csv \\
+        --csv data/labelled_adherence.csv \\
         --out models/adherence-risk.onnx
 
 CSV schema:
@@ -24,9 +26,9 @@ CSV schema:
     8,2,3,45,1
     ...
 
-NOTE: this script is committed but not run in CI. Producing labelled data is
-its own data-engineering effort — see ROADMAP item 3D for the data pipeline
-work required to generate the CSV in the first place.
+NOTE: this script is committed but not run in CI. Use the Node exporter above
+against a production-data copy; review cohort balance and labels before
+promoting a model into `models/adherence-risk.onnx`.
 """
 
 from __future__ import annotations
