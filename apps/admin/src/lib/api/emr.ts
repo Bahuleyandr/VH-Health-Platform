@@ -1351,6 +1351,90 @@ export async function decidePrivacySentinelAudit(
 }
 
 // ---------------------------------------------------------------------------
+// Abnormal result triage worklist
+// ---------------------------------------------------------------------------
+export type AbnormalTriageBand = 'routine' | 'watch' | 'urgent' | 'critical';
+
+export interface AbnormalTriageItem {
+  source?: string;
+  abnormalities?: string[];
+  note?: string;
+}
+
+export interface AbnormalResultTriageDraft {
+  id: number;
+  tenant_id?: string;
+  patient_uid: string | null;
+  patient_name?: string | null;
+  admission_id: number | null;
+  module_key: string;
+  provider: string;
+  model?: string | null;
+  status: string;
+  used_ai: boolean;
+  prompt_version: string;
+  safety_flags: Array<{ severity: string; code: string; message: string }>;
+  citations: Array<{ source_type: string; source_id: string | null; label: string; timestamp?: string | null }>;
+  draft: {
+    urgent_items?: AbnormalTriageItem[];
+    watch_items?: AbnormalTriageItem[];
+    explanation?: string;
+    [key: string]: unknown;
+  };
+  total_tokens?: number | null;
+  estimated_cost_minor?: number | null;
+  review_id?: number | null;
+  review_status?: string | null;
+  reviewer_uid?: string | null;
+  review_updated_at?: string | null;
+  summary: {
+    urgency_band: AbnormalTriageBand;
+    urgency_score: number;
+    urgent_count: number;
+    watch_count: number;
+    top_urgent: AbnormalTriageItem[];
+    top_watch: AbnormalTriageItem[];
+    explanation: string;
+  };
+  created_at: string;
+}
+
+export async function listAbnormalResultTriages(params: {
+  admissionId?: number | string;
+  patientUid?: string;
+  urgencyBand?: string;
+  limit?: number;
+} = {}) {
+  const query: Record<string, string> = {};
+  if (params.admissionId) query.admission_id = String(params.admissionId);
+  if (params.patientUid) query.patient_uid = params.patientUid;
+  if (params.urgencyBand) query.urgency_band = params.urgencyBand;
+  if (params.limit) query.limit = String(params.limit);
+  return getJSON<{ drafts: AbnormalResultTriageDraft[]; count: number }>(
+    '/admin/clinical-ai/abnormal-results/triage',
+    query
+  );
+}
+
+export async function generateAbnormalResultTriage(admissionId: number) {
+  return postJSON<{
+    draft: {
+      urgent_items?: AbnormalTriageItem[];
+      watch_items?: AbnormalTriageItem[];
+      explanation?: string;
+    };
+    module_key: string;
+    prompt_version: string;
+    source_citations: Array<{ source_type: string; source_id: string | null; label: string; timestamp?: string | null }>;
+    safety_flags: Array<{ severity: string; code: string; message: string }>;
+    review_status: string;
+    review_id: number | null;
+    generation_id: number | null;
+    requires_signoff: boolean;
+  }>('/admin/clinical-ai/abnormal-results/triage', { admission_id: admissionId });
+}
+
+// ---------------------------------------------------------------------------
 // Ambient clinical documentation
 // ---------------------------------------------------------------------------
 export interface AmbientEncounter {

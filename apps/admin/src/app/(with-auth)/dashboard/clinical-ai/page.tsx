@@ -33,6 +33,7 @@ import {
 } from "./components/GovernancePanels";
 import {
   AIExpansionHeader,
+  AbnormalResultTriagePanel,
   AmbientDocumentationPanel,
   ChartCompletionPanel,
   ChargeCapturePanel,
@@ -635,6 +636,8 @@ export default function ClinicalAiGovernancePage() {
       <DocumentIntelligencePanel />
 
       <ChartCompletionPanel />
+
+      <AbnormalResultTriagePanel />
 
       <PrivacySentinelPanel />
 

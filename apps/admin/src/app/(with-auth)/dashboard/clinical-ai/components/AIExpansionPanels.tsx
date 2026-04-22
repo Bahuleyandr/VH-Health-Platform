@@ -36,9 +36,11 @@ import {
   discardRosterRun,
   decideRcaDraft,
   decideTrialMatch,
+  generateAbnormalResultTriage,
   generateChartCompletionAudit,
   generateRosterSuggestion,
   ingestDocumentIntake,
+  listAbnormalResultTriages,
   listAmbientEncounters,
   listCanaryRuns,
   listChartCompletionAudits,
@@ -63,6 +65,8 @@ import {
   runPrivacySentinelScan,
   submitPriorAuthorization,
   triggerTrialCatalogSync,
+  type AbnormalResultTriageDraft,
+  type AbnormalTriageBand,
   type AmbientEncounter,
   type CanaryRunSummary,
   type ChartCompletionAudit,
@@ -167,12 +171,21 @@ function documentFactCount(row: DocumentIntake) {
 
 const CHART_RISK_BANDS: ChartGapRiskBand[] = ["critical", "high", "medium", "low"];
 const PRIVACY_RISK_BANDS: PrivacySentinelRiskBand[] = ["critical", "high", "medium", "low"];
+const ABNORMAL_TRIAGE_BANDS: AbnormalTriageBand[] = ["critical", "urgent", "watch", "routine"];
 
 function chartRiskClass(risk: string) {
   if (risk === "critical") return "bg-red-100 text-red-800 border-red-200";
   if (risk === "high") return "bg-orange-100 text-orange-800 border-orange-200";
   if (risk === "medium") return "bg-amber-100 text-amber-800 border-amber-200";
   if (risk === "low") return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  return "bg-slate-100 text-slate-700 border-slate-200";
+}
+
+function triageBandClass(band: string) {
+  if (band === "critical") return "bg-red-100 text-red-800 border-red-200";
+  if (band === "urgent") return "bg-orange-100 text-orange-800 border-orange-200";
+  if (band === "watch") return "bg-amber-100 text-amber-800 border-amber-200";
+  if (band === "routine") return "bg-emerald-100 text-emerald-800 border-emerald-200";
   return "bg-slate-100 text-slate-700 border-slate-200";
 }
 
@@ -685,6 +698,176 @@ export function ChartCompletionPanel() {
                     ) : (
                       <span className="text-xs text-muted-foreground">{fmt(row.reviewed_at)}</span>
                     )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Abnormal Result Triage Worklist
+// ---------------------------------------------------------------------------
+export function AbnormalResultTriagePanel() {
+  const queryClient = useQueryClient();
+  const [admissionId, setAdmissionId] = useState("");
+  const [admissionFilter, setAdmissionFilter] = useState("");
+  const [bandFilter, setBandFilter] = useState<AbnormalTriageBand | "">("");
+
+  const triages = useQuery({
+    queryKey: ["clinical-ai", "abnormal-result-triage", admissionFilter, bandFilter],
+    queryFn: () =>
+      listAbnormalResultTriages({
+        admissionId: admissionFilter.trim() || undefined,
+        urgencyBand: bandFilter || undefined,
+        limit: 50,
+      }),
+  });
+  const generate = useMutation({
+    mutationFn: () => generateAbnormalResultTriage(Number.parseInt(admissionId.trim(), 10)),
+    onSuccess: (result) => {
+      toast.success(`Abnormal triage generated: ${(result.draft?.urgent_items || []).length} urgent item(s)`);
+      setAdmissionId("");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "abnormal-result-triage"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "reviews"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "usage"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Abnormal result triage failed"),
+  });
+
+  const rows: AbnormalResultTriageDraft[] = triages.data?.drafts ?? [];
+  const urgentCount = rows.filter((row) => row.summary.urgency_band === "critical" || row.summary.urgency_band === "urgent").length;
+  const watchCount = rows.filter((row) => row.summary.urgency_band === "watch").length;
+  const pendingReviewCount = rows.filter((row) => (row.review_status || "pending") === "pending").length;
+  const canGenerate = Number.isFinite(Number.parseInt(admissionId.trim(), 10));
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <Stethoscope className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Abnormal Result Triage</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={admissionFilter}
+            onChange={(event) => setAdmissionFilter(event.target.value)}
+            placeholder="admission"
+            inputMode="numeric"
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          />
+          <select
+            value={bandFilter}
+            onChange={(event) => setBandFilter(event.target.value as AbnormalTriageBand | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All urgency</option>
+            {ABNORMAL_TRIAGE_BANDS.map((band) => (
+              <option key={band} value={band}>{band}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Critical / urgent</div>
+          <div className="mt-1 text-2xl font-semibold text-orange-700">{urgentCount}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Watch</div>
+          <div className="mt-1 text-2xl font-semibold">{watchCount}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Pending review</div>
+          <div className="mt-1 text-2xl font-semibold">{pendingReviewCount}</div>
+        </div>
+      </div>
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Admission ID</span>
+            <input
+              value={admissionId}
+              onChange={(event) => setAdmissionId(event.target.value)}
+              inputMode="numeric"
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <button
+            onClick={() => generate.mutate()}
+            disabled={generate.isPending || !canGenerate}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+          >
+            <PlayCircle className="h-4 w-4" />
+            {generate.isPending ? "Triaging..." : "Run Triage"}
+          </button>
+        </div>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Admission</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Urgency</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Top Signals</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Evidence</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Review</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
+                  No abnormal result triage drafts found
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">admission #{row.admission_id || "-"}</div>
+                    <div className="font-mono text-xs text-muted-foreground">{row.patient_uid || "-"}</div>
+                    {row.patient_name ? <div className="text-xs text-muted-foreground">{row.patient_name}</div> : null}
+                    <div className="font-mono text-xs text-muted-foreground">gen #{row.id}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-lg font-semibold">{row.summary.urgency_score}</div>
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${triageBandClass(row.summary.urgency_band)}`}>
+                      {row.summary.urgency_band}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="max-w-xl space-y-1 text-xs">
+                      {row.summary.top_urgent.map((item, idx) => (
+                        <div key={`u-${idx}`} className="text-orange-800">
+                          {item.source || "urgent"}: {(item.abnormalities || []).join(", ") || item.note || "-"}
+                        </div>
+                      ))}
+                      {row.summary.top_watch.map((item, idx) => (
+                        <div key={`w-${idx}`} className="text-muted-foreground">
+                          {item.source || "watch"}: {item.note || (item.abnormalities || []).join(", ") || "-"}
+                        </div>
+                      ))}
+                      {!row.summary.top_urgent.length && !row.summary.top_watch.length ? (
+                        <span className="text-muted-foreground">No abnormal signals in draft</span>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-xs text-muted-foreground">
+                      {(row.citations || []).length} citations / {(row.safety_flags || []).length} safety flags
+                    </div>
+                    <div className="text-xs text-muted-foreground">{row.provider} / {row.used_ai ? "AI" : "rule"}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${documentStatusClass(row.review_status || "pending")}`}>
+                      {row.review_status || "pending"}
+                    </span>
+                    <div className="mt-1 text-xs text-muted-foreground">{fmt(row.created_at)}</div>
                   </td>
                 </tr>
               ))

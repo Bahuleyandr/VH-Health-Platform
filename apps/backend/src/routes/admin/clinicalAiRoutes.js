@@ -18,6 +18,7 @@ import {
   createPrompt,
   decideApproval,
   endBreakGlass,
+  generateAdmissionAiDraft,
   getActiveBreakGlass,
   listApprovals,
   listPrompts,
@@ -25,6 +26,7 @@ import {
   startBreakGlass,
   updateReview,
 } from '../../services/ai/clinicalAiWorkflowService.js';
+import { listAbnormalResultTriageDrafts } from '../../services/ai/abnormalResultTriageAdminService.js';
 import { getHealthReport } from '../../middleware/selfHealingMiddleware.js';
 import {
   listSelfHealingRuns,
@@ -939,6 +941,51 @@ router.patch('/chart-completion/audits/:id', async (req, res, next) => {
       result
     );
     return success(res, result, 'Chart completion audit reviewed');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Abnormal result triage worklist
+// ---------------------------------------------------------------------------
+router.post('/abnormal-results/triage', async (req, res, next) => {
+  try {
+    const result = await generateAdmissionAiDraft(
+      req.body?.admission_id,
+      'abnormal_result_triage',
+      req.user?.uid || null,
+      req
+    );
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_ABNORMAL_RESULT_TRIAGE_GENERATED',
+      String(result.generation_id || req.body?.admission_id || 'inline'),
+      null,
+      {
+        admission_id: req.body?.admission_id || null,
+        generation_id: result.generation_id || null,
+        urgent_count: result.draft?.urgent_items?.length || 0,
+        watch_count: result.draft?.watch_items?.length || 0,
+        safety_flag_count: result.safety_flags?.length || 0,
+      }
+    );
+    return success(res, result, 'Abnormal result triage draft generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/abnormal-results/triage', async (req, res, next) => {
+  try {
+    const result = await listAbnormalResultTriageDrafts({
+      tenantId: req.tenantId,
+      admissionId: req.query?.admission_id || null,
+      patientUid: req.query?.patient_uid || null,
+      urgencyBand: req.query?.urgency_band || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Abnormal result triage drafts retrieved');
   } catch (err) {
     return next(err);
   }
