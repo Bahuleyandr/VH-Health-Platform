@@ -11,6 +11,7 @@ import {
   Clock3,
   CloudDownload,
   DollarSign,
+  FileSearch,
   FlaskConical,
   Heart,
   Image,
@@ -27,16 +28,19 @@ import {
   acknowledgeVirtualWardEscalation,
   concludePromptExperiment,
   decideChargeCaptureAudit,
+  decideDocumentIntake,
   decideImagingFinding,
   decidePolypharmacyReview,
   discardRosterRun,
   decideRcaDraft,
   decideTrialMatch,
   generateRosterSuggestion,
+  ingestDocumentIntake,
   listAmbientEncounters,
   listCanaryRuns,
   listChargeCaptureAudits,
   listDeteriorationSnapshots,
+  listDocumentIntakes,
   listImagingFindings,
   listPolypharmacyReviews,
   listPriorAuthorizations,
@@ -58,6 +62,7 @@ import {
   type ChargeCaptureAudit,
   type DeteriorationBand,
   type DeteriorationSnapshot,
+  type DocumentIntake,
   type ImagingFinding,
   type ImagingSeverity,
   type PolypharmacyReview,
@@ -120,6 +125,326 @@ function defaultDate(offsetDays: number) {
   const date = new Date();
   date.setDate(date.getDate() + offsetDays);
   return date.toISOString().slice(0, 10);
+}
+
+const DOCUMENT_SOURCE_TYPES = [
+  "external_discharge_summary",
+  "lab_report",
+  "prescription",
+  "referral_letter",
+  "insurance_form",
+  "abdm_document",
+  "other",
+];
+
+function documentStatusClass(status: string) {
+  if (status === "completed" || status === "accepted") return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  if (status === "failed" || status === "rejected") return "bg-red-100 text-red-800 border-red-200";
+  if (status === "needs_review" || status === "needs_revision") return "bg-orange-100 text-orange-800 border-orange-200";
+  return "bg-amber-100 text-amber-800 border-amber-200";
+}
+
+function documentFactCount(row: DocumentIntake) {
+  const fields = row.extracted_fields || {};
+  return [
+    fields.medications,
+    fields.investigations,
+    fields.diagnoses,
+    fields.procedures,
+    fields.follow_up,
+  ].reduce((sum, value) => sum + (Array.isArray(value) ? value.length : 0), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Document Intelligence / OCR
+// ---------------------------------------------------------------------------
+export function DocumentIntelligencePanel() {
+  const queryClient = useQueryClient();
+  const [sourceFilter, setSourceFilter] = useState("");
+  const [decisionFilter, setDecisionFilter] = useState("pending");
+  const [patientFilter, setPatientFilter] = useState("");
+  const [sourceType, setSourceType] = useState("external_discharge_summary");
+  const [patientUid, setPatientUid] = useState("");
+  const [admissionId, setAdmissionId] = useState("");
+  const [title, setTitle] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [rawText, setRawText] = useState("");
+
+  const documents = useQuery({
+    queryKey: ["clinical-ai", "documents", sourceFilter, decisionFilter, patientFilter],
+    queryFn: () =>
+      listDocumentIntakes({
+        sourceType: sourceFilter || undefined,
+        decision: decisionFilter || undefined,
+        patientUid: patientFilter.trim() || undefined,
+        limit: 50,
+      }),
+  });
+  const ingest = useMutation({
+    mutationFn: () => {
+      const parsedAdmissionId = admissionId.trim()
+        ? Number.parseInt(admissionId.trim(), 10)
+        : NaN;
+      return ingestDocumentIntake({
+        source_type: sourceType,
+        patient_uid: patientUid.trim() || null,
+        admission_id: Number.isFinite(parsedAdmissionId) ? parsedAdmissionId : null,
+        title: title.trim() || null,
+        file_name: fileName.trim() || null,
+        raw_text: rawText,
+      });
+    },
+    onSuccess: (result) => {
+      toast.success(result.intake_id ? "Document intake saved" : "Document extracted without intake table");
+      setRawText("");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "documents"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "reviews"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "usage"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Document intake failed"),
+  });
+  const decide = useMutation({
+    mutationFn: ({ id, decision }: { id: number; decision: "accepted" | "rejected" | "needs_revision" }) =>
+      decideDocumentIntake(id, decision),
+    onSuccess: () => {
+      toast.success("Document review saved");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "documents"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "audit"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Review failed"),
+  });
+
+  const rows: DocumentIntake[] = documents.data?.documents ?? [];
+  const pendingCount = rows.filter((row) => row.reviewer_decision === "pending").length;
+  const safetyFlagCount = rows.reduce((sum, row) => sum + (row.safety_flags?.length || 0), 0);
+  const extractedFactCount = rows.reduce((sum, row) => sum + documentFactCount(row), 0);
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <FileSearch className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Document Intelligence / OCR</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={patientFilter}
+            onChange={(event) => setPatientFilter(event.target.value)}
+            placeholder="patient uid"
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          />
+          <select
+            value={sourceFilter}
+            onChange={(event) => setSourceFilter(event.target.value)}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All sources</option>
+            {DOCUMENT_SOURCE_TYPES.map((source) => (
+              <option key={source} value={source}>{source}</option>
+            ))}
+          </select>
+          <select
+            value={decisionFilter}
+            onChange={(event) => setDecisionFilter(event.target.value)}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="pending">Pending</option>
+            <option value="accepted">Accepted</option>
+            <option value="needs_revision">Needs revision</option>
+            <option value="rejected">Rejected</option>
+            <option value="">All decisions</option>
+          </select>
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Pending review</div>
+          <div className="mt-1 text-2xl font-semibold">{pendingCount}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Extracted facts</div>
+          <div className="mt-1 text-2xl font-semibold">{extractedFactCount}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Safety flags</div>
+          <div className="mt-1 text-2xl font-semibold text-amber-700">{safetyFlagCount}</div>
+        </div>
+      </div>
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="grid gap-3 lg:grid-cols-6">
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Source</span>
+            <select
+              value={sourceType}
+              onChange={(event) => setSourceType(event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            >
+              {DOCUMENT_SOURCE_TYPES.map((source) => (
+                <option key={source} value={source}>{source}</option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-1 text-sm lg:col-span-2">
+            <span className="text-muted-foreground">Patient UID</span>
+            <input
+              value={patientUid}
+              onChange={(event) => setPatientUid(event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Admission</span>
+            <input
+              value={admissionId}
+              onChange={(event) => setAdmissionId(event.target.value)}
+              inputMode="numeric"
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm lg:col-span-2">
+            <span className="text-muted-foreground">Title</span>
+            <input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm lg:col-span-3">
+            <span className="text-muted-foreground">File name</span>
+            <input
+              value={fileName}
+              onChange={(event) => setFileName(event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm lg:col-span-3">
+            <span className="text-muted-foreground">OCR / extracted text</span>
+            <textarea
+              value={rawText}
+              onChange={(event) => setRawText(event.target.value)}
+              rows={4}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <div className="flex items-end lg:col-span-6">
+            <button
+              onClick={() => ingest.mutate()}
+              disabled={ingest.isPending || !rawText.trim()}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+            >
+              <PlayCircle className="h-4 w-4" />
+              {ingest.isPending ? "Extracting..." : "Extract Draft"}
+            </button>
+          </div>
+        </div>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Document</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Patient</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Extraction</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Safety</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Review</th>
+              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
+                  No document intakes found
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{row.title || row.file_name || row.document_type}</div>
+                    <div className="text-xs text-muted-foreground">{row.source_type} / {fmt(row.created_at)}</div>
+                    {row.generation_id ? (
+                      <div className="font-mono text-xs text-muted-foreground">gen #{row.generation_id}</div>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="font-mono text-xs">{row.patient_uid || "-"}</div>
+                    {row.patient_name ? <div className="text-xs text-muted-foreground">{row.patient_name}</div> : null}
+                    {row.admission_id ? <div className="text-xs text-muted-foreground">admission #{row.admission_id}</div> : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap gap-1">
+                      <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${documentStatusClass(row.extraction_status)}`}>
+                        {row.extraction_status}
+                      </span>
+                      <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs">
+                        {documentFactCount(row)} facts
+                      </span>
+                      {row.extracted_fields?.confidence ? (
+                        <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs">
+                          {row.extracted_fields.confidence}% confidence
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {row.document_type} / {row.source_citations?.length || 0} citations
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    {row.safety_flags?.length ? (
+                      <div className="flex flex-wrap gap-1">
+                        {row.safety_flags.slice(0, 3).map((flag, idx) => (
+                          <span key={`${flag.code}-${idx}`} className={`rounded-full border px-2 py-0.5 text-xs font-medium ${severityBadgeClass(flag.severity)}`}>
+                            {flag.code}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">none</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${documentStatusClass(row.reviewer_decision)}`}>
+                      {row.reviewer_decision}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {row.reviewer_decision === "pending" ? (
+                      <div className="inline-flex gap-1">
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "accepted" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "needs_revision" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-orange-200 bg-orange-50 px-2 py-1 text-xs font-medium text-orange-800 hover:bg-orange-100 disabled:opacity-50"
+                        >
+                          Revise
+                        </button>
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "rejected" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">{fmt(row.reviewed_at)}</span>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
 }
 
 // ---------------------------------------------------------------------------

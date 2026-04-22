@@ -1062,6 +1062,99 @@ export async function recordPriorAuthPayerDecision(id: number, decision: 'approv
 }
 
 // ---------------------------------------------------------------------------
+// Document intelligence / OCR intake
+// ---------------------------------------------------------------------------
+export type DocumentIntakeDecision = 'pending' | 'accepted' | 'rejected' | 'needs_revision';
+
+export interface DocumentIntake {
+  id: number;
+  tenant_id?: string;
+  patient_uid: string | null;
+  patient_name?: string | null;
+  admission_id: number | null;
+  source_type: string;
+  title: string | null;
+  file_name: string | null;
+  mime_type: string | null;
+  storage_key: string | null;
+  extraction_status: 'pending' | 'completed' | 'failed' | 'needs_review' | string;
+  document_type: string;
+  extracted_fields: {
+    medications?: Array<{ text: string; action?: string }>;
+    investigations?: Array<{ text: string; kind?: string }>;
+    diagnoses?: Array<{ text: string }>;
+    procedures?: Array<{ text: string }>;
+    follow_up?: Array<{ text: string }>;
+    confidence?: number;
+    line_count?: number;
+    [key: string]: unknown;
+  };
+  normalized_sections: Record<string, unknown>;
+  source_citations: Array<{ source_type: string; source_id: string; label: string; timestamp?: string | null }>;
+  safety_flags: Array<{ severity: string; code: string; message: string }>;
+  generation_id: number | null;
+  reviewer_decision: DocumentIntakeDecision;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  reviewer_note: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listDocumentIntakes(params: {
+  sourceType?: string;
+  status?: string;
+  patientUid?: string;
+  decision?: string;
+  limit?: number;
+} = {}) {
+  const query: Record<string, string> = {};
+  if (params.sourceType) query.source_type = params.sourceType;
+  if (params.status) query.status = params.status;
+  if (params.patientUid) query.patient_uid = params.patientUid;
+  if (params.decision) query.decision = params.decision;
+  if (params.limit) query.limit = String(params.limit);
+  return getJSON<{ documents: DocumentIntake[]; count: number }>(
+    '/admin/clinical-ai/documents/intake',
+    query
+  );
+}
+
+export async function ingestDocumentIntake(payload: {
+  patient_uid?: string | null;
+  admission_id?: number | null;
+  source_type?: string;
+  title?: string | null;
+  file_name?: string | null;
+  mime_type?: string | null;
+  storage_key?: string | null;
+  raw_text: string;
+}) {
+  return postJSON<{
+    intake_id: number | null;
+    generation_id: number | null;
+    extraction_status: string;
+    safety_flags: Array<{ severity: string; code: string; message: string }>;
+    used_ai: boolean;
+    provider: string;
+    module_key: string;
+    decision_support_only: boolean;
+  }>('/admin/clinical-ai/documents/intake', payload);
+}
+
+export async function decideDocumentIntake(
+  id: number,
+  decision: 'accepted' | 'rejected' | 'needs_revision',
+  note?: string
+) {
+  return fetchAdminAPI<DocumentIntake>(`/admin/clinical-ai/documents/intake/${id}`, {
+    method: 'PATCH',
+    body: { decision, note },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Ambient clinical documentation
 // ---------------------------------------------------------------------------
 export interface AmbientEncounter {

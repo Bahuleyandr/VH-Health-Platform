@@ -36,6 +36,7 @@ import {
   AmbientDocumentationPanel,
   ChargeCapturePanel,
   DeteriorationPanel,
+  DocumentIntelligencePanel,
   DriftCanaryPanel,
   ImagingAIPanel,
   PolypharmacyPanel,
@@ -628,6 +629,8 @@ export default function ClinicalAiGovernancePage() {
       <ImagingAIPanel />
 
       <VirtualWardPanel />
+
+      <DocumentIntelligencePanel />
 
       <AmbientDocumentationPanel />
 

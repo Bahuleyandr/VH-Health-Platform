@@ -506,6 +506,23 @@ export const CLINICAL_AI_MODULES = [
     },
   },
   {
+    module_key: 'document_intelligence_ocr',
+    display_name: 'Document Intelligence / OCR',
+    description: 'Extracts structured clinical facts from uploaded or externally OCRed documents. Medical-records or clinician review is required before any chart import.',
+    enabled: false,
+    settings: {
+      surface: 'medical_records',
+      risk: 'high',
+      status: 'available',
+      requiresClinicianSignoff: true,
+      requiresCitations: true,
+      reviewRoles: ['MEDICAL_RECORDS', 'DOCTOR', 'NURSING_STAFF'],
+      approvalPolicy: 'clinical_document_review',
+      outputSchema: { type: 'object', required: ['document_type', 'extracted_fields', 'normalized_sections'] },
+      retentionDays: 3650,
+    },
+  },
+  {
     module_key: 'virtual_ward_triage',
     display_name: 'Virtual Ward Triage',
     description: 'Post-discharge daily symptom + wearable check-in pipeline. Auto-triages green/amber/red and queues red escalations for care manager.',

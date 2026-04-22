@@ -87,6 +87,11 @@ import {
   resolveEscalation,
 } from '../../services/ai/virtualWardService.js';
 import {
+  decideClinicalDocumentIntake,
+  ingestClinicalDocument,
+  listClinicalDocumentIntakes,
+} from '../../services/ai/documentIntelligenceService.js';
+import {
   discardRoster,
   generateRoster,
   listRosterRuns,
@@ -785,6 +790,78 @@ router.post('/canary/cases', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_CANARY_CASE_UPSERTED', String(saved.id), null, saved);
     return success(res, saved, 'Canary case saved', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Document intelligence / OCR intake
+// ---------------------------------------------------------------------------
+router.post('/documents/intake', async (req, res, next) => {
+  try {
+    const result = await ingestClinicalDocument({
+      req,
+      patientUid: req.body?.patient_uid || null,
+      admissionId: req.body?.admission_id || null,
+      sourceType: req.body?.source_type || 'other',
+      title: req.body?.title || null,
+      fileName: req.body?.file_name || null,
+      mimeType: req.body?.mime_type || null,
+      storageKey: req.body?.storage_key || null,
+      rawText: req.body?.raw_text || '',
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_DOCUMENT_INTELLIGENCE_INGESTED',
+      String(result.intake_id || result.generation_id || 'inline'),
+      null,
+      {
+        intake_id: result.intake_id,
+        generation_id: result.generation_id,
+        extraction_status: result.extraction_status,
+        safety_flag_count: result.safety_flags?.length || 0,
+      }
+    );
+    return success(res, result, 'Document intelligence intake complete', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/documents/intake', async (req, res, next) => {
+  try {
+    const result = await listClinicalDocumentIntakes({
+      tenantId: req.tenantId,
+      sourceType: req.query?.source_type || null,
+      status: req.query?.status || null,
+      patientUid: req.query?.patient_uid || null,
+      decision: req.query?.decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Document intelligence intakes retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/documents/intake/:id', async (req, res, next) => {
+  try {
+    const result = await decideClinicalDocumentIntake({
+      tenantId: req.tenantId,
+      intakeId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_DOCUMENT_INTELLIGENCE_REVIEWED',
+      String(result.id),
+      null,
+      result
+    );
+    return success(res, result, 'Document intake reviewed');
   } catch (err) {
     return next(err);
   }
