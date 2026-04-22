@@ -856,6 +856,37 @@ export async function decideTrialMatch(id: number, decision: 'offered' | 'enroll
   });
 }
 
+export interface TrialSyncRun {
+  id: number;
+  source: string;
+  query_conditions: string[];
+  query_location: string | null;
+  status: 'running' | 'completed' | 'failed';
+  fetched_count: number;
+  upserted_count: number;
+  started_at: string;
+  finished_at: string | null;
+  error_message: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export async function triggerTrialCatalogSync(payload: { conditions?: string[]; location?: string; max_results?: number } = {}) {
+  return postJSON<{
+    run_id: number | null;
+    status: string;
+    source: string;
+    query_conditions: string[];
+    query_location: string | null;
+    fetched_count: number;
+    upserted_count: number;
+    error_message: string | null;
+  }>('/admin/clinical-ai/trials/sync', payload);
+}
+
+export async function listTrialSyncRuns() {
+  return getJSON<{ runs: TrialSyncRun[]; count: number }>('/admin/clinical-ai/trials/sync');
+}
+
 export interface RcaDraftSummary {
   id: number;
   admission_id: number;

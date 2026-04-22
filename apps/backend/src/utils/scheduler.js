@@ -264,6 +264,30 @@ cron.schedule('0 6 1 * *', withJobLock('monthly-payroll', async () => {
   logger.info(`Monthly payroll generated: ${processed} payslips for ${month}/${year}`);
 }));
 
+// 🗓️ Weekly Monday 02:30 — ClinicalTrials.gov catalog sync for every active tenant
+cron.schedule('30 2 * * 1', withJobLock('trial-catalog-sync', async () => {
+  logger.info('Scheduled Task: Clinical trial catalog sync (weekly)');
+  const { syncTrialsFromPublicRegistry } = await import('../services/ai/trialCatalogSyncService.js');
+  const tenants = await prisma.$queryRawUnsafe(
+    `SELECT id, region FROM tenants WHERE status = 'active'`
+  ).catch(() => []);
+  let total = 0;
+  for (const tenant of tenants) {
+    try {
+      const result = await syncTrialsFromPublicRegistry({
+        tenantId: tenant.id,
+        tenantRegion: tenant.region || 'IN',
+        maxResults: 100,
+      });
+      logger.info(`Trial sync for tenant ${tenant.id}: ${result.upserted_count} upserts, status=${result.status}`);
+      total += result.upserted_count;
+    } catch (err) {
+      logger.warn(`Trial sync failed for tenant ${tenant.id}: ${err.message}`);
+    }
+  }
+  logger.info(`Weekly trial sync complete. Total upserts: ${total}`);
+}));
+
 // 🗓️ Annual on Dec 1 at 08:00 — Annual salary review reminder
 cron.schedule('0 8 1 12 *', withJobLock('annual-salary-review', async () => {
   logger.info('Scheduled Task: Annual salary review reminder...');

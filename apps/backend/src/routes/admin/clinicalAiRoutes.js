@@ -70,6 +70,10 @@ import {
   upsertTrial,
 } from '../../services/ai/trialMatcherService.js';
 import {
+  listTrialSyncRuns,
+  syncTrialsFromPublicRegistry,
+} from '../../services/ai/trialCatalogSyncService.js';
+import {
   decideRcaDraft,
   generateRcaDraft,
   listRcaDrafts,
@@ -855,6 +859,36 @@ router.post('/trials/catalog', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_TRIAL_UPSERTED', String(trial.id), null, trial);
     return success(res, trial, 'Trial upserted', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/trials/sync', async (req, res, next) => {
+  try {
+    const result = await syncTrialsFromPublicRegistry({
+      tenantId: req.tenantId,
+      conditions: Array.isArray(req.body?.conditions) ? req.body.conditions : null,
+      location: req.body?.location || null,
+      maxResults: req.body?.max_results,
+      requestedBy: req.user?.uid || null,
+      tenantRegion: req.tenant?.region || 'IN',
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_TRIAL_CATALOG_SYNCED', String(result.run_id || 'inline'), null, {
+      fetched: result.fetched_count,
+      upserted: result.upserted_count,
+      status: result.status,
+    });
+    return success(res, result, 'Trial catalog sync complete', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/trials/sync', async (req, res, next) => {
+  try {
+    const result = await listTrialSyncRuns({ tenantId: req.tenantId, limit: req.query.limit });
+    return success(res, result, 'Trial sync runs retrieved');
   } catch (err) {
     return next(err);
   }

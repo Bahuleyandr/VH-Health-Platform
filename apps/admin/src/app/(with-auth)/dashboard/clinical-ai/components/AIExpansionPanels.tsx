@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   Beaker,
   ClipboardCheck,
+  CloudDownload,
   DollarSign,
   FlaskConical,
   Microscope,
@@ -30,9 +31,11 @@ import {
   listPromptExperiments,
   listRcaDrafts,
   listTrialMatches,
+  listTrialSyncRuns,
   recordPriorAuthPayerDecision,
   runCanary,
   submitPriorAuthorization,
+  triggerTrialCatalogSync,
   type CanaryRunSummary,
   type ChargeCaptureAudit,
   type DeteriorationBand,
@@ -42,6 +45,7 @@ import {
   type PromptExperiment,
   type RcaDraftSummary,
   type TrialMatch,
+  type TrialSyncRun,
 } from "@/lib/api/emr";
 
 function fmt(value?: string | null) {
@@ -585,6 +589,131 @@ export function PolypharmacyPanel() {
                       <span className="text-xs text-muted-foreground">{row.reviewer_decision}</span>
                     )}
                   </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Clinical Trial Catalog Sync (ClinicalTrials.gov v2)
+// ---------------------------------------------------------------------------
+export function TrialCatalogSyncPanel() {
+  const queryClient = useQueryClient();
+  const [conditions, setConditions] = useState("");
+  const [location, setLocation] = useState("");
+  const runs = useQuery({
+    queryKey: ["clinical-ai", "trial-sync-runs"],
+    queryFn: () => listTrialSyncRuns(),
+  });
+  const sync = useMutation({
+    mutationFn: () => {
+      const conditionList = conditions
+        .split(",")
+        .map((c) => c.trim())
+        .filter(Boolean);
+      return triggerTrialCatalogSync({
+        conditions: conditionList.length ? conditionList : undefined,
+        location: location.trim() || undefined,
+        max_results: 100,
+      });
+    },
+    onSuccess: (result) => {
+      if (result.status === "failed") {
+        toast.error(`Sync failed: ${result.error_message ?? "unknown error"}`);
+      } else {
+        toast.success(`Synced ${result.upserted_count} of ${result.fetched_count} trials`);
+      }
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "trial-sync-runs"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "trials"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Sync failed"),
+  });
+  const rows: TrialSyncRun[] = runs.data?.runs ?? [];
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <CloudDownload className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Trial Catalog Sync</h2>
+        </div>
+        <button
+          onClick={() => sync.mutate()}
+          disabled={sync.isPending}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
+        >
+          <CloudDownload className="h-4 w-4" />
+          {sync.isPending ? "Syncing…" : "Sync ClinicalTrials.gov"}
+        </button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Pulls recruiting trials from the public registry. Blank conditions + location auto-seed from the tenant&apos;s most-common active diagnoses (India default for DPDP tenants).
+      </p>
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="text-xs text-muted-foreground">
+          Conditions (comma-separated, optional)
+          <input
+            value={conditions}
+            onChange={(event) => setConditions(event.target.value)}
+            placeholder="diabetes mellitus, pneumonia"
+            className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
+          />
+        </label>
+        <label className="text-xs text-muted-foreground">
+          Location (country or city, optional)
+          <input
+            value={location}
+            onChange={(event) => setLocation(event.target.value)}
+            placeholder="India"
+            className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
+          />
+        </label>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Source</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Conditions</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Location</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Fetched</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Upserted</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">When</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-6 text-center text-muted-foreground" colSpan={7}>
+                  No sync history yet — run the first sync to populate.
+                </td>
+              </tr>
+            ) : (
+              rows.slice(0, 10).map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3 font-mono text-xs">{row.source}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    {row.query_conditions.slice(0, 3).join(", ")}
+                    {row.query_conditions.length > 3 ? ` +${row.query_conditions.length - 3}` : ""}
+                  </td>
+                  <td className="px-4 py-3 text-xs">{row.query_location ?? "-"}</td>
+                  <td className="px-4 py-3">{row.fetched_count}</td>
+                  <td className="px-4 py-3">{row.upserted_count}</td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${row.status === "completed" ? "bg-emerald-100 text-emerald-800 border-emerald-200" : row.status === "failed" ? "bg-red-100 text-red-800 border-red-200" : "bg-slate-100 text-slate-700 border-slate-200"}`}>
+                      {row.status}
+                    </span>
+                    {row.error_message ? (
+                      <div className="mt-1 text-xs text-red-700">{row.error_message.slice(0, 120)}</div>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.started_at)}</td>
                 </tr>
               ))
             )}

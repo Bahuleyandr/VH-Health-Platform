@@ -40,6 +40,7 @@ import {
   PriorAuthorizationPanel,
   PromptExperimentsPanel,
   RcaDraftsPanel,
+  TrialCatalogSyncPanel,
   TrialMatchesPanel,
 } from "./components/AIExpansionPanels";
 
@@ -621,6 +622,8 @@ export default function ClinicalAiGovernancePage() {
       <DeteriorationPanel />
 
       <PolypharmacyPanel />
+
+      <TrialCatalogSyncPanel />
 
       <TrialMatchesPanel />
 
