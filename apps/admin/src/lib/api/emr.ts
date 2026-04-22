@@ -1390,9 +1390,24 @@ export interface PriorAuthRequest {
   requested_service_type: string | null;
   status: 'draft' | 'submitted' | 'approved' | 'denied' | 'withdrawn';
   reviewer_decision: 'pending' | 'submitted' | 'rejected' | 'edited';
+  payer_reference_id: string | null;
   submitted_at: string | null;
   payer_decided_at: string | null;
   payer_decision_reason: string | null;
+  metadata?: {
+    payer_submission?: {
+      mode?: string;
+      status?: string;
+      reason?: string | null;
+      submitted?: boolean;
+      blocking?: boolean;
+      reference_id?: string | null;
+      http_status?: number | null;
+      payer_status?: string | null;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  } | null;
   created_at: string;
   updated_at: string;
 }

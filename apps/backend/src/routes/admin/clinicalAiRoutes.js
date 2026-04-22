@@ -1595,6 +1595,7 @@ router.patch('/prior-auth/:id/submit', async (req, res, next) => {
   try {
     const submitted = await submitPriorAuthorization({
       tenantId: req.tenantId,
+      tenantRegion: req.tenant?.region || null,
       priorAuthId: req.params.id,
       submittedBy: req.user?.uid || null,
       payerReferenceId: req.body?.payer_reference_id || null,

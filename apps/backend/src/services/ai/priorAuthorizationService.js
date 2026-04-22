@@ -3,8 +3,7 @@
  *
  * Builds a pre-auth packet from the chart: medical necessity narrative,
  * clinical evidence bundle, citation set. Billing coordinator reviews,
- * edits, and submits to the payer API (stubbed here — real integration
- * would live behind a per-payer adapter).
+ * edits, and submits through the provider-neutral payer adapter.
  *
  * Decision-support only. The request sits at reviewer_decision='pending'
  * until a human submits it; even after submission, payer outcomes are
@@ -19,6 +18,7 @@ import { collectAdmissionClinicalContext } from '../emr/clinicalTimelineService.
 import { generateClinicalText } from './localLlmClient.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
+import { submitPriorAuthToPayer } from './priorAuthorizationPayerAdapterService.js';
 
 const MODULE_KEY = 'prior_authorization_generator';
 
@@ -220,8 +220,40 @@ ${JSON.stringify({ admission: context.admission, allergies: context.allergies, e
   };
 }
 
-export async function submitPriorAuthorization({ priorAuthId, submittedBy = null, payerReferenceId = null, tenantId = null } = {}) {
+export async function submitPriorAuthorization({
+  priorAuthId,
+  submittedBy = null,
+  payerReferenceId = null,
+  tenantId = null,
+  tenantRegion = null,
+} = {}) {
   const tid = resolveTenantId({ tenantId });
+  const id = Number.parseInt(priorAuthId, 10);
+  const existingRows = await prisma.$queryRawUnsafe(
+    `SELECT id, tenant_id, admission_id, patient_uid, payer_name, policy_number,
+            procedure_code, procedure_description, requested_service_type,
+            medical_necessity, clinical_evidence, packet_draft, citations, metadata
+     FROM clinical_ai_prior_auth_requests
+     WHERE id = $1
+       AND tenant_id = $2::uuid
+       AND status = 'draft'
+     LIMIT 1`,
+    id,
+    tid
+  );
+  const priorAuth = existingRows[0];
+  if (!priorAuth) throw AppError.notFound('Draft prior auth not found (already submitted or deleted?)');
+
+  const payerSubmission = await submitPriorAuthToPayer({
+    priorAuth,
+    payerReferenceId,
+    tenantRegion,
+  });
+  if (payerSubmission.blocking) {
+    throw new AppError('Payer adapter submission failed', 502, 'PAYER_SUBMISSION_FAILED', payerSubmission);
+  }
+
+  const finalPayerReferenceId = payerSubmission.reference_id || null;
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE clinical_ai_prior_auth_requests
      SET status = 'submitted',
@@ -229,18 +261,23 @@ export async function submitPriorAuthorization({ priorAuthId, submittedBy = null
          submitted_at = NOW(),
          submitted_by = $2::uuid,
          payer_reference_id = $3,
+         metadata = COALESCE(metadata, '{}'::jsonb) || $5::jsonb,
          updated_at = NOW()
      WHERE id = $1
        AND tenant_id = $4::uuid
        AND status = 'draft'
-     RETURNING id, status, submitted_at, submitted_by, payer_reference_id`,
-    Number.parseInt(priorAuthId, 10),
+     RETURNING id, status, reviewer_decision, submitted_at, submitted_by, payer_reference_id, metadata`,
+    id,
     submittedBy,
-    payerReferenceId,
-    tid
+    finalPayerReferenceId,
+    tid,
+    JSON.stringify({ payer_submission: payerSubmission })
   );
   if (!rows[0]) throw AppError.notFound('Draft prior auth not found (already submitted or deleted?)');
-  return rows[0];
+  return {
+    ...rows[0],
+    payer_submission: payerSubmission,
+  };
 }
 
 export async function recordPayerDecision({ priorAuthId, decision, reason = null, tenantId = null } = {}) {
@@ -274,7 +311,8 @@ export async function listPriorAuthorizations({ tenantId = null, status = null, 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, admission_id, patient_uid, payer_name, policy_number, procedure_code,
               procedure_description, requested_service_type, status, reviewer_decision,
-              submitted_at, payer_decided_at, payer_decision_reason, created_at, updated_at
+              payer_reference_id, submitted_at, payer_decided_at, payer_decision_reason,
+              metadata, created_at, updated_at
        FROM clinical_ai_prior_auth_requests
        WHERE tenant_id = $1::uuid
          AND ($2::text IS NULL OR status = $2)

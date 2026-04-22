@@ -3330,6 +3330,15 @@ function priorAuthStatusClass(status: string) {
   return "bg-amber-100 text-amber-800 border-amber-200";
 }
 
+function priorAuthSubmissionLabel(row: PriorAuthRequest) {
+  const submission = row.metadata?.payer_submission;
+  if (!submission || typeof submission !== "object") return null;
+  if (submission.payer_status) return String(submission.payer_status);
+  if (submission.status === "manual_submission_required") return "Manual";
+  if (submission.reason) return String(submission.reason).replaceAll("_", " ");
+  return submission.status ? String(submission.status) : null;
+}
+
 export function PriorAuthorizationPanel() {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("draft");
@@ -3364,7 +3373,8 @@ export function PriorAuthorizationPanel() {
     onError: (err: Error) => toast.error(err.message || "Generation failed"),
   });
   const submit = useMutation({
-    mutationFn: (id: number) => submitPriorAuthorization(id),
+    mutationFn: ({ id, payerReferenceId }: { id: number; payerReferenceId?: string }) =>
+      submitPriorAuthorization(id, payerReferenceId),
     onSuccess: () => {
       toast.success("Prior auth submitted to payer");
       queryClient.invalidateQueries({ queryKey: ["clinical-ai", "prior-auth"] });
@@ -3520,7 +3530,15 @@ export function PriorAuthorizationPanel() {
                       {row.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.submitted_at)}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    <div>{fmt(row.submitted_at)}</div>
+                    {row.payer_reference_id ? (
+                      <div className="font-mono text-[11px] text-foreground">Ref {row.payer_reference_id}</div>
+                    ) : null}
+                    {priorAuthSubmissionLabel(row) ? (
+                      <div>{priorAuthSubmissionLabel(row)}</div>
+                    ) : null}
+                  </td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">
                     {row.payer_decided_at ? (
                       <>
@@ -3532,7 +3550,11 @@ export function PriorAuthorizationPanel() {
                   <td className="px-4 py-3 text-right">
                     {row.status === "draft" ? (
                       <button
-                        onClick={() => submit.mutate(row.id)}
+                        onClick={() => {
+                          const reference = window.prompt("Payer reference ID (optional)");
+                          if (reference === null) return;
+                          submit.mutate({ id: row.id, payerReferenceId: reference.trim() || undefined });
+                        }}
                         disabled={submit.isPending}
                         className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
                       >
