@@ -18,7 +18,7 @@ function wrapAsync(fn) {
 }
 
 // ---------------------------------------------------------------------------
-// GET /clinical-ai/config - Local clinical AI provider status
+// GET /clinical-ai/config - Clinical AI provider status
 // ---------------------------------------------------------------------------
 router.get(
   '/clinical-ai/config',

@@ -1,6 +1,6 @@
 # VH Health Backend — Operational Runbooks
 
-Runbooks for the five scenarios P1.5 / Phase 4.4 called out. Each page
+Runbooks for operational scenarios P1.5 / Phase 4.4 called out. Each page
 is self-contained and aimed at whoever is on-call when the alert fires
 (not the author of the affected code). Written 2026-04-17 against the
 `claude/phase-3-landing` codebase.
@@ -13,6 +13,7 @@ is self-contained and aimed at whoever is on-call when the alert fires
 | JWT signing key / API key rotation | [`cert-rotation.md`](./cert-rotation.md) | **P1** (routine) / **P0** (compromise) |
 | Code Blue alert fired but shouldn't have | [`code-blue-misfire.md`](./code-blue-misfire.md) | **P0** (patient safety) |
 | Chatbot LLM provider outage / key rotation | [`chatbot-provider-switch.md`](./chatbot-provider-switch.md) | **P2** (degraded feature) |
+| Clinical AI provider switch / disable | [`clinical-ai-provider-switch.md`](./clinical-ai-provider-switch.md) | **P2** (degraded draft generation) |
 
 ## How to use a runbook
 

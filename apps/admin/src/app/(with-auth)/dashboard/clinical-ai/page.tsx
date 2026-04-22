@@ -31,6 +31,16 @@ function severityClass(severity?: string) {
   return "bg-slate-100 text-slate-700 border-slate-200";
 }
 
+function boundaryLabel(config?: {
+  externalProvider?: boolean;
+  externalAllowed?: boolean;
+  enabled?: boolean;
+}) {
+  if (!config?.externalProvider) return "Local";
+  if (config.externalAllowed && config.enabled) return "External allowed";
+  return "External blocked";
+}
+
 export default function ClinicalAiGovernancePage() {
   const config = useQuery({
     queryKey: ["clinical-ai-config"],
@@ -53,7 +63,7 @@ export default function ClinicalAiGovernancePage() {
       <div>
         <h1 className="text-2xl font-bold text-foreground">Clinical AI</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Local model status, draft generations, and safety review flags
+          Model provider status, draft generations, and safety review flags
         </p>
       </div>
 
@@ -71,14 +81,20 @@ export default function ClinicalAiGovernancePage() {
           </div>
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
-          <div className="text-sm text-muted-foreground">Local AI</div>
+          <div className="text-sm text-muted-foreground">Status</div>
           <div className="mt-1 text-xl font-semibold">
             {config.data?.enabled ? "Enabled" : "Fallback"}
           </div>
+          {!config.data?.enabled && config.data?.readiness ? (
+            <div className="mt-1 truncate text-xs text-muted-foreground" title={config.data.readiness}>
+              {config.data.readiness}
+            </div>
+          ) : null}
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
-          <div className="text-sm text-muted-foreground">Open Flags</div>
-          <div className="mt-1 text-xl font-semibold">{flagRows.length}</div>
+          <div className="text-sm text-muted-foreground">Data Boundary</div>
+          <div className="mt-1 text-xl font-semibold">{boundaryLabel(config.data)}</div>
+          <div className="mt-1 text-xs text-muted-foreground">{flagRows.length} open flags</div>
         </div>
       </div>
 

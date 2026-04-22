@@ -55,6 +55,11 @@ export interface ClinicalAiConfig {
   model: string;
   enabled: boolean;
   baseUrlConfigured: boolean;
+  apiKeyConfigured?: boolean;
+  externalProvider?: boolean;
+  externalAllowed?: boolean;
+  readiness?: string | null;
+  supportedProviders?: string[];
 }
 
 export interface ClinicalAiGeneration {
