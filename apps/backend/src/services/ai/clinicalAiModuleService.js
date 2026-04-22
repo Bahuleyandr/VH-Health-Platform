@@ -505,6 +505,22 @@ export const CLINICAL_AI_MODULES = [
       retentionDays: 3650,
     },
   },
+  {
+    module_key: 'virtual_ward_triage',
+    display_name: 'Virtual Ward Triage',
+    description: 'Post-discharge daily symptom + wearable check-in pipeline. Auto-triages green/amber/red and queues red escalations for care manager.',
+    enabled: false,
+    settings: {
+      surface: 'virtual_ward',
+      risk: 'high',
+      status: 'available',
+      requiresClinicianSignoff: false,
+      requiresCitations: true,
+      reviewRoles: ['DOCTOR', 'NURSING_STAFF', 'ADMIN'],
+      outputSchema: { type: 'object', required: ['triage_band', 'triage_reasons'] },
+      retentionDays: 365,
+    },
+  },
 ];
 
 export const DEFAULT_CLINICAL_AI_GUARDRAILS = {

@@ -927,6 +927,68 @@ export async function decideImagingFinding(id: number, decision: 'confirmed' | '
   });
 }
 
+export type VirtualWardSeverity = 'amber' | 'red';
+
+export interface VirtualWardEscalation {
+  id: number;
+  enrollment_id: number;
+  check_in_id: number | null;
+  patient_uid: string;
+  patient_name: string | null;
+  severity: VirtualWardSeverity;
+  reason: string;
+  acknowledged_by: string | null;
+  acknowledged_at: string | null;
+  resolution: string | null;
+  resolution_note: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  pathway: string | null;
+  care_manager_uid: string | null;
+}
+
+export interface VirtualWardEnrollment {
+  id: number;
+  patient_uid: string;
+  patient_name: string | null;
+  admission_id: number | null;
+  pathway: string;
+  start_date: string;
+  status: 'active' | 'graduated' | 'escalated' | 'dropped';
+  expected_check_in_cadence_hours: number;
+  last_check_in_at: string | null;
+  open_escalations: number;
+}
+
+export async function listVirtualWardEscalations(severity?: VirtualWardSeverity) {
+  const query: Record<string, string> = {};
+  if (severity) query.severity = severity;
+  return getJSON<{ escalations: VirtualWardEscalation[]; count: number }>(
+    '/admin/clinical-ai/virtual-ward/escalations',
+    query
+  );
+}
+
+export async function listVirtualWardEnrollments() {
+  return getJSON<{ enrollments: VirtualWardEnrollment[]; count: number }>(
+    '/admin/clinical-ai/virtual-ward/enrollments'
+  );
+}
+
+export async function acknowledgeVirtualWardEscalation(id: number) {
+  return fetchAdminAPI<VirtualWardEscalation>(`/admin/clinical-ai/virtual-ward/escalations/${id}/acknowledge`, {
+    method: 'PATCH',
+    body: {},
+  });
+}
+
+export async function resolveVirtualWardEscalation(id: number, resolution: string, note?: string) {
+  return fetchAdminAPI<VirtualWardEscalation>(`/admin/clinical-ai/virtual-ward/escalations/${id}/resolve`, {
+    method: 'PATCH',
+    body: { resolution, note },
+  });
+}
+
 export interface RcaDraftSummary {
   id: number;
   admission_id: number;

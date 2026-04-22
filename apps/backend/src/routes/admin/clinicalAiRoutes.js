@@ -80,6 +80,13 @@ import {
   registerImagingStudy,
 } from '../../services/ai/imagingAiService.js';
 import {
+  acknowledgeEscalation,
+  enrollPatient,
+  listActiveEnrollments,
+  listOpenEscalations,
+  resolveEscalation,
+} from '../../services/ai/virtualWardService.js';
+import {
   decideRcaDraft,
   generateRcaDraft,
   listRcaDrafts,
@@ -772,6 +779,80 @@ router.post('/canary/cases', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_CANARY_CASE_UPSERTED', String(saved.id), null, saved);
     return success(res, saved, 'Canary case saved', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Virtual ward — enrollments + escalations
+// ---------------------------------------------------------------------------
+router.post('/virtual-ward/enrollments', async (req, res, next) => {
+  try {
+    const enrollment = await enrollPatient({
+      tenantId: req.tenantId,
+      patientUid: req.body?.patient_uid,
+      admissionId: req.body?.admission_id || null,
+      careManagerUid: req.body?.care_manager_uid || null,
+      pathway: req.body?.pathway || 'generic_post_discharge',
+      startDate: req.body?.start_date || null,
+      expectedCheckInCadenceHours: req.body?.expected_check_in_cadence_hours || 24,
+      metadata: req.body?.metadata || {},
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_VIRTUAL_WARD_ENROLLED', String(enrollment.id), null, enrollment);
+    return success(res, enrollment, 'Patient enrolled in virtual ward', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/virtual-ward/enrollments', async (req, res, next) => {
+  try {
+    const result = await listActiveEnrollments({ tenantId: req.tenantId, limit: req.query.limit });
+    return success(res, result, 'Active enrollments retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/virtual-ward/escalations', async (req, res, next) => {
+  try {
+    const result = await listOpenEscalations({
+      tenantId: req.tenantId,
+      severity: req.query.severity || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Open escalations retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/virtual-ward/escalations/:id/acknowledge', async (req, res, next) => {
+  try {
+    const acked = await acknowledgeEscalation({
+      tenantId: req.tenantId,
+      escalationId: req.params.id,
+      acknowledgedBy: req.user?.uid || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_VIRTUAL_WARD_ACK', String(acked.id), null, acked);
+    return success(res, acked, 'Escalation acknowledged');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/virtual-ward/escalations/:id/resolve', async (req, res, next) => {
+  try {
+    const resolved = await resolveEscalation({
+      tenantId: req.tenantId,
+      escalationId: req.params.id,
+      resolution: req.body?.resolution,
+      note: req.body?.note || null,
+      resolvedBy: req.user?.uid || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_VIRTUAL_WARD_RESOLVED', String(resolved.id), null, resolved);
+    return success(res, resolved, 'Escalation resolved');
   } catch (err) {
     return next(err);
   }

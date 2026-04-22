@@ -10,6 +10,7 @@ import {
   CloudDownload,
   DollarSign,
   FlaskConical,
+  Heart,
   Image,
   Microscope,
   PlayCircle,
@@ -19,6 +20,7 @@ import {
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import {
+  acknowledgeVirtualWardEscalation,
   concludePromptExperiment,
   decideChargeCaptureAudit,
   decideImagingFinding,
@@ -35,7 +37,10 @@ import {
   listRcaDrafts,
   listTrialMatches,
   listTrialSyncRuns,
+  listVirtualWardEnrollments,
+  listVirtualWardEscalations,
   recordPriorAuthPayerDecision,
+  resolveVirtualWardEscalation,
   runCanary,
   submitPriorAuthorization,
   triggerTrialCatalogSync,
@@ -51,6 +56,9 @@ import {
   type RcaDraftSummary,
   type TrialMatch,
   type TrialSyncRun,
+  type VirtualWardEnrollment,
+  type VirtualWardEscalation,
+  type VirtualWardSeverity,
 } from "@/lib/api/emr";
 
 function fmt(value?: string | null) {
@@ -1238,6 +1246,165 @@ export function ImagingAIPanel() {
                       </div>
                     ) : (
                       <span className="text-xs text-muted-foreground">{row.radiologist_decision}</span>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Virtual ward
+// ---------------------------------------------------------------------------
+function virtualWardSeverityClass(severity: string) {
+  if (severity === "red") return "bg-red-200 text-red-900 border-red-300";
+  if (severity === "amber") return "bg-amber-100 text-amber-800 border-amber-200";
+  return "bg-emerald-100 text-emerald-800 border-emerald-200";
+}
+
+export function VirtualWardPanel() {
+  const queryClient = useQueryClient();
+  const [severityFilter, setSeverityFilter] = useState<VirtualWardSeverity | "">("red");
+  const escalations = useQuery({
+    queryKey: ["clinical-ai", "virtual-ward", severityFilter],
+    queryFn: () => listVirtualWardEscalations(severityFilter || undefined),
+    refetchInterval: 60_000,
+  });
+  const enrollments = useQuery({
+    queryKey: ["clinical-ai", "virtual-ward", "enrollments"],
+    queryFn: () => listVirtualWardEnrollments(),
+  });
+  const ack = useMutation({
+    mutationFn: (id: number) => acknowledgeVirtualWardEscalation(id),
+    onSuccess: () => {
+      toast.success("Escalation acknowledged");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "virtual-ward"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Acknowledge failed"),
+  });
+  const resolve = useMutation({
+    mutationFn: ({ id, resolution, note }: { id: number; resolution: string; note?: string }) =>
+      resolveVirtualWardEscalation(id, resolution, note),
+    onSuccess: () => {
+      toast.success("Escalation resolved");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "virtual-ward"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Resolve failed"),
+  });
+  const escRows: VirtualWardEscalation[] = escalations.data?.escalations ?? [];
+  const enrollRows: VirtualWardEnrollment[] = enrollments.data?.enrollments ?? [];
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <Heart className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Virtual Ward — Open Escalations</h2>
+        </div>
+        <select
+          value={severityFilter}
+          onChange={(event) => setSeverityFilter(event.target.value as VirtualWardSeverity | "")}
+          className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+        >
+          <option value="red">Red only</option>
+          <option value="amber">Amber only</option>
+          <option value="">All open</option>
+        </select>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Post-discharge check-ins triaged green/amber/red. Red submissions mark the enrollment as escalated. Care manager acknowledges + resolves.
+      </p>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Active enrollments</div>
+          <div className="mt-1 text-2xl font-semibold">{enrollRows.filter((e) => e.status === "active").length}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Escalated enrollments</div>
+          <div className="mt-1 text-2xl font-semibold text-red-700">{enrollRows.filter((e) => e.status === "escalated").length}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Open escalations</div>
+          <div className="mt-1 text-2xl font-semibold">{escRows.length}</div>
+        </div>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Severity</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Patient</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Pathway</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Reason</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Created</th>
+              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {escRows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
+                  No open escalations in this bucket
+                </td>
+              </tr>
+            ) : (
+              escRows.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${virtualWardSeverityClass(row.severity)}`}>
+                      {row.severity}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{row.patient_name ?? "-"}</div>
+                    <div className="text-xs text-muted-foreground">{row.patient_uid}</div>
+                  </td>
+                  <td className="px-4 py-3 font-mono text-xs">{row.pathway ?? "-"}</td>
+                  <td className="px-4 py-3 max-w-md text-xs">{row.reason}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.created_at)}</td>
+                  <td className="px-4 py-3 text-right">
+                    {!row.acknowledged_at ? (
+                      <button
+                        onClick={() => ack.mutate(row.id)}
+                        disabled={ack.isPending}
+                        className="rounded-md border border-border bg-card px-2 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50"
+                      >
+                        Acknowledge
+                      </button>
+                    ) : !row.resolved_at ? (
+                      <div className="inline-flex gap-1">
+                        <button
+                          onClick={() => resolve.mutate({ id: row.id, resolution: "call_completed" })}
+                          disabled={resolve.isPending}
+                          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                        >
+                          Call done
+                        </button>
+                        <button
+                          onClick={() => resolve.mutate({ id: row.id, resolution: "referred_to_ed" })}
+                          disabled={resolve.isPending}
+                          className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
+                        >
+                          Refer ED
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Resolution note (optional)") ?? undefined;
+                            resolve.mutate({ id: row.id, resolution: "resolved_remotely", note });
+                          }}
+                          disabled={resolve.isPending}
+                          className="rounded-md border border-border bg-card px-2 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50"
+                        >
+                          Resolved
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">{row.resolution}</span>
                     )}
                   </td>
                 </tr>

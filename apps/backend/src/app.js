@@ -73,6 +73,7 @@ import searchRoutes from './routes/searchRoutes.js';
 import staffRoutes from './routes/staff/index.js';
 import userRoutes from './routes/user/index.js';
 import patientChatbotRoutes from './routes/patient/chatbotRoutes.js';
+import patientVirtualWardRoutes from './routes/patient/virtualWardRoutes.js';
 
 // FHIR interoperability
 import fhirRoutes from './routes/fhir/fhirRoutes.js';
@@ -379,6 +380,13 @@ app.use(
   requireRole('PATIENT', 'SUPER_ADMIN'),
   phiAccessLogger('PATIENT_CHATBOT'),
   patientChatbotRoutes
+);
+app.use(
+  '/api/v1/patient/virtual-ward',
+  patientRateLimiter,
+  requireRole('PATIENT', 'ADMIN', 'SUPER_ADMIN', 'NURSING_STAFF'),
+  phiAccessLogger('VIRTUAL_WARD_CHECK_IN'),
+  patientVirtualWardRoutes
 );
 
 // Healthcare services - Modularized

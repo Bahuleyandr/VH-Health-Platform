@@ -43,6 +43,7 @@ import {
   RcaDraftsPanel,
   TrialCatalogSyncPanel,
   TrialMatchesPanel,
+  VirtualWardPanel,
 } from "./components/AIExpansionPanels";
 
 function fmt(value?: string | null) {
@@ -623,6 +624,8 @@ export default function ClinicalAiGovernancePage() {
       <DeteriorationPanel />
 
       <ImagingAIPanel />
+
+      <VirtualWardPanel />
 
       <PolypharmacyPanel />
 
