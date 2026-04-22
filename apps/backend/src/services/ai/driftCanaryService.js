@@ -15,6 +15,7 @@
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { AppError } from '../../utils/AppError.js';
 import { generateClinicalText } from './localLlmClient.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
@@ -28,6 +29,23 @@ function resolveTenantId(options = {}) {
 
 function isMissingSchemaError(err) {
   return /does not exist|relation .* does not exist/i.test(String(err?.message || ''));
+}
+
+function normalizeText(value) {
+  return String(value || '').trim();
+}
+
+function normalizeLimit(value, fallback = 100, max = 500) {
+  return Math.min(Math.max(Number.parseInt(value, 10) || fallback, 1), max);
+}
+
+function normalizeActiveFilter(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'boolean') return value;
+  const normalized = String(value).trim().toLowerCase();
+  if (['true', '1', 'yes', 'active'].includes(normalized)) return true;
+  if (['false', '0', 'no', 'inactive'].includes(normalized)) return false;
+  return null;
 }
 
 function safeJsonParse(text, fallback) {
@@ -133,7 +151,7 @@ export async function runCanary({ tenantId = null, scope = 'routine' } = {}) {
   const baselinePct = baselineRows[0]
     ? Math.round((Number(baselineRows[0].pass_count) / Number(baselineRows[0].total_cases)) * 100)
     : null;
-  const driftDetected = baselinePct != null && baselinePct - passRatePct >= BASELINE_THRESHOLD_PCT;
+  const driftDetected = baselinePct !== null && baselinePct - passRatePct >= BASELINE_THRESHOLD_PCT;
 
   try {
     await prisma.$queryRawUnsafe(
@@ -172,7 +190,7 @@ export async function runCanary({ tenantId = null, scope = 'routine' } = {}) {
 
 export async function listCanaryRuns({ tenantId = null, limit = 30 } = {}) {
   const tid = resolveTenantId({ tenantId });
-  const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 30, 1), 200);
+  const safeLimit = normalizeLimit(limit, 30, 200);
   try {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, run_scope, total_cases, pass_count, fail_count, drift_detected,
@@ -191,8 +209,52 @@ export async function listCanaryRuns({ tenantId = null, limit = 30 } = {}) {
   }
 }
 
+export async function listCanaryCases({ tenantId = null, moduleKey = null, active = null, limit = 100 } = {}) {
+  const tid = resolveTenantId({ tenantId });
+  const safeLimit = normalizeLimit(limit, 100, 500);
+  const filters = ['tenant_id = $1::uuid'];
+  const params = [tid];
+  const cleanModuleKey = normalizeText(moduleKey);
+  const activeFilter = normalizeActiveFilter(active);
+
+  if (cleanModuleKey) {
+    params.push(cleanModuleKey);
+    filters.push(`module_key = $${params.length}`);
+  }
+  if (activeFilter !== null) {
+    params.push(activeFilter);
+    filters.push(`active = $${params.length}`);
+  }
+
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, module_key, label, input_packet, expected_keys, expected_citations_min, active, created_at
+       FROM clinical_ai_canary_cases
+       WHERE ${filters.join(' AND ')}
+       ORDER BY active DESC, module_key, label
+       LIMIT $${params.length + 1}`,
+      ...params,
+      safeLimit
+    );
+    return { cases: rows, count: rows.length };
+  } catch (err) {
+    if (isMissingSchemaError(err)) return { cases: [], count: 0 };
+    throw err;
+  }
+}
+
 export async function upsertCanaryCase({ tenantId = null, moduleKey, label, inputPacket, expectedKeys = [], expectedCitationsMin = 1 } = {}) {
   const tid = resolveTenantId({ tenantId });
+  const cleanModuleKey = normalizeText(moduleKey);
+  const cleanLabel = normalizeText(label);
+  if (!cleanModuleKey) throw AppError.badRequest('module_key is required');
+  if (!cleanLabel) throw AppError.badRequest('label is required');
+  if (!inputPacket || typeof inputPacket !== 'object' || Array.isArray(inputPacket)) {
+    throw AppError.badRequest('input_packet object is required');
+  }
+  const normalizedExpectedKeys = Array.isArray(expectedKeys)
+    ? expectedKeys.map(normalizeText).filter(Boolean)
+    : [];
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO clinical_ai_canary_cases
        (tenant_id, module_key, label, input_packet, expected_keys, expected_citations_min, active, created_at)
@@ -205,16 +267,40 @@ export async function upsertCanaryCase({ tenantId = null, moduleKey, label, inpu
        active = true
      RETURNING id, module_key, label, expected_keys, expected_citations_min, active, created_at`,
     tid,
-    moduleKey,
-    label,
-    JSON.stringify(inputPacket || {}),
-    expectedKeys,
+    cleanModuleKey,
+    cleanLabel,
+    JSON.stringify(inputPacket),
+    normalizedExpectedKeys,
     Number.parseInt(expectedCitationsMin, 10) || 1
   );
   return rows[0];
 }
 
+export async function deactivateCanaryCase({ tenantId = null, id } = {}) {
+  const tid = resolveTenantId({ tenantId });
+  const caseId = Number.parseInt(id, 10);
+  if (!caseId) throw AppError.badRequest('canary case id is required');
+
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `UPDATE clinical_ai_canary_cases
+       SET active = false
+       WHERE tenant_id = $1::uuid AND id = $2
+       RETURNING id, module_key, label, input_packet, expected_keys, expected_citations_min, active, created_at`,
+      tid,
+      caseId
+    );
+    if (!rows[0]) throw AppError.notFound('Canary case not found');
+    return rows[0];
+  } catch (err) {
+    if (isMissingSchemaError(err)) throw AppError.notFound('Canary case table not available');
+    throw err;
+  }
+}
+
 export default {
+  deactivateCanaryCase,
+  listCanaryCases,
   listCanaryRuns,
   runCanary,
   upsertCanaryCase,

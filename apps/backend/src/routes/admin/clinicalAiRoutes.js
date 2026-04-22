@@ -49,6 +49,8 @@ import {
   listExperiments,
 } from '../../services/ai/promptExperimentService.js';
 import {
+  deactivateCanaryCase,
+  listCanaryCases,
   listCanaryRuns,
   runCanary,
   upsertCanaryCase,
@@ -865,6 +867,20 @@ router.post('/canary/runs', async (req, res, next) => {
   }
 });
 
+router.get('/canary/cases', async (req, res, next) => {
+  try {
+    const result = await listCanaryCases({
+      tenantId: req.tenantId,
+      moduleKey: req.query.module_key,
+      active: req.query.active,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Canary cases retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
 router.post('/canary/cases', async (req, res, next) => {
   try {
     const saved = await upsertCanaryCase({
@@ -877,6 +893,16 @@ router.post('/canary/cases', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_CANARY_CASE_UPSERTED', String(saved.id), null, saved);
     return success(res, saved, 'Canary case saved', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/canary/cases/:id/deactivate', async (req, res, next) => {
+  try {
+    const saved = await deactivateCanaryCase({ tenantId: req.tenantId, id: req.params.id });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_CANARY_CASE_DEACTIVATED', String(saved.id), { active: true }, saved);
+    return success(res, saved, 'Canary case deactivated');
   } catch (err) {
     return next(err);
   }

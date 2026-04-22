@@ -19,13 +19,16 @@ import {
   Mic2,
   PlayCircle,
   Receipt,
+  Save,
   Stethoscope,
   TrendingUp,
+  Trash2,
   UsersRound,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import {
   acknowledgeVirtualWardEscalation,
+  deactivateCanaryCase,
   decideChartCompletionAudit,
   decideInfectionControlAudit,
   decidePrivacySentinelAudit,
@@ -49,6 +52,7 @@ import {
   ingestDocumentIntake,
   listAbnormalResultTriages,
   listAmbientEncounters,
+  listCanaryCases,
   listCanaryRuns,
   listChartCompletionAudits,
   listChargeCaptureAudits,
@@ -76,11 +80,13 @@ import {
   scoreNoShowRisk,
   submitPriorAuthorization,
   triggerTrialCatalogSync,
+  upsertCanaryCase,
   type AbnormalResultTriageDraft,
   type AbnormalTriageBand,
   type AdmissionAiDraftModuleKey,
   type AmbientEncounter,
   type BedDischargeForecast,
+  type CanaryCase,
   type CanaryRunSummary,
   type ChartCompletionAudit,
   type ChartGapRiskBand,
@@ -140,6 +146,42 @@ function fmtDuration(seconds?: number | null) {
   const minutes = Math.floor(seconds / 60);
   const remainder = Math.round(seconds % 60);
   return `${minutes}m ${remainder}s`;
+}
+
+const DEFAULT_CANARY_INPUT_PACKET = JSON.stringify(
+  {
+    citations: [
+      {
+        id: "synthetic-note-1",
+        source: "sealed_canary_case",
+        text: "Synthetic patient is afebrile, tolerating oral diet, and awaiting one repeat potassium result.",
+      },
+    ],
+    chart: {
+      diagnosis: "Synthetic community-acquired pneumonia",
+      active_issues: ["repeat potassium pending"],
+      allergies: ["penicillin rash"],
+    },
+  },
+  null,
+  2,
+);
+
+function parseJsonObject(value: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function splitCsvList(value: string) {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function severityBadgeClass(severity: string) {
@@ -1879,10 +1921,30 @@ export function PromptExperimentsPanel() {
 // ---------------------------------------------------------------------------
 export function DriftCanaryPanel() {
   const queryClient = useQueryClient();
+  const [caseModuleKey, setCaseModuleKey] = useState("discharge_summary");
+  const [caseLabel, setCaseLabel] = useState("");
+  const [expectedKeys, setExpectedKeys] = useState("hospital_course, discharge_diagnosis");
+  const [expectedCitationsMin, setExpectedCitationsMin] = useState("1");
+  const [inputPacket, setInputPacket] = useState(() => DEFAULT_CANARY_INPUT_PACKET);
   const runs = useQuery({
     queryKey: ["clinical-ai", "canary", "runs"],
     queryFn: () => listCanaryRuns(),
   });
+  const cases = useQuery({
+    queryKey: ["clinical-ai", "canary", "cases"],
+    queryFn: () => listCanaryCases({ limit: 100 }),
+  });
+  const canaryCases: CanaryCase[] = cases.data?.cases ?? [];
+  const activeCaseCount = canaryCases.filter((item) => item.active).length;
+  const expectedCitationNumber = Number.parseInt(expectedCitationsMin.trim(), 10);
+  const parsedPacket = parseJsonObject(inputPacket);
+  const canSaveCase = Boolean(
+    caseModuleKey.trim()
+    && caseLabel.trim()
+    && parsedPacket
+    && Number.isFinite(expectedCitationNumber)
+    && expectedCitationNumber >= 1,
+  );
   const run = useMutation({
     mutationFn: () => runCanary(),
     onSuccess: (result) => {
@@ -1894,6 +1956,32 @@ export function DriftCanaryPanel() {
       queryClient.invalidateQueries({ queryKey: ["clinical-ai", "canary", "runs"] });
     },
     onError: (err: Error) => toast.error(err.message || "Canary run failed"),
+  });
+  const saveCase = useMutation({
+    mutationFn: () => {
+      const packet = parseJsonObject(inputPacket);
+      if (!packet) throw new Error("Input packet must be a JSON object");
+      return upsertCanaryCase({
+        module_key: caseModuleKey.trim(),
+        label: caseLabel.trim(),
+        input_packet: packet,
+        expected_keys: splitCsvList(expectedKeys),
+        expected_citations_min: expectedCitationNumber,
+      });
+    },
+    onSuccess: () => {
+      toast.success("Canary case saved");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "canary", "cases"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Canary case save failed"),
+  });
+  const deactivate = useMutation({
+    mutationFn: (id: number) => deactivateCanaryCase(id),
+    onSuccess: () => {
+      toast.success("Canary case deactivated");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "canary", "cases"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Canary case update failed"),
   });
   const rows: CanaryRunSummary[] = runs.data?.runs ?? [];
   const latest = rows[0];
@@ -1907,7 +1995,7 @@ export function DriftCanaryPanel() {
         </div>
         <button
           onClick={() => run.mutate()}
-          disabled={run.isPending}
+          disabled={run.isPending || activeCaseCount === 0}
           className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
         >
           <PlayCircle className="h-4 w-4" />
@@ -1922,6 +2010,129 @@ export function DriftCanaryPanel() {
           <strong>Drift detected</strong> on the latest run — {latest.pass_count} of {latest.total_cases} cases passed. Review prompts or providers.
         </div>
       ) : null}
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold">Canary Cases</h3>
+            <p className="text-xs text-muted-foreground">{activeCaseCount} active / {canaryCases.length} total</p>
+          </div>
+          <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${parsedPacket ? "border-emerald-200 bg-emerald-100 text-emerald-800" : "border-red-200 bg-red-100 text-red-800"}`}>
+            {parsedPacket ? "JSON valid" : "JSON invalid"}
+          </span>
+        </div>
+        <div className="grid gap-3 lg:grid-cols-6">
+          <label className="space-y-1 text-sm lg:col-span-2">
+            <span className="text-muted-foreground">Module key</span>
+            <input
+              value={caseModuleKey}
+              onChange={(event) => setCaseModuleKey(event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm lg:col-span-2">
+            <span className="text-muted-foreground">Case label</span>
+            <input
+              value={caseLabel}
+              onChange={(event) => setCaseLabel(event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Expected keys</span>
+            <input
+              value={expectedKeys}
+              onChange={(event) => setExpectedKeys(event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Min citations</span>
+            <input
+              type="number"
+              min={1}
+              value={expectedCitationsMin}
+              onChange={(event) => setExpectedCitationsMin(event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm lg:col-span-6">
+            <span className="text-muted-foreground">Input packet JSON</span>
+            <textarea
+              value={inputPacket}
+              onChange={(event) => setInputPacket(event.target.value)}
+              rows={8}
+              spellCheck={false}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-xs"
+            />
+          </label>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:col-span-6">
+            <button
+              onClick={() => saveCase.mutate()}
+              disabled={saveCase.isPending || !canSaveCase}
+              className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+            >
+              <Save className="h-4 w-4" />
+              {saveCase.isPending ? "Saving..." : "Save Case"}
+            </button>
+            <span className="text-xs text-muted-foreground">
+              {canSaveCase ? "Case draft ready" : "Case draft incomplete"}
+            </span>
+          </div>
+        </div>
+        <div className="mt-4 overflow-x-auto rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50">
+              <tr>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Module</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Case</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Expected</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Created</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {canaryCases.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
+                    No canary cases yet.
+                  </td>
+                </tr>
+              ) : (
+                canaryCases.slice(0, 50).map((row) => (
+                  <tr key={row.id}>
+                    <td className="px-4 py-3 font-mono text-xs">{row.module_key}</td>
+                    <td className="px-4 py-3">{row.label}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {(row.expected_keys || []).join(", ") || "-"} / {row.expected_citations_min} citation
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${row.active ? "border-emerald-200 bg-emerald-100 text-emerald-800" : "border-slate-200 bg-slate-100 text-slate-700"}`}>
+                        {row.active ? "active" : "inactive"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.created_at)}</td>
+                    <td className="px-4 py-3">
+                      {row.active ? (
+                        <button
+                          onClick={() => deactivate.mutate(row.id)}
+                          disabled={deactivate.isPending}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Deactivate
+                        </button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">-</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
       <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
@@ -1937,7 +2148,7 @@ export function DriftCanaryPanel() {
             {rows.length === 0 ? (
               <tr>
                 <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
-                  No runs yet — configure canary cases via POST /admin/clinical-ai/canary/cases then run.
+                  No runs yet.
                 </td>
               </tr>
             ) : (

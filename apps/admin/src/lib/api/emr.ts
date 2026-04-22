@@ -803,6 +803,33 @@ export interface CanaryRunSummary {
   finished_at: string | null;
 }
 
+export interface CanaryCase {
+  id: number;
+  module_key: string;
+  label: string;
+  input_packet?: Record<string, unknown>;
+  expected_keys: string[];
+  expected_citations_min: number;
+  active: boolean;
+  created_at: string;
+}
+
+export interface CanaryCasePayload {
+  module_key: string;
+  label: string;
+  input_packet: Record<string, unknown>;
+  expected_keys?: string[];
+  expected_citations_min?: number;
+}
+
+export async function listCanaryCases(params: { moduleKey?: string; active?: boolean; limit?: number } = {}) {
+  const query: Record<string, string | number | boolean> = {};
+  if (params.moduleKey) query.module_key = params.moduleKey;
+  if (params.active != null) query.active = params.active;
+  if (params.limit) query.limit = params.limit;
+  return getJSON<{ cases: CanaryCase[]; count: number }>('/admin/clinical-ai/canary/cases', query);
+}
+
 export async function listCanaryRuns() {
   return getJSON<{ runs: CanaryRunSummary[]; count: number }>('/admin/clinical-ai/canary/runs');
 }
@@ -817,6 +844,17 @@ export async function runCanary() {
     drift_detected: boolean;
     findings: Array<{ case_id?: number; label: string; module_key: string; passed: boolean }>;
   }>('/admin/clinical-ai/canary/runs', { scope: 'manual' });
+}
+
+export async function upsertCanaryCase(payload: CanaryCasePayload) {
+  return postJSON<CanaryCase>('/admin/clinical-ai/canary/cases', payload);
+}
+
+export async function deactivateCanaryCase(id: number) {
+  return fetchAdminAPI<CanaryCase>(`/admin/clinical-ai/canary/cases/${id}/deactivate`, {
+    method: 'PATCH',
+    body: {},
+  });
 }
 
 // ---------------------------------------------------------------------------
