@@ -54,6 +54,15 @@ import {
   predictOtCaseTime,
   scoreNoShowRisk,
 } from '../../services/ai/operationalAiService.js';
+import {
+  listDeteriorationSnapshots,
+  scoreDeterioration,
+} from '../../services/ai/deteriorationEarlyWarningService.js';
+import {
+  decidePolypharmacyReview,
+  listPolypharmacyReviews,
+  reviewPolypharmacy,
+} from '../../services/ai/polypharmacyAiService.js';
 
 const router = express.Router();
 const CLINICAL_AI_AUDIT_RESOURCE = 'clinical_ai';
@@ -736,6 +745,64 @@ router.post('/canary/cases', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_CANARY_CASE_UPSERTED', String(saved.id), null, saved);
     return success(res, saved, 'Canary case saved', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Clinical safety AI (Batch 3): deterioration EW + polypharmacy review
+// ---------------------------------------------------------------------------
+router.get('/safety/deterioration', async (req, res, next) => {
+  try {
+    const result = await listDeteriorationSnapshots({
+      tenantId: req.tenantId,
+      band: req.query.band || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Deterioration snapshots retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/safety/deterioration/:patientUid', async (req, res, next) => {
+  try {
+    const result = await scoreDeterioration({
+      tenantId: req.tenantId,
+      patientUid: req.params.patientUid,
+      admissionId: req.body?.admission_id || null,
+    });
+    return success(res, result, 'Deterioration score computed');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/safety/polypharmacy', async (req, res, next) => {
+  try {
+    const result = await listPolypharmacyReviews({
+      tenantId: req.tenantId,
+      decision: req.query.decision || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Polypharmacy reviews retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/safety/polypharmacy/:id', async (req, res, next) => {
+  try {
+    const decided = await decidePolypharmacyReview({
+      tenantId: req.tenantId,
+      reviewId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      reviewerNote: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_POLYPHARMACY_DECIDED', String(decided.id), null, decided);
+    return success(res, decided, 'Polypharmacy review decided');
   } catch (err) {
     return next(err);
   }

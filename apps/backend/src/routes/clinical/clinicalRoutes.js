@@ -8,6 +8,8 @@ import marFiveRightsService from '../../services/clinical/marFiveRightsService.j
 import news2Service from '../../services/clinical/news2Service.js';
 import voiceSoapService from '../../services/ai/voiceSoapService.js';
 import { describeSttConfig } from '../../services/ai/sttService.js';
+import { reviewPolypharmacy } from '../../services/ai/polypharmacyAiService.js';
+import { scoreDeterioration } from '../../services/ai/deteriorationEarlyWarningService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import {
   requiredUUID, requiredString, requiredNumber, optionalString, optionalNumber,
@@ -427,6 +429,53 @@ router.get('/voice-note/my', async (req, res, next) => {
       limit: req.query.limit,
     });
     return success(res, result, 'Voice notes retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ===================================================================
+// Clinical safety AI — deterioration + polypharmacy (Batch 3)
+// ===================================================================
+
+/**
+ * POST /clinical/safety/deterioration/:patientUid
+ * Score an admitted patient's deterioration risk from the last 4h of
+ * vitals + recent labs. Returns the NEWS2-like composite with band.
+ */
+router.post('/safety/deterioration/:patientUid', async (req, res, next) => {
+  try {
+    const result = await scoreDeterioration({
+      patientUid: req.params.patientUid,
+      admissionId: req.body?.admission_id || null,
+      tenantId: req.tenantId,
+    });
+    return success(res, result, 'Deterioration score computed');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * POST /clinical/safety/polypharmacy
+ * Body: { patient_id?, patient_uid, medications: [{name,dose,route,frequency}],
+ *         admission_id? }
+ * Runs rules + AI drug-interaction review. Returns combined_severity with
+ * rule + AI findings. Persists row for reviewer decisioning.
+ */
+router.post('/safety/polypharmacy', async (req, res, next) => {
+  try {
+    if (!Array.isArray(req.body?.medications) || req.body.medications.length === 0) {
+      return error(res, 'medications array is required', 400);
+    }
+    const result = await reviewPolypharmacy({
+      patientId: req.body?.patient_id || null,
+      patientUid: req.body?.patient_uid || null,
+      medications: req.body.medications,
+      admissionId: req.body?.admission_id || null,
+      req,
+    });
+    return success(res, result, 'Polypharmacy review complete');
   } catch (err) {
     return next(err);
   }

@@ -392,6 +392,38 @@ export const CLINICAL_AI_MODULES = [
       retentionDays: 365,
     },
   },
+  {
+    module_key: 'deterioration_early_warning',
+    display_name: 'Deterioration Early Warning',
+    description: 'Composite NEWS2-like score with vital trend + recent-lab components. Alerts before rule thresholds fire.',
+    enabled: false,
+    settings: {
+      surface: 'clinical',
+      risk: 'critical',
+      status: 'available',
+      requiresClinicianSignoff: false,
+      requiresCitations: true,
+      reviewRoles: ['DOCTOR', 'NURSING_STAFF'],
+      outputSchema: { type: 'object', required: ['score', 'band', 'contributors'] },
+      retentionDays: 90,
+    },
+  },
+  {
+    module_key: 'polypharmacy_ai_review',
+    display_name: 'Polypharmacy AI Review',
+    description: 'Rules + AI drug-interaction review. Rules authoritative; AI surfaces cross-class and QT-prolongation risks.',
+    enabled: false,
+    settings: {
+      surface: 'pharmacy',
+      risk: 'critical',
+      status: 'available',
+      requiresClinicianSignoff: true,
+      requiresCitations: true,
+      reviewRoles: ['DOCTOR', 'PHARMACY_STAFF'],
+      outputSchema: { type: 'object', required: ['combined_severity', 'rule_findings', 'ai_findings'] },
+      retentionDays: 365,
+    },
+  },
 ];
 
 export const DEFAULT_CLINICAL_AI_GUARDRAILS = {
