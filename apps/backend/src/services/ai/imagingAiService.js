@@ -23,6 +23,10 @@ import { AppError } from '../../utils/AppError.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
+import {
+  describePacsConfig,
+  fetchPacsStudyMetadata,
+} from './imagingPacsAdapterService.js';
 
 const MODULE_KEY = 'radiology_ai_interpretation';
 
@@ -175,6 +179,93 @@ export async function registerImagingStudy({
     JSON.stringify(metadata || {})
   );
   return rows[0];
+}
+
+export function getImagingPacsStatus({ tenantRegion = null } = {}) {
+  return describePacsConfig({ tenantRegion });
+}
+
+export async function importImagingStudyFromPacs({
+  req,
+  patientUid,
+  admissionId = null,
+  studyInstanceUid = null,
+  accessionNumber = null,
+  provider = null,
+  orderedBy = null,
+  metadata = {},
+} = {}) {
+  if (!patientUid) throw AppError.badRequest('patientUid is required');
+  if (!studyInstanceUid && !accessionNumber) {
+    throw AppError.badRequest('studyInstanceUid or accessionNumber is required');
+  }
+  const tenantId = resolveTenantId({ tenantId: req?.tenantId });
+  const lookup = await fetchPacsStudyMetadata({
+    studyInstanceUid,
+    accessionNumber,
+    provider,
+    tenantRegion: req?.tenant?.region || null,
+  });
+
+  if (lookup.status !== 'found') {
+    return {
+      imported: false,
+      pacs_status: lookup.status,
+      reason: lookup.reason,
+      provider: lookup.provider || provider || null,
+      api_mode: lookup.api_mode || null,
+      config: lookup.config || null,
+      module_key: MODULE_KEY,
+      decision_support_only: true,
+    };
+  }
+
+  const study = lookup.study;
+  const saved = await registerImagingStudy({
+    tenantId,
+    patientUid,
+    admissionId,
+    studyInstanceUid: study.study_instance_uid,
+    modality: study.modality,
+    bodyPart: study.body_part,
+    studyDate: study.study_date,
+    seriesCount: study.series_count,
+    instanceCount: study.instance_count,
+    pacsUrl: lookup.query_url || null,
+    sourceSystem: lookup.provider,
+    orderedBy: orderedBy || req?.user?.uid || null,
+    metadata: {
+      ...(metadata || {}),
+      pacs_lookup: {
+        status: lookup.status,
+        provider: lookup.provider,
+        api_mode: lookup.api_mode,
+        accession_number: study.accession_number,
+        study_description: study.study_description,
+        dicom_patient_identifier: study.dicom_patient_identifier,
+        dicom_patient_name_present: study.dicom_patient_name_present,
+        source_format: study.source_format,
+        pacs_study_id: study.pacs_study_id || null,
+      },
+    },
+  });
+
+  return {
+    imported: true,
+    pacs_status: lookup.status,
+    provider: lookup.provider,
+    api_mode: lookup.api_mode,
+    study: saved,
+    pacs_metadata: {
+      accession_number: study.accession_number,
+      study_description: study.study_description,
+      dicom_patient_identifier: study.dicom_patient_identifier,
+      dicom_patient_name_present: study.dicom_patient_name_present,
+      source_format: study.source_format,
+    },
+    module_key: MODULE_KEY,
+    decision_support_only: true,
+  };
 }
 
 /**
@@ -401,6 +492,8 @@ export async function listImagingFindings({ tenantId = null, decision = null, se
 export default {
   classifyInferenceResults,
   decideImagingFinding,
+  getImagingPacsStatus,
+  importImagingStudyFromPacs,
   ingestInferenceResult,
   listImagingFindings,
   registerImagingStudy,

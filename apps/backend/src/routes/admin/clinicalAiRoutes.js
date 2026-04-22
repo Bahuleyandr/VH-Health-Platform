@@ -81,6 +81,8 @@ import {
 } from '../../services/ai/trialCatalogSyncService.js';
 import {
   decideImagingFinding,
+  getImagingPacsStatus,
+  importImagingStudyFromPacs,
   ingestInferenceResult,
   listImagingFindings,
   registerImagingStudy,
@@ -1414,6 +1416,15 @@ router.patch('/virtual-ward/escalations/:id/resolve', async (req, res, next) => 
 // ---------------------------------------------------------------------------
 // Imaging AI — DICOM study register + inference ingestion + review
 // ---------------------------------------------------------------------------
+router.get('/imaging/pacs/status', async (req, res, next) => {
+  try {
+    const result = getImagingPacsStatus({ tenantRegion: req.tenant?.region || null });
+    return success(res, result, 'Imaging PACS adapter status retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
 router.post('/imaging/studies', async (req, res, next) => {
   try {
     const saved = await registerImagingStudy({
@@ -1434,6 +1445,31 @@ router.post('/imaging/studies', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_IMAGING_STUDY_REGISTERED', String(saved.id), null, saved);
     return success(res, saved, 'Imaging study registered', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/imaging/studies/import-pacs', async (req, res, next) => {
+  try {
+    const result = await importImagingStudyFromPacs({
+      req,
+      patientUid: req.body?.patient_uid,
+      admissionId: req.body?.admission_id,
+      studyInstanceUid: req.body?.study_instance_uid,
+      accessionNumber: req.body?.accession_number,
+      provider: req.body?.provider || null,
+      orderedBy: req.user?.uid || null,
+      metadata: req.body?.metadata || {},
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_IMAGING_PACS_IMPORT', String(result.study?.id || 'inline'), null, {
+      imported: result.imported,
+      pacs_status: result.pacs_status,
+      reason: result.reason || null,
+      provider: result.provider,
+      api_mode: result.api_mode,
+    });
+    return success(res, result, result.imported ? 'Imaging study imported from PACS' : 'Imaging PACS import skipped', result.imported ? 201 : 200);
   } catch (err) {
     return next(err);
   }
