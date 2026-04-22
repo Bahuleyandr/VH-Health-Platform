@@ -11,6 +11,7 @@ import {
   runOutputDefenses,
   temperatureForRisk,
 } from './hallucinationDefenses.js';
+import { retrieveRelevant } from './ragService.js';
 
 // Multi-tenant helper. Every query that writes to or reads from a tenant-scoped
 // clinical_ai_* table must pass tenantId. Null means "all tenants" and is only
@@ -634,6 +635,34 @@ export async function generateAdmissionAiDraft(admissionId, moduleKey, requested
   const context = await collectAdmissionClinicalContext(admissionId);
   const packet = buildChartPacket(context);
   const prompt = await getActivePrompt(key, { tenantId });
+
+  // RAG: pull up to 5 prior signed discharge summaries from THIS tenant
+  // that look semantically similar to the current admission. Graceful
+  // degradation — empty result is fine, the chart packet alone still
+  // grounds the draft.
+  const retrievalQuery = [
+    packet.admission.chief_complaint,
+    packet.admission.admitting_diagnosis,
+    (packet.active_diagnoses || []).map((d) => d.summary).slice(0, 3).join(' '),
+  ].filter(Boolean).join('. ');
+  const retrieved = await retrieveRelevant({
+    tenantId,
+    queryText: retrievalQuery,
+    filters: { sourceType: 'discharge_summary' },
+    topK: 5,
+    minScore: 0.65,
+  });
+  packet.retrieved_cases = (retrieved.results || []).map((row) => ({
+    source_type: row.source_type,
+    source_id: row.source_id,
+    similarity: Number(row.similarity).toFixed(3),
+    signed_at: row.signed_at,
+    snippet: String(row.content).slice(0, 400),
+  }));
+  const retrievedCitations = (retrieved.results || []).map((row) =>
+    citationFor(row.source_type, row.source_id, `Similar prior case (sim ${Number(row.similarity).toFixed(2)})`, row.signed_at)
+  );
+
   const fallbackDraft = buildAdmissionFallback(key, context);
   const snapshot = await saveContextSnapshot({
     tenantId,
@@ -650,8 +679,15 @@ export async function generateAdmissionAiDraft(admissionId, moduleKey, requested
     tenantRegion: req?.tenant?.region,
   });
   const draft = safeJsonParse(aiResult.text, fallbackDraft);
-  const citations = uniqueCitations(packet.citations);
+  const citations = uniqueCitations([...packet.citations, ...retrievedCitations]);
   const safetyFlags = buildCommonSafetyFlags(context, module, citations);
+  if (!retrieved.results?.length && retrieved.source === 'corpus_unavailable') {
+    safetyFlags.push({
+      severity: 'low',
+      code: 'RAG_UNAVAILABLE',
+      message: 'Institutional-memory corpus not available. Draft grounded only in current admission chart.',
+    });
+  }
   // Layer the hallucination-defense matrix on top — PHI leaks, unverified
   // numerics, and required-field schema violations surface as additional
   // flags that reviewers must triage.

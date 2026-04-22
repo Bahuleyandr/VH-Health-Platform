@@ -509,3 +509,71 @@ export async function runSelfHealingScan(scope: string = 'routine') {
 export async function listSelfHealingRuns() {
   return getJSON<{ runs: SelfHealingRun[]; count: number }>('/admin/clinical-ai/self-healing/runs');
 }
+
+export interface CorpusBySource {
+  source_type: string;
+  chunk_count: number;
+  document_count: number;
+  oldest_signed: string | null;
+  newest_signed: string | null;
+  expired_chunks: number;
+}
+
+export interface CorpusHealth {
+  by_source_type: CorpusBySource[];
+  total_chunks: number;
+  corpus_available: boolean;
+}
+
+export interface CorpusRetrievalRow {
+  id: number;
+  source_type: string;
+  source_id: string;
+  patient_uid: string | null;
+  content: string;
+  metadata: Record<string, unknown>;
+  signed_at: string | null;
+  similarity: number;
+}
+
+export async function getCorpusHealth() {
+  return getJSON<CorpusHealth>('/admin/clinical-ai/corpus');
+}
+
+export async function reindexCorpus(limit = 200) {
+  return postJSON<{ indexed: number; skipped: number; halted: boolean; reason?: string }>(
+    '/admin/clinical-ai/corpus/reindex',
+    { limit }
+  );
+}
+
+export async function testCorpusQuery(payload: {
+  query: string;
+  source_type?: string;
+  top_k?: number;
+  min_score?: number;
+}) {
+  return postJSON<{ results: CorpusRetrievalRow[]; source: string }>(
+    '/admin/clinical-ai/corpus/test-query',
+    payload
+  );
+}
+
+export interface DeadLetterRow {
+  id: number;
+  patient_uid: string | null;
+  patient_name: string | null;
+  admission_id: number | null;
+  task_type: string;
+  module_key: string;
+  provider: string;
+  model: string | null;
+  status: string;
+  safety_flags: Array<{ severity: string; code: string; message: string }>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export async function getDeadLetterQueue() {
+  return getJSON<{ generations: DeadLetterRow[]; count: number }>('/admin/clinical-ai/dead-letter');
+}

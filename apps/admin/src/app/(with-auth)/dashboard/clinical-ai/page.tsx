@@ -23,6 +23,8 @@ import {
   ApprovalsPanel,
   BreakGlassBanner,
   BreakGlassControls,
+  CorpusHealthPanel,
+  DeadLetterPanel,
   PromptRegistryPanel,
   ReviewQueuePanel,
   SelfHealingPanel,
@@ -586,6 +588,10 @@ export default function ClinicalAiGovernancePage() {
       <ApprovalsPanel currentAdminUid={user?.uid ?? null} />
 
       <BreakGlassControls />
+
+      <CorpusHealthPanel />
+
+      <DeadLetterPanel />
 
       <SelfHealingPanel />
 

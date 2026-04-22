@@ -30,6 +30,11 @@ import {
   listSelfHealingRuns,
   runSelfHealingScan,
 } from '../../services/ai/selfHealingService.js';
+import {
+  backfillSignedDischargeSummaries,
+  getCorpusHealth,
+  retrieveRelevant,
+} from '../../services/ai/ragService.js';
 
 const router = express.Router();
 const CLINICAL_AI_AUDIT_RESOURCE = 'clinical_ai';
@@ -565,6 +570,48 @@ router.get('/safety-flags', async (req, res, next) => {
     );
 
     return success(res, { flags: rows, count: rows.length }, 'Clinical AI safety flags retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * RAG corpus health — per-source-type chunk counts + staleness. Returns
+ * corpus_available:false if pgvector isn't installed (so the admin UI can
+ * show an install hint instead of a misleading zero).
+ */
+router.get('/corpus', async (req, res, next) => {
+  try {
+    const health = await getCorpusHealth({ tenantId: req.tenantId });
+    return success(res, health, 'Corpus health retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/corpus/reindex', async (req, res, next) => {
+  try {
+    const result = await backfillSignedDischargeSummaries({
+      tenantId: req.tenantId,
+      limit: req.body?.limit || 200,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_CORPUS_REINDEX', 'discharge_summary', null, result);
+    return success(res, result, 'Corpus reindex complete', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/corpus/test-query', async (req, res, next) => {
+  try {
+    const result = await retrieveRelevant({
+      tenantId: req.tenantId,
+      queryText: req.body?.query || '',
+      filters: { sourceType: req.body?.source_type || null },
+      topK: req.body?.top_k || 5,
+      minScore: req.body?.min_score || 0.5,
+    });
+    return success(res, result, 'Corpus query complete');
   } catch (err) {
     return next(err);
   }

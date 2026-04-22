@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, AlertOctagon, CheckCircle2, Clock, FileText, PlayCircle, Shield, XCircle } from "lucide-react";
+import { Activity, AlertOctagon, BookOpen, CheckCircle2, Clock, FileText, Inbox, PlayCircle, Search, Shield, XCircle } from "lucide-react";
 import { toast } from "react-hot-toast";
 import {
   activateClinicalAiPrompt,
@@ -13,14 +13,20 @@ import {
   getClinicalAiApprovals,
   getClinicalAiPrompts,
   getClinicalAiReviews,
+  getCorpusHealth,
+  getDeadLetterQueue,
   listSelfHealingRuns,
+  reindexCorpus,
   runSelfHealingScan,
   startBreakGlassSession,
+  testCorpusQuery,
   updateClinicalAiReview,
   type ClinicalAiApproval,
   type ClinicalAiBreakGlassSession,
   type ClinicalAiPrompt,
   type ClinicalAiReview,
+  type CorpusRetrievalRow,
+  type DeadLetterRow,
   type SelfHealingFinding,
   type SelfHealingRun,
 } from "@/lib/api/emr";
@@ -931,6 +937,260 @@ export function SelfHealingPanel() {
           Last scan: {rows[0].finished_at || rows[0].started_at} ({rows[0].status}) — {rows.length} runs in history.
         </div>
       ) : null}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// RAG corpus — institutional memory health, reindex trigger, test query.
+// Gracefully surfaces "pgvector not installed" state so ops knows to act.
+// ---------------------------------------------------------------------------
+export function CorpusHealthPanel() {
+  const queryClient = useQueryClient();
+  const [testQuery, setTestQuery] = useState("");
+  const [testResults, setTestResults] = useState<CorpusRetrievalRow[]>([]);
+  const [testStatus, setTestStatus] = useState<string>("");
+
+  const health = useQuery({
+    queryKey: ["clinical-ai", "corpus"],
+    queryFn: () => getCorpusHealth(),
+  });
+
+  const reindex = useMutation({
+    mutationFn: () => reindexCorpus(200),
+    onSuccess: (result) => {
+      if (result.halted) {
+        toast.error(`Reindex halted: ${result.reason || "unknown"}`);
+      } else {
+        toast.success(`Reindexed ${result.indexed} chunks (skipped ${result.skipped})`);
+      }
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "corpus"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Reindex failed"),
+  });
+
+  const probe = useMutation({
+    mutationFn: (query: string) =>
+      testCorpusQuery({
+        query,
+        source_type: "discharge_summary",
+        top_k: 5,
+        min_score: 0.5,
+      }),
+    onSuccess: (result) => {
+      setTestResults(result.results || []);
+      setTestStatus(result.source);
+    },
+    onError: (err: Error) => toast.error(err.message || "Query failed"),
+  });
+
+  if (health.data && !health.data.corpus_available) {
+    return (
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <BookOpen className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Institutional Memory (RAG)</h2>
+        </div>
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <div className="font-medium">pgvector not installed on this database.</div>
+          <p className="mt-1">
+            RAG retrieval is disabled. Drafts continue to generate using the current chart packet only.
+            Install <code className="rounded bg-amber-100 px-1 text-xs">pgvector</code> and re-run migration
+            <code className="rounded bg-amber-100 px-1 text-xs">015_rag_corpus.sql</code> to enable
+            institutional memory.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  const rows = health.data?.by_source_type ?? [];
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <BookOpen className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Institutional Memory (RAG)</h2>
+        </div>
+        <button
+          onClick={() => reindex.mutate()}
+          disabled={reindex.isPending}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
+        >
+          {reindex.isPending ? "Reindexing…" : "Reindex Signed Documents"}
+        </button>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Total chunks</div>
+          <div className="mt-1 text-2xl font-semibold">{health.data?.total_chunks ?? 0}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Source types</div>
+          <div className="mt-1 text-2xl font-semibold">{rows.length}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Expired chunks (past retention)</div>
+          <div className="mt-1 text-2xl font-semibold">
+            {rows.reduce((sum, row) => sum + Number(row.expired_chunks || 0), 0)}
+          </div>
+        </div>
+      </div>
+
+      {rows.length > 0 ? (
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50">
+              <tr>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Source type</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Documents</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Chunks</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Oldest signed</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Newest signed</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Expired</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {rows.map((row) => (
+                <tr key={row.source_type}>
+                  <td className="px-4 py-3 font-mono text-xs">{row.source_type}</td>
+                  <td className="px-4 py-3">{row.document_count}</td>
+                  <td className="px-4 py-3">{row.chunk_count}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.oldest_signed)}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.newest_signed)}</td>
+                  <td className="px-4 py-3">{row.expired_chunks}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+          No chunks indexed yet. Reindex to backfill from signed discharge summaries.
+        </div>
+      )}
+
+      <div className="rounded-lg border border-border bg-muted/20 p-4">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Search className="h-4 w-4" />
+          Test query
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Dry-run a retrieval. Pulls up to 5 similar discharge summaries from this tenant&apos;s corpus.
+        </p>
+        <div className="mt-2 flex gap-2">
+          <input
+            value={testQuery}
+            onChange={(event) => setTestQuery(event.target.value)}
+            placeholder="e.g. community acquired pneumonia, diabetic ketoacidosis"
+            className="flex-1 rounded-md border border-border bg-card px-2 py-1 text-sm"
+          />
+          <button
+            onClick={() => probe.mutate(testQuery)}
+            disabled={!testQuery.trim() || probe.isPending}
+            className="rounded-md border border-border bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {probe.isPending ? "Searching…" : "Search"}
+          </button>
+        </div>
+        {testStatus ? (
+          <div className="mt-2 text-xs text-muted-foreground">
+            Status: <span className="font-mono">{testStatus}</span>
+            {testResults.length > 0 ? ` — ${testResults.length} hit(s)` : ""}
+          </div>
+        ) : null}
+        {testResults.length > 0 ? (
+          <ul className="mt-2 space-y-2 text-xs">
+            {testResults.map((row) => (
+              <li key={row.id} className="rounded border border-border bg-card p-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono">{row.source_type} / {row.source_id}</span>
+                  <span className="text-muted-foreground">sim {Number(row.similarity).toFixed(2)}</span>
+                </div>
+                <p className="mt-1 line-clamp-3 text-muted-foreground">{row.content}</p>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Dead-letter queue — drafts blocked by CRITICAL defense flags. Admin
+// triage only; never auto-accepted.
+// ---------------------------------------------------------------------------
+export function DeadLetterPanel() {
+  const dead = useQuery({
+    queryKey: ["clinical-ai", "dead-letter"],
+    queryFn: () => getDeadLetterQueue(),
+    refetchInterval: 120_000,
+  });
+
+  const rows: DeadLetterRow[] = dead.data?.generations ?? [];
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Inbox className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-lg font-semibold">Dead-Letter Queue</h2>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Drafts that tripped a critical defense (PHI leak, unsafe allergy, schema fail) are held here.
+        They never reach reviewers; a platform admin must investigate and document the root cause.
+      </p>
+      {rows.length === 0 ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+          No blocked drafts.
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50">
+              <tr>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Module</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Patient</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Provider</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Blocking flag</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">When</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {rows.map((row) => {
+                const critical = (row.safety_flags || []).find((f) => f.severity === "critical")
+                  ?? row.safety_flags?.[0];
+                return (
+                  <tr key={row.id}>
+                    <td className="px-4 py-3">
+                      <div className="font-medium">{row.module_key}</div>
+                      <div className="text-xs text-muted-foreground font-mono">gen #{row.id}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div>{row.patient_name ?? "-"}</div>
+                      <div className="text-xs text-muted-foreground">{row.patient_uid ?? ""}</div>
+                    </td>
+                    <td className="px-4 py-3 text-xs">{row.provider}</td>
+                    <td className="px-4 py-3">
+                      {critical ? (
+                        <>
+                          <div className="font-mono text-xs text-red-800">{critical.code}</div>
+                          <div className="text-xs text-muted-foreground">{critical.message}</div>
+                        </>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">-</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.created_at)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }
