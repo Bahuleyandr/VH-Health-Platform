@@ -1435,6 +1435,94 @@ export async function generateAbnormalResultTriage(admissionId: number) {
 }
 
 // ---------------------------------------------------------------------------
+// Infection control sentinel
+// ---------------------------------------------------------------------------
+export type InfectionControlRiskBand = 'low' | 'medium' | 'high' | 'critical' | 'unknown';
+export type InfectionControlDecision = 'pending' | 'acknowledged' | 'escalated' | 'dismissed';
+
+export interface InfectionControlSignal {
+  severity: 'low' | 'medium' | 'high' | 'critical' | string;
+  code: string;
+  category: string;
+  title: string;
+  recommendation: string;
+  evidence?: Array<Record<string, unknown>>;
+}
+
+export interface InfectionControlAudit {
+  id: number;
+  tenant_id?: string;
+  admission_id: number;
+  patient_uid: string | null;
+  patient_name?: string | null;
+  generation_id: number | null;
+  risk_score: number;
+  risk_band: InfectionControlRiskBand;
+  signals: InfectionControlSignal[];
+  recommendations: Array<{ code: string; severity: string; recommendation: string }>;
+  stewardship_flags: InfectionControlSignal[];
+  isolation_flags: InfectionControlSignal[];
+  source_citations: Array<{ source_type: string; source_id: string | null; label: string; timestamp?: string | null }>;
+  safety_flags: Array<{ severity: string; code: string; message: string }>;
+  reviewer_decision: InfectionControlDecision;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  reviewer_note?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at?: string;
+}
+
+export async function listInfectionControlAudits(params: {
+  admissionId?: number | string;
+  patientUid?: string;
+  decision?: string;
+  riskBand?: string;
+  limit?: number;
+} = {}) {
+  const query: Record<string, string> = {};
+  if (params.admissionId) query.admission_id = String(params.admissionId);
+  if (params.patientUid) query.patient_uid = params.patientUid;
+  if (params.decision) query.decision = params.decision;
+  if (params.riskBand) query.risk_band = params.riskBand;
+  if (params.limit) query.limit = String(params.limit);
+  return getJSON<{ audits: InfectionControlAudit[]; count: number }>(
+    '/admin/clinical-ai/infection-control/audits',
+    query
+  );
+}
+
+export async function generateInfectionControlAudit(admissionId: number) {
+  return postJSON<{
+    audit_id: number | null;
+    generation_id: number | null;
+    review_id: number | null;
+    draft: {
+      risk_score: number;
+      risk_band: InfectionControlRiskBand;
+      signals: InfectionControlSignal[];
+      recommendations: Array<{ code: string; severity: string; recommendation: string }>;
+      stewardship_flags: InfectionControlSignal[];
+      isolation_flags: InfectionControlSignal[];
+      summary?: string;
+    };
+    module_key: string;
+    prompt_version: string;
+    source_citations: Array<{ source_type: string; source_id: string | null; label: string; timestamp?: string | null }>;
+    safety_flags: Array<{ severity: string; code: string; message: string }>;
+    review_status: string;
+    requires_signoff: boolean;
+  }>('/admin/clinical-ai/infection-control/audits', { admission_id: admissionId });
+}
+
+export async function decideInfectionControlAudit(id: number, decision: Exclude<InfectionControlDecision, 'pending'>, note?: string) {
+  return fetchAdminAPI<InfectionControlAudit>(`/admin/clinical-ai/infection-control/audits/${id}`, {
+    method: 'PATCH',
+    body: { decision, note },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Ambient clinical documentation
 // ---------------------------------------------------------------------------
 export interface AmbientEncounter {

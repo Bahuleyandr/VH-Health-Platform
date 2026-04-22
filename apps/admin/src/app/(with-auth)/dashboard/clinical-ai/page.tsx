@@ -41,6 +41,7 @@ import {
   DocumentIntelligencePanel,
   DriftCanaryPanel,
   ImagingAIPanel,
+  InfectionControlSentinelPanel,
   PolypharmacyPanel,
   PrivacySentinelPanel,
   PriorAuthorizationPanel,
@@ -638,6 +639,8 @@ export default function ClinicalAiGovernancePage() {
       <ChartCompletionPanel />
 
       <AbnormalResultTriagePanel />
+
+      <InfectionControlSentinelPanel />
 
       <PrivacySentinelPanel />
 

@@ -557,6 +557,23 @@ export const CLINICAL_AI_MODULES = [
     },
   },
   {
+    module_key: 'infection_control_sentinel',
+    display_name: 'Infection Control Sentinel',
+    description: 'Flags possible HAI, isolation, culture, and antimicrobial-stewardship risks from cited inpatient chart evidence for infection-control review.',
+    enabled: false,
+    settings: {
+      surface: 'infection_control',
+      risk: 'high',
+      status: 'available',
+      requiresClinicianSignoff: true,
+      requiresCitations: true,
+      reviewRoles: ['INFECTION_CONTROL', 'DOCTOR', 'NURSING_STAFF', 'PHARMACIST', 'ADMIN'],
+      approvalPolicy: 'infection_control_review',
+      outputSchema: { type: 'object', required: ['risk_score', 'risk_band', 'signals', 'recommendations'] },
+      retentionDays: 3650,
+    },
+  },
+  {
     module_key: 'virtual_ward_triage',
     display_name: 'Virtual Ward Triage',
     description: 'Post-discharge daily symptom + wearable check-in pipeline. Auto-triages green/amber/red and queues red escalations for care manager.',

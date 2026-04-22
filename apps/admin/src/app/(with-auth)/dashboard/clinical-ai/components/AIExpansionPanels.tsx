@@ -27,6 +27,7 @@ import { toast } from "react-hot-toast";
 import {
   acknowledgeVirtualWardEscalation,
   decideChartCompletionAudit,
+  decideInfectionControlAudit,
   decidePrivacySentinelAudit,
   concludePromptExperiment,
   decideChargeCaptureAudit,
@@ -38,6 +39,7 @@ import {
   decideTrialMatch,
   generateAbnormalResultTriage,
   generateChartCompletionAudit,
+  generateInfectionControlAudit,
   generateRosterSuggestion,
   ingestDocumentIntake,
   listAbnormalResultTriages,
@@ -48,6 +50,7 @@ import {
   listDeteriorationSnapshots,
   listDocumentIntakes,
   listImagingFindings,
+  listInfectionControlAudits,
   listPolypharmacyReviews,
   listPrivacySentinelAudits,
   listPriorAuthorizations,
@@ -77,6 +80,8 @@ import {
   type DocumentIntake,
   type ImagingFinding,
   type ImagingSeverity,
+  type InfectionControlAudit,
+  type InfectionControlRiskBand,
   type PolypharmacyReview,
   type PrivacySentinelAudit,
   type PrivacySentinelRiskBand,
@@ -172,6 +177,7 @@ function documentFactCount(row: DocumentIntake) {
 const CHART_RISK_BANDS: ChartGapRiskBand[] = ["critical", "high", "medium", "low"];
 const PRIVACY_RISK_BANDS: PrivacySentinelRiskBand[] = ["critical", "high", "medium", "low"];
 const ABNORMAL_TRIAGE_BANDS: AbnormalTriageBand[] = ["critical", "urgent", "watch", "routine"];
+const INFECTION_RISK_BANDS: InfectionControlRiskBand[] = ["critical", "high", "medium", "low"];
 
 function chartRiskClass(risk: string) {
   if (risk === "critical") return "bg-red-100 text-red-800 border-red-200";
@@ -868,6 +874,226 @@ export function AbnormalResultTriagePanel() {
                       {row.review_status || "pending"}
                     </span>
                     <div className="mt-1 text-xs text-muted-foreground">{fmt(row.created_at)}</div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Infection Control Sentinel
+// ---------------------------------------------------------------------------
+export function InfectionControlSentinelPanel() {
+  const queryClient = useQueryClient();
+  const [admissionId, setAdmissionId] = useState("");
+  const [admissionFilter, setAdmissionFilter] = useState("");
+  const [riskFilter, setRiskFilter] = useState<InfectionControlRiskBand | "">("");
+  const [decisionFilter, setDecisionFilter] = useState("pending");
+
+  const audits = useQuery({
+    queryKey: ["clinical-ai", "infection-control", admissionFilter, riskFilter, decisionFilter],
+    queryFn: () =>
+      listInfectionControlAudits({
+        admissionId: admissionFilter.trim() || undefined,
+        riskBand: riskFilter || undefined,
+        decision: decisionFilter || undefined,
+        limit: 50,
+      }),
+  });
+  const generate = useMutation({
+    mutationFn: () => generateInfectionControlAudit(Number.parseInt(admissionId.trim(), 10)),
+    onSuccess: (result) => {
+      toast.success(`Infection-control audit: ${result.draft.risk_band} risk`);
+      setAdmissionId("");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "infection-control"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "reviews"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "usage"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Infection-control audit failed"),
+  });
+  const decide = useMutation({
+    mutationFn: ({ id, decision }: { id: number; decision: "acknowledged" | "escalated" | "dismissed" }) =>
+      decideInfectionControlAudit(id, decision),
+    onSuccess: () => {
+      toast.success("Infection-control review saved");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "infection-control"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Infection-control review failed"),
+  });
+
+  const rows: InfectionControlAudit[] = audits.data?.audits ?? [];
+  const criticalOrHigh = rows.filter((row) => row.risk_band === "critical" || row.risk_band === "high").length;
+  const stewardshipCount = rows.reduce((sum, row) => sum + (row.stewardship_flags?.length || 0), 0);
+  const isolationCount = rows.reduce((sum, row) => sum + (row.isolation_flags?.length || 0), 0);
+  const canGenerate = Number.isFinite(Number.parseInt(admissionId.trim(), 10));
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <Microscope className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Infection Control Sentinel</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={admissionFilter}
+            onChange={(event) => setAdmissionFilter(event.target.value)}
+            placeholder="admission"
+            inputMode="numeric"
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          />
+          <select
+            value={riskFilter}
+            onChange={(event) => setRiskFilter(event.target.value as InfectionControlRiskBand | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All risk</option>
+            {INFECTION_RISK_BANDS.map((band) => (
+              <option key={band} value={band}>{band}</option>
+            ))}
+          </select>
+          <select
+            value={decisionFilter}
+            onChange={(event) => setDecisionFilter(event.target.value)}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All review</option>
+            <option value="pending">pending</option>
+            <option value="acknowledged">acknowledged</option>
+            <option value="escalated">escalated</option>
+            <option value="dismissed">dismissed</option>
+          </select>
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Critical / high</div>
+          <div className="mt-1 text-2xl font-semibold text-orange-700">{criticalOrHigh}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Stewardship flags</div>
+          <div className="mt-1 text-2xl font-semibold">{stewardshipCount}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Isolation flags</div>
+          <div className="mt-1 text-2xl font-semibold text-red-700">{isolationCount}</div>
+        </div>
+      </div>
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Admission ID</span>
+            <input
+              value={admissionId}
+              onChange={(event) => setAdmissionId(event.target.value)}
+              inputMode="numeric"
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <button
+            onClick={() => generate.mutate()}
+            disabled={generate.isPending || !canGenerate}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+          >
+            <PlayCircle className="h-4 w-4" />
+            {generate.isPending ? "Scanning..." : "Run Sentinel"}
+          </button>
+        </div>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Admission</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Risk</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Signals</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Evidence</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Review</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
+                  No infection-control audits found
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">admission #{row.admission_id}</div>
+                    <div className="font-mono text-xs text-muted-foreground">{row.patient_uid || "-"}</div>
+                    {row.patient_name ? <div className="text-xs text-muted-foreground">{row.patient_name}</div> : null}
+                    <div className="font-mono text-xs text-muted-foreground">audit #{row.id}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-lg font-semibold">{row.risk_score}</div>
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${chartRiskClass(row.risk_band)}`}>
+                      {row.risk_band}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="max-w-xl space-y-1 text-xs">
+                      {(row.signals || []).slice(0, 4).map((signal) => (
+                        <div key={`${row.id}-${signal.code}`} className="flex flex-wrap items-center gap-1.5">
+                          <span className={`rounded-full border px-2 py-0.5 font-medium ${severityBadgeClass(signal.severity)}`}>
+                            {signal.severity}
+                          </span>
+                          <span>{signal.title}</span>
+                        </div>
+                      ))}
+                      {(row.signals || []).length > 4 ? (
+                        <div className="text-muted-foreground">+{row.signals.length - 4} more</div>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-xs text-muted-foreground">
+                      {(row.source_citations || []).length} citations / {(row.safety_flags || []).length} safety flags
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {(row.stewardship_flags || []).length} stewardship / {(row.isolation_flags || []).length} isolation
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">{fmt(row.created_at)}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${documentStatusClass(row.reviewer_decision)}`}>
+                      {row.reviewer_decision}
+                    </span>
+                    {row.reviewer_decision === "pending" ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "acknowledged" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                        >
+                          Ack
+                        </button>
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "escalated" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-orange-200 bg-orange-50 px-2 py-1 text-xs font-medium text-orange-800 hover:bg-orange-100 disabled:opacity-50"
+                        >
+                          Escalate
+                        </button>
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "dismissed" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-1 text-xs text-muted-foreground">{fmt(row.reviewed_at)}</div>
+                    )}
                   </td>
                 </tr>
               ))
