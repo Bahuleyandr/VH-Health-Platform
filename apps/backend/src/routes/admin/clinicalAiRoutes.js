@@ -35,6 +35,7 @@ import {
   getCorpusHealth,
   retrieveRelevant,
 } from '../../services/ai/ragService.js';
+import { listTranslations } from '../../services/ai/translationService.js';
 
 const router = express.Router();
 const CLINICAL_AI_AUDIT_RESOURCE = 'clinical_ai';
@@ -612,6 +613,55 @@ router.post('/corpus/test-query', async (req, res, next) => {
       minScore: req.body?.min_score || 0.5,
     });
     return success(res, result, 'Corpus query complete');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * M4 — tenant-scoped translation list for admin dashboard.
+ */
+router.get('/translations', async (req, res, next) => {
+  try {
+    const result = await listTranslations({
+      tenantId: req.tenantId,
+      targetLanguage: req.query?.language || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Clinical AI translations retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * M5 — recent longitudinal risk snapshots for the admin overview. Returns
+ * the most recent snapshot per admission, banded. Used to triage which
+ * patients need care-manager attention.
+ */
+router.get('/longitudinal-risk', async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
+    const band = req.query.band ? String(req.query.band).toLowerCase() : null;
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT DISTINCT ON (r.admission_id)
+              r.id, r.admission_id, r.patient_uid, u.name AS patient_name,
+              r.overall_score, r.band, r.adherence_score, r.adherence_source,
+              r.readmission_score, r.comorbidity_score, r.abdm_enrichment,
+              r.recommendations, r.created_at
+       FROM clinical_longitudinal_risk r
+       LEFT JOIN users u ON u.uid = r.patient_uid
+       WHERE r.tenant_id = $1::uuid
+         AND ($2::text IS NULL OR r.band = $2)
+       ORDER BY r.admission_id, r.created_at DESC`,
+      req.tenantId,
+      band
+    ).catch(() => []);
+    const bandOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+    const sorted = rows
+      .sort((a, b) => (bandOrder[a.band] ?? 4) - (bandOrder[b.band] ?? 4))
+      .slice(0, limit);
+    return success(res, { snapshots: sorted, count: sorted.length }, 'Longitudinal risk overview retrieved');
   } catch (err) {
     return next(err);
   }

@@ -25,9 +25,11 @@ import {
   BreakGlassControls,
   CorpusHealthPanel,
   DeadLetterPanel,
+  LongitudinalRiskPanel,
   PromptRegistryPanel,
   ReviewQueuePanel,
   SelfHealingPanel,
+  TranslationsPanel,
 } from "./components/GovernancePanels";
 
 function fmt(value?: string | null) {
@@ -590,6 +592,10 @@ export default function ClinicalAiGovernancePage() {
       <BreakGlassControls />
 
       <CorpusHealthPanel />
+
+      <LongitudinalRiskPanel />
+
+      <TranslationsPanel />
 
       <DeadLetterPanel />
 

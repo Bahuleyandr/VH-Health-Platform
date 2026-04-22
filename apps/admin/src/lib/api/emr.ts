@@ -577,3 +577,60 @@ export interface DeadLetterRow {
 export async function getDeadLetterQueue() {
   return getJSON<{ generations: DeadLetterRow[]; count: number }>('/admin/clinical-ai/dead-letter');
 }
+
+export interface TranslationFidelityFlag {
+  severity: string;
+  code: string;
+  message: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface TranslationRow {
+  id: number;
+  source_generation_id: number;
+  source_language: string;
+  target_language: string;
+  provider: string;
+  model: string | null;
+  status: 'completed' | 'failed' | 'needs_review';
+  fidelity_flags: TranslationFidelityFlag[];
+  module_key: string | null;
+  patient_uid: string | null;
+  created_at: string;
+}
+
+export async function getClinicalAiTranslations(language?: string) {
+  const query: Record<string, string> = {};
+  if (language) query.language = language;
+  return getJSON<{ translations: TranslationRow[]; count: number }>(
+    '/admin/clinical-ai/translations',
+    query
+  );
+}
+
+export type RiskBand = 'low' | 'medium' | 'high' | 'critical';
+
+export interface LongitudinalRiskSnapshot {
+  id: number;
+  admission_id: number;
+  patient_uid: string | null;
+  patient_name: string | null;
+  overall_score: number;
+  band: RiskBand;
+  adherence_score: number | null;
+  adherence_source: string | null;
+  readmission_score: number | null;
+  comorbidity_score: number | null;
+  abdm_enrichment: Record<string, unknown>;
+  recommendations: Array<{ severity: string; category: string; message: string }>;
+  created_at: string;
+}
+
+export async function getLongitudinalRiskOverview(band?: RiskBand) {
+  const query: Record<string, string> = {};
+  if (band) query.band = band;
+  return getJSON<{ snapshots: LongitudinalRiskSnapshot[]; count: number }>(
+    '/admin/clinical-ai/longitudinal-risk',
+    query
+  );
+}

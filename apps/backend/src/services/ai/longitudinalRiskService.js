@@ -140,33 +140,81 @@ async function scoreComorbidities({ tenantId, patientUid }) {
 }
 
 async function fetchAbdmEnrichment(patientUid) {
-  // Cheap read — only pull if there's an active consent. Never blocks the
-  // risk card on an ABDM network call; if the call fails, return empty.
+  // Cheap read — never blocks the risk card on a network call. Checks the
+  // ABDM-specific consent + data-request tables to surface:
+  //   - whether the patient has an active ABDM consent artifact
+  //   - how many prior data pulls (abdm_data_requests) were DELIVERED
+  //   - count of prior health records fetched into the local store
+  // Any failure returns an empty enrichment with a structured reason code
+  // so the risk-card UI can show "ABDM enrichment unavailable" instead of
+  // silently omitting the signal.
+  const enrichment = {
+    abdm_active_consents: 0,
+    abdm_delivered_requests: 0,
+    abdm_last_delivery_at: null,
+    local_patient_consents: 0,
+    enrichment_available: false,
+    reason: 'no_data',
+  };
+
   try {
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*)::int AS active_consents
+    const [abdmConsentRow] = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS active
+       FROM abdm_consents
+       WHERE patient_uid = $1::uuid
+         AND status = 'ACTIVE'`,
+      patientUid
+    ).catch(() => [{ active: 0 }]);
+    enrichment.abdm_active_consents = Number(abdmConsentRow?.active || 0);
+  } catch (err) {
+    logger.debug('ABDM consent lookup failed', { error: err.message });
+  }
+
+  try {
+    const [abdmRequestRow] = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS delivered,
+              MAX(delivered_at) AS last_delivered
+       FROM abdm_data_requests
+       WHERE patient_uid = $1::uuid
+         AND status = 'DELIVERED'`,
+      patientUid
+    ).catch(() => [{ delivered: 0, last_delivered: null }]);
+    enrichment.abdm_delivered_requests = Number(abdmRequestRow?.delivered || 0);
+    enrichment.abdm_last_delivery_at = abdmRequestRow?.last_delivered || null;
+  } catch (err) {
+    logger.debug('ABDM delivered-request lookup failed', { error: err.message });
+  }
+
+  try {
+    const [patientConsentRow] = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS active
        FROM patient_consents
        WHERE patient_uid = $1::uuid
          AND status = 'active'
          AND consent_type IN ('abdm', 'treatment')`,
       patientUid
-    );
-    const activeConsents = Number(rows[0]?.active_consents || 0);
-    return {
-      active_consents: activeConsents,
-      records_pulled: 0,
-      enrichment_available: activeConsents > 0,
-      reason: activeConsents > 0
-        ? 'consent_active_fetch_pending'
-        : 'no_active_consent',
-    };
+    ).catch(() => [{ active: 0 }]);
+    enrichment.local_patient_consents = Number(patientConsentRow?.active || 0);
   } catch (err) {
-    logger.debug('ABDM consent lookup failed', { error: err.message });
-    return { active_consents: 0, records_pulled: 0, enrichment_available: false, reason: 'lookup_failed' };
+    logger.debug('Patient consent lookup failed', { error: err.message });
   }
+
+  const hasAbdmSignal = enrichment.abdm_active_consents > 0 || enrichment.abdm_delivered_requests > 0;
+  enrichment.enrichment_available = hasAbdmSignal || enrichment.local_patient_consents > 0;
+  if (enrichment.abdm_delivered_requests > 0) {
+    enrichment.reason = 'abdm_records_available';
+  } else if (enrichment.abdm_active_consents > 0) {
+    enrichment.reason = 'abdm_consent_active_no_records_yet';
+  } else if (enrichment.local_patient_consents > 0) {
+    enrichment.reason = 'local_consent_only';
+  } else {
+    enrichment.reason = 'no_active_consent';
+  }
+
+  return enrichment;
 }
 
-function buildRecommendations({ overall, adherence, readmission, comorbidity }) {
+function buildRecommendations({ overall, adherence, readmission, comorbidity, abdm }) {
   const recs = [];
   if (adherence?.score >= 60) {
     recs.push({
@@ -194,6 +242,22 @@ function buildRecommendations({ overall, adherence, readmission, comorbidity }) 
       severity: 'critical',
       category: 'escalation',
       message: 'Overall risk band is CRITICAL. Discuss care-manager referral and enhanced follow-up cadence.',
+    });
+  }
+  // ABDM-aware recommendations: surface prior external-facility data when we
+  // have it, or flag the consent path when risk is elevated but no records
+  // have been pulled yet.
+  if (abdm?.abdm_delivered_requests > 0 && overall.score >= 40) {
+    recs.push({
+      severity: 'medium',
+      category: 'abdm',
+      message: `ABDM records previously pulled (${abdm.abdm_delivered_requests}). Review prior external-facility history before discharge planning.`,
+    });
+  } else if (abdm?.abdm_active_consents > 0 && abdm?.abdm_delivered_requests === 0 && overall.score >= 60) {
+    recs.push({
+      severity: 'medium',
+      category: 'abdm',
+      message: 'Patient has an active ABDM consent but no records pulled yet. Trigger a data-pull to enrich risk assessment.',
     });
   }
   return recs;
@@ -268,6 +332,7 @@ export async function scoreLongitudinalRisk({ admissionId, req = null } = {}) {
     adherence: { score: adherenceScore },
     readmission,
     comorbidity,
+    abdm,
   });
 
   let snapshotId = null;

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, AlertOctagon, BookOpen, CheckCircle2, Clock, FileText, Inbox, PlayCircle, Search, Shield, XCircle } from "lucide-react";
+import { Activity, AlertOctagon, BookOpen, CheckCircle2, Clock, FileText, Globe2, HeartPulse, Inbox, PlayCircle, Search, Shield, XCircle } from "lucide-react";
 import { toast } from "react-hot-toast";
 import {
   activateClinicalAiPrompt,
@@ -13,8 +13,10 @@ import {
   getClinicalAiApprovals,
   getClinicalAiPrompts,
   getClinicalAiReviews,
+  getClinicalAiTranslations,
   getCorpusHealth,
   getDeadLetterQueue,
+  getLongitudinalRiskOverview,
   listSelfHealingRuns,
   reindexCorpus,
   runSelfHealingScan,
@@ -27,8 +29,11 @@ import {
   type ClinicalAiReview,
   type CorpusRetrievalRow,
   type DeadLetterRow,
+  type LongitudinalRiskSnapshot,
+  type RiskBand,
   type SelfHealingFinding,
   type SelfHealingRun,
+  type TranslationRow,
 } from "@/lib/api/emr";
 
 function fmt(value?: string | null) {
@@ -1191,6 +1196,244 @@ export function DeadLetterPanel() {
           </table>
         </div>
       )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Translations — tenant-wide roll-up of completed + flagged translations.
+// Status needs_review flags translations that tripped a fidelity check,
+// so ops can triage before the patient-facing surface renders them.
+// ---------------------------------------------------------------------------
+const LANGUAGE_LABELS: Record<string, string> = {
+  en: "English",
+  hi: "Hindi",
+  ta: "Tamil",
+  te: "Telugu",
+  ml: "Malayalam",
+  mr: "Marathi",
+  bn: "Bengali",
+  kn: "Kannada",
+};
+
+function translationStatusClass(status: string) {
+  if (status === "completed") return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  if (status === "needs_review") return "bg-amber-100 text-amber-800 border-amber-200";
+  return "bg-red-100 text-red-800 border-red-200";
+}
+
+export function TranslationsPanel() {
+  const [languageFilter, setLanguageFilter] = useState<string>("");
+  const translations = useQuery({
+    queryKey: ["clinical-ai", "translations", languageFilter],
+    queryFn: () => getClinicalAiTranslations(languageFilter || undefined),
+  });
+
+  const rows: TranslationRow[] = translations.data?.translations ?? [];
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <Globe2 className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Patient Translations</h2>
+        </div>
+        <select
+          value={languageFilter}
+          onChange={(event) => setLanguageFilter(event.target.value)}
+          className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+        >
+          <option value="">All languages</option>
+          {Object.entries(LANGUAGE_LABELS).filter(([code]) => code !== "en").map(([code, label]) => (
+            <option key={code} value={code}>{label} ({code})</option>
+          ))}
+        </select>
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        Only reviewer-accepted drafts are translated. Rows marked <strong>needs_review</strong> tripped a
+        numeric/date/drug fidelity check and must not be shown to the patient until a clinician reconfirms.
+      </p>
+
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Module</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Target</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Provider</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Fidelity</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Created</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
+                  No translations yet
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{row.module_key ?? "-"}</div>
+                    <div className="text-xs text-muted-foreground font-mono">
+                      source gen #{row.source_generation_id}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium">
+                      {LANGUAGE_LABELS[row.target_language] ?? row.target_language}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs">{row.provider}</td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${translationStatusClass(row.status)}`}>
+                      {row.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {row.fidelity_flags.length === 0 ? (
+                      <span className="text-xs text-emerald-700">All tuples preserved</span>
+                    ) : (
+                      <ul className="space-y-1">
+                        {row.fidelity_flags.slice(0, 3).map((flag, idx) => (
+                          <li key={idx} className={`text-xs ${flag.severity === "high" ? "text-red-800" : "text-amber-800"}`}>
+                            <span className="font-mono">{flag.code}</span>: {flag.message}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.created_at)}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Longitudinal risk overview — tenant-wide roll-up of the most recent
+// risk snapshot per admission, banded. Shows only high + critical by
+// default so leadership can zero in on the patients who need care-
+// manager attention.
+// ---------------------------------------------------------------------------
+function riskBandClass(band: string) {
+  if (band === "critical") return "bg-red-200 text-red-900 border-red-300";
+  if (band === "high") return "bg-orange-100 text-orange-800 border-orange-200";
+  if (band === "medium") return "bg-amber-100 text-amber-800 border-amber-200";
+  return "bg-emerald-100 text-emerald-800 border-emerald-200";
+}
+
+function scoreColorClass(score: number) {
+  if (score >= 85) return "text-red-700";
+  if (score >= 60) return "text-orange-700";
+  if (score >= 30) return "text-amber-700";
+  return "text-emerald-700";
+}
+
+export function LongitudinalRiskPanel() {
+  const [bandFilter, setBandFilter] = useState<RiskBand | "">("high");
+  const snapshots = useQuery({
+    queryKey: ["clinical-ai", "longitudinal-risk", bandFilter],
+    queryFn: () => getLongitudinalRiskOverview(bandFilter || undefined),
+  });
+
+  const rows: LongitudinalRiskSnapshot[] = snapshots.data?.snapshots ?? [];
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <HeartPulse className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Longitudinal Risk Overview</h2>
+        </div>
+        <select
+          value={bandFilter}
+          onChange={(event) => setBandFilter(event.target.value as RiskBand | "")}
+          className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+        >
+          <option value="critical">Critical only</option>
+          <option value="high">High + critical candidates</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+          <option value="">All bands</option>
+        </select>
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        Decision-support only. Each snapshot is immutable; recomputing creates a new snapshot with a new timestamp.
+      </p>
+
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Patient</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Admission</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Band</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Score</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Contributors</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Top recommendation</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">When</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={7}>
+                  No snapshots in this band yet
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => {
+                const topRec = row.recommendations?.[0];
+                return (
+                  <tr key={row.id}>
+                    <td className="px-4 py-3">
+                      <div className="font-medium">{row.patient_name ?? "-"}</div>
+                      <div className="text-xs text-muted-foreground">{row.patient_uid ?? ""}</div>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs">#{row.admission_id}</td>
+                    <td className="px-4 py-3">
+                      <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${riskBandClass(row.band)}`}>
+                        {row.band}
+                      </span>
+                    </td>
+                    <td className={`px-4 py-3 font-semibold ${scoreColorClass(row.overall_score)}`}>
+                      {Number(row.overall_score).toFixed(0)}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      adh {Number(row.adherence_score ?? 0).toFixed(0)}
+                      {" · "}
+                      rd {Number(row.readmission_score ?? 0).toFixed(0)}
+                      {" · "}
+                      cmb {Number(row.comorbidity_score ?? 0).toFixed(0)}
+                    </td>
+                    <td className="px-4 py-3 text-xs">
+                      {topRec ? (
+                        <div className="max-w-md">
+                          <div className="font-mono text-muted-foreground">{topRec.category}</div>
+                          <div>{topRec.message}</div>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.created_at)}</td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }
