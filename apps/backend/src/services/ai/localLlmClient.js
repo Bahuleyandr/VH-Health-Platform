@@ -393,10 +393,10 @@ export function getClinicalAiConfig() {
   return serializeClinicalAiConfig(config, readiness);
 }
 
-export async function generateClinicalText({ systemPrompt, userPrompt, taskType, tenantRegion = null }) {
-  const module = await getClinicalAiModule(taskType);
+export async function generateClinicalText({ systemPrompt, userPrompt, taskType, tenantRegion = null, tenantId = null }) {
+  const module = await getClinicalAiModule(taskType, { tenantId });
   const guardrails = await getClinicalAiGuardrails();
-  const budgetStatus = await getClinicalAiBudgetStatus({ days: 1, guardrails });
+  const budgetStatus = await getClinicalAiBudgetStatus({ days: 1, guardrails, tenantId });
   const config = getProviderConfig(module, guardrails);
   const readiness = getReadiness(config, budgetStatus);
   const baseUsage = emptyUsage();
@@ -524,7 +524,7 @@ async function probeProvider(config) {
 }
 
 export async function getClinicalAiRuntimeStatus({ live = false, days = 7, tenantId = null } = {}) {
-  const modules = await listClinicalAiModules();
+  const modules = await listClinicalAiModules({ tenantId });
   const guardrails = await getClinicalAiGuardrails();
   const config = getProviderConfig(null, guardrails);
   const usage = await getClinicalAiUsageSummary({ days, tenantId });

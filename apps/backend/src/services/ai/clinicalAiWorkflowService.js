@@ -595,8 +595,8 @@ async function createReviewPlaceholder({ tenantId = null, generationId, module, 
   }
 }
 
-async function requireEnabledModule(moduleKey) {
-  const module = await getClinicalAiModule(moduleKey);
+async function requireEnabledModule(moduleKey, { tenantId = null } = {}) {
+  const module = await getClinicalAiModule(moduleKey, { tenantId });
   if (!module.enabled) {
     throw AppError.forbidden(`Clinical AI module is disabled: ${module.display_name}`);
   }
@@ -631,7 +631,7 @@ export async function generateAdmissionAiDraft(admissionId, moduleKey, requested
   if (!ADMISSION_MODULES.has(key)) throw AppError.badRequest('Unsupported admission AI module');
 
   const tenantId = resolveTenantId({ tenantId: req?.tenantId });
-  const module = await requireEnabledModule(key);
+  const module = await requireEnabledModule(key, { tenantId });
   const context = await collectAdmissionClinicalContext(admissionId);
   const packet = buildChartPacket(context);
   const prompt = await getActivePrompt(key, { tenantId });
@@ -677,6 +677,7 @@ export async function generateAdmissionAiDraft(admissionId, moduleKey, requested
     systemPrompt: prompt.system_prompt,
     userPrompt: `${prompt.user_prompt_template}\n\n${JSON.stringify({ module_key: key, chart_packet: packet })}`,
     tenantRegion: req?.tenant?.region,
+    tenantId,
   });
   const draft = safeJsonParse(aiResult.text, fallbackDraft);
   const citations = uniqueCitations([...packet.citations, ...retrievedCitations]);
@@ -774,7 +775,7 @@ function wardBriefDraft(ward, contexts) {
 
 export async function generateWardRoundBrief({ ward = null, limit = 20, requestedBy = null, req = null } = {}) {
   const tenantId = resolveTenantId({ tenantId: req?.tenantId });
-  const module = await requireEnabledModule('daily_ward_round_brief');
+  const module = await requireEnabledModule('daily_ward_round_brief', { tenantId });
   const safeLimit = clampInt(limit, { min: 1, max: 50, fallback: 20 });
   const admissions = await prisma.$queryRawUnsafe(
     `SELECT id
@@ -808,6 +809,7 @@ export async function generateWardRoundBrief({ ward = null, limit = 20, requeste
     systemPrompt: prompt.system_prompt,
     userPrompt: `${prompt.user_prompt_template}\n\n${JSON.stringify(packet)}`,
     tenantRegion: req?.tenant?.region,
+    tenantId,
   });
   const draft = safeJsonParse(aiResult.text, fallbackDraft);
   const citations = uniqueCitations(contexts.flatMap((context) => context.citations));
@@ -886,7 +888,7 @@ function denialRiskDraft(claim) {
 
 export async function generateDenialRiskAssist(claimId, requestedBy, req = null) {
   const tenantId = resolveTenantId({ tenantId: req?.tenantId });
-  const module = await requireEnabledModule('denial_risk_assist');
+  const module = await requireEnabledModule('denial_risk_assist', { tenantId });
   const id = Number.parseInt(claimId, 10);
   if (!Number.isFinite(id)) throw AppError.badRequest('Invalid claim ID');
 
@@ -920,6 +922,7 @@ export async function generateDenialRiskAssist(claimId, requestedBy, req = null)
     systemPrompt: prompt.system_prompt,
     userPrompt: `${prompt.user_prompt_template}\n\n${JSON.stringify({ claim })}`,
     tenantRegion: req?.tenant?.region,
+    tenantId,
   });
   const draft = safeJsonParse(aiResult.text, fallbackDraft);
   const citations = [
@@ -972,7 +975,7 @@ export async function generateDenialRiskAssist(claimId, requestedBy, req = null)
 
 export async function getBedForecast({ ward = null, windowHours = 24, tenantId = null } = {}) {
   const tid = resolveTenantId({ tenantId });
-  await requireEnabledModule('bed_discharge_forecast');
+  await requireEnabledModule('bed_discharge_forecast', { tenantId: tid });
   const safeHours = clampInt(windowHours, { min: 1, max: 168, fallback: 24 });
   const rows = await prisma.$queryRawUnsafe(
     `SELECT a.id, a.patient_uid, a.ward, a.bed_number, a.admitted_at, a.expected_los_days, a.status
@@ -1024,7 +1027,7 @@ export async function getBedForecast({ ward = null, windowHours = 24, tenantId =
 
 export async function getPharmacyStockoutForecast({ days = 7, tenantId = null } = {}) {
   const tid = resolveTenantId({ tenantId });
-  await requireEnabledModule('pharmacy_stockout_predictor');
+  await requireEnabledModule('pharmacy_stockout_predictor', { tenantId: tid });
   const safeDays = clampInt(days, { min: 1, max: 90, fallback: 7 });
   const rows = await prisma.$queryRawUnsafe(
     `SELECT COALESCE(co.details->>'medication_name', co.details->>'name', 'Unknown medication') AS medication_name,

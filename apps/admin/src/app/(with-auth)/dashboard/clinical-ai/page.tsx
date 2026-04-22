@@ -9,8 +9,9 @@ import {
   getClinicalAiGenerations,
   getClinicalAiSafetyFlags,
   getClinicalAiStatus,
+  resetClinicalAiTenantModule,
   updateClinicalAiGuardrails,
-  updateClinicalAiModule,
+  updateClinicalAiTenantModule,
   type ClinicalAiBudgetStatus,
   type ClinicalAiAuditLog,
   type ClinicalAiGeneration,
@@ -136,25 +137,40 @@ function ModuleToggle({
   module,
   disabled,
   onToggle,
+  onReset,
 }: {
   module: ClinicalAiModule;
   disabled: boolean;
   onToggle: (module: ClinicalAiModule) => void;
+  onReset: (module: ClinicalAiModule) => void;
 }) {
   return (
-    <button
-      onClick={() => onToggle(module)}
-      disabled={disabled}
-      className="inline-flex min-w-24 items-center justify-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-accent disabled:opacity-50"
-      title={module.enabled ? "Disable" : "Enable"}
-    >
-      {module.enabled ? (
-        <ToggleRight className="h-4 w-4 text-emerald-600" />
-      ) : (
-        <ToggleLeft className="h-4 w-4 text-muted-foreground" />
-      )}
-      {module.enabled ? "Enabled" : "Disabled"}
-    </button>
+    <div className="inline-flex flex-wrap justify-end gap-1">
+      <button
+        onClick={() => onToggle(module)}
+        disabled={disabled}
+        className="inline-flex min-w-24 items-center justify-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-accent disabled:opacity-50"
+        title={module.enabled ? "Disable" : "Enable"}
+      >
+        {module.enabled ? (
+          <ToggleRight className="h-4 w-4 text-emerald-600" />
+        ) : (
+          <ToggleLeft className="h-4 w-4 text-muted-foreground" />
+        )}
+        {module.enabled ? "Enabled" : "Disabled"}
+      </button>
+      {module.tenant_override_id ? (
+        <button
+          onClick={() => onReset(module)}
+          disabled={disabled}
+          className="inline-flex items-center justify-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent disabled:opacity-50"
+          title="Reset tenant override"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Reset
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -402,13 +418,23 @@ export default function ClinicalAiGovernancePage() {
 
   const toggleModule = useMutation({
     mutationFn: (module: ClinicalAiModule) =>
-      updateClinicalAiModule(module.module_key, { enabled: !module.enabled }),
+      updateClinicalAiTenantModule(module.module_key, { enabled: !module.enabled }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clinical-ai-status"] });
       queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
-      toast.success("Clinical AI module updated");
+      toast.success("Tenant module override updated");
     },
     onError: (err: Error) => toast.error(err.message || "Module update failed"),
+  });
+
+  const resetModule = useMutation({
+    mutationFn: (module: ClinicalAiModule) => resetClinicalAiTenantModule(module.module_key),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-status"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
+      toast.success("Tenant module override reset");
+    },
+    onError: (err: Error) => toast.error(err.message || "Module reset failed"),
   });
 
   const saveGuardrails = useMutation({
@@ -539,6 +565,7 @@ export default function ClinicalAiGovernancePage() {
             <thead className="bg-muted/50">
               <tr>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Module</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Scope</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Boundary</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Provider</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Usage</th>
@@ -549,7 +576,7 @@ export default function ClinicalAiGovernancePage() {
             <tbody className="divide-y divide-border">
               {modules.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
+                  <td className="px-4 py-8 text-center text-muted-foreground" colSpan={7}>
                     No modules found
                   </td>
                 </tr>
@@ -563,6 +590,20 @@ export default function ClinicalAiGovernancePage() {
                       <td className="px-4 py-3">
                         <div className="font-medium">{module.display_name}</div>
                         <div className="text-xs text-muted-foreground">{module.module_key}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
+                          module.tenant_override_id
+                            ? "border-cyan-200 bg-cyan-100 text-cyan-800"
+                            : "border-slate-200 bg-slate-100 text-slate-700"
+                        }`}>
+                          {module.tenant_override_id ? "Tenant" : "Global"}
+                        </span>
+                        {module.global_enabled !== undefined && module.global_enabled !== module.enabled ? (
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            global {module.global_enabled ? "enabled" : "disabled"}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="px-4 py-3">{boundaryLabel(module)}</td>
                       <td className="px-4 py-3">
@@ -590,8 +631,9 @@ export default function ClinicalAiGovernancePage() {
                       <td className="px-4 py-3 text-right">
                         <ModuleToggle
                           module={module}
-                          disabled={toggleModule.isPending}
+                          disabled={toggleModule.isPending || resetModule.isPending}
                           onToggle={(target) => toggleModule.mutate(target)}
+                          onReset={(target) => resetModule.mutate(target)}
                         />
                       </td>
                     </tr>

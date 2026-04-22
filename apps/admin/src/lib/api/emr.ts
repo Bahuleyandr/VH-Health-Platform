@@ -1,4 +1,4 @@
-import { fetchAdminAPI, getJSON, postJSON, putJSON } from './core';
+import { deleteJSON, fetchAdminAPI, getJSON, postJSON, putJSON } from './core';
 
 // Types
 export interface Admission {
@@ -75,6 +75,24 @@ export interface ClinicalAiModule {
   temperature?: number | null;
   settings?: Record<string, unknown>;
   updated_at?: string | null;
+  tenant_id?: string | null;
+  tenant_override_id?: number | null;
+  tenant_override_source?: 'global' | 'tenant' | string | null;
+  global_enabled?: boolean;
+  global_provider_override?: string | null;
+  global_model_override?: string | null;
+  global_external_allowed?: boolean;
+  tenant_overrides?: {
+    enabled?: boolean | null;
+    provider_override?: string | null;
+    model_override?: string | null;
+    external_allowed?: boolean | null;
+    max_tokens?: number | null;
+    temperature?: number | null;
+    settings?: Record<string, unknown>;
+    updated_by?: string | null;
+    updated_at?: string | null;
+  } | null;
 }
 
 export interface ClinicalAiUsageSummary {
@@ -313,11 +331,23 @@ export async function getClinicalAiStatus(days = 7) {
 export async function getClinicalAiModules() {
   return getJSON<{ modules: ClinicalAiModule[]; count: number }>('/admin/clinical-ai/modules');
 }
+export async function getClinicalAiTenantModules() {
+  return getJSON<{ modules: ClinicalAiModule[]; count: number }>('/admin/clinical-ai/tenant-modules');
+}
 export async function updateClinicalAiModule(moduleKey: string, payload: Partial<ClinicalAiModule>) {
   return fetchAdminAPI<ClinicalAiModule>(`/admin/clinical-ai/modules/${encodeURIComponent(moduleKey)}`, {
     method: 'PATCH',
     body: payload,
   });
+}
+export async function updateClinicalAiTenantModule(moduleKey: string, payload: Partial<ClinicalAiModule>) {
+  return fetchAdminAPI<ClinicalAiModule>(`/admin/clinical-ai/tenant-modules/${encodeURIComponent(moduleKey)}`, {
+    method: 'PATCH',
+    body: payload,
+  });
+}
+export async function resetClinicalAiTenantModule(moduleKey: string) {
+  return deleteJSON<ClinicalAiModule>(`/admin/clinical-ai/tenant-modules/${encodeURIComponent(moduleKey)}`);
 }
 export async function updateClinicalAiGuardrails(payload: Partial<ClinicalAiGuardrails>) {
   return fetchAdminAPI<{ guardrails: ClinicalAiGuardrails; budget: ClinicalAiBudgetStatus }>(

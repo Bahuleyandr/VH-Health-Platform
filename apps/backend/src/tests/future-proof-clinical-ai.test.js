@@ -16,6 +16,7 @@ function authed(role, uid) {
     post: (path) => request(app).post(path).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     put: (path) => request(app).put(path).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     patch: (path) => request(app).patch(path).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
+    delete: (path) => request(app).delete(path).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
   };
 }
 
@@ -221,11 +222,44 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expectStatus(toggled, 200, 'toggle clinical AI module');
     expect(toggled.body.data.enabled).toBe(!aftercareModule.enabled);
 
+    const tenantModules = await admin.get('/api/v1/admin/clinical-ai/tenant-modules');
+    expectStatus(tenantModules, 200, 'list tenant clinical AI modules');
+    expect(tenantModules.body.data.modules.some((module) => module.module_key === 'denial_risk_assist')).toBe(true);
+
+    const tenantOverride = await admin
+      .patch('/api/v1/admin/clinical-ai/tenant-modules/denial_risk_assist')
+      .send({
+        enabled: true,
+        provider_override: 'ollama',
+        model_override: 'tenant-test-model',
+        external_allowed: false,
+        max_tokens: 1111,
+      });
+    expectStatus(tenantOverride, 200, 'update tenant clinical AI module');
+    expect(tenantOverride.body.data.enabled).toBe(true);
+    expect(tenantOverride.body.data.tenant_override_id).toBeTruthy();
+    expect(tenantOverride.body.data.tenant_override_source).toBe('tenant');
+    expect(tenantOverride.body.data.model_override).toBe('tenant-test-model');
+
+    const tenantStatus = await admin.get('/api/v1/admin/clinical-ai/status');
+    expectStatus(tenantStatus, 200, 'tenant clinical AI status');
+    const denialModule = tenantStatus.body.data.modules.find((module) => module.module_key === 'denial_risk_assist');
+    expect(denialModule.enabled).toBe(true);
+    expect(denialModule.tenant_override_source).toBe('tenant');
+    expect(denialModule.max_tokens).toBe(1111);
+
+    const tenantReset = await admin.delete('/api/v1/admin/clinical-ai/tenant-modules/denial_risk_assist');
+    expectStatus(tenantReset, 200, 'reset tenant clinical AI module');
+    expect(tenantReset.body.data.tenant_override_id).toBeNull();
+    expect(tenantReset.body.data.tenant_override_source).toBe('global');
+
     const audit = await admin.get('/api/v1/admin/clinical-ai/audit');
     expectStatus(audit, 200, 'clinical AI audit logs');
     const auditActions = audit.body.data.logs.map((row) => row.action);
     expect(auditActions).toContain('CLINICAL_AI_GUARDRAILS_UPDATED');
     expect(auditActions).toContain('CLINICAL_AI_MODULE_UPDATED');
+    expect(auditActions).toContain('CLINICAL_AI_TENANT_MODULE_UPDATED');
+    expect(auditActions).toContain('CLINICAL_AI_TENANT_MODULE_RESET');
     const moduleAudit = audit.body.data.logs.find((row) => row.action === 'CLINICAL_AI_MODULE_UPDATED');
     expect(moduleAudit.metadata.changed_fields).toContain('enabled');
   });

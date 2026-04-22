@@ -1,5 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
 export const CLINICAL_AI_MODULES = [
   {
@@ -744,6 +745,92 @@ function mergeDefaultWithRow(defaultModule, row) {
   });
 }
 
+function hasOverrideValue(value) {
+  return value !== null && value !== undefined;
+}
+
+function normalizeTenantOverride(row) {
+  if (!row) return null;
+  return {
+    id: row.id || null,
+    tenant_id: row.tenant_id || null,
+    module_key: row.module_key || null,
+    enabled: hasOverrideValue(row.enabled) ? Boolean(row.enabled) : null,
+    provider_override: row.provider_override || null,
+    model_override: row.model_override || null,
+    external_allowed: hasOverrideValue(row.external_allowed) ? Boolean(row.external_allowed) : null,
+    max_tokens: isNil(row.max_tokens) ? null : Number(row.max_tokens),
+    temperature: isNil(row.temperature) ? null : Number(row.temperature),
+    settings: row.settings || {},
+    updated_by: row.updated_by || null,
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+  };
+}
+
+function applyTenantOverride(module, overrideRow, tenantId) {
+  const base = normalizeModule(module);
+  const override = normalizeTenantOverride(overrideRow);
+  if (!override) {
+    return {
+      ...base,
+      tenant_id: tenantId || null,
+      tenant_override_id: null,
+      tenant_override_source: 'global',
+      global_enabled: base.enabled,
+      global_provider_override: base.provider_override,
+      global_model_override: base.model_override,
+      global_external_allowed: base.external_allowed,
+      tenant_overrides: null,
+    };
+  }
+
+  const merged = normalizeModule({
+    ...base,
+    enabled: hasOverrideValue(override.enabled) ? override.enabled : base.enabled,
+    provider_override: hasOverrideValue(override.provider_override)
+      ? override.provider_override
+      : base.provider_override,
+    model_override: hasOverrideValue(override.model_override)
+      ? override.model_override
+      : base.model_override,
+    external_allowed: hasOverrideValue(override.external_allowed)
+      ? override.external_allowed
+      : base.external_allowed,
+    max_tokens: hasOverrideValue(override.max_tokens) ? override.max_tokens : base.max_tokens,
+    temperature: hasOverrideValue(override.temperature) ? override.temperature : base.temperature,
+    settings: {
+      ...(base.settings || {}),
+      ...(override.settings || {}),
+    },
+    updated_by: override.updated_by || base.updated_by,
+    created_at: base.created_at,
+    updated_at: override.updated_at || base.updated_at,
+  });
+
+  return {
+    ...merged,
+    tenant_id: override.tenant_id || tenantId || null,
+    tenant_override_id: override.id,
+    tenant_override_source: 'tenant',
+    global_enabled: base.enabled,
+    global_provider_override: base.provider_override,
+    global_model_override: base.model_override,
+    global_external_allowed: base.external_allowed,
+    tenant_overrides: {
+      enabled: override.enabled,
+      provider_override: override.provider_override,
+      model_override: override.model_override,
+      external_allowed: override.external_allowed,
+      max_tokens: override.max_tokens,
+      temperature: override.temperature,
+      settings: override.settings || {},
+      updated_by: override.updated_by,
+      updated_at: override.updated_at,
+    },
+  };
+}
+
 async function seedMissingModules() {
   for (const module of CLINICAL_AI_MODULES) {
     await prisma.$queryRawUnsafe(
@@ -793,6 +880,19 @@ async function readModulesFromDb() {
   return [...defaults, ...extraRows];
 }
 
+async function readTenantModuleOverrides(tenantId) {
+  if (!tenantId) return new Map();
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, tenant_id, module_key, enabled, provider_override, model_override,
+            external_allowed, max_tokens, temperature, settings, updated_by,
+            created_at, updated_at
+     FROM clinical_ai_tenant_modules
+     WHERE tenant_id = $1::uuid`,
+    tenantId
+  );
+  return new Map(rows.map((row) => [row.module_key, row]));
+}
+
 async function readGuardrailsFromDb() {
   await seedGuardrails();
   const rows = await prisma.$queryRawUnsafe(
@@ -806,7 +906,9 @@ async function readGuardrailsFromDb() {
   return normalizeGuardrails(rows[0] || DEFAULT_CLINICAL_AI_GUARDRAILS);
 }
 
-export async function listClinicalAiModules({ refresh = false } = {}) {
+export async function listClinicalAiModules({ refresh = false, tenantId = null } = {}) {
+  if (tenantId) return listClinicalAiTenantModules({ tenantId, refresh });
+
   if (!refresh && moduleCache && Date.now() - moduleCacheAt < MODULE_CACHE_MS) {
     return moduleCache;
   }
@@ -820,6 +922,24 @@ export async function listClinicalAiModules({ refresh = false } = {}) {
     moduleCache = CLINICAL_AI_MODULES.map((module) => normalizeModule(module));
     moduleCacheAt = Date.now();
     return moduleCache;
+  }
+}
+
+export async function listClinicalAiTenantModules({ tenantId = null, refresh = false } = {}) {
+  const tid = tenantId || DEFAULT_TENANT_ID;
+  try {
+    const [modules, overrides] = await Promise.all([
+      listClinicalAiModules({ refresh }),
+      readTenantModuleOverrides(tid),
+    ]);
+    return modules.map((module) => applyTenantOverride(module, overrides.get(module.module_key), tid));
+  } catch (err) {
+    logger.warn('Clinical AI tenant module overrides unavailable; using global modules', {
+      tenantId: tid,
+      error: err.message,
+    });
+    const modules = await listClinicalAiModules({ refresh });
+    return modules.map((module) => applyTenantOverride(module, null, tid));
   }
 }
 
@@ -840,10 +960,16 @@ export async function getClinicalAiGuardrails({ refresh = false } = {}) {
   }
 }
 
-export async function getClinicalAiModule(moduleKey) {
+export async function getClinicalAiModule(moduleKey, { tenantId = null, refresh = false } = {}) {
   const key = sanitizeModuleKey(moduleKey);
-  const modules = await listClinicalAiModules();
+  const modules = tenantId
+    ? await listClinicalAiTenantModules({ tenantId, refresh })
+    : await listClinicalAiModules({ refresh });
   return modules.find((module) => module.module_key === key) || normalizeModule(defaultModuleFor(key));
+}
+
+export async function getClinicalAiTenantModule(moduleKey, { tenantId = null, refresh = false } = {}) {
+  return getClinicalAiModule(moduleKey, { tenantId: tenantId || DEFAULT_TENANT_ID, refresh });
 }
 
 export async function updateClinicalAiModule(moduleKey, data = {}, updatedBy = null) {
@@ -903,6 +1029,81 @@ export async function updateClinicalAiModule(moduleKey, data = {}, updatedBy = n
   moduleCache = null;
   moduleCacheAt = 0;
   return normalizeModule(rows[0]);
+}
+
+export async function updateClinicalAiTenantModule(moduleKey, data = {}, updatedBy = null, { tenantId = null } = {}) {
+  const key = sanitizeModuleKey(moduleKey);
+  if (!key) throw new Error('module_key is required');
+  const tid = tenantId || DEFAULT_TENANT_ID;
+  const current = await getClinicalAiTenantModule(key, { tenantId: tid, refresh: true });
+  const currentOverride = current.tenant_overrides || {};
+  const next = {
+    enabled: data.enabled === undefined
+      ? currentOverride.enabled ?? null
+      : Boolean(data.enabled),
+    provider_override: data.provider_override === undefined
+      ? currentOverride.provider_override ?? null
+      : data.provider_override || null,
+    model_override: data.model_override === undefined
+      ? currentOverride.model_override ?? null
+      : data.model_override || null,
+    external_allowed: typeof data.external_allowed === 'boolean'
+      ? data.external_allowed
+      : currentOverride.external_allowed ?? null,
+    max_tokens: data.max_tokens === undefined
+      ? currentOverride.max_tokens ?? null
+      : nullableInt(data.max_tokens),
+    temperature: data.temperature === undefined
+      ? currentOverride.temperature ?? null
+      : (isNil(data.temperature) || data.temperature === '' ? null : Number(data.temperature)),
+    settings: data.settings && typeof data.settings === 'object'
+      ? { ...(currentOverride.settings || {}), ...data.settings }
+      : currentOverride.settings || {},
+  };
+
+  await prisma.$queryRawUnsafe(
+    `INSERT INTO clinical_ai_tenant_modules
+       (tenant_id, module_key, enabled, provider_override, model_override,
+        external_allowed, max_tokens, temperature, settings, updated_by, created_at, updated_at)
+     VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::uuid, NOW(), NOW())
+     ON CONFLICT (tenant_id, module_key)
+     DO UPDATE SET
+       enabled = EXCLUDED.enabled,
+       provider_override = EXCLUDED.provider_override,
+       model_override = EXCLUDED.model_override,
+       external_allowed = EXCLUDED.external_allowed,
+       max_tokens = EXCLUDED.max_tokens,
+       temperature = EXCLUDED.temperature,
+       settings = EXCLUDED.settings,
+       updated_by = EXCLUDED.updated_by,
+       updated_at = NOW()`,
+    tid,
+    key,
+    next.enabled,
+    next.provider_override,
+    next.model_override,
+    next.external_allowed,
+    next.max_tokens,
+    next.temperature,
+    JSON.stringify(next.settings),
+    updatedBy || null
+  );
+
+  return getClinicalAiTenantModule(key, { tenantId: tid, refresh: true });
+}
+
+export async function deleteClinicalAiTenantModule(moduleKey, { tenantId = null } = {}) {
+  const key = sanitizeModuleKey(moduleKey);
+  if (!key) throw new Error('module_key is required');
+  const tid = tenantId || DEFAULT_TENANT_ID;
+  await prisma.$queryRawUnsafe(
+    `DELETE FROM clinical_ai_tenant_modules
+     WHERE tenant_id = $1::uuid
+       AND module_key = $2`,
+    tid,
+    key
+  );
+  return getClinicalAiTenantModule(key, { tenantId: tid, refresh: true });
 }
 
 export async function updateClinicalAiGuardrails(data = {}, updatedBy = null) {
@@ -1192,11 +1393,15 @@ export async function getClinicalAiBudgetStatus({ days = 1, guardrails = null, u
 export default {
   CLINICAL_AI_MODULES,
   DEFAULT_CLINICAL_AI_GUARDRAILS,
+  deleteClinicalAiTenantModule,
   getClinicalAiBudgetStatus,
   getClinicalAiGuardrails,
   getClinicalAiModule,
+  getClinicalAiTenantModule,
   getClinicalAiUsageSummary,
   listClinicalAiModules,
+  listClinicalAiTenantModules,
   updateClinicalAiGuardrails,
   updateClinicalAiModule,
+  updateClinicalAiTenantModule,
 };

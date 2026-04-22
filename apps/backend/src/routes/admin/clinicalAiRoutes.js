@@ -4,13 +4,17 @@ import logger from '../../logging/logger.js';
 import { error, success } from '../../utils/responseHelper.js';
 import { getClinicalAiRuntimeStatus } from '../../services/ai/localLlmClient.js';
 import {
+  deleteClinicalAiTenantModule,
   getClinicalAiBudgetStatus,
   getClinicalAiGuardrails,
   getClinicalAiModule,
+  getClinicalAiTenantModule,
   getClinicalAiUsageSummary,
   listClinicalAiModules,
+  listClinicalAiTenantModules,
   updateClinicalAiGuardrails,
   updateClinicalAiModule,
+  updateClinicalAiTenantModule,
 } from '../../services/ai/clinicalAiModuleService.js';
 import {
   activatePrompt,
@@ -205,6 +209,10 @@ function pickModuleAuditFields(module = {}) {
     max_tokens: module.max_tokens,
     temperature: module.temperature,
     settings: module.settings || {},
+    tenant_id: module.tenant_id || null,
+    tenant_override_id: module.tenant_override_id || null,
+    tenant_override_source: module.tenant_override_source || null,
+    global_enabled: module.global_enabled,
   };
 }
 
@@ -275,6 +283,61 @@ router.get('/modules', async (_req, res, next) => {
   try {
     const modules = await listClinicalAiModules({ refresh: true });
     return success(res, { modules, count: modules.length }, 'Clinical AI modules retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/tenant-modules', async (req, res, next) => {
+  try {
+    const modules = await listClinicalAiTenantModules({ tenantId: req.tenantId, refresh: true });
+    return success(res, { modules, count: modules.length }, 'Clinical AI tenant modules retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/tenant-modules/:moduleKey', async (req, res, next) => {
+  try {
+    const updatedBy = req.user?.uid || null;
+    const before = pickModuleAuditFields(await getClinicalAiTenantModule(req.params.moduleKey, {
+      tenantId: req.tenantId,
+      refresh: true,
+    }));
+    const module = await updateClinicalAiTenantModule(
+      req.params.moduleKey,
+      req.body || {},
+      updatedBy,
+      { tenantId: req.tenantId }
+    );
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_TENANT_MODULE_UPDATED',
+      `${req.tenantId}:${module.module_key}`,
+      before,
+      pickModuleAuditFields(module)
+    );
+    return success(res, module, 'Clinical AI tenant module updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.delete('/tenant-modules/:moduleKey', async (req, res, next) => {
+  try {
+    const before = pickModuleAuditFields(await getClinicalAiTenantModule(req.params.moduleKey, {
+      tenantId: req.tenantId,
+      refresh: true,
+    }));
+    const module = await deleteClinicalAiTenantModule(req.params.moduleKey, { tenantId: req.tenantId });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_TENANT_MODULE_RESET',
+      `${req.tenantId}:${module.module_key}`,
+      before,
+      pickModuleAuditFields(module)
+    );
+    return success(res, module, 'Clinical AI tenant module reset');
   } catch (err) {
     return next(err);
   }
