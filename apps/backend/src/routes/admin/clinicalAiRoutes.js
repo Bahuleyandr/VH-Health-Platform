@@ -63,6 +63,17 @@ import {
   listPolypharmacyReviews,
   reviewPolypharmacy,
 } from '../../services/ai/polypharmacyAiService.js';
+import {
+  decideTrialMatch,
+  listTrialMatches,
+  matchPatientAgainstTrials,
+  upsertTrial,
+} from '../../services/ai/trialMatcherService.js';
+import {
+  decideRcaDraft,
+  generateRcaDraft,
+  listRcaDrafts,
+} from '../../services/ai/rcaDraftService.js';
 
 const router = express.Router();
 const CLINICAL_AI_AUDIT_RESOURCE = 'clinical_ai';
@@ -745,6 +756,116 @@ router.post('/canary/cases', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_CANARY_CASE_UPSERTED', String(saved.id), null, saved);
     return success(res, saved, 'Canary case saved', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Batch 4: clinical trials + RCA drafts
+// ---------------------------------------------------------------------------
+router.post('/trials/catalog', async (req, res, next) => {
+  try {
+    const trial = await upsertTrial({
+      tenantId: req.tenantId,
+      nctId: req.body?.nct_id,
+      title: req.body?.title,
+      phase: req.body?.phase || null,
+      conditions: req.body?.conditions || [],
+      eligibilitySummary: req.body?.eligibility_summary,
+      ageMin: req.body?.age_min ?? null,
+      ageMax: req.body?.age_max ?? null,
+      gender: req.body?.gender || null,
+      location: req.body?.location || null,
+      status: req.body?.status || 'recruiting',
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_TRIAL_UPSERTED', String(trial.id), null, trial);
+    return success(res, trial, 'Trial upserted', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/trials/match/:patientUid', async (req, res, next) => {
+  try {
+    const result = await matchPatientAgainstTrials({
+      tenantId: req.tenantId,
+      patientUid: req.params.patientUid,
+      admissionId: req.body?.admission_id || null,
+      minScore: req.body?.min_score,
+      limit: req.body?.limit,
+    });
+    return success(res, result, 'Trial match complete');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/trials/matches', async (req, res, next) => {
+  try {
+    const result = await listTrialMatches({
+      tenantId: req.tenantId,
+      decision: req.query.decision || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Trial matches retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/trials/matches/:id', async (req, res, next) => {
+  try {
+    const decided = await decideTrialMatch({
+      tenantId: req.tenantId,
+      matchId: req.params.id,
+      decision: req.body?.decision,
+      decidedBy: req.user?.uid || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_TRIAL_MATCH_DECIDED', String(decided.id), null, decided);
+    return success(res, decided, 'Trial match decided');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/rca/:admissionId', async (req, res, next) => {
+  try {
+    const draft = await generateRcaDraft({
+      req,
+      admissionId: req.params.admissionId,
+      caseType: req.body?.case_type || 'mortality',
+    });
+    return success(res, draft, 'RCA draft generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/rca', async (req, res, next) => {
+  try {
+    const result = await listRcaDrafts({
+      tenantId: req.tenantId,
+      decision: req.query.decision || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'RCA drafts retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/rca/:id', async (req, res, next) => {
+  try {
+    const decided = await decideRcaDraft({
+      tenantId: req.tenantId,
+      rcaId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_RCA_DECIDED', String(decided.id), null, decided);
+    return success(res, decided, 'RCA draft decided');
   } catch (err) {
     return next(err);
   }

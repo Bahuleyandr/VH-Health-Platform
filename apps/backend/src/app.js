@@ -72,6 +72,7 @@ import recordRoutes from './routes/record/index.js';
 import searchRoutes from './routes/searchRoutes.js';
 import staffRoutes from './routes/staff/index.js';
 import userRoutes from './routes/user/index.js';
+import patientChatbotRoutes from './routes/patient/chatbotRoutes.js';
 
 // FHIR interoperability
 import fhirRoutes from './routes/fhir/fhirRoutes.js';
@@ -372,6 +373,13 @@ app.use('/api/v1/chatbot', patientRateLimiter, chatbotRoutes);
 
 // User management
 app.use('/api/v1/users', patientRateLimiter, userRoutes);
+app.use(
+  '/api/v1/patient/chatbot',
+  patientRateLimiter,
+  requireRole('PATIENT', 'SUPER_ADMIN'),
+  phiAccessLogger('PATIENT_CHATBOT'),
+  patientChatbotRoutes
+);
 
 // Healthcare services - Modularized
 app.use('/api/v1/appointments', patientRateLimiter, phiAccessLogger('APPOINTMENT'), appointmentRoutes);
