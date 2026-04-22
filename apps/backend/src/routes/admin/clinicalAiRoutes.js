@@ -1279,12 +1279,16 @@ router.post('/roster', async (req, res, next) => {
       endDate: req.body?.end_date,
       demandOverride: req.body?.demand || null,
       staffOverride: req.body?.staff || null,
+      strategy: req.body?.strategy || null,
+      solverTimeoutMs: req.body?.solver_timeout_ms || undefined,
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_ROSTER_SUGGESTED', String(result.run_id || 'inline'), null, {
       department: result.department,
       total_slots: result.total_slots,
       filled_slots: result.filled_slots,
       gaps: result.coverage_gaps.length,
+      optimizer: result.optimizer,
+      solver_status: result.solver_status,
     });
     return success(res, result, 'Roster suggested', 201);
   } catch (err) {

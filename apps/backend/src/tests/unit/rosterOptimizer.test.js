@@ -1,4 +1,8 @@
-import { planRoster } from '../../services/ai/rosterOptimizerService.js';
+import {
+  planRoster,
+  planRosterGreedy,
+  planRosterWithLinearProgramming,
+} from '../../services/ai/rosterOptimizerService.js';
 
 function demandFor(date, code, slots) {
   return { date, shift_code: code, slots_needed: slots };
@@ -96,5 +100,44 @@ describe('planRoster', () => {
     const out = planRoster({ demand, staff: [] });
     expect(out.filled_slots).toBe(0);
     expect(out.coverage_gaps[0].shortfall).toBe(3);
+  });
+
+  it('uses the solver by default when the problem is small enough', () => {
+    const staff = [
+      staffMember({ staff_uid: 's1', preferred_shifts: ['morning'] }),
+      staffMember({ staff_uid: 's2', preferred_shifts: ['evening'] }),
+    ];
+    const demand = [
+      demandFor('2026-05-04', 'morning', 1),
+      demandFor('2026-05-04', 'evening', 1),
+    ];
+    const out = planRoster({ demand, staff });
+    expect(out.optimizer).toBe('mip');
+    expect(out.solver_status).toBe('optimal');
+    expect(out.filled_slots).toBe(2);
+  });
+
+  it('solver can avoid a greedy early assignment that would cause a later gap', () => {
+    const staff = [
+      staffMember({ staff_uid: 'flex', name: 'Flexible Clinician', preferred_shifts: ['night'] }),
+      staffMember({
+        staff_uid: 'night-cover',
+        name: 'Night Cover',
+        preferred_shifts: ['night'],
+        unavailable_dates: ['2026-05-05'],
+      }),
+    ];
+    const demand = [
+      demandFor('2026-05-04', 'night', 1),
+      demandFor('2026-05-05', 'morning', 1),
+    ];
+    const greedy = planRosterGreedy({ demand, staff });
+    const solved = planRosterWithLinearProgramming({ demand, staff });
+    expect(greedy.filled_slots).toBe(1);
+    expect(solved.filled_slots).toBe(2);
+    expect(solved.assignments).toEqual(expect.arrayContaining([
+      expect.objectContaining({ staff_uid: 'night-cover', date: '2026-05-04', shift_code: 'night' }),
+      expect.objectContaining({ staff_uid: 'flex', date: '2026-05-05', shift_code: 'morning' }),
+    ]));
   });
 });

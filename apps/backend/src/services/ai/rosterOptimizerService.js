@@ -1,9 +1,9 @@
 /**
  * Staff roster optimizer.
  *
- * Heuristic scheduler. For a department + date range, we compute each
+ * Solver-backed scheduler. For a department + date range, we compute each
  * day's staffing demand (from historical shift counts), pull the staff
- * pool with their preferences, and greedily assign shifts while
+ * pool with their preferences, and assign shifts while
  * respecting:
  *
  *   - unavailable dates (hard constraint)
@@ -11,16 +11,14 @@
  *   - min_rest_hours between shifts (hard constraint)
  *   - preferred_shifts (soft — prefer matches)
  *
+ * The default planner uses a mixed-integer solver with a greedy fallback.
  * Coverage gaps + preference conflicts are surfaced as structured
  * findings so the manager sees what the heuristic couldn't satisfy.
  * The output is a suggestion — never auto-publishes. Published rosters
  * go through staff_roster_runs.status='published'.
- *
- * A full ILP solver would be better but adds a dependency; this
- * heuristic handles the common case (coverage first, preferences
- * second) and defers edge cases to the manager.
  */
 
+import solver from 'javascript-lp-solver';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
@@ -32,7 +30,12 @@ const SHIFT_DEFINITIONS = [
   { code: 'night', start_hour: 23, end_hour: 7 },
 ];
 
-const SHIFT_CODES = new Set(SHIFT_DEFINITIONS.map((s) => s.code));
+const SHIFT_ORDER = { morning: 0, evening: 1, night: 2 };
+const SOLVER_COVERAGE_SCORE = 10000;
+const SOLVER_PREFERENCE_SCORE = 150;
+const SOLVER_GENERALIST_SCORE = 20;
+const DEFAULT_SOLVER_TIMEOUT_MS = 750;
+const DEFAULT_SOLVER_MAX_VARIABLES = 2500;
 
 function resolveTenantId(options = {}) {
   return options.tenantId || DEFAULT_TENANT_ID;
@@ -60,6 +63,56 @@ function weekKeyOf(dateStr) {
   return d.toISOString().slice(0, 10);
 }
 
+function shiftForCode(code) {
+  return SHIFT_DEFINITIONS.find((s) => s.code === code) || null;
+}
+
+function shiftStartMs(day, shift) {
+  return new Date(`${day}T${String(shift.start_hour).padStart(2, '0')}:00:00Z`).getTime();
+}
+
+function shiftEndMs(day, shift) {
+  const base = new Date(`${day}T${String(shift.end_hour).padStart(2, '0')}:00:00Z`).getTime();
+  return shift.end_hour <= shift.start_hour ? base + 24 * 60 * 60 * 1000 : base;
+}
+
+function restHoursBetween(firstSlot, secondSlot) {
+  const firstShift = shiftForCode(firstSlot.shift_code);
+  const secondShift = shiftForCode(secondSlot.shift_code);
+  if (!firstShift || !secondShift) return Number.POSITIVE_INFINITY;
+  const firstStart = shiftStartMs(firstSlot.date, firstShift);
+  const secondStart = shiftStartMs(secondSlot.date, secondShift);
+  const orderedFirst = firstStart <= secondStart
+    ? { slot: firstSlot, shift: firstShift }
+    : { slot: secondSlot, shift: secondShift };
+  const orderedSecond = firstStart <= secondStart
+    ? { slot: secondSlot, shift: secondShift }
+    : { slot: firstSlot, shift: firstShift };
+  const firstEnd = shiftEndMs(orderedFirst.slot.date, orderedFirst.shift);
+  const nextStart = shiftStartMs(orderedSecond.slot.date, orderedSecond.shift);
+  return (nextStart - firstEnd) / (60 * 60 * 1000);
+}
+
+function normalizePlannerStrategy(strategy = null) {
+  const raw = String(strategy || process.env.ROSTER_OPTIMIZER_STRATEGY || 'solver').toLowerCase();
+  if (['greedy', 'heuristic'].includes(raw)) return 'greedy';
+  if (['solver', 'mip', 'ilp', 'auto'].includes(raw)) return 'solver';
+  return 'solver';
+}
+
+function demandTotal(demand) {
+  return demand.reduce((sum, d) => sum + Number(d.slots_needed || 0), 0);
+}
+
+function sortRosterAssignments(assignments) {
+  return [...assignments].sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    const shiftDelta = (SHIFT_ORDER[a.shift_code] ?? 3) - (SHIFT_ORDER[b.shift_code] ?? 3);
+    if (shiftDelta !== 0) return shiftDelta;
+    return String(a.staff_name || a.staff_uid).localeCompare(String(b.staff_name || b.staff_uid));
+  });
+}
+
 /**
  * Pure scheduler. Takes demand (per day+shift slot count), staff (with
  * preferences), and produces an assignment matrix + gap/conflict lists.
@@ -68,7 +121,7 @@ function weekKeyOf(dateStr) {
  * `staff`:  [{ staff_uid, name, preferred_shifts:[], unavailable_dates:[],
  *             max_shifts_per_week, min_rest_hours }]
  */
-export function planRoster({ demand = [], staff = [] } = {}) {
+export function planRosterGreedy({ demand = [], staff = [] } = {}) {
   const assignments = [];
   const coverageGaps = [];
   const preferenceConflicts = [];
@@ -121,12 +174,11 @@ export function planRoster({ demand = [], staff = [] } = {}) {
   // shifts with the fewest candidates (greedy improves coverage).
   const sortedDemand = [...demand].sort((a, b) => {
     if (a.date !== b.date) return a.date.localeCompare(b.date);
-    const shiftOrder = { morning: 0, evening: 1, night: 2 };
-    return (shiftOrder[a.shift_code] ?? 3) - (shiftOrder[b.shift_code] ?? 3);
+    return (SHIFT_ORDER[a.shift_code] ?? 3) - (SHIFT_ORDER[b.shift_code] ?? 3);
   });
 
   for (const slot of sortedDemand) {
-    const shift = SHIFT_DEFINITIONS.find((s) => s.code === slot.shift_code);
+    const shift = shiftForCode(slot.shift_code);
     if (!shift) continue;
     let filled = 0;
 
@@ -178,12 +230,237 @@ export function planRoster({ demand = [], staff = [] } = {}) {
   }
 
   return {
-    assignments,
+    assignments: sortRosterAssignments(assignments),
     coverage_gaps: coverageGaps,
     preference_conflicts: preferenceConflicts,
-    total_slots: demand.reduce((sum, d) => sum + Number(d.slots_needed || 0), 0),
+    total_slots: demandTotal(demand),
     filled_slots: assignments.length,
+    optimizer: 'greedy',
+    solver_status: 'not_used',
   };
+}
+
+function buildSolverFallback({ demand, staff, reason }) {
+  return {
+    ...planRosterGreedy({ demand, staff }),
+    optimizer: 'greedy',
+    solver_status: 'fallback',
+    solver_fallback_reason: reason,
+  };
+}
+
+function explainSolverGap({ slot, staff, assignments }) {
+  const reasons = [];
+  for (const staffRow of staff) {
+    const assignedForStaff = assignments.filter((a) => a.staff_uid === staffRow.staff_uid);
+    const reason = (() => {
+      if (staffRow.unavailable_dates?.includes(slot.date)) return 'unavailable';
+      const weekAssignments = assignedForStaff.filter((a) => weekKeyOf(a.date) === weekKeyOf(slot.date));
+      if (weekAssignments.length >= (staffRow.max_shifts_per_week ?? 5)) return 'weekly_limit';
+      const restConflict = assignedForStaff.some((assignment) => (
+        restHoursBetween(
+          { date: assignment.date, shift_code: assignment.shift_code },
+          { date: slot.date, shift_code: slot.shift_code }
+        ) < (staffRow.min_rest_hours ?? 10)
+      ));
+      if (restConflict) return 'insufficient_rest';
+      return assignedForStaff.some((a) => a.date === slot.date) ? 'allocated_same_day' : 'allocated_elsewhere';
+    })();
+    reasons.push({ staff_uid: staffRow.staff_uid, reason });
+  }
+  return reasons.slice(0, 5);
+}
+
+function buildPreferenceConflicts(assignments, staffByUid) {
+  return assignments
+    .filter((assignment) => {
+      const staffRow = staffByUid.get(assignment.staff_uid);
+      return staffRow?.preferred_shifts?.length && !staffRow.preferred_shifts.includes(assignment.shift_code);
+    })
+    .map((assignment) => {
+      const staffRow = staffByUid.get(assignment.staff_uid);
+      return {
+        staff_uid: assignment.staff_uid,
+        staff_name: assignment.staff_name || null,
+        date: assignment.date,
+        shift_code: assignment.shift_code,
+        preferred: staffRow.preferred_shifts,
+        message: `Assigned to ${assignment.shift_code} but prefers ${staffRow.preferred_shifts.join(', ')}`,
+      };
+    });
+}
+
+function buildCoverageGaps({ demand, staff, assignments }) {
+  return demand
+    .map((slot) => {
+      const filled = assignments.filter((a) => a.date === slot.date && a.shift_code === slot.shift_code).length;
+      const needed = Number(slot.slots_needed || 0);
+      if (filled >= needed) return null;
+      return {
+        date: slot.date,
+        shift_code: slot.shift_code,
+        needed,
+        filled,
+        shortfall: needed - filled,
+        reasons_sample: explainSolverGap({ slot, staff, assignments }),
+      };
+    })
+    .filter(Boolean);
+}
+
+function addSolverConstraint(model, name, bound) {
+  if (!model.constraints[name]) {
+    model.constraints[name] = bound;
+  }
+}
+
+function addVariableCoefficient(model, variableName, constraintName, value = 1) {
+  model.variables[variableName][constraintName] = value;
+}
+
+function normalizeDemandForSolver(demand) {
+  return demand
+    .map((slot, index) => ({
+      ...slot,
+      index,
+      slots_needed: Math.max(0, Number(slot.slots_needed || 0)),
+      shift: shiftForCode(slot.shift_code),
+    }))
+    .filter((slot) => slot.shift && slot.slots_needed > 0);
+}
+
+export function planRosterWithLinearProgramming({
+  demand = [],
+  staff = [],
+  timeoutMs = DEFAULT_SOLVER_TIMEOUT_MS,
+  maxVariables = DEFAULT_SOLVER_MAX_VARIABLES,
+} = {}) {
+  if (!staff.length || !demand.length) {
+    return buildSolverFallback({ demand, staff, reason: 'insufficient_input' });
+  }
+
+  const normalizedDemand = normalizeDemandForSolver(demand);
+  if (!normalizedDemand.length) {
+    return buildSolverFallback({ demand, staff, reason: 'no_valid_demand' });
+  }
+
+  const estimatedVariableCount = normalizedDemand.length * staff.length;
+  if (estimatedVariableCount > maxVariables) {
+    return buildSolverFallback({ demand, staff, reason: 'solver_problem_too_large' });
+  }
+
+  const model = {
+    optimize: 'score',
+    opType: 'max',
+    constraints: {},
+    variables: {},
+    binaries: {},
+    timeout: timeoutMs,
+  };
+  const variableMetadata = new Map();
+  const variablesByStaff = new Map();
+
+  normalizedDemand.forEach((slot) => {
+    addSolverConstraint(model, `slot_${slot.index}`, { max: slot.slots_needed });
+  });
+
+  staff.forEach((staffRow, staffIndex) => {
+    normalizedDemand.forEach((slot) => {
+      if (staffRow.unavailable_dates?.includes(slot.date)) return;
+      const variableName = `x_${staffIndex}_${slot.index}`;
+      const weekConstraint = `week_${staffIndex}_${weekKeyOf(slot.date)}`;
+      addSolverConstraint(model, weekConstraint, { max: staffRow.max_shifts_per_week ?? 5 });
+      model.variables[variableName] = {
+        score: SOLVER_COVERAGE_SCORE
+          + (staffRow.preferred_shifts?.includes(slot.shift_code) ? SOLVER_PREFERENCE_SCORE : 0)
+          + (staffRow.preferred_shifts?.length ? 0 : SOLVER_GENERALIST_SCORE)
+          + ((normalizedDemand.length - slot.index) / 1000)
+          + ((staff.length - staffIndex) / 10000),
+        [`slot_${slot.index}`]: 1,
+        [weekConstraint]: 1,
+      };
+      model.binaries[variableName] = 1;
+      variableMetadata.set(variableName, { staffRow, slot });
+      if (!variablesByStaff.has(staffIndex)) variablesByStaff.set(staffIndex, []);
+      variablesByStaff.get(staffIndex).push({ variableName, slot });
+    });
+  });
+
+  for (const [staffIndex, staffVariables] of variablesByStaff.entries()) {
+    const staffRow = staff[staffIndex];
+    for (let i = 0; i < staffVariables.length; i += 1) {
+      for (let j = i + 1; j < staffVariables.length; j += 1) {
+        const first = staffVariables[i];
+        const second = staffVariables[j];
+        if (restHoursBetween(first.slot, second.slot) >= (staffRow.min_rest_hours ?? 10)) continue;
+        const constraintName = `rest_${staffIndex}_${first.slot.index}_${second.slot.index}`;
+        addSolverConstraint(model, constraintName, { max: 1 });
+        addVariableCoefficient(model, first.variableName, constraintName);
+        addVariableCoefficient(model, second.variableName, constraintName);
+      }
+    }
+  }
+
+  if (Object.keys(model.variables).length === 0) {
+    return {
+      assignments: [],
+      coverage_gaps: buildCoverageGaps({ demand: normalizedDemand, staff, assignments: [] }),
+      preference_conflicts: [],
+      total_slots: demandTotal(demand),
+      filled_slots: 0,
+      optimizer: 'mip',
+      solver_status: 'no_feasible_variables',
+    };
+  }
+
+  let result;
+  try {
+    result = solver.Solve(model);
+  } catch (err) {
+    logger.debug('Roster solver failed; falling back to greedy', { error: err.message });
+    return buildSolverFallback({ demand, staff, reason: 'solver_exception' });
+  }
+
+  if (!result?.feasible) {
+    return buildSolverFallback({ demand, staff, reason: 'infeasible_model' });
+  }
+
+  const assignments = sortRosterAssignments(
+    [...variableMetadata.entries()]
+      .filter(([variableName]) => Number(result[variableName] || 0) >= 0.5)
+      .map(([, meta]) => ({
+        date: meta.slot.date,
+        shift_code: meta.slot.shift_code,
+        start_hour: meta.slot.shift.start_hour,
+        end_hour: meta.slot.shift.end_hour,
+        staff_uid: meta.staffRow.staff_uid,
+        staff_name: meta.staffRow.name || null,
+        preferred: meta.staffRow.preferred_shifts?.includes(meta.slot.shift_code) || false,
+      }))
+  );
+  const staffByUid = new Map(staff.map((staffRow) => [staffRow.staff_uid, staffRow]));
+
+  return {
+    assignments,
+    coverage_gaps: buildCoverageGaps({ demand: normalizedDemand, staff, assignments }),
+    preference_conflicts: buildPreferenceConflicts(assignments, staffByUid),
+    total_slots: demandTotal(demand),
+    filled_slots: assignments.length,
+    optimizer: 'mip',
+    solver_status: 'optimal',
+    solver_metadata: {
+      variables: Object.keys(model.variables).length,
+      constraints: Object.keys(model.constraints).length,
+      result: Number(result.result || 0),
+      timeout_ms: timeoutMs,
+    },
+  };
+}
+
+export function planRoster({ demand = [], staff = [], strategy = null, timeoutMs = DEFAULT_SOLVER_TIMEOUT_MS } = {}) {
+  const planner = normalizePlannerStrategy(strategy);
+  if (planner === 'greedy') return planRosterGreedy({ demand, staff });
+  return planRosterWithLinearProgramming({ demand, staff, timeoutMs });
 }
 
 async function inferHistoricalDemand({ tenantId, department, startDate, endDate }) {
@@ -288,6 +565,8 @@ export async function generateRoster({
   endDate,
   demandOverride = null,
   staffOverride = null,
+  strategy = null,
+  solverTimeoutMs = DEFAULT_SOLVER_TIMEOUT_MS,
 } = {}) {
   if (!department) throw AppError.badRequest('department is required');
   if (!startDate || !endDate) throw AppError.badRequest('start_date + end_date required');
@@ -320,7 +599,7 @@ export async function generateRoster({
     };
   }
 
-  const plan = planRoster({ demand, staff });
+  const plan = planRoster({ demand, staff, strategy, timeoutMs: solverTimeoutMs });
 
   let runId = null;
   try {
@@ -345,6 +624,10 @@ export async function generateRoster({
       JSON.stringify({
         staff_pool_size: staff.length,
         demand_source: demandOverride ? 'override' : 'historical',
+        optimizer: plan.optimizer,
+        solver_status: plan.solver_status,
+        solver_fallback_reason: plan.solver_fallback_reason || null,
+        solver_metadata: plan.solver_metadata || null,
       })
     );
     runId = rows[0]?.id || null;
