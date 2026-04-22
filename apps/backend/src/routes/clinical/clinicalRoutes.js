@@ -492,6 +492,7 @@ router.post('/safety/polypharmacy', async (req, res, next) => {
  *   patient_uid, admission_id?, clinician_uid?, recording_started_at,
  *   recording_ended_at?, duration_seconds?, audio_storage_key?, audio_mime?,
  *   stt_provider?, stt_model?, stt_language?, diarization_provider?,
+ *   raw_transcript?, diarization_payload?,
  *   transcript_segments: [{ speaker:'doctor'|'patient'|'caregiver'|'other',
  *                           text, start_seconds, end_seconds }],
  *   consent_reference
@@ -516,6 +517,8 @@ router.post('/ambient/encounters', async (req, res, next) => {
       sttModel: req.body?.stt_model || null,
       sttLanguage: req.body?.stt_language || null,
       diarizationProvider: req.body?.diarization_provider || null,
+      diarizationPayload: req.body?.diarization_payload || null,
+      rawTranscript: req.body?.raw_transcript || null,
       transcriptSegments: req.body?.transcript_segments || [],
       consentReference: req.body?.consent_reference || null,
     });

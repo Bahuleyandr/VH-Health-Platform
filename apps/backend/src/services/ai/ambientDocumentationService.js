@@ -26,6 +26,7 @@ import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { generateClinicalText } from './localLlmClient.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
+import { resolveAmbientDiarization } from './ambientDiarizationService.js';
 
 const MODULE_KEY = 'ambient_visit_documentation';
 const MAX_SEGMENTS = 500;
@@ -153,6 +154,8 @@ export async function createAmbientEncounter({
   sttModel = null,
   sttLanguage = null,
   diarizationProvider = null,
+  diarizationPayload = null,
+  rawTranscript = null,
   transcriptSegments = [],
   consentReference = null,
 } = {}) {
@@ -165,8 +168,15 @@ export async function createAmbientEncounter({
 
   await verifyRecordingConsent({ tenantId, patientUid, consentReference });
 
-  const normalized = normalizeTranscriptSegments(transcriptSegments);
-  const module = await getClinicalAiModule(MODULE_KEY);
+  const diarization = await resolveAmbientDiarization({
+    transcriptSegments,
+    rawTranscript,
+    diarizationPayload,
+    provider: diarizationProvider,
+    tenantRegion: req?.tenant?.region || null,
+  });
+  const normalized = normalizeTranscriptSegments(diarization.segments);
+  const module = await getClinicalAiModule(MODULE_KEY, { tenantId });
 
   // Build the LLM prompt — strict on speaker attribution + JSON output.
   const systemPrompt = [
@@ -184,6 +194,7 @@ export async function createAmbientEncounter({
     userPrompt,
     taskType: MODULE_KEY,
     tenantRegion: req?.tenant?.region || null,
+    tenantId,
   });
   const fallback = buildFallbackVisitNote(normalized);
   const draft = safeJsonParse(aiResult.text, fallback);
@@ -215,6 +226,13 @@ export async function createAmbientEncounter({
       severity: 'high',
       code: 'EMPTY_TRANSCRIPT',
       message: 'Transcript was empty; draft is unreliable.',
+    });
+  }
+  if (diarization.reason && diarization.status !== 'provided') {
+    safetyFlags.push({
+      severity: normalized.speaker_count < 2 ? 'medium' : 'low',
+      code: 'DIARIZATION_ADAPTER_NOTICE',
+      message: `Diarization source: ${diarization.source || 'none'}; ${diarization.reason}.`,
     });
   }
   safetyFlags.push(...runOutputDefenses({
@@ -254,13 +272,19 @@ export async function createAmbientEncounter({
       sttProvider || 'none',
       sttModel,
       sttLanguage,
-      diarizationProvider || null,
+      diarizationProvider || diarization.provider || null,
       normalized.speaker_count,
       normalized.segments.length ? 'completed' : 'skipped',
       JSON.stringify(normalized.segments),
       JSON.stringify({
         talk_time: normalized.talk_time,
         tenant_region: req?.tenant?.region || null,
+        diarization: {
+          status: diarization.status,
+          provider: diarization.provider,
+          reason: diarization.reason,
+          source: diarization.source,
+        },
       })
     );
     encounterId = enc[0]?.id || null;
@@ -303,6 +327,12 @@ export async function createAmbientEncounter({
         ambient_encounter_id: encounterId,
         speaker_count: normalized.speaker_count,
         talk_time: normalized.talk_time,
+        diarization: {
+          status: diarization.status,
+          provider: diarization.provider,
+          reason: diarization.reason,
+          source: diarization.source,
+        },
         failure_reason: hasCritical
           ? (safetyFlags.find((f) => f.severity === 'critical')?.code || 'critical_defense_failure')
           : null,
@@ -356,6 +386,9 @@ export async function createAmbientEncounter({
     speaker_count: normalized.speaker_count,
     segment_count: normalized.segments.length,
     talk_time: normalized.talk_time,
+    diarization_status: diarization.status,
+    diarization_provider: diarization.provider,
+    diarization_reason: diarization.reason,
     used_ai: Boolean(aiResult.usedAi),
     provider: aiResult.provider || 'template',
     module_key: MODULE_KEY,

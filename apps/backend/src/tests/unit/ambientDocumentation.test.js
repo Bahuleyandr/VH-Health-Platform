@@ -1,4 +1,9 @@
 import { normalizeTranscriptSegments } from '../../services/ai/ambientDocumentationService.js';
+import {
+  normalizeDiarizationPayload,
+  resolveAmbientDiarization,
+  segmentRawTranscriptBySpeakerHints,
+} from '../../services/ai/ambientDiarizationService.js';
 
 describe('normalizeTranscriptSegments', () => {
   it('rejects invalid speaker labels', () => {
@@ -67,5 +72,69 @@ describe('normalizeTranscriptSegments', () => {
     expect(out.segments[0].start_seconds).toBe(10);
     expect(out.segments[0].end_seconds).toBe(12);
     expect(out.segments[0].duration_seconds).toBe(2);
+  });
+});
+
+describe('ambient diarization adapter', () => {
+  it('normalizes Deepgram-style utterances', () => {
+    const segments = normalizeDiarizationPayload({
+      results: {
+        utterances: [
+          { speaker: 0, transcript: 'How are you feeling?', start: 0.2, end: 2.1 },
+          { speaker: 1, transcript: 'My breathing is better.', start: 2.4, end: 5.2 },
+        ],
+      },
+    });
+    expect(segments).toHaveLength(2);
+    expect(segments[0].speaker).toBe('doctor');
+    expect(segments[1].speaker).toBe('patient');
+    expect(segments[1].start_seconds).toBe(2.4);
+  });
+
+  it('normalizes Azure conversation transcription phrases', () => {
+    const segments = normalizeDiarizationPayload({
+      recognizedPhrases: [
+        {
+          SpeakerId: 'Guest-2',
+          OffsetInTicks: 20_000_000,
+          DurationInTicks: 30_000_000,
+          NBest: [{ Display: 'I had chest pain last night.' }],
+        },
+      ],
+    });
+    expect(segments).toHaveLength(1);
+    expect(segments[0].speaker).toBe('patient');
+    expect(segments[0].start_seconds).toBe(2);
+    expect(segments[0].end_seconds).toBe(5);
+  });
+
+  it('segments speaker-labelled raw transcripts', () => {
+    const segments = segmentRawTranscriptBySpeakerHints([
+      'Doctor: Any fever?',
+      'Patient: No fever today.',
+      'Caregiver: He slept well.',
+    ].join('\n'));
+    expect(segments.map((segment) => segment.speaker)).toEqual(['doctor', 'patient', 'caregiver']);
+    expect(segments[1].text).toBe('No fever today.');
+  });
+
+  it('falls back to raw transcript when provider payload is empty', async () => {
+    const result = await resolveAmbientDiarization({
+      diarizationPayload: { results: { utterances: [] } },
+      rawTranscript: 'Patient: Cough is reduced.',
+      provider: 'deepgram',
+    });
+    expect(result.status).toBe('completed');
+    expect(result.provider).toBe('deepgram');
+    expect(result.source).toBe('diarization_payload');
+    expect(result.segments[0].speaker).toBe('patient');
+  });
+
+  it('returns a structured skip when no transcript source exists', async () => {
+    const result = await resolveAmbientDiarization();
+    expect(result.status).toBe('skipped');
+    expect(result.provider).toBe('none');
+    expect(result.segments).toEqual([]);
+    expect(result.reason).toBe('diarization_provider_not_configured');
   });
 });
