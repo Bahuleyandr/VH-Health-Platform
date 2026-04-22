@@ -36,6 +36,17 @@ import {
   retrieveRelevant,
 } from '../../services/ai/ragService.js';
 import { listTranslations } from '../../services/ai/translationService.js';
+import {
+  concludeExperiment,
+  createExperiment,
+  getExperimentStats,
+  listExperiments,
+} from '../../services/ai/promptExperimentService.js';
+import {
+  listCanaryRuns,
+  runCanary,
+  upsertCanaryCase,
+} from '../../services/ai/driftCanaryService.js';
 
 const router = express.Router();
 const CLINICAL_AI_AUDIT_RESOURCE = 'clinical_ai';
@@ -613,6 +624,111 @@ router.post('/corpus/test-query', async (req, res, next) => {
       minScore: req.body?.min_score || 0.5,
     });
     return success(res, result, 'Corpus query complete');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Prompt A/B experiments
+// ---------------------------------------------------------------------------
+router.get('/experiments', async (req, res, next) => {
+  try {
+    const result = await listExperiments({
+      tenantId: req.tenantId,
+      moduleKey: req.query.module_key || null,
+      status: req.query.status || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Prompt experiments retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/experiments', async (req, res, next) => {
+  try {
+    const experiment = await createExperiment({
+      tenantId: req.tenantId,
+      moduleKey: req.body?.module_key,
+      name: req.body?.name,
+      variantAPromptId: req.body?.variant_a_prompt_id,
+      variantBPromptId: req.body?.variant_b_prompt_id,
+      trafficSplitA: req.body?.traffic_split_a,
+      startedBy: req.user?.uid || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_EXPERIMENT_CREATED', String(experiment.id), null, experiment);
+    return success(res, experiment, 'Experiment created', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/experiments/:id/stats', async (req, res, next) => {
+  try {
+    const stats = await getExperimentStats({
+      tenantId: req.tenantId,
+      experimentId: req.params.id,
+    });
+    return success(res, stats, 'Experiment stats computed');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/experiments/:id/conclude', async (req, res, next) => {
+  try {
+    const experiment = await concludeExperiment({
+      tenantId: req.tenantId,
+      experimentId: req.params.id,
+      winningVariant: req.body?.winning_variant || null,
+      concludedBy: req.user?.uid || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_EXPERIMENT_CONCLUDED', String(experiment.id), null, experiment);
+    return success(res, experiment, 'Experiment concluded');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Model drift canary
+// ---------------------------------------------------------------------------
+router.get('/canary/runs', async (req, res, next) => {
+  try {
+    const result = await listCanaryRuns({ tenantId: req.tenantId, limit: req.query.limit });
+    return success(res, result, 'Canary runs retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/canary/runs', async (req, res, next) => {
+  try {
+    const result = await runCanary({ tenantId: req.tenantId, scope: req.body?.scope || 'manual' });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_CANARY_RUN', 'canary', null, {
+      total_cases: result.total_cases,
+      pass_count: result.pass_count,
+      drift_detected: result.drift_detected,
+    });
+    return success(res, result, 'Canary run complete', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/canary/cases', async (req, res, next) => {
+  try {
+    const saved = await upsertCanaryCase({
+      tenantId: req.tenantId,
+      moduleKey: req.body?.module_key,
+      label: req.body?.label,
+      inputPacket: req.body?.input_packet,
+      expectedKeys: req.body?.expected_keys,
+      expectedCitationsMin: req.body?.expected_citations_min,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_CANARY_CASE_UPSERTED', String(saved.id), null, saved);
+    return success(res, saved, 'Canary case saved', 201);
   } catch (err) {
     return next(err);
   }
