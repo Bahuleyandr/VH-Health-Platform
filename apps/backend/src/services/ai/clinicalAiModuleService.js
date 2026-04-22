@@ -472,6 +472,22 @@ export const CLINICAL_AI_MODULES = [
       retentionDays: 1825,
     },
   },
+  {
+    module_key: 'prior_authorization_generator',
+    display_name: 'Prior Authorization Generator',
+    description: 'Auto-assembles a payer-specific pre-auth packet from the chart with evidence + citations. Billing reviews and submits.',
+    enabled: false,
+    settings: {
+      surface: 'revenue_cycle',
+      risk: 'medium',
+      status: 'available',
+      requiresClinicianSignoff: false,
+      requiresCitations: true,
+      reviewRoles: ['BILLING_STAFF', 'INSURANCE_COORDINATOR', 'ADMIN'],
+      outputSchema: { type: 'object', required: ['medical_necessity', 'clinical_evidence', 'procedure_code'] },
+      retentionDays: 2555,
+    },
+  },
 ];
 
 export const DEFAULT_CLINICAL_AI_GUARDRAILS = {

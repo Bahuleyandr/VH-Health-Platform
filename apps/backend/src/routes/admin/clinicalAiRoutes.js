@@ -74,6 +74,12 @@ import {
   generateRcaDraft,
   listRcaDrafts,
 } from '../../services/ai/rcaDraftService.js';
+import {
+  generatePriorAuthorization,
+  listPriorAuthorizations,
+  recordPayerDecision,
+  submitPriorAuthorization,
+} from '../../services/ai/priorAuthorizationService.js';
 
 const router = express.Router();
 const CLINICAL_AI_AUDIT_RESOURCE = 'clinical_ai';
@@ -756,6 +762,74 @@ router.post('/canary/cases', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_CANARY_CASE_UPSERTED', String(saved.id), null, saved);
     return success(res, saved, 'Canary case saved', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Batch 5: prior authorization
+// ---------------------------------------------------------------------------
+router.post('/prior-auth', async (req, res, next) => {
+  try {
+    const result = await generatePriorAuthorization({
+      req,
+      admissionId: req.body?.admission_id,
+      payerName: req.body?.payer_name,
+      policyNumber: req.body?.policy_number || null,
+      procedureCode: req.body?.procedure_code,
+      procedureDescription: req.body?.procedure_description || null,
+      requestedServiceType: req.body?.requested_service_type || 'inpatient_procedure',
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_PRIOR_AUTH_GENERATED', String(result.prior_auth_id || 'inline'), null, {
+      payer: req.body?.payer_name,
+      procedure: req.body?.procedure_code,
+    });
+    return success(res, result, 'Prior authorization packet generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/prior-auth', async (req, res, next) => {
+  try {
+    const result = await listPriorAuthorizations({
+      tenantId: req.tenantId,
+      status: req.query.status || null,
+      reviewerDecision: req.query.reviewer_decision || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Prior auth requests retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/prior-auth/:id/submit', async (req, res, next) => {
+  try {
+    const submitted = await submitPriorAuthorization({
+      tenantId: req.tenantId,
+      priorAuthId: req.params.id,
+      submittedBy: req.user?.uid || null,
+      payerReferenceId: req.body?.payer_reference_id || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_PRIOR_AUTH_SUBMITTED', String(submitted.id), null, submitted);
+    return success(res, submitted, 'Prior auth submitted to payer');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/prior-auth/:id/payer-decision', async (req, res, next) => {
+  try {
+    const decided = await recordPayerDecision({
+      tenantId: req.tenantId,
+      priorAuthId: req.params.id,
+      decision: req.body?.decision,
+      reason: req.body?.reason || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_PRIOR_AUTH_PAYER_DECISION', String(decided.id), null, decided);
+    return success(res, decided, 'Payer decision recorded');
   } catch (err) {
     return next(err);
   }
