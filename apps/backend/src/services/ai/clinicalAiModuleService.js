@@ -309,6 +309,24 @@ export const CLINICAL_AI_MODULES = [
       retentionDays: 365,
     },
   },
+  {
+    module_key: 'patient_communication_translation',
+    display_name: 'Patient Communication Translation',
+    description: 'Translates an accepted clinical AI draft into the patient\'s preferred language. Review-gated; only runs on reviewer-accepted drafts and verifies numeric/date/drug fidelity.',
+    enabled: false,
+    settings: {
+      surface: 'patient',
+      risk: 'high',
+      status: 'available',
+      requiresClinicianSignoff: true,
+      requiresCitations: true,
+      reviewRoles: ['DOCTOR', 'MEDICAL_RECORDS'],
+      approvalPolicy: 'clinician_review_required',
+      outputSchema: { type: 'object' },
+      retentionDays: 365,
+      supported_languages: ['en', 'hi', 'ta', 'te', 'ml', 'mr', 'bn', 'kn'],
+    },
+  },
 ];
 
 export const DEFAULT_CLINICAL_AI_GUARDRAILS = {

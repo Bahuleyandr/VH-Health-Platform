@@ -9,6 +9,10 @@ import {
   generateAdmissionAiDraft,
   generateWardRoundBrief,
 } from '../../services/ai/clinicalAiWorkflowService.js';
+import {
+  listTranslations,
+  translateGeneration,
+} from '../../services/ai/translationService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { canEditDischargeSummary, canSignDischargeSummary } from '../../utils/roleHelpers.js';
 
@@ -374,6 +378,35 @@ router.post(
       req,
     });
     success(res, draft, 'Daily ward round brief draft generated');
+  })
+);
+
+// Translate an accepted generation into the patient's preferred language.
+// Only reviewer-accepted generations are translated — enforced in the
+// service. Multilingual rendering of unreviewed drafts is prohibited.
+router.post(
+  '/generations/:generationId/translate',
+  wrapAsync(async (req, res) => {
+    const result = await translateGeneration({
+      generationId: req.params.generationId,
+      targetLanguage: req.body?.target_language || req.query?.target_language,
+      requestedBy: req.user?.uid || null,
+      req,
+    });
+    success(res, result, 'Translation ready');
+  })
+);
+
+// List translations (tenant-scoped). Optional ?language=hi.
+router.get(
+  '/translations',
+  wrapAsync(async (req, res) => {
+    const result = await listTranslations({
+      tenantId: req.tenantId,
+      targetLanguage: req.query?.language || null,
+      limit: req.query?.limit,
+    });
+    success(res, result, 'Translations retrieved');
   })
 );
 

@@ -351,6 +351,66 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expect(denial.body.data.safety_flags.some((flag) => flag.code === 'DENIAL_RISK_GAP')).toBe(true);
   });
 
+  it('refuses to translate unreviewed drafts and produces a translation once accepted', async () => {
+    await enableModule('patient_communication_translation');
+    await enableModule('patient_aftercare_instructions');
+
+    // Generate an aftercare draft we can translate.
+    const aftercare = await doctor.post(`/api/v1/emr/${admissionId}/aftercare-instructions`).send({});
+    expectStatus(aftercare, 200, 'aftercare draft');
+    const generationId = aftercare.body.data.generation_id;
+
+    // Refuse: generation still in 'draft' status.
+    const refused = await doctor.post(`/api/v1/emr/generations/${generationId}/translate`).send({
+      target_language: 'hi',
+    });
+    expectStatus(refused, 403, 'translate before acceptance');
+
+    // Reviewer accepts the draft.
+    const reviews = await admin.get(`/api/v1/admin/clinical-ai/reviews?module_key=patient_aftercare_instructions`);
+    expectStatus(reviews, 200, 'list aftercare reviews');
+    const review = reviews.body.data.reviews.find((row) => row.generation_id === generationId);
+    expect(review).toBeTruthy();
+    const accepted = await admin.patch(`/api/v1/admin/clinical-ai/reviews/${review.id}`).send({
+      decision: 'accepted',
+      edited_draft: aftercare.body.data.draft,
+    });
+    expectStatus(accepted, 200, 'accept aftercare review');
+
+    // Now translate — language must be supported; en is rejected.
+    const enFails = await doctor.post(`/api/v1/emr/generations/${generationId}/translate`).send({
+      target_language: 'en',
+    });
+    expectStatus(enFails, 400, 'en translation rejected');
+
+    const translated = await doctor.post(`/api/v1/emr/generations/${generationId}/translate`).send({
+      target_language: 'hi',
+    });
+    expectStatus(translated, 200, 'hindi translation');
+    expect(translated.body.data.source_generation_id).toBe(generationId);
+    expect(translated.body.data.target_language).toBe('hi');
+    expect(['completed', 'needs_review']).toContain(translated.body.data.status);
+    expect(Array.isArray(translated.body.data.fidelity_flags)).toBe(true);
+
+    // Idempotent — re-requesting the same language returns the same row.
+    const again = await doctor.post(`/api/v1/emr/generations/${generationId}/translate`).send({
+      target_language: 'hi',
+    });
+    expectStatus(again, 200, 'hindi translation idempotent');
+    expect(again.body.data.deduplicated).toBe(true);
+    expect(again.body.data.translation_id).toBe(translated.body.data.translation_id);
+
+    // List endpoint shows the translation.
+    const list = await doctor.get('/api/v1/emr/translations?language=hi');
+    expectStatus(list, 200, 'list translations');
+    expect(list.body.data.translations.some((row) => row.id === translated.body.data.translation_id)).toBe(true);
+
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_ai_translations WHERE source_generation_id = $1`,
+      generationId
+    ).catch(() => {});
+  });
+
   it('transcribes voice notes with mock STT and generates a SOAP draft into the review queue', async () => {
     const previousProvider = process.env.CLINICAL_AI_STT_PROVIDER;
     process.env.CLINICAL_AI_STT_PROVIDER = 'mock';
