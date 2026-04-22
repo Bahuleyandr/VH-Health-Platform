@@ -193,6 +193,25 @@ export interface ClinicalAiBudgetStatus {
   tripped: boolean;
 }
 
+export interface ClinicalAiAdapterStatus {
+  key: string;
+  display_name: string;
+  surface?: string | null;
+  provider?: string | null;
+  mode?: string | null;
+  model?: string | null;
+  configured: boolean;
+  status: string;
+  reason?: string | null;
+  external_call?: boolean;
+  endpoint_configured?: boolean | null;
+  api_key_configured?: boolean | null;
+  auth_configured?: boolean | null;
+  tenant_region?: string | null;
+  allowed_regions?: string[];
+  timeout_ms?: number | null;
+}
+
 export interface ClinicalAiStatus {
   config: ClinicalAiConfig;
   providerHealth: {
@@ -206,6 +225,7 @@ export interface ClinicalAiStatus {
   budget: ClinicalAiBudgetStatus;
   modules: ClinicalAiModule[];
   usage: ClinicalAiUsageSummary;
+  adapters?: ClinicalAiAdapterStatus[];
 }
 
 export interface ClinicalAiGeneration {

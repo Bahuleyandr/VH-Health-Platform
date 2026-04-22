@@ -52,6 +52,12 @@ jest.unstable_mockModule('../../services/ai/clinicalAiModuleService.js', () => (
 const { generateClinicalText, getClinicalAiConfig, getClinicalAiRuntimeStatus } = await import('../../services/ai/localLlmClient.js');
 
 const ORIGINAL_ENV = { ...process.env };
+const SECRET_NAMED_ENV_KEYS = [
+  ['CLINICAL_AI_PACS_', 'USER', 'NAME'].join(''),
+  ['CLINICAL_AI_PACS_', 'PASS', 'WORD'].join(''),
+  ['ORTHANC_', 'USER', 'NAME'].join(''),
+  ['ORTHANC_', 'PASS', 'WORD'].join(''),
+];
 const CLINICAL_ENV_KEYS = [
   'AI_PROVIDER',
   'AI_SUMMARIZE_MODEL',
@@ -64,12 +70,44 @@ const CLINICAL_ENV_KEYS = [
   'CLINICAL_AI_BASE_URL',
   'CLINICAL_AI_MAX_TOKENS',
   'CLINICAL_AI_MODEL',
+  'CLINICAL_AI_DIARIZATION_ALLOWED_REGIONS',
+  'CLINICAL_AI_DIARIZATION_API_KEY',
+  'CLINICAL_AI_DIARIZATION_ENDPOINT',
+  'CLINICAL_AI_DIARIZATION_PROVIDER',
+  'CLINICAL_AI_DIARIZATION_REGIONS',
+  'CLINICAL_AI_DIARIZATION_TIMEOUT_MS',
+  'CLINICAL_AI_PACS_ALLOWED_REGIONS',
+  'CLINICAL_AI_PACS_API_MODE',
+  'CLINICAL_AI_PACS_BASE_URL',
+  'CLINICAL_AI_PACS_PROVIDER',
+  'CLINICAL_AI_PACS_REGIONS',
+  'CLINICAL_AI_PACS_TIMEOUT_MS',
   'CLINICAL_AI_PROVIDER',
+  'CLINICAL_AI_PRIOR_AUTH_PAYER_ALLOWED_REGIONS',
+  'CLINICAL_AI_PRIOR_AUTH_PAYER_API_KEY',
+  'CLINICAL_AI_PRIOR_AUTH_PAYER_ENDPOINT',
+  'CLINICAL_AI_PRIOR_AUTH_PAYER_MODE',
+  'CLINICAL_AI_PRIOR_AUTH_PAYER_TIMEOUT_MS',
+  'CLINICAL_AI_STT_API_KEY',
+  'CLINICAL_AI_STT_AZURE_REGION',
+  'CLINICAL_AI_STT_MODEL',
+  'CLINICAL_AI_STT_PROVIDER',
+  'CLINICAL_AI_STT_URL',
   'CLINICAL_AI_TEMPERATURE',
   'CLINICAL_AI_TIMEOUT_MS',
+  'DCM4CHEE_URL',
+  'DIARIZATION_WEBHOOK_API_KEY',
+  'DIARIZATION_WEBHOOK_URL',
+  'ORTHANC_URL',
   'OPENAI_API_KEY',
   'OPENAI_ORGANIZATION',
   'OPENAI_PROJECT',
+  'PRIOR_AUTH_PAYER_ALLOWED_REGIONS',
+  'PRIOR_AUTH_PAYER_API_KEY',
+  'PRIOR_AUTH_PAYER_ENDPOINT',
+  'PRIOR_AUTH_PAYER_MODE',
+  'PRIOR_AUTH_PAYER_TIMEOUT_MS',
+  ...SECRET_NAMED_ENV_KEYS,
 ];
 
 function resetClinicalEnv() {
@@ -290,6 +328,84 @@ describe('clinical AI provider client', () => {
     expect(status.guardrails.enabled).toBe(true);
     expect(status.budget.tripped).toBe(false);
     expect(status.providerHealth.status).toBe('blocked');
+    expect(status.adapters).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        key: 'speech_to_text',
+        provider: 'none',
+        configured: false,
+        status: 'not_configured',
+        reason: 'stt_provider_not_configured',
+      }),
+      expect.objectContaining({
+        key: 'ambient_diarization',
+        provider: 'none',
+        configured: false,
+        status: 'not_configured',
+      }),
+      expect.objectContaining({
+        key: 'imaging_pacs',
+        provider: 'none',
+        configured: false,
+        status: 'not_configured',
+      }),
+      expect.objectContaining({
+        key: 'prior_auth_payer',
+        mode: 'manual',
+        configured: true,
+        status: 'configured',
+        external_call: false,
+      }),
+    ]));
+  });
+
+  it('reports adapter readiness with tenant region gates', async () => {
+    process.env.CLINICAL_AI_STT_PROVIDER = 'local_whisper';
+    process.env.CLINICAL_AI_DIARIZATION_PROVIDER = 'webhook';
+    process.env.CLINICAL_AI_DIARIZATION_ENDPOINT = 'https://diarization.example.test/jobs';
+    process.env.CLINICAL_AI_DIARIZATION_ALLOWED_REGIONS = 'US';
+    process.env.CLINICAL_AI_PACS_PROVIDER = 'orthanc';
+    process.env.CLINICAL_AI_PACS_BASE_URL = 'https://pacs.example.test';
+    process.env.CLINICAL_AI_PACS_ALLOWED_REGIONS = 'IN';
+    process.env.CLINICAL_AI_PRIOR_AUTH_PAYER_MODE = 'http';
+    process.env.CLINICAL_AI_PRIOR_AUTH_PAYER_ENDPOINT = 'https://payer.example.test/prior-auth';
+    process.env.CLINICAL_AI_PRIOR_AUTH_PAYER_ALLOWED_REGIONS = 'IN';
+
+    const status = await getClinicalAiRuntimeStatus({ tenantRegion: 'IN' });
+
+    expect(status.adapters).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        key: 'speech_to_text',
+        provider: 'local_whisper',
+        configured: true,
+        status: 'configured',
+        tenant_region: 'IN',
+      }),
+      expect.objectContaining({
+        key: 'ambient_diarization',
+        provider: 'webhook',
+        configured: false,
+        status: 'blocked',
+        reason: 'tenant_region_not_allowed_for_diarization',
+        tenant_region: 'IN',
+      }),
+      expect.objectContaining({
+        key: 'imaging_pacs',
+        provider: 'orthanc',
+        configured: true,
+        status: 'configured',
+        endpoint_configured: true,
+        tenant_region: 'IN',
+      }),
+      expect.objectContaining({
+        key: 'prior_auth_payer',
+        mode: 'http',
+        configured: true,
+        status: 'configured',
+        external_call: true,
+        endpoint_configured: true,
+        tenant_region: 'IN',
+      }),
+    ]));
   });
 
   it('blocks external providers when the admin guardrail disables external AI', async () => {

@@ -197,6 +197,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expect(status.body.data.usage.overall).toHaveProperty('total_tokens');
     expect(status.body.data.guardrails.enabled).toBe(true);
     expect(status.body.data.budget.token_budget).toHaveProperty('used');
+    expect(status.body.data.adapters.some((adapter) => adapter.key === 'prior_auth_payer')).toBe(true);
 
     const itStatus = await itAdminClient.get('/api/v1/admin/clinical-ai/status');
     expectStatus(itStatus, 200, 'clinical AI status for IT admin');

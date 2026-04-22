@@ -276,7 +276,12 @@ router.get('/status', async (req, res, next) => {
   try {
     const live = String(req.query.live || '').toLowerCase() === 'true';
     const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 90);
-    const status = await getClinicalAiRuntimeStatus({ live, days, tenantId: req.tenantId });
+    const status = await getClinicalAiRuntimeStatus({
+      live,
+      days,
+      tenantId: req.tenantId,
+      tenantRegion: req.tenant?.region || null,
+    });
     return success(res, status, 'Clinical AI status retrieved');
   } catch (err) {
     return next(err);

@@ -6,6 +6,10 @@ import {
   getClinicalAiUsageSummary,
   listClinicalAiModules,
 } from './clinicalAiModuleService.js';
+import { describeDiarizationConfig } from './ambientDiarizationService.js';
+import { describePacsConfig } from './imagingPacsAdapterService.js';
+import { describePriorAuthPayerConfig } from './priorAuthorizationPayerAdapterService.js';
+import { describeSttConfig } from './sttService.js';
 
 const DEFAULT_TIMEOUT_MS = 45_000;
 const DEFAULT_MODEL = 'llama3.1:8b';
@@ -240,6 +244,85 @@ function getReadiness(config, budgetStatus = null) {
     return { ready: false, reason: `${config.provider} clinical AI API key is not configured` };
   }
   return { ready: true, reason: null };
+}
+
+function adapterStatus(config = {}) {
+  if (config.configured) return 'configured';
+  if (String(config.reason || '').includes('not_allowed')) return 'blocked';
+  return 'not_configured';
+}
+
+function buildAdapterReadiness({ tenantRegion = null } = {}) {
+  const stt = describeSttConfig({ tenantRegion });
+  const diarization = describeDiarizationConfig({ tenantRegion });
+  const pacs = describePacsConfig({ tenantRegion });
+  const payer = describePriorAuthPayerConfig({ tenantRegion });
+
+  return [
+    {
+      key: 'speech_to_text',
+      display_name: 'Speech-to-text',
+      surface: 'voice',
+      provider: stt.provider,
+      model: stt.model || null,
+      configured: Boolean(stt.configured),
+      status: adapterStatus(stt),
+      reason: stt.reason || null,
+      external_call: Boolean(stt.external_call),
+      endpoint_configured: stt.endpoint_configured ?? null,
+      api_key_configured: stt.api_key_configured ?? null,
+      tenant_region: stt.tenant_region || tenantRegion || null,
+      allowed_regions: stt.allowed_regions || [],
+      timeout_ms: stt.timeout_ms || null,
+    },
+    {
+      key: 'ambient_diarization',
+      display_name: 'Ambient diarization',
+      surface: 'ambient_documentation',
+      provider: diarization.provider,
+      configured: Boolean(diarization.configured),
+      status: adapterStatus(diarization),
+      reason: diarization.reason || null,
+      external_call: Boolean(diarization.external_call),
+      endpoint_configured: Boolean(diarization.endpoint_configured),
+      api_key_configured: Boolean(diarization.api_key_configured),
+      tenant_region: diarization.tenant_region || tenantRegion || null,
+      allowed_regions: diarization.allowed_regions || [],
+      timeout_ms: diarization.timeout_ms || null,
+    },
+    {
+      key: 'imaging_pacs',
+      display_name: 'Imaging PACS',
+      surface: 'imaging',
+      provider: pacs.provider,
+      mode: pacs.api_mode || null,
+      configured: Boolean(pacs.configured),
+      status: adapterStatus(pacs),
+      reason: pacs.reason || null,
+      external_call: Boolean(pacs.provider && pacs.provider !== 'none'),
+      endpoint_configured: Boolean(pacs.base_url_configured),
+      auth_configured: Boolean(pacs.auth_configured),
+      tenant_region: pacs.tenant_region || tenantRegion || null,
+      allowed_regions: pacs.allowed_regions || [],
+      timeout_ms: pacs.timeout_ms || null,
+    },
+    {
+      key: 'prior_auth_payer',
+      display_name: 'Prior auth payer',
+      surface: 'billing',
+      provider: payer.mode,
+      mode: payer.mode,
+      configured: Boolean(payer.configured),
+      status: adapterStatus(payer),
+      reason: payer.reason || null,
+      external_call: Boolean(payer.external_call),
+      endpoint_configured: Boolean(payer.endpoint_configured),
+      api_key_configured: Boolean(payer.api_key_configured),
+      tenant_region: payer.tenant_region || tenantRegion || null,
+      allowed_regions: payer.allowed_regions || [],
+      timeout_ms: payer.timeout_ms || null,
+    },
+  ];
 }
 
 async function callOllama(config, prompt, systemPrompt) {
@@ -523,7 +606,12 @@ async function probeProvider(config) {
   }
 }
 
-export async function getClinicalAiRuntimeStatus({ live = false, days = 7, tenantId = null } = {}) {
+export async function getClinicalAiRuntimeStatus({
+  live = false,
+  days = 7,
+  tenantId = null,
+  tenantRegion = null,
+} = {}) {
   const modules = await listClinicalAiModules({ tenantId });
   const guardrails = await getClinicalAiGuardrails();
   const config = getProviderConfig(null, guardrails);
@@ -541,6 +629,7 @@ export async function getClinicalAiRuntimeStatus({ live = false, days = 7, tenan
     budget,
     modules,
     usage,
+    adapters: buildAdapterReadiness({ tenantRegion }),
   };
 }
 

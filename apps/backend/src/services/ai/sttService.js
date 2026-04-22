@@ -184,12 +184,22 @@ export async function transcribe({
   }
 }
 
-export function describeSttConfig() {
-  const provider = getProvider();
+export function describeSttConfig({ tenantRegion = null } = {}) {
+  const provider = getProvider(tenantRegion);
+  const model = getModel(provider);
+  const apiKeyConfigured = Boolean(process.env.CLINICAL_AI_STT_API_KEY || process.env.OPENAI_API_KEY || process.env.AZURE_SPEECH_KEY);
+  const externalCall = provider === 'openai' || provider === 'azure';
   return {
     provider,
-    model: getModel(provider),
+    model,
     configured: provider !== 'none',
+    reason: provider === 'none' ? 'stt_provider_not_configured' : null,
+    external_call: externalCall,
+    endpoint_configured: provider !== 'none',
+    api_key_configured: externalCall ? apiKeyConfigured : null,
+    tenant_region: tenantRegion || null,
+    allowed_regions: [],
+    timeout_ms: DEFAULT_TIMEOUT_MS,
   };
 }
 

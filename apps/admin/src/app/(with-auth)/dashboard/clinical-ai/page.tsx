@@ -12,6 +12,7 @@ import {
   resetClinicalAiTenantModule,
   updateClinicalAiGuardrails,
   updateClinicalAiTenantModule,
+  type ClinicalAiAdapterStatus,
   type ClinicalAiBudgetStatus,
   type ClinicalAiAuditLog,
   type ClinicalAiGeneration,
@@ -116,6 +117,27 @@ function statusClass(status?: string) {
   if (s === "reachable" || s === "configured") return "bg-emerald-100 text-emerald-800 border-emerald-200";
   if (s === "blocked") return "bg-amber-100 text-amber-800 border-amber-200";
   return "bg-red-100 text-red-800 border-red-200";
+}
+
+function adapterStatusClass(adapter: ClinicalAiAdapterStatus) {
+  const s = adapter.status.toLowerCase();
+  if (s === "configured") return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  if (s === "blocked") return "bg-amber-100 text-amber-800 border-amber-200";
+  return "bg-slate-100 text-slate-700 border-slate-200";
+}
+
+function readableKey(value?: string | null) {
+  return value ? value.replace(/_/g, " ") : "-";
+}
+
+function adapterBoundary(adapter: ClinicalAiAdapterStatus) {
+  if (adapter.external_call) return "External";
+  if (adapter.mode === "manual" || adapter.provider === "manual") return "Manual";
+  return "Local";
+}
+
+function adapterAuthConfigured(adapter: ClinicalAiAdapterStatus) {
+  return Boolean(adapter.api_key_configured ?? adapter.auth_configured ?? false);
 }
 
 function boundaryLabel(module: ClinicalAiModule) {
@@ -609,6 +631,7 @@ export default function ClinicalAiGovernancePage() {
   const providerHealth = status.data?.providerHealth;
   const guardrails = status.data?.guardrails;
   const budget = status.data?.budget;
+  const adapters = status.data?.adapters ?? [];
 
   return (
     <div className="space-y-6">
@@ -696,6 +719,73 @@ export default function ClinicalAiGovernancePage() {
           </div>
         </div>
       </div>
+
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Settings2 className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Adapter Readiness</h2>
+        </div>
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50">
+              <tr>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Adapter</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Surface</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Provider</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Boundary</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Readiness</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Region</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Config</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {adapters.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-8 text-center text-muted-foreground" colSpan={7}>
+                    No adapter status found
+                  </td>
+                </tr>
+              ) : (
+                adapters.map((adapter) => (
+                  <tr key={adapter.key}>
+                    <td className="px-4 py-3">
+                      <div className="font-medium">{adapter.display_name}</div>
+                      <div className="text-xs text-muted-foreground">{adapter.key}</div>
+                    </td>
+                    <td className="px-4 py-3">{readableKey(adapter.surface)}</td>
+                    <td className="px-4 py-3">
+                      {adapter.provider || adapter.mode || "-"}
+                      {adapter.model ? (
+                        <div className="text-xs text-muted-foreground">{adapter.model}</div>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-3">{adapterBoundary(adapter)}</td>
+                    <td className="px-4 py-3">
+                      <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${adapterStatusClass(adapter)}`}>
+                        {readableKey(adapter.status)}
+                      </span>
+                      {adapter.reason ? (
+                        <div className="mt-1 text-xs text-muted-foreground">{readableKey(adapter.reason)}</div>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div>{adapter.tenant_region || "default"}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {adapter.allowed_regions?.length ? adapter.allowed_regions.join(", ") : "all regions"}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      <div>endpoint: {adapter.endpoint_configured ? "yes" : "no"}</div>
+                      <div>auth: {adapterAuthConfigured(adapter) ? "yes" : "no"}</div>
+                      <div>timeout: {adapter.timeout_ms ? fmtLatency(adapter.timeout_ms) : "-"}</div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <GuardrailEditor
         guardrails={guardrails}
