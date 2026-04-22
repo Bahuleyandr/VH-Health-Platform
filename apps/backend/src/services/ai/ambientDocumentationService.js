@@ -172,6 +172,8 @@ export async function createAmbientEncounter({
     transcriptSegments,
     rawTranscript,
     diarizationPayload,
+    audioStorageKey,
+    audioMime,
     provider: diarizationProvider,
     tenantRegion: req?.tenant?.region || null,
   });

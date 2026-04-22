@@ -3,12 +3,16 @@
  *
  * The ambient note workflow should not know provider-specific payload shapes.
  * This adapter accepts already-diarized provider output from capture clients
- * or a raw speaker-labelled transcript, normalizes it into canonical
- * transcript segments, and leaves provider SDK/API calls as a swappable edge.
+ * or a raw speaker-labelled transcript, can call a configured provider
+ * webhook, normalizes the result into canonical transcript segments, and
+ * leaves provider SDK/API details at the edge.
  */
 
 const DEFAULT_TURN_SECONDS = 6;
+const DEFAULT_TIMEOUT_MS = 15_000;
+const MIN_TIMEOUT_MS = 1000;
 const WORDS_PER_SECOND = 2.4;
+const LOCAL_PROVIDERS = new Set(['none', 'local', 'speaker_hint_parser']);
 
 const SPEAKER_ALIASES = new Map([
   ['clinician', 'doctor'],
@@ -25,8 +29,116 @@ const SPEAKER_ALIASES = new Map([
   ['other', 'other'],
 ]);
 
-function configuredProvider() {
-  return String(process.env.CLINICAL_AI_DIARIZATION_PROVIDER || 'none').trim().toLowerCase() || 'none';
+function clean(value) {
+  return String(value ?? '').trim();
+}
+
+function splitCsv(value) {
+  return clean(value)
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function configuredProvider(env = process.env) {
+  return clean(env.CLINICAL_AI_DIARIZATION_PROVIDER || 'none').toLowerCase() || 'none';
+}
+
+export function normalizeDiarizationProvider(provider = null, env = process.env) {
+  const raw = clean(provider || configuredProvider(env)).toLowerCase();
+  if (!raw || ['none', 'off', 'disabled'].includes(raw)) return 'none';
+  if (raw === 'azure_speech' || raw === 'azure-conversation') return 'azure';
+  if (raw === 'pyannote.audio') return 'pyannote';
+  if (raw === 'webhook' || raw === 'http') return 'webhook';
+  if (raw === 'local' || raw === 'speaker_hint_parser') return 'speaker_hint_parser';
+  return raw;
+}
+
+export function resolveDiarizationConfig({
+  provider = null,
+  tenantRegion = null,
+  env = process.env,
+} = {}) {
+  const selectedProvider = normalizeDiarizationProvider(provider, env);
+  const endpoint = clean(env.CLINICAL_AI_DIARIZATION_ENDPOINT || env.DIARIZATION_WEBHOOK_URL);
+  const apiKey = clean(env.CLINICAL_AI_DIARIZATION_API_KEY || env.DIARIZATION_WEBHOOK_API_KEY);
+  const allowedRegions = splitCsv(env.CLINICAL_AI_DIARIZATION_ALLOWED_REGIONS || env.CLINICAL_AI_DIARIZATION_REGIONS);
+  const regionAllowed = !tenantRegion || allowedRegions.length === 0 || allowedRegions.includes(String(tenantRegion));
+  const timeoutMs = Math.max(
+    Number.parseInt(env.CLINICAL_AI_DIARIZATION_TIMEOUT_MS, 10) || DEFAULT_TIMEOUT_MS,
+    MIN_TIMEOUT_MS
+  );
+
+  if (LOCAL_PROVIDERS.has(selectedProvider)) {
+    return {
+      configured: selectedProvider !== 'none',
+      provider: selectedProvider,
+      reason: selectedProvider === 'none' ? 'diarization_provider_not_configured' : null,
+      external_call: false,
+      endpoint_configured: Boolean(endpoint),
+      api_key_configured: Boolean(apiKey),
+      tenant_region: tenantRegion || null,
+      allowed_regions: allowedRegions,
+      timeout_ms: timeoutMs,
+    };
+  }
+
+  if (!endpoint) {
+    return {
+      configured: false,
+      provider: selectedProvider,
+      reason: 'diarization_endpoint_not_configured',
+      external_call: true,
+      endpoint_configured: false,
+      api_key_configured: Boolean(apiKey),
+      tenant_region: tenantRegion || null,
+      allowed_regions: allowedRegions,
+      timeout_ms: timeoutMs,
+    };
+  }
+
+  if (!regionAllowed) {
+    return {
+      configured: false,
+      provider: selectedProvider,
+      reason: 'tenant_region_not_allowed_for_diarization',
+      external_call: true,
+      endpoint_configured: true,
+      api_key_configured: Boolean(apiKey),
+      tenant_region: tenantRegion || null,
+      allowed_regions: allowedRegions,
+      timeout_ms: timeoutMs,
+    };
+  }
+
+  return {
+    configured: true,
+    provider: selectedProvider,
+    reason: null,
+    external_call: true,
+    endpoint,
+    endpoint_configured: true,
+    api_key: apiKey,
+    api_key_configured: Boolean(apiKey),
+    tenant_region: tenantRegion || null,
+    allowed_regions: allowedRegions,
+    timeout_ms: timeoutMs,
+  };
+}
+
+export function describeDiarizationConfig(options = {}) {
+  const config = resolveDiarizationConfig(options);
+  return {
+    configured: config.configured,
+    provider: config.provider,
+    reason: config.reason || null,
+    external_call: Boolean(config.external_call),
+    endpoint_configured: Boolean(config.endpoint_configured),
+    api_key_configured: Boolean(config.api_key_configured),
+    tenant_region: config.tenant_region || null,
+    allowed_regions: config.allowed_regions || [],
+    timeout_ms: config.timeout_ms || null,
+  };
 }
 
 function normalizeSpeaker(value, fallbackIndex = 0) {
@@ -181,14 +293,137 @@ export function normalizeDiarizationPayload(payload, { fallbackTranscript = null
   return fallbackTranscript ? segmentRawTranscriptBySpeakerHints(fallbackTranscript) : [];
 }
 
+async function readResponsePayload(response) {
+  if (typeof response.json === 'function') {
+    try {
+      return await response.json();
+    } catch {
+      // Empty 202 bodies are common for webhook-style workers.
+    }
+  }
+  if (typeof response.text === 'function') {
+    const text = await response.text();
+    if (!text) return {};
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { text };
+    }
+  }
+  return {};
+}
+
+async function postJsonWithTimeout(fetchImpl, url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchImpl(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function requestExternalDiarization({
+  rawTranscript = null,
+  audioStorageKey = null,
+  audioMime = null,
+  provider = null,
+  tenantRegion = null,
+  env = process.env,
+  fetchImpl = globalThis.fetch,
+} = {}) {
+  const config = resolveDiarizationConfig({ provider, tenantRegion, env });
+  const configSummary = describeDiarizationConfig({ provider, tenantRegion, env });
+  const base = {
+    status: 'skipped',
+    provider: config.provider,
+    segments: [],
+    reason: config.reason || null,
+    source: 'external_provider',
+    tenant_region: tenantRegion || null,
+    config: configSummary,
+  };
+
+  if (!config.external_call) return base;
+  if (!rawTranscript && !audioStorageKey) {
+    return {
+      ...base,
+      reason: 'raw_transcript_or_audio_storage_key_required',
+    };
+  }
+  if (!config.configured) return base;
+  if (typeof fetchImpl !== 'function') {
+    return {
+      ...base,
+      status: 'failed',
+      reason: 'fetch_unavailable',
+    };
+  }
+
+  const headers = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
+  if (config.api_key) headers.Authorization = `Bearer ${config.api_key}`;
+
+  try {
+    const response = await postJsonWithTimeout(
+      fetchImpl,
+      config.endpoint,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          provider: config.provider,
+          raw_transcript: rawTranscript || null,
+          audio_storage_key: audioStorageKey || null,
+          audio_mime: audioMime || null,
+          tenant_region: tenantRegion || null,
+        }),
+      },
+      config.timeout_ms
+    );
+    const payload = await readResponsePayload(response);
+    const segments = normalizeDiarizationPayload(payload, { fallbackTranscript: rawTranscript });
+
+    if (!response.ok) {
+      return {
+        ...base,
+        status: 'failed',
+        reason: `diarization_http_${response.status}`,
+        http_status: response.status,
+      };
+    }
+
+    return {
+      ...base,
+      status: segments.length ? 'completed' : 'failed',
+      segments,
+      reason: segments.length ? null : 'diarization_provider_returned_no_segments',
+      http_status: response.status,
+    };
+  } catch (err) {
+    return {
+      ...base,
+      status: 'failed',
+      reason: err?.name === 'AbortError' ? 'diarization_provider_timeout' : 'diarization_provider_error',
+      error_message: clean(err?.message).slice(0, 500) || null,
+    };
+  }
+}
+
 export async function resolveAmbientDiarization({
   transcriptSegments = [],
   rawTranscript = null,
   diarizationPayload = null,
+  audioStorageKey = null,
+  audioMime = null,
   provider = null,
   tenantRegion = null,
+  env = process.env,
+  fetchImpl = globalThis.fetch,
 } = {}) {
-  const selectedProvider = String(provider || configuredProvider()).trim().toLowerCase() || 'none';
+  const selectedProvider = normalizeDiarizationProvider(provider, env);
   const provided = Array.isArray(transcriptSegments) ? transcriptSegments : [];
   if (provided.length) {
     return {
@@ -209,6 +444,31 @@ export async function resolveAmbientDiarization({
       reason: segments.length ? null : 'diarization_payload_empty',
       source: 'diarization_payload',
     };
+  }
+
+  const config = resolveDiarizationConfig({ provider: selectedProvider, tenantRegion, env });
+  if (config.external_call && (rawTranscript || audioStorageKey)) {
+    const external = await requestExternalDiarization({
+      rawTranscript,
+      audioStorageKey,
+      audioMime,
+      provider: selectedProvider,
+      tenantRegion,
+      env,
+      fetchImpl,
+    });
+    if (external.status === 'completed') return external;
+    if (rawTranscript) {
+      return {
+        status: 'completed',
+        provider: selectedProvider,
+        segments: segmentRawTranscriptBySpeakerHints(rawTranscript),
+        reason: external.reason || 'external_diarization_unavailable',
+        source: 'raw_transcript_fallback',
+        external_status: external.status,
+      };
+    }
+    return external;
   }
 
   if (rawTranscript) {
@@ -233,17 +493,12 @@ export async function resolveAmbientDiarization({
   };
 }
 
-export function describeDiarizationConfig() {
-  const provider = configuredProvider();
-  return {
-    provider,
-    configured: provider !== 'none',
-  };
-}
-
 export default {
   describeDiarizationConfig,
   normalizeDiarizationPayload,
+  normalizeDiarizationProvider,
+  requestExternalDiarization,
+  resolveDiarizationConfig,
   resolveAmbientDiarization,
   segmentRawTranscriptBySpeakerHints,
 };

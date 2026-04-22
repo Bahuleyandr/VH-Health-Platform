@@ -1,7 +1,10 @@
 import { normalizeTranscriptSegments } from '../../services/ai/ambientDocumentationService.js';
 import {
+  describeDiarizationConfig,
   normalizeDiarizationPayload,
+  requestExternalDiarization,
   resolveAmbientDiarization,
+  resolveDiarizationConfig,
   segmentRawTranscriptBySpeakerHints,
 } from '../../services/ai/ambientDiarizationService.js';
 
@@ -136,5 +139,94 @@ describe('ambient diarization adapter', () => {
     expect(result.provider).toBe('none');
     expect(result.segments).toEqual([]);
     expect(result.reason).toBe('diarization_provider_not_configured');
+  });
+
+  it('describes external provider readiness without leaking API keys', () => {
+    const config = describeDiarizationConfig({
+      tenantRegion: 'IN',
+      env: {
+        CLINICAL_AI_DIARIZATION_PROVIDER: 'deepgram',
+        CLINICAL_AI_DIARIZATION_ENDPOINT: 'https://diarizer.example.test/run',
+        CLINICAL_AI_DIARIZATION_API_KEY: 'secret',
+        CLINICAL_AI_DIARIZATION_ALLOWED_REGIONS: 'IN',
+      },
+    });
+
+    expect(config).toMatchObject({
+      configured: true,
+      provider: 'deepgram',
+      external_call: true,
+      endpoint_configured: true,
+      api_key_configured: true,
+    });
+    expect(config).not.toHaveProperty('api_key');
+  });
+
+  it('calls a configured provider webhook and normalizes returned segments', async () => {
+    const calls = [];
+    const fetchImpl = async (url, options) => {
+      calls.push({ url, options });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          results: {
+            utterances: [
+              { speaker: 0, transcript: 'How is the pain?', start: 0, end: 2 },
+              { speaker: 1, transcript: 'Much better today.', start: 2, end: 5 },
+            ],
+          },
+        }),
+      };
+    };
+
+    const result = await requestExternalDiarization({
+      rawTranscript: 'Doctor: How is the pain?\nPatient: Much better today.',
+      provider: 'webhook',
+      tenantRegion: 'IN',
+      env: {
+        CLINICAL_AI_DIARIZATION_ENDPOINT: 'https://diarizer.example.test/run',
+        CLINICAL_AI_DIARIZATION_API_KEY: 'secret',
+        CLINICAL_AI_DIARIZATION_ALLOWED_REGIONS: 'IN',
+      },
+      fetchImpl,
+    });
+
+    expect(result.status).toBe('completed');
+    expect(result.segments.map((segment) => segment.speaker)).toEqual(['doctor', 'patient']);
+    expect(calls[0].url).toBe('https://diarizer.example.test/run');
+    expect(calls[0].options.headers.Authorization).toBe('Bearer secret');
+    expect(JSON.parse(calls[0].options.body).tenant_region).toBe('IN');
+  });
+
+  it('falls back to local speaker hints when external diarization is unavailable', async () => {
+    const result = await resolveAmbientDiarization({
+      rawTranscript: 'Doctor: Any fever?\nPatient: No fever.',
+      provider: 'deepgram',
+      tenantRegion: 'IN',
+      env: {
+        CLINICAL_AI_DIARIZATION_PROVIDER: 'deepgram',
+      },
+    });
+
+    expect(result.status).toBe('completed');
+    expect(result.provider).toBe('deepgram');
+    expect(result.source).toBe('raw_transcript_fallback');
+    expect(result.reason).toBe('diarization_endpoint_not_configured');
+    expect(result.segments.map((segment) => segment.speaker)).toEqual(['doctor', 'patient']);
+  });
+
+  it('blocks external diarization outside allowed tenant regions', () => {
+    const config = resolveDiarizationConfig({
+      provider: 'azure',
+      tenantRegion: 'EU',
+      env: {
+        CLINICAL_AI_DIARIZATION_ENDPOINT: 'https://diarizer.example.test/run',
+        CLINICAL_AI_DIARIZATION_ALLOWED_REGIONS: 'IN,US',
+      },
+    });
+
+    expect(config.configured).toBe(false);
+    expect(config.reason).toBe('tenant_region_not_allowed_for_diarization');
   });
 });
