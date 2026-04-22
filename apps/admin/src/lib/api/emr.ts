@@ -102,6 +102,12 @@ export interface ClinicalAiUsageSummary {
     estimated_cost_minor?: number | null;
     avg_latency_ms?: number | null;
     last_generation_at?: string | null;
+    review_count?: number;
+    accepted_count?: number;
+    rejected_count?: number;
+    revision_count?: number;
+    pending_count?: number;
+    acceptance_rate_pct?: number | null;
   }>;
   by_provider: Array<{
     provider: string;
@@ -418,10 +424,11 @@ export async function activateClinicalAiPrompt(promptId: number, approvalId?: nu
   );
 }
 
-export async function getClinicalAiReviews(params: { decision?: string; moduleKey?: string } = {}) {
+export async function getClinicalAiReviews(params: { decision?: string; moduleKey?: string; reviewerRole?: string } = {}) {
   const query: Record<string, string | number> = {};
   if (params.decision) query.decision = params.decision;
   if (params.moduleKey) query.module_key = params.moduleKey;
+  if (params.reviewerRole) query.reviewer_role = params.reviewerRole;
   return getJSON<{ reviews: ClinicalAiReview[]; count: number }>('/admin/clinical-ai/reviews', query);
 }
 
@@ -466,4 +473,39 @@ export async function endBreakGlassSession(sessionId: number) {
     method: 'PATCH',
     body: {},
   });
+}
+
+export interface SelfHealingFinding {
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  code: string;
+  message: string;
+  suggested_action?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface SelfHealingRun {
+  id: number;
+  tenant_id: string;
+  started_by: string | null;
+  started_at: string;
+  finished_at: string | null;
+  status: 'running' | 'completed' | 'failed';
+  scope: string;
+  findings: SelfHealingFinding[];
+  suggested_actions: Array<{ action: string }>;
+  metadata: Record<string, unknown>;
+}
+
+export async function runSelfHealingScan(scope: string = 'routine') {
+  return postJSON<{
+    run_id: number | null;
+    tenant_id: string;
+    findings: SelfHealingFinding[];
+    suggested_actions: Array<{ action: string }>;
+    read_only: boolean;
+  }>('/admin/clinical-ai/self-healing/runs', { scope });
+}
+
+export async function listSelfHealingRuns() {
+  return getJSON<{ runs: SelfHealingRun[]; count: number }>('/admin/clinical-ai/self-healing/runs');
 }

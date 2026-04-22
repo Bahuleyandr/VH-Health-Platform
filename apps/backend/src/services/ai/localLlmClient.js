@@ -512,12 +512,12 @@ async function probeProvider(config) {
   }
 }
 
-export async function getClinicalAiRuntimeStatus({ live = false, days = 7 } = {}) {
+export async function getClinicalAiRuntimeStatus({ live = false, days = 7, tenantId = null } = {}) {
   const modules = await listClinicalAiModules();
   const guardrails = await getClinicalAiGuardrails();
   const config = getProviderConfig(null, guardrails);
-  const usage = await getClinicalAiUsageSummary({ days });
-  const budget = await getClinicalAiBudgetStatus({ days: 1, guardrails });
+  const usage = await getClinicalAiUsageSummary({ days, tenantId });
+  const budget = await getClinicalAiBudgetStatus({ days: 1, guardrails, tenantId });
   const readiness = getReadiness(config, budget);
   const providerHealth = live
     ? await probeProvider(config)

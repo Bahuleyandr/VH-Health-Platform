@@ -26,6 +26,10 @@ import {
   updateReview,
 } from '../../services/ai/clinicalAiWorkflowService.js';
 import { getHealthReport } from '../../middleware/selfHealingMiddleware.js';
+import {
+  listSelfHealingRuns,
+  runSelfHealingScan,
+} from '../../services/ai/selfHealingService.js';
 
 const router = express.Router();
 const CLINICAL_AI_AUDIT_RESOURCE = 'clinical_ai';
@@ -160,7 +164,7 @@ router.get('/status', async (req, res, next) => {
   try {
     const live = String(req.query.live || '').toLowerCase() === 'true';
     const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 90);
-    const status = await getClinicalAiRuntimeStatus({ live, days });
+    const status = await getClinicalAiRuntimeStatus({ live, days, tenantId: req.tenantId });
     return success(res, status, 'Clinical AI status retrieved');
   } catch (err) {
     return next(err);
@@ -260,6 +264,7 @@ router.get('/reviews', async (req, res, next) => {
       tenantId: req.tenantId,
       decision: req.query.decision || null,
       moduleKey: req.query.module_key || null,
+      reviewerRole: req.query.reviewer_role || null,
       limit: req.query.limit,
     });
     return success(res, reviews, 'Clinical AI reviews retrieved');
@@ -386,17 +391,17 @@ router.get('/break-glass', async (req, res, next) => {
 router.get('/usage', async (req, res, next) => {
   try {
     const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 90);
-    const usage = await getClinicalAiUsageSummary({ days });
+    const usage = await getClinicalAiUsageSummary({ days, tenantId: req.tenantId });
     return success(res, usage, 'Clinical AI usage retrieved');
   } catch (err) {
     return next(err);
   }
 });
 
-router.get('/guardrails', async (_req, res, next) => {
+router.get('/guardrails', async (req, res, next) => {
   try {
     const guardrails = await getClinicalAiGuardrails({ refresh: true });
-    const budget = await getClinicalAiBudgetStatus({ days: 1, guardrails });
+    const budget = await getClinicalAiBudgetStatus({ days: 1, guardrails, tenantId: req.tenantId });
     return success(res, { guardrails, budget }, 'Clinical AI guardrails retrieved');
   } catch (err) {
     return next(err);
@@ -408,7 +413,7 @@ router.patch('/guardrails', async (req, res, next) => {
     const updatedBy = req.user?.uid || null;
     const before = pickGuardrailAuditFields(await getClinicalAiGuardrails({ refresh: true }));
     const guardrails = await updateClinicalAiGuardrails(req.body || {}, updatedBy);
-    const budget = await getClinicalAiBudgetStatus({ days: 1, guardrails });
+    const budget = await getClinicalAiBudgetStatus({ days: 1, guardrails, tenantId: req.tenantId });
     await logClinicalAiAudit(
       req,
       'CLINICAL_AI_GUARDRAILS_UPDATED',
@@ -493,6 +498,39 @@ router.get('/generations', async (req, res, next) => {
 router.get('/self-healing/status', (_req, res) => (
   success(res, getHealthReport(), 'Read-only self-healing status retrieved')
 ));
+
+router.get('/self-healing/runs', async (req, res, next) => {
+  try {
+    const result = await listSelfHealingRuns({
+      tenantId: req.tenantId,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Self-healing runs retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/self-healing/runs', async (req, res, next) => {
+  try {
+    const result = await runSelfHealingScan({
+      tenantId: req.tenantId,
+      startedBy: req.user?.uid || null,
+      scope: req.body?.scope || 'routine',
+      triggeredVia: 'admin_manual',
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_SELF_HEALING_RUN',
+      String(result.run_id || 'inline'),
+      null,
+      { finding_count: result.findings.length, suggested_count: result.suggested_actions.length }
+    );
+    return success(res, result, 'Self-healing scan complete', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
 
 router.get('/safety-flags', async (req, res, next) => {
   try {

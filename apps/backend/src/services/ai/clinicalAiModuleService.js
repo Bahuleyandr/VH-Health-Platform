@@ -623,9 +623,10 @@ export async function updateClinicalAiGuardrails(data = {}, updatedBy = null) {
   return normalizeGuardrails(rows[0]);
 }
 
-export async function getClinicalAiUsageSummary({ days = 7 } = {}) {
+export async function getClinicalAiUsageSummary({ days = 7, tenantId = null } = {}) {
   const windowDays = Math.min(Math.max(parseInt(days, 10) || 7, 1), 90);
-  const [overall, byModule, byProvider, recentFailures] = await Promise.all([
+  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const [overall, byModule, byProvider, recentFailures, moduleReviews] = await Promise.all([
     prisma.$queryRawUnsafe(
       `SELECT
          COUNT(*)::int AS generation_count,
@@ -643,7 +644,9 @@ export async function getClinicalAiUsageSummary({ days = 7 } = {}) {
          ROUND(AVG(NULLIF(latency_ms, 0)))::int AS avg_latency_ms,
          MAX(created_at) AS last_generation_at
        FROM clinical_ai_generations
-       WHERE created_at >= NOW() - ($1::int * INTERVAL '1 day')`,
+       WHERE tenant_id = $1::uuid
+         AND created_at >= NOW() - ($2::int * INTERVAL '1 day')`,
+      tid,
       windowDays
     ),
     prisma.$queryRawUnsafe(
@@ -659,9 +662,11 @@ export async function getClinicalAiUsageSummary({ days = 7 } = {}) {
          ROUND(AVG(NULLIF(latency_ms, 0)))::int AS avg_latency_ms,
          MAX(created_at) AS last_generation_at
        FROM clinical_ai_generations
-       WHERE created_at >= NOW() - ($1::int * INTERVAL '1 day')
+       WHERE tenant_id = $1::uuid
+         AND created_at >= NOW() - ($2::int * INTERVAL '1 day')
        GROUP BY COALESCE(module_key, task_type)
        ORDER BY generation_count DESC, module_key`,
+      tid,
       windowDays
     ),
     prisma.$queryRawUnsafe(
@@ -677,22 +682,62 @@ export async function getClinicalAiUsageSummary({ days = 7 } = {}) {
          ROUND(AVG(NULLIF(latency_ms, 0)))::int AS avg_latency_ms,
          MAX(created_at) AS last_generation_at
        FROM clinical_ai_generations
-       WHERE created_at >= NOW() - ($1::int * INTERVAL '1 day')
+       WHERE tenant_id = $1::uuid
+         AND created_at >= NOW() - ($2::int * INTERVAL '1 day')
        GROUP BY provider
        ORDER BY generation_count DESC, provider`,
+      tid,
       windowDays
     ),
     prisma.$queryRawUnsafe(
       `SELECT id, module_key, task_type, provider, model, metadata, created_at
        FROM clinical_ai_generations
-       WHERE used_ai = false
+       WHERE tenant_id = $1::uuid
+         AND used_ai = false
          AND metadata ? 'fallback_reason'
-         AND created_at >= NOW() - ($1::int * INTERVAL '1 day')
+         AND created_at >= NOW() - ($2::int * INTERVAL '1 day')
        ORDER BY created_at DESC
        LIMIT 10`,
+      tid,
+      windowDays
+    ),
+    // Per-module review outcomes — acceptance, rejection, revision counts in
+    // the same window so the admin dashboard can render acceptance-rate cards.
+    prisma.$queryRawUnsafe(
+      `SELECT
+         module_key,
+         COUNT(*)::int AS review_count,
+         COALESCE(SUM(CASE WHEN decision = 'accepted' THEN 1 ELSE 0 END), 0)::int AS accepted_count,
+         COALESCE(SUM(CASE WHEN decision = 'rejected' THEN 1 ELSE 0 END), 0)::int AS rejected_count,
+         COALESCE(SUM(CASE WHEN decision = 'needs_revision' THEN 1 ELSE 0 END), 0)::int AS revision_count,
+         COALESCE(SUM(CASE WHEN decision = 'pending' THEN 1 ELSE 0 END), 0)::int AS pending_count
+       FROM clinical_ai_reviews
+       WHERE tenant_id = $1::uuid
+         AND created_at >= NOW() - ($2::int * INTERVAL '1 day')
+       GROUP BY module_key`,
+      tid,
       windowDays
     ),
   ]);
+
+  // Fold review metrics into byModule so the admin UI shows one row per module
+  // with both generation + acceptance data. Modules with no reviews keep zeros.
+  const reviewsByModule = new Map((moduleReviews || []).map((row) => [row.module_key, row]));
+  const mergedByModule = (byModule || []).map((row) => {
+    const reviews = reviewsByModule.get(row.module_key) || {};
+    const reviewCount = Number(reviews.review_count || 0);
+    return {
+      ...row,
+      review_count: reviewCount,
+      accepted_count: Number(reviews.accepted_count || 0),
+      rejected_count: Number(reviews.rejected_count || 0),
+      revision_count: Number(reviews.revision_count || 0),
+      pending_count: Number(reviews.pending_count || 0),
+      acceptance_rate_pct: reviewCount > 0
+        ? Math.round((Number(reviews.accepted_count || 0) / reviewCount) * 100)
+        : null,
+    };
+  });
 
   return {
     window_days: windowDays,
@@ -708,7 +753,7 @@ export async function getClinicalAiUsageSummary({ days = 7 } = {}) {
       avg_latency_ms: null,
       last_generation_at: null,
     },
-    by_module: byModule,
+    by_module: mergedByModule,
     by_provider: byProvider,
     recent_failures: recentFailures,
   };
@@ -734,9 +779,9 @@ function limitState(used, limit) {
   };
 }
 
-export async function getClinicalAiBudgetStatus({ days = 1, guardrails = null, usage = null } = {}) {
+export async function getClinicalAiBudgetStatus({ days = 1, guardrails = null, usage = null, tenantId = null } = {}) {
   const activeGuardrails = guardrails || await getClinicalAiGuardrails();
-  const activeUsage = usage || await getClinicalAiUsageSummary({ days });
+  const activeUsage = usage || await getClinicalAiUsageSummary({ days, tenantId });
   const overall = activeUsage.overall || {};
   const fallbackRatePct = overall.generation_count
     ? Math.round(((overall.fallback_count || 0) / overall.generation_count) * 100)

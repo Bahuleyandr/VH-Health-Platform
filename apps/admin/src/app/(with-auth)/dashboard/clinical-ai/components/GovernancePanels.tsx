@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertOctagon, CheckCircle2, Clock, FileText, Shield, XCircle } from "lucide-react";
+import { Activity, AlertOctagon, CheckCircle2, Clock, FileText, PlayCircle, Shield, XCircle } from "lucide-react";
 import { toast } from "react-hot-toast";
 import {
   activateClinicalAiPrompt,
@@ -13,12 +13,16 @@ import {
   getClinicalAiApprovals,
   getClinicalAiPrompts,
   getClinicalAiReviews,
+  listSelfHealingRuns,
+  runSelfHealingScan,
   startBreakGlassSession,
   updateClinicalAiReview,
   type ClinicalAiApproval,
   type ClinicalAiBreakGlassSession,
   type ClinicalAiPrompt,
   type ClinicalAiReview,
+  type SelfHealingFinding,
+  type SelfHealingRun,
 } from "@/lib/api/emr";
 
 function fmt(value?: string | null) {
@@ -102,13 +106,29 @@ export function BreakGlassBanner() {
 // ---------------------------------------------------------------------------
 // Review Queue — drafts that require clinician/coder/quality sign-off.
 // ---------------------------------------------------------------------------
+const REVIEWER_ROLE_OPTIONS = [
+  { value: "", label: "All roles" },
+  { value: "DOCTOR", label: "Doctor" },
+  { value: "NURSING_STAFF", label: "Nursing staff" },
+  { value: "MEDICAL_RECORDS", label: "Medical records" },
+  { value: "BILLING_STAFF", label: "Billing" },
+  { value: "PHARMACY_STAFF", label: "Pharmacy" },
+  { value: "QUALITY_STAFF", label: "Quality" },
+  { value: "ADMIN", label: "Admin" },
+];
+
 export function ReviewQueuePanel() {
   const queryClient = useQueryClient();
   const [decisionFilter, setDecisionFilter] = useState("pending");
+  const [roleFilter, setRoleFilter] = useState("");
 
   const reviews = useQuery({
-    queryKey: ["clinical-ai", "reviews", decisionFilter],
-    queryFn: () => getClinicalAiReviews(decisionFilter ? { decision: decisionFilter } : {}),
+    queryKey: ["clinical-ai", "reviews", decisionFilter, roleFilter],
+    queryFn: () =>
+      getClinicalAiReviews({
+        ...(decisionFilter ? { decision: decisionFilter } : {}),
+        ...(roleFilter ? { reviewerRole: roleFilter } : {}),
+      }),
   });
 
   const updateReview = useMutation({
@@ -134,17 +154,29 @@ export function ReviewQueuePanel() {
           <Shield className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-lg font-semibold">Review Queue</h2>
         </div>
-        <select
-          value={decisionFilter}
-          onChange={(event) => setDecisionFilter(event.target.value)}
-          className="rounded-md border border-border bg-card px-2 py-1 text-sm"
-        >
-          <option value="pending">Pending</option>
-          <option value="needs_revision">Needs Revision</option>
-          <option value="accepted">Accepted</option>
-          <option value="rejected">Rejected</option>
-          <option value="">All</option>
-        </select>
+        <div className="flex flex-wrap gap-2">
+          <select
+            value={decisionFilter}
+            onChange={(event) => setDecisionFilter(event.target.value)}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="pending">Pending</option>
+            <option value="needs_revision">Needs Revision</option>
+            <option value="accepted">Accepted</option>
+            <option value="rejected">Rejected</option>
+            <option value="">All</option>
+          </select>
+          <select
+            value={roleFilter}
+            onChange={(event) => setRoleFilter(event.target.value)}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+            title="Show only reviews for modules whose sign-off roles include this role"
+          >
+            {REVIEWER_ROLE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-border">
@@ -230,10 +262,124 @@ export function ReviewQueuePanel() {
 // Prompt Registry — draft/create/activate module prompts with version history.
 // Activating a prompt opens a two-person approval request.
 // ---------------------------------------------------------------------------
+function diffLines(before: string, after: string) {
+  // Minimal line-level diff. Not a full Myers diff — good enough to spot
+  // material changes before activating a prompt.
+  const beforeLines = String(before || "").split(/\r?\n/);
+  const afterLines = String(after || "").split(/\r?\n/);
+  const max = Math.max(beforeLines.length, afterLines.length);
+  const rows: Array<{ kind: "same" | "removed" | "added"; left: string | null; right: string | null }> = [];
+  for (let i = 0; i < max; i += 1) {
+    const left = i < beforeLines.length ? beforeLines[i] : null;
+    const right = i < afterLines.length ? afterLines[i] : null;
+    if (left === right) rows.push({ kind: "same", left, right });
+    else {
+      if (left !== null) rows.push({ kind: "removed", left, right: null });
+      if (right !== null) rows.push({ kind: "added", left: null, right });
+    }
+  }
+  return rows;
+}
+
+function PromptDiffModal({
+  candidate,
+  activePrompt,
+  onClose,
+  onConfirm,
+  confirming,
+}: {
+  candidate: ClinicalAiPrompt;
+  activePrompt: ClinicalAiPrompt | null;
+  onClose: () => void;
+  onConfirm: () => void;
+  confirming: boolean;
+}) {
+  const systemDiff = diffLines(activePrompt?.system_prompt ?? "", candidate.system_prompt);
+  const userDiff = diffLines(activePrompt?.user_prompt_template ?? "", candidate.user_prompt_template);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="max-h-[85vh] w-full max-w-4xl overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <div>
+            <div className="text-sm font-semibold">
+              Review prompt activation: {candidate.module_key} / {candidate.version}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {activePrompt ? `Currently active: ${activePrompt.version}` : "No currently active version"}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-md border border-border bg-muted/50 px-2 py-1 text-xs font-medium hover:bg-accent"
+          >
+            Close
+          </button>
+        </div>
+        <div className="max-h-[70vh] overflow-y-auto p-4">
+          <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">System prompt</div>
+          <div className="mb-4 overflow-x-auto rounded-md border border-border font-mono text-xs">
+            {systemDiff.map((row, idx) => (
+              <div
+                key={`sys-${idx}`}
+                className={
+                  row.kind === "added" ? "bg-emerald-50 text-emerald-900"
+                  : row.kind === "removed" ? "bg-red-50 text-red-900 line-through"
+                  : ""
+                }
+              >
+                <span className="inline-block w-8 select-none px-2 text-muted-foreground">
+                  {row.kind === "added" ? "+" : row.kind === "removed" ? "-" : " "}
+                </span>
+                <span className="whitespace-pre-wrap">{row.right ?? row.left ?? ""}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">User prompt template</div>
+          <div className="overflow-x-auto rounded-md border border-border font-mono text-xs">
+            {userDiff.map((row, idx) => (
+              <div
+                key={`usr-${idx}`}
+                className={
+                  row.kind === "added" ? "bg-emerald-50 text-emerald-900"
+                  : row.kind === "removed" ? "bg-red-50 text-red-900 line-through"
+                  : ""
+                }
+              >
+                <span className="inline-block w-8 select-none px-2 text-muted-foreground">
+                  {row.kind === "added" ? "+" : row.kind === "removed" ? "-" : " "}
+                </span>
+                <span className="whitespace-pre-wrap">{row.right ?? row.left ?? ""}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+          <button
+            onClick={onClose}
+            disabled={confirming}
+            className="rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={confirming}
+            className="rounded-md border border-border bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            Request Activation
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function PromptRegistryPanel({ modules }: { modules: { module_key: string; display_name: string }[] }) {
   const queryClient = useQueryClient();
   const [moduleKey, setModuleKey] = useState<string>(modules[0]?.module_key ?? "");
   const [showCreate, setShowCreate] = useState(false);
+  const [diffTarget, setDiffTarget] = useState<ClinicalAiPrompt | null>(null);
   const [draft, setDraft] = useState({
     version: "",
     title: "",
@@ -405,11 +551,11 @@ export function PromptRegistryPanel({ modules }: { modules: { module_key: string
                       <span className="text-xs text-muted-foreground">in use</span>
                     ) : (
                       <button
-                        onClick={() => activate.mutate(row.id)}
+                        onClick={() => setDiffTarget(row)}
                         disabled={activate.isPending}
                         className="rounded-md border border-border bg-card px-2 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50"
                       >
-                        Request Activation
+                        View Diff & Request
                       </button>
                     )}
                   </td>
@@ -419,6 +565,19 @@ export function PromptRegistryPanel({ modules }: { modules: { module_key: string
           </tbody>
         </table>
       </div>
+      {diffTarget ? (
+        <PromptDiffModal
+          candidate={diffTarget}
+          activePrompt={activePrompt}
+          onClose={() => setDiffTarget(null)}
+          onConfirm={() => {
+            const target = diffTarget;
+            setDiffTarget(null);
+            activate.mutate(target.id);
+          }}
+          confirming={activate.isPending}
+        />
+      ) : null}
     </section>
   );
 }
@@ -668,6 +827,110 @@ export function BreakGlassControls() {
           </tbody>
         </table>
       </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Self-Healing — read-only agent that surfaces operational risks as findings.
+// Never mutates production; each run persists a structured audit row.
+// ---------------------------------------------------------------------------
+function severityBadgeClass(severity: string) {
+  const s = (severity || "").toLowerCase();
+  if (s === "critical") return "bg-red-100 text-red-800 border-red-200";
+  if (s === "high") return "bg-orange-100 text-orange-800 border-orange-200";
+  if (s === "medium") return "bg-amber-100 text-amber-800 border-amber-200";
+  return "bg-slate-100 text-slate-700 border-slate-200";
+}
+
+export function SelfHealingPanel() {
+  const queryClient = useQueryClient();
+  const runs = useQuery({
+    queryKey: ["clinical-ai", "self-healing", "runs"],
+    queryFn: () => listSelfHealingRuns(),
+  });
+
+  const run = useMutation({
+    mutationFn: () => runSelfHealingScan("manual"),
+    onSuccess: (result) => {
+      const findingCount = result.findings.length;
+      toast.success(
+        findingCount === 0
+          ? "Scan complete — no findings"
+          : `Scan complete — ${findingCount} finding${findingCount === 1 ? "" : "s"}`
+      );
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "self-healing", "runs"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Scan failed"),
+  });
+
+  const rows: SelfHealingRun[] = runs.data?.runs ?? [];
+  const latestFindings: SelfHealingFinding[] = rows[0]?.findings ?? [];
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Self-Healing (Read-only)</h2>
+        </div>
+        <button
+          onClick={() => run.mutate()}
+          disabled={run.isPending}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
+        >
+          <PlayCircle className="h-4 w-4" />
+          {run.isPending ? "Scanning…" : "Run Scan"}
+        </button>
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        This agent only reads. Findings are surfaced as draft suggestions; no production state is modified.
+      </p>
+
+      {latestFindings.length > 0 ? (
+        <div className="rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50">
+              <tr>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Severity</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Finding</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Suggested Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {latestFindings.map((finding, idx) => (
+                <tr key={`${finding.code}-${idx}`}>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${severityBadgeClass(finding.severity)}`}>
+                      {finding.severity}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="font-mono text-xs text-muted-foreground">{finding.code}</div>
+                    <div>{finding.message}</div>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-muted-foreground">{finding.suggested_action ?? "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : rows.length > 0 ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+          Latest scan found no issues.
+        </div>
+      ) : (
+        <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+          No scans yet. Run one to inspect fallback rate, stale reviews, break-glass, and process health.
+        </div>
+      )}
+
+      {rows.length > 0 ? (
+        <div className="text-xs text-muted-foreground">
+          Last scan: {rows[0].finished_at || rows[0].started_at} ({rows[0].status}) — {rows.length} runs in history.
+        </div>
+      ) : null}
     </section>
   );
 }

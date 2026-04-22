@@ -25,6 +25,7 @@ import {
   BreakGlassControls,
   PromptRegistryPanel,
   ReviewQueuePanel,
+  SelfHealingPanel,
 } from "./components/GovernancePanels";
 
 function fmt(value?: string | null) {
@@ -512,19 +513,22 @@ export default function ClinicalAiGovernancePage() {
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Boundary</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Provider</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Usage</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Acceptance</th>
                 <th className="px-4 py-3 text-right font-medium text-muted-foreground">State</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {modules.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
+                  <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
                     No modules found
                   </td>
                 </tr>
               ) : (
                 modules.map((module) => {
                   const row = usage?.by_module.find((item) => item.module_key === module.module_key);
+                  const acceptanceRate = row?.acceptance_rate_pct;
+                  const reviewCount = row?.review_count ?? 0;
                   return (
                     <tr key={module.module_key}>
                       <td className="px-4 py-3">
@@ -541,6 +545,18 @@ export default function ClinicalAiGovernancePage() {
                       <td className="px-4 py-3">
                         <div>{fmtNumber(row?.total_tokens)} tokens</div>
                         <div className="text-xs text-muted-foreground">{fmtLatency(row?.avg_latency_ms)}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        {acceptanceRate === null || acceptanceRate === undefined ? (
+                          <span className="text-xs text-muted-foreground">No reviews</span>
+                        ) : (
+                          <div>
+                            <div className="font-medium">{acceptanceRate}%</div>
+                            <div className="text-xs text-muted-foreground">
+                              {row?.accepted_count ?? 0} / {reviewCount} accepted
+                            </div>
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <ModuleToggle
@@ -570,6 +586,8 @@ export default function ClinicalAiGovernancePage() {
       <ApprovalsPanel currentAdminUid={user?.uid ?? null} />
 
       <BreakGlassControls />
+
+      <SelfHealingPanel />
 
       <section className="space-y-3">
         <div className="flex items-center gap-2">

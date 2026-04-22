@@ -791,6 +791,20 @@ export async function generateWardRoundBrief({ ward = null, limit = 20, requeste
   return standardDraftResponse({ module, prompt, draft, citations, safetyFlags, aiResult, generation, review, safetyReview });
 }
 
+function denialRiskGaps(claim) {
+  if (!claim) return ['Claim not found'];
+  const gaps = [];
+  if (!claim.invoice_id) gaps.push('No linked invoice');
+  const documents = Array.isArray(claim.documents)
+    ? claim.documents
+    : (claim.documents && Array.isArray(claim.documents.items) ? claim.documents.items : null);
+  if (!documents || documents.length === 0) gaps.push('No supporting documents attached');
+  if (!claim.policy_number) gaps.push('Missing policy number');
+  if (!claim.insurance_provider) gaps.push('Missing payer');
+  if (Number(claim.claim_amount) <= 0) gaps.push('Claim amount is zero or missing');
+  return gaps;
+}
+
 function denialRiskDraft(claim) {
   if (!claim) {
     return {
@@ -799,10 +813,7 @@ function denialRiskDraft(claim) {
       recommended_actions: ['Verify claim id and retry.'],
     };
   }
-  const gaps = [];
-  if (!claim.invoice_id) gaps.push('No linked invoice');
-  if (!claim.documents || (Array.isArray(claim.documents) && claim.documents.length === 0)) gaps.push('No supporting documents attached');
-  if (!claim.policy_number) gaps.push('Missing policy number');
+  const gaps = denialRiskGaps(claim);
   return {
     claim_number: claim.claim_number,
     patient_uid: claim.patient_uid,
@@ -857,7 +868,11 @@ export async function generateDenialRiskAssist(claimId, requestedBy, req = null)
     citationFor('insurance_claim', claim.id, claim.claim_number, claim.submitted_at),
     ...(claim.invoice_id ? [citationFor('invoice', claim.invoice_id, claim.invoice_number, null)] : []),
   ];
-  const safetyFlags = fallbackDraft.gaps.map((gap) => ({
+  // Compute safety flags from the raw claim row, not the AI draft — a
+  // hallucinating model could omit gaps that are objectively true from the
+  // DB record. Rules stay authoritative.
+  const independentGaps = denialRiskGaps(claim);
+  const safetyFlags = independentGaps.map((gap) => ({
     severity: gap === 'No supporting documents attached' ? 'high' : 'medium',
     code: 'DENIAL_RISK_GAP',
     message: gap,
@@ -1145,24 +1160,33 @@ export async function activatePrompt(promptId, activatedBy, approvalId = null, o
   return { approval_required: false, prompt: updated[0] };
 }
 
-export async function listReviews({ decision = null, moduleKey = null, limit = 100, tenantId = null } = {}) {
+export async function listReviews({ decision = null, moduleKey = null, reviewerRole = null, limit = 100, tenantId = null } = {}) {
   const tid = resolveTenantId({ tenantId });
+  // reviewerRole filters to modules whose settings.reviewRoles[] contains the
+  // role — lets a DOCTOR see only the queue they're eligible to sign off on.
+  // The module's reviewRoles comes from settings JSONB; use ? to check array
+  // membership with a case-insensitive upper-case comparison.
+  const normalizedRole = reviewerRole ? String(reviewerRole).toUpperCase() : null;
   const rows = await prisma.$queryRawUnsafe(
     `SELECT r.id, r.generation_id, r.module_key, r.patient_uid, u.name AS patient_name,
             r.admission_id, r.reviewer_uid, r.reviewer_role, r.decision,
             r.edited_draft, r.rejection_reason, r.metadata, r.created_at, r.updated_at,
-            g.provider, g.model, g.total_tokens, g.safety_flags
+            g.provider, g.model, g.total_tokens, g.safety_flags,
+            m.settings->'reviewRoles' AS module_review_roles
      FROM clinical_ai_reviews r
      LEFT JOIN users u ON u.uid = r.patient_uid
      LEFT JOIN clinical_ai_generations g ON g.id = r.generation_id
+     LEFT JOIN clinical_ai_modules m ON m.module_key = r.module_key
      WHERE r.tenant_id = $1::uuid
        AND ($2::text IS NULL OR r.decision = $2)
        AND ($3::text IS NULL OR r.module_key = $3)
+       AND ($4::text IS NULL OR COALESCE(m.settings->'reviewRoles', '[]'::jsonb) ? $4)
      ORDER BY r.created_at DESC
-     LIMIT $4`,
+     LIMIT $5`,
     tid,
     decision || null,
     moduleKey || null,
+    normalizedRole,
     clampInt(limit, { min: 1, max: 500, fallback: 100 })
   );
   return { reviews: rows, count: rows.length };
