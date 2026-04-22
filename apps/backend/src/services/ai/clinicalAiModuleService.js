@@ -488,6 +488,23 @@ export const CLINICAL_AI_MODULES = [
       retentionDays: 2555,
     },
   },
+  {
+    module_key: 'radiology_ai_interpretation',
+    display_name: 'Radiology AI Interpretation',
+    description: 'DICOM study + external-model inference produces a radiologist draft. Critical findings fast-track; radiologist signs off.',
+    enabled: false,
+    settings: {
+      surface: 'radiology',
+      risk: 'critical',
+      status: 'available',
+      requiresClinicianSignoff: true,
+      requiresCitations: true,
+      reviewRoles: ['RADIOLOGIST', 'DOCTOR', 'ADMIN'],
+      approvalPolicy: 'radiologist_signoff',
+      outputSchema: { type: 'object', required: ['findings', 'overall_severity', 'narrative_draft'] },
+      retentionDays: 3650,
+    },
+  },
 ];
 
 export const DEFAULT_CLINICAL_AI_GUARDRAILS = {

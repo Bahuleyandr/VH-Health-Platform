@@ -10,6 +10,7 @@ import {
   CloudDownload,
   DollarSign,
   FlaskConical,
+  Image,
   Microscope,
   PlayCircle,
   Receipt,
@@ -20,12 +21,14 @@ import { toast } from "react-hot-toast";
 import {
   concludePromptExperiment,
   decideChargeCaptureAudit,
+  decideImagingFinding,
   decidePolypharmacyReview,
   decideRcaDraft,
   decideTrialMatch,
   listCanaryRuns,
   listChargeCaptureAudits,
   listDeteriorationSnapshots,
+  listImagingFindings,
   listPolypharmacyReviews,
   listPriorAuthorizations,
   listPromptExperiments,
@@ -40,6 +43,8 @@ import {
   type ChargeCaptureAudit,
   type DeteriorationBand,
   type DeteriorationSnapshot,
+  type ImagingFinding,
+  type ImagingSeverity,
   type PolypharmacyReview,
   type PriorAuthRequest,
   type PromptExperiment,
@@ -1067,6 +1072,172 @@ export function PriorAuthorizationPanel() {
                       </div>
                     ) : (
                       <span className="text-xs text-muted-foreground">-</span>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Imaging AI (radiology_ai_interpretation)
+// ---------------------------------------------------------------------------
+function imagingSeverityClass(severity: string) {
+  if (severity === "critical") return "bg-red-200 text-red-900 border-red-300";
+  if (severity === "actionable") return "bg-orange-100 text-orange-800 border-orange-200";
+  if (severity === "incidental") return "bg-amber-100 text-amber-800 border-amber-200";
+  if (severity === "unreadable") return "bg-slate-200 text-slate-900 border-slate-300";
+  return "bg-emerald-100 text-emerald-800 border-emerald-200";
+}
+
+export function ImagingAIPanel() {
+  const queryClient = useQueryClient();
+  const [decisionFilter, setDecisionFilter] = useState("pending");
+  const [severityFilter, setSeverityFilter] = useState<ImagingSeverity | "">("");
+  const findings = useQuery({
+    queryKey: ["clinical-ai", "imaging", decisionFilter, severityFilter],
+    queryFn: () =>
+      listImagingFindings({
+        decision: decisionFilter || undefined,
+        severity: severityFilter || undefined,
+      }),
+  });
+  const decide = useMutation({
+    mutationFn: ({ id, decision, note }: { id: number; decision: "confirmed" | "revised" | "rejected" | "escalated"; note?: string }) =>
+      decideImagingFinding(id, decision, note),
+    onSuccess: () => {
+      toast.success("Imaging finding decided");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "imaging"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Decision failed"),
+  });
+  const rows: ImagingFinding[] = findings.data?.findings ?? [];
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          {/* eslint-disable-next-line jsx-a11y/alt-text */}
+          <Image className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Imaging AI — Radiologist Queue</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <select
+            value={decisionFilter}
+            onChange={(event) => setDecisionFilter(event.target.value)}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="pending">Pending</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="revised">Revised</option>
+            <option value="rejected">Rejected</option>
+            <option value="escalated">Escalated</option>
+            <option value="">All</option>
+          </select>
+          <select
+            value={severityFilter}
+            onChange={(event) => setSeverityFilter(event.target.value as ImagingSeverity | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">Any severity</option>
+            <option value="critical">Critical</option>
+            <option value="actionable">Actionable</option>
+            <option value="incidental">Incidental</option>
+            <option value="normal">Normal</option>
+          </select>
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        External-model inference ingested via POST /admin/clinical-ai/imaging/inference. Critical findings sort to the top. Radiologist decision is authoritative.
+      </p>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Severity</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Study</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Patient</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Top findings</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Confidence</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Provider</th>
+              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={7}>
+                  No imaging findings. Register studies via POST /imaging/studies then ingest inference via POST /imaging/inference.
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${imagingSeverityClass(row.overall_severity)}`}>
+                      {row.overall_severity}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{row.modality} · {row.body_part ?? "-"}</div>
+                    <div className="text-xs text-muted-foreground font-mono">{row.study_instance_uid}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{row.patient_name ?? "-"}</div>
+                    <div className="text-xs text-muted-foreground">{row.patient_uid ?? ""}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    {row.findings.length === 0 ? (
+                      <span className="text-xs text-muted-foreground">None</span>
+                    ) : (
+                      <ul className="space-y-0.5 text-xs">
+                        {row.findings.slice(0, 3).map((f, idx) => (
+                          <li key={idx}>
+                            <span className="font-mono">{f.label}</span> — {(f.confidence * 100).toFixed(0)}%
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 font-semibold">{row.confidence_pct ?? "-"}%</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    {row.provider}{row.model ? ` · ${row.model}` : ""}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {row.radiologist_decision === "pending" ? (
+                      <div className="inline-flex gap-1">
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "confirmed" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Revision note") ?? undefined;
+                            decide.mutate({ id: row.id, decision: "revised", note });
+                          }}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                        >
+                          Revise
+                        </button>
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "escalated" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
+                        >
+                          Escalate
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">{row.radiologist_decision}</span>
                     )}
                   </td>
                 </tr>

@@ -74,6 +74,12 @@ import {
   syncTrialsFromPublicRegistry,
 } from '../../services/ai/trialCatalogSyncService.js';
 import {
+  decideImagingFinding,
+  ingestInferenceResult,
+  listImagingFindings,
+  registerImagingStudy,
+} from '../../services/ai/imagingAiService.js';
+import {
   decideRcaDraft,
   generateRcaDraft,
   listRcaDrafts,
@@ -766,6 +772,86 @@ router.post('/canary/cases', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_CANARY_CASE_UPSERTED', String(saved.id), null, saved);
     return success(res, saved, 'Canary case saved', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Imaging AI — DICOM study register + inference ingestion + review
+// ---------------------------------------------------------------------------
+router.post('/imaging/studies', async (req, res, next) => {
+  try {
+    const saved = await registerImagingStudy({
+      tenantId: req.tenantId,
+      patientUid: req.body?.patient_uid,
+      admissionId: req.body?.admission_id,
+      studyInstanceUid: req.body?.study_instance_uid,
+      modality: req.body?.modality,
+      bodyPart: req.body?.body_part,
+      studyDate: req.body?.study_date,
+      seriesCount: req.body?.series_count,
+      instanceCount: req.body?.instance_count,
+      pacsUrl: req.body?.pacs_url,
+      storageKey: req.body?.storage_key,
+      sourceSystem: req.body?.source_system,
+      orderedBy: req.user?.uid || null,
+      metadata: req.body?.metadata || {},
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_IMAGING_STUDY_REGISTERED', String(saved.id), null, saved);
+    return success(res, saved, 'Imaging study registered', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/imaging/inference', async (req, res, next) => {
+  try {
+    const result = await ingestInferenceResult({
+      req,
+      studyInstanceUid: req.body?.study_instance_uid,
+      provider: req.body?.provider,
+      model: req.body?.model || null,
+      modelVersion: req.body?.model_version || null,
+      results: req.body?.results || [],
+      heatmapUrl: req.body?.heatmap_url || null,
+      rawProviderPayload: req.body?.raw_provider_payload || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_IMAGING_INFERENCE_INGESTED', String(result.finding_id || 'inline'), null, {
+      severity: result.overall_severity,
+      confidence_pct: result.confidence_pct,
+    });
+    return success(res, result, 'Imaging inference ingested', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/imaging/findings', async (req, res, next) => {
+  try {
+    const result = await listImagingFindings({
+      tenantId: req.tenantId,
+      decision: req.query.decision || null,
+      severity: req.query.severity || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Imaging findings retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/imaging/findings/:id', async (req, res, next) => {
+  try {
+    const decided = await decideImagingFinding({
+      tenantId: req.tenantId,
+      findingId: req.params.id,
+      decision: req.body?.decision,
+      radiologistUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_IMAGING_DECIDED', String(decided.id), null, decided);
+    return success(res, decided, 'Imaging finding decided');
   } catch (err) {
     return next(err);
   }

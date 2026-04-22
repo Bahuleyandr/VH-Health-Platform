@@ -36,6 +36,7 @@ import {
   ChargeCapturePanel,
   DeteriorationPanel,
   DriftCanaryPanel,
+  ImagingAIPanel,
   PolypharmacyPanel,
   PriorAuthorizationPanel,
   PromptExperimentsPanel,
@@ -620,6 +621,8 @@ export default function ClinicalAiGovernancePage() {
       <DriftCanaryPanel />
 
       <DeteriorationPanel />
+
+      <ImagingAIPanel />
 
       <PolypharmacyPanel />
 

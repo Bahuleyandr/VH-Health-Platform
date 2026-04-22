@@ -887,6 +887,46 @@ export async function listTrialSyncRuns() {
   return getJSON<{ runs: TrialSyncRun[]; count: number }>('/admin/clinical-ai/trials/sync');
 }
 
+export type ImagingSeverity = 'normal' | 'incidental' | 'actionable' | 'critical' | 'unreadable';
+
+export interface ImagingFinding {
+  id: number;
+  study_id: number;
+  provider: string;
+  model: string | null;
+  overall_severity: ImagingSeverity;
+  confidence_pct: number | null;
+  findings: Array<{ label: string; confidence: number; severity: string; actionable: boolean }>;
+  narrative_draft: string | null;
+  heatmap_url: string | null;
+  radiologist_decision: 'pending' | 'confirmed' | 'revised' | 'rejected' | 'escalated';
+  reviewed_at: string | null;
+  created_at: string;
+  patient_uid: string | null;
+  patient_name: string | null;
+  modality: string;
+  body_part: string | null;
+  study_date: string | null;
+  study_instance_uid: string;
+}
+
+export async function listImagingFindings(params: { decision?: string; severity?: ImagingSeverity } = {}) {
+  const query: Record<string, string> = {};
+  if (params.decision) query.decision = params.decision;
+  if (params.severity) query.severity = params.severity;
+  return getJSON<{ findings: ImagingFinding[]; count: number }>(
+    '/admin/clinical-ai/imaging/findings',
+    query
+  );
+}
+
+export async function decideImagingFinding(id: number, decision: 'confirmed' | 'revised' | 'rejected' | 'escalated', note?: string) {
+  return fetchAdminAPI<ImagingFinding>(`/admin/clinical-ai/imaging/findings/${id}`, {
+    method: 'PATCH',
+    body: { decision, note },
+  });
+}
+
 export interface RcaDraftSummary {
   id: number;
   admission_id: number;
