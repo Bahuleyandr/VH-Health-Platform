@@ -12,6 +12,20 @@ import {
   updateClinicalAiGuardrails,
   updateClinicalAiModule,
 } from '../../services/ai/clinicalAiModuleService.js';
+import {
+  activatePrompt,
+  createApproval,
+  createPrompt,
+  decideApproval,
+  endBreakGlass,
+  getActiveBreakGlass,
+  listApprovals,
+  listPrompts,
+  listReviews,
+  startBreakGlass,
+  updateReview,
+} from '../../services/ai/clinicalAiWorkflowService.js';
+import { getHealthReport } from '../../middleware/selfHealingMiddleware.js';
 
 const router = express.Router();
 const CLINICAL_AI_AUDIT_RESOURCE = 'clinical_ai';
@@ -180,6 +194,189 @@ router.patch('/modules/:moduleKey', async (req, res, next) => {
   }
 });
 
+router.get('/prompts', async (req, res, next) => {
+  try {
+    const prompts = await listPrompts({
+      moduleKey: req.query.module_key || null,
+      status: req.query.status || null,
+      limit: req.query.limit,
+    });
+    return success(res, prompts, 'Clinical AI prompts retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/prompts', async (req, res, next) => {
+  try {
+    const prompt = await createPrompt(req.body || {}, req.user?.uid || null);
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_PROMPT_CREATED',
+      String(prompt.id),
+      null,
+      prompt
+    );
+    return success(res, prompt, 'Clinical AI prompt created', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/prompts/:id/activate', async (req, res, next) => {
+  try {
+    const result = await activatePrompt(
+      req.params.id,
+      req.user?.uid || null,
+      req.body?.approval_id || null
+    );
+    await logClinicalAiAudit(
+      req,
+      result.approval_required
+        ? 'CLINICAL_AI_PROMPT_ACTIVATION_REQUESTED'
+        : 'CLINICAL_AI_PROMPT_ACTIVATED',
+      String(req.params.id),
+      null,
+      result
+    );
+    return success(
+      res,
+      result,
+      result.approval_required
+        ? 'Clinical AI prompt activation approval required'
+        : 'Clinical AI prompt activated',
+      result.approval_required ? 202 : 200
+    );
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/reviews', async (req, res, next) => {
+  try {
+    const reviews = await listReviews({
+      decision: req.query.decision || null,
+      moduleKey: req.query.module_key || null,
+      limit: req.query.limit,
+    });
+    return success(res, reviews, 'Clinical AI reviews retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/reviews/:id', async (req, res, next) => {
+  try {
+    const review = await updateReview(
+      req.params.id,
+      req.body || {},
+      req.user?.uid || null,
+      normalizeRole(req.user?.role)
+    );
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_REVIEW_UPDATED',
+      String(req.params.id),
+      null,
+      review
+    );
+    return success(res, review, 'Clinical AI review updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/approvals', async (req, res, next) => {
+  try {
+    const approvals = await listApprovals({
+      status: req.query.status || null,
+      moduleKey: req.query.module_key || null,
+      limit: req.query.limit,
+    });
+    return success(res, approvals, 'Clinical AI approvals retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/approvals', async (req, res, next) => {
+  try {
+    const approval = await createApproval(req.body || {}, req.user?.uid || null);
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_APPROVAL_REQUESTED',
+      String(approval.id),
+      null,
+      approval
+    );
+    return success(res, approval, 'Clinical AI approval requested', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/approvals/:id', async (req, res, next) => {
+  try {
+    const approval = await decideApproval(
+      req.params.id,
+      req.body?.decision,
+      req.user?.uid || null,
+      req.body?.reason || null
+    );
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_APPROVAL_DECIDED',
+      String(req.params.id),
+      null,
+      approval
+    );
+    return success(res, approval, 'Clinical AI approval updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/break-glass', async (req, res, next) => {
+  try {
+    const session = await startBreakGlass(req.body || {}, req.user?.uid || null);
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_BREAK_GLASS_STARTED',
+      String(session.id),
+      null,
+      session
+    );
+    return success(res, session, 'Clinical AI break-glass session started', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/break-glass/:id/end', async (req, res, next) => {
+  try {
+    const session = await endBreakGlass(req.params.id, req.user?.uid || null);
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_BREAK_GLASS_ENDED',
+      String(req.params.id),
+      null,
+      session
+    );
+    return success(res, session, 'Clinical AI break-glass session ended');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/break-glass', async (_req, res, next) => {
+  try {
+    const sessions = await getActiveBreakGlass();
+    return success(res, sessions, 'Active Clinical AI break-glass sessions retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
 router.get('/usage', async (req, res, next) => {
   try {
     const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 90);
@@ -286,6 +483,10 @@ router.get('/generations', async (req, res, next) => {
     return next(err);
   }
 });
+
+router.get('/self-healing/status', (_req, res) => (
+  success(res, getHealthReport(), 'Read-only self-healing status retrieved')
+));
 
 router.get('/safety-flags', async (req, res, next) => {
   try {

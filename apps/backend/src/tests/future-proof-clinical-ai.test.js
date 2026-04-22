@@ -35,6 +35,13 @@ describe('future-proof clinical AI and privacy foundations', () => {
   beforeAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE resource = 'clinical_ai' OR action LIKE 'CLINICAL_AI_%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM event_outbox WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_approvals WHERE reason LIKE '%[test]%' OR payload::text LIKE '%[test]%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_prompts WHERE title LIKE '%[test]%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_break_glass_sessions WHERE reason LIKE '%[test]%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_context_snapshots WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM insurance_claims WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_generations WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM downtime_snapshots WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM patient_data_rights_requests WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -130,6 +137,13 @@ describe('future-proof clinical AI and privacy foundations', () => {
   afterAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE resource = 'clinical_ai' OR action LIKE 'CLINICAL_AI_%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM event_outbox WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_approvals WHERE reason LIKE '%[test]%' OR payload::text LIKE '%[test]%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_prompts WHERE title LIKE '%[test]%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_break_glass_sessions WHERE reason LIKE '%[test]%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_context_snapshots WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM insurance_claims WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_generations WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM downtime_snapshots WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM patient_data_rights_requests WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -227,6 +241,174 @@ describe('future-proof clinical AI and privacy foundations', () => {
     const downtime = await doctor.post(`/api/v1/emr/downtime-snapshot/${PATIENT_UID}`).send({ hours_to_live: 6 });
     expectStatus(downtime, 201, 'downtime snapshot');
     expect(downtime.body.data.payload.timeline.length).toBeGreaterThan(0);
+  });
+
+  async function enableModule(moduleKey) {
+    const res = await admin.patch(`/api/v1/admin/clinical-ai/modules/${moduleKey}`).send({ enabled: true });
+    expectStatus(res, 200, `enable module ${moduleKey}`);
+    return res.body.data;
+  }
+
+  function expectDraftShape(draft, moduleKey) {
+    expect(draft.module_key).toBe(moduleKey);
+    expect(draft.prompt_version).toBeTruthy();
+    expect(Array.isArray(draft.source_citations)).toBe(true);
+    expect(Array.isArray(draft.safety_flags)).toBe(true);
+    expect(draft.ai_metadata).toBeTruthy();
+    expect(draft.ai_metadata).toHaveProperty('provider');
+    expect(draft.ai_metadata).toHaveProperty('used_ai');
+    expect(draft.generation_id).toBeTruthy();
+    expect(['pending', 'accepted', 'rejected', 'needs_revision', 'edited']).toContain(draft.review_status);
+  }
+
+  it('generates admission AI drafts for the new modular surfaces and records review placeholders', async () => {
+    for (const key of [
+      'patient_record_summary',
+      'patient_aftercare_instructions',
+      'medication_reconciliation',
+      'discharge_readiness',
+      'referral_letter',
+      'abnormal_result_triage',
+      'clinical_coding_assist',
+      'quality_case_review',
+    ]) {
+      await enableModule(key);
+    }
+
+    const record = await doctor.post(`/api/v1/emr/${admissionId}/ai/patient-record-summary`).send({});
+    expectStatus(record, 200, 'patient record summary draft');
+    expectDraftShape(record.body.data, 'patient_record_summary');
+    expect(record.body.data.requires_signoff).toBe(true);
+
+    const aftercare = await doctor.post(`/api/v1/emr/${admissionId}/aftercare-instructions`).send({});
+    expectStatus(aftercare, 200, 'aftercare draft');
+    expectDraftShape(aftercare.body.data, 'patient_aftercare_instructions');
+
+    const medRec = await doctor.post(`/api/v1/emr/${admissionId}/medication-reconciliation`).send({});
+    expectStatus(medRec, 200, 'medication reconciliation draft');
+    expectDraftShape(medRec.body.data, 'medication_reconciliation');
+
+    const readiness = await doctor.get(`/api/v1/emr/${admissionId}/discharge-readiness`);
+    expectStatus(readiness, 200, 'discharge readiness draft');
+    expectDraftShape(readiness.body.data, 'discharge_readiness');
+
+    const referral = await doctor.post(`/api/v1/emr/${admissionId}/referral-letter`).send({});
+    expectStatus(referral, 200, 'referral letter draft');
+    expectDraftShape(referral.body.data, 'referral_letter');
+
+    const triage = await doctor.post(`/api/v1/emr/${admissionId}/abnormal-result-triage`).send({});
+    expectStatus(triage, 200, 'abnormal result triage draft');
+    expectDraftShape(triage.body.data, 'abnormal_result_triage');
+
+    const coding = await doctor.post(`/api/v1/emr/${admissionId}/clinical-coding-assist`).send({});
+    expectStatus(coding, 200, 'clinical coding assist draft');
+    expectDraftShape(coding.body.data, 'clinical_coding_assist');
+
+    const quality = await doctor.post(`/api/v1/emr/${admissionId}/quality-case-review`).send({});
+    expectStatus(quality, 200, 'quality case review draft');
+    expectDraftShape(quality.body.data, 'quality_case_review');
+
+    const reviews = await admin.get('/api/v1/admin/clinical-ai/reviews?module_key=patient_record_summary');
+    expectStatus(reviews, 200, 'list reviews for patient_record_summary');
+    expect(reviews.body.data.reviews.length).toBeGreaterThan(0);
+    const targetReview = reviews.body.data.reviews.find((row) => row.generation_id === record.body.data.generation_id);
+    expect(targetReview).toBeTruthy();
+    expect(targetReview.decision).toBe('pending');
+
+    const decisioned = await admin.patch(`/api/v1/admin/clinical-ai/reviews/${targetReview.id}`).send({
+      decision: 'accepted',
+      edited_draft: record.body.data.draft,
+    });
+    expectStatus(decisioned, 200, 'accept review');
+    expect(decisioned.body.data.decision).toBe('accepted');
+  });
+
+  it('aggregates ward-round-brief and denial-risk drafts', async () => {
+    await enableModule('daily_ward_round_brief');
+    await enableModule('denial_risk_assist');
+
+    const ward = await doctor.post('/api/v1/emr/ward-round-brief').send({ ward: 'WARD-A', limit: 5 });
+    expectStatus(ward, 200, 'ward round brief');
+    expectDraftShape(ward.body.data, 'daily_ward_round_brief');
+    expect(ward.body.data.draft.ward).toBe('WARD-A');
+    expect(Array.isArray(ward.body.data.draft.patients)).toBe(true);
+
+    const claim = await prisma.$queryRawUnsafe(
+      `INSERT INTO insurance_claims
+         (claim_number, patient_uid, insurance_provider, policy_number, claim_amount, status, documents, submitted_at, created_at, updated_at)
+       VALUES ($1, $2::uuid, 'VH Insurance [test]', 'POL-VH-[test]', 12000.00, 'submitted', '[]'::jsonb, NOW(), NOW(), NOW())
+       RETURNING id, claim_number`,
+      `CLM-TEST-${Date.now()}`,
+      PATIENT_UID
+    );
+    const claimId = claim[0].id;
+
+    const denial = await admin.post(`/api/v1/billing/${claimId}/denial-risk`).send({});
+    expectStatus(denial, 200, 'denial risk draft');
+    expectDraftShape(denial.body.data, 'denial_risk_assist');
+    expect(denial.body.data.safety_flags.some((flag) => flag.code === 'DENIAL_RISK_GAP')).toBe(true);
+  });
+
+  it('supports prompt activation approval, two-person rejection of self-approval, and break-glass lifecycle', async () => {
+    const created = await admin.post('/api/v1/admin/clinical-ai/prompts').send({
+      module_key: 'patient_record_summary',
+      version: `vtest-${Date.now()}`,
+      title: 'Patient record summary [test] prompt',
+      system_prompt: 'Test-only system prompt.',
+      user_prompt_template: 'Test-only user prompt template [test].',
+      output_schema: { type: 'object' },
+    });
+    expectStatus(created, 201, 'create prompt');
+    const promptId = created.body.data.id;
+
+    const firstActivate = await admin.patch(`/api/v1/admin/clinical-ai/prompts/${promptId}/activate`).send({});
+    expectStatus(firstActivate, 202, 'activate requires approval');
+    expect(firstActivate.body.data.approval_required).toBe(true);
+    const approvalId = firstActivate.body.data.approval.id;
+
+    const selfApprove = await admin.patch(`/api/v1/admin/clinical-ai/approvals/${approvalId}`).send({
+      decision: 'approved',
+      reason: 'Self-approval attempt [test]',
+    });
+    expectStatus(selfApprove, 403, 'self-approval is rejected');
+
+    const otherApprove = await itAdminClient.patch(`/api/v1/admin/clinical-ai/approvals/${approvalId}`).send({
+      decision: 'approved',
+      reason: 'Second-admin approval [test]',
+    });
+    expectStatus(otherApprove, 200, 'two-person approval succeeds');
+    expect(otherApprove.body.data.status).toBe('approved');
+
+    const activated = await admin.patch(`/api/v1/admin/clinical-ai/prompts/${promptId}/activate`).send({
+      approval_id: approvalId,
+    });
+    expectStatus(activated, 200, 'activate with approval');
+    expect(activated.body.data.prompt.active).toBe(true);
+
+    const promptsList = await admin.get('/api/v1/admin/clinical-ai/prompts?module_key=patient_record_summary');
+    expectStatus(promptsList, 200, 'list prompts');
+    const activeTestPrompt = promptsList.body.data.prompts.find((p) => p.id === promptId);
+    expect(activeTestPrompt?.active).toBe(true);
+
+    const glass = await admin.post('/api/v1/admin/clinical-ai/break-glass').send({
+      scope: 'clinical_ai',
+      reason: 'Emergency governance override [test]',
+      expires_in_hours: 1,
+    });
+    expectStatus(glass, 201, 'start break-glass');
+    const sessionId = glass.body.data.id;
+
+    const active = await admin.get('/api/v1/admin/clinical-ai/break-glass');
+    expectStatus(active, 200, 'list active break-glass');
+    expect(active.body.data.sessions.some((row) => row.id === sessionId)).toBe(true);
+
+    const ended = await admin.patch(`/api/v1/admin/clinical-ai/break-glass/${sessionId}/end`).send({});
+    expectStatus(ended, 200, 'end break-glass');
+    expect(ended.body.data.status).toBe('ended');
+
+    const afterEnd = await admin.get('/api/v1/admin/clinical-ai/break-glass');
+    expectStatus(afterEnd, 200, 'list break-glass after end');
+    expect(afterEnd.body.data.sessions.some((row) => row.id === sessionId)).toBe(false);
   });
 
   it('supports consent center listing and patient data-rights intake', async () => {

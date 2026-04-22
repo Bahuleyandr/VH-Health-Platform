@@ -84,6 +84,7 @@ tokens.txt
 # Database dumps and backups
 *.sql
 !migrations/*.sql
+!src/migrations/*.sql
 !prisma/migrations/**/*.sql
 !docs/*.sql
 *.dump

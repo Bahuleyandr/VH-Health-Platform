@@ -1,0 +1,1224 @@
+import crypto from 'crypto';
+import prisma from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
+import { AppError } from '../../utils/AppError.js';
+import { collectAdmissionClinicalContext } from '../emr/clinicalTimelineService.js';
+import { publishEvent } from '../events/eventOutboxService.js';
+import { generateClinicalText } from './localLlmClient.js';
+import { getClinicalAiModule } from './clinicalAiModuleService.js';
+
+const MODULE_PROMPT_FALLBACK = {
+  version: 'v1',
+  system_prompt: 'You are a hospital clinical AI drafting assistant. Use only supplied chart context. Return JSON only. Include source citations. All output is draft-only and requires human review.',
+  user_prompt_template: 'Draft the requested module output from this chart context. Do not invent facts.',
+  output_schema: {},
+};
+
+const ADMISSION_MODULES = new Set([
+  'patient_record_summary',
+  'patient_aftercare_instructions',
+  'medication_reconciliation',
+  'discharge_readiness',
+  'abnormal_result_triage',
+  'referral_letter',
+  'clinical_coding_assist',
+  'quality_case_review',
+]);
+
+const REVIEW_STATUS_BY_DECISION = {
+  accepted: 'accepted',
+  signed: 'accepted',
+  approved: 'accepted',
+  rejected: 'rejected',
+  needs_revision: 'needs_revision',
+  edited: 'edited',
+};
+
+function isMissingSchemaError(err) {
+  return /does not exist|column .* does not exist|relation .* does not exist/i.test(String(err?.message || ''));
+}
+
+function cleanText(value, fallback = '') {
+  return String(value ?? fallback).trim();
+}
+
+function clampInt(value, { min = 1, max = 500, fallback = 50 } = {}) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, min), max);
+}
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function sourceHash(payload) {
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify(payload || {}))
+    .digest('hex');
+}
+
+function safeJsonParse(text, fallback) {
+  if (!text) return fallback;
+  const cleaned = String(text)
+    .trim()
+    .replace(/^```(?:json)?/i, '')
+    .replace(/```$/i, '')
+    .trim();
+  try {
+    const parsed = JSON.parse(cleaned);
+    return parsed && typeof parsed === 'object' ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function eventSummary(event) {
+  if (!event) return null;
+  return {
+    type: event.event_type,
+    sub_type: event.sub_type,
+    id: event.id,
+    summary: event.summary,
+    timestamp: event.timestamp,
+    payload: event.payload,
+  };
+}
+
+function latest(events, count = 5) {
+  return asArray(events).slice(-count).map(eventSummary).filter(Boolean);
+}
+
+function citationFor(sourceType, sourceId, label, timestamp = null) {
+  return {
+    source_type: sourceType,
+    source_id: sourceId === null || sourceId === undefined ? null : String(sourceId),
+    label,
+    timestamp,
+  };
+}
+
+function uniqueCitations(citations) {
+  const seen = new Set();
+  return asArray(citations).filter((citation) => {
+    const key = `${citation.source_type}:${citation.source_id}:${citation.label}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function medicationNameFromEvent(event) {
+  const payload = event?.payload || {};
+  const details = payload.details || {};
+  return cleanText(
+    payload.medication_name || details.medication_name || details.name || event?.summary,
+    'Medication'
+  );
+}
+
+function buildChartPacket(context) {
+  const admission = context.admission || {};
+  const patient = context.patient || {};
+  return {
+    patient: {
+      uid: patient.uid,
+      name: patient.name,
+      gender: patient.gender,
+      birthday: patient.birthday,
+    },
+    admission: {
+      id: admission.id,
+      encounter_id: admission.encounter_id,
+      status: admission.status,
+      ward: admission.ward,
+      bed_number: admission.bed_number,
+      chief_complaint: admission.chief_complaint,
+      admitting_diagnosis: admission.admitting_diagnosis,
+      code_status: admission.code_status,
+      admitted_at: admission.admitted_at,
+      discharged_at: admission.discharged_at,
+      discharge_summary: admission.discharge_summary,
+    },
+    allergies: asArray(context.allergies),
+    active_diagnoses: latest(context.diagnoses, 12),
+    recent_notes: latest(context.notes, 12),
+    recent_vitals: latest(context.vitals, 12),
+    medications: latest([...asArray(context.medications), ...asArray(context.orders).filter((item) => item.sub_type === 'medication')], 20),
+    investigations: latest(context.investigations, 20),
+    orders: latest(context.orders, 20),
+    handovers: latest(context.handovers, 8),
+    citations: uniqueCitations(context.citations),
+  };
+}
+
+function pendingInvestigations(context) {
+  return asArray(context.investigations).filter((event) => {
+    const status = cleanText(event.payload?.status || event.sub_type).toLowerCase();
+    return status && !['completed', 'reported', 'cancelled', 'resulted', 'done'].includes(status);
+  });
+}
+
+function unsignedNotes(context) {
+  return asArray(context.notes).filter((event) => event.payload && event.payload.is_signed === false);
+}
+
+function activeOrders(context) {
+  return asArray(context.orders).filter((event) => {
+    const status = cleanText(event.payload?.status || event.sub_type).toLowerCase();
+    return ['ordered', 'active', 'pending', 'in_progress'].includes(status);
+  });
+}
+
+function medicationSafetyFlags(context) {
+  const allergies = asArray(context.allergies)
+    .map((row) => cleanText(row.allergen || row.name || row.allergy_name).toLowerCase())
+    .filter(Boolean);
+  if (!allergies.length) return [];
+
+  const medicationEvents = [
+    ...asArray(context.medications),
+    ...asArray(context.orders).filter((item) => item.sub_type === 'medication'),
+  ];
+  return medicationEvents
+    .filter((event) => {
+      const medName = medicationNameFromEvent(event).toLowerCase();
+      return allergies.some((allergy) => allergy && medName.includes(allergy));
+    })
+    .map((event) => ({
+      severity: 'critical',
+      code: 'ALLERGY_MEDICATION_MATCH',
+      message: `Possible allergy match in medication source: ${medicationNameFromEvent(event)}`,
+    }));
+}
+
+function buildCommonSafetyFlags(context, module, citations) {
+  const flags = [];
+  if (module?.settings?.requiresCitations && !citations.length) {
+    flags.push({
+      severity: 'high',
+      code: 'MISSING_CITATIONS',
+      message: 'AI draft has no chart citations and must not be accepted without manual review.',
+    });
+  }
+
+  if (pendingInvestigations(context).length > 0) {
+    flags.push({
+      severity: 'medium',
+      code: 'PENDING_INVESTIGATIONS',
+      message: 'Pending investigations exist in the chart packet.',
+    });
+  }
+
+  if (unsignedNotes(context).length > 0) {
+    flags.push({
+      severity: 'medium',
+      code: 'UNSIGNED_NOTES',
+      message: 'Unsigned clinical notes are present and should be reviewed before final acceptance.',
+    });
+  }
+
+  return [...flags, ...medicationSafetyFlags(context)];
+}
+
+function patientRecordSummary(context) {
+  const packet = buildChartPacket(context);
+  return {
+    summary: `${packet.patient.name || 'Patient'} is admitted for ${packet.admission.chief_complaint || packet.admission.admitting_diagnosis || 'an inpatient encounter'}.`,
+    current_location: {
+      ward: packet.admission.ward,
+      bed_number: packet.admission.bed_number,
+      status: packet.admission.status,
+    },
+    active_problems: packet.active_diagnoses.map((item) => item.summary),
+    medications: packet.medications.map((item) => item.summary),
+    recent_vitals: packet.recent_vitals.map((item) => item.summary),
+    investigations: packet.investigations.map((item) => item.summary),
+    allergies: packet.allergies,
+    pending_tasks: [
+      ...pendingInvestigations(context).map((item) => item.summary),
+      ...activeOrders(context).map((item) => item.summary),
+    ],
+  };
+}
+
+function aftercareInstructions(context) {
+  const packet = buildChartPacket(context);
+  return {
+    plain_language_summary: `You were treated for ${packet.admission.admitting_diagnosis || packet.admission.chief_complaint || 'your hospital condition'}. Follow the instructions confirmed by your clinical team.`,
+    medicines: packet.medications.map((item) => ({
+      medicine: medicationNameFromEvent(item),
+      instruction: 'Take only as prescribed on the final signed discharge medication list.',
+      source: item.summary,
+    })),
+    follow_up: ['Attend the follow-up appointment advised by your doctor.'],
+    warning_signs: [
+      'Worsening breathlessness, chest pain, fainting, persistent high fever, confusion, or any symptom your doctor highlighted.',
+    ],
+    diet_activity: {
+      diet: 'Follow the diet advised in the signed discharge summary.',
+      activity: 'Resume activity gradually unless your doctor restricted activity.',
+    },
+    language_ready_sections: ['summary', 'medicines', 'follow_up', 'warning_signs', 'diet_activity'],
+  };
+}
+
+function medicationReconciliation(context) {
+  const medicationEvents = [
+    ...asArray(context.medications),
+    ...asArray(context.orders).filter((event) => event.sub_type === 'medication'),
+  ];
+  const byMedication = new Map();
+  for (const event of medicationEvents) {
+    const name = medicationNameFromEvent(event);
+    if (!byMedication.has(name)) byMedication.set(name, []);
+    byMedication.get(name).push(event.summary);
+  }
+
+  const duplicates = [...byMedication.entries()]
+    .filter(([, sources]) => sources.length > 1)
+    .map(([medication, sources]) => ({ medication, sources }));
+
+  return {
+    continue: [...byMedication.keys()].map((medication) => ({
+      medication,
+      rationale: 'Present in inpatient medication sources; clinician must confirm final discharge status.',
+    })),
+    stop: [],
+    change: [],
+    duplicates,
+    allergies: asArray(context.allergies),
+    safety_flags: medicationSafetyFlags(context),
+  };
+}
+
+function dischargeReadiness(context) {
+  const pending = pendingInvestigations(context);
+  const active = activeOrders(context);
+  const unsigned = unsignedNotes(context);
+  const blockers = [
+    ...pending.map((item) => ({ type: 'pending_investigation', label: item.summary })),
+    ...active.map((item) => ({ type: 'active_order', label: item.summary })),
+    ...unsigned.map((item) => ({ type: 'unsigned_note', label: item.summary })),
+  ];
+
+  return {
+    ready: blockers.length === 0,
+    blockers,
+    checklist: {
+      pending_investigations_clear: pending.length === 0,
+      active_orders_resolved: active.length === 0,
+      notes_signed: unsigned.length === 0,
+      discharge_summary_signed: Boolean(context.admission?.discharge_summary?.is_signed),
+      follow_up_documented: Boolean(context.admission?.discharge_summary?.follow_up_instructions),
+    },
+    forecast: blockers.length === 0
+      ? 'No obvious chart blockers found by rule review.'
+      : 'Discharge requires human review of listed blockers.',
+  };
+}
+
+function abnormalResultTriage(context) {
+  const urgentItems = [];
+  const watchItems = [];
+  for (const event of asArray(context.vitals)) {
+    const vitals = event.payload || {};
+    const problems = [];
+    if (Number(vitals.spo2) && Number(vitals.spo2) < 92) problems.push(`SpO2 ${vitals.spo2}%`);
+    if (Number(vitals.temperature) && Number(vitals.temperature) >= 38.5) problems.push(`temperature ${vitals.temperature}`);
+    if (Number(vitals.heart_rate) && Number(vitals.heart_rate) >= 120) problems.push(`heart rate ${vitals.heart_rate}`);
+    if (problems.length) urgentItems.push({ source: event.summary, abnormalities: problems });
+  }
+  for (const event of asArray(context.investigations)) {
+    const status = cleanText(event.payload?.status || event.sub_type).toLowerCase();
+    const priority = cleanText(event.payload?.priority).toLowerCase();
+    if (priority === 'urgent' || status === 'critical') urgentItems.push({ source: event.summary, abnormalities: ['urgent result source'] });
+    if (status === 'pending') watchItems.push({ source: event.summary, note: 'pending result' });
+  }
+
+  return {
+    urgent_items: urgentItems,
+    watch_items: watchItems,
+    explanation: 'Rule/CDS output remains authoritative. This triage only summarizes visible chart signals.',
+  };
+}
+
+function referralLetter(context) {
+  const packet = buildChartPacket(context);
+  return {
+    reason_for_referral: packet.admission.chief_complaint || packet.admission.admitting_diagnosis || 'Specialist review requested',
+    clinical_summary: patientRecordSummary(context).summary,
+    active_diagnoses: packet.active_diagnoses.map((item) => item.summary),
+    current_treatment: packet.medications.map((item) => item.summary),
+    investigations: packet.investigations.map((item) => item.summary),
+    pending_items: pendingInvestigations(context).map((item) => item.summary),
+  };
+}
+
+function codingAssist(context) {
+  const signedNotes = asArray(context.notes).filter((event) => event.payload?.is_signed === true);
+  const diagnoses = asArray(context.diagnoses).map((event) => event.payload || {});
+  return {
+    signed_documentation_only: true,
+    suggested_codes: signedNotes.length
+      ? diagnoses.map((diagnosis) => ({
+        code: diagnosis.icd10_code || diagnosis.icd10_description || 'UNSPECIFIED',
+        description: diagnosis.description || diagnosis.icd10_description || 'Diagnosis requires coder review',
+        confidence: diagnosis.icd10_code ? 'medium' : 'low',
+      }))
+      : [],
+    evidence: signedNotes.map((event) => event.summary),
+    coder_notes: signedNotes.length
+      ? 'Coder/admin approval required before billing use.'
+      : 'No signed clinical documentation was found in the chart packet.',
+  };
+}
+
+function qualityCaseReview(context) {
+  const packet = buildChartPacket(context);
+  return {
+    case_summary: patientRecordSummary(context).summary,
+    timeline: packet.recent_notes.concat(packet.investigations).map((item) => ({
+      timestamp: item.timestamp,
+      event: item.summary,
+    })),
+    safety_signals: [
+      ...pendingInvestigations(context).map((item) => item.summary),
+      ...unsignedNotes(context).map((item) => item.summary),
+    ],
+    open_questions: ['Confirm whether this case belongs to incident, readmission, mortality, infection-control, grievance, or RCA workflow.'],
+  };
+}
+
+function buildAdmissionFallback(moduleKey, context) {
+  const builders = {
+    patient_record_summary: patientRecordSummary,
+    patient_aftercare_instructions: aftercareInstructions,
+    medication_reconciliation: medicationReconciliation,
+    discharge_readiness: dischargeReadiness,
+    abnormal_result_triage: abnormalResultTriage,
+    referral_letter: referralLetter,
+    clinical_coding_assist: codingAssist,
+    quality_case_review: qualityCaseReview,
+  };
+  return builders[moduleKey]?.(context) || patientRecordSummary(context);
+}
+
+async function getActivePrompt(moduleKey) {
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, module_key, version, title, system_prompt, user_prompt_template,
+              output_schema, status, active, created_at, activated_at
+       FROM clinical_ai_prompts
+       WHERE module_key = $1
+       ORDER BY active DESC, activated_at DESC NULLS LAST, created_at DESC
+       LIMIT 1`,
+      moduleKey
+    );
+    return rows[0] || { ...MODULE_PROMPT_FALLBACK, module_key: moduleKey };
+  } catch (err) {
+    if (isMissingSchemaError(err)) return { ...MODULE_PROMPT_FALLBACK, module_key: moduleKey };
+    throw err;
+  }
+}
+
+async function saveContextSnapshot({ patientUid = null, admissionId = null, contextType, payload, createdBy = null }) {
+  try {
+    const hash = sourceHash(payload);
+    const rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO clinical_ai_context_snapshots
+         (patient_uid, admission_id, context_type, source_hash, payload, created_by, created_at)
+       VALUES ($1::uuid, $2, $3, $4, $5::jsonb, $6::uuid, NOW())
+       RETURNING id, source_hash, created_at`,
+      patientUid,
+      admissionId,
+      contextType,
+      hash,
+      JSON.stringify(payload || {}),
+      createdBy
+    );
+    return rows[0] || { source_hash: hash };
+  } catch (err) {
+    if (!isMissingSchemaError(err)) {
+      logger.warn('Clinical AI context snapshot failed', { contextType, error: err.message });
+    }
+    return { source_hash: sourceHash(payload) };
+  }
+}
+
+function citationCoverage(citations) {
+  return citations.length ? 100 : 0;
+}
+
+async function saveGeneration({
+  patientUid = null,
+  admissionId = null,
+  moduleKey,
+  promptVersion,
+  sourceHash,
+  draft,
+  citations,
+  safetyFlags,
+  generatedBy = null,
+  aiResult,
+  metadata = {},
+}) {
+  const usage = aiResult?.usage || {};
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO clinical_ai_generations
+       (patient_uid, admission_id, task_type, module_key, provider, model, prompt_version,
+        source_hash, status, used_ai, safety_flags, citations, draft, generated_by,
+        prompt_tokens, completion_tokens, total_tokens, estimated_cost_minor, latency_ms,
+        provider_request_id, finish_reason, metadata, created_at, updated_at)
+     VALUES
+       ($1::uuid, $2, $3, $3, $4, $5, $6, $7, 'draft', $8, $9::jsonb,
+        $10::jsonb, $11::jsonb, $12::uuid, $13, $14, $15, $16, $17, $18, $19,
+        $20::jsonb, NOW(), NOW())
+     RETURNING id, status, created_at`,
+    patientUid,
+    admissionId,
+    moduleKey,
+    aiResult?.provider || 'template',
+    aiResult?.model || null,
+    promptVersion || 'v1',
+    sourceHash,
+    Boolean(aiResult?.usedAi),
+    JSON.stringify(safetyFlags || []),
+    JSON.stringify(citations || []),
+    JSON.stringify(draft || {}),
+    generatedBy,
+    usage.prompt_tokens || 0,
+    usage.completion_tokens || 0,
+    usage.total_tokens || 0,
+    aiResult?.estimatedCostMinor ?? null,
+    usage.latency_ms || null,
+    usage.provider_request_id || null,
+    usage.finish_reason || null,
+    JSON.stringify({
+      ...metadata,
+      fallback_reason: aiResult?.usedAi ? null : aiResult?.reason || 'template_or_rule_output',
+    })
+  );
+  return rows[0];
+}
+
+async function runSafetyReview({ generationId, moduleKey, citations, safetyFlags }) {
+  const findings = [
+    ...(citationCoverage(citations) < 100
+      ? [{
+        severity: 'high',
+        code: 'CITATION_COVERAGE_LOW',
+        message: 'Draft cannot be accepted until cited evidence is reviewed.',
+      }]
+      : []),
+    ...asArray(safetyFlags),
+  ];
+  const status = findings.some((item) => item.severity === 'critical')
+    ? 'blocked'
+    : findings.length
+      ? 'needs_review'
+      : 'passed';
+
+  try {
+    await prisma.$queryRawUnsafe(
+      `INSERT INTO clinical_ai_safety_reviews
+         (generation_id, module_key, status, findings, citation_coverage_pct, created_at)
+       VALUES ($1, $2, $3, $4::jsonb, $5, NOW())`,
+      generationId,
+      moduleKey,
+      status,
+      JSON.stringify(findings),
+      citationCoverage(citations)
+    );
+  } catch (err) {
+    if (!isMissingSchemaError(err)) {
+      logger.warn('Clinical AI safety review insert failed', { generationId, error: err.message });
+    }
+  }
+
+  return { status, findings, citation_coverage_pct: citationCoverage(citations) };
+}
+
+async function createReviewPlaceholder({ generationId, module, patientUid = null, admissionId = null }) {
+  if (!module?.settings?.requiresClinicianSignoff && !module?.settings?.reviewRoles?.length) {
+    return null;
+  }
+
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO clinical_ai_reviews
+         (generation_id, module_key, patient_uid, admission_id, decision, metadata, created_at, updated_at)
+       VALUES ($1, $2, $3::uuid, $4, 'pending', $5::jsonb, NOW(), NOW())
+       RETURNING id, decision`,
+      generationId,
+      module.module_key,
+      patientUid,
+      admissionId,
+      JSON.stringify({
+        review_roles: module.settings?.reviewRoles || [],
+        requires_signoff: Boolean(module.settings?.requiresClinicianSignoff),
+      })
+    );
+    return rows[0] || null;
+  } catch (err) {
+    if (!isMissingSchemaError(err)) {
+      logger.warn('Clinical AI review placeholder failed', { generationId, error: err.message });
+    }
+    return null;
+  }
+}
+
+async function requireEnabledModule(moduleKey) {
+  const module = await getClinicalAiModule(moduleKey);
+  if (!module.enabled) {
+    throw AppError.forbidden(`Clinical AI module is disabled: ${module.display_name}`);
+  }
+  return module;
+}
+
+function standardDraftResponse({ module, prompt, draft, citations, safetyFlags, aiResult, generation, review, safetyReview }) {
+  return {
+    draft,
+    module_key: module.module_key,
+    prompt_version: prompt.version || 'v1',
+    source_citations: citations,
+    safety_flags: safetyFlags,
+    ai_metadata: {
+      provider: aiResult?.provider || 'template',
+      model: aiResult?.model || null,
+      used_ai: Boolean(aiResult?.usedAi),
+      fallback_reason: aiResult?.usedAi ? null : aiResult?.reason || 'template_or_rule_output',
+      usage: aiResult?.usage || {},
+      safety_review: safetyReview,
+    },
+    review_status: review?.decision || 'pending',
+    review_id: review?.id || null,
+    generation_id: generation?.id || null,
+    draft_generation_id: generation?.id || null,
+    requires_signoff: Boolean(module.settings?.requiresClinicianSignoff),
+  };
+}
+
+export async function generateAdmissionAiDraft(admissionId, moduleKey, requestedBy, req = null) {
+  const key = cleanText(moduleKey).toLowerCase();
+  if (!ADMISSION_MODULES.has(key)) throw AppError.badRequest('Unsupported admission AI module');
+
+  const module = await requireEnabledModule(key);
+  const context = await collectAdmissionClinicalContext(admissionId);
+  const packet = buildChartPacket(context);
+  const prompt = await getActivePrompt(key);
+  const fallbackDraft = buildAdmissionFallback(key, context);
+  const snapshot = await saveContextSnapshot({
+    patientUid: context.admission.patient_uid,
+    admissionId,
+    contextType: key,
+    payload: packet,
+    createdBy: requestedBy,
+  });
+  const aiResult = await generateClinicalText({
+    taskType: key,
+    systemPrompt: prompt.system_prompt,
+    userPrompt: `${prompt.user_prompt_template}\n\n${JSON.stringify({ module_key: key, chart_packet: packet })}`,
+  });
+  const draft = safeJsonParse(aiResult.text, fallbackDraft);
+  const citations = uniqueCitations(packet.citations);
+  const safetyFlags = buildCommonSafetyFlags(context, module, citations);
+  if (key === 'clinical_coding_assist' && !asArray(context.notes).some((event) => event.payload?.is_signed === true)) {
+    safetyFlags.push({
+      severity: 'high',
+      code: 'NO_SIGNED_DOCUMENTATION',
+      message: 'Coding assistant is restricted to signed documentation and no signed note was found.',
+    });
+  }
+  const generation = await saveGeneration({
+    patientUid: context.admission.patient_uid,
+    admissionId,
+    moduleKey: key,
+    promptVersion: prompt.version || 'v1',
+    sourceHash: snapshot.source_hash,
+    draft,
+    citations,
+    safetyFlags,
+    generatedBy: requestedBy,
+    aiResult,
+    metadata: {
+      request_id: req?.id || null,
+      context_snapshot_id: snapshot.id || null,
+    },
+  });
+  const safetyReview = await runSafetyReview({
+    generationId: generation.id,
+    moduleKey: key,
+    citations,
+    safetyFlags,
+  });
+  const review = await createReviewPlaceholder({
+    generationId: generation.id,
+    module,
+    patientUid: context.admission.patient_uid,
+    admissionId,
+  });
+  await publishEvent({
+    eventType: 'clinical_ai.draft_generated',
+    aggregateType: 'clinical_ai_generation',
+    aggregateId: generation.id,
+    patientUid: context.admission.patient_uid,
+    payload: { module_key: key, admission_id: admissionId, review_id: review?.id || null },
+  });
+
+  return standardDraftResponse({ module, prompt, draft, citations, safetyFlags, aiResult, generation, review, safetyReview });
+}
+
+function wardBriefDraft(ward, contexts) {
+  return {
+    ward: ward || 'all',
+    generated_at: new Date().toISOString(),
+    patients: contexts.map((context) => {
+      const packet = buildChartPacket(context);
+      return {
+        admission_id: packet.admission.id,
+        patient_uid: packet.patient.uid,
+        patient_name: packet.patient.name,
+        location: `${packet.admission.ward || '-'} / ${packet.admission.bed_number || '-'}`,
+        overnight_events: packet.recent_notes.slice(-3).map((item) => item.summary),
+        abnormal_results: abnormalResultTriage(context).urgent_items,
+        medication_changes: packet.medications.slice(-5).map((item) => item.summary),
+        pending_investigations: pendingInvestigations(context).map((item) => item.summary),
+        discharge_blockers: dischargeReadiness(context).blockers,
+      };
+    }),
+  };
+}
+
+export async function generateWardRoundBrief({ ward = null, limit = 20, requestedBy = null, req = null } = {}) {
+  const module = await requireEnabledModule('daily_ward_round_brief');
+  const safeLimit = clampInt(limit, { min: 1, max: 50, fallback: 20 });
+  const admissions = await prisma.$queryRawUnsafe(
+    `SELECT id
+     FROM admissions
+     WHERE status = 'admitted'
+       AND ($1::text IS NULL OR ward = $1)
+     ORDER BY admitted_at DESC NULLS LAST, created_at DESC
+     LIMIT $2`,
+    ward || null,
+    safeLimit
+  );
+  const contexts = [];
+  for (const admission of admissions) {
+    contexts.push(await collectAdmissionClinicalContext(admission.id));
+  }
+
+  const prompt = await getActivePrompt('daily_ward_round_brief');
+  const fallbackDraft = wardBriefDraft(ward, contexts);
+  const packet = {
+    ward,
+    admissions: contexts.map(buildChartPacket),
+  };
+  const snapshot = await saveContextSnapshot({
+    contextType: 'daily_ward_round_brief',
+    payload: packet,
+    createdBy: requestedBy,
+  });
+  const aiResult = await generateClinicalText({
+    taskType: 'daily_ward_round_brief',
+    systemPrompt: prompt.system_prompt,
+    userPrompt: `${prompt.user_prompt_template}\n\n${JSON.stringify(packet)}`,
+  });
+  const draft = safeJsonParse(aiResult.text, fallbackDraft);
+  const citations = uniqueCitations(contexts.flatMap((context) => context.citations));
+  const safetyFlags = citations.length
+    ? []
+    : [{ severity: 'medium', code: 'NO_ACTIVE_ADMISSIONS', message: 'No admitted patients were available for this ward brief.' }];
+  const generation = await saveGeneration({
+    moduleKey: 'daily_ward_round_brief',
+    promptVersion: prompt.version || 'v1',
+    sourceHash: snapshot.source_hash,
+    draft,
+    citations,
+    safetyFlags,
+    generatedBy: requestedBy,
+    aiResult,
+    metadata: {
+      request_id: req?.id || null,
+      ward,
+      context_snapshot_id: snapshot.id || null,
+    },
+  });
+  const safetyReview = await runSafetyReview({
+    generationId: generation.id,
+    moduleKey: 'daily_ward_round_brief',
+    citations,
+    safetyFlags,
+  });
+  const review = await createReviewPlaceholder({ generationId: generation.id, module });
+  await publishEvent({
+    eventType: 'clinical_ai.ward_brief_generated',
+    aggregateType: 'clinical_ai_generation',
+    aggregateId: generation.id,
+    payload: { module_key: 'daily_ward_round_brief', ward, review_id: review?.id || null },
+  });
+  return standardDraftResponse({ module, prompt, draft, citations, safetyFlags, aiResult, generation, review, safetyReview });
+}
+
+function denialRiskDraft(claim) {
+  if (!claim) {
+    return {
+      risk_level: 'unknown',
+      gaps: ['Claim not found'],
+      recommended_actions: ['Verify claim id and retry.'],
+    };
+  }
+  const gaps = [];
+  if (!claim.invoice_id) gaps.push('No linked invoice');
+  if (!claim.documents || (Array.isArray(claim.documents) && claim.documents.length === 0)) gaps.push('No supporting documents attached');
+  if (!claim.policy_number) gaps.push('Missing policy number');
+  return {
+    claim_number: claim.claim_number,
+    patient_uid: claim.patient_uid,
+    payer: claim.insurance_provider,
+    risk_level: gaps.length >= 2 ? 'high' : gaps.length ? 'medium' : 'low',
+    gaps,
+    recommended_actions: gaps.length
+      ? ['Attach signed documentation, invoice evidence, diagnosis/procedure support, and payer-specific forms.']
+      : ['Proceed with standard billing review.'],
+  };
+}
+
+export async function generateDenialRiskAssist(claimId, requestedBy, req = null) {
+  const module = await requireEnabledModule('denial_risk_assist');
+  const id = Number.parseInt(claimId, 10);
+  if (!Number.isFinite(id)) throw AppError.badRequest('Invalid claim ID');
+
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT c.id, c.claim_number, c.patient_uid, c.invoice_id, c.insurance_provider,
+            c.policy_number, c.claim_amount, c.approved_amount, c.status, c.documents,
+            c.submitted_at, c.reviewed_at, c.rejection_reason,
+            i.invoice_number, i.items, i.total_amount, i.payment_status,
+            u.name AS patient_name
+     FROM insurance_claims c
+     LEFT JOIN invoices i ON i.id = c.invoice_id
+     LEFT JOIN users u ON u.uid = c.patient_uid
+     WHERE c.id = $1
+     LIMIT 1`,
+    id
+  );
+  const claim = rows[0] || null;
+  if (!claim) throw AppError.notFound('Insurance claim not found');
+
+  const prompt = await getActivePrompt('denial_risk_assist');
+  const fallbackDraft = denialRiskDraft(claim);
+  const snapshot = await saveContextSnapshot({
+    patientUid: claim.patient_uid,
+    contextType: 'denial_risk_assist',
+    payload: claim,
+    createdBy: requestedBy,
+  });
+  const aiResult = await generateClinicalText({
+    taskType: 'denial_risk_assist',
+    systemPrompt: prompt.system_prompt,
+    userPrompt: `${prompt.user_prompt_template}\n\n${JSON.stringify({ claim })}`,
+  });
+  const draft = safeJsonParse(aiResult.text, fallbackDraft);
+  const citations = [
+    citationFor('insurance_claim', claim.id, claim.claim_number, claim.submitted_at),
+    ...(claim.invoice_id ? [citationFor('invoice', claim.invoice_id, claim.invoice_number, null)] : []),
+  ];
+  const safetyFlags = fallbackDraft.gaps.map((gap) => ({
+    severity: gap === 'No supporting documents attached' ? 'high' : 'medium',
+    code: 'DENIAL_RISK_GAP',
+    message: gap,
+  }));
+  const generation = await saveGeneration({
+    patientUid: claim.patient_uid,
+    moduleKey: 'denial_risk_assist',
+    promptVersion: prompt.version || 'v1',
+    sourceHash: snapshot.source_hash,
+    draft,
+    citations,
+    safetyFlags,
+    generatedBy: requestedBy,
+    aiResult,
+    metadata: {
+      request_id: req?.id || null,
+      claim_id: id,
+      context_snapshot_id: snapshot.id || null,
+    },
+  });
+  const safetyReview = await runSafetyReview({
+    generationId: generation.id,
+    moduleKey: 'denial_risk_assist',
+    citations,
+    safetyFlags,
+  });
+  const review = await createReviewPlaceholder({
+    generationId: generation.id,
+    module,
+    patientUid: claim.patient_uid,
+  });
+  return standardDraftResponse({ module, prompt, draft, citations, safetyFlags, aiResult, generation, review, safetyReview });
+}
+
+export async function getBedForecast({ ward = null, windowHours = 24 } = {}) {
+  await requireEnabledModule('bed_discharge_forecast');
+  const safeHours = clampInt(windowHours, { min: 1, max: 168, fallback: 24 });
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid, ward, bed_number, admitted_at, expected_los_days, status
+     FROM admissions
+     WHERE status = 'admitted'
+       AND ($1::text IS NULL OR ward = $1)
+     ORDER BY admitted_at ASC NULLS LAST`,
+    ward || null
+  );
+
+  const now = Date.now();
+  const patients = rows.map((row) => {
+    const admittedAt = row.admitted_at ? new Date(row.admitted_at).getTime() : now;
+    const elapsedHours = Math.max(0, Math.round((now - admittedAt) / 36_000) / 100);
+    const expectedHours = row.expected_los_days ? Number(row.expected_los_days) * 24 : 72;
+    const remainingHours = Math.max(expectedHours - elapsedHours, 0);
+    return {
+      admission_id: row.id,
+      patient_uid: row.patient_uid,
+      ward: row.ward,
+      bed_number: row.bed_number,
+      likely_discharge_24h: remainingHours <= 24,
+      likely_discharge_48h: remainingHours <= 48,
+      remaining_hours_estimate: Math.round(remainingHours),
+    };
+  });
+  const forecast = {
+    ward: ward || 'all',
+    forecast_window_hours: safeHours,
+    admitted_count: rows.length,
+    likely_discharges_24h: patients.filter((item) => item.likely_discharge_24h).length,
+    likely_discharges_48h: patients.filter((item) => item.likely_discharge_48h).length,
+    patients,
+    generated_at: new Date().toISOString(),
+  };
+  await prisma.$queryRawUnsafe(
+    `INSERT INTO clinical_ai_bed_forecasts
+       (ward, forecast_window_hours, forecast, created_at)
+     VALUES ($1, $2, $3::jsonb, NOW())`,
+    ward || null,
+    safeHours,
+    JSON.stringify(forecast)
+  );
+  return forecast;
+}
+
+export async function getPharmacyStockoutForecast({ days = 7 } = {}) {
+  await requireEnabledModule('pharmacy_stockout_predictor');
+  const safeDays = clampInt(days, { min: 1, max: 90, fallback: 7 });
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT COALESCE(details->>'medication_name', details->>'name', 'Unknown medication') AS medication_name,
+            COUNT(*)::int AS order_count
+     FROM clinical_orders
+     WHERE order_type = 'medication'
+       AND created_at >= NOW() - ($1::int * INTERVAL '1 day')
+     GROUP BY COALESCE(details->>'medication_name', details->>'name', 'Unknown medication')
+     ORDER BY order_count DESC, medication_name
+     LIMIT 50`,
+    safeDays
+  );
+  const highUsageMeds = rows.map((row) => ({
+    medication_name: row.medication_name,
+    order_count: row.order_count,
+    risk_level: row.order_count >= 20 ? 'high' : row.order_count >= 5 ? 'medium' : 'low',
+    recommended_action: row.order_count >= 5 ? 'Review reorder level and supplier lead time.' : 'Monitor routine usage.',
+  }));
+  const forecast = {
+    window_days: safeDays,
+    high_usage_meds: highUsageMeds,
+    stockout_risks: highUsageMeds.filter((item) => item.risk_level !== 'low'),
+    generated_at: new Date().toISOString(),
+  };
+  for (const item of highUsageMeds.slice(0, 20)) {
+    await prisma.$queryRawUnsafe(
+      `INSERT INTO clinical_ai_pharmacy_forecasts
+         (medication_name, risk_level, forecast, created_at)
+       VALUES ($1, $2, $3::jsonb, NOW())`,
+      item.medication_name,
+      item.risk_level,
+      JSON.stringify(item)
+    );
+  }
+  return forecast;
+}
+
+export async function listPrompts({ moduleKey = null, status = null, limit = 100 } = {}) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, module_key, version, title, system_prompt, user_prompt_template,
+            output_schema, status, active, created_by, activated_by, activated_at,
+            created_at, updated_at
+     FROM clinical_ai_prompts
+     WHERE ($1::text IS NULL OR module_key = $1)
+       AND ($2::text IS NULL OR status = $2)
+     ORDER BY module_key, active DESC, created_at DESC
+     LIMIT $3`,
+    moduleKey || null,
+    status || null,
+    clampInt(limit, { min: 1, max: 500, fallback: 100 })
+  );
+  return { prompts: rows, count: rows.length };
+}
+
+export async function createPrompt(data = {}, createdBy = null) {
+  const moduleKey = cleanText(data.module_key).toLowerCase();
+  if (!moduleKey) throw AppError.badRequest('module_key is required');
+  await getClinicalAiModule(moduleKey);
+  const version = cleanText(data.version, `v${Date.now()}`);
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO clinical_ai_prompts
+       (module_key, version, title, system_prompt, user_prompt_template,
+        output_schema, status, active, created_by, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, 'draft', false, $7::uuid, NOW(), NOW())
+     RETURNING id, module_key, version, title, status, active, created_at`,
+    moduleKey,
+    version,
+    cleanText(data.title, `${moduleKey} ${version}`),
+    cleanText(data.system_prompt, MODULE_PROMPT_FALLBACK.system_prompt),
+    cleanText(data.user_prompt_template, MODULE_PROMPT_FALLBACK.user_prompt_template),
+    JSON.stringify(data.output_schema || {}),
+    createdBy
+  );
+  return rows[0];
+}
+
+export async function getApprovalById(approvalId) {
+  if (!approvalId) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, approval_type, module_key, status, requested_by, approved_by,
+            rejected_by, reason, payload, expires_at, decided_at, created_at
+     FROM clinical_ai_approvals
+     WHERE id = $1
+     LIMIT 1`,
+    Number.parseInt(approvalId, 10)
+  );
+  return rows[0] || null;
+}
+
+export async function createApproval(data = {}, requestedBy = null) {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO clinical_ai_approvals
+       (approval_type, module_key, status, requested_by, reason, payload, expires_at, created_at, updated_at)
+     VALUES ($1, $2, 'pending', $3::uuid, $4, $5::jsonb, $6::timestamptz, NOW(), NOW())
+     RETURNING id, approval_type, module_key, status, requested_by, reason, payload, expires_at, created_at`,
+    cleanText(data.approval_type, 'governance_change'),
+    data.module_key ? cleanText(data.module_key).toLowerCase() : null,
+    requestedBy,
+    cleanText(data.reason, 'Clinical AI governance approval requested'),
+    JSON.stringify(data.payload || {}),
+    data.expires_at || null
+  );
+  return rows[0];
+}
+
+export async function decideApproval(approvalId, decision, actorUid, reason = null) {
+  const normalized = cleanText(decision).toLowerCase();
+  if (!['approved', 'rejected'].includes(normalized)) {
+    throw AppError.badRequest('decision must be approved or rejected');
+  }
+  const approval = await getApprovalById(approvalId);
+  if (!approval) throw AppError.notFound('Clinical AI approval not found');
+  if (approval.status !== 'pending') throw AppError.conflict('Clinical AI approval was already decided');
+  if (approval.requested_by && approval.requested_by === actorUid) {
+    throw AppError.forbidden('Two-person approval requires a different approver');
+  }
+
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE clinical_ai_approvals
+     SET status = $2,
+         approved_by = CASE WHEN $2 = 'approved' THEN $3::uuid ELSE approved_by END,
+         rejected_by = CASE WHEN $2 = 'rejected' THEN $3::uuid ELSE rejected_by END,
+         reason = COALESCE($4, reason),
+         decided_at = NOW(),
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING id, approval_type, module_key, status, requested_by, approved_by,
+               rejected_by, reason, payload, expires_at, decided_at, created_at`,
+    Number.parseInt(approvalId, 10),
+    normalized,
+    actorUid,
+    reason || null
+  );
+  return rows[0];
+}
+
+export async function activatePrompt(promptId, activatedBy, approvalId = null) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, module_key, version, title, status
+     FROM clinical_ai_prompts
+     WHERE id = $1
+     LIMIT 1`,
+    Number.parseInt(promptId, 10)
+  );
+  const prompt = rows[0];
+  if (!prompt) throw AppError.notFound('Clinical AI prompt not found');
+
+  const approval = await getApprovalById(approvalId);
+  if (!approval || approval.status !== 'approved') {
+    const pending = await createApproval({
+      approval_type: 'prompt_activation',
+      module_key: prompt.module_key,
+      reason: `Activate prompt ${prompt.version} for ${prompt.module_key}`,
+      payload: { prompt_id: prompt.id, version: prompt.version },
+    }, activatedBy);
+    return { approval_required: true, approval: pending, prompt };
+  }
+
+  await prisma.$queryRawUnsafe(
+    `UPDATE clinical_ai_prompts
+     SET active = false, status = CASE WHEN status = 'active' THEN 'superseded' ELSE status END, updated_at = NOW()
+     WHERE module_key = $1 AND active = true`,
+    prompt.module_key
+  );
+  const updated = await prisma.$queryRawUnsafe(
+    `UPDATE clinical_ai_prompts
+     SET active = true, status = 'active', activated_by = $2::uuid,
+         activated_at = NOW(), updated_at = NOW()
+     WHERE id = $1
+     RETURNING id, module_key, version, title, status, active, activated_by, activated_at`,
+    prompt.id,
+    activatedBy
+  );
+  return { approval_required: false, prompt: updated[0] };
+}
+
+export async function listReviews({ decision = null, moduleKey = null, limit = 100 } = {}) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT r.id, r.generation_id, r.module_key, r.patient_uid, u.name AS patient_name,
+            r.admission_id, r.reviewer_uid, r.reviewer_role, r.decision,
+            r.edited_draft, r.rejection_reason, r.metadata, r.created_at, r.updated_at,
+            g.provider, g.model, g.total_tokens, g.safety_flags
+     FROM clinical_ai_reviews r
+     LEFT JOIN users u ON u.uid = r.patient_uid
+     LEFT JOIN clinical_ai_generations g ON g.id = r.generation_id
+     WHERE ($1::text IS NULL OR r.decision = $1)
+       AND ($2::text IS NULL OR r.module_key = $2)
+     ORDER BY r.created_at DESC
+     LIMIT $3`,
+    decision || null,
+    moduleKey || null,
+    clampInt(limit, { min: 1, max: 500, fallback: 100 })
+  );
+  return { reviews: rows, count: rows.length };
+}
+
+export async function updateReview(reviewId, data = {}, reviewerUid = null, reviewerRole = null) {
+  const decision = cleanText(data.decision || 'pending').toLowerCase();
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE clinical_ai_reviews
+     SET reviewer_uid = $2::uuid,
+         reviewer_role = $3,
+         decision = $4,
+         edited_draft = $5::jsonb,
+         rejection_reason = $6,
+         metadata = metadata || $7::jsonb,
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING id, generation_id, module_key, patient_uid, admission_id,
+               reviewer_uid, reviewer_role, decision, edited_draft,
+               rejection_reason, metadata, created_at, updated_at`,
+    Number.parseInt(reviewId, 10),
+    reviewerUid,
+    reviewerRole || null,
+    decision,
+    data.edited_draft ? JSON.stringify(data.edited_draft) : null,
+    data.rejection_reason || null,
+    JSON.stringify({ reviewed_at: new Date().toISOString() })
+  );
+  const review = rows[0];
+  if (!review) throw AppError.notFound('Clinical AI review not found');
+
+  const generationStatus = REVIEW_STATUS_BY_DECISION[decision] || 'reviewed';
+  await prisma.$queryRawUnsafe(
+    `UPDATE clinical_ai_generations
+     SET status = $2, reviewed_by = $3::uuid, updated_at = NOW()
+     WHERE id = $1`,
+    review.generation_id,
+    generationStatus,
+    reviewerUid
+  );
+  return review;
+}
+
+export async function listApprovals({ status = null, moduleKey = null, limit = 100 } = {}) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, approval_type, module_key, status, requested_by, approved_by,
+            rejected_by, reason, payload, expires_at, decided_at, created_at, updated_at
+     FROM clinical_ai_approvals
+     WHERE ($1::text IS NULL OR status = $1)
+       AND ($2::text IS NULL OR module_key = $2)
+     ORDER BY created_at DESC
+     LIMIT $3`,
+    status || null,
+    moduleKey || null,
+    clampInt(limit, { min: 1, max: 500, fallback: 100 })
+  );
+  return { approvals: rows, count: rows.length };
+}
+
+export async function startBreakGlass(data = {}, startedBy = null) {
+  const hours = clampInt(data.expires_in_hours, { min: 1, max: 24, fallback: 2 });
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO clinical_ai_break_glass_sessions
+       (scope, reason, status, started_by, approved_by, expires_at, created_at, updated_at)
+     VALUES ($1, $2, 'active', $3::uuid, $4::uuid, NOW() + ($5::int * INTERVAL '1 hour'), NOW(), NOW())
+     RETURNING id, scope, reason, status, started_by, approved_by, expires_at, created_at`,
+    cleanText(data.scope, 'clinical_ai'),
+    cleanText(data.reason, 'Emergency Clinical AI governance access'),
+    startedBy,
+    data.approved_by || startedBy,
+    hours
+  );
+  return rows[0];
+}
+
+export async function endBreakGlass(sessionId, endedBy = null) {
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE clinical_ai_break_glass_sessions
+     SET status = 'ended', ended_at = NOW(), updated_at = NOW()
+     WHERE id = $1 AND status = 'active'
+     RETURNING id, scope, reason, status, started_by, approved_by, expires_at, ended_at, created_at`,
+    Number.parseInt(sessionId, 10)
+  );
+  if (!rows[0]) throw AppError.notFound('Active break-glass session not found');
+  await publishEvent({
+    eventType: 'clinical_ai.break_glass_ended',
+    aggregateType: 'clinical_ai_break_glass',
+    aggregateId: rows[0].id,
+    payload: { ended_by: endedBy },
+  });
+  return rows[0];
+}
+
+export async function getActiveBreakGlass() {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, scope, reason, status, started_by, approved_by, expires_at, created_at
+     FROM clinical_ai_break_glass_sessions
+     WHERE status = 'active' AND expires_at > NOW()
+     ORDER BY expires_at DESC
+     LIMIT 20`
+  );
+  return { sessions: rows, count: rows.length };
+}
+
+export default {
+  activatePrompt,
+  createApproval,
+  createPrompt,
+  decideApproval,
+  endBreakGlass,
+  generateAdmissionAiDraft,
+  generateDenialRiskAssist,
+  generateWardRoundBrief,
+  getActiveBreakGlass,
+  getBedForecast,
+  getPharmacyStockoutForecast,
+  listApprovals,
+  listPrompts,
+  listReviews,
+  startBreakGlass,
+  updateReview,
+};

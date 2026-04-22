@@ -9,6 +9,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { build837P } from '../../services/billing/ediGenerator.js';
+import { generateDenialRiskAssist } from '../../services/ai/clinicalAiWorkflowService.js';
 
 const router = express.Router();
 
@@ -379,6 +380,21 @@ router.get('/837/:invoiceId', async (req, res) => {
   } catch (err) {
     logger.error('837 generation error:', err);
     return error(res, 'Failed to generate 837 claim', 500);
+  }
+});
+
+/**
+ * POST /:claimId/denial-risk
+ *   Runs the Clinical AI denial-risk module against an insurance claim.
+ *   Returns a draft with citations + safety flags — never mutates the claim.
+ *   Review/signoff is captured in clinical_ai_reviews.
+ */
+router.post('/:claimId/denial-risk', async (req, res, next) => {
+  try {
+    const draft = await generateDenialRiskAssist(req.params.claimId, req.user?.uid || null, req);
+    return success(res, draft, 'Denial risk draft generated');
+  } catch (err) {
+    return next(err);
   }
 });
 

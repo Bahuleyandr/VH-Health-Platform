@@ -320,3 +320,150 @@ export async function saveDischargeSummary(admissionId: number, summary: Partial
 export async function signDischargeSummary(admissionId: number) {
   return postJSON(`/emr/${admissionId}/discharge-summary/sign`, {});
 }
+
+// ---------------------------------------------------------------------------
+// Clinical AI governance — prompt registry, reviews, approvals, break-glass
+// ---------------------------------------------------------------------------
+export interface ClinicalAiPrompt {
+  id: number;
+  module_key: string;
+  version: string;
+  title: string | null;
+  system_prompt: string;
+  user_prompt_template: string;
+  output_schema: Record<string, unknown>;
+  status: string;
+  active: boolean;
+  created_by?: string | null;
+  activated_by?: string | null;
+  activated_at?: string | null;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface ClinicalAiReview {
+  id: number;
+  generation_id: number | null;
+  module_key: string;
+  patient_uid: string | null;
+  patient_name?: string | null;
+  admission_id: number | null;
+  reviewer_uid: string | null;
+  reviewer_role: string | null;
+  decision: string;
+  edited_draft: Record<string, unknown> | null;
+  rejection_reason: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  provider?: string | null;
+  model?: string | null;
+  total_tokens?: number | null;
+  safety_flags?: Array<{ severity: string; code: string; message: string }>;
+}
+
+export interface ClinicalAiApproval {
+  id: number;
+  approval_type: string;
+  module_key: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  requested_by: string | null;
+  approved_by: string | null;
+  rejected_by: string | null;
+  reason: string | null;
+  payload: Record<string, unknown>;
+  expires_at: string | null;
+  decided_at: string | null;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface ClinicalAiBreakGlassSession {
+  id: number;
+  scope: string;
+  reason: string;
+  status: 'active' | 'ended';
+  started_by: string | null;
+  approved_by: string | null;
+  expires_at: string;
+  ended_at?: string | null;
+  created_at: string;
+}
+
+export async function getClinicalAiPrompts(params: { moduleKey?: string; status?: string } = {}) {
+  const query: Record<string, string | number> = {};
+  if (params.moduleKey) query.module_key = params.moduleKey;
+  if (params.status) query.status = params.status;
+  return getJSON<{ prompts: ClinicalAiPrompt[]; count: number }>('/admin/clinical-ai/prompts', query);
+}
+
+export async function createClinicalAiPrompt(payload: {
+  module_key: string;
+  version?: string;
+  title?: string;
+  system_prompt: string;
+  user_prompt_template: string;
+  output_schema?: Record<string, unknown>;
+}) {
+  return postJSON<ClinicalAiPrompt>('/admin/clinical-ai/prompts', payload);
+}
+
+export async function activateClinicalAiPrompt(promptId: number, approvalId?: number) {
+  return fetchAdminAPI<{ approval_required: boolean; approval?: ClinicalAiApproval; prompt: ClinicalAiPrompt }>(
+    `/admin/clinical-ai/prompts/${promptId}/activate`,
+    {
+      method: 'PATCH',
+      body: approvalId ? { approval_id: approvalId } : {},
+    }
+  );
+}
+
+export async function getClinicalAiReviews(params: { decision?: string; moduleKey?: string } = {}) {
+  const query: Record<string, string | number> = {};
+  if (params.decision) query.decision = params.decision;
+  if (params.moduleKey) query.module_key = params.moduleKey;
+  return getJSON<{ reviews: ClinicalAiReview[]; count: number }>('/admin/clinical-ai/reviews', query);
+}
+
+export async function updateClinicalAiReview(
+  reviewId: number,
+  payload: { decision: string; edited_draft?: Record<string, unknown>; rejection_reason?: string }
+) {
+  return fetchAdminAPI<ClinicalAiReview>(`/admin/clinical-ai/reviews/${reviewId}`, {
+    method: 'PATCH',
+    body: payload,
+  });
+}
+
+export async function getClinicalAiApprovals(params: { status?: string; moduleKey?: string } = {}) {
+  const query: Record<string, string | number> = {};
+  if (params.status) query.status = params.status;
+  if (params.moduleKey) query.module_key = params.moduleKey;
+  return getJSON<{ approvals: ClinicalAiApproval[]; count: number }>('/admin/clinical-ai/approvals', query);
+}
+
+export async function decideClinicalAiApproval(
+  approvalId: number,
+  decision: 'approved' | 'rejected',
+  reason?: string
+) {
+  return fetchAdminAPI<ClinicalAiApproval>(`/admin/clinical-ai/approvals/${approvalId}`, {
+    method: 'PATCH',
+    body: { decision, reason },
+  });
+}
+
+export async function getActiveBreakGlassSessions() {
+  return getJSON<{ sessions: ClinicalAiBreakGlassSession[]; count: number }>('/admin/clinical-ai/break-glass');
+}
+
+export async function startBreakGlassSession(payload: { scope?: string; reason: string; expires_in_hours?: number }) {
+  return postJSON<ClinicalAiBreakGlassSession>('/admin/clinical-ai/break-glass', payload);
+}
+
+export async function endBreakGlassSession(sessionId: number) {
+  return fetchAdminAPI<ClinicalAiBreakGlassSession>(`/admin/clinical-ai/break-glass/${sessionId}/end`, {
+    method: 'PATCH',
+    body: {},
+  });
+}

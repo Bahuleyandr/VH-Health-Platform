@@ -5,6 +5,10 @@ import express from 'express';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import admissionService from '../../services/emr/admissionService.js';
 import dischargeSummaryGenerator from '../../services/emr/dischargeSummaryGenerator.js';
+import {
+  generateAdmissionAiDraft,
+  generateWardRoundBrief,
+} from '../../services/ai/clinicalAiWorkflowService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { canEditDischargeSummary, canSignDischargeSummary } from '../../utils/roleHelpers.js';
 
@@ -278,6 +282,98 @@ router.post(
     const result = await dischargeSummaryGenerator.signDischargeSummary(admissionId, doctorUid);
 
     success(res, result, 'Discharge summary signed — now official and immutable');
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Modular Clinical AI draft routes (admission-scoped).
+// The top-level /api/v1/emr gate already restricts access to CLINICAL_STAFF_ROLES.
+// Each module enforces enablement + reviewRoles inside the workflow service.
+// ---------------------------------------------------------------------------
+function parseAdmissionId(req, res) {
+  const admissionId = parseInt(req.params.id, 10);
+  if (Number.isNaN(admissionId)) {
+    error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    return null;
+  }
+  return admissionId;
+}
+
+async function respondWithAdmissionAiDraft(req, res, moduleKey, message) {
+  const admissionId = parseAdmissionId(req, res);
+  if (admissionId === null) return;
+
+  const draft = await generateAdmissionAiDraft(admissionId, moduleKey, req.user?.uid || null, req);
+  success(res, draft, message);
+}
+
+router.post(
+  '/:id/ai/patient-record-summary',
+  wrapAsync((req, res) =>
+    respondWithAdmissionAiDraft(req, res, 'patient_record_summary', 'Patient record summary draft generated')
+  )
+);
+
+router.post(
+  '/:id/aftercare-instructions',
+  wrapAsync((req, res) =>
+    respondWithAdmissionAiDraft(req, res, 'patient_aftercare_instructions', 'Aftercare instructions draft generated')
+  )
+);
+
+router.post(
+  '/:id/medication-reconciliation',
+  wrapAsync((req, res) =>
+    respondWithAdmissionAiDraft(req, res, 'medication_reconciliation', 'Medication reconciliation draft generated')
+  )
+);
+
+router.get(
+  '/:id/discharge-readiness',
+  wrapAsync((req, res) =>
+    respondWithAdmissionAiDraft(req, res, 'discharge_readiness', 'Discharge readiness draft generated')
+  )
+);
+
+router.post(
+  '/:id/referral-letter',
+  wrapAsync((req, res) =>
+    respondWithAdmissionAiDraft(req, res, 'referral_letter', 'Referral letter draft generated')
+  )
+);
+
+router.post(
+  '/:id/abnormal-result-triage',
+  wrapAsync((req, res) =>
+    respondWithAdmissionAiDraft(req, res, 'abnormal_result_triage', 'Abnormal result triage draft generated')
+  )
+);
+
+router.post(
+  '/:id/clinical-coding-assist',
+  wrapAsync((req, res) =>
+    respondWithAdmissionAiDraft(req, res, 'clinical_coding_assist', 'Clinical coding assist draft generated')
+  )
+);
+
+router.post(
+  '/:id/quality-case-review',
+  wrapAsync((req, res) =>
+    respondWithAdmissionAiDraft(req, res, 'quality_case_review', 'Quality case review draft generated')
+  )
+);
+
+// POST /ward-round-brief — aggregate draft across admitted patients.
+router.post(
+  '/ward-round-brief',
+  wrapAsync(async (req, res) => {
+    const draft = await generateWardRoundBrief({
+      ward: req.body?.ward || req.query?.ward || null,
+      limit: req.body?.limit || req.query?.limit,
+      requestedBy: req.user?.uid || null,
+      req,
+    });
+    success(res, draft, 'Daily ward round brief draft generated');
   })
 );
 

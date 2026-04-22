@@ -18,6 +18,14 @@ import {
   type ClinicalAiModule,
   type ClinicalAiSafetyFlag,
 } from "@/lib/api/emr";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  ApprovalsPanel,
+  BreakGlassBanner,
+  BreakGlassControls,
+  PromptRegistryPanel,
+  ReviewQueuePanel,
+} from "./components/GovernancePanels";
 
 function fmt(value?: string | null) {
   if (!value) return "-";
@@ -343,6 +351,7 @@ function GuardrailEditor({
 
 export default function ClinicalAiGovernancePage() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const status = useQuery({
     queryKey: ["clinical-ai-status"],
     queryFn: () => getClinicalAiStatus(7),
@@ -393,6 +402,8 @@ export default function ClinicalAiGovernancePage() {
 
   return (
     <div className="space-y-6">
+      <BreakGlassBanner />
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Clinical AI</h1>
@@ -546,6 +557,19 @@ export default function ClinicalAiGovernancePage() {
           </table>
         </div>
       </section>
+
+      <ReviewQueuePanel />
+
+      <PromptRegistryPanel
+        modules={modules.map((module) => ({
+          module_key: module.module_key,
+          display_name: module.display_name,
+        }))}
+      />
+
+      <ApprovalsPanel currentAdminUid={user?.uid ?? null} />
+
+      <BreakGlassControls />
 
       <section className="space-y-3">
         <div className="flex items-center gap-2">
