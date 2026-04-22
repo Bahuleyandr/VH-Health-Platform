@@ -248,6 +248,21 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expect(denialModule.tenant_override_source).toBe('tenant');
     expect(denialModule.max_tokens).toBe(1111);
 
+    const tenantOverrideCleared = await admin
+      .patch('/api/v1/admin/clinical-ai/tenant-modules/denial_risk_assist')
+      .send({
+        provider_override: null,
+        model_override: null,
+        external_allowed: null,
+        max_tokens: null,
+        temperature: null,
+      });
+    expectStatus(tenantOverrideCleared, 200, 'clear tenant clinical AI module overrides');
+    expect(tenantOverrideCleared.body.data.tenant_override_id).toBeTruthy();
+    expect(tenantOverrideCleared.body.data.tenant_overrides.provider_override).toBeNull();
+    expect(tenantOverrideCleared.body.data.tenant_overrides.model_override).toBeNull();
+    expect(tenantOverrideCleared.body.data.tenant_overrides.external_allowed).toBeNull();
+
     const tenantReset = await admin.delete('/api/v1/admin/clinical-ai/tenant-modules/denial_risk_assist');
     expectStatus(tenantReset, 200, 'reset tenant clinical AI module');
     expect(tenantReset.body.data.tenant_override_id).toBeNull();

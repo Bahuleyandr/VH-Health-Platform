@@ -95,6 +95,11 @@ export interface ClinicalAiModule {
   } | null;
 }
 
+export type ClinicalAiModulePatch = Partial<Omit<ClinicalAiModule, 'enabled' | 'external_allowed'>> & {
+  enabled?: boolean | null;
+  external_allowed?: boolean | null;
+};
+
 export interface ClinicalAiUsageSummary {
   window_days: number;
   overall: {
@@ -334,13 +339,13 @@ export async function getClinicalAiModules() {
 export async function getClinicalAiTenantModules() {
   return getJSON<{ modules: ClinicalAiModule[]; count: number }>('/admin/clinical-ai/tenant-modules');
 }
-export async function updateClinicalAiModule(moduleKey: string, payload: Partial<ClinicalAiModule>) {
+export async function updateClinicalAiModule(moduleKey: string, payload: ClinicalAiModulePatch) {
   return fetchAdminAPI<ClinicalAiModule>(`/admin/clinical-ai/modules/${encodeURIComponent(moduleKey)}`, {
     method: 'PATCH',
     body: payload,
   });
 }
-export async function updateClinicalAiTenantModule(moduleKey: string, payload: Partial<ClinicalAiModule>) {
+export async function updateClinicalAiTenantModule(moduleKey: string, payload: ClinicalAiModulePatch) {
   return fetchAdminAPI<ClinicalAiModule>(`/admin/clinical-ai/tenant-modules/${encodeURIComponent(moduleKey)}`, {
     method: 'PATCH',
     body: payload,

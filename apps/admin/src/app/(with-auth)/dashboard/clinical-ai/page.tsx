@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, AlertTriangle, Cpu, Gauge, History, RefreshCw, ShieldCheck, ToggleLeft, ToggleRight } from "lucide-react";
+import { Activity, AlertTriangle, Cpu, Gauge, History, RefreshCw, Save, Settings2, ShieldCheck, ToggleLeft, ToggleRight } from "lucide-react";
 import { toast } from "react-hot-toast";
 import {
   getClinicalAiAuditLogs,
@@ -17,6 +17,7 @@ import {
   type ClinicalAiGeneration,
   type ClinicalAiGuardrails,
   type ClinicalAiModule,
+  type ClinicalAiModulePatch,
   type ClinicalAiSafetyFlag,
 } from "@/lib/api/emr";
 import { useAuth } from "@/contexts/AuthContext";
@@ -95,6 +96,13 @@ function toOptionalNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function toOptionalFloat(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number.parseFloat(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function severityClass(severity?: string) {
   const s = (severity || "").toLowerCase();
   if (s === "critical") return "bg-red-100 text-red-800 border-red-200";
@@ -133,42 +141,177 @@ function auditChangedFields(log: ClinicalAiAuditLog) {
   return fields.length ? fields.join(", ") : "-";
 }
 
-function ModuleToggle({
+type ModuleOverrideDraft = {
+  providerOverride: string;
+  modelOverride: string;
+  externalBoundary: "inherit" | "local" | "external";
+  maxTokens: string;
+  temperature: string;
+};
+
+function moduleOverrideDraftFrom(module: ClinicalAiModule): ModuleOverrideDraft {
+  const tenant = module.tenant_overrides;
+  return {
+    providerOverride: tenant?.provider_override ?? "",
+    modelOverride: tenant?.model_override ?? "",
+    externalBoundary: tenant?.external_allowed === true
+      ? "external"
+      : tenant?.external_allowed === false
+        ? "local"
+        : "inherit",
+    maxTokens: tenant?.max_tokens?.toString() ?? "",
+    temperature: tenant?.temperature?.toString() ?? "",
+  };
+}
+
+function ModuleOverrideControls({
   module,
   disabled,
   onToggle,
+  onSave,
   onReset,
 }: {
   module: ClinicalAiModule;
   disabled: boolean;
   onToggle: (module: ClinicalAiModule) => void;
+  onSave: (module: ClinicalAiModule, payload: ClinicalAiModulePatch) => void;
   onReset: (module: ClinicalAiModule) => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<ModuleOverrideDraft>(() => moduleOverrideDraftFrom(module));
+
+  useEffect(() => {
+    setDraft(moduleOverrideDraftFrom(module));
+  }, [module]);
+
+  const setField = (field: keyof ModuleOverrideDraft, value: string) => {
+    setDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  const save = () => {
+    onSave(module, {
+      provider_override: draft.providerOverride.trim() || null,
+      model_override: draft.modelOverride.trim() || null,
+      external_allowed: draft.externalBoundary === "inherit" ? null : draft.externalBoundary === "external",
+      max_tokens: toOptionalNumber(draft.maxTokens),
+      temperature: toOptionalFloat(draft.temperature),
+    });
+    setEditing(false);
+  };
+
   return (
-    <div className="inline-flex flex-wrap justify-end gap-1">
-      <button
-        onClick={() => onToggle(module)}
-        disabled={disabled}
-        className="inline-flex min-w-24 items-center justify-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-accent disabled:opacity-50"
-        title={module.enabled ? "Disable" : "Enable"}
-      >
-        {module.enabled ? (
-          <ToggleRight className="h-4 w-4 text-emerald-600" />
-        ) : (
-          <ToggleLeft className="h-4 w-4 text-muted-foreground" />
-        )}
-        {module.enabled ? "Enabled" : "Disabled"}
-      </button>
-      {module.tenant_override_id ? (
+    <div className="space-y-2">
+      <div className="inline-flex flex-wrap justify-end gap-1">
         <button
-          onClick={() => onReset(module)}
+          onClick={() => onToggle(module)}
+          disabled={disabled}
+          className="inline-flex min-w-24 items-center justify-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-accent disabled:opacity-50"
+          title={module.enabled ? "Disable" : "Enable"}
+        >
+          {module.enabled ? (
+            <ToggleRight className="h-4 w-4 text-emerald-600" />
+          ) : (
+            <ToggleLeft className="h-4 w-4 text-muted-foreground" />
+          )}
+          {module.enabled ? "Enabled" : "Disabled"}
+        </button>
+        <button
+          onClick={() => setEditing((current) => !current)}
           disabled={disabled}
           className="inline-flex items-center justify-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent disabled:opacity-50"
-          title="Reset tenant override"
+          title="Configure tenant override"
         >
-          <RefreshCw className="h-3.5 w-3.5" />
-          Reset
+          <Settings2 className="h-3.5 w-3.5" />
+          Configure
         </button>
+        {module.tenant_override_id ? (
+          <button
+            onClick={() => onReset(module)}
+            disabled={disabled}
+            className="inline-flex items-center justify-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent disabled:opacity-50"
+            title="Reset tenant override"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Reset
+          </button>
+        ) : null}
+      </div>
+      {editing ? (
+        <div className="ml-auto max-w-xl rounded-lg border border-border bg-background p-3 text-left shadow-sm">
+          <div className="grid gap-2 md:grid-cols-2">
+            <label className="text-xs text-muted-foreground">
+              Provider override
+              <input
+                value={draft.providerOverride}
+                onChange={(event) => setField("providerOverride", event.target.value)}
+                placeholder={module.global_provider_override || "inherit"}
+                className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
+              />
+            </label>
+            <label className="text-xs text-muted-foreground">
+              Model override
+              <input
+                value={draft.modelOverride}
+                onChange={(event) => setField("modelOverride", event.target.value)}
+                placeholder={module.global_model_override || "inherit"}
+                className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
+              />
+            </label>
+            <label className="text-xs text-muted-foreground">
+              Boundary
+              <select
+                value={draft.externalBoundary}
+                onChange={(event) => setField("externalBoundary", event.target.value)}
+                className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
+              >
+                <option value="inherit">Inherit global</option>
+                <option value="local">Local only</option>
+                <option value="external">External allowed</option>
+              </select>
+            </label>
+            <label className="text-xs text-muted-foreground">
+              Max tokens
+              <input
+                value={draft.maxTokens}
+                onChange={(event) => setField("maxTokens", event.target.value)}
+                inputMode="numeric"
+                placeholder={module.max_tokens?.toString() || "inherit"}
+                className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
+              />
+            </label>
+            <label className="text-xs text-muted-foreground">
+              Temperature
+              <input
+                value={draft.temperature}
+                onChange={(event) => setField("temperature", event.target.value)}
+                inputMode="decimal"
+                placeholder={module.temperature?.toString() || "inherit"}
+                className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
+              />
+            </label>
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <button
+              onClick={() => {
+                setDraft(moduleOverrideDraftFrom(module));
+                setEditing(false);
+              }}
+              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent"
+              type="button"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={save}
+              disabled={disabled}
+              className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+              type="button"
+            >
+              <Save className="h-3.5 w-3.5" />
+              Save
+            </button>
+          </div>
+        </div>
       ) : null}
     </div>
   );
@@ -427,6 +570,17 @@ export default function ClinicalAiGovernancePage() {
     onError: (err: Error) => toast.error(err.message || "Module update failed"),
   });
 
+  const saveModuleOverride = useMutation({
+    mutationFn: ({ module, payload }: { module: ClinicalAiModule; payload: ClinicalAiModulePatch }) =>
+      updateClinicalAiTenantModule(module.module_key, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-status"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
+      toast.success("Tenant module settings updated");
+    },
+    onError: (err: Error) => toast.error(err.message || "Module settings update failed"),
+  });
+
   const resetModule = useMutation({
     mutationFn: (module: ClinicalAiModule) => resetClinicalAiTenantModule(module.module_key),
     onSuccess: () => {
@@ -629,10 +783,11 @@ export default function ClinicalAiGovernancePage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <ModuleToggle
+                        <ModuleOverrideControls
                           module={module}
-                          disabled={toggleModule.isPending || resetModule.isPending}
+                          disabled={toggleModule.isPending || resetModule.isPending || saveModuleOverride.isPending}
                           onToggle={(target) => toggleModule.mutate(target)}
+                          onSave={(target, payload) => saveModuleOverride.mutate({ module: target, payload })}
                           onReset={(target) => resetModule.mutate(target)}
                         />
                       </td>

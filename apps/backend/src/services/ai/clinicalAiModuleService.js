@@ -1047,9 +1047,9 @@ export async function updateClinicalAiTenantModule(moduleKey, data = {}, updated
     model_override: data.model_override === undefined
       ? currentOverride.model_override ?? null
       : data.model_override || null,
-    external_allowed: typeof data.external_allowed === 'boolean'
-      ? data.external_allowed
-      : currentOverride.external_allowed ?? null,
+    external_allowed: data.external_allowed === undefined
+      ? currentOverride.external_allowed ?? null
+      : (typeof data.external_allowed === 'boolean' ? data.external_allowed : null),
     max_tokens: data.max_tokens === undefined
       ? currentOverride.max_tokens ?? null
       : nullableInt(data.max_tokens),
