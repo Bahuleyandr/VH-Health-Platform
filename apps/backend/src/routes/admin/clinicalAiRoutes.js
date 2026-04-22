@@ -47,6 +47,13 @@ import {
   runCanary,
   upsertCanaryCase,
 } from '../../services/ai/driftCanaryService.js';
+import {
+  auditChargeCapture,
+  decideChargeCaptureAudit,
+  listChargeCaptureAudits,
+  predictOtCaseTime,
+  scoreNoShowRisk,
+} from '../../services/ai/operationalAiService.js';
 
 const router = express.Router();
 const CLINICAL_AI_AUDIT_RESOURCE = 'clinical_ai';
@@ -729,6 +736,73 @@ router.post('/canary/cases', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_CANARY_CASE_UPSERTED', String(saved.id), null, saved);
     return success(res, saved, 'Canary case saved', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Operational AI (Batch 2): no-show, OT case-time, charge capture
+// ---------------------------------------------------------------------------
+router.post('/operational/no-show/:appointmentId', async (req, res, next) => {
+  try {
+    const result = await scoreNoShowRisk({
+      tenantId: req.tenantId,
+      appointmentId: req.params.appointmentId,
+    });
+    return success(res, result, 'No-show risk scored');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/operational/ot/:scheduleId', async (req, res, next) => {
+  try {
+    const result = await predictOtCaseTime({
+      tenantId: req.tenantId,
+      scheduleId: req.params.scheduleId,
+    });
+    return success(res, result, 'OT case-time predicted');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/operational/charge-capture/:admissionId', async (req, res, next) => {
+  try {
+    const result = await auditChargeCapture({
+      tenantId: req.tenantId,
+      admissionId: req.params.admissionId,
+    });
+    return success(res, result, 'Charge capture audit complete');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/operational/charge-capture', async (req, res, next) => {
+  try {
+    const result = await listChargeCaptureAudits({
+      tenantId: req.tenantId,
+      decision: req.query.decision || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Charge capture audits retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/operational/charge-capture/:id', async (req, res, next) => {
+  try {
+    const decided = await decideChargeCaptureAudit({
+      tenantId: req.tenantId,
+      auditId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_CHARGE_CAPTURE_DECIDED', String(decided.id), null, decided);
+    return success(res, decided, 'Charge capture audit decided');
   } catch (err) {
     return next(err);
   }
