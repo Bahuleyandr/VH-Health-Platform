@@ -1046,6 +1046,25 @@ export interface TrialMatch {
   scored_at: string;
 }
 
+export interface TrialMatchRunResponse {
+  patient_uid: string;
+  admission_id: number | string | null;
+  patient_profile?: { age?: number | null; gender?: string | null; diagnosis_count?: number };
+  matches: Array<{
+    trial_id: number;
+    nct_id: string;
+    title: string;
+    phase: string | null;
+    match_score: number;
+    match_reasons: Array<{ kind: string; [key: string]: unknown }>;
+    location: string | null;
+  }>;
+  persisted_count: number;
+  note?: string;
+  module_key?: string;
+  decision_support_only?: boolean;
+}
+
 export async function listTrialMatches(decision?: string) {
   const query: Record<string, string> = {};
   if (decision) query.decision = decision;
@@ -1053,6 +1072,10 @@ export async function listTrialMatches(decision?: string) {
     '/admin/clinical-ai/trials/matches',
     query
   );
+}
+
+export async function matchPatientAgainstTrials(patientUid: string, payload: { admission_id?: string | number; min_score?: number; limit?: number } = {}) {
+  return postJSON<TrialMatchRunResponse>(`/admin/clinical-ai/trials/match/${patientUid}`, payload);
 }
 
 export async function decideTrialMatch(id: number, decision: 'offered' | 'enrolled' | 'declined' | 'ineligible') {
@@ -1312,6 +1335,22 @@ export interface RcaDraftSummary {
   created_at: string;
 }
 
+export type RcaCaseType = 'mortality' | 'readmission' | 'infection' | 'never_event' | 'complaint';
+
+export interface RcaGenerationResponse {
+  rca_id: number | null;
+  admission_id: number;
+  case_type: RcaCaseType;
+  draft: Record<string, unknown>;
+  citations: ClinicalAiSourceCitation[];
+  safety_flags: ClinicalAiSafetyFlagSummary[];
+  used_ai: boolean;
+  provider: string;
+  reviewer_decision: 'pending';
+  module_key: string;
+  decision_support_only: boolean;
+}
+
 export async function listRcaDrafts(decision?: string) {
   const query: Record<string, string> = {};
   if (decision) query.decision = decision;
@@ -1319,6 +1358,10 @@ export async function listRcaDrafts(decision?: string) {
     '/admin/clinical-ai/rca',
     query
   );
+}
+
+export async function generateRcaDraft(admissionId: string | number, caseType: RcaCaseType = 'mortality') {
+  return postJSON<RcaGenerationResponse>(`/admin/clinical-ai/rca/${admissionId}`, { case_type: caseType });
 }
 
 export async function decideRcaDraft(id: number, decision: 'accepted' | 'revised' | 'rejected', note?: string) {

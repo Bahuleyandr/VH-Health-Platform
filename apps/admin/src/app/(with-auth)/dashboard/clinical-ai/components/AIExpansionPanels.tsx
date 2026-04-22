@@ -45,6 +45,7 @@ import {
   generateAbnormalResultTriage,
   generateChartCompletionAudit,
   generateInfectionControlAudit,
+  generateRcaDraft,
   generateRosterSuggestion,
   generateSepsisBundleAudit,
   getBedDischargeForecast,
@@ -74,6 +75,7 @@ import {
   listTrialSyncRuns,
   listVirtualWardEnrollments,
   listVirtualWardEscalations,
+  matchPatientAgainstTrials,
   predictOtCaseTime,
   publishRosterRun,
   recordPriorAuthPayerDecision,
@@ -113,6 +115,7 @@ import {
   type PrivacySentinelRiskBand,
   type PriorAuthRequest,
   type PromptExperiment,
+  type RcaCaseType,
   type RcaDraftSummary,
   type RosterCoverageGap,
   type RosterPreferenceConflict,
@@ -2987,9 +2990,33 @@ export function TrialCatalogSyncPanel() {
 export function TrialMatchesPanel() {
   const queryClient = useQueryClient();
   const [decisionFilter, setDecisionFilter] = useState("pending");
+  const [patientUid, setPatientUid] = useState("");
+  const [admissionId, setAdmissionId] = useState("");
+  const [minScore, setMinScore] = useState("30");
+  const [matchLimit, setMatchLimit] = useState("10");
   const matches = useQuery({
     queryKey: ["clinical-ai", "trials", decisionFilter],
     queryFn: () => listTrialMatches(decisionFilter || undefined),
+  });
+  const runMatch = useMutation({
+    mutationFn: () => {
+      const admission = admissionId.trim();
+      const score = Math.min(Math.max(Number.parseInt(minScore, 10) || 30, 0), 100);
+      const limit = Math.min(Math.max(Number.parseInt(matchLimit, 10) || 10, 1), 50);
+      return matchPatientAgainstTrials(patientUid.trim(), {
+        min_score: score,
+        limit,
+        ...(admission ? { admission_id: admission } : {}),
+      });
+    },
+    onSuccess: (result) => {
+      const message = result.note
+        ? `Trial match skipped: ${result.note}`
+        : `Trial match complete: ${result.persisted_count} saved`;
+      toast(message);
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "trials"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Trial match failed"),
   });
   const decide = useMutation({
     mutationFn: ({ id, decision }: { id: number; decision: "offered" | "enrolled" | "declined" | "ineligible" }) =>
@@ -3022,6 +3049,59 @@ export function TrialMatchesPanel() {
           <option value="">All</option>
         </select>
       </div>
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="grid gap-2 md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.6fr)_120px_120px_auto] md:items-end">
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Patient UID</span>
+            <input
+              value={patientUid}
+              onChange={(event) => setPatientUid(event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm font-mono"
+              placeholder="patient uuid"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Admission ID</span>
+            <input
+              value={admissionId}
+              onChange={(event) => setAdmissionId(event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+              placeholder="optional"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Min score</span>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={minScore}
+              onChange={(event) => setMinScore(event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Limit</span>
+            <input
+              type="number"
+              min={1}
+              max={50}
+              value={matchLimit}
+              onChange={(event) => setMatchLimit(event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => runMatch.mutate()}
+            disabled={!patientUid.trim() || runMatch.isPending}
+            className="inline-flex items-center justify-center gap-2 rounded-md border border-border bg-foreground px-3 py-1.5 text-sm font-medium text-background hover:opacity-90 disabled:opacity-50"
+          >
+            <FileSearch className="h-4 w-4" />
+            Match
+          </button>
+        </div>
+      </div>
       <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
@@ -3037,7 +3117,7 @@ export function TrialMatchesPanel() {
             {rows.length === 0 ? (
               <tr>
                 <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
-                  No matches. Upload trials to /admin/clinical-ai/trials/catalog then POST /trials/match/:patientUid.
+                  No trial matches awaiting this filter.
                 </td>
               </tr>
             ) : (
@@ -3091,9 +3171,19 @@ export function TrialMatchesPanel() {
 export function RcaDraftsPanel() {
   const queryClient = useQueryClient();
   const [decisionFilter, setDecisionFilter] = useState("pending");
+  const [admissionId, setAdmissionId] = useState("");
+  const [caseType, setCaseType] = useState<RcaCaseType>("mortality");
   const drafts = useQuery({
     queryKey: ["clinical-ai", "rca", decisionFilter],
     queryFn: () => listRcaDrafts(decisionFilter || undefined),
+  });
+  const generate = useMutation({
+    mutationFn: () => generateRcaDraft(admissionId.trim(), caseType),
+    onSuccess: (result) => {
+      toast.success(`RCA draft generated: ${result.case_type}`);
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "rca"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "RCA generation failed"),
   });
   const decide = useMutation({
     mutationFn: ({ id, decision, note }: { id: number; decision: "accepted" | "revised" | "rejected"; note?: string }) =>
@@ -3125,6 +3215,42 @@ export function RcaDraftsPanel() {
           <option value="">All</option>
         </select>
       </div>
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-end">
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Admission ID</span>
+            <input
+              value={admissionId}
+              onChange={(event) => setAdmissionId(event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+              placeholder="admission id"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Case type</span>
+            <select
+              value={caseType}
+              onChange={(event) => setCaseType(event.target.value as RcaCaseType)}
+              className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+            >
+              <option value="mortality">Mortality</option>
+              <option value="readmission">Readmission</option>
+              <option value="infection">Infection</option>
+              <option value="never_event">Never event</option>
+              <option value="complaint">Complaint</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={() => generate.mutate()}
+            disabled={!admissionId.trim() || generate.isPending}
+            className="inline-flex items-center justify-center gap-2 rounded-md border border-border bg-foreground px-3 py-1.5 text-sm font-medium text-background hover:opacity-90 disabled:opacity-50"
+          >
+            <PlayCircle className="h-4 w-4" />
+            Generate
+          </button>
+        </div>
+      </div>
       <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
@@ -3140,7 +3266,7 @@ export function RcaDraftsPanel() {
             {rows.length === 0 ? (
               <tr>
                 <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
-                  No drafts. Trigger via POST /admin/clinical-ai/rca/:admissionId.
+                  No RCA drafts awaiting this filter.
                 </td>
               </tr>
             ) : (
