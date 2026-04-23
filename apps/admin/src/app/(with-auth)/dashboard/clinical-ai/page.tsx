@@ -67,6 +67,7 @@ import {
   PromptExperimentsPanel,
   RcaDraftsPanel,
   RosterOptimizerPanel,
+  StaffBurnoutRiskPanel,
   SepsisBundleSentinelPanel,
   TrialCatalogSyncPanel,
   TrialMatchesPanel,
@@ -1026,6 +1027,8 @@ export default function ClinicalAiGovernancePage() {
       <FamilyUpdateGeneratorPanel />
 
       <RosterOptimizerPanel />
+
+      <StaffBurnoutRiskPanel />
 
       <PolypharmacyPanel />
 

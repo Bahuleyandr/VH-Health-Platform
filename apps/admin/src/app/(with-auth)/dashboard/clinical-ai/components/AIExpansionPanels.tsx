@@ -41,6 +41,7 @@ import {
   decideNursingAmbientSession,
   decidePayerVarianceReview,
   decidePediatricDoseCheck,
+  decideStaffBurnoutReview,
   decideTeachBackSession,
   getAiRoiMetrics,
   getLatestAiRoiSnapshot,
@@ -62,6 +63,7 @@ import {
   evaluateClaimVariance,
   evaluateLabAutoverification,
   evaluatePediatricDose,
+  evaluateStaffBurnout,
   generateAntimicrobialStewardshipReview,
   generateAppealLetter,
   generateFamilyUpdate,
@@ -95,6 +97,7 @@ import {
   listPayerContracts,
   listPayerVarianceReviews,
   listPediatricDoseChecks,
+  listStaffBurnoutReviews,
   listTeachBackSessions,
   listAiRoiSnapshots,
   markFamilyUpdateSent,
@@ -157,6 +160,9 @@ import {
   type PediatricDoseCheck,
   type PediatricDoseDecision,
   type PediatricSafetyBand,
+  type StaffBurnoutDecision,
+  type StaffBurnoutRiskBand,
+  type StaffBurnoutReview,
   type PayerVarianceBand,
   type PayerVarianceCategory,
   type PayerVarianceDecision,
@@ -7298,6 +7304,280 @@ function RosterFindingsList({
         </table>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Staff Burnout / Workload Risk Predictor
+// ---------------------------------------------------------------------------
+const STAFF_BURNOUT_RISK_BANDS: StaffBurnoutRiskBand[] = ["low", "moderate", "high", "critical", "insufficient_data", "unknown"];
+const STAFF_BURNOUT_DECISIONS: StaffBurnoutDecision[] = ["pending", "accepted", "deferred", "rejected", "escalated"];
+
+function staffBurnoutBandClass(band: string) {
+  switch (band) {
+    case "critical":
+      return "border-red-200 bg-red-50 text-red-800";
+    case "high":
+      return "border-orange-200 bg-orange-50 text-orange-800";
+    case "moderate":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "low":
+      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+    case "insufficient_data":
+      return "border-slate-200 bg-slate-100 text-slate-700";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-700";
+  }
+}
+
+export function StaffBurnoutRiskPanel() {
+  const queryClient = useQueryClient();
+  const [staffUid, setStaffUid] = useState("");
+  const [windowDays, setWindowDays] = useState(30);
+  const [staffFilter, setStaffFilter] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState("");
+  const [bandFilter, setBandFilter] = useState<StaffBurnoutRiskBand | "">("");
+  const [reviewFilter, setReviewFilter] = useState<StaffBurnoutDecision | "">("pending");
+
+  const rows = useQuery({
+    queryKey: ["clinical-ai", "staff-burnout", staffFilter, departmentFilter, bandFilter, reviewFilter],
+    queryFn: () =>
+      listStaffBurnoutReviews({
+        staffUid: staffFilter.trim() || undefined,
+        department: departmentFilter.trim() || undefined,
+        riskBand: bandFilter || undefined,
+        reviewerDecision: reviewFilter || undefined,
+        limit: 100,
+      }),
+  });
+  const evaluate = useMutation({
+    mutationFn: () =>
+      evaluateStaffBurnout({
+        staffUid: staffUid.trim(),
+        windowDays,
+      }),
+    onSuccess: (result) => {
+      toast.success(`Risk: ${result.draft.risk_band.replace(/_/g, " ")} (${result.draft.risk_score})`);
+      setStaffUid("");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "staff-burnout"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Evaluation failed"),
+  });
+  const decide = useMutation({
+    mutationFn: ({ id, decision, note }: { id: number; decision: Exclude<StaffBurnoutDecision, "pending">; note?: string }) =>
+      decideStaffBurnoutReview(id, decision, note),
+    onSuccess: () => {
+      toast.success("Review saved");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "staff-burnout"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Review failed"),
+  });
+
+  const list: StaffBurnoutReview[] = rows.data?.reviews ?? [];
+  const critical = list.filter((row) => row.risk_band === "critical").length;
+  const high = list.filter((row) => row.risk_band === "high").length;
+  const pending = list.filter((row) => row.reviewer_decision === "pending").length;
+  const canEvaluate = Boolean(staffUid.trim());
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <UsersRound className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Staff Burnout / Workload Risk</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={staffFilter}
+            onChange={(event) => setStaffFilter(event.target.value)}
+            placeholder="staff uid"
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          />
+          <input
+            value={departmentFilter}
+            onChange={(event) => setDepartmentFilter(event.target.value)}
+            placeholder="department"
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          />
+          <select
+            value={bandFilter}
+            onChange={(event) => setBandFilter(event.target.value as StaffBurnoutRiskBand | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All bands</option>
+            {STAFF_BURNOUT_RISK_BANDS.map((item) => (
+              <option key={item} value={item}>{item.replace(/_/g, " ")}</option>
+            ))}
+          </select>
+          <select
+            value={reviewFilter}
+            onChange={(event) => setReviewFilter(event.target.value as StaffBurnoutDecision | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All review</option>
+            {STAFF_BURNOUT_DECISIONS.map((item) => (
+              <option key={item} value={item}>{item}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Critical risk</div>
+          <div className="mt-1 text-2xl font-semibold text-red-700">{critical}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">High risk</div>
+          <div className="mt-1 text-2xl font-semibold text-orange-700">{high}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Pending review</div>
+          <div className="mt-1 text-2xl font-semibold">{pending}</div>
+        </div>
+      </div>
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="mb-2 text-xs text-muted-foreground">
+          Workload risk signal only — never used for performance or disciplinary action.
+        </div>
+        <div className="grid gap-3 md:grid-cols-[1fr_auto_auto] md:items-end">
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Staff UID</span>
+            <input value={staffUid} onChange={(e) => setStaffUid(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2" />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Window (days)</span>
+            <select
+              value={windowDays}
+              onChange={(e) => setWindowDays(Number.parseInt(e.target.value, 10) || 30)}
+              className="rounded-md border border-border bg-background px-2 py-2 text-sm"
+            >
+              <option value={7}>7</option>
+              <option value={14}>14</option>
+              <option value={30}>30</option>
+              <option value={60}>60</option>
+              <option value={90}>90</option>
+            </select>
+          </label>
+          <button
+            onClick={() => evaluate.mutate()}
+            disabled={evaluate.isPending || !canEvaluate}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+          >
+            <PlayCircle className="h-4 w-4" />
+            {evaluate.isPending ? "Evaluating..." : "Evaluate"}
+          </button>
+        </div>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Staff</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Hours / Nights</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Signals</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Risk</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Review</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {list.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
+                  No staff burnout reviews
+                </td>
+              </tr>
+            ) : (
+              list.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3">
+                    <div className="font-mono text-xs text-muted-foreground">{row.staff_uid}</div>
+                    {row.staff_name ? <div className="font-medium">{row.staff_name}</div> : null}
+                    <div className="text-xs text-muted-foreground">{row.department || "-"} / {row.role || "-"}</div>
+                    <div className="font-mono text-xs text-muted-foreground">review #{row.id} ({row.window_days}d)</div>
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    <div>{Math.round(Number(row.total_hours || 0))} h total</div>
+                    <div className="text-muted-foreground">{Math.round(Number(row.overtime_hours || 0))} h overtime</div>
+                    <div className="text-muted-foreground">{row.consecutive_night_shifts} consec. nights</div>
+                    <div className="text-muted-foreground">{row.pto_days_taken} PTO days</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="max-w-xs space-y-1 text-xs">
+                      {(row.contributing_signals || []).slice(0, 4).map((signal) => (
+                        <div key={`${row.id}-${signal.code}`} className="flex flex-wrap items-center gap-1.5">
+                          <span className={`rounded-full border px-2 py-0.5 font-medium ${severityBadgeClass(signal.severity)}`}>
+                            {signal.severity}
+                          </span>
+                          <span>{signal.description}</span>
+                        </div>
+                      ))}
+                      {(row.contributing_signals || []).length > 4 ? (
+                        <div className="text-muted-foreground">+{row.contributing_signals.length - 4} more</div>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-lg font-semibold">{row.risk_score}</div>
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${staffBurnoutBandClass(row.risk_band)}`}>
+                      {row.risk_band.replace(/_/g, " ")}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${documentStatusClass(row.reviewer_decision)}`}>
+                      {row.reviewer_decision}
+                    </span>
+                    {row.reviewer_decision === "pending" ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "accepted" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Escalation note") ?? undefined;
+                            decide.mutate({ id: row.id, decision: "escalated", note });
+                          }}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
+                        >
+                          Escalate
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Defer reason") ?? undefined;
+                            decide.mutate({ id: row.id, decision: "deferred", note });
+                          }}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                        >
+                          Defer
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Reject reason") ?? undefined;
+                            decide.mutate({ id: row.id, decision: "rejected", note });
+                          }}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-1 text-xs text-muted-foreground">{fmt(row.reviewed_at)}</div>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

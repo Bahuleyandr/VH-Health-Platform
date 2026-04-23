@@ -173,6 +173,11 @@ import {
   listPediatricDoseChecks,
 } from '../../services/ai/pediatricDosingSafetyService.js';
 import {
+  decideStaffBurnoutReview,
+  evaluateStaffBurnout,
+  listStaffBurnoutReviews,
+} from '../../services/ai/staffBurnoutRiskService.js';
+import {
   decideSepsisBundleAudit,
   generateSepsisBundleAudit,
   listSepsisBundleAudits,
@@ -2717,6 +2722,67 @@ router.patch('/pediatric-dose-checks/:id', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_PEDIATRIC_DOSE_REVIEWED', String(result.id), null, result);
     return success(res, result, 'Pediatric dose check updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Staff burnout / workload risk predictor
+// ---------------------------------------------------------------------------
+router.post('/staff-burnout/evaluate', async (req, res, next) => {
+  try {
+    const result = await evaluateStaffBurnout({
+      req,
+      staffUid: req.body?.staff_uid,
+      windowDays: req.body?.window_days,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_STAFF_BURNOUT_EVALUATED',
+      String(result.review_id || result.generation_id || req.body?.staff_uid || 'inline'),
+      null,
+      {
+        review_id: result.review_id,
+        generation_id: result.generation_id,
+        staff_uid: req.body?.staff_uid,
+        risk_band: result.draft?.risk_band,
+        risk_score: result.draft?.risk_score,
+      }
+    );
+    return success(res, result, 'Staff burnout risk evaluated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/staff-burnout/reviews', async (req, res, next) => {
+  try {
+    const result = await listStaffBurnoutReviews({
+      tenantId: req.tenantId,
+      staffUid: req.query?.staff_uid || null,
+      department: req.query?.department || null,
+      riskBand: req.query?.risk_band || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Staff burnout reviews retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/staff-burnout/reviews/:id', async (req, res, next) => {
+  try {
+    const result = await decideStaffBurnoutReview({
+      tenantId: req.tenantId,
+      reviewId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_STAFF_BURNOUT_REVIEWED', String(result.id), null, result);
+    return success(res, result, 'Staff burnout review updated');
   } catch (err) {
     return next(err);
   }
