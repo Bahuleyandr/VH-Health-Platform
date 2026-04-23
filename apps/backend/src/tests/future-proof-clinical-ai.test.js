@@ -69,6 +69,12 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_model_eval_runs WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_model_registry WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND model_key LIKE 'test-%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_procurement_opportunities WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_explainability_reports WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_agent_health_reports WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_agent_registry WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND agent_key LIKE 'test-%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_command_center_snapshots WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_labeling_annotations WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_labeling_tasks WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND dataset_key LIKE 'test-%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -217,6 +223,12 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_model_eval_runs WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_model_registry WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND model_key LIKE 'test-%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_procurement_opportunities WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_explainability_reports WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_agent_health_reports WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_agent_registry WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND agent_key LIKE 'test-%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_command_center_snapshots WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_labeling_annotations WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_labeling_tasks WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND dataset_key LIKE 'test-%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -1428,6 +1440,211 @@ describe('future-proof clinical AI and privacy foundations', () => {
       item_sku: 'TEST-OTHER',
       item_name: 'Other item',
       current_unit_price: 50,
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('evaluates AI draft explainability, detects PHI leakage, and gates by module', async () => {
+    await enableModule('ai_explainability_dashboard');
+
+    const trusted = await admin.post('/api/v1/admin/clinical-ai/explainability/evaluate').send({
+      module_key: 'discharge_summary',
+      draft_text: 'Patient had pneumonia. Started antibiotics. Scheduled follow-up.',
+      citations: [
+        { source_type: 'diagnosis', source_id: 'dx:1', label: 'Community acquired pneumonia' },
+        { source_type: 'order', source_id: 'ord:1', label: 'Started antibiotics for pneumonia' },
+      ],
+      context_text: 'Patient admitted with pneumonia, prescribed antibiotics.',
+    });
+    expectStatus(trusted, 201, 'explainability trusted draft');
+    expect(trusted.body.data.module_key).toBe('ai_explainability_dashboard');
+    expect(['trusted', 'review']).toContain(trusted.body.data.trust_band);
+    expect(trusted.body.data.phi_leakage_count).toBe(0);
+
+    const phiLeak = await admin.post('/api/v1/admin/clinical-ai/explainability/evaluate').send({
+      module_key: 'discharge_summary',
+      draft_text: 'Please contact patient at 9876543210 for follow-up.',
+      citations: [],
+      context_text: '',
+    });
+    expectStatus(phiLeak, 201, 'explainability PHI leak');
+    expect(phiLeak.body.data.trust_band).toBe('reject');
+    expect(phiLeak.body.data.phi_leakage_count).toBeGreaterThan(0);
+
+    const listed = await admin.get('/api/v1/admin/clinical-ai/explainability/reports');
+    expectStatus(listed, 200, 'list explainability reports');
+    expect(listed.body.data.reports.length).toBeGreaterThanOrEqual(2);
+
+    const decided = await admin
+      .patch(`/api/v1/admin/clinical-ai/explainability/reports/${trusted.body.data.report_id}`)
+      .send({ decision: 'accepted', note: 'Green-lit [test]' });
+    expectStatus(decided, 200, 'decide explainability report');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/ai_explainability_dashboard').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/explainability/evaluate').send({
+      draft_text: 'Blocked draft',
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('records AI agent health, classifies lifecycle recommendation, and gates by module', async () => {
+    await enableModule('ai_agent_lifecycle_manager');
+
+    const registered = await admin.post('/api/v1/admin/clinical-ai/agent-registry').send({
+      agent_key: 'test-translation-agent',
+      display_name: 'Translation Agent',
+      owner: 'test-team',
+      purpose: 'Patient-facing translations',
+      scopes: ['read_patient_summary', 'write_draft'],
+      permitted_actions: ['generate_translation'],
+      expiry_date: '2027-01-01',
+    });
+    expectStatus(registered, 201, 'agent registry upsert');
+    expect(registered.body.data.agent_key).toBe('test-translation-agent');
+
+    const healthy = await admin.post('/api/v1/admin/clinical-ai/agent-registry/health-reports').send({
+      agent_key: 'test-translation-agent',
+      invocation_count: 1000,
+      success_count: 995,
+      error_count: 5,
+      avg_latency_ms: 400,
+      permission_mismatch_count: 0,
+      last_seen_at: '2026-04-23T10:00:00Z',
+      today: '2026-04-23',
+    });
+    expectStatus(healthy, 201, 'agent health healthy');
+    expect(healthy.body.data.module_key).toBe('ai_agent_lifecycle_manager');
+    expect(healthy.body.data.recommendation).toBe('no_action');
+
+    const quarantine = await admin.post('/api/v1/admin/clinical-ai/agent-registry/health-reports').send({
+      agent_key: 'test-translation-agent',
+      invocation_count: 100,
+      success_count: 80,
+      error_count: 20,
+      avg_latency_ms: 500,
+      permission_mismatch_count: 10,
+      last_seen_at: '2026-04-23T10:00:00Z',
+      today: '2026-04-23',
+    });
+    expectStatus(quarantine, 201, 'agent health quarantine');
+    expect(quarantine.body.data.recommendation).toBe('quarantine');
+    expect(quarantine.body.data.severity).toBe('critical');
+
+    const listed = await admin.get('/api/v1/admin/clinical-ai/agent-registry/health-reports?agent_key=test-translation-agent');
+    expectStatus(listed, 200, 'list agent health reports');
+    expect(listed.body.data.reports.length).toBeGreaterThanOrEqual(2);
+
+    const decided = await admin
+      .patch(`/api/v1/admin/clinical-ai/agent-registry/health-reports/${quarantine.body.data.report_id}`)
+      .send({ decision: 'accepted', note: 'Quarantine confirmed [test]' });
+    expectStatus(decided, 200, 'decide agent health report');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/ai_agent_lifecycle_manager').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/agent-registry/health-reports').send({
+      agent_key: 'test-translation-agent',
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('generates hospital command center snapshots and gates by module', async () => {
+    await enableModule('hospital_command_center');
+
+    const crisis = await admin.post('/api/v1/admin/clinical-ai/command-center/evaluate').send({
+      bed: { occupancyPct: 99, dischargeReadyWaitMinutes: 240, admissionQueueCount: 20 },
+      ed: { waitMinutes: 300, boardingCount: 25, lwbsPct: 6 },
+      ot: { utilizationPct: 115, overrunCount: 7, addonPressure: 'excessive' },
+      housekeeping: { pendingTurnovers: 20, avgTurnoverMinutes: 60 },
+      radiology: { pendingStudies: 50, statWaitMinutes: 90 },
+      pharmacy: { dispenseBacklogMinutes: 90, criticalMedsLate: 5 },
+    });
+    expectStatus(crisis, 201, 'command center crisis');
+    expect(crisis.body.data.module_key).toBe('hospital_command_center');
+    expect(crisis.body.data.command_status).toBe('crisis');
+    expect(crisis.body.data.overall_score).toBeGreaterThan(0);
+
+    const normal = await admin.post('/api/v1/admin/clinical-ai/command-center/evaluate').send({
+      bed: { occupancyPct: 70, dischargeReadyWaitMinutes: 30, admissionQueueCount: 1 },
+      ed: { waitMinutes: 20, boardingCount: 1, lwbsPct: 0 },
+      ot: { utilizationPct: 80, overrunCount: 1, addonPressure: 'low' },
+      housekeeping: { pendingTurnovers: 2, avgTurnoverMinutes: 20 },
+      radiology: { pendingStudies: 5, statWaitMinutes: 5 },
+      pharmacy: { dispenseBacklogMinutes: 5, criticalMedsLate: 0 },
+    });
+    expectStatus(normal, 201, 'command center normal');
+    expect(normal.body.data.command_status).toBe('normal');
+
+    const listed = await admin.get('/api/v1/admin/clinical-ai/command-center/snapshots');
+    expectStatus(listed, 200, 'list command center snapshots');
+    expect(listed.body.data.snapshots.length).toBeGreaterThanOrEqual(2);
+
+    const decided = await admin
+      .patch(`/api/v1/admin/clinical-ai/command-center/snapshots/${crisis.body.data.snapshot_id}`)
+      .send({ decision: 'accepted', note: 'Escalated to duty officer [test]' });
+    expectStatus(decided, 200, 'decide command center snapshot');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/hospital_command_center').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/command-center/evaluate').send({ bed: {} });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('manages a labeling task + annotations and gates by module', async () => {
+    await enableModule('dataset_labeling_studio');
+
+    const task = await admin.post('/api/v1/admin/clinical-ai/labeling/tasks').send({
+      dataset_key: 'test-coding-v1',
+      task_type: 'clinical_coding',
+      item_key: 'encounter-00042',
+      input_ref_type: 'encounter',
+      input_ref_id: 'enc:42',
+      required_labelers: 2,
+      difficulty: 'standard',
+    });
+    expectStatus(task, 201, 'labeling task create');
+    expect(task.body.data.dataset_key).toBe('test-coding-v1');
+    const taskId = task.body.data.id;
+
+    const a1 = await admin.post('/api/v1/admin/clinical-ai/labeling/annotations').send({
+      task_id: taskId,
+      label: { code: 'J18.9', description: 'Pneumonia' },
+      labeler_uid: ADMIN_UID,
+      confidence_score: 0.9,
+    });
+    expectStatus(a1, 201, 'annotation 1 submit');
+    expect(a1.body.data.module_key).toBe('dataset_labeling_studio');
+
+    const a2 = await admin.post('/api/v1/admin/clinical-ai/labeling/annotations').send({
+      task_id: taskId,
+      label: { code: 'J18.9', description: 'Pneumonia' },
+      labeler_uid: DOCTOR_UID,
+      confidence_score: 0.85,
+    });
+    expectStatus(a2, 201, 'annotation 2 submit');
+
+    const d1 = await admin
+      .patch(`/api/v1/admin/clinical-ai/labeling/annotations/${a1.body.data.annotation_id}`)
+      .send({ decision: 'accepted' });
+    expectStatus(d1, 200, 'decide annotation 1');
+
+    const d2 = await admin
+      .patch(`/api/v1/admin/clinical-ai/labeling/annotations/${a2.body.data.annotation_id}`)
+      .send({ decision: 'accepted' });
+    expectStatus(d2, 200, 'decide annotation 2');
+    // After two accepted matching annotations, task should be ready_to_use.
+    expect(d2.body.data.task.status).toBe('ready_to_use');
+    expect(d2.body.data.task.agreement).toBe('match');
+
+    const detail = await admin.get(`/api/v1/admin/clinical-ai/labeling/tasks/${taskId}`);
+    expectStatus(detail, 200, 'task with annotations');
+    expect(detail.body.data.annotations.length).toBe(2);
+
+    const listed = await admin.get('/api/v1/admin/clinical-ai/labeling/tasks?dataset_key=test-coding-v1');
+    expectStatus(listed, 200, 'list labeling tasks');
+    expect(listed.body.data.tasks.length).toBeGreaterThanOrEqual(1);
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/dataset_labeling_studio').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/labeling/annotations').send({
+      task_id: taskId,
+      label: { code: 'X' },
     });
     expect(blocked.statusCode).toBe(403);
   });
