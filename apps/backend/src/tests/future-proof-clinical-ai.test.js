@@ -81,6 +81,10 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_kg_health_reports WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_kg_edges WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_kg_nodes WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND source = 'test'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_acuity_staffing_forecasts WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_federation_rounds WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_federation_sites WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND site_key LIKE 'test-%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_voice_ivr_sessions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -241,6 +245,10 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_kg_health_reports WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_kg_edges WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_kg_nodes WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND source = 'test'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_acuity_staffing_forecasts WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_federation_rounds WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_federation_sites WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND site_key LIKE 'test-%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_voice_ivr_sessions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -1840,6 +1848,175 @@ describe('future-proof clinical AI and privacy foundations', () => {
 
     await admin.patch('/api/v1/admin/clinical-ai/modules/clinical_knowledge_graph').send({ enabled: false });
     const blocked = await admin.post('/api/v1/admin/clinical-ai/knowledge-graph/health/evaluate').send({});
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('computes acuity-based staffing forecast and gates by module', async () => {
+    await enableModule('acuity_staffing_forecast');
+
+    const crisis = await admin.post('/api/v1/admin/clinical-ai/acuity-staffing/evaluate').send({
+      unit: 'ICU-1',
+      shift_label: 'night',
+      census: { critical: 6, high: 0, moderate: 0, low: 0 },
+      current_staff: { nurse: 1, nursing_assistant: 0 },
+      predicted_admissions: 2,
+      predicted_discharges: 0,
+    });
+    expectStatus(crisis, 201, 'acuity staffing crisis');
+    expect(crisis.body.data.module_key).toBe('acuity_staffing_forecast');
+    expect(crisis.body.data.recommendation).toBe('emergency_acuity');
+    expect(crisis.body.data.severity).toBe('critical');
+
+    const balanced = await admin.post('/api/v1/admin/clinical-ai/acuity-staffing/evaluate').send({
+      unit: 'WARD-A',
+      census: { critical: 0, high: 0, moderate: 10, low: 0 },
+      current_staff: { nurse: 2, nursing_assistant: 1 },
+    });
+    expectStatus(balanced, 201, 'acuity staffing balanced');
+    expect(['hold_staffing', 'call_in', 'float_staff']).toContain(balanced.body.data.recommendation);
+
+    const listed = await admin.get('/api/v1/admin/clinical-ai/acuity-staffing/forecasts');
+    expectStatus(listed, 200, 'list acuity staffing forecasts');
+    expect(listed.body.data.forecasts.length).toBeGreaterThanOrEqual(2);
+
+    const decided = await admin
+      .patch(`/api/v1/admin/clinical-ai/acuity-staffing/forecasts/${crisis.body.data.forecast_id}`)
+      .send({ decision: 'accepted', note: 'Float pool paged [test]' });
+    expectStatus(decided, 200, 'decide acuity staffing forecast');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/acuity_staffing_forecast').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/acuity-staffing/evaluate').send({
+      unit: 'ICU-1',
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('records federated learning rounds, classifies readiness, and gates by module', async () => {
+    await enableModule('federated_learning_coordinator');
+
+    const site = await admin.post('/api/v1/admin/clinical-ai/federation/sites').send({
+      site_key: 'test-site-mumbai',
+      display_name: 'Test Mumbai Site',
+      region: 'IN',
+      contact: 'ops@test-mumbai.org',
+      dp_epsilon_budget: 10,
+      min_cohort_size: 100,
+      accepted_aggregation_methods: ['fed_avg', 'differential_fed_avg'],
+    });
+    expectStatus(site, 201, 'federation site upsert');
+    expect(site.body.data.site_key).toBe('test-site-mumbai');
+
+    const ready = await admin.post('/api/v1/admin/clinical-ai/federation/rounds').send({
+      round_key: 'round-2026-04-23-1',
+      model_key: 'test-readmission-model',
+      aggregation_method: 'differential_fed_avg',
+      participant_site_count: 5,
+      min_participants: 3,
+      total_dp_epsilon_spent: 2,
+      total_dp_epsilon_budget: 10,
+      cohort_total_size: 1000,
+      cohort_min_site_size: 200,
+      site_min_floor: 100,
+      data_drift_score: 0.05,
+    });
+    expectStatus(ready, 201, 'federation round ready');
+    expect(ready.body.data.module_key).toBe('federated_learning_coordinator');
+    expect(ready.body.data.recommendation).toBe('ready');
+
+    const abort = await admin.post('/api/v1/admin/clinical-ai/federation/rounds').send({
+      round_key: 'round-2026-04-23-2',
+      model_key: 'test-readmission-model',
+      aggregation_method: 'fed_avg',
+      participant_site_count: 5,
+      min_participants: 3,
+      total_dp_epsilon_spent: 12,
+      total_dp_epsilon_budget: 10,
+      cohort_total_size: 1000,
+      cohort_min_site_size: 200,
+      site_min_floor: 100,
+      data_drift_score: 0.05,
+    });
+    expectStatus(abort, 201, 'federation round abort');
+    expect(abort.body.data.recommendation).toBe('abort');
+    expect(abort.body.data.severity).toBe('critical');
+
+    const listed = await admin.get('/api/v1/admin/clinical-ai/federation/rounds');
+    expectStatus(listed, 200, 'list federation rounds');
+    expect(listed.body.data.rounds.length).toBeGreaterThanOrEqual(2);
+
+    const decided = await admin
+      .patch(`/api/v1/admin/clinical-ai/federation/rounds/${abort.body.data.round_id}`)
+      .send({ decision: 'accepted', note: 'Abort confirmed [test]' });
+    expectStatus(decided, 200, 'decide federation round');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/federated_learning_coordinator').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/federation/rounds').send({
+      round_key: 'x', model_key: 'y',
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('classifies voice/IVR sessions with consent + PHI + urgent checks, and gates by module', async () => {
+    await enableModule('voice_patient_assistant_ivr');
+
+    const allow = await admin.post('/api/v1/admin/clinical-ai/voice-ivr/evaluate').send({
+      patient_uid: PATIENT_UID,
+      intent: 'meds',
+      channel: 'ivr',
+      language: 'en',
+      script_key: 'meds_reminder_v1',
+      consent_ref: 'consent:test:1',
+      consent_fresh: true,
+      transcript_text: 'Can you remind me about my medication schedule?',
+      candidate_response: 'Please take your evening tablet at 9pm.',
+    });
+    expectStatus(allow, 201, 'voice IVR allow');
+    expect(allow.body.data.module_key).toBe('voice_patient_assistant_ivr');
+    expect(allow.body.data.recommendation).toBe('allow');
+
+    const escalate = await admin.post('/api/v1/admin/clinical-ai/voice-ivr/evaluate').send({
+      patient_uid: PATIENT_UID,
+      intent: 'aftercare',
+      channel: 'ivr',
+      language: 'en',
+      script_key: 'aftercare_v1',
+      consent_ref: 'consent:test:1',
+      consent_fresh: true,
+      transcript_text: 'I have severe chest pain and difficulty breathing',
+      candidate_response: 'Take rest and continue medications.',
+    });
+    expectStatus(escalate, 201, 'voice IVR escalate');
+    expect(escalate.body.data.recommendation).toBe('escalate_to_clinician');
+    expect(escalate.body.data.severity).toBe('high');
+
+    const block = await admin.post('/api/v1/admin/clinical-ai/voice-ivr/evaluate').send({
+      patient_uid: PATIENT_UID,
+      intent: 'reminder',
+      channel: 'ivr',
+      language: 'en',
+      script_key: 'reminder_v1',
+      consent_ref: null,
+      consent_fresh: false,
+      transcript_text: 'ok',
+      candidate_response: 'ok',
+    });
+    expectStatus(block, 201, 'voice IVR block consent missing');
+    expect(block.body.data.recommendation).toBe('block');
+
+    const listed = await admin.get(`/api/v1/admin/clinical-ai/voice-ivr/sessions?patient_uid=${PATIENT_UID}`);
+    expectStatus(listed, 200, 'list voice IVR sessions');
+    expect(listed.body.data.sessions.length).toBeGreaterThanOrEqual(3);
+
+    const decided = await admin
+      .patch(`/api/v1/admin/clinical-ai/voice-ivr/sessions/${escalate.body.data.session_id}`)
+      .send({ decision: 'accepted', note: 'Paged on-call clinician [test]' });
+    expectStatus(decided, 200, 'decide voice IVR session');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/voice_patient_assistant_ivr').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/voice-ivr/evaluate').send({
+      patient_uid: PATIENT_UID,
+      intent: 'meds',
+    });
     expect(blocked.statusCode).toBe(403);
   });
 
