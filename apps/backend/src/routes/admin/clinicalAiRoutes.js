@@ -267,6 +267,32 @@ import {
   listProcurementOpportunities,
 } from '../../services/ai/procurementNegotiationService.js';
 import {
+  decideExplainabilityReport,
+  evaluateExplainability,
+  listExplainabilityReports,
+} from '../../services/ai/aiExplainabilityDashboardService.js';
+import {
+  changeAgentStage,
+  decideAgentHealthReport,
+  listAgentHealthReports,
+  listAgentRegistry,
+  recordAgentHealth,
+  upsertAgentRegistry,
+} from '../../services/ai/aiAgentLifecycleService.js';
+import {
+  decideCommandSnapshot,
+  evaluateCommandSnapshot,
+  listCommandSnapshots,
+} from '../../services/ai/hospitalCommandCenterService.js';
+import {
+  createLabelingTask,
+  decideAnnotation,
+  getTaskWithAnnotations,
+  listAnnotations,
+  listLabelingTasks,
+  submitAnnotation,
+} from '../../services/ai/datasetLabelingStudioService.js';
+import {
   decideSepsisBundleAudit,
   generateSepsisBundleAudit,
   listSepsisBundleAudits,
@@ -4083,6 +4109,357 @@ router.patch('/procurement/opportunities/:id', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_PROCUREMENT_DECIDED', String(result.id), null, result);
     return success(res, result, 'Procurement opportunity updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// AI Explainability Dashboard
+// ---------------------------------------------------------------------------
+router.post('/explainability/evaluate', async (req, res, next) => {
+  try {
+    const result = await evaluateExplainability({
+      req,
+      sourceGenerationId: req.body?.source_generation_id || null,
+      moduleKey: req.body?.module_key || null,
+      patientUid: req.body?.patient_uid || null,
+      draftText: req.body?.draft_text,
+      citations: Array.isArray(req.body?.citations) ? req.body.citations : [],
+      contextText: req.body?.context_text || '',
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_EXPLAINABILITY_EVALUATED',
+      String(result.report_id || result.generation_id || 'inline'),
+      null,
+      {
+        report_id: result.report_id,
+        trust_band: result.trust_band,
+        severity: result.severity,
+      }
+    );
+    return success(res, result, 'Explainability report generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/explainability/reports', async (req, res, next) => {
+  try {
+    const result = await listExplainabilityReports({
+      tenantId: req.tenantId,
+      moduleKey: req.query?.module_key || null,
+      trustBand: req.query?.trust_band || null,
+      severity: req.query?.severity || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Explainability reports retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/explainability/reports/:id', async (req, res, next) => {
+  try {
+    const result = await decideExplainabilityReport({
+      tenantId: req.tenantId,
+      reportId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_EXPLAINABILITY_DECIDED', String(result.id), null, result);
+    return success(res, result, 'Explainability report updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// AI Agent Lifecycle Manager
+// ---------------------------------------------------------------------------
+router.post('/agent-registry', async (req, res, next) => {
+  try {
+    const result = await upsertAgentRegistry({
+      tenantId: req.tenantId,
+      agentKey: req.body?.agent_key,
+      displayName: req.body?.display_name || null,
+      owner: req.body?.owner || null,
+      purpose: req.body?.purpose || null,
+      scopes: Array.isArray(req.body?.scopes) ? req.body.scopes : [],
+      permittedActions: Array.isArray(req.body?.permitted_actions) ? req.body.permitted_actions : [],
+      expiryDate: req.body?.expiry_date || null,
+      metadata: req.body?.metadata || {},
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_AGENT_REGISTRY_UPSERTED', String(result?.id || 'inline'), null, result);
+    return success(res, result, 'Agent registry upserted', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/agent-registry', async (req, res, next) => {
+  try {
+    const result = await listAgentRegistry({
+      tenantId: req.tenantId,
+      agentKey: req.query?.agent_key || null,
+      stage: req.query?.stage || null,
+      approvalStatus: req.query?.approval_status || null,
+      owner: req.query?.owner || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Agent registry retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/agent-registry/:id/stage', async (req, res, next) => {
+  try {
+    const result = await changeAgentStage({
+      tenantId: req.tenantId,
+      registryId: req.params.id,
+      stage: req.body?.stage,
+      approvalStatus: req.body?.approval_status || null,
+      approvalNote: req.body?.approval_note || null,
+      approvedBy: req.user?.uid || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_AGENT_STAGE_CHANGED', String(result.id), null, result);
+    return success(res, result, 'Agent stage updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/agent-registry/health-reports', async (req, res, next) => {
+  try {
+    const result = await recordAgentHealth({
+      req,
+      agentKey: req.body?.agent_key,
+      invocationCount: req.body?.invocation_count ?? 0,
+      successCount: req.body?.success_count ?? 0,
+      errorCount: req.body?.error_count ?? 0,
+      avgLatencyMs: req.body?.avg_latency_ms ?? null,
+      permissionMismatchCount: req.body?.permission_mismatch_count ?? 0,
+      lastSeenAt: req.body?.last_seen_at || null,
+      today: req.body?.today || null,
+      metadata: req.body?.metadata || {},
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_AGENT_HEALTH_RECORDED',
+      String(result.report_id || result.generation_id || 'inline'),
+      null,
+      {
+        report_id: result.report_id,
+        recommendation: result.recommendation,
+        severity: result.severity,
+      }
+    );
+    return success(res, result, 'Agent health report recorded', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/agent-registry/health-reports', async (req, res, next) => {
+  try {
+    const result = await listAgentHealthReports({
+      tenantId: req.tenantId,
+      agentKey: req.query?.agent_key || null,
+      recommendation: req.query?.recommendation || null,
+      severity: req.query?.severity || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Agent health reports retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/agent-registry/health-reports/:id', async (req, res, next) => {
+  try {
+    const result = await decideAgentHealthReport({
+      tenantId: req.tenantId,
+      reportId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_AGENT_HEALTH_DECIDED', String(result.id), null, result);
+    return success(res, result, 'Agent health report updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Hospital Command Center
+// ---------------------------------------------------------------------------
+router.post('/command-center/evaluate', async (req, res, next) => {
+  try {
+    const result = await evaluateCommandSnapshot({
+      req,
+      bed: req.body?.bed || {},
+      ed: req.body?.ed || {},
+      ot: req.body?.ot || {},
+      housekeeping: req.body?.housekeeping || {},
+      radiology: req.body?.radiology || {},
+      pharmacy: req.body?.pharmacy || {},
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_COMMAND_CENTER_EVALUATED',
+      String(result.snapshot_id || result.generation_id || 'inline'),
+      null,
+      {
+        snapshot_id: result.snapshot_id,
+        command_status: result.command_status,
+        overall_score: result.overall_score,
+      }
+    );
+    return success(res, result, 'Command center snapshot generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/command-center/snapshots', async (req, res, next) => {
+  try {
+    const result = await listCommandSnapshots({
+      tenantId: req.tenantId,
+      commandStatus: req.query?.command_status || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Command center snapshots retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/command-center/snapshots/:id', async (req, res, next) => {
+  try {
+    const result = await decideCommandSnapshot({
+      tenantId: req.tenantId,
+      snapshotId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_COMMAND_CENTER_DECIDED', String(result.id), null, result);
+    return success(res, result, 'Command center snapshot updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Dataset Labeling Studio
+// ---------------------------------------------------------------------------
+router.post('/labeling/tasks', async (req, res, next) => {
+  try {
+    const result = await createLabelingTask({
+      tenantId: req.tenantId,
+      datasetKey: req.body?.dataset_key,
+      taskType: req.body?.task_type,
+      itemKey: req.body?.item_key,
+      inputRefType: req.body?.input_ref_type || null,
+      inputRefId: req.body?.input_ref_id || null,
+      requiredLabelers: req.body?.required_labelers ?? 2,
+      difficulty: req.body?.difficulty || 'standard',
+      metadata: req.body?.metadata || {},
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_LABELING_TASK_CREATED', String(result?.id || 'inline'), null, result);
+    return success(res, result, 'Labeling task upserted', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/labeling/tasks', async (req, res, next) => {
+  try {
+    const result = await listLabelingTasks({
+      tenantId: req.tenantId,
+      datasetKey: req.query?.dataset_key || null,
+      taskType: req.query?.task_type || null,
+      status: req.query?.status || null,
+      agreement: req.query?.agreement || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Labeling tasks retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/labeling/tasks/:id', async (req, res, next) => {
+  try {
+    const result = await getTaskWithAnnotations({
+      tenantId: req.tenantId,
+      taskId: req.params.id,
+    });
+    return success(res, result, 'Labeling task retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/labeling/annotations', async (req, res, next) => {
+  try {
+    const result = await submitAnnotation({
+      req,
+      taskId: req.body?.task_id,
+      label: req.body?.label,
+      labelerUid: req.body?.labeler_uid || req.user?.uid || null,
+      confidenceScore: req.body?.confidence_score ?? null,
+      metadata: req.body?.metadata || {},
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_LABELING_ANNOTATION_SUBMITTED',
+      String(result.annotation_id || result.generation_id || 'inline'),
+      null,
+      {
+        annotation_id: result.annotation_id,
+        task_id: result.task_id,
+      }
+    );
+    return success(res, result, 'Labeling annotation submitted', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/labeling/annotations', async (req, res, next) => {
+  try {
+    const result = await listAnnotations({
+      tenantId: req.tenantId,
+      taskId: req.query?.task_id || null,
+      labelerUid: req.query?.labeler_uid || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Labeling annotations retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/labeling/annotations/:id', async (req, res, next) => {
+  try {
+    const result = await decideAnnotation({
+      tenantId: req.tenantId,
+      annotationId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_LABELING_ANNOTATION_DECIDED', String(result?.annotation?.id || 'inline'), null, result);
+    return success(res, result, 'Labeling annotation updated');
   } catch (err) {
     return next(err);
   }
