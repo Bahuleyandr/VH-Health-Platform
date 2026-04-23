@@ -1,0 +1,8 @@
+{{ ansible_managed | comment }}
+# pam_faillock — system-wide lockout policy.
+deny = {{ hardening_faillock_deny }}
+unlock_time = {{ hardening_faillock_unlock_time }}
+fail_interval = {{ hardening_faillock_fail_interval }}
+even_deny_root = no
+audit
+silent

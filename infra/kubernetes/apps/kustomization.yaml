@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Top-level barrel for the app tier (backend + admin).
+# Platform services (CNPG, Redis, MinIO, ingress-nginx) are owned by
+# `infra/kubernetes/platform/` and sync before this folder.
+resources:
+  - backend/
+  - admin/

@@ -1,0 +1,126 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vhhealth-backend
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    app.kubernetes.io/name: vhhealth-backend
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: vhhealth-backend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # 1. ingress-nginx → backend on :5000 (HTTP public traffic)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-ingress
+      ports:
+        - protocol: TCP
+          port: 5000
+    # 2. Prometheus (kube-prometheus-stack) → /metrics scrape
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-monitoring
+      ports:
+        - protocol: TCP
+          port: 5000
+    # 3. admin → backend intra-cluster (admin's proxy route injects Bearer
+    # + x-api-key and forwards). Admin lives in the same namespace.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vhhealth-admin
+      ports:
+        - protocol: TCP
+          port: 5000
+  egress:
+    # ---- In-cluster platform services (Agent B's namespace) ----
+
+    # CoreDNS — absolutely everything else depends on this
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # CNPG PostgreSQL — read/write endpoint + read-only endpoint (replicas)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-platform
+          podSelector:
+            matchLabels:
+              cnpg.io/cluster: vhhealth-pg
+      ports:
+        - protocol: TCP
+          port: 5432
+
+    # Redis Sentinel — both the data port and the sentinel control port
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-platform
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 26379
+
+    # MinIO (S3-compatible object store for local backups + internal assets)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-platform
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: minio
+      ports:
+        - protocol: TCP
+          port: 9000
+
+    # ---- External HTTPS (Cloudflare R2, Firebase, Sentry, LLM APIs, ABDM) ----
+    # Rather than maintaining a per-vendor IP allowlist, exclude RFC1918
+    # and link-local. Anything public goes out 443. The hospital's upstream
+    # egress firewall does domain-based filtering on top.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 443
+        # SMTP-over-TLS (notification fallback for critical alerts — rare)
+        - protocol: TCP
+          port: 587
+
+    # NTP (node-local chrony fans out; still allow as belt-and-braces for
+    # clock-sensitive operations like TOTP verification)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: UDP
+          port: 123

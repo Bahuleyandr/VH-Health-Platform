@@ -1,0 +1,14 @@
+{{ ansible_managed | comment }}
+# Container registry config for RKE2 containerd.
+# Defaults to Docker Hub + GHCR with no auth. Override in inventory when
+# the hospital runs a mirror (Harbor on the same LAN, for example).
+mirrors:
+  docker.io:
+    endpoint:
+      - "https://registry-1.docker.io"
+  ghcr.io:
+    endpoint:
+      - "https://ghcr.io"
+  quay.io:
+    endpoint:
+      - "https://quay.io"

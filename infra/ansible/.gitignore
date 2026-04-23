@@ -1,0 +1,15 @@
+# Never commit unencrypted secrets or live inventories.
+inventories/prod.yml
+inventories/group_vars/all/vault.yml
+!inventories/prod.yml.example
+!inventories/group_vars/all/vault.yml.example
+
+# Ansible caches + retry artefacts.
+*.retry
+.cache/
+collections/
+roles/external/
+
+# Editor cruft.
+.DS_Store
+*.swp

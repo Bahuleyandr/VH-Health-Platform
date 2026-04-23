@@ -1,51 +1,90 @@
 # VHHealth — System Architecture
 
-> **Last Updated:** 2026-03-26  
-> **Audited By:** Coder (AI Engineering Agent)  
-> **Source of Truth:** Full codebase audit across all 4 repositories
+> **Last Updated:** 2026-04-23 (K8s migration rewrite)
+> **Audited By:** Coder (AI Engineering Agent)
+> **Source of Truth:** Full codebase audit + `infra/kubernetes/` manifests + `infra/ansible/` bootstrap.
 
 ---
 
 ## Architecture Overview
 
-| Component | Technology | Location | Port |
-|-----------|-----------|----------|------|
-| Backend API | Node.js 22 + Express | `/home/bahuleyan/vhhealth-backend` | 5000 |
-| Admin Portal | Next.js (React) | `/home/bahuleyan/vhhealth-admin` | 3000 |
-| Patient App | Flutter 3.41 | `/home/bahuleyan/vhhealth-patient` | — |
-| Staff App | Flutter 3.41 | `/home/bahuleyan/vhhealth-staff` | — |
-| Shared Core | Flutter package | `/home/bahuleyan/vhhealth-core` | — |
-| Database | PostgreSQL 15.13 | Docker: `vhhealth-db` | 5432 |
-| File Storage | Cloudflare R2 | S3-compatible API | — |
-| Push Notifications | Firebase Cloud Messaging | — | — |
-| Error Tracking | Sentry | — | — |
+| Component | Technology | Cluster Location | Service Port |
+|-----------|-----------|------------------|--------------|
+| Backend API | Node.js 22 + Express | `Deployment/vhhealth-backend` in ns `vhhealth` | 5000 (ClusterIP) |
+| Admin Portal | Next.js (React) | `Deployment/vhhealth-admin` in ns `vhhealth` | 3001 (ClusterIP) |
+| Patient App | Flutter 3.41 | Client-side (Play Store / TestFlight) | — |
+| Staff App | Flutter 3.41 | Client-side (internal distribution) | — |
+| Shared Core | Flutter package | pub workspace member | — |
+| Database | PostgreSQL 17 (CNPG) | `Cluster/vhhealth-pg` in ns `vhhealth-platform`, 3 replicas | 5432 (ClusterIP) |
+| Cache / queues | Redis Sentinel | `StatefulSet/redis` in ns `vhhealth-platform`, 3 replicas | 6379 |
+| Object storage (in-cluster) | MinIO | `StatefulSet/minio` in ns `vhhealth-platform`, 4×N-volume per node | 9000 / 9001 |
+| Backup offsite | Cloudflare R2 | external, encrypted via pgBackRest | — |
+| Registry | Harbor | `Deployment/harbor` in ns `harbor` (pull-through cache of ghcr) | 443 |
+| Ingress | ingress-nginx + Cloudflare Tunnel | DaemonSet ingress-nginx + `Deployment/cloudflared` | 443 (external, tunnel) |
+| GitOps | ArgoCD | `Deployment/argocd` in ns `argocd`, reconciles `overlays/prod` | — |
+| File Storage (PHI) | Cloudflare R2 | S3-compatible API | — |
+| Push Notifications | Firebase Cloud Messaging | external | — |
+| Error Tracking | Sentry | external (self-host deferred — batch 17) | — |
 
 ---
 
 ## 1. Infrastructure
 
-### Hardware
-- **Host:** `deltaquadrant` — Raspberry Pi 5 (aarch64)
-- **OS:** Debian Bookworm — Linux 6.12.62+rpt-rpi-2712
+### Cluster
+- **Topology:** 3 control-plane-capable nodes running RKE2 (Kubernetes 1.30+),
+  etcd clustered across all 3 (quorum = 2), each node runs workloads too.
+- **Cluster CIDR:** `10.42.0.0/16` pods, `10.43.0.0/16` services (RKE2 defaults).
+- **CNI:** Canal (default); NetworkPolicy enforced between namespaces.
+- **Runtime:** containerd (no Docker).
+- **Provisioning:** Ansible (see `infra/ansible/`) — `site.yml` bootstraps Ubuntu
+  24.04 nodes, installs RKE2, joins them into a cluster, and installs the CNPG
+  operator + sealed-secrets controller.
+
+### Node spec (per node — see `docs/HARDWARE_REQUIREMENTS.md`)
+- **OS:** Ubuntu 24.04 LTS Server (minimal)
+- **Hostname pattern:** `vhh-k8s-01`, `vhh-k8s-02`, `vhh-k8s-03`
+- **Min CPU:** 16 vCPU (Xeon Silver 4310 / EPYC 7313P or newer)
+- **Min RAM:** 64 GB ECC
+- **Storage:** 2× 1 TB NVMe in RAID1 (cluster) + dedicated etcd volume
+- **Network:** dual 10 GbE (bonded); IPMI on separate VLAN
 
 ### Runtime Versions
 | Tool | Version |
 |------|---------|
-| Node.js | v22.22.1 |
-| Flutter | 3.41.6 (stable) |
-| Docker | 29.3.0 |
-| PostgreSQL | 15.13 (Debian, in Docker) |
+| Node.js | v22.22.1 (inside container image) |
+| Flutter | 3.41.6 (stable, client-side) |
+| containerd | 1.7.x (RKE2-managed) |
+| PostgreSQL | 17 via CNPG operator (in-cluster) |
+| Kubernetes | 1.30+ (RKE2) |
 
-### Services
-| Service | Type | Status |
-|---------|------|--------|
-| `vhhealth-backend.service` | systemd | Configured (currently inactive) |
-| `vhhealth-db` | Docker container | Running |
+### Workloads (namespace: `vhhealth`)
+| Workload | Kind | Replicas | Notes |
+|----------|------|----------|-------|
+| `vhhealth-backend` | Deployment | 2 (rolling) | HPA on CPU/QPS |
+| `vhhealth-admin` | Deployment | 2 (rolling) | HPA on CPU |
+| Migrations | Job | on each deploy | runs `ci-setup-db.mjs` against CNPG primary before traffic shifts |
+
+### Platform services (namespace: `vhhealth-platform`)
+| Workload | Kind | Replicas | Notes |
+|----------|------|----------|-------|
+| `vhhealth-pg` | CNPG `Cluster` | 3 (sync) | PG17, pgBackRest to MinIO + R2 |
+| `redis` | StatefulSet | 3 (Sentinel) | token blacklist + rate-limit cache |
+| `minio` | StatefulSet | 4 servers × N drives | in-cluster S3 for WAL + backups |
+| `cloudflared` | Deployment | 3 (one per node via anti-affinity) | Cloudflare Tunnel connectors |
 
 ### Network
-- **Backend API:** Port 5000
-- **Admin Portal:** Port 3000
-- **API Docs:** `/api-docs` (Swagger UI)
+- **External ingress:** Cloudflare Tunnel → ingress-nginx → Service. Hospital
+  firewall opens NO inbound ports; Cloudflare connectors dial out on 443 only.
+- **Internal svc DNS:**
+  - Backend: `vhhealth-backend.vhhealth.svc.cluster.local:5000`
+  - Admin: `vhhealth-admin.vhhealth.svc.cluster.local:3001`
+  - Primary Postgres: `vhhealth-pg-rw.vhhealth-platform.svc.cluster.local:5432`
+  - Read-replicas: `vhhealth-pg-ro.vhhealth-platform.svc.cluster.local:5432`
+  - Redis: `redis.vhhealth-platform.svc.cluster.local:6379`
+  - MinIO: `minio.vhhealth-platform.svc.cluster.local:9000`
+- **NetworkPolicy:** ingress-nginx → backend/admin; backend → CNPG + Redis +
+  MinIO; admin → backend only. All other cross-namespace traffic denied.
+- **API Docs:** `/api-docs` (Swagger UI) via backend Service.
 
 ### Environment Variables (Backend)
 ```

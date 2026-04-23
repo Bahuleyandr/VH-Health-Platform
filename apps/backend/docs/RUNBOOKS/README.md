@@ -2,8 +2,13 @@
 
 Runbooks for operational scenarios P1.5 / Phase 4.4 called out. Each page
 is self-contained and aimed at whoever is on-call when the alert fires
-(not the author of the affected code). Written 2026-04-17 against the
-`claude/phase-3-landing` codebase.
+(not the author of the affected code).
+
+**Executed via `kubectl` on the on-prem RKE2 cluster.** See
+[`../../../../docs/DEPLOYMENT_GUIDE.md`](../../../../docs/DEPLOYMENT_GUIDE.md)
+for kubeconfig setup. Commands assume your current context is
+`vhhealth-prod` with default namespace permissions in `vhhealth` and
+`vhhealth-platform`.
 
 | Scenario | Runbook | Severity |
 |----------|---------|----------|
@@ -35,8 +40,12 @@ is self-contained and aimed at whoever is on-call when the alert fires
 
 ## Conventions
 
-- `$` prefix = run as the app user (`vhhealth`) on the primary API host.
-- `#` prefix = run as root.
-- `[backend]` = run from `/srv/vhhealth/backend/` (the deploy checkout).
+- `$` prefix = run as the on-call engineer from any workstation with
+  kubeconfig configured for `vhhealth-prod`.
+- `#` prefix = run as root on a cluster node (SSH into `vhh-k8s-01` etc.)
+  — only needed for etcd / OS-level operations; almost all day-2 work
+  stays in `kubectl`.
+- Namespace is always passed explicitly (`-n vhhealth` or
+  `-n vhhealth-platform`) — never relies on default context namespace.
 - Every sensitive command ends with an explicit verify step so "did it
   work" isn't left to operator memory.

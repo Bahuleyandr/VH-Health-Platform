@@ -1,0 +1,16 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: vhhealth-admin
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/name: vhhealth-admin
+    app.kubernetes.io/component: admin
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vhhealth-admin
+  unhealthyPodEvictionPolicy: AlwaysAllow

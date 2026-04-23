@@ -1,0 +1,15 @@
+---
+# Cross-role defaults for variables that span common + hardening + firewall +
+# rke2 roles. These are role-prefix-free on purpose (var-naming[no-role-prefix]
+# only applies inside a single role's defaults/ tree); inventories override them.
+
+# Management networks — allowed SSH ingress + fail2ban whitelist.
+management_cidrs:
+  - "10.0.0.0/8"
+
+# Cluster networks — allowed to reach RKE2 cluster-internal ports.
+cluster_cidrs:
+  - "10.10.0.0/24"
+
+# TLS SANs for the API-server certificate (populated per-environment).
+cluster_dns_san: []

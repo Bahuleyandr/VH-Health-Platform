@@ -1,0 +1,50 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vhhealth-admin
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Admin is SSR Next.js — uploads are proxied through /api/proxy and can
+    # include patient document attachments. Match backend's 50m cap.
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+    # Admin doesn't issue cross-origin requests to other domains (it talks to
+    # backend via same-origin /api/proxy). Leave the browser-side CORS
+    # enforcement untouched.
+    nginx.ingress.kubernetes.io/enable-cors: "false"
+    # Security headers — stricter than the backend because this serves HTML.
+    # CSP matches what admin's middleware.ts builds inline; keeping them at
+    # ingress guards the very first byte even during rollouts.
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains; preload";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+      more_set_headers "Permissions-Policy: geolocation=(), microphone=(), camera=()";
+      more_set_headers "Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://api.vhhealth.app https://*.sentry.io https://*.ingest.sentry.io; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+    nginx.ingress.kubernetes.io/limit-connections: "30"
+    nginx.ingress.kubernetes.io/limit-rpm: "300"
+  labels:
+    app.kubernetes.io/name: vhhealth-admin
+    app.kubernetes.io/component: admin
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - admin.vhhealth.app
+      secretName: vhhealth-admin-tls
+  rules:
+    - host: admin.vhhealth.app
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vhhealth-admin
+                port:
+                  number: 80

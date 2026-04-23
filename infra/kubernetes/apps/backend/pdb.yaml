@@ -1,0 +1,18 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: vhhealth-backend
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/name: vhhealth-backend
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  # With replicas=3, minAvailable=2 allows one voluntary disruption at a
+  # time (node drain, rollout). The HPA floor of 3 keeps this enforceable.
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vhhealth-backend
+  unhealthyPodEvictionPolicy: AlwaysAllow

@@ -1,0 +1,168 @@
+---
+# Baseline OS configuration. Idempotent; safe to re-run on every `site.yml`.
+
+- name: Ensure APT cache is fresh (< 1 hour)
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  tags: [common, packages]
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name: "{{ common_base_packages }}"
+    state: present
+  tags: [common, packages]
+
+- name: Set timezone to {{ common_timezone }}
+  community.general.timezone:
+    name: "{{ common_timezone }}"
+  tags: [common, timezone]
+
+# --- Hostname + /etc/hosts -------------------------------------------------
+
+- name: Ensure cloud-init preserves hostname on reboot
+  ansible.builtin.template:
+    src: 50-cloud-init.cfg.j2
+    dest: /etc/cloud/cloud.cfg.d/50-preserve-hostname.cfg
+    owner: root
+    group: root
+    mode: "0644"
+  when: ansible_facts['service_mgr'] == 'systemd'
+  tags: [common, hostname]
+
+- name: Set system hostname from inventory
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+  tags: [common, hostname]
+
+- name: Render /etc/hosts with cluster members
+  ansible.builtin.template:
+    src: hosts.j2
+    dest: /etc/hosts
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [common, hostname]
+
+# --- NTP / chrony ----------------------------------------------------------
+
+- name: Render chrony configuration
+  ansible.builtin.template:
+    src: chrony.conf.j2
+    dest: /etc/chrony/chrony.conf
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  notify: restart chrony
+  tags: [common, ntp]
+
+- name: Ensure chrony service is enabled and started
+  ansible.builtin.systemd:
+    name: chrony
+    enabled: true
+    state: started
+  tags: [common, ntp]
+
+# --- Kernel modules + sysctls ---------------------------------------------
+
+- name: Persist required kernel modules
+  ansible.builtin.template:
+    src: k8s-modules.conf.j2
+    dest: /etc/modules-load.d/99-k8s.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload kernel modules
+  tags: [common, kernel]
+
+- name: Load required kernel modules immediately
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+    persistent: present
+  loop: "{{ common_kernel_modules }}"
+  tags: [common, kernel]
+
+- name: Apply kubernetes sysctls
+  ansible.builtin.template:
+    src: 99-k8s.conf.j2
+    dest: /etc/sysctl.d/99-k8s.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload sysctl
+  tags: [common, kernel, sysctl]
+
+# --- Swap disable (k8s requirement) ---------------------------------------
+
+- name: Disable swap immediately
+  ansible.builtin.command:
+    cmd: swapoff -a
+  when: ansible_facts['swaptotal_mb'] | default(0) > 0
+  changed_when: ansible_facts['swaptotal_mb'] | default(0) > 0
+  tags: [common, swap]
+
+- name: Remove swap entries from /etc/fstab (persist reboot)
+  ansible.posix.mount:
+    name: "{{ item.mount }}"
+    fstype: "{{ item.fstype }}"
+    state: absent
+  loop: "{{ ansible_facts['mounts'] | selectattr('fstype', 'equalto', 'swap') | list }}"
+  loop_control:
+    label: "{{ item.mount }}"
+  tags: [common, swap]
+
+# --- journald retention ----------------------------------------------------
+
+- name: Render journald config
+  ansible.builtin.template:
+    src: journald.conf.j2
+    dest: /etc/systemd/journald.conf.d/00-vhhealth.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart journald
+  tags: [common, journald]
+
+- name: Ensure journald drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [common, journald]
+
+# --- unattended-upgrades ---------------------------------------------------
+
+- name: Configure unattended-upgrades periodic runs
+  ansible.builtin.template:
+    src: 20auto-upgrades.j2
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload unattended-upgrades
+  tags: [common, packages]
+
+- name: Configure unattended-upgrades policy (RKE2 blacklisted)
+  ansible.builtin.template:
+    src: 50unattended-upgrades.j2
+    dest: /etc/apt/apt.conf.d/50unattended-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload unattended-upgrades
+  tags: [common, packages]
+
+- name: Weekly apt autoclean via systemd timer
+  ansible.builtin.cron:
+    name: vh-health-apt-autoclean
+    weekday: "0"
+    hour: "3"
+    minute: "30"
+    user: root
+    job: "/usr/bin/apt-get -y autoclean >/var/log/apt/vh-autoclean.log 2>&1"
+    cron_file: vh-health-apt-autoclean
+  tags: [common, packages]

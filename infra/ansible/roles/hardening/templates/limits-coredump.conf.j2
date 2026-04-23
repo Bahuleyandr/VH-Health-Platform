@@ -1,0 +1,4 @@
+{{ ansible_managed | comment }}
+# Disable core dumps for every user (attack surface + PHI leak risk).
+* hard core 0
+* soft core 0

@@ -1,0 +1,452 @@
+# vault/vault.yaml — HashiCorp Vault (Raft HA, 3 replicas)
+#
+# This manifest scaffolds Vault for later adoption. Until we switch a
+# production workload over to Vault-sourced secrets, the StatefulSet is
+# deployed but not written to; sealed-secrets remains the primary
+# secret-management mechanism.
+#
+# Raft integrated storage means Vault does not need an external DB: the
+# three replicas maintain a distributed log among themselves. Losing 1
+# replica is tolerated; losing 2 is not.
+#
+# Unseal: Vault 1.18 supports Shamir-split keys (classic) or KMS auto-
+# unseal (AWS KMS, GCP, Azure, Transit). We go Shamir initially because
+# there's no cloud KMS in a hospital on-prem environment. Post-bootstrap
+# runbook:
+#
+#   kubectl exec -it -n vhhealth-security vault-0 -- vault operator init \
+#     -key-shares=5 -key-threshold=3
+#
+# -> 5 unseal keys emitted. Distribute to 5 named individuals; any 3
+# together can unseal. Every pod restart needs unsealing (handled by the
+# init container when we add Vault Agent Injector in batch 17).
+#
+# TLS: the listener uses a cert signed by step-ca. The cert-manager
+# Certificate is defined at the end of this file.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault
+  namespace: vhhealth-security
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: vault
+    app.kubernetes.io/component: secret-management
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vault-token-review
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: vault
+    namespace: vhhealth-security
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-config
+  namespace: vhhealth-security
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: vault
+    app.kubernetes.io/component: config
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+data:
+  vault.hcl: |
+    ui = true
+    cluster_name = "vhhealth-vault"
+    log_level = "info"
+    log_format = "json"
+    disable_mlock = true
+
+    listener "tcp" {
+      address         = "[::]:8200"
+      cluster_address = "[::]:8201"
+      tls_cert_file   = "/vault/tls/tls.crt"
+      tls_key_file    = "/vault/tls/tls.key"
+      tls_min_version = "tls12"
+    }
+
+    storage "raft" {
+      path    = "/vault/data"
+      node_id = "__POD_NAME__"
+      retry_join {
+        leader_api_addr         = "https://vault-0.vault-internal.vhhealth-security.svc.cluster.local:8200"
+        leader_ca_cert_file     = "/vault/tls/ca.crt"
+        leader_client_cert_file = "/vault/tls/tls.crt"
+        leader_client_key_file  = "/vault/tls/tls.key"
+      }
+      retry_join {
+        leader_api_addr         = "https://vault-1.vault-internal.vhhealth-security.svc.cluster.local:8200"
+        leader_ca_cert_file     = "/vault/tls/ca.crt"
+        leader_client_cert_file = "/vault/tls/tls.crt"
+        leader_client_key_file  = "/vault/tls/tls.key"
+      }
+      retry_join {
+        leader_api_addr         = "https://vault-2.vault-internal.vhhealth-security.svc.cluster.local:8200"
+        leader_ca_cert_file     = "/vault/tls/ca.crt"
+        leader_client_cert_file = "/vault/tls/tls.crt"
+        leader_client_key_file  = "/vault/tls/tls.key"
+      }
+    }
+
+    service_registration "kubernetes" {}
+
+    telemetry {
+      disable_hostname = true
+      prometheus_retention_time = "5m"
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault
+  namespace: vhhealth-security
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: vault
+    app.kubernetes.io/component: vault-active
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: vault
+    vault-active: "true"
+  ports:
+    - name: https
+      port: 8200
+      targetPort: 8200
+    - name: https-internal
+      port: 8201
+      targetPort: 8201
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault-internal
+  namespace: vhhealth-security
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: vault
+    app.kubernetes.io/component: internal
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: vault
+  ports:
+    - name: https
+      port: 8200
+      targetPort: 8200
+    - name: https-internal
+      port: 8201
+      targetPort: 8201
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vault
+  namespace: vhhealth-security
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: vault
+    app.kubernetes.io/component: secret-management
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  serviceName: vault-internal
+  replicas: 3
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: OnDelete
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vault
+      app.kubernetes.io/instance: vault
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vault
+        app.kubernetes.io/instance: vault
+        app.kubernetes.io/component: secret-management
+        app.kubernetes.io/part-of: vhhealth
+        app.kubernetes.io/managed-by: kustomize
+    spec:
+      serviceAccountName: vault
+      terminationGracePeriodSeconds: 60
+      shareProcessNamespace: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/instance: vault
+            - weight: 50
+              podAffinityTerm:
+                topologyKey: topology.kubernetes.io/zone
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/instance: vault
+      initContainers:
+        - name: render-config
+          image: busybox:1.37.0@sha256:be84dc33f9de03ba21e7d1b03fc96d07a43fd4ec5a7b2aa0fc81a2f3c90c5d2c
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              sed "s/__POD_NAME__/${POD_NAME}/g" /config/vault.hcl > /rendered/vault.hcl
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: rendered-config
+              mountPath: /rendered
+      containers:
+        - name: vault
+          image: hashicorp/vault:1.18.2@sha256:0ec66c6c16ed3898cc1a94fa0e9c2e9a4c6c1fd8b6e1e05a8a0f5a5d6c7b8e4f
+          imagePullPolicy: IfNotPresent
+          command: ["vault"]
+          args:
+            - server
+            - -config=/vault/config/vault.hcl
+          ports:
+            - name: https
+              containerPort: 8200
+            - name: https-internal
+              containerPort: 8201
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: VAULT_ADDR
+              value: "https://127.0.0.1:8200"
+            - name: VAULT_API_ADDR
+              value: "https://$(POD_IP):8200"
+            - name: VAULT_CLUSTER_ADDR
+              value: "https://$(POD_NAME).vault-internal.vhhealth-security.svc.cluster.local:8201"
+            - name: VAULT_CACERT
+              value: "/vault/tls/ca.crt"
+            - name: VAULT_LOG_LEVEL
+              value: info
+            - name: VAULT_LOG_FORMAT
+              value: json
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1"
+          readinessProbe:
+            httpGet:
+              path: /v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          livenessProbe:
+            httpGet:
+              path: /v1/sys/health?standbyok=true
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 60
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - "sleep 5 && vault step-down 2>/dev/null || true"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+              add: [IPC_LOCK]
+          volumeMounts:
+            - name: data
+              mountPath: /vault/data
+            - name: rendered-config
+              mountPath: /vault/config
+              readOnly: true
+            - name: tls
+              mountPath: /vault/tls
+              readOnly: true
+            - name: audit
+              mountPath: /vault/audit
+            - name: tmp
+              mountPath: /tmp
+            - name: home
+              mountPath: /home/vault
+      volumes:
+        - name: config
+          configMap:
+            name: vault-config
+        - name: rendered-config
+          emptyDir: {}
+        - name: tls
+          secret:
+            secretName: vault-tls
+        - name: audit
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: home
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: vault
+          app.kubernetes.io/instance: vault
+          app.kubernetes.io/part-of: vhhealth
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: vault
+  namespace: vhhealth-security
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: vault
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vault
+      app.kubernetes.io/instance: vault
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: vault-tls
+  namespace: vhhealth-security
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/component: tls
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  secretName: vault-tls
+  duration: 2160h      # 90 days
+  renewBefore: 360h    # renew 15 days before expiry
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  dnsNames:
+    - vault
+    - vault.vhhealth-security
+    - vault.vhhealth-security.svc
+    - vault.vhhealth-security.svc.cluster.local
+    - vault-internal
+    - vault-internal.vhhealth-security.svc.cluster.local
+    - vault-0.vault-internal.vhhealth-security.svc.cluster.local
+    - vault-1.vault-internal.vhhealth-security.svc.cluster.local
+    - vault-2.vault-internal.vhhealth-security.svc.cluster.local
+  issuerRef:
+    kind: ClusterIssuer
+    name: step-ca-internal
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: vault
+  namespace: vhhealth-security
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: vault
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    release: vhhealth-monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vault
+      app.kubernetes.io/instance: vault
+      app.kubernetes.io/component: vault-active
+  namespaceSelector:
+    matchNames:
+      - vhhealth-security
+  endpoints:
+    - port: https
+      scheme: https
+      path: /v1/sys/metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      params:
+        format: ["prometheus"]
+      tlsConfig:
+        insecureSkipVerify: true

@@ -1,0 +1,48 @@
+---
+# Reads the RKE2 bootstrap token from the first server and broadcasts it to
+# all other servers as `rke2_cluster_token`. Runs ONLY if the bootstrap node
+# already has RKE2 installed (i.e. second/third-server onboarding, or
+# re-runs). On a very first-ever run this block is a no-op and
+# configure.yml writes `config.yaml` without a token — the bootstrap node
+# then generates one, and the second/third nodes pick it up on the next
+# play pass.
+
+- name: Resolve which host is the cluster bootstrap node
+  ansible.builtin.set_fact:
+    rke2_bootstrap_host: >-
+      {{ (groups['rke2_servers']
+          | selectattr('rke2_bootstrap', 'defined')
+          | selectattr('rke2_bootstrap', 'equalto', true)
+          | list
+          | first
+         ) | default(groups['rke2_servers'] | first) }}
+  run_once: true
+  tags: [rke2, token]
+
+- name: Check token file on bootstrap node
+  ansible.builtin.stat:
+    path: "{{ rke2_data_dir }}/server/node-token"
+  register: bootstrap_token_stat
+  delegate_to: "{{ rke2_bootstrap_host }}"
+  run_once: true
+  become: true
+  tags: [rke2, token]
+
+- name: Read bootstrap node token (if present)
+  ansible.builtin.slurp:
+    src: "{{ rke2_data_dir }}/server/node-token"
+  register: bootstrap_token_blob
+  delegate_to: "{{ rke2_bootstrap_host }}"
+  run_once: true
+  become: true
+  when: bootstrap_token_stat.stat.exists
+  tags: [rke2, token]
+
+- name: Propagate cluster token to every host
+  ansible.builtin.set_fact:
+    rke2_cluster_token: "{{ bootstrap_token_blob['content'] | b64decode | trim }}"
+  when:
+    - bootstrap_token_stat.stat.exists
+    - bootstrap_token_blob is defined
+    - bootstrap_token_blob.content is defined
+  tags: [rke2, token]

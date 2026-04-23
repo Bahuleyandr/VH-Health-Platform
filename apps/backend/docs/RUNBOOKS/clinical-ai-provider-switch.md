@@ -1,5 +1,9 @@
 # Runbook — Clinical AI provider switch
 
+> Executed via `kubectl` on the on-prem cluster. See
+> [`../../../../docs/DEPLOYMENT_GUIDE.md`](../../../../docs/DEPLOYMENT_GUIDE.md)
+> for kubeconfig setup.
+
 **Severity:** P2 (draft generation degraded) / P1 (discharge workflow blocked)
 
 Clinical AI powers discharge-summary and handover drafts. The default mode is
@@ -15,10 +19,13 @@ are intentionally blocked unless `CLINICAL_AI_ALLOW_EXTERNAL=true` is set.
   and the specific Clinical AI module's `external_allowed=true`.
 - AI output is always a draft. A clinician must review, edit if needed, and
   sign the final discharge note.
-- Never put API keys in source files. Store them in the deployment secret
-  manager or host environment.
+- Never put API keys in source files. Keys are sealed-secret managed — only
+  the sealed form ever hits git.
 
 ## Env vars
+
+All of these live in the sealed secret
+`infra/kubernetes/apps/backend/vhhealth-clinical-ai.sealed-secret.yaml`.
 
 ```
 CLINICAL_AI_PROVIDER          # template | ollama | openai-compatible | openai | anthropic
@@ -50,19 +57,32 @@ ANTHROPIC_VERSION
 
 ## Response
 
-### Option A — local Ollama
+### Option A — local Ollama (in-cluster)
 
+Ollama runs as a `Deployment` in `vhhealth-platform` namespace with a
+service `ollama.vhhealth-platform.svc.cluster.local:11434`.
+
+Build + seal:
+```yaml
+CLINICAL_AI_PROVIDER: "ollama"
+CLINICAL_AI_BASE_URL: "http://ollama.vhhealth-platform.svc.cluster.local:11434"
+CLINICAL_AI_MODEL: "llama3.1:8b"
+CLINICAL_AI_ALLOW_EXTERNAL: "false"
 ```
-CLINICAL_AI_PROVIDER=ollama
-CLINICAL_AI_BASE_URL=http://localhost:11434
-CLINICAL_AI_MODEL=llama3.1:8b
-CLINICAL_AI_ALLOW_EXTERNAL=false
-```
 
-Restart the API, then verify:
-
+Commit, sync, restart:
 ```bash
-$ curl -s -H "x-api-key: $API_KEY_ADMIN" -H "Authorization: Bearer $ADMIN_JWT" \
+git commit -am "chore(clinical-ai): switch to in-cluster Ollama"
+git push
+argocd app sync vhhealth-backend
+kubectl -n vhhealth rollout restart deployment/vhhealth-backend
+```
+
+Verify:
+```bash
+ADMIN_JWT=<admin-jwt>
+kubectl -n vhhealth exec -it deployment/vhhealth-backend -- \
+  curl -s -H "x-api-key: $API_KEY_ADMIN" -H "Authorization: Bearer $ADMIN_JWT" \
     http://localhost:5000/api/v1/emr/clinical-ai/config | jq .data
 ```
 
@@ -74,7 +94,8 @@ Admin can activate/deactivate Clinical AI modules from `/dashboard/clinical-ai`.
 The backend API is:
 
 ```bash
-$ curl -s -X PATCH http://localhost:5000/api/v1/admin/clinical-ai/modules/discharge_summary \
+kubectl -n vhhealth exec -it deployment/vhhealth-backend -- \
+  curl -s -X PATCH http://localhost:5000/api/v1/admin/clinical-ai/modules/discharge_summary \
     -H "x-api-key: $API_KEY_ADMIN" \
     -H "Authorization: Bearer $ADMIN_JWT" \
     -H "Content-Type: application/json" \
@@ -87,7 +108,8 @@ fallback templates and records `used_ai=false`.
 Usage and provider status are visible at:
 
 ```bash
-$ curl -s -H "x-api-key: $API_KEY_ADMIN" -H "Authorization: Bearer $ADMIN_JWT" \
+kubectl -n vhhealth exec -it deployment/vhhealth-backend -- \
+  curl -s -H "x-api-key: $API_KEY_ADMIN" -H "Authorization: Bearer $ADMIN_JWT" \
     "http://localhost:5000/api/v1/admin/clinical-ai/status?days=7" | jq .data.usage
 ```
 
@@ -97,7 +119,8 @@ Admin can set daily token/cost caps, output-token caps, fallback alerts, latency
 alerts, and the external-AI emergency switch from `/dashboard/clinical-ai`.
 
 ```bash
-$ curl -s -X PATCH http://localhost:5000/api/v1/admin/clinical-ai/guardrails \
+kubectl -n vhhealth exec -it deployment/vhhealth-backend -- \
+  curl -s -X PATCH http://localhost:5000/api/v1/admin/clinical-ai/guardrails \
     -H "x-api-key: $API_KEY_ADMIN" \
     -H "Authorization: Bearer $ADMIN_JWT" \
     -H "Content-Type: application/json" \
@@ -111,7 +134,8 @@ budget reason in `clinical_ai_generations.metadata.fallback_reason`.
 The emergency external-AI switch is separate from environment and module gates:
 
 ```bash
-$ curl -s -X PATCH http://localhost:5000/api/v1/admin/clinical-ai/guardrails \
+kubectl -n vhhealth exec -it deployment/vhhealth-backend -- \
+  curl -s -X PATCH http://localhost:5000/api/v1/admin/clinical-ai/guardrails \
     -H "x-api-key: $API_KEY_ADMIN" \
     -H "Authorization: Bearer $ADMIN_JWT" \
     -H "Content-Type: application/json" \
@@ -121,13 +145,14 @@ $ curl -s -X PATCH http://localhost:5000/api/v1/admin/clinical-ai/guardrails \
 ### Option B — local OpenAI-compatible gateway
 
 Use this for LM Studio, vLLM, llama.cpp server, LiteLLM on-prem, or a hospital
-gateway that exposes `/v1/chat/completions`.
+gateway that exposes `/v1/chat/completions`. Same sealed-secret update pattern
+as Option A.
 
-```
-CLINICAL_AI_PROVIDER=openai-compatible
-CLINICAL_AI_BASE_URL=http://localhost:1234/v1
-CLINICAL_AI_MODEL=local-clinical-model
-CLINICAL_AI_ALLOW_EXTERNAL=false
+```yaml
+CLINICAL_AI_PROVIDER: "openai-compatible"
+CLINICAL_AI_BASE_URL: "http://gateway.vhhealth-platform.svc.cluster.local:1234/v1"
+CLINICAL_AI_MODEL: "local-clinical-model"
+CLINICAL_AI_ALLOW_EXTERNAL: "false"
 ```
 
 Restart and verify as in Option A.
@@ -136,54 +161,57 @@ Restart and verify as in Option A.
 
 Only use after external PHI approval is complete.
 
-```
-CLINICAL_AI_PROVIDER=openai
-CLINICAL_AI_MODEL=gpt-5.4
-OPENAI_API_KEY=<secret-manager-value>
-CLINICAL_AI_ALLOW_EXTERNAL=true
+```yaml
+CLINICAL_AI_PROVIDER: "openai"
+CLINICAL_AI_MODEL: "gpt-5.4"
+OPENAI_API_KEY: "<secret-value>"
+CLINICAL_AI_ALLOW_EXTERNAL: "true"
 ```
 
 Optional project headers:
 
-```
-OPENAI_ORGANIZATION=
-OPENAI_PROJECT=
+```yaml
+OPENAI_ORGANIZATION: ""
+OPENAI_PROJECT: ""
 ```
 
-Restart and verify `enabled=true`, `provider="openai"`,
+Seal, commit, sync, restart. Verify `enabled=true`, `provider="openai"`,
 `externalProvider=true`, and `externalAllowed=true`.
 
 ### Option D — Anthropic
 
 Only use after external PHI approval is complete.
 
-```
-CLINICAL_AI_PROVIDER=anthropic
-CLINICAL_AI_MODEL=claude-sonnet-4-20250514
-ANTHROPIC_API_KEY=<secret-manager-value>
-ANTHROPIC_VERSION=2023-06-01
-CLINICAL_AI_ALLOW_EXTERNAL=true
+```yaml
+CLINICAL_AI_PROVIDER: "anthropic"
+CLINICAL_AI_MODEL: "claude-sonnet-4-20250514"
+ANTHROPIC_API_KEY: "<secret-value>"
+ANTHROPIC_VERSION: "2023-06-01"
+CLINICAL_AI_ALLOW_EXTERNAL: "true"
 ```
 
-Restart and verify `enabled=true`, `provider="anthropic"`,
+Seal, commit, sync, restart. Verify `enabled=true`, `provider="anthropic"`,
 `externalProvider=true`, and `externalAllowed=true`.
 
 ### Option E — emergency disable
 
-```
-CLINICAL_AI_PROVIDER=template
-CLINICAL_AI_ALLOW_EXTERNAL=false
+```yaml
+CLINICAL_AI_PROVIDER: "template"
+CLINICAL_AI_ALLOW_EXTERNAL: "false"
 ```
 
-Restart the API. Draft generation will use deterministic templates and keep
-recording audit rows with `used_ai=false`.
+Seal, commit, sync, restart. Draft generation will use deterministic templates
+and keep recording audit rows with `used_ai=false`.
 
 ## Smoke test
 
 Generate a draft for a known non-production admission:
 
 ```bash
-$ curl -s -X POST http://localhost:5000/api/v1/emr/$ADMISSION_ID/discharge-summary/generate \
+DOCTOR_JWT=<test-doctor-jwt>
+ADMISSION_ID=<test-admission-id>
+kubectl -n vhhealth exec -it deployment/vhhealth-backend -- \
+  curl -s -X POST http://localhost:5000/api/v1/emr/$ADMISSION_ID/discharge-summary/generate \
     -H "x-api-key: $API_KEY_DOCTOR" \
     -H "Authorization: Bearer $DOCTOR_JWT" \
     -H "Content-Type: application/json" \
@@ -197,5 +225,8 @@ the response should still succeed with `used_ai=false` and a fallback reason.
 
 - Review the latest rows in `/api/v1/admin/clinical-ai/generations`.
 - Confirm safety flags are visible in `/dashboard/clinical-ai`.
-- Check logs for `Clinical AI generation failed; falling back to template`.
+- Check logs for `Clinical AI generation failed; falling back to template`:
+  ```bash
+  kubectl -n vhhealth logs deployment/vhhealth-backend --tail=500 | grep -i "clinical ai"
+  ```
 - If any external key was changed, revoke the old key in the provider console.

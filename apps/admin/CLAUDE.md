@@ -3,6 +3,16 @@
 ## Project Overview
 Next.js 15 admin dashboard for the VHHealth hospital management system. Used by hospital administrators and super-admins to manage patients, staff, appointments, departments, pharmacy, investigations, and system settings.
 
+## Deployment
+
+Production runs on the hospital's on-prem **3-node RKE2 Kubernetes cluster**
+alongside the backend. GitHub Actions builds the admin container image;
+ArgoCD reconciles manifests under `infra/kubernetes/apps/admin/`. Traffic
+flows Cloudflare Tunnel → ingress-nginx → `Service/vhhealth-admin`.
+
+Full runbook: [`../../docs/DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md).
+Hardware spec: [`../../docs/HARDWARE_REQUIREMENTS.md`](../../docs/HARDWARE_REQUIREMENTS.md).
+
 ## Tech Stack
 - **Framework**: Next.js 15 (App Router), React 19, TypeScript
 - **State/Data**: TanStack Query v5 + React Context
@@ -72,10 +82,16 @@ fetchAdminAPI (api.ts)      — back-compat, auto-adds /api/v1 prefix
 ## Running
 ```bash
 npm run dev    # Development (port 3001)
-npm run build  # Production build
-npm start      # Production (systemd: vhhealth-admin.service)
+npm run build  # Production build (also runs inside the container image build)
 ```
-Public URL: `https://admin.vhhealth.app`
+
+Production is Kubernetes-managed — do not run `npm start` on a host. The
+published image (`ghcr.io/.../admin:<tag>`) is referenced by the manifest in
+`infra/kubernetes/apps/admin/`; ArgoCD rolls out on image update. See
+[`../../docs/DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md).
+
+Public URL: `https://admin.vhhealth.app` — via Cloudflare Tunnel →
+ingress-nginx → `Service/vhhealth-admin`.
 
 ## Environment
 `.env.local`:

@@ -1,0 +1,51 @@
+---
+# VH Health Platform — top-level playbook.
+#
+# Takes a fleet of fresh Ubuntu 24.04 LTS hosts through:
+#   1. common       — OS baseline (timezone, NTP, sysctls, kernel mods, swap)
+#   2. hardening    — CIS subset (SSH, auditd, fail2ban, aide, faillock)
+#   3. firewall     — nftables baseline (drop-by-default, cluster allowlist)
+#   4. rke2-server  — RKE2 binary + config + bootstrap/join
+#
+# Safe to re-run on a healthy cluster — every task is idempotent.
+# Strategy 'linear' (default) is deliberate; RKE2 bootstrap ordering relies
+# on task-level delegation, not play-level serialisation.
+
+- name: Bootstrap RKE2 servers
+  hosts: rke2_servers
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+  pre_tasks:
+    - name: Announce target
+      ansible.builtin.debug:
+        msg: >-
+          Applying VH Health RKE2 baseline to {{ inventory_hostname }}
+          ({{ ansible_host }}, zone={{ inventory_zone | default('-') }},
+          bootstrap={{ rke2_bootstrap | default(false) }}).
+  roles:
+    - role: common
+      tags: [common]
+    - role: hardening
+      tags: [hardening]
+    - role: firewall
+      tags: [firewall]
+    - role: rke2_server
+      tags: [rke2]
+
+# Optional: activate later by moving workloads to dedicated agents.
+- name: Join RKE2 agents (no-op unless 'rke2_agents' group populated)
+  hosts: rke2_agents
+  become: true
+  gather_facts: true
+  roles:
+    - role: common
+      tags: [common]
+    - role: hardening
+      tags: [hardening]
+    - role: firewall
+      tags: [firewall]
+    - role: rke2_agent
+      tags: [rke2_agent]

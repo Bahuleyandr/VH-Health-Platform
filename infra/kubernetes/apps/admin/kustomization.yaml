@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# VH Health — Admin Portal (Next.js 15)
+# Base Kustomization; overlays pin image digest + scale + attach secrets.
+
+namespace: vhhealth
+
+# Modern `labels` instead of deprecated `commonLabels`.
+# `includeSelectors: false` because each workload declares its own
+# `app.kubernetes.io/name` on selectors + pod template. This avoids
+# rewriting cross-workload selectors inside NetworkPolicy rules (e.g. the
+# admin→backend egress rule that targets `vhhealth-backend` pods).
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: vhhealth
+      app.kubernetes.io/component: admin
+    includeSelectors: false
+    includeTemplates: true
+
+resources:
+  - configmap.yaml
+  - sealed-secret.yaml.example
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - hpa.yaml
+  - pdb.yaml
+  - network-policy.yaml
+  - service-monitor.yaml

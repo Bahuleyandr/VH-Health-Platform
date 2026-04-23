@@ -1,0 +1,113 @@
+---
+# Rolling upgrade for RKE2 cluster.
+#
+# Usage:
+#   ansible-playbook -i inventories/prod.yml playbooks/upgrade-k8s.yml \
+#     -e rke2_version=v1.31.6+rke2r1
+#
+# Strategy:
+#   - serial: 1   — drain / upgrade / uncordon ONE node at a time
+#   - drain with --ignore-daemonsets --delete-emptydir-data
+#   - wait for Ready, then move on
+#
+# NOTE: run from a bastion that can reach the API server; the playbook uses
+# `delegate_to: bootstrap_node` for all kubectl operations so the drain
+# command is issued from a node that actually has a working kubeconfig.
+
+- name: Validate target version
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Assert rke2_version supplied via -e
+      ansible.builtin.assert:
+        that:
+          - rke2_version is defined
+          - rke2_version is match('^v[0-9]+\\.[0-9]+\\.[0-9]+\\+rke2r[0-9]+$')
+        fail_msg: "Pass -e rke2_version=v1.x.y+rke2rZ"
+      run_once: true
+
+- name: Rolling RKE2 upgrade
+  hosts: rke2_servers
+  become: true
+  gather_facts: true
+  serial: 1
+  max_fail_percentage: 0
+  any_errors_fatal: true
+  vars:
+    bootstrap_node: >-
+      {{ (groups['rke2_servers']
+          | selectattr('rke2_bootstrap', 'defined')
+          | selectattr('rke2_bootstrap', 'equalto', true)
+          | list
+          | first
+         ) | default(groups['rke2_servers'] | first) }}
+    kubeconfig_path: /etc/rancher/rke2/rke2.yaml
+  tasks:
+    - name: Show currently installed version
+      ansible.builtin.command:
+        cmd: /usr/local/bin/rke2 --version
+      register: pre_upgrade_version
+      changed_when: false
+
+    - name: Cordon node
+      ansible.builtin.command:
+        cmd: "kubectl --kubeconfig={{ kubeconfig_path }} cordon {{ inventory_hostname }}"
+      delegate_to: "{{ bootstrap_node }}"
+      changed_when: true
+
+    - name: Drain node (ignore DaemonSets, respect PDBs)
+      ansible.builtin.command:
+        cmd: >-
+          kubectl --kubeconfig={{ kubeconfig_path }} drain {{ inventory_hostname }}
+          --ignore-daemonsets
+          --delete-emptydir-data
+          --force
+          --grace-period=300
+          --timeout=10m
+      delegate_to: "{{ bootstrap_node }}"
+      changed_when: true
+
+    - name: Stop rke2-server
+      ansible.builtin.systemd:
+        name: rke2-server
+        state: stopped
+
+    - name: Re-run install script with new version
+      ansible.builtin.command:
+        cmd: /usr/local/sbin/rke2-install.sh
+      environment:
+        INSTALL_RKE2_VERSION: "{{ rke2_version }}"
+        INSTALL_RKE2_TYPE: server
+      changed_when: true
+
+    - name: Start rke2-server
+      ansible.builtin.systemd:
+        name: rke2-server
+        state: started
+        daemon_reload: true
+
+    - name: Wait for node Ready
+      ansible.builtin.command:
+        cmd: "kubectl --kubeconfig={{ kubeconfig_path }} get node {{ inventory_hostname }} -o jsonpath={.status.conditions[?(@.type=='Ready')].status}"
+      delegate_to: "{{ bootstrap_node }}"
+      register: ready_status
+      retries: 30
+      delay: 20
+      until: ready_status.stdout == "True"
+      changed_when: false
+
+    - name: Uncordon node
+      ansible.builtin.command:
+        cmd: "kubectl --kubeconfig={{ kubeconfig_path }} uncordon {{ inventory_hostname }}"
+      delegate_to: "{{ bootstrap_node }}"
+      changed_when: true
+
+    - name: Verify upgraded version
+      ansible.builtin.command:
+        cmd: /usr/local/bin/rke2 --version
+      register: post_upgrade_version
+      changed_when: false
+
+    - name: Report
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: {{ pre_upgrade_version.stdout_lines | first }} -> {{ post_upgrade_version.stdout_lines | first }}"

@@ -1,0 +1,79 @@
+# argocd/project.yaml — AppProject scoping Argo CD access to vhhealth-*
+#
+# Projects constrain which repos can be pulled, which clusters/namespaces
+# can be synced into, and which resource kinds are permitted. Without a
+# project, any Application sync would have cluster-wide power.
+#
+# The real ClusterRoleBinding stitching Argo CD's service account to its
+# RBAC is created by the helm chart; this Project layers on top of it.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: vhhealth
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  description: "Main project scoping Argo CD to vhhealth-* namespaces"
+  sourceRepos:
+    - "https://github.com/Bahuleyandr/VH-Health-Platform"
+    - "https://helm.goharbor.io"
+    - "https://prometheus-community.github.io/helm-charts"
+    - "https://grafana.github.io/helm-charts"
+    - "https://falcosecurity.github.io/charts"
+    - "https://charts.bitnami.com/bitnami"
+    - "https://kubernetes.github.io/ingress-nginx"
+    - "https://operator.min.io"
+    - "https://charts.cloudnative-pg.io"
+  destinations:
+    - namespace: "vhhealth"
+      server: https://kubernetes.default.svc
+    - namespace: "vhhealth-platform"
+      server: https://kubernetes.default.svc
+    - namespace: "vhhealth-monitoring"
+      server: https://kubernetes.default.svc
+    - namespace: "vhhealth-ingress"
+      server: https://kubernetes.default.svc
+    - namespace: "vhhealth-security"
+      server: https://kubernetes.default.svc
+    - namespace: "argocd"
+      server: https://kubernetes.default.svc
+    # Bootstrapping CNPG operator writes into cnpg-system; MinIO op to
+    # minio-operator. Allow those destinations.
+    - namespace: "cnpg-system"
+      server: https://kubernetes.default.svc
+    - namespace: "minio-operator"
+      server: https://kubernetes.default.svc
+    - namespace: "kube-system"
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: storage.k8s.io
+      kind: StorageClass
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+    - group: cert-manager.io
+      kind: ClusterIssuer
+    - group: networking.k8s.io
+      kind: IngressClass
+    - group: scheduling.k8s.io
+      kind: PriorityClass
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  orphanedResources:
+    warn: true
+  signatureKeys: []  # Placeholder for cosign keys (batch 17).

@@ -1,0 +1,13 @@
+# base/_common/kustomization.yaml — foundational cluster-wide resources
+#
+# Namespaces and default-deny NetworkPolicies are split out here so that
+# dev overlays can include them without pulling in the full platform
+# (Harbor/MinIO/Falco/etc are optional per environment, but namespaces
+# and policies are mandatory everywhere).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: vhhealth-common
+resources:
+  - namespaces.yaml
+  - network-policies.yaml

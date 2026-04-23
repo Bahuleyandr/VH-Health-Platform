@@ -1,0 +1,4 @@
+{{ ansible_managed | comment }}
+{% for m in common_kernel_modules %}
+{{ m }}
+{% endfor %}

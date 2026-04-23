@@ -1,0 +1,34 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# VH Health — Backend API
+# Base Kustomization; overlays under infra/kubernetes/overlays/{dev,staging,prod}
+# pin the image digest, scale replicas, and attach real SealedSecrets.
+
+namespace: vhhealth
+
+# Use modern `labels` (not deprecated `commonLabels`). We keep these
+# informational-only (`includeSelectors: false`) because each workload already
+# declares its own `app.kubernetes.io/name` on selectors + pod template — this
+# prevents commonLabels from rewriting cross-workload selectors (e.g. the
+# admin→backend NetworkPolicy ingress rule, which must keep its original
+# `vhhealth-admin` selector, not be auto-rewritten to `vhhealth-backend`).
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: vhhealth
+      app.kubernetes.io/component: api
+    includeSelectors: false
+    includeTemplates: true
+
+resources:
+  - configmap.yaml
+  - sealed-secret.yaml.example
+  - migration-job.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - hpa.yaml
+  - pdb.yaml
+  - network-policy.yaml
+  - service-monitor.yaml
+  - backup-cronjob.yaml

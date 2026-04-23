@@ -1,0 +1,125 @@
+# cert-manager/cert-manager.yaml — cert-manager reference + ClusterIssuers
+#
+# cert-manager v1.16.1 is installed via the upstream manifest:
+#   https://github.com/cert-manager/cert-manager/releases/download/v1.16.1/cert-manager.yaml
+#
+# As with CNPG and MinIO, the upstream manifest is applied by the
+# cluster bootstrap (Argo CD "app of apps"), not listed as a remote
+# `resources:` entry here (commonLabels would try to mutate immutable
+# Deployment selectors + CRD fields).
+#
+# This file ships:
+#   (1) a version tracker ConfigMap for Renovate,
+#   (2) the two ClusterIssuers we rely on,
+#   (3) the SealedSecret placeholder for Cloudflare API token.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cert-manager-pinned-version
+  namespace: vhhealth-security
+  labels:
+    app.kubernetes.io/name: cert-manager
+    app.kubernetes.io/component: operator
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+data:
+  version: "v1.16.1"
+  manifestUrl: "https://github.com/cert-manager/cert-manager/releases/download/v1.16.1/cert-manager.yaml"
+---
+# ---- Let's Encrypt production issuer (DNS-01 via Cloudflare) ----
+# We cannot use HTTP-01 because the hospital firewall blocks all inbound
+# traffic; Cloudflare Tunnel is the only path in. DNS-01 lets cert-manager
+# prove domain control by writing a TXT record via the Cloudflare API.
+#
+# Pre-condition: the Cloudflare API token (scoped to Zone:DNS:Edit on the
+# vhhealth.app zone) is stored in the Secret
+# `cloudflare-api-token` — see `cloudflare-api-token.sealed-secret.yaml.example`.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+  labels:
+    app.kubernetes.io/name: cert-manager
+    app.kubernetes.io/component: cluster-issuer
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ops@vhhealth.app
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - selector:
+          dnsZones:
+            - "vhhealth.app"
+        dns01:
+          cloudflare:
+            email: ops@vhhealth.app
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token
+---
+# ---- Let's Encrypt staging issuer (for testing) ----
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+  labels:
+    app.kubernetes.io/name: cert-manager
+    app.kubernetes.io/component: cluster-issuer
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: ops@vhhealth.app
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+      - selector:
+          dnsZones:
+            - "vhhealth.app"
+        dns01:
+          cloudflare:
+            email: ops@vhhealth.app
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token
+---
+# ---- Internal step-ca issuer ----
+# Used for LAN-only services (Harbor registry, Grafana admin, MinIO
+# console). These never expose a public hostname and so Let's Encrypt
+# cannot issue for them. Pre-condition: step-ca is up and its root
+# certificate is mounted into cert-manager's trust store.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: step-ca-internal
+  labels:
+    app.kubernetes.io/name: cert-manager
+    app.kubernetes.io/component: cluster-issuer
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  # We use an ACME server that step-ca exposes. The step-ca StatefulSet
+  # in base/step-ca/ runs the ACME endpoint at
+  # https://step-ca.vhhealth-security.svc.cluster.local/acme/acme/directory
+  acme:
+    server: https://step-ca.vhhealth-security.svc.cluster.local/acme/acme/directory
+    email: ops@vhhealth.hospital.local
+    privateKeySecretRef:
+      name: step-ca-acme-account-key
+    # Trust anchor for the step-ca root cert so cert-manager accepts
+    # it. cert-manager reads from the cluster-wide trust bundle when
+    # caBundleInjectorEnabled=true; the bundle is managed by
+    # `trust-manager` installed alongside cert-manager.
+    caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUJkRENDQVJxZ0F3SUJBZ0lCQVRBS0JnZ3Foa2pPUFFRREFqQVpNUmN3RlFZRFZRUURFdzVXU0Y5SVpXRnMKZEdnZ1MwOVRUREFlRncweU5qQTBNRFl3TURBd01EQmFGdzB6TmpBME1EWXdNREF3TURCYU1Ca3hGekFWQmdOVgpCQU1URGxaSVgwaGxZV3gwYUNCTFQxTk1NRmt3RXdZSEtvWkl6ajBDQVFZSUtvWkl6ajBEQVFjRFFnQUUwMWlTCkJ1WjlDWDNRa084TEREdGdOWDJzQXNkQ1hzeHdkVXI1dzEvZ2c3MXZaVGFvVWN5MVVrQTVKblU4QVQ4U2Z1N0MKN3lQMzBKTVB2MGdlUG5sOE5xTTlNRHN3SFFZRFZSME9CQllFRkNkNGlOZVdsYWtIOG8vM2JCSmJQenIvTFdoVApNQTRHQTFVZEp3UUhNQVVHQTFVZEVnUUZNQU1DQVFBd0NnWUlLb1pJemowRUF3SURTQUF3UlFJaEFJc29BcE1yCnN1dEJSbWp0bXVRZ09BRkVCYURoUEpwZGpSOFJEMG1rMGo2ZUFpQmI3MVN6WWJxdkFkREFRY2pRMGJpelFhSHAKcTF1WFZlRE00eXhjRXpSaFlRPT0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
+    solvers:
+      # HTTP-01 via cluster-internal ingress. Valid because step-ca
+      # serves internal hostnames that are only resolvable inside the
+      # cluster / the hospital LAN.
+      - http01:
+          ingress:
+            ingressClassName: nginx-internal

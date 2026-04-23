@@ -1,0 +1,22 @@
+{{ ansible_managed | comment }}
+# chrony configuration for VH Health RKE2 nodes.
+# NTP drift must stay sub-second for etcd leader election and audit-log
+# integrity (HIPAA/DPDP audit-log timestamps).
+
+pool {{ common_ntp_pool }} iburst maxsources 4
+
+# Use hospital IT clock as fallback if public pool unreachable.
+# (Uncomment + set when hospital NTP server IP is known.)
+# server ntp.hospital.local iburst prefer
+
+driftfile /var/lib/chrony/chrony.drift
+makestep 1.0 3
+rtcsync
+leapsectz right/UTC
+logdir /var/log/chrony
+
+# Allow local cluster nodes to query this host if we ever promote one
+# to internal NTP server. Restrict to cluster CIDRs only.
+{% for cidr in cluster_cidrs | default([]) %}
+allow {{ cidr }}
+{% endfor %}

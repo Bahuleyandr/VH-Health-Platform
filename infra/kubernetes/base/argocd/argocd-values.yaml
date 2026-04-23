@@ -1,0 +1,191 @@
+# argocd/argocd-values.yaml — Argo CD helm values (HA mode)
+#
+# Chart: argo/argo-cd v7.7.5 (app version 2.13.1).
+# Deployed via bootstrap script; once running, Argo CD manages itself
+# (the app-of-apps pattern in `../../apps/`).
+global:
+  logging:
+    format: json
+    level: info
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+    seccompProfile:
+      type: RuntimeDefault
+
+controller:
+  replicas: 3
+  resources:
+    requests:
+      memory: 1Gi
+      cpu: 250m
+    limits:
+      memory: 2Gi
+      cpu: 1
+  containerSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        release: vhhealth-monitoring
+
+server:
+  replicas: 3
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 1Gi
+      cpu: 1
+  containerSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+  ingress:
+    enabled: true
+    ingressClassName: nginx-internal
+    annotations:
+      cert-manager.io/cluster-issuer: step-ca-internal
+      nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    hosts:
+      - argocd.vhhealth.hospital.local
+    tls:
+      - secretName: argocd-tls
+        hosts:
+          - argocd.vhhealth.hospital.local
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        release: vhhealth-monitoring
+  # OIDC: TODO — wire Keycloak/Google/GitHub SSO once we stand up an IdP
+  # in the hospital. For now, local admin account (password in Secret).
+
+repoServer:
+  replicas: 3
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 1Gi
+      cpu: 1
+  containerSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        release: vhhealth-monitoring
+
+applicationSet:
+  replicas: 2
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+  containerSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        release: vhhealth-monitoring
+
+notifications:
+  enabled: true
+  replicas: 2
+  containerSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+
+redis-ha:
+  enabled: true
+  persistentVolume:
+    enabled: true
+    storageClass: local-path
+    size: 5Gi
+  haproxy:
+    enabled: true
+  containerSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    runAsGroup: 1001
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+
+redis:
+  enabled: false
+
+dex:
+  enabled: false  # no OIDC yet
+
+configs:
+  params:
+    server.insecure: false
+    # Pre-commit hook signs every manifest with cosign; Argo CD verifies
+    # during sync. Until batch 17 adds cosign keys, this is informational:
+    application.instanceLabelKey: argocd.argoproj.io/instance
+  cm:
+    statusbadge.enabled: "true"
+    kustomize.buildOptions: "--enable-helm"
+    # RBAC: the admin bootstrap password (set at first login) controls
+    # the built-in `admin` account. Add real users via OIDC when wired.
+    users.anonymous.enabled: "false"
+    resource.customizations: |
+      networking.k8s.io/Ingress:
+        health.lua: |
+          hs = {}
+          hs.status = "Healthy"
+          return hs
+    # Scope Argo CD to vhhealth-* + kube-system namespaces only. Anything
+    # else is out of reach by design.
+    application.namespaces: "argocd, vhhealth, vhhealth-platform, vhhealth-monitoring, vhhealth-ingress, vhhealth-security, kube-system"
+  rbac:
+    policy.default: "role:readonly"
+    policy.csv: |
+      p, role:vhhealth-admin, applications, *, */*, allow
+      p, role:vhhealth-admin, clusters, *, *, allow
+      p, role:vhhealth-admin, repositories, *, *, allow
+      p, role:vhhealth-admin, projects, *, *, allow
+      g, admin, role:vhhealth-admin

@@ -1,0 +1,78 @@
+{{ ansible_managed | comment }}
+# VH Health Platform — RKE2 server configuration.
+# Docs: https://docs.rke2.io/install/configuration
+
+# --- Identity --------------------------------------------------------------
+node-name: "{{ inventory_hostname }}"
+node-label:
+  - "kubernetes.io/role=server"
+  - "topology.kubernetes.io/zone={{ inventory_zone | default('default') }}"
+  - "vhhealth.io/tier=primary"
+{% if taint_server_nodes | bool %}
+node-taint:
+{% for t in rke2_server_taints %}
+  - "{{ t }}"
+{% endfor %}
+{% endif %}
+
+# --- Cluster membership ----------------------------------------------------
+{% if rke2_bootstrap | default(false) | bool %}
+# This node is the cluster bootstrap server — it creates the cluster.
+{% else %}
+server: "https://{{ hostvars[groups['rke2_servers'] | first].ansible_host }}:9345"
+token: "{{ rke2_cluster_token }}"
+{% endif %}
+
+write-kubeconfig-mode: "0640"
+
+# --- CNI / profile ---------------------------------------------------------
+cni: "{{ rke2_cni }}"
+profile: "{{ rke2_profile }}"
+
+# --- Disabled built-ins ----------------------------------------------------
+disable:
+{% for c in rke2_disable_components %}
+  - {{ c }}
+{% endfor %}
+
+# --- TLS SANs --------------------------------------------------------------
+tls-san:
+{% for san in cluster_dns_san | default([]) %}
+  - "{{ san }}"
+{% endfor %}
+{% for host in groups['rke2_servers'] | default([]) %}
+  - "{{ hostvars[host].ansible_host }}"
+  - "{{ host }}"
+{% endfor %}
+
+# --- etcd snapshots --------------------------------------------------------
+etcd-snapshot-schedule-cron: "{{ rke2_etcd_snapshot_schedule }}"
+etcd-snapshot-retention: {{ rke2_etcd_snapshot_retention }}
+{% if rke2_etcd_s3_enabled | bool %}
+etcd-s3: true
+etcd-s3-endpoint: "{{ etcd_s3_endpoint }}"
+etcd-s3-bucket: "{{ etcd_s3_bucket }}"
+etcd-s3-access-key: "{{ etcd_s3_access_key }}"
+etcd-s3-secret-key: "{{ etcd_s3_secret_key }}"
+etcd-s3-region: "{{ etcd_s3_region | default('auto') }}"
+etcd-s3-folder: "{{ etcd_s3_folder | default('etcd-snapshots/' ~ inventory_hostname) }}"
+{% endif %}
+
+# --- API server audit ------------------------------------------------------
+kube-apiserver-arg:
+  - "audit-log-path={{ rke2_audit_log_file }}"
+  - "audit-policy-file={{ rke2_audit_policy_file }}"
+  - "audit-log-maxage={{ rke2_audit_log_maxage }}"
+  - "audit-log-maxbackup={{ rke2_audit_log_maxbackup }}"
+  - "audit-log-maxsize={{ rke2_audit_log_maxsize }}"
+  - "request-timeout=300s"
+  - "service-account-lookup=true"
+
+# --- kubelet ---------------------------------------------------------------
+kubelet-arg:
+  - "system-reserved={{ rke2_system_reserved }}"
+  - "kube-reserved={{ rke2_kube_reserved }}"
+  - "eviction-hard=memory.available<500Mi,nodefs.available<10%,imagefs.available<10%"
+  - "protect-kernel-defaults=true"
+  - "streaming-connection-idle-timeout=5m"
+  - "tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"

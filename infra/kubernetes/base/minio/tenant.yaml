@@ -1,0 +1,289 @@
+# minio/tenant.yaml — VH Health MinIO tenant (4 pools, EC:4)
+#
+# A "tenant" is a self-contained MinIO cluster managed by the MinIO
+# Operator. We run one tenant per environment — simple, isolated,
+# easy to reason about. Cross-region replication to Cloudflare R2 is
+# configured post-bootstrap (see README note at the bottom of this
+# file).
+#
+# Sizing: 4 pools * 4 volumes per pool * 100Gi = 1.6 TiB raw. Erasure
+# coding parity EC:4 (4 parity blocks) gives 50 percent usable =
+# ~800 GiB. Write quorum requires (total - parity + 1) = 13 of 16
+# drives available; tolerates simultaneous loss of 4 drives (one pool)
+# while still serving reads at reduced redundancy.
+#
+# Pod topology: 4 servers per pool, spread across nodes using
+# podAntiAffinity. At 3 nodes and 4 pools of 4 servers = 16 pods
+# total. Uneven distribution is inevitable; `nodeSelector` targets
+# platform nodes only.
+#
+# Root creds: Secret `minio-root-credentials` — a SealedSecret (see
+# `minio-root-credentials.sealed-secret.yaml.example`). This secret is
+# used once to bootstrap the tenant; application access goes through
+# scoped service accounts + bucket policies managed by the operator's
+# `PolicyBinding` CRs (defined in `infra/kubernetes/apps/*`).
+#
+# Console + admin ingress: only on `nginx-internal`, LAN-only host
+# `minio.vhhealth.hospital.local`. The S3 API is reached at
+# `minio.vhhealth-platform.svc.cluster.local:443` from inside the
+# cluster; no ingress exposes the S3 endpoint.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-api
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/instance: vhhealth-minio
+    app.kubernetes.io/component: object-storage
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  type: ClusterIP
+  ports:
+    - name: https
+      port: 443
+      targetPort: 9000
+  selector:
+    v1.min.io/tenant: vhhealth-minio
+---
+apiVersion: minio.min.io/v2
+kind: Tenant
+metadata:
+  name: vhhealth-minio
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/instance: vhhealth-minio
+    app.kubernetes.io/component: object-storage
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    prometheus.io/path: /minio/v2/metrics/cluster
+    prometheus.io/port: "9000"
+    prometheus.io/scrape: "true"
+spec:
+  image: quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z
+  imagePullPolicy: IfNotPresent
+  # Root creds for the tenant — referenced by the operator at bootstrap.
+  configuration:
+    name: minio-root-credentials
+  # Console (web UI) — reached via the nginx-internal Ingress defined
+  # below.
+  requestAutoCert: true
+  mountPath: /export
+  podManagementPolicy: Parallel
+  serviceAccountName: minio
+  pools:
+    - name: pool-0
+      servers: 4
+      volumesPerServer: 4
+      volumeClaimTemplate:
+        apiVersion: v1
+        kind: PersistentVolumeClaim
+        metadata:
+          name: data
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          storageClassName: local-path
+          resources:
+            requests:
+              storage: 100Gi
+      resources:
+        requests:
+          memory: "2Gi"
+          cpu: "500m"
+        limits:
+          memory: "4Gi"
+          cpu: "2"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containerSecurityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    v1.min.io/tenant: vhhealth-minio
+            - weight: 50
+              podAffinityTerm:
+                topologyKey: topology.kubernetes.io/zone
+                labelSelector:
+                  matchLabels:
+                    v1.min.io/tenant: vhhealth-minio
+  # Pool-scoped PDB is provided by the operator; we don't need a
+  # separate PodDisruptionBudget resource.
+
+  # Prometheus — the MinIO Operator 5.x auto-discovers the kube-prometheus
+  # ServiceMonitor CRD and exposes /minio/v2/metrics/cluster on port 9000.
+  # We annotate the Tenant with prometheus.io/* hints (see metadata) and
+  # create a manual ServiceMonitor elsewhere if we want to override
+  # scrape options.
+  prometheusOperator: true
+
+  # Tenant-wide env
+  env:
+    - name: MINIO_BROWSER_REDIRECT_URL
+      value: "https://minio.vhhealth.hospital.local"
+    - name: MINIO_PROMETHEUS_AUTH_TYPE
+      value: "public"
+
+  # Buckets to create on first boot
+  buckets:
+    - name: vhhealth-records
+      region: apsouth1
+      objectLock: false
+    - name: vhhealth-backups
+      region: apsouth1
+      objectLock: true
+      # retention: WORM for clinical records; enforced at bucket level.
+    - name: harbor-registry
+      region: apsouth1
+      objectLock: false
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minio-console
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/instance: vhhealth-minio
+    app.kubernetes.io/component: console
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    cert-manager.io/cluster-issuer: step-ca-internal
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+spec:
+  ingressClassName: nginx-internal
+  tls:
+    - hosts: [minio.vhhealth.hospital.local]
+      secretName: minio-console-tls
+  rules:
+    - host: minio.vhhealth.hospital.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vhhealth-minio-console
+                port:
+                  number: 9443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: minio-allow-cluster-access
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/instance: vhhealth-minio
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      v1.min.io/tenant: vhhealth-minio
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Apps (backend) need the S3 API
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth
+      ports:
+        - protocol: TCP
+          port: 9000
+    # Harbor (registry) stores its image blobs in MinIO
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: harbor
+      ports:
+        - protocol: TCP
+          port: 9000
+    # Internal cluster traffic between MinIO servers (intra-tenant)
+    - from:
+        - podSelector:
+            matchLabels:
+              v1.min.io/tenant: vhhealth-minio
+    # Console access from ingress
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-ingress
+      ports:
+        - protocol: TCP
+          port: 9443
+    # Monitoring scrape
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-monitoring
+  egress:
+    # Intra-tenant + kube-dns
+    - to:
+        - podSelector:
+            matchLabels:
+              v1.min.io/tenant: vhhealth-minio
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # External egress for replication to Cloudflare R2 (TLS 443)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+---
+# Replication to Cloudflare R2 is configured out-of-band:
+#
+#   # 1. Configure R2 as an S3 alias in the MinIO tenant:
+#   mc alias set r2 https://<account>.r2.cloudflarestorage.com \
+#       $R2_ACCESS_KEY_ID $R2_SECRET_ACCESS_KEY
+#
+#   # 2. Create replication remote target:
+#   mc admin bucket remote add local/vhhealth-backups \
+#       https://$R2_ACCESS:$R2_SECRET@<account>.r2.cloudflarestorage.com/vhhealth-backups-dr \
+#       --service replication
+#
+#   # 3. Create replication rule:
+#   mc replicate add local/vhhealth-backups --remote-bucket <arn> \
+#       --priority 1 --replicate "delete,delete-marker,replica-metadata-sync"
+#
+# This cannot be expressed declaratively in the Tenant CRD today (5.0.x).
+# A follow-up ticket tracks moving to a Job that runs `mc` against the
+# MinIO admin API during cluster bootstrap, reading R2 creds from a
+# separate SealedSecret.

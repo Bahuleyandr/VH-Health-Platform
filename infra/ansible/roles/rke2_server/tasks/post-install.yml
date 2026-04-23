@@ -1,0 +1,92 @@
+---
+# Post-install: install kubectl/helm/kubectx + copy kubeconfig to admin user.
+
+- name: Symlink rke2 kubectl into /usr/local/bin
+  ansible.builtin.file:
+    src: "{{ rke2_data_dir }}/bin/kubectl"
+    dest: /usr/local/bin/kubectl
+    state: link
+    force: true
+  tags: [rke2, post, tooling]
+
+- name: Install Helm (pinned)
+  ansible.builtin.unarchive:
+    src: "https://get.helm.sh/helm-{{ rke2_helm_version }}-linux-amd64.tar.gz"
+    dest: /tmp
+    remote_src: true
+    creates: "/tmp/linux-amd64/helm"
+  tags: [rke2, post, tooling]
+
+- name: Move Helm binary into /usr/local/bin
+  ansible.builtin.copy:
+    src: /tmp/linux-amd64/helm
+    dest: /usr/local/bin/helm
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [rke2, post, tooling]
+
+- name: Install kubectx + kubens via apt (Ubuntu 24.04 universe)
+  ansible.builtin.apt:
+    name:
+      - kubectx
+    state: present
+    update_cache: true
+  failed_when: false  # package may not be available on all mirrors
+  tags: [rke2, post, tooling]
+
+# --- Copy kubeconfig to admin user ----------------------------------------
+
+- name: Ensure admin kube dir
+  ansible.builtin.file:
+    path: "{{ hardening_admin_home | default('/home/' ~ (hardening_admin_user | default('vhhealth'))) }}/.kube"
+    state: directory
+    owner: "{{ hardening_admin_user | default('vhhealth') }}"
+    group: "{{ hardening_admin_user | default('vhhealth') }}"
+    mode: "0700"
+  tags: [rke2, post, kubeconfig]
+
+- name: Wait for rke2 kubeconfig file
+  ansible.builtin.wait_for:
+    path: "{{ rke2_config_dir }}/rke2.yaml"
+    state: present
+    timeout: 300
+  tags: [rke2, post, kubeconfig]
+
+- name: Copy rke2.yaml to admin ~/.kube/config
+  ansible.builtin.copy:
+    src: "{{ rke2_config_dir }}/rke2.yaml"
+    dest: "{{ hardening_admin_home | default('/home/' ~ (hardening_admin_user | default('vhhealth'))) }}/.kube/config"
+    remote_src: true
+    owner: "{{ hardening_admin_user | default('vhhealth') }}"
+    group: "{{ hardening_admin_user | default('vhhealth') }}"
+    mode: "0600"
+  tags: [rke2, post, kubeconfig]
+
+- name: Rewrite kubeconfig server URL from 127.0.0.1 to first server
+  ansible.builtin.replace:
+    path: "{{ hardening_admin_home | default('/home/' ~ (hardening_admin_user | default('vhhealth'))) }}/.kube/config"
+    regexp: 'https://127\.0\.0\.1:6443'
+    replace: "https://{{ hostvars[groups['rke2_servers'] | first].ansible_host }}:6443"
+  tags: [rke2, post, kubeconfig]
+
+# --- Node labels ----------------------------------------------------------
+# Labels are already in config.yaml's node-label list, so they're applied
+# on kubelet registration. This block is a safety net: if an operator
+# edits labels post-join, the role re-asserts them.
+
+- name: Re-assert node labels via kubectl (safety net)
+  ansible.builtin.shell: |
+    set -o pipefail
+    kubectl --kubeconfig={{ rke2_config_dir }}/rke2.yaml label node {{ inventory_hostname }} \
+      kubernetes.io/role=server \
+      topology.kubernetes.io/zone={{ inventory_zone | default('default') }} \
+      vhhealth.io/tier=primary \
+      --overwrite
+  args:
+    executable: /bin/bash
+  when: rke2_bootstrap | default(false) | bool  # run once from bootstrap
+  changed_when: true
+  failed_when: false
+  tags: [rke2, post, labels]

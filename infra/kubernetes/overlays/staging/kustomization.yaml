@@ -1,0 +1,53 @@
+# overlays/staging/kustomization.yaml — staging
+#
+# Staging mirrors prod topology at smaller scale: CNPG stays HA (3
+# replicas; we want replica failover to be testable), but stateless
+# services scale to 1. Different ingress hostnames keep external
+# traffic separated.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: vhhealth-platform-staging
+resources:
+  - ../../base
+patches:
+  # Cloudflared to 1 replica in staging (less traffic).
+  - target:
+      kind: Deployment
+      name: cloudflared
+      namespace: vhhealth-ingress
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  # Sealed-secrets stays single-replica (it's already single in base).
+
+  # Harbor chart tracker: staging pulls a different tag ("staging"),
+  # managed by Argo CD — the ConfigMap here just tracks the expected
+  # value.
+  - target:
+      kind: ConfigMap
+      name: harbor-chart-tracker
+      namespace: vhhealth-platform
+    patch: |-
+      - op: add
+        path: /data/environmentOverride
+        value: "staging"
+
+configMapGenerator:
+  - name: vhhealth-env
+    namespace: vhhealth-platform
+    literals:
+      - ENVIRONMENT=staging
+      - LOG_LEVEL=debug
+      - INGRESS_PUBLIC_HOST=api.staging.vhhealth.app
+      - INGRESS_ADMIN_HOST=admin.staging.vhhealth.app
+      - DB_HOST=vhhealth-pg-rw.vhhealth-platform.svc.cluster.local
+      - DB_POOLER_HOST=vhhealth-pg-rw-pooler.vhhealth-platform.svc.cluster.local
+      - REDIS_SENTINEL_HOST=redis-sentinel.vhhealth-platform.svc.cluster.local
+      - MINIO_ENDPOINT=minio-api.vhhealth-platform.svc.cluster.local
+
+commonAnnotations:
+  vhhealth.app/environment: "staging"
+  vhhealth.app/data-residency: "in"

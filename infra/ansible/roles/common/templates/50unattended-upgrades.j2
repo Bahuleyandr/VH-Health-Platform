@@ -1,0 +1,27 @@
+{{ ansible_managed | comment }}
+// VH Health Platform — unattended-upgrades policy.
+// Auto-reboot is DISABLED; Kured handles cluster-aware reboots with drain.
+
+Unattended-Upgrade::Allowed-Origins {
+    "${distro_id}:${distro_codename}";
+    "${distro_id}:${distro_codename}-security";
+    "${distro_id}ESMApps:${distro_codename}-apps-security";
+    "${distro_id}ESM:${distro_codename}-infra-security";
+    "${distro_id}:${distro_codename}-updates";
+};
+
+Unattended-Upgrade::Package-Blacklist {
+    // Never auto-upgrade RKE2; that is done via upgrade-k8s.yml playbook.
+    "rke2-common";
+    "rke2-server";
+    "rke2-agent";
+    "kubectl";
+    "kubelet";
+    "kubeadm";
+};
+
+Unattended-Upgrade::DevRelease "auto";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Automatic-Reboot "{{ common_unattended_upgrades_auto_reboot }}";
+Unattended-Upgrade::SyslogEnable "true";

@@ -1,0 +1,33 @@
+---
+# Join a non-bootstrap server to the existing cluster.
+# By this point configure.yml has written config.yaml with server: + token:
+# populated from the bootstrap node.
+
+- name: Assert we have a cluster token
+  ansible.builtin.assert:
+    that:
+      - rke2_cluster_token is defined
+      - rke2_cluster_token | length > 0
+    fail_msg: "Cannot join without rke2_cluster_token from bootstrap node."
+  tags: [rke2, join]
+
+- name: Ensure rke2-server service is enabled
+  ansible.builtin.systemd:
+    name: rke2-server
+    enabled: true
+    daemon_reload: true
+  tags: [rke2, join]
+
+- name: Start rke2-server (join node)
+  ansible.builtin.systemd:
+    name: rke2-server
+    state: started
+  tags: [rke2, join]
+
+- name: Wait for local kubelet API (10250) ready
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 10250
+    timeout: 600
+    delay: 10
+  tags: [rke2, join]

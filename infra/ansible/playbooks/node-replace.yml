@@ -1,0 +1,115 @@
+---
+# Replace a failed RKE2 node.
+#
+# Usage:
+#   ansible-playbook -i inventories/prod.yml playbooks/node-replace.yml \
+#     -e failed_node=vhh-node-2
+#
+# Prereqs:
+#   - The replacement host has been racked, imaged with Ubuntu 24.04 LTS,
+#     reachable over SSH from the bastion, and has the same hostname as
+#     the failed node (inventory entry unchanged; IP may differ if you
+#     updated inventories/prod.yml with the new IP).
+#
+# Flow:
+#   1. Validate `failed_node` exists in inventory.
+#   2. Cordon + drain (best-effort) + delete from cluster API.
+#   3. Run site.yml against ONLY that host to re-bootstrap + rejoin.
+#   4. Verify Ready.
+
+- name: Validate inputs
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Assert failed_node variable
+      ansible.builtin.assert:
+        that:
+          - failed_node is defined
+          - failed_node in groups['rke2_servers']
+        fail_msg: "Pass -e failed_node=<hostname>; must exist in rke2_servers group"
+      run_once: true
+
+- name: Remove failed node from Kubernetes API
+  hosts: rke2_servers
+  become: true
+  gather_facts: false
+  vars:
+    healthy_node: "{{ groups['rke2_servers'] | difference([failed_node]) | first }}"
+    kubeconfig_path: /etc/rancher/rke2/rke2.yaml
+  tasks:
+    - name: Cordon failed node (best-effort)
+      ansible.builtin.command:
+        cmd: "kubectl --kubeconfig={{ kubeconfig_path }} cordon {{ failed_node }}"
+      delegate_to: "{{ healthy_node }}"
+      run_once: true
+      failed_when: false
+      changed_when: true
+
+    - name: Drain failed node (best-effort; may fail if already dead)
+      ansible.builtin.command:
+        cmd: >-
+          kubectl --kubeconfig={{ kubeconfig_path }} drain {{ failed_node }}
+          --ignore-daemonsets --delete-emptydir-data --force
+          --grace-period=60 --timeout=5m
+      delegate_to: "{{ healthy_node }}"
+      run_once: true
+      failed_when: false
+      changed_when: true
+
+    - name: Delete node object from API
+      ansible.builtin.command:
+        cmd: "kubectl --kubeconfig={{ kubeconfig_path }} delete node {{ failed_node }}"
+      delegate_to: "{{ healthy_node }}"
+      run_once: true
+      failed_when: false
+      changed_when: true
+
+    - name: Remove failed node from etcd membership
+      ansible.builtin.shell: |
+        set -o pipefail
+        MEMBER_ID=$(/var/lib/rancher/rke2/bin/etcdctl \
+          --cacert=/var/lib/rancher/rke2/server/tls/etcd/server-ca.crt \
+          --cert=/var/lib/rancher/rke2/server/tls/etcd/server-client.crt \
+          --key=/var/lib/rancher/rke2/server/tls/etcd/server-client.key \
+          --endpoints=https://127.0.0.1:2379 \
+          member list | awk -F, -v n="{{ failed_node }}" '$3 ~ n {print $1}')
+        if [ -n "$MEMBER_ID" ]; then
+          /var/lib/rancher/rke2/bin/etcdctl \
+            --cacert=/var/lib/rancher/rke2/server/tls/etcd/server-ca.crt \
+            --cert=/var/lib/rancher/rke2/server/tls/etcd/server-client.crt \
+            --key=/var/lib/rancher/rke2/server/tls/etcd/server-client.key \
+            --endpoints=https://127.0.0.1:2379 \
+            member remove "$MEMBER_ID"
+        fi
+      args:
+        executable: /bin/bash
+      delegate_to: "{{ healthy_node }}"
+      run_once: true
+      failed_when: false
+      changed_when: true
+
+- name: Wipe RKE2 state on replacement host (idempotent)
+  hosts: rke2_servers
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Skip healthy nodes
+      ansible.builtin.meta: end_host
+      when: inventory_hostname != failed_node
+
+    - name: Stop rke2-server if running
+      ansible.builtin.systemd:
+        name: rke2-server
+        state: stopped
+      failed_when: false
+
+    - name: Run RKE2 uninstall script (if present)
+      ansible.builtin.command:
+        cmd: /usr/local/bin/rke2-uninstall.sh
+      args:
+        removes: /usr/local/bin/rke2-uninstall.sh
+      failed_when: false
+      changed_when: true
+
+- name: Re-apply site.yml on replacement host
+  ansible.builtin.import_playbook: site.yml

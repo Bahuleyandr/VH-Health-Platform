@@ -7,7 +7,11 @@
 - **God components** — `system-logs/page.tsx` (456 LOC), `PermissionsMatrix.tsx`, `CleanDashboard` pulling a giant subtree. Hard to mock, hard to test.
 - **Accessibility at 5/10.** Raw `<img>` tags bypass Next/Image (disabled with comments); sparse `aria-label`/`role` on interactive elements; forms may lack proper labels; no `aria-live` on async data tiles.
 - **Real-time half-baked.** WS reconnect has exponential backoff, but no heartbeat/pong, no subscribe-confirmation, no stale-ticket refresh UX. Ticket TTL is 60s — stale tokens will manifest as mysterious disconnects.
-- **No CI/CD visible.** `.vercel-deploy-trigger` + Dockerfile exist, but no GitHub Actions workflow. Manual deploys are a footgun.
+- **Deployment story** (resolved 2026-04-23): admin portal now ships via
+  GitHub Actions image build + ArgoCD GitOps onto the on-prem RKE2
+  cluster. Manifests at `infra/kubernetes/apps/admin/`. See
+  `../../../docs/DEPLOYMENT_GUIDE.md` for the full runbook. Previous "no
+  CI/CD visible" gap closed.
 
 **Next concrete moves:**
 1. Playwright smoke tests on top 5 user journeys (login → dashboard, user CRUD, appointment ops, billing invoice, compliance dashboard).
@@ -23,6 +27,8 @@
 > Source of truth for next-step work. Next.js app for hospital administration.
 
 **Current grade:** C+. Modern stack (App Router, TanStack Query) with good patterns in places, but critical gaps: bed management is a localStorage mock with "Backend API coming soon" comment; 975+ line client components; 4 tests total; no MFA; 7-day JWT in `localStorage` (XSS risk).
+
+**Deployment grade upgraded 2026-04-23:** C (manual deploy) → **A (GitOps via ArgoCD on 3-node on-prem RKE2)**. End-to-end runbook at `../../../docs/DEPLOYMENT_GUIDE.md`; hardware spec at `../../../docs/HARDWARE_REQUIREMENTS.md`.
 
 ---
 
@@ -64,6 +70,19 @@ Admin page `dashboard/compliance/indicators` reads `/compliance/indicators` — 
 ### 3Δ. Pharmacy inventory + expiry management ✅ (2026-04-14)
 Admin page `dashboard/pharmacy/inventory` — summary tiles (in-stock, below reorder, expiring, expired) + per-section tables (low stock, expiring 30d, expired). Reads the existing `/pharmacy/inventory/*` endpoints.
 **Still open:** supplier integration for auto-reorder, batch-level recall tracking (current backend keys on medication, not batch).
+
+## Phase 4 — Platform (2026-04-23 onwards)
+
+### 4A. Deployment on on-prem RKE2 ✅ (narrative locked)
+Admin image built by GitHub Actions, pushed as `ghcr.io/bahuleyan/vhhealth-admin:v1.2.3`
++ `main-<sha>`, referenced by manifests at `infra/kubernetes/apps/admin/`. ArgoCD
+reconciles; Cloudflare Tunnel → ingress-nginx → Service. See
+[`../../../docs/DEPLOYMENT_GUIDE.md`](../../../docs/DEPLOYMENT_GUIDE.md).
+
+### 4B. Deferred — batch 17
+- ArgoCD image updater wired for automatic tag bumps.
+- Playwright E2E against the cluster ingress (currently runs locally).
+- Post-cutover pentest pass on `admin.vhhealth.app`.
 
 ### 3Ε. Executive KPI dashboard (C-suite view) ✅ (2026-04-14)
 Admin page `dashboard/executive` reads the new `/admin/executive-kpi/summary` — revenue billed/collected, bed occupancy with pressure colouring, patient satisfaction (feedback avg), doctor utilisation. Role-gated client-side via `usePermissions` + backend `ADMIN` requirement.

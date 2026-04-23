@@ -1,0 +1,17 @@
+# argocd/chart-tracker.yaml — Argo CD chart version tracker
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-chart-tracker
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argo-cd
+    app.kubernetes.io/component: chart-tracker
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+data:
+  chartRepo: "https://argoproj.github.io/argo-helm"
+  chartName: "argo-cd"
+  chartVersion: "7.7.5"
+  appVersion: "v2.13.1"

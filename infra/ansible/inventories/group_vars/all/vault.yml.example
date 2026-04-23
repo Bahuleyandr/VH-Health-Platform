@@ -1,0 +1,24 @@
+---
+# VH Health Platform — Ansible Vault template.
+#
+# Encrypt the real file with:
+#   ansible-vault encrypt inventories/group_vars/all/vault.yml
+#
+# The file MUST be named exactly `vault.yml` (not `vault.yml.example`) for
+# the inventory to pick it up. Commit the encrypted `vault.yml` ONLY if
+# your vault password is stored elsewhere (e.g. 1Password shared vault);
+# otherwise keep `vault.yml` gitignored alongside `prod.yml`.
+#
+# All values here are dummy placeholders.
+
+# --- etcd offsite snapshot destination (Cloudflare R2) ---------------------
+# R2 bucket configured in the VH Health Cloudflare account, India region.
+# Access key is scoped to Object:Read/Write on the etcd-snapshots bucket
+# only. Rotate quarterly.
+vault_etcd_s3_endpoint: "https://<ACCOUNT_ID>.r2.cloudflarestorage.com"
+vault_etcd_s3_bucket: "vhhealth-etcd-snapshots"
+vault_etcd_s3_access_key: "REPLACE_WITH_R2_ACCESS_KEY_ID"
+vault_etcd_s3_secret_key: "REPLACE_WITH_R2_SECRET_ACCESS_KEY"
+
+# --- Optional: admin SSH key (if you prefer vault over inventory) ---------
+# vault_admin_ssh_key: "ssh-ed25519 AAAA... vhhealth@hospital"

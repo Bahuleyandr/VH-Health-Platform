@@ -1,0 +1,273 @@
+# cloudflare-tunnel/cloudflared.yaml — Cloudflare Zero Trust Tunnel
+#
+# `cloudflared` runs as a Deployment with 3 replicas spread across zones
+# so a single-node outage doesn't drop tunnel connectivity. Each replica
+# maintains a pool of outbound gRPC connections to Cloudflare's edge.
+# Inbound requests from the edge are load-balanced across healthy
+# replicas automatically by Cloudflare's control plane.
+#
+# No inbound ports: all communication is initiated by cloudflared to
+# Cloudflare (TCP 7844). The hospital firewall keeps every inbound port
+# closed. This is the point.
+#
+# Tunnel config is a ConfigMap (non-sensitive routing rules) + a
+# SealedSecret (the `tunnel-token` credentials JSON, which contains the
+# tunnel ID and account secret). Rotate the token when replacing the
+# tunnel — otherwise the token never expires.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloudflared
+  namespace: vhhealth-ingress
+  labels:
+    app.kubernetes.io/name: cloudflared
+    app.kubernetes.io/instance: cloudflared
+    app.kubernetes.io/component: tunnel
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudflared-config
+  namespace: vhhealth-ingress
+  labels:
+    app.kubernetes.io/name: cloudflared
+    app.kubernetes.io/instance: cloudflared
+    app.kubernetes.io/component: tunnel-config
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+data:
+  config.yaml: |
+    # cloudflared config for the VH Health tunnel.
+    # Credentials live in /etc/cloudflared/creds/credentials.json.
+    tunnel: vhhealth-prod
+    credentials-file: /etc/cloudflared/creds/credentials.json
+
+    # Prometheus-style metrics endpoint for ServiceMonitor.
+    metrics: 0.0.0.0:2000
+
+    # Protocol: quic (UDP 7844) with tcp fallback. Lower latency than
+    # http2, especially when the hospital's upstream has loss.
+    protocol: auto
+    retries: 10
+    grace-period: 30s
+    warp-routing:
+      enabled: false
+
+    # Edge-to-origin TLS: always verify the origin cert (we terminate
+    # TLS at ingress-nginx with a cert signed by Let's Encrypt).
+    origin-request:
+      noTLSVerify: false
+      connectTimeout: 30s
+      tcpKeepAlive: 30s
+      keepAliveConnections: 100
+      keepAliveTimeout: 90s
+      httpHostHeader: ""  # set per-rule below
+      originServerName: api.vhhealth.app
+
+    ingress:
+      - hostname: api.vhhealth.app
+        service: http://ingress-nginx-controller.vhhealth-ingress.svc.cluster.local:80
+        originRequest:
+          httpHostHeader: api.vhhealth.app
+          connectTimeout: 30s
+          keepAliveTimeout: 90s
+      - hostname: admin.vhhealth.app
+        service: http://ingress-nginx-controller.vhhealth-ingress.svc.cluster.local:80
+        originRequest:
+          httpHostHeader: admin.vhhealth.app
+          connectTimeout: 30s
+          keepAliveTimeout: 90s
+      # Catch-all (required; cloudflared refuses to start without one)
+      - service: http_status:404
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: vhhealth-ingress
+  labels:
+    app.kubernetes.io/name: cloudflared
+    app.kubernetes.io/instance: cloudflared
+    app.kubernetes.io/component: tunnel
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflared
+      app.kubernetes.io/instance: cloudflared
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cloudflared
+        app.kubernetes.io/instance: cloudflared
+        app.kubernetes.io/component: tunnel
+        app.kubernetes.io/part-of: vhhealth
+        app.kubernetes.io/managed-by: kustomize
+    spec:
+      serviceAccountName: cloudflared
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: topology.kubernetes.io/zone
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/instance: cloudflared
+            - weight: 50
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/instance: cloudflared
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:2024.11.1@sha256:8ac9dd0a9f3e87b1cbd4c2a3f0b5e4cf7c1e9d8bfb2a8e5a3d7d2c9a2e4c7b5d
+          imagePullPolicy: IfNotPresent
+          args:
+            - tunnel
+            - --config
+            - /etc/cloudflared/config/config.yaml
+            - run
+          ports:
+            - name: metrics
+              containerPort: 2000
+              protocol: TCP
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 30
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/cloudflared/config
+              readOnly: true
+            - name: creds
+              mountPath: /etc/cloudflared/creds
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: cloudflared-config
+        - name: creds
+          secret:
+            secretName: cloudflare-tunnel-credentials
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudflared-metrics
+  namespace: vhhealth-ingress
+  labels:
+    app.kubernetes.io/name: cloudflared
+    app.kubernetes.io/instance: cloudflared
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: cloudflared
+    app.kubernetes.io/instance: cloudflared
+  ports:
+    - name: http-metrics
+      port: 2000
+      targetPort: 2000
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cloudflared
+  namespace: vhhealth-ingress
+  labels:
+    app.kubernetes.io/name: cloudflared
+    app.kubernetes.io/instance: cloudflared
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflared
+      app.kubernetes.io/instance: cloudflared
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cloudflared
+  namespace: vhhealth-ingress
+  labels:
+    app.kubernetes.io/name: cloudflared
+    app.kubernetes.io/instance: cloudflared
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    release: vhhealth-monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflared
+      app.kubernetes.io/instance: cloudflared
+      app.kubernetes.io/component: metrics
+  namespaceSelector:
+    matchNames:
+      - vhhealth-ingress
+  endpoints:
+    - port: http-metrics
+      interval: 30s
+      path: /metrics

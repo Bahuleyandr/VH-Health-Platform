@@ -1,0 +1,270 @@
+# monitoring/kube-prometheus-values.yaml — values for kube-prometheus-stack
+#
+# Chart: prometheus-community/kube-prometheus-stack v65.2.0
+# (Prometheus 2.55, Grafana 11.3, Alertmanager 0.27).
+#
+# Deployed via Argo CD Application (not kustomize helmCharts). Values
+# here are the source of truth — platform edits happen in this file.
+crds:
+  enabled: true
+
+prometheusOperator:
+  admissionWebhooks:
+    patch:
+      enabled: true
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    fsGroup: 65534
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+prometheus:
+  prometheusSpec:
+    replicas: 2
+    shards: 1
+    retention: 30d
+    retentionSize: 45GiB
+    scrapeInterval: 30s
+    evaluationInterval: 30s
+    # Pick up every ServiceMonitor/PodMonitor we label.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 50Gi
+    resources:
+      requests:
+        memory: 2Gi
+        cpu: 500m
+      limits:
+        memory: 4Gi
+        cpu: 2
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 65534
+      runAsGroup: 65534
+      fsGroup: 65534
+      seccompProfile:
+        type: RuntimeDefault
+    containers:
+      - name: prometheus
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65534
+          runAsGroup: 65534
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: prometheus
+    thanos:
+      # Future multi-region: add a Thanos sidecar here to ship blocks to
+      # R2 for long-term retention. Skipped initially; 30d on disk is
+      # sufficient for on-prem operational visibility.
+      enabled: false
+
+alertmanager:
+  alertmanagerSpec:
+    replicas: 3
+    retention: 168h  # 7d
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 5Gi
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 512Mi
+        cpu: 500m
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 65534
+      runAsGroup: 65534
+      fsGroup: 65534
+      seccompProfile:
+        type: RuntimeDefault
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: [alertname, namespace, severity]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      receiver: default-discord
+      routes:
+        - matchers:
+            - severity = critical
+          receiver: critical-pagerduty
+          continue: true
+        - matchers:
+            - severity =~ "critical|warning"
+          receiver: default-discord
+    receivers:
+      - name: default-discord
+        webhook_configs:
+          - url_file: /etc/alertmanager/secrets/alertmanager-secrets/discord-webhook-url
+            send_resolved: true
+            http_config:
+              follow_redirects: true
+      - name: critical-pagerduty
+        pagerduty_configs:
+          - routing_key_file: /etc/alertmanager/secrets/alertmanager-secrets/pagerduty-routing-key
+            send_resolved: true
+    inhibit_rules:
+      - source_matchers:
+          - severity = critical
+        target_matchers:
+          - severity = warning
+        equal: [alertname, namespace]
+
+grafana:
+  enabled: true
+  replicas: 2
+  persistence:
+    enabled: true
+    storageClassName: local-path
+    size: 10Gi
+    accessModes: ["ReadWriteOnce"]
+  admin:
+    existingSecret: grafana-admin-credentials
+    userKey: admin-user
+    passwordKey: admin-password
+  serviceAccount:
+    create: true
+    autoMount: true
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 472
+    runAsGroup: 472
+    fsGroup: 472
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 472
+    runAsGroup: 472
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 200m
+    limits:
+      memory: 1Gi
+      cpu: 1
+  ingress:
+    enabled: true
+    ingressClassName: nginx-internal
+    annotations:
+      cert-manager.io/cluster-issuer: step-ca-internal
+    hosts:
+      - grafana.vhhealth.hospital.local
+    tls:
+      - secretName: grafana-tls
+        hosts:
+          - grafana.vhhealth.hospital.local
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+    datasources:
+      enabled: true
+      label: grafana_datasource
+      labelValue: "1"
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: "default"
+          orgId: 1
+          folder: "VH Health"
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+  dashboards:
+    default:
+      node-exporter:
+        gnetId: 1860
+        revision: 37
+        datasource: Prometheus
+      kubernetes-compute-resources-cluster:
+        gnetId: 15757
+        revision: 37
+        datasource: Prometheus
+      kubernetes-compute-resources-namespace:
+        gnetId: 15758
+        revision: 36
+        datasource: Prometheus
+      postgres-overview:
+        gnetId: 9628
+        revision: 8
+        datasource: Prometheus
+      redis-overview:
+        gnetId: 11835
+        revision: 1
+        datasource: Prometheus
+      ingress-nginx:
+        gnetId: 9614
+        revision: 1
+        datasource: Prometheus
+      cloudnative-pg:
+        gnetId: 20417
+        revision: 2
+        datasource: Prometheus
+      # Custom application dashboard placeholder — populated once the
+      # backend exposes prom-compatible /metrics (Agent C or a follow-up
+      # ticket on the backend side).
+
+nodeExporter:
+  enabled: true
+  operatingSystems:
+    linux:
+      enabled: true
+
+kube-state-metrics:
+  enabled: true

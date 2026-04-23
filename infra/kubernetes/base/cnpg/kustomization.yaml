@@ -1,0 +1,27 @@
+# cnpg/kustomization.yaml — CloudNativePG operator + VH Health cluster
+#
+# The CNPG operator is installed from the upstream pinned release:
+#   https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.24.1/cnpg-1.24.1.yaml
+#
+# The URL is NOT listed in `resources:` below because:
+#   (a) Remote resources break offline builds and add ~9k lines to every
+#       kustomize render.
+#   (b) commonLabels at this level would try to patch immutable selectors
+#       on the upstream Deployments + CRDs.
+#
+# Instead, the platform bootstrap runbook applies the operator manifest
+# directly with `kubectl apply -f <URL>` once, and Argo CD manages the
+# `Cluster`, `Pooler`, `ScheduledBackup`, and ConfigMap resources here.
+#
+# When we migrate to Argo CD ApplicationSets, the operator itself becomes
+# its own Application ("app of apps" pattern) and syncs from the pinned
+# URL directly — keeping its lifecycle separate from the Cluster CRDs
+# we manage in this directory.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: vhhealth-cnpg
+resources:
+  - operator.yaml
+  - cluster.yaml
+  - poolers.yaml

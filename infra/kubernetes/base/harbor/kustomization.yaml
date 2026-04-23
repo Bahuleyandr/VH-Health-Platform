@@ -1,0 +1,18 @@
+# harbor/kustomization.yaml — Harbor image registry
+#
+# Harbor is deployed by Argo CD as its own `Application` (chart-mode),
+# pulling the official goharbor/harbor-helm chart at a pinned version
+# with values rendered from `harbor-values.yaml`. This file only tracks
+# the chart version and the pre-existing ServiceAccount/secret shells
+# that the chart consumes.
+#
+# Why not kustomize `helmCharts:` here: it requires the `helm` binary at
+# kustomize-build time, which breaks offline build for air-gapped CI
+# environments (hospital site, `scripts/ci-local.sh`). Argo CD runs the
+# helm template at sync time with network access to the chart repo.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: vhhealth-harbor
+resources:
+  - chart-tracker.yaml

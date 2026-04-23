@@ -1,0 +1,56 @@
+# cnpg/operator.yaml — CloudNativePG operator reference
+#
+# The CNPG operator is installed via the upstream release manifest rather
+# than an inline fork, so we stay on the supported distribution channel.
+# The manifest is referenced from `kustomization.yaml` as a remote
+# resource — this file is a marker for humans and a place for any local
+# operator overrides.
+#
+# Version: CNPG 1.24.1 (released 2024-11; LTS channel through mid-2026).
+# Upgrade path: https://cloudnative-pg.io/documentation/current/installation_upgrade/
+#
+# The operator creates its own namespace (`cnpg-system`) and deploys a
+# single replica. For multi-site later we revisit HA for the operator.
+#
+# Components installed by the remote manifest:
+#   - namespace: cnpg-system
+#   - CRDs: Cluster, Backup, ScheduledBackup, Pooler, ClusterImageCatalog,
+#           ImageCatalog, Publication, Subscription, Database
+#   - Operator Deployment (single replica, runs as non-root)
+#   - ClusterRole + RoleBinding for the operator's service account
+#   - ValidatingWebhookConfiguration + MutatingWebhookConfiguration
+#   - Service + cert-manager Certificate for the webhook endpoints
+#
+# If later we need to patch the operator (e.g. set nodeSelector, tolerate
+# taints on operator nodes), add patches in this file and list them under
+# `patches:` in `kustomization.yaml`.
+---
+# No local overrides right now — the upstream manifest is applied as-is.
+# Delete this comment and add a Deployment strategic-merge patch here
+# when/if needed, e.g.:
+#
+# apiVersion: apps/v1
+# kind: Deployment
+# metadata:
+#   name: cnpg-controller-manager
+#   namespace: cnpg-system
+# spec:
+#   template:
+#     spec:
+#       nodeSelector:
+#         node-role.vhhealth.app/platform: "true"
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cnpg-operator-pinned-version
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: cloudnative-pg
+    app.kubernetes.io/component: operator
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+data:
+  # Tracked here so Renovate / Argo CD image updaters can bump us.
+  operatorVersion: "1.24.1"
+  manifestUrl: "https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.24.1/cnpg-1.24.1.yaml"
+  postgresImage: "ghcr.io/cloudnative-pg/postgresql:17.2-1"

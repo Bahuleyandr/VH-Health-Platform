@@ -1,0 +1,195 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vhhealth-backend
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    app.kubernetes.io/name: vhhealth-backend
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vhhealth-backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vhhealth-backend
+        app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: vhhealth
+      annotations:
+        # Force rollout on ConfigMap/Secret change (Kustomize hashes merge into
+        # the referenced name; this is a belt-and-braces stamp for overlays
+        # that inject live config).
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5000"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Graceful shutdown — backend has SIGTERM handlers in bin/www.js that
+      # drain the DB pool; CLAUDE.md guarantees 10s force-exit fallback.
+      terminationGracePeriodSeconds: 30
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # Spread pods across zones/nodes so a single failure doesn't drop us
+      # below PDB minAvailable=2.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: vhhealth-backend
+                topologyKey: topology.kubernetes.io/zone
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: vhhealth-backend
+                topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: vhhealth-backend
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: vhhealth-backend
+      containers:
+        - name: backend
+          # Pinned to an immutable tag; prod overlay replaces with a digest:
+          #   image: ghcr.io/bahuleyandr/vh-health-backend@sha256:...
+          # Never use `:latest` — fails-build in our CI/ArgoCD policy.
+          image: ghcr.io/bahuleyandr/vh-health-backend:0.0.0-placeholder
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+          env:
+            # Downward API — pod identity + git sha for Sentry release tagging.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: GIT_COMMIT
+              valueFrom:
+                fieldRef:
+                  # Overlay sets `app.kubernetes.io/version` on the template
+                  # via a bake step from the image digest / git sha.
+                  fieldPath: metadata.labels['app.kubernetes.io/version']
+            # Explicit overrides — take precedence over ConfigMap entries.
+            # validateEnv.js uses Joi with defaults, so these are belt-and-braces.
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "5000"
+          envFrom:
+            - configMapRef:
+                name: vhhealth-backend-config
+            - secretRef:
+                # Populated by SealedSecret `vhhealth-backend-env`
+                # (see sealed-secret.yaml.example).
+                name: vhhealth-backend-env
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+          # Probes use `/health/live` + `/health/ready` per the brief. The
+          # current backend exposes `/health/ping` + `/health/deep`; when this
+          # Deployment lands, add `/health/live` (alias of /ping) and
+          # `/health/ready` (lighter deep check — DB + migration-applied flag).
+          # Fallback: `/api/v1/health/ping` works today if live/ready haven't
+          # shipped yet; overlay can rewrite the paths until then.
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30  # 30 * 5s = 150s max startup window
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # Express/multer spill + winston file transports (if ever enabled)
+            # + pg tmp catalog reads all go to /tmp.
+            - name: tmp
+              mountPath: /tmp
+            # Backend writes transient files here (see app.js audit/hipaa
+            # fallback file transports).
+            - name: app-tmp
+              mountPath: /app/tmp
+            # Prisma generates clients at startup if the readonly FS blocks
+            # them — give it a scratch dir. No-op when image bakes them in.
+            - name: prisma-cache
+              mountPath: /app/node_modules/.prisma
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: app-tmp
+          emptyDir:
+            sizeLimit: 512Mi
+        - name: prisma-cache
+          emptyDir:
+            sizeLimit: 64Mi

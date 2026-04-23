@@ -1,0 +1,249 @@
+---
+# Hardening — CIS Ubuntu 24.04 subset relevant to on-prem RKE2 hospital nodes.
+# Deliberately narrower than the full CIS bench; we apply what materially
+# reduces risk without breaking RKE2 / container runtime behaviour.
+
+- name: Install security tooling
+  ansible.builtin.apt:
+    name: "{{ hardening_security_packages }}"
+    state: present
+  tags: [hardening, packages]
+
+- name: Remove legacy/insecure packages
+  ansible.builtin.apt:
+    name: "{{ hardening_remove_packages }}"
+    state: absent
+    purge: true
+  tags: [hardening, packages]
+
+# --- Admin user + SSH key --------------------------------------------------
+
+- name: "Ensure admin user exists: {{ hardening_admin_user }}"
+  ansible.builtin.user:
+    name: "{{ hardening_admin_user }}"
+    shell: "{{ hardening_admin_shell }}"
+    home: "{{ hardening_admin_home }}"
+    groups: sudo
+    append: true
+    state: present
+    create_home: true
+  tags: [hardening, users]
+
+- name: Grant passwordless sudo to admin user
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/10-{{ hardening_admin_user }}"
+    content: "{{ hardening_admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+  tags: [hardening, users]
+
+- name: Install admin SSH public key
+  ansible.posix.authorized_key:
+    user: "{{ hardening_admin_user }}"
+    key: "{{ admin_ssh_key }}"
+    state: present
+    exclusive: false
+  when: admin_ssh_key is defined and admin_ssh_key | length > 0
+  tags: [hardening, users, ssh]
+
+- name: Lock root account password
+  ansible.builtin.user:
+    name: root
+    password_lock: true
+  tags: [hardening, users]
+
+# --- SSH server ------------------------------------------------------------
+
+- name: Render legal banner
+  ansible.builtin.template:
+    src: issue.net.j2
+    dest: /etc/issue.net
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [hardening, ssh]
+
+- name: Harden sshd_config
+  ansible.builtin.template:
+    src: sshd_config.j2
+    dest: /etc/ssh/sshd_config
+    owner: root
+    group: root
+    mode: "0600"
+    backup: true
+    validate: "/usr/sbin/sshd -t -f %s"
+  notify: restart sshd
+  tags: [hardening, ssh]
+
+# --- File permissions ------------------------------------------------------
+
+- name: Enforce /etc/shadow 0600
+  ansible.builtin.file:
+    path: /etc/shadow
+    owner: root
+    group: shadow
+    mode: "0640"
+  tags: [hardening, permissions]
+
+- name: Enforce /etc/passwd 0644
+  ansible.builtin.file:
+    path: /etc/passwd
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [hardening, permissions]
+
+- name: Enforce /etc/gshadow 0640
+  ansible.builtin.file:
+    path: /etc/gshadow
+    owner: root
+    group: shadow
+    mode: "0640"
+  tags: [hardening, permissions]
+
+# --- Disable core dumps ----------------------------------------------------
+
+- name: Ensure core-dump limits config
+  ansible.builtin.template:
+    src: limits-coredump.conf.j2
+    dest: /etc/security/limits.d/99-disable-coredump.conf
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [hardening, coredump]
+
+- name: Disable systemd-coredump service
+  ansible.builtin.systemd:
+    name: systemd-coredump.socket
+    enabled: false
+    state: stopped
+    masked: true
+  failed_when: false
+  tags: [hardening, coredump]
+
+# --- auditd ----------------------------------------------------------------
+
+- name: Install VH Health audit rules
+  ansible.builtin.template:
+    src: audit.rules.j2
+    dest: /etc/audit/rules.d/99-vhhealth.rules
+    owner: root
+    group: root
+    mode: "0640"
+  notify:
+    - reload audit rules
+    - restart auditd
+  tags: [hardening, audit]
+
+- name: Ensure auditd is enabled and running
+  ansible.builtin.systemd:
+    name: auditd
+    enabled: true
+    state: started
+  tags: [hardening, audit]
+
+# --- pam_faillock ----------------------------------------------------------
+
+- name: Configure pam_faillock policy
+  ansible.builtin.template:
+    src: faillock.conf.j2
+    dest: /etc/security/faillock.conf
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [hardening, pam]
+
+- name: Enable pam_faillock in PAM auth stack (common-auth)
+  ansible.builtin.lineinfile:
+    path: /etc/pam.d/common-auth
+    regexp: '^auth\s+required\s+pam_faillock\.so\s+preauth'
+    line: "auth    required    pam_faillock.so preauth silent"
+    insertbefore: '^auth\s+\[success=\d+\s+default=ignore\]\s+pam_unix\.so'
+    state: present
+  tags: [hardening, pam]
+
+- name: Enable pam_faillock authfail in PAM auth stack
+  ansible.builtin.lineinfile:
+    path: /etc/pam.d/common-auth
+    regexp: '^auth\s+\[default=die\]\s+pam_faillock\.so\s+authfail'
+    line: "auth    [default=die]    pam_faillock.so authfail"
+    insertafter: '^auth\s+\[success=\d+\s+default=ignore\]\s+pam_unix\.so'
+    state: present
+  tags: [hardening, pam]
+
+- name: Enable pam_faillock account check (common-account)
+  ansible.builtin.lineinfile:
+    path: /etc/pam.d/common-account
+    regexp: '^account\s+required\s+pam_faillock\.so'
+    line: "account    required    pam_faillock.so"
+    state: present
+  tags: [hardening, pam]
+
+# --- AIDE ------------------------------------------------------------------
+
+- name: Check if AIDE DB already exists
+  ansible.builtin.stat:
+    path: /var/lib/aide/aide.db
+  register: hardening_aide_db
+  tags: [hardening, aide]
+
+- name: Initialise AIDE database (first run only)
+  ansible.builtin.command:
+    cmd: aideinit -y -f
+    creates: /var/lib/aide/aide.db.new
+  when: not hardening_aide_db.stat.exists
+  changed_when: true
+  tags: [hardening, aide]
+
+- name: Promote AIDE new DB into active DB
+  ansible.builtin.command:
+    cmd: cp /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+    creates: /var/lib/aide/aide.db
+  when: not hardening_aide_db.stat.exists
+  changed_when: true
+  tags: [hardening, aide]
+
+# --- fail2ban --------------------------------------------------------------
+
+- name: Render fail2ban SSH jail
+  ansible.builtin.template:
+    src: fail2ban-jail.local.j2
+    dest: /etc/fail2ban/jail.local
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart fail2ban
+  tags: [hardening, fail2ban]
+
+- name: Ensure fail2ban is enabled and running
+  ansible.builtin.systemd:
+    name: fail2ban
+    enabled: true
+    state: started
+  tags: [hardening, fail2ban]
+
+# --- Disable unused services ----------------------------------------------
+
+- name: Disable unused services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+    masked: true
+  loop: "{{ hardening_disable_services }}"
+  failed_when: false  # service may not be installed; that is fine
+  tags: [hardening, services]
+
+# --- auth.log retention ----------------------------------------------------
+
+- name: Extended retention for /var/log/auth.log
+  ansible.builtin.template:
+    src: logrotate-auth.j2
+    dest: /etc/logrotate.d/rsyslog
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  tags: [hardening, logrotate]

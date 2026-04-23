@@ -1,0 +1,49 @@
+---
+# Primary admin user for all node access. Created with passwordless sudo +
+# SSH key from inventory var `admin_ssh_key`.
+hardening_admin_user: vhhealth
+hardening_admin_shell: /bin/bash
+hardening_admin_home: /home/vhhealth
+
+# Packages the hardening layer installs (security tooling).
+hardening_security_packages:
+  - auditd
+  - audispd-plugins
+  - aide
+  - fail2ban
+  - libpam-pwquality
+
+# Packages the hardening layer REMOVES (attack surface reduction).
+# telnet/rsh/talk are legacy cleartext protocols — never acceptable in a
+# healthcare environment.
+hardening_remove_packages:
+  - telnet
+  - rsh-client
+  - talk
+  - talkd
+
+# Services disabled as unused on a k8s server role.
+hardening_disable_services:
+  - avahi-daemon
+  - cups
+  - bluetooth
+  - rpcbind
+
+# SSH hardening — opinionated but reversible.
+hardening_ssh_port: 22
+hardening_ssh_max_auth_tries: 3
+hardening_ssh_client_alive_interval: 300
+hardening_ssh_client_alive_count_max: 2
+
+# pam_faillock — lockout policy for the login stack.
+hardening_faillock_deny: 5
+hardening_faillock_unlock_time: 900     # 15 minutes
+hardening_faillock_fail_interval: 900
+
+# fail2ban — SSH-only jail with 1 hour ban.
+hardening_fail2ban_bantime: 3600
+hardening_fail2ban_findtime: 600
+hardening_fail2ban_maxretry: 5
+
+# /var/log/auth.log retention — HIPAA/DPDP recommend 52 weeks minimum.
+hardening_auth_log_rotate_weeks: 52

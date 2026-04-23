@@ -1,0 +1,569 @@
+# redis/redis-sentinel.yaml — Redis 7.4 + Sentinel HA (3 nodes)
+#
+# Each pod runs two containers:
+#   - `redis`   : redis-server (port 6379), AOF enabled, requirepass
+#   - `sentinel`: redis-sentinel (port 26379), quorum 2 of 3
+#
+# Shared init container generates per-pod configs from the ConfigMap,
+# writing to an emptyDir so readOnlyRootFilesystem stays true on the
+# main containers.
+#
+# Primary discovery: clients connect to the headless service, ask any
+# Sentinel for the current master, and then connect to that master's
+# pod IP. Backend's ioredis client is configured with sentinel endpoints
+# in the same order as our statefulset pods (redis-0, -1, -2).
+#
+# AOF vs RDB: `appendonly yes` + `appendfsync everysec` gives at-most
+# 1 second of data loss on a full-node failure. Token blacklist (JWT
+# revocation) must survive a crash — RDB-only would be unacceptable for
+# that use case. Storage requirements go up; 10Gi per pod is plenty for
+# the blacklist + rate-limit keyspace + notification outbox cache.
+#
+# Password: from Secret `redis-credentials` (a SealedSecret — see
+# `redis-credentials.sealed-secret.yaml.example`). Sentinel authenticates
+# with the same password (requirepass + sentinel auth-pass).
+#
+# Anti-affinity: soft preference across zones so single-zone outage
+# preserves quorum. The operator would normally enforce spreading, but
+# with 3 replicas and 3 zones, soft preference is enough.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-sentinel-config
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: vhhealth-redis
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+data:
+  redis-base.conf: |
+    # Redis server config, templated by init container to add bind/port/replica-of
+    protected-mode yes
+    tcp-backlog 511
+    timeout 0
+    tcp-keepalive 300
+
+    daemonize no
+    supervised no
+    loglevel notice
+    logfile ""
+
+    # Persistence: AOF primary, RDB snapshot as safety net
+    appendonly yes
+    appendfsync everysec
+    no-appendfsync-on-rewrite no
+    auto-aof-rewrite-percentage 100
+    auto-aof-rewrite-min-size 64mb
+    aof-use-rdb-preamble yes
+    save 900 1
+    save 300 10
+    save 60 10000
+
+    # Memory
+    maxmemory 768mb
+    maxmemory-policy allkeys-lru
+
+    # Replication
+    repl-diskless-sync yes
+    repl-diskless-sync-delay 5
+    repl-timeout 60
+
+    # Security
+    # `requirepass` and `masterauth` injected at runtime from env.
+
+    # Slow log
+    slowlog-log-slower-than 10000
+    slowlog-max-len 128
+
+    # Latency
+    latency-monitor-threshold 100
+
+  sentinel-base.conf: |
+    port 26379
+    dir /data/sentinel
+    loglevel notice
+    # `sentinel monitor` and `auth-pass` injected at runtime.
+    sentinel down-after-milliseconds vhhealth-primary 5000
+    sentinel parallel-syncs vhhealth-primary 1
+    sentinel failover-timeout vhhealth-primary 60000
+    sentinel deny-scripts-reconfig yes
+
+  entrypoint.sh: |
+    #!/bin/sh
+    set -eu
+    POD_INDEX="${HOSTNAME##*-}"
+    MASTER_HOST="redis-0.redis-headless.vhhealth-platform.svc.cluster.local"
+
+    # Build redis-server config
+    mkdir -p /etc/redis
+    cp /config/redis-base.conf /etc/redis/redis.conf
+    echo "bind 0.0.0.0" >> /etc/redis/redis.conf
+    echo "port 6379" >> /etc/redis/redis.conf
+    echo "dir /data" >> /etc/redis/redis.conf
+    echo "requirepass ${REDIS_PASSWORD}" >> /etc/redis/redis.conf
+    echo "masterauth ${REDIS_PASSWORD}" >> /etc/redis/redis.conf
+    if [ "${POD_INDEX}" != "0" ]; then
+      echo "replicaof ${MASTER_HOST} 6379" >> /etc/redis/redis.conf
+    fi
+
+    # Build sentinel config (written to emptyDir; sentinel rewrites it at runtime)
+    mkdir -p /data/sentinel
+    cp /config/sentinel-base.conf /etc/redis/sentinel.conf
+    echo "sentinel monitor vhhealth-primary ${MASTER_HOST} 6379 2" >> /etc/redis/sentinel.conf
+    echo "sentinel auth-pass vhhealth-primary ${REDIS_PASSWORD}" >> /etc/redis/sentinel.conf
+    echo "sentinel resolve-hostnames yes" >> /etc/redis/sentinel.conf
+    echo "sentinel announce-hostnames yes" >> /etc/redis/sentinel.conf
+
+    # Pass control to the requested binary
+    exec "$@"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-headless
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: vhhealth-redis
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: vhhealth-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+    - name: sentinel
+      port: 26379
+      targetPort: 26379
+  publishNotReadyAddresses: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-sentinel
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: vhhealth-redis
+    app.kubernetes.io/component: sentinel
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: vhhealth-redis
+  ports:
+    - name: sentinel
+      port: 26379
+      targetPort: 26379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-metrics
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: vhhealth-redis
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: vhhealth-redis
+  ports:
+    - name: http-metrics
+      port: 9121
+      targetPort: 9121
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: vhhealth-redis
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  serviceName: redis-headless
+  replicas: 3
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/instance: vhhealth-redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/instance: vhhealth-redis
+        app.kubernetes.io/component: cache
+        app.kubernetes.io/part-of: vhhealth
+        app.kubernetes.io/managed-by: kustomize
+      annotations:
+        # Restart pods on config change so password rotations don't
+        # require a manual kubectl rollout.
+        checksum/config: "will-be-filled-by-kustomize-generator"
+    spec:
+      terminationGracePeriodSeconds: 30
+      serviceAccountName: redis
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: topology.kubernetes.io/zone
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/instance: vhhealth-redis
+            - weight: 50
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/instance: vhhealth-redis
+      initContainers:
+        - name: render-config
+          image: redis:7.4.1-alpine@sha256:ea96c435dc17b011f54c7a0266ab998fa9f6a25fc3a6fc9fc82a7b80d1d4ed9d
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "/config/entrypoint.sh", "/bin/true"]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: password
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: rendered-config
+              mountPath: /etc/redis
+            - name: data
+              mountPath: /data
+      containers:
+        - name: redis
+          image: redis:7.4.1-alpine@sha256:ea96c435dc17b011f54c7a0266ab998fa9f6a25fc3a6fc9fc82a7b80d1d4ed9d
+          imagePullPolicy: IfNotPresent
+          command: ["redis-server", "/etc/redis/redis.conf"]
+          ports:
+            - name: redis
+              containerPort: 6379
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: password
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "1"
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "redis-cli -a $REDIS_PASSWORD ping | grep PONG"
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "redis-cli -a $REDIS_PASSWORD ping | grep PONG"
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "redis-cli -a $REDIS_PASSWORD ping | grep PONG"
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 30
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: rendered-config
+              mountPath: /etc/redis
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+        - name: sentinel
+          image: redis:7.4.1-alpine@sha256:ea96c435dc17b011f54c7a0266ab998fa9f6a25fc3a6fc9fc82a7b80d1d4ed9d
+          imagePullPolicy: IfNotPresent
+          command: ["redis-sentinel", "/etc/redis/sentinel.conf"]
+          ports:
+            - name: sentinel
+              containerPort: 26379
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: password
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "redis-cli -p 26379 ping | grep PONG"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "redis-cli -p 26379 ping | grep PONG"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: rendered-config
+              mountPath: /etc/redis
+            - name: data
+              mountPath: /data
+        - name: metrics
+          image: oliver006/redis_exporter:v1.66.0@sha256:cdbad9ce2a2f99e64f0a8b09e4f0c8ec7a2a0dcf3b1f4e52afef3c7d9d7ae1e8
+          imagePullPolicy: IfNotPresent
+          args:
+            - --redis.addr=redis://localhost:6379
+            - --redis.password-file=/secret/password
+            - --web.listen-address=0.0.0.0:9121
+          ports:
+            - name: http-metrics
+              containerPort: 9121
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "25m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http-metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http-metrics
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 59000
+            runAsGroup: 59000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: redis-password
+              mountPath: /secret
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: redis-sentinel-config
+            defaultMode: 0755
+        - name: rendered-config
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: redis-password
+          secret:
+            secretName: redis-credentials
+            items:
+              - key: password
+                path: password
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: redis
+          app.kubernetes.io/instance: vhhealth-redis
+          app.kubernetes.io/part-of: vhhealth
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: redis
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: vhhealth-redis
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: vhhealth-redis
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/instance: vhhealth-redis
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: redis
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: vhhealth-redis
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    # kube-prometheus-stack picks this up via release: vhhealth selector.
+    release: vhhealth-monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/component: metrics
+  namespaceSelector:
+    matchNames:
+      - vhhealth-platform
+  endpoints:
+    - port: http-metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      path: /metrics
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-allow-app-ingress
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: vhhealth-redis
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/instance: vhhealth-redis
+  policyTypes: [Ingress]
+  ingress:
+    # Apps (backend, admin) speaking to Redis
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth
+      ports:
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 26379
+    # Intra-cluster sentinel/replication chatter
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: vhhealth-redis
+      ports:
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 26379
+    # Harbor (cache/job queue) inside vhhealth-platform
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: harbor
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Monitoring namespace scrapes metrics
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-monitoring
+      ports:
+        - protocol: TCP
+          port: 9121

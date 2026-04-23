@@ -1,0 +1,54 @@
+---
+# Write every file RKE2 consumes at startup. Changes here notify
+# 'restart rke2-server' so a config edit triggers a rolling restart.
+
+- name: Ensure RKE2 config directory
+  ansible.builtin.file:
+    path: "{{ rke2_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  tags: [rke2, config]
+
+- name: Ensure audit log directory exists
+  ansible.builtin.file:
+    path: "{{ rke2_audit_log_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  tags: [rke2, config]
+
+- name: Render RKE2 audit policy
+  ansible.builtin.template:
+    src: audit-policy.yaml.j2
+    dest: "{{ rke2_audit_policy_file }}"
+    owner: root
+    group: root
+    mode: "0640"
+    backup: true
+  notify: restart rke2-server
+  tags: [rke2, config, audit]
+
+- name: Render RKE2 server config.yaml
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ rke2_config_file }}"
+    owner: root
+    group: root
+    mode: "0640"
+    backup: true
+  notify: restart rke2-server
+  tags: [rke2, config]
+
+- name: Render containerd registry config
+  ansible.builtin.template:
+    src: registries.yaml.j2
+    dest: "{{ rke2_config_dir }}/registries.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  notify: restart rke2-server
+  tags: [rke2, config, registries]

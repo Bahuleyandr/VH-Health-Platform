@@ -1,0 +1,270 @@
+# cnpg/cluster.yaml — VH Health production PostgreSQL cluster
+#
+# Postgres 17, 3 instances (1 primary + 2 replicas), synchronous
+# replication with 1 sync standby, anti-affinity across zones,
+# continuous WAL archiving to Cloudflare R2 via pgBackRest, daily full
+# backups retained 30 days.
+#
+# Backend dev cluster runs Postgres 17 natively (see CLAUDE.md), so the
+# major version matches locally and in production.
+#
+# Why synchronous with minSyncReplicas=1: DPDP + HIPAA-analog clinical
+# data mustn't silently lose writes during failover. At 3 instances with
+# minSync=1 we tolerate one failed replica without blocking writes, and
+# any committed write has been flushed to at least 2 of 3 nodes.
+#
+# Anti-affinity: preferredDuringScheduling across `topology.kubernetes.io/zone`
+# (the Ansible bootstrap labels each node with its rack/zone so the
+# scheduler spreads pods).
+#
+# Backup: BarmanObjectStore -> S3-compatible (Cloudflare R2). Credentials
+# are a SealedSecret; see `backup-credentials.sealed-secret.yaml.example`.
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: vhhealth-pg
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: vhhealth-pg
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  description: "VH Health primary PostgreSQL cluster (3 instances, 1 sync)"
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.2-1
+  instances: 3
+  minSyncReplicas: 1
+  maxSyncReplicas: 1
+  primaryUpdateStrategy: unsupervised
+  primaryUpdateMethod: switchover
+  stopDelay: 300
+  startDelay: 60
+  switchoverDelay: 60
+
+  # Superuser access via the operator-managed `app` user. External
+  # connections come in through the `vhhealth-pg-rw` service (primary)
+  # or via the PgBouncer pooler in poolers.yaml.
+  enableSuperuserAccess: true
+  superuserSecret:
+    name: vhhealth-pg-superuser
+
+  postgresql:
+    parameters:
+      # Memory / planner
+      shared_buffers: "1GB"
+      max_connections: "200"
+      effective_cache_size: "3GB"
+      maintenance_work_mem: "256MB"
+      work_mem: "16MB"
+      # WAL / replication
+      wal_compression: "on"
+      max_wal_size: "4GB"
+      min_wal_size: "1GB"
+      hot_standby: "on"
+      archive_timeout: "5min"
+      # Logging (observability)
+      log_destination: "stderr"
+      logging_collector: "off"
+      log_min_duration_statement: "1000"
+      log_connections: "on"
+      log_disconnections: "on"
+      log_lock_waits: "on"
+      log_checkpoints: "on"
+      log_temp_files: "0"
+      log_autovacuum_min_duration: "1000"
+      log_line_prefix: "%t [%p-%l] %q(%u@%d,app=%a,client=%h) "
+      # Statement tracking for pg_stat_statements (already in CNPG image)
+      shared_preload_libraries: "pg_stat_statements,auto_explain"
+      "pg_stat_statements.track": "all"
+      "pg_stat_statements.max": "10000"
+      # Timeouts
+      statement_timeout: "60s"
+      idle_in_transaction_session_timeout: "300s"
+      lock_timeout: "10s"
+      # auto_explain for slow queries
+      "auto_explain.log_min_duration": "2000"
+      "auto_explain.log_analyze": "on"
+      "auto_explain.log_buffers": "on"
+      "auto_explain.log_timing": "off"
+    pg_hba:
+      # All in-cluster connections use scram-sha-256. The operator already
+      # writes the replication entries; we add app connections explicitly.
+      - "host all all 10.0.0.0/8 scram-sha-256"
+      - "host all all 172.16.0.0/12 scram-sha-256"
+      - "host all all 192.168.0.0/16 scram-sha-256"
+
+  bootstrap:
+    initdb:
+      database: vhhealth
+      owner: vhhealth
+      encoding: UTF8
+      localeCType: "C"
+      localeCollate: "C"
+      # No dataChecksums: true until we rebuild (enabling on an existing
+      # cluster requires pg_checksums --enable downtime). Set true on new
+      # clusters.
+      dataChecksums: true
+      secret:
+        name: vhhealth-pg-app
+      postInitApplicationSQL:
+        - "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
+        - "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+        - "CREATE EXTENSION IF NOT EXISTS citext;"
+        - "CREATE EXTENSION IF NOT EXISTS uuid-ossp;"
+        # Create read-only role used by dashboards and exports
+        - "CREATE ROLE vhhealth_readonly WITH LOGIN PASSWORD 'set-in-sealed-secret';"
+        - "GRANT CONNECT ON DATABASE vhhealth TO vhhealth_readonly;"
+        - "GRANT USAGE ON SCHEMA public TO vhhealth_readonly;"
+        - "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO vhhealth_readonly;"
+
+  storage:
+    size: 100Gi
+    storageClass: local-path
+    resizeInUseVolumes: true
+
+  walStorage:
+    # Separate PVC for WAL so heavy write bursts don't starve data disk I/O.
+    size: 20Gi
+    storageClass: local-path
+
+  resources:
+    requests:
+      memory: "2Gi"
+      cpu: "1"
+    limits:
+      memory: "4Gi"
+      cpu: "2"
+
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: "topology.kubernetes.io/zone"
+    podAntiAffinityType: preferred
+
+  # Per-pod disruption budget: at most 1 instance may be voluntarily
+  # disrupted at a time (operator drain during node upgrade, etc.).
+  # CNPG manages this implicitly via its managed PDB; no separate PDB
+  # resource required.
+
+  monitoring:
+    enablePodMonitor: true
+    customQueriesConfigMap:
+      - name: vhhealth-pg-custom-queries
+        key: queries.yaml
+
+  backup:
+    retentionPolicy: "30d"
+    barmanObjectStore:
+      destinationPath: "s3://vhhealth-db-backups/cluster/"
+      endpointURL: "https://${CF_R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+      # R2 is S3-compatible; region + force-path-style required.
+      s3Credentials:
+        accessKeyId:
+          name: cnpg-backup-credentials
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: cnpg-backup-credentials
+          key: SECRET_ACCESS_KEY
+      wal:
+        compression: gzip
+        maxParallel: 8
+      data:
+        compression: gzip
+        immediateCheckpoint: false
+        jobs: 2
+      # The placeholder ${CF_R2_ACCOUNT_ID} is substituted at apply time
+      # via `envsubst` in the CI pipeline (Agent E's workflow). We cannot
+      # reference a configmap inline for endpointURL in CNPG ≤1.24.
+
+  # Replica bootstrap: not used. Set to null so the operator knows to
+  # promote in-place from existing cluster members during upgrades.
+---
+# Custom queries for the Prometheus exporter that ships inside each
+# CNPG pod. Adds replication lag per-client, connection-usage percent,
+# active-vs-max-connections, and long-running queries. Grafana dashboards
+# reference these.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vhhealth-pg-custom-queries
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: vhhealth-pg
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+data:
+  queries.yaml: |
+    vhhealth_replication_lag:
+      query: |
+        SELECT
+          client_addr::text AS client,
+          application_name,
+          state,
+          COALESCE(EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))::bigint, 0) AS lag_seconds,
+          COALESCE(pg_wal_lsn_diff(sent_lsn, replay_lsn)::bigint, 0) AS lag_bytes
+        FROM pg_stat_replication
+      metrics:
+        - client:
+            usage: LABEL
+            description: "Replica client address"
+        - application_name:
+            usage: LABEL
+            description: "Replica application_name"
+        - state:
+            usage: LABEL
+            description: "Replication state"
+        - lag_seconds:
+            usage: GAUGE
+            description: "Replication lag in seconds"
+        - lag_bytes:
+            usage: GAUGE
+            description: "Replication lag in bytes"
+
+    vhhealth_connections:
+      query: |
+        SELECT
+          count(*) AS total,
+          count(*) FILTER (WHERE state = 'active') AS active,
+          count(*) FILTER (WHERE state = 'idle') AS idle,
+          count(*) FILTER (WHERE state = 'idle in transaction') AS idle_in_tx,
+          (SELECT setting::int FROM pg_settings WHERE name = 'max_connections') AS max_conn
+        FROM pg_stat_activity
+      metrics:
+        - total:
+            usage: GAUGE
+            description: "Total current connections"
+        - active:
+            usage: GAUGE
+            description: "Active (running) connections"
+        - idle:
+            usage: GAUGE
+            description: "Idle connections"
+        - idle_in_tx:
+            usage: GAUGE
+            description: "Idle-in-transaction connections"
+        - max_conn:
+            usage: GAUGE
+            description: "max_connections setting"
+---
+# Daily full backup at 02:00 IST == 20:30 UTC.
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: vhhealth-pg-daily
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: vhhealth-pg
+    app.kubernetes.io/component: database-backup
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  schedule: "0 30 20 * * *"
+  cluster:
+    name: vhhealth-pg
+  backupOwnerReference: self
+  immediate: false
+  method: barmanObjectStore

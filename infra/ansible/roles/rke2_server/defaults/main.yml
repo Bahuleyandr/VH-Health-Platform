@@ -1,0 +1,60 @@
+---
+# Pinned RKE2 version — override in inventory.
+# Check https://github.com/rancher/rke2/releases for latest stable.
+rke2_version: "v1.31.4+rke2r1"
+
+# Channel used by the install script when version pin isn't set.
+rke2_channel: stable
+
+# Install method: 'curl' (official script) or 'tarball' (air-gapped).
+# For hospital offline environments, switch to tarball + preload artefacts.
+rke2_install_method: curl
+
+# Paths.
+rke2_config_dir: /etc/rancher/rke2
+rke2_config_file: "{{ rke2_config_dir }}/config.yaml"
+rke2_data_dir: /var/lib/rancher/rke2
+rke2_audit_policy_file: "{{ rke2_config_dir }}/audit-policy.yaml"
+rke2_audit_log_dir: /var/lib/rancher/rke2/server/logs
+rke2_audit_log_file: "{{ rke2_audit_log_dir }}/audit.log"
+
+# CNI — canal = flannel overlay + calico NetworkPolicy. Good default for
+# hospital LAN with NetworkPolicy support. Alternatives: 'cilium', 'calico'.
+rke2_cni: canal
+
+# CIS profile — enables kernel params, pod-sec-admission baseline, and
+# pre-built runtime security defaults.
+rke2_profile: cis
+
+# Disable only the ingress controller — we install ingress-nginx via our
+# Kustomize tree so we control CRDs + version. Keep metrics-server (HPA dep).
+rke2_disable_components:
+  - rke2-ingress-nginx
+
+# Node taints — off for our 3-node combined topology (all nodes carry
+# workloads). Flip to true when cluster grows to 5+ nodes.
+taint_server_nodes: false
+rke2_server_taints:
+  - "CriticalAddonsOnly=true:NoExecute"
+
+# etcd snapshotting.
+rke2_etcd_snapshot_schedule: "0 */6 * * *"
+rke2_etcd_snapshot_retention: 20
+rke2_etcd_s3_enabled: true
+
+# HIPAA / DPDP audit retention — 90 days on disk, 10 log rotations.
+rke2_audit_log_maxage: 90
+rke2_audit_log_maxbackup: 10
+rke2_audit_log_maxsize: 100
+
+# kubelet / system reservations — leaves headroom for OS + RKE2 itself.
+rke2_system_reserved: "cpu=500m,memory=1Gi,ephemeral-storage=10Gi"
+rke2_kube_reserved: "cpu=500m,memory=1Gi,ephemeral-storage=10Gi"
+
+# Convenience tools version pins.
+rke2_helm_version: "v3.16.3"
+rke2_kubectx_version: "v0.9.5"
+
+# Additional TLS SANs for the API server certificate.
+# Override per-environment in inventory.
+cluster_dns_san: []

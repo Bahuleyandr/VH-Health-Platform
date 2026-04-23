@@ -1,0 +1,30 @@
+# base/kustomization.yaml — top-level VH Health platform base
+#
+# Order matters only for `kustomize build` output readability; Argo CD
+# applies resources with server-side apply + waves. Use annotation
+# `argocd.argoproj.io/sync-wave: "N"` on individual resources to
+# sequence bootstrap (namespaces wave 0, CRDs wave 1, operators wave 2,
+# operands wave 3, apps wave 4).
+#
+# Everything here is consumed by `overlays/<env>/kustomization.yaml`
+# via `bases:` so prod/staging/dev can patch individual pieces.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: vhhealth-platform-base
+resources:
+  - _common
+  - sealed-secrets
+  - cert-manager
+  - step-ca
+  - vault
+  - cnpg
+  - redis
+  - minio
+  - harbor
+  - ingress-nginx
+  - cloudflare-tunnel
+  - monitoring
+  - falco
+  - kured
+  - argocd

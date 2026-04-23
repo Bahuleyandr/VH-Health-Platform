@@ -3,6 +3,17 @@
 ## Project Overview
 Node.js/Express REST API backend for the VHHealth hospital management system. Serves three clients: patient Flutter app, staff Flutter app, and Next.js admin portal.
 
+## Deployment
+
+Production runs on a **3-node on-prem RKE2 Kubernetes cluster** inside the
+hospital. Container images are built + signed + pushed by GitHub Actions;
+ArgoCD watches this repo and auto-syncs Kustomize overlays onto the cluster.
+Postgres is a CloudNativePG cluster (PG17, 3 replicas); ingress is Cloudflare
+Tunnel → ingress-nginx, so zero inbound ports on the hospital firewall.
+
+See the full runbook in [`../../docs/DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md)
+and hardware spec in [`../../docs/HARDWARE_REQUIREMENTS.md`](../../docs/HARDWARE_REQUIREMENTS.md).
+
 ## Tech Stack
 - **Runtime**: Node.js 22, Express 5
 - **Database**: PostgreSQL 17 native install (dev cluster at `D:\Dev\Tools\pgdata-vhhealth` on port **5433**, user `vhhealth`, db `vhhealth`). Prod runs managed Postgres; both speak the same wire protocol.
@@ -211,11 +222,17 @@ cp .env.example .env      # fill in JWT_SECRET, DATABASE_URL, API_KEY at minimum
 
 ### Running
 ```bash
-npm start                 # Production (systemd: vhhealth-backend.service)
-npm run dev               # Development with nodemon
+npm run dev               # Development with nodemon on :5000
 lefthook install          # one-time; wires the pre-commit/pre-push hooks this repo ships
 ```
-Public URL: `https://api.vhhealth.app` (via Cloudflare tunnel + nginx)
+
+Production is Kubernetes-managed; see [`../../docs/DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md).
+Local dev still uses `npm run dev` (nodemon). Images are built by GitHub
+Actions and pulled by a `Deployment` in namespace `vhhealth`; ArgoCD reconciles
+the manifests under `infra/kubernetes/apps/backend/`.
+
+Public URL: `https://api.vhhealth.app` — traffic path is Cloudflare Tunnel →
+ingress-nginx → `Service/vhhealth-backend` in cluster.
 
 ## Testing
 ```bash

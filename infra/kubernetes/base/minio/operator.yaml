@@ -1,0 +1,35 @@
+# minio/operator.yaml — MinIO Operator reference
+#
+# The MinIO Operator is installed from the upstream manifest channel:
+#   https://github.com/minio/operator
+# Pinned version: 5.0.15 (released 2024-10; last LTS before the 6.x
+# refactor, which still needs vendor testing).
+#
+# The operator manifest creates:
+#   - namespace: minio-operator
+#   - CRDs: Tenant, PolicyBinding
+#   - operator Deployment (2 replicas, HA)
+#   - console Deployment (one-off UI; we gate it behind an internal
+#     ingress — see tenant.yaml)
+#
+# As with CNPG, the operator manifest is applied via `kubectl apply -f`
+# during bootstrap (tracked by Argo CD as its own Application), not
+# listed in `resources:` here. Kustomize would otherwise try to apply
+# `commonLabels` to the operator's ClusterRoleBindings and fail on
+# immutable fields.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: minio-operator-pinned-version
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: minio-operator
+    app.kubernetes.io/component: operator
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+data:
+  operatorVersion: "5.0.15"
+  operatorManifestUrl: "https://raw.githubusercontent.com/minio/operator/v5.0.15/resources/base/operator.yaml"
+  # MinIO server image used by tenants we create.
+  minioImage: "quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z"

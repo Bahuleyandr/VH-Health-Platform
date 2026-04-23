@@ -1,0 +1,92 @@
+#!/usr/sbin/nft -f
+{{ ansible_managed | comment }}
+#
+# VH Health Platform — RKE2 node host firewall.
+#
+# Policy:
+#   input   = drop (explicit allow list below)
+#   forward = drop (kube-proxy inserts its own FORWARD chain via iptables;
+#             nftables-iptables compat is enabled, so this is safe)
+#   output  = accept (egress unrestricted — Cloudflare Tunnel is our only
+#             public ingress, so egress filtering is future work)
+
+flush ruleset
+
+table inet vhhealth {
+
+    # --- Named sets ---------------------------------------------------------
+    set mgmt_v4 {
+        type ipv4_addr
+        flags interval
+        elements = {
+{% for c in management_cidrs %}
+            {{ c }}{{ ',' if not loop.last else '' }}
+{% endfor %}
+        }
+    }
+
+    set cluster_v4 {
+        type ipv4_addr
+        flags interval
+        elements = {
+{% for c in cluster_cidrs %}
+            {{ c }}{{ ',' if not loop.last else '' }}
+{% endfor %}
+        }
+    }
+
+    # --- Input chain --------------------------------------------------------
+    chain input {
+        type filter hook input priority 0; policy drop;
+
+        # Loopback unconditional.
+        iif "lo" accept
+
+        # Connection tracking fast path.
+        ct state established,related accept
+        ct state invalid drop
+
+        # ICMP / ICMPv6 (rate-limited).
+        ip protocol icmp icmp type { echo-request, echo-reply, destination-unreachable, time-exceeded, parameter-problem } limit rate 10/second accept
+        ip6 nexthdr icmpv6 icmpv6 type { echo-request, echo-reply, nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert, destination-unreachable, time-exceeded, parameter-problem } limit rate 10/second accept
+
+        # --- SSH from management CIDRs only ---------------------------------
+        ip saddr @mgmt_v4 tcp dport 22 accept
+
+        # --- RKE2 cluster-internal traffic ----------------------------------
+        ip saddr @cluster_v4 tcp dport { {{ firewall_cluster_tcp_ports | join(', ') }} } accept
+        ip saddr @cluster_v4 udp dport { {{ firewall_cluster_udp_ports | join(', ') }} } accept
+
+        # --- NodePorts: open to management + cluster (not world) ------------
+        ip saddr @mgmt_v4    tcp dport {{ firewall_nodeport_range }} accept
+        ip saddr @cluster_v4 tcp dport {{ firewall_nodeport_range }} accept
+
+        # --- CNI traffic on the flannel VXLAN interface -----------------
+        # flannel.1 traffic already matched by vxlan udp 8472 above; pod-to-pod
+        # local traffic rides on the overlay, no separate rule needed.
+
+{% if firewall_log_drops %}
+        # Log + audit remaining drops (rate-limited to protect journald).
+        limit rate 5/second log prefix "nft-drop: " level info flags all
+{% endif %}
+
+        # Implicit drop by chain policy.
+    }
+
+    # --- Forward chain ------------------------------------------------------
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+        # kube-proxy / flannel manage pod-to-pod forwarding via iptables
+        # compatibility layer. Host-level forwarding for anything else stays
+        # dropped.
+        ct state established,related accept
+    }
+
+    # --- Output chain -------------------------------------------------------
+    chain output {
+        type filter hook output priority 0; policy accept;
+        # Egress unrestricted. Cloudflare Tunnel is pull-only, so the cluster
+        # initiates all outbound ingress. If future compliance requires
+        # egress filtering, add rules here.
+    }
+}
