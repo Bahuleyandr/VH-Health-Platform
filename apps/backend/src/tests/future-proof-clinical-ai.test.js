@@ -40,6 +40,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_document_intake WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_antimicrobial_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_teach_back_sessions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_appeal_letters WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -159,6 +160,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_document_intake WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_antimicrobial_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_teach_back_sessions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_appeal_letters WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -644,6 +646,104 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expect(blocked.statusCode).toBe(403);
     const blockedClinical = await doctor.post(`/api/v1/emr/${admissionId}/ai/teach-back`).send({ language: 'en' });
     expect(blockedClinical.statusCode).toBe(403);
+  });
+
+  it('drafts, reviews, submits, and records payer response for an appeal letter', async () => {
+    await enableModule('appeal_letter_generator');
+
+    const claim = await prisma.$queryRawUnsafe(
+      `INSERT INTO insurance_claims
+         (claim_number, patient_uid, insurance_provider, policy_number, claim_amount,
+          status, rejection_reason, documents, submitted_at, created_at, updated_at)
+       VALUES ($1, $2::uuid, 'Acme Health [test]', 'POL-APPEAL-[test]', 15800.00,
+               'denied', 'Services not medically necessary per plan guidelines',
+               '[]'::jsonb, NOW() - INTERVAL '5 days', NOW() - INTERVAL '5 days', NOW())
+       RETURNING id, claim_number`,
+      `CLM-APPEAL-TEST-${Date.now()}`,
+      PATIENT_UID
+    );
+    const claimId = claim[0].id;
+
+    const denied = await doctor.get('/api/v1/admin/clinical-ai/appeal-letters');
+    expectStatus(denied, 403, 'appeal queue denied for doctor');
+
+    const generated = await admin.post('/api/v1/admin/clinical-ai/appeal-letters').send({
+      claim_id: claimId,
+      admission_id: admissionId,
+      denial_reason: 'Not medically necessary — bronchoscopy disallowed',
+      denial_code: 'MN-01',
+      appeal_type: 'first_level',
+    });
+    expectStatus(generated, 201, 'appeal letter drafted');
+    const body = generated.body.data;
+    expect(body.module_key).toBe('appeal_letter_generator');
+    expect(body.appeal_id).toBeTruthy();
+    expect(body.generation_id).toBeTruthy();
+    expect(body.classification.classification).toBe('medical_necessity');
+    expect(body.draft.cover_letter).toContain('Acme Health');
+    expect(body.draft.medical_necessity.length).toBeGreaterThan(30);
+    expect(body.draft.appeal_type).toBe('first_level');
+    expect(Array.isArray(body.source_citations)).toBe(true);
+    expect(body.source_citations.length).toBeGreaterThan(0);
+    expect(body.appeal_status).toBe('draft');
+    expect(body.rules_authoritative).toBe(true);
+
+    const listed = await admin.get(`/api/v1/admin/clinical-ai/appeal-letters?claim_id=${claimId}`);
+    expectStatus(listed, 200, 'list appeal letters');
+    expect(listed.body.data.appeals.length).toBeGreaterThan(0);
+
+    const appealId = body.appeal_id;
+
+    const premature = await admin.post(`/api/v1/admin/clinical-ai/appeal-letters/${appealId}/submit`).send({});
+    expect(premature.statusCode).toBeGreaterThanOrEqual(400);
+
+    const accepted = await admin.patch(`/api/v1/admin/clinical-ai/appeal-letters/${appealId}`).send({
+      decision: 'accepted',
+      note: 'Reviewed by admin [test]',
+    });
+    expectStatus(accepted, 200, 'accept appeal review');
+    expect(accepted.body.data.reviewer_decision).toBe('accepted');
+    expect(accepted.body.data.appeal_status).toBe('ready_for_submission');
+
+    const submitted = await admin.post(`/api/v1/admin/clinical-ai/appeal-letters/${appealId}/submit`).send({
+      payer_reference_id: 'PAYER-REF-TEST-1',
+    });
+    expectStatus(submitted, 200, 'submit appeal to payer');
+    expect(submitted.body.data.appeal_status).toBe('submitted');
+    expect(submitted.body.data.payer_reference_id).toBe('PAYER-REF-TEST-1');
+
+    const payerApproval = await admin
+      .post(`/api/v1/admin/clinical-ai/appeal-letters/${appealId}/payer-response`)
+      .send({ status: 'approved', response: { amount: 15800 } });
+    expectStatus(payerApproval, 200, 'record payer approval');
+    expect(payerApproval.body.data.appeal_status).toBe('approved');
+
+    const audit = await admin.get('/api/v1/admin/clinical-ai/audit?limit=250');
+    expectStatus(audit, 200, 'appeal audit logs');
+    const actions = audit.body.data.logs.map((row) => row.action);
+    expect(actions).toContain('CLINICAL_AI_APPEAL_LETTER_GENERATED');
+    expect(actions).toContain('CLINICAL_AI_APPEAL_LETTER_REVIEWED');
+    expect(actions).toContain('CLINICAL_AI_APPEAL_LETTER_SUBMITTED');
+    expect(actions).toContain('CLINICAL_AI_APPEAL_LETTER_PAYER_RESPONSE');
+  });
+
+  it('blocks appeal letter generation when module is disabled', async () => {
+    await admin.patch('/api/v1/admin/clinical-ai/modules/appeal_letter_generator').send({ enabled: false });
+    const claim = await prisma.$queryRawUnsafe(
+      `INSERT INTO insurance_claims
+         (claim_number, patient_uid, insurance_provider, policy_number, claim_amount,
+          status, rejection_reason, documents, submitted_at, created_at, updated_at)
+       VALUES ($1, $2::uuid, 'Acme Health [test]', 'POL-DIS-[test]', 1000.00,
+               'denied', 'Prior auth missing', '[]'::jsonb, NOW(), NOW(), NOW())
+       RETURNING id`,
+      `CLM-DIS-${Date.now()}`,
+      PATIENT_UID
+    );
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/appeal-letters').send({
+      claim_id: claim[0].id,
+      appeal_type: 'first_level',
+    });
+    expect(blocked.statusCode).toBe(403);
   });
 
   it('aggregates ward-round-brief and denial-risk drafts', async () => {
