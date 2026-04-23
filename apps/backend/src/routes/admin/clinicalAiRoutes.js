@@ -293,6 +293,30 @@ import {
   submitAnnotation,
 } from '../../services/ai/datasetLabelingStudioService.js';
 import {
+  decidePolicyDiff,
+  generatePolicyDiff,
+  listPolicyDiffs,
+} from '../../services/ai/policyRegulationWatcherService.js';
+import {
+  decideTimelineSnapshot,
+  generateTimelineSnapshot,
+  listTimelineSnapshots,
+} from '../../services/ai/multimodalPatientTimelineService.js';
+import {
+  decidePathwayBundleAudit,
+  evaluatePathwayBundle,
+  listPathwayBundleAudits,
+} from '../../services/ai/pathwayBundleComplianceService.js';
+import {
+  decideGraphHealthReport,
+  evaluateGraphHealth,
+  listEdges,
+  listGraphHealthReports,
+  listNodes,
+  upsertEdge,
+  upsertNode,
+} from '../../services/ai/clinicalKnowledgeGraphService.js';
+import {
   decideSepsisBundleAudit,
   generateSepsisBundleAudit,
   listSepsisBundleAudits,
@@ -4460,6 +4484,330 @@ router.patch('/labeling/annotations/:id', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_LABELING_ANNOTATION_DECIDED', String(result?.annotation?.id || 'inline'), null, result);
     return success(res, result, 'Labeling annotation updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Policy Diff / Regulation Watcher
+// ---------------------------------------------------------------------------
+router.post('/policy-diffs/evaluate', async (req, res, next) => {
+  try {
+    const result = await generatePolicyDiff({
+      req,
+      policyKey: req.body?.policy_key,
+      policyTitle: req.body?.policy_title || null,
+      source: req.body?.source || null,
+      previousVersion: req.body?.previous_version || null,
+      currentVersion: req.body?.current_version || null,
+      effectiveDate: req.body?.effective_date || null,
+      previousText: req.body?.previous_text || '',
+      currentText: req.body?.current_text || '',
+      explicitDiff: req.body?.explicit_diff || null,
+      metadata: req.body?.metadata || {},
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_POLICY_DIFF_GENERATED',
+      String(result.diff_id || result.generation_id || 'inline'),
+      null,
+      {
+        diff_id: result.diff_id,
+        impact_area: result.impact_area,
+        severity: result.severity,
+      }
+    );
+    return success(res, result, 'Policy diff generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/policy-diffs', async (req, res, next) => {
+  try {
+    const result = await listPolicyDiffs({
+      tenantId: req.tenantId,
+      policyKey: req.query?.policy_key || null,
+      impactArea: req.query?.impact_area || null,
+      severity: req.query?.severity || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Policy diffs retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/policy-diffs/:id', async (req, res, next) => {
+  try {
+    const result = await decidePolicyDiff({
+      tenantId: req.tenantId,
+      diffId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_POLICY_DIFF_DECIDED', String(result.id), null, result);
+    return success(res, result, 'Policy diff updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Multimodal Patient Timeline
+// ---------------------------------------------------------------------------
+router.post('/patient-timeline/generate', async (req, res, next) => {
+  try {
+    const result = await generateTimelineSnapshot({
+      req,
+      patientUid: req.body?.patient_uid,
+      admissionId: req.body?.admission_id ?? null,
+      windowStart: req.body?.window_start || null,
+      windowEnd: req.body?.window_end || null,
+      events: Array.isArray(req.body?.events) ? req.body.events : [],
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_PATIENT_TIMELINE_GENERATED',
+      String(result.snapshot_id || result.generation_id || 'inline'),
+      null,
+      {
+        snapshot_id: result.snapshot_id,
+        overall_severity: result.overall_severity,
+        event_count: result.event_count,
+      }
+    );
+    return success(res, result, 'Patient timeline snapshot generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/patient-timeline/snapshots', async (req, res, next) => {
+  try {
+    const result = await listTimelineSnapshots({
+      tenantId: req.tenantId,
+      patientUid: req.query?.patient_uid || null,
+      overallSeverity: req.query?.overall_severity || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Patient timeline snapshots retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/patient-timeline/snapshots/:id', async (req, res, next) => {
+  try {
+    const result = await decideTimelineSnapshot({
+      tenantId: req.tenantId,
+      snapshotId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_PATIENT_TIMELINE_DECIDED', String(result.id), null, result);
+    return success(res, result, 'Patient timeline snapshot updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Generalized Pathway Bundle Compliance
+// ---------------------------------------------------------------------------
+router.post('/pathway-bundles/evaluate', async (req, res, next) => {
+  try {
+    const result = await evaluatePathwayBundle({
+      req,
+      patientUid: req.body?.patient_uid,
+      admissionId: req.body?.admission_id ?? null,
+      pathwayKey: req.body?.pathway_key,
+      customSpec: req.body?.custom_spec || null,
+      t0Reference: req.body?.t0_reference,
+      actions: Array.isArray(req.body?.actions) ? req.body.actions : [],
+      context: req.body?.context || {},
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_PATHWAY_BUNDLE_EVALUATED',
+      String(result.audit_id || result.generation_id || 'inline'),
+      null,
+      {
+        audit_id: result.audit_id,
+        pathway_key: result.pathway_key,
+        compliance_pct: result.compliance_pct,
+        severity: result.severity,
+        recommendation: result.recommendation,
+      }
+    );
+    return success(res, result, 'Pathway bundle evaluated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/pathway-bundles', async (req, res, next) => {
+  try {
+    const result = await listPathwayBundleAudits({
+      tenantId: req.tenantId,
+      patientUid: req.query?.patient_uid || null,
+      pathwayKey: req.query?.pathway_key || null,
+      severity: req.query?.severity || null,
+      recommendation: req.query?.recommendation || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Pathway bundle audits retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/pathway-bundles/:id', async (req, res, next) => {
+  try {
+    const result = await decidePathwayBundleAudit({
+      tenantId: req.tenantId,
+      auditId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_PATHWAY_BUNDLE_DECIDED', String(result.id), null, result);
+    return success(res, result, 'Pathway bundle audit updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Clinical Knowledge Graph
+// ---------------------------------------------------------------------------
+router.post('/knowledge-graph/nodes', async (req, res, next) => {
+  try {
+    const result = await upsertNode({
+      tenantId: req.tenantId,
+      nodeType: req.body?.node_type,
+      nodeKey: req.body?.node_key,
+      displayName: req.body?.display_name || null,
+      source: req.body?.source || null,
+      sourceRef: req.body?.source_ref || null,
+      validFrom: req.body?.valid_from || null,
+      validTo: req.body?.valid_to || null,
+      attributes: req.body?.attributes || {},
+      metadata: req.body?.metadata || {},
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_KG_NODE_UPSERTED', String(result?.id || 'inline'), null, result);
+    return success(res, result, 'Knowledge graph node upserted', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/knowledge-graph/nodes', async (req, res, next) => {
+  try {
+    const result = await listNodes({
+      tenantId: req.tenantId,
+      nodeType: req.query?.node_type || null,
+      source: req.query?.source || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Knowledge graph nodes retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/knowledge-graph/edges', async (req, res, next) => {
+  try {
+    const result = await upsertEdge({
+      tenantId: req.tenantId,
+      edgeType: req.body?.edge_type,
+      fromNodeId: req.body?.from_node_id,
+      toNodeId: req.body?.to_node_id,
+      source: req.body?.source || null,
+      sourceRef: req.body?.source_ref || null,
+      validFrom: req.body?.valid_from || null,
+      validTo: req.body?.valid_to || null,
+      attributes: req.body?.attributes || {},
+      metadata: req.body?.metadata || {},
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_KG_EDGE_UPSERTED', String(result?.id || 'inline'), null, result);
+    return success(res, result, 'Knowledge graph edge upserted', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/knowledge-graph/edges', async (req, res, next) => {
+  try {
+    const result = await listEdges({
+      tenantId: req.tenantId,
+      edgeType: req.query?.edge_type || null,
+      fromNodeId: req.query?.from_node_id || null,
+      toNodeId: req.query?.to_node_id || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Knowledge graph edges retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/knowledge-graph/health/evaluate', async (req, res, next) => {
+  try {
+    const result = await evaluateGraphHealth({
+      req,
+      today: req.body?.today || null,
+      stalenessDays: req.body?.staleness_days ?? 365,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_KG_HEALTH_EVALUATED',
+      String(result.report_id || result.generation_id || 'inline'),
+      null,
+      {
+        report_id: result.report_id,
+        overall_health: result.overall_health,
+        severity: result.severity,
+      }
+    );
+    return success(res, result, 'Knowledge graph health evaluated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/knowledge-graph/health/reports', async (req, res, next) => {
+  try {
+    const result = await listGraphHealthReports({
+      tenantId: req.tenantId,
+      overallHealth: req.query?.overall_health || null,
+      severity: req.query?.severity || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Knowledge graph health reports retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/knowledge-graph/health/reports/:id', async (req, res, next) => {
+  try {
+    const result = await decideGraphHealthReport({
+      tenantId: req.tenantId,
+      reportId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_KG_HEALTH_DECIDED', String(result.id), null, result);
+    return success(res, result, 'Knowledge graph health report updated');
   } catch (err) {
     return next(err);
   }
