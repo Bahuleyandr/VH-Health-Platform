@@ -75,6 +75,12 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_command_center_snapshots WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_labeling_annotations WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_labeling_tasks WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND dataset_key LIKE 'test-%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_policy_diffs WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND policy_key LIKE 'test-%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_patient_timeline_snapshots WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_pathway_bundle_audits WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_kg_health_reports WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_kg_edges WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_kg_nodes WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND source = 'test'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -229,6 +235,12 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_command_center_snapshots WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_labeling_annotations WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_labeling_tasks WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND dataset_key LIKE 'test-%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_policy_diffs WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND policy_key LIKE 'test-%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_patient_timeline_snapshots WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_pathway_bundle_audits WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_kg_health_reports WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_kg_edges WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_kg_nodes WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND source = 'test'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -1646,6 +1658,188 @@ describe('future-proof clinical AI and privacy foundations', () => {
       task_id: taskId,
       label: { code: 'X' },
     });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('classifies policy/regulation diffs by impact and severity, and gates by module', async () => {
+    await enableModule('policy_regulation_watcher');
+
+    const billingDiff = await admin.post('/api/v1/admin/clinical-ai/policy-diffs/evaluate').send({
+      policy_key: 'test-billing-policy-v1',
+      policy_title: 'Billing claim denial policy [test]',
+      previous_text: 'SECTION 1\nOriginal billing claim rules.',
+      current_text: 'SECTION 1\nUpdated billing claim rules with new denial codes and appeal process.',
+    });
+    expectStatus(billingDiff, 201, 'policy diff billing');
+    expect(billingDiff.body.data.module_key).toBe('policy_regulation_watcher');
+    expect(['billing', 'mixed']).toContain(billingDiff.body.data.impact_area);
+
+    const privacyDiff = await admin.post('/api/v1/admin/clinical-ai/policy-diffs/evaluate').send({
+      policy_key: 'test-privacy-policy-v2',
+      policy_title: 'PHI disclosure policy [test]',
+      previous_text: 'SECTION 1\nBaseline policy language.',
+      current_text: 'SECTION 1\nExpanded PHI disclosure, HIPAA rules, privacy breach reporting, GDPR retention, confidentiality, and deidentified data handling requirements.',
+    });
+    expectStatus(privacyDiff, 201, 'policy diff privacy');
+    expect(privacyDiff.body.data.severity).toBe('critical');
+
+    const listed = await admin.get('/api/v1/admin/clinical-ai/policy-diffs');
+    expectStatus(listed, 200, 'list policy diffs');
+    expect(listed.body.data.diffs.length).toBeGreaterThanOrEqual(2);
+
+    const decided = await admin
+      .patch(`/api/v1/admin/clinical-ai/policy-diffs/${privacyDiff.body.data.diff_id}`)
+      .send({ decision: 'accepted', note: 'Legal sign-off obtained [test]' });
+    expectStatus(decided, 200, 'decide policy diff');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/policy_regulation_watcher').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/policy-diffs/evaluate').send({
+      policy_key: 'test-blocked',
+      previous_text: '',
+      current_text: '',
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('generates multimodal patient timeline snapshots and gates by module', async () => {
+    await enableModule('multimodal_patient_timeline');
+
+    const snap = await admin.post('/api/v1/admin/clinical-ai/patient-timeline/generate').send({
+      patient_uid: PATIENT_UID,
+      window_start: '2026-04-23T08:00:00Z',
+      window_end: '2026-04-23T18:00:00Z',
+      events: [
+        { kind: 'vital', occurred_at: '2026-04-23T10:00:00Z', payload: { spo2: 80, hr: 140 } },
+        { kind: 'lab', occurred_at: '2026-04-23T11:00:00Z', payload: { name: 'K', value: 7.2, abnormal_flag: 'critical_high' } },
+        { kind: 'note', occurred_at: '2026-04-23T12:00:00Z', payload: { text: 'Stable under oxygen support' } },
+      ],
+    });
+    expectStatus(snap, 201, 'timeline snapshot');
+    expect(snap.body.data.module_key).toBe('multimodal_patient_timeline');
+    expect(snap.body.data.event_count).toBe(3);
+    expect(snap.body.data.overall_severity).toBe('critical');
+    expect(snap.body.data.critical_count).toBeGreaterThanOrEqual(2);
+
+    const listed = await admin.get(`/api/v1/admin/clinical-ai/patient-timeline/snapshots?patient_uid=${PATIENT_UID}`);
+    expectStatus(listed, 200, 'list timeline snapshots');
+    expect(listed.body.data.snapshots.length).toBeGreaterThanOrEqual(1);
+
+    const decided = await admin
+      .patch(`/api/v1/admin/clinical-ai/patient-timeline/snapshots/${snap.body.data.snapshot_id}`)
+      .send({ decision: 'accepted', note: 'Reviewed [test]' });
+    expectStatus(decided, 200, 'decide timeline snapshot');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/multimodal_patient_timeline').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/patient-timeline/generate').send({
+      patient_uid: PATIENT_UID,
+      events: [],
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('evaluates generic pathway bundle compliance (ACS MONA) and gates by module', async () => {
+    await enableModule('pathway_bundle_compliance');
+
+    const acs = await admin.post('/api/v1/admin/clinical-ai/pathway-bundles/evaluate').send({
+      patient_uid: PATIENT_UID,
+      pathway_key: 'acs_mona',
+      t0_reference: '2026-04-23T10:00:00Z',
+      context: { pci_candidate: false, beta_blocker_contraindicated: false },
+      actions: [
+        { item_key: 'aspirin', occurred_at: '2026-04-23T10:05:00Z' },
+        { item_key: 'ecg_12_lead', occurred_at: '2026-04-23T10:08:00Z' },
+        { item_key: 'troponin_hs_ordered', occurred_at: '2026-04-23T10:20:00Z' },
+      ],
+    });
+    expectStatus(acs, 201, 'pathway bundle ACS evaluation');
+    expect(acs.body.data.module_key).toBe('pathway_bundle_compliance');
+    expect(acs.body.data.pathway_key).toBe('acs_mona');
+    expect(acs.body.data.compliance_pct).toBeGreaterThanOrEqual(0);
+    expect(['no_action', 'catch_up', 'escalate', 'review_pathway', 'critical_miss']).toContain(acs.body.data.recommendation);
+
+    const strokeMiss = await admin.post('/api/v1/admin/clinical-ai/pathway-bundles/evaluate').send({
+      patient_uid: PATIENT_UID,
+      pathway_key: 'stroke_gwg',
+      t0_reference: '2026-04-23T08:00:00Z',
+      context: { tpa_candidate: true },
+      actions: [],
+    });
+    expectStatus(strokeMiss, 201, 'pathway bundle stroke missed');
+    expect(strokeMiss.body.data.recommendation).toBe('critical_miss');
+    expect(strokeMiss.body.data.severity).toBe('critical');
+
+    const listed = await admin.get(`/api/v1/admin/clinical-ai/pathway-bundles?patient_uid=${PATIENT_UID}`);
+    expectStatus(listed, 200, 'list pathway bundle audits');
+    expect(listed.body.data.audits.length).toBeGreaterThanOrEqual(2);
+
+    const decided = await admin
+      .patch(`/api/v1/admin/clinical-ai/pathway-bundles/${strokeMiss.body.data.audit_id}`)
+      .send({ decision: 'accepted', note: 'Escalated to stroke team [test]' });
+    expectStatus(decided, 200, 'decide pathway bundle audit');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/pathway_bundle_compliance').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/pathway-bundles/evaluate').send({
+      patient_uid: PATIENT_UID,
+      pathway_key: 'acs_mona',
+      t0_reference: '2026-04-23T10:00:00Z',
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('manages clinical knowledge graph nodes/edges, evaluates health, and gates by module', async () => {
+    await enableModule('clinical_knowledge_graph');
+
+    const patientNode = await admin.post('/api/v1/admin/clinical-ai/knowledge-graph/nodes').send({
+      node_type: 'patient',
+      node_key: 'test-patient-1',
+      display_name: 'Test patient',
+      source: 'test',
+    });
+    expectStatus(patientNode, 201, 'kg upsert patient node');
+
+    const diagNode = await admin.post('/api/v1/admin/clinical-ai/knowledge-graph/nodes').send({
+      node_type: 'diagnosis',
+      node_key: 'J18.9',
+      display_name: 'Pneumonia',
+      source: 'test',
+      attributes: { context: 'admission' },
+    });
+    expectStatus(diagNode, 201, 'kg upsert diagnosis node');
+
+    const edge = await admin.post('/api/v1/admin/clinical-ai/knowledge-graph/edges').send({
+      edge_type: 'has_diagnosis',
+      from_node_id: patientNode.body.data.id,
+      to_node_id: diagNode.body.data.id,
+      source: 'test',
+    });
+    expectStatus(edge, 201, 'kg upsert has_diagnosis edge');
+
+    const nodesList = await admin.get('/api/v1/admin/clinical-ai/knowledge-graph/nodes?source=test');
+    expectStatus(nodesList, 200, 'list kg nodes');
+    expect(nodesList.body.data.nodes.length).toBeGreaterThanOrEqual(2);
+
+    const edgesList = await admin.get('/api/v1/admin/clinical-ai/knowledge-graph/edges?edge_type=has_diagnosis');
+    expectStatus(edgesList, 200, 'list kg edges');
+    expect(edgesList.body.data.edges.length).toBeGreaterThanOrEqual(1);
+
+    const health = await admin.post('/api/v1/admin/clinical-ai/knowledge-graph/health/evaluate').send({
+      staleness_days: 365,
+    });
+    expectStatus(health, 201, 'kg health evaluate');
+    expect(health.body.data.module_key).toBe('clinical_knowledge_graph');
+    expect(['healthy', 'watch', 'degraded', 'critical', 'unknown']).toContain(health.body.data.overall_health);
+
+    const reports = await admin.get('/api/v1/admin/clinical-ai/knowledge-graph/health/reports');
+    expectStatus(reports, 200, 'list kg health reports');
+    expect(reports.body.data.reports.length).toBeGreaterThanOrEqual(1);
+
+    const decided = await admin
+      .patch(`/api/v1/admin/clinical-ai/knowledge-graph/health/reports/${health.body.data.report_id}`)
+      .send({ decision: 'accepted', note: 'Reviewed graph health [test]' });
+    expectStatus(decided, 200, 'decide kg health report');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/clinical_knowledge_graph').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/knowledge-graph/health/evaluate').send({});
     expect(blocked.statusCode).toBe(403);
   });
 
