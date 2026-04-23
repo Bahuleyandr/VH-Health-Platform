@@ -317,6 +317,24 @@ import {
   upsertNode,
 } from '../../services/ai/clinicalKnowledgeGraphService.js';
 import {
+  decideAcuityStaffingForecast,
+  evaluateAcuityStaffing,
+  listAcuityStaffingForecasts,
+} from '../../services/ai/acuityStaffingForecastService.js';
+import {
+  changeSiteStatus,
+  decideFederationRound,
+  listFederationRounds,
+  listFederationSites,
+  recordFederationRound,
+  upsertFederationSite,
+} from '../../services/ai/federatedLearningCoordinatorService.js';
+import {
+  decideVoiceSession,
+  evaluateVoiceSession,
+  listVoiceSessions,
+} from '../../services/ai/voicePatientAssistantIvrService.js';
+import {
   decideSepsisBundleAudit,
   generateSepsisBundleAudit,
   listSepsisBundleAudits,
@@ -4808,6 +4826,269 @@ router.patch('/knowledge-graph/health/reports/:id', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_KG_HEALTH_DECIDED', String(result.id), null, result);
     return success(res, result, 'Knowledge graph health report updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Acuity-Based Staffing Forecast
+// ---------------------------------------------------------------------------
+router.post('/acuity-staffing/evaluate', async (req, res, next) => {
+  try {
+    const result = await evaluateAcuityStaffing({
+      req,
+      unit: req.body?.unit,
+      shiftLabel: req.body?.shift_label || null,
+      shiftStart: req.body?.shift_start || null,
+      shiftEnd: req.body?.shift_end || null,
+      census: req.body?.census || {},
+      currentStaff: req.body?.current_staff || {},
+      predictedAdmissions: req.body?.predicted_admissions ?? 0,
+      predictedDischarges: req.body?.predicted_discharges ?? 0,
+      customRatios: req.body?.custom_ratios || null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_ACUITY_STAFFING_EVALUATED',
+      String(result.forecast_id || result.generation_id || 'inline'),
+      null,
+      {
+        forecast_id: result.forecast_id,
+        recommendation: result.recommendation,
+        severity: result.severity,
+      }
+    );
+    return success(res, result, 'Acuity staffing forecast generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/acuity-staffing/forecasts', async (req, res, next) => {
+  try {
+    const result = await listAcuityStaffingForecasts({
+      tenantId: req.tenantId,
+      unit: req.query?.unit || null,
+      recommendation: req.query?.recommendation || null,
+      severity: req.query?.severity || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Acuity staffing forecasts retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/acuity-staffing/forecasts/:id', async (req, res, next) => {
+  try {
+    const result = await decideAcuityStaffingForecast({
+      tenantId: req.tenantId,
+      forecastId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_ACUITY_STAFFING_DECIDED', String(result.id), null, result);
+    return success(res, result, 'Acuity staffing forecast updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Federated Learning / Privacy-Preserving Training Layer
+// ---------------------------------------------------------------------------
+router.post('/federation/sites', async (req, res, next) => {
+  try {
+    const result = await upsertFederationSite({
+      tenantId: req.tenantId,
+      siteKey: req.body?.site_key,
+      displayName: req.body?.display_name || null,
+      region: req.body?.region || null,
+      contact: req.body?.contact || null,
+      dpEpsilonBudget: req.body?.dp_epsilon_budget ?? null,
+      dpEpsilonSpent: req.body?.dp_epsilon_spent ?? null,
+      minCohortSize: req.body?.min_cohort_size ?? null,
+      acceptedAggregationMethods: req.body?.accepted_aggregation_methods || null,
+      metadata: req.body?.metadata || {},
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_FEDERATION_SITE_UPSERTED', String(result?.id || 'inline'), null, result);
+    return success(res, result, 'Federation site upserted', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/federation/sites', async (req, res, next) => {
+  try {
+    const result = await listFederationSites({
+      tenantId: req.tenantId,
+      siteKey: req.query?.site_key || null,
+      status: req.query?.status || null,
+      approvalStatus: req.query?.approval_status || null,
+      region: req.query?.region || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Federation sites retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/federation/sites/:id/status', async (req, res, next) => {
+  try {
+    const result = await changeSiteStatus({
+      tenantId: req.tenantId,
+      siteId: req.params.id,
+      status: req.body?.status,
+      approvalStatus: req.body?.approval_status || null,
+      approvalNote: req.body?.approval_note || null,
+      approvedBy: req.user?.uid || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_FEDERATION_SITE_STATUS_CHANGED', String(result.id), null, result);
+    return success(res, result, 'Federation site status updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/federation/rounds', async (req, res, next) => {
+  try {
+    const result = await recordFederationRound({
+      req,
+      roundKey: req.body?.round_key,
+      modelKey: req.body?.model_key,
+      aggregationMethod: req.body?.aggregation_method || 'fed_avg',
+      startedAt: req.body?.started_at || null,
+      endedAt: req.body?.ended_at || null,
+      participantSiteCount: req.body?.participant_site_count ?? 0,
+      minParticipants: req.body?.min_participants ?? 3,
+      totalDpEpsilonSpent: req.body?.total_dp_epsilon_spent ?? 0,
+      totalDpEpsilonBudget: req.body?.total_dp_epsilon_budget ?? 10,
+      cohortTotalSize: req.body?.cohort_total_size ?? 0,
+      cohortMinSiteSize: req.body?.cohort_min_site_size ?? null,
+      siteMinFloor: req.body?.site_min_floor ?? 100,
+      dataDriftScore: req.body?.data_drift_score ?? null,
+      siteParticipation: Array.isArray(req.body?.site_participation) ? req.body.site_participation : [],
+      metadata: req.body?.metadata || {},
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_FEDERATION_ROUND_RECORDED',
+      String(result.round_id || result.generation_id || 'inline'),
+      null,
+      {
+        round_id: result.round_id,
+        recommendation: result.recommendation,
+        severity: result.severity,
+      }
+    );
+    return success(res, result, 'Federation round recorded', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/federation/rounds', async (req, res, next) => {
+  try {
+    const result = await listFederationRounds({
+      tenantId: req.tenantId,
+      roundKey: req.query?.round_key || null,
+      modelKey: req.query?.model_key || null,
+      recommendation: req.query?.recommendation || null,
+      severity: req.query?.severity || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Federation rounds retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/federation/rounds/:id', async (req, res, next) => {
+  try {
+    const result = await decideFederationRound({
+      tenantId: req.tenantId,
+      roundId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_FEDERATION_ROUND_DECIDED', String(result.id), null, result);
+    return success(res, result, 'Federation round updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Voice Patient Assistant / IVR
+// ---------------------------------------------------------------------------
+router.post('/voice-ivr/evaluate', async (req, res, next) => {
+  try {
+    const result = await evaluateVoiceSession({
+      req,
+      patientUid: req.body?.patient_uid,
+      admissionId: req.body?.admission_id ?? null,
+      intent: req.body?.intent,
+      channel: req.body?.channel || 'ivr',
+      language: req.body?.language || 'en',
+      scriptKey: req.body?.script_key || null,
+      consentRef: req.body?.consent_ref || null,
+      consentFresh: Boolean(req.body?.consent_fresh),
+      transcriptText: req.body?.transcript_text || '',
+      candidateResponse: req.body?.candidate_response || '',
+      metadata: req.body?.metadata || {},
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_VOICE_IVR_EVALUATED',
+      String(result.session_id || result.generation_id || 'inline'),
+      null,
+      {
+        session_id: result.session_id,
+        recommendation: result.recommendation,
+        severity: result.severity,
+      }
+    );
+    return success(res, result, 'Voice IVR session evaluated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/voice-ivr/sessions', async (req, res, next) => {
+  try {
+    const result = await listVoiceSessions({
+      tenantId: req.tenantId,
+      patientUid: req.query?.patient_uid || null,
+      intent: req.query?.intent || null,
+      channel: req.query?.channel || null,
+      recommendation: req.query?.recommendation || null,
+      severity: req.query?.severity || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Voice IVR sessions retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/voice-ivr/sessions/:id', async (req, res, next) => {
+  try {
+    const result = await decideVoiceSession({
+      tenantId: req.tenantId,
+      sessionId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_VOICE_IVR_DECIDED', String(result.id), null, result);
+    return success(res, result, 'Voice IVR session updated');
   } catch (err) {
     return next(err);
   }
