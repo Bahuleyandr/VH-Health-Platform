@@ -42,6 +42,7 @@ import {
   AbnormalResultTriagePanel,
   AdmissionAiDraftWorkbenchPanel,
   AmbientDocumentationPanel,
+  AiRoiDashboardPanel,
   AntimicrobialStewardshipPanel,
   AppealLetterGeneratorPanel,
   PatientTeachBackPanel,
@@ -1000,6 +1001,8 @@ export default function ClinicalAiGovernancePage() {
       <PatientTeachBackPanel />
 
       <AppealLetterGeneratorPanel />
+
+      <AiRoiDashboardPanel />
 
       <SepsisBundleSentinelPanel />
 

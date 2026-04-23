@@ -2317,6 +2317,100 @@ export async function decideAntimicrobialStewardshipReview(
 }
 
 // ---------------------------------------------------------------------------
+// AI ROI dashboard
+// ---------------------------------------------------------------------------
+export interface AiRoiByModule {
+  module_key: string;
+  generation_count: number;
+  ai_generation_count: number;
+  fallback_count: number;
+  accepted_count: number;
+  rejected_count: number;
+  pending_count: number;
+  edited_count: number;
+  total_tokens: number;
+  total_cost_minor: number;
+  acceptance_rate_pct: number;
+  time_saved_minutes: number;
+  documentation_minutes_saved: number;
+  cost_per_useful_draft_minor: number;
+}
+
+export interface AiRoiHighlight {
+  module_key: string;
+  accepted_count: number;
+  time_saved_minutes: number;
+  acceptance_rate_pct: number;
+  cost_per_useful_draft_minor: number;
+}
+
+export interface AiRoiMetrics {
+  tenant_id: string;
+  module_key: string;
+  period_start: string;
+  period_end: string;
+  period_days: number;
+  generation_count: number;
+  ai_generation_count: number;
+  fallback_count: number;
+  accepted_count: number;
+  rejected_count: number;
+  pending_count: number;
+  edited_count: number;
+  total_tokens: number;
+  total_cost_minor: number;
+  acceptance_rate_pct: number;
+  time_saved_minutes: number;
+  documentation_hours_saved: number;
+  denial_value_prevented_minor: number;
+  prior_auth_approved_count: number;
+  appeal_approved_count: number;
+  cost_per_useful_draft_minor: number;
+  by_module: AiRoiByModule[];
+  highlights: AiRoiHighlight[];
+  computed_at: string;
+  decision_support_only: boolean;
+  read_only: boolean;
+}
+
+export interface AiRoiSnapshot extends AiRoiMetrics {
+  id: number;
+  created_at?: string;
+  computed_by?: string | null;
+}
+
+export async function getAiRoiMetrics(periodDays: number = 30) {
+  return getJSON<AiRoiMetrics>('/admin/clinical-ai/roi', { period_days: String(periodDays) });
+}
+
+export async function saveAiRoiSnapshot(payload: { periodDays?: number; moduleKey?: string } = {}) {
+  const body: Record<string, unknown> = {};
+  if (payload.periodDays) body.period_days = payload.periodDays;
+  if (payload.moduleKey) body.module_key = payload.moduleKey;
+  return postJSON<{ snapshot: AiRoiSnapshot; metrics: AiRoiMetrics }>(
+    '/admin/clinical-ai/roi/snapshots',
+    body
+  );
+}
+
+export async function listAiRoiSnapshots(params: { moduleKey?: string; limit?: number } = {}) {
+  const query: Record<string, string> = {};
+  if (params.moduleKey) query.module_key = params.moduleKey;
+  if (params.limit) query.limit = String(params.limit);
+  return getJSON<{ snapshots: AiRoiSnapshot[]; count: number }>(
+    '/admin/clinical-ai/roi/snapshots',
+    query
+  );
+}
+
+export async function getLatestAiRoiSnapshot(moduleKey: string = 'ALL') {
+  return getJSON<{ snapshot: AiRoiSnapshot | null }>(
+    '/admin/clinical-ai/roi/snapshots/latest',
+    { module_key: moduleKey }
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Appeal letter generator for denied claims
 // ---------------------------------------------------------------------------
 export type AppealLetterDecision = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'edited';

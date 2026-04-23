@@ -41,6 +41,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_antimicrobial_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_teach_back_sessions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_appeal_letters WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_roi_snapshots WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -161,6 +162,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_antimicrobial_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_teach_back_sessions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_appeal_letters WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_roi_snapshots WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -744,6 +746,45 @@ describe('future-proof clinical AI and privacy foundations', () => {
       appeal_type: 'first_level',
     });
     expect(blocked.statusCode).toBe(403);
+  });
+
+  it('computes and snapshots AI ROI metrics across modules', async () => {
+    const denied = await doctor.get('/api/v1/admin/clinical-ai/roi');
+    expectStatus(denied, 403, 'ROI denied for doctor');
+
+    const live = await admin.get('/api/v1/admin/clinical-ai/roi?period_days=30');
+    expectStatus(live, 200, 'compute live ROI metrics');
+    const metrics = live.body.data;
+    expect(metrics.period_days).toBe(30);
+    expect(metrics.read_only).toBe(true);
+    expect(metrics.decision_support_only).toBe(true);
+    expect(Array.isArray(metrics.by_module)).toBe(true);
+    expect(typeof metrics.generation_count).toBe('number');
+    expect(typeof metrics.acceptance_rate_pct).toBe('number');
+    expect(typeof metrics.time_saved_minutes).toBe('number');
+    expect(typeof metrics.cost_per_useful_draft_minor).toBe('number');
+    expect(Array.isArray(metrics.highlights)).toBe(true);
+
+    const saved = await admin.post('/api/v1/admin/clinical-ai/roi/snapshots').send({ period_days: 30 });
+    expectStatus(saved, 201, 'save ROI snapshot');
+    expect(saved.body.data.snapshot).toBeTruthy();
+    expect(saved.body.data.snapshot.module_key).toBe('ALL');
+    expect(saved.body.data.snapshot.period_days).toBe(30);
+    expect(typeof saved.body.data.snapshot.generation_count).toBe('number');
+
+    const history = await admin.get('/api/v1/admin/clinical-ai/roi/snapshots?limit=10');
+    expectStatus(history, 200, 'list ROI snapshots');
+    expect(history.body.data.snapshots.length).toBeGreaterThan(0);
+
+    const latest = await admin.get('/api/v1/admin/clinical-ai/roi/snapshots/latest?module_key=ALL');
+    expectStatus(latest, 200, 'latest ROI snapshot');
+    expect(latest.body.data.snapshot).toBeTruthy();
+    expect(latest.body.data.snapshot.module_key).toBe('ALL');
+
+    const audit = await admin.get('/api/v1/admin/clinical-ai/audit?limit=250');
+    expectStatus(audit, 200, 'ROI audit logs');
+    const actions = audit.body.data.logs.map((row) => row.action);
+    expect(actions).toContain('CLINICAL_AI_ROI_SNAPSHOT_RECORDED');
   });
 
   it('aggregates ward-round-brief and denial-risk drafts', async () => {
