@@ -132,6 +132,13 @@ import {
   submitTeachBackAnswers,
 } from '../../services/ai/patientTeachBackService.js';
 import {
+  decideAppealLetter,
+  generateAppealLetter,
+  listAppealLetters,
+  recordAppealPayerResponse,
+  submitAppealLetter,
+} from '../../services/ai/appealLetterGeneratorService.js';
+import {
   decideSepsisBundleAudit,
   generateSepsisBundleAudit,
   listSepsisBundleAudits,
@@ -2109,6 +2116,103 @@ router.patch('/prior-auth/:id/payer-decision', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_PRIOR_AUTH_PAYER_DECISION', String(decided.id), null, decided);
     return success(res, decided, 'Payer decision recorded');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Appeal letter generator for denied claims
+// ---------------------------------------------------------------------------
+router.post('/appeal-letters', async (req, res, next) => {
+  try {
+    const result = await generateAppealLetter({
+      req,
+      claimId: req.body?.claim_id,
+      denialReason: req.body?.denial_reason || null,
+      denialCode: req.body?.denial_code || null,
+      appealType: req.body?.appeal_type || 'first_level',
+      admissionId: req.body?.admission_id || null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_APPEAL_LETTER_GENERATED',
+      String(result.appeal_id || result.generation_id || req.body?.claim_id || 'inline'),
+      null,
+      {
+        appeal_id: result.appeal_id,
+        generation_id: result.generation_id,
+        claim_id: req.body?.claim_id,
+        classification: result.classification?.classification,
+        appeal_type: result.draft?.appeal_type,
+        safety_flag_count: result.safety_flags?.length || 0,
+      }
+    );
+    return success(res, result, 'Appeal letter draft generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/appeal-letters', async (req, res, next) => {
+  try {
+    const result = await listAppealLetters({
+      tenantId: req.tenantId,
+      claimId: req.query?.claim_id || null,
+      patientUid: req.query?.patient_uid || null,
+      appealStatus: req.query?.appeal_status || null,
+      decision: req.query?.decision || null,
+      classification: req.query?.classification || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Appeal letters retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/appeal-letters/:id', async (req, res, next) => {
+  try {
+    const result = await decideAppealLetter({
+      tenantId: req.tenantId,
+      appealId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_APPEAL_LETTER_REVIEWED', String(result.id), null, result);
+    return success(res, result, 'Appeal letter review recorded');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/appeal-letters/:id/submit', async (req, res, next) => {
+  try {
+    const result = await submitAppealLetter({
+      tenantId: req.tenantId,
+      appealId: req.params.id,
+      submittedBy: req.user?.uid || null,
+      payerReferenceId: req.body?.payer_reference_id || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_APPEAL_LETTER_SUBMITTED', String(result.id), null, result);
+    return success(res, result, 'Appeal letter submitted');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/appeal-letters/:id/payer-response', async (req, res, next) => {
+  try {
+    const result = await recordAppealPayerResponse({
+      tenantId: req.tenantId,
+      appealId: req.params.id,
+      status: req.body?.status,
+      response: req.body?.response || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_APPEAL_LETTER_PAYER_RESPONSE', String(result.id), null, result);
+    return success(res, result, 'Appeal letter payer response recorded');
   } catch (err) {
     return next(err);
   }

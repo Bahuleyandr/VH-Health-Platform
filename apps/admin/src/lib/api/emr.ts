@@ -2317,6 +2317,160 @@ export async function decideAntimicrobialStewardshipReview(
 }
 
 // ---------------------------------------------------------------------------
+// Appeal letter generator for denied claims
+// ---------------------------------------------------------------------------
+export type AppealLetterDecision = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'edited';
+export type AppealLetterStatus =
+  | 'draft'
+  | 'ready_for_submission'
+  | 'submitted'
+  | 'approved'
+  | 'denied'
+  | 'withdrawn';
+export type AppealType = 'first_level' | 'second_level' | 'external_review' | 'reconsideration';
+export type AppealDenialClassification =
+  | 'medical_necessity'
+  | 'coding_error'
+  | 'prior_auth_missing'
+  | 'documentation_insufficient'
+  | 'duplicate_claim'
+  | 'coverage'
+  | 'timely_filing'
+  | 'bundled_service'
+  | 'non_covered_service'
+  | 'other';
+
+export interface AppealLetterDraft {
+  cover_letter: string;
+  medical_necessity: string;
+  clinical_evidence: Record<string, unknown>;
+  supporting_documentation: string[];
+  requested_action: string;
+  procedure_codes: string[];
+  diagnosis_codes: string[];
+  appeal_type: AppealType;
+  classification: AppealDenialClassification;
+  summary?: string;
+}
+
+export interface AppealLetter {
+  id: number;
+  tenant_id?: string;
+  claim_id: number;
+  claim_number?: string | null;
+  insurance_provider?: string | null;
+  patient_uid: string;
+  patient_name?: string | null;
+  admission_id: number | null;
+  generation_id: number | null;
+  denial_reason: string | null;
+  denial_code: string | null;
+  denial_classification: AppealDenialClassification;
+  appeal_type: AppealType;
+  letter_draft: AppealLetterDraft;
+  clinical_evidence: Record<string, unknown>;
+  source_citations: ClinicalAiSourceCitation[];
+  safety_flags: ClinicalAiSafetyFlagSummary[];
+  appeal_status: AppealLetterStatus;
+  reviewer_decision: AppealLetterDecision;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  reviewer_note?: string | null;
+  submitted_at?: string | null;
+  submitted_by?: string | null;
+  payer_reference_id?: string | null;
+  payer_response?: Record<string, unknown> | null;
+  payer_response_at?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at?: string;
+}
+
+export async function listAppealLetters(params: {
+  claimId?: number | string;
+  patientUid?: string;
+  appealStatus?: AppealLetterStatus | string;
+  decision?: AppealLetterDecision | string;
+  classification?: AppealDenialClassification | string;
+  limit?: number;
+} = {}) {
+  const query: Record<string, string> = {};
+  if (params.claimId) query.claim_id = String(params.claimId);
+  if (params.patientUid) query.patient_uid = params.patientUid;
+  if (params.appealStatus) query.appeal_status = params.appealStatus;
+  if (params.decision) query.decision = params.decision;
+  if (params.classification) query.classification = params.classification;
+  if (params.limit) query.limit = String(params.limit);
+  return getJSON<{ appeals: AppealLetter[]; count: number }>('/admin/clinical-ai/appeal-letters', query);
+}
+
+export async function generateAppealLetter(payload: {
+  claimId: number;
+  denialReason?: string;
+  denialCode?: string;
+  appealType?: AppealType;
+  admissionId?: number;
+}) {
+  const body: Record<string, unknown> = { claim_id: payload.claimId };
+  if (payload.denialReason) body.denial_reason = payload.denialReason;
+  if (payload.denialCode) body.denial_code = payload.denialCode;
+  if (payload.appealType) body.appeal_type = payload.appealType;
+  if (payload.admissionId) body.admission_id = payload.admissionId;
+  return postJSON<{
+    appeal_id: number | null;
+    generation_id: number | null;
+    draft: AppealLetterDraft;
+    claim: {
+      id: number;
+      claim_number: string;
+      insurance_provider: string;
+      policy_number: string | null;
+      claim_amount: number | string;
+      status: string;
+    };
+    classification: { classification: AppealDenialClassification; severity: string };
+    source_citations: ClinicalAiSourceCitation[];
+    safety_flags: ClinicalAiSafetyFlagSummary[];
+    module_key: string;
+    prompt_version: string;
+    appeal_status: AppealLetterStatus;
+    review_status: string;
+    rules_authoritative: boolean;
+    decision_support_only: boolean;
+    ai_metadata?: Record<string, unknown>;
+  }>('/admin/clinical-ai/appeal-letters', body);
+}
+
+export async function decideAppealLetter(
+  id: number,
+  decision: Exclude<AppealLetterDecision, 'pending'>,
+  note?: string
+) {
+  return fetchAdminAPI<AppealLetter>(`/admin/clinical-ai/appeal-letters/${id}`, {
+    method: 'PATCH',
+    body: { decision, note },
+  });
+}
+
+export async function submitAppealLetter(id: number, payerReferenceId?: string) {
+  return postJSON<AppealLetter>(`/admin/clinical-ai/appeal-letters/${id}/submit`, {
+    payer_reference_id: payerReferenceId,
+  });
+}
+
+export async function recordAppealPayerResponse(
+  id: number,
+  status: 'approved' | 'denied' | 'withdrawn',
+  payload?: { response?: Record<string, unknown>; note?: string }
+) {
+  return postJSON<AppealLetter>(`/admin/clinical-ai/appeal-letters/${id}/payer-response`, {
+    status,
+    response: payload?.response,
+    note: payload?.note,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Patient teach-back / comprehension AI
 // ---------------------------------------------------------------------------
 export type TeachBackDecision = 'pending' | 'accepted' | 'deferred' | 'rejected';

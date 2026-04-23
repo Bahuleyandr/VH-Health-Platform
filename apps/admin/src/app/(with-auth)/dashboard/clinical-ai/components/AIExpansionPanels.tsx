@@ -35,6 +35,7 @@ import {
   decideClinicalAiTask,
   decideInfectionControlAudit,
   decideAntimicrobialStewardshipReview,
+  decideAppealLetter,
   decideTeachBackSession,
   decidePrivacySentinelAudit,
   decideSepsisBundleAudit,
@@ -52,6 +53,7 @@ import {
   extractClinicalAiTasks,
   generateInfectionControlAudit,
   generateAntimicrobialStewardshipReview,
+  generateAppealLetter,
   generateTeachBackSession,
   generatePriorAuthorization,
   generateRcaDraft,
@@ -75,7 +77,10 @@ import {
   listImagingFindings,
   listInfectionControlAudits,
   listAntimicrobialStewardshipReviews,
+  listAppealLetters,
   listTeachBackSessions,
+  recordAppealPayerResponse,
+  submitAppealLetter,
   listPolypharmacyReviews,
   listPrivacySentinelAudits,
   listPriorAuthorizations,
@@ -107,6 +112,11 @@ import {
   type AntimicrobialStewardshipDecision,
   type AntimicrobialStewardshipReview,
   type AntimicrobialStewardshipRiskBand,
+  type AppealDenialClassification,
+  type AppealLetter,
+  type AppealLetterDecision,
+  type AppealLetterStatus,
+  type AppealType,
   type TeachBackDecision,
   type TeachBackLanguage,
   type TeachBackSession,
@@ -296,6 +306,46 @@ const PRIVACY_RISK_BANDS: PrivacySentinelRiskBand[] = ["critical", "high", "medi
 const ABNORMAL_TRIAGE_BANDS: AbnormalTriageBand[] = ["critical", "urgent", "watch", "routine"];
 const INFECTION_RISK_BANDS: InfectionControlRiskBand[] = ["critical", "high", "medium", "low"];
 const ANTIMICROBIAL_RISK_BANDS: AntimicrobialStewardshipRiskBand[] = ["critical", "high", "medium", "low"];
+const APPEAL_STATUSES: AppealLetterStatus[] = [
+  "draft",
+  "ready_for_submission",
+  "submitted",
+  "approved",
+  "denied",
+  "withdrawn",
+];
+const APPEAL_TYPES: AppealType[] = ["first_level", "second_level", "external_review", "reconsideration"];
+const APPEAL_CLASSIFICATIONS: AppealDenialClassification[] = [
+  "medical_necessity",
+  "prior_auth_missing",
+  "documentation_insufficient",
+  "coding_error",
+  "duplicate_claim",
+  "timely_filing",
+  "bundled_service",
+  "non_covered_service",
+  "coverage",
+  "other",
+];
+
+function appealStatusClass(status: string) {
+  switch (status) {
+    case "approved":
+      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+    case "denied":
+      return "border-red-200 bg-red-50 text-red-800";
+    case "withdrawn":
+      return "border-slate-200 bg-slate-100 text-slate-700";
+    case "submitted":
+      return "border-blue-200 bg-blue-50 text-blue-800";
+    case "ready_for_submission":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "draft":
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-700";
+  }
+}
+
 const TEACH_BACK_STATUSES: TeachBackStatus[] = ["draft", "in_progress", "completed", "needs_clinician_review"];
 const TEACH_BACK_LANGUAGES: TeachBackLanguage[] = ["en", "hi", "ta", "te", "ml", "mr", "bn", "kn"];
 const TEACH_BACK_DECISIONS: TeachBackDecision[] = ["pending", "accepted", "deferred", "rejected"];
@@ -1945,6 +1995,371 @@ export function AntimicrobialStewardshipPanel() {
                     ) : (
                       <div className="mt-1 text-xs text-muted-foreground">{fmt(row.reviewed_at)}</div>
                     )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Appeal Letter Generator for Denied Claims
+// ---------------------------------------------------------------------------
+export function AppealLetterGeneratorPanel() {
+  const queryClient = useQueryClient();
+  const [claimId, setClaimId] = useState("");
+  const [admissionId, setAdmissionId] = useState("");
+  const [denialReason, setDenialReason] = useState("");
+  const [denialCode, setDenialCode] = useState("");
+  const [appealType, setAppealType] = useState<AppealType>("first_level");
+  const [claimFilter, setClaimFilter] = useState("");
+  const [classificationFilter, setClassificationFilter] = useState<AppealDenialClassification | "">("");
+  const [statusFilter, setStatusFilter] = useState<AppealLetterStatus | "">("");
+  const [decisionFilter, setDecisionFilter] = useState<AppealLetterDecision | "">("pending");
+
+  const appeals = useQuery({
+    queryKey: ["clinical-ai", "appeal-letters", claimFilter, classificationFilter, statusFilter, decisionFilter],
+    queryFn: () =>
+      listAppealLetters({
+        claimId: claimFilter.trim() || undefined,
+        classification: classificationFilter || undefined,
+        appealStatus: statusFilter || undefined,
+        decision: decisionFilter || undefined,
+        limit: 50,
+      }),
+  });
+  const generate = useMutation({
+    mutationFn: () =>
+      generateAppealLetter({
+        claimId: Number.parseInt(claimId.trim(), 10),
+        admissionId: admissionId.trim() ? Number.parseInt(admissionId.trim(), 10) : undefined,
+        denialReason: denialReason.trim() || undefined,
+        denialCode: denialCode.trim() || undefined,
+        appealType,
+      }),
+    onSuccess: (result) => {
+      toast.success(`Appeal drafted: ${result.classification.classification.replace(/_/g, " ")}`);
+      setClaimId("");
+      setAdmissionId("");
+      setDenialReason("");
+      setDenialCode("");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "appeal-letters"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "usage"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Appeal generation failed"),
+  });
+  const decide = useMutation({
+    mutationFn: ({ id, decision, note }: { id: number; decision: Exclude<AppealLetterDecision, "pending">; note?: string }) =>
+      decideAppealLetter(id, decision, note),
+    onSuccess: () => {
+      toast.success("Appeal review saved");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "appeal-letters"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Appeal review failed"),
+  });
+  const submit = useMutation({
+    mutationFn: ({ id, ref }: { id: number; ref?: string }) => submitAppealLetter(id, ref),
+    onSuccess: () => {
+      toast.success("Appeal submitted to payer");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "appeal-letters"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Appeal submission failed"),
+  });
+  const payerResponse = useMutation({
+    mutationFn: ({ id, status, note }: { id: number; status: "approved" | "denied" | "withdrawn"; note?: string }) =>
+      recordAppealPayerResponse(id, status, { note }),
+    onSuccess: () => {
+      toast.success("Payer response recorded");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "appeal-letters"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Payer response record failed"),
+  });
+
+  const rows: AppealLetter[] = appeals.data?.appeals ?? [];
+  const submittedCount = rows.filter((row) => row.appeal_status === "submitted").length;
+  const pendingCount = rows.filter((row) => row.reviewer_decision === "pending").length;
+  const approvedCount = rows.filter((row) => row.appeal_status === "approved").length;
+  const canGenerate = Number.isFinite(Number.parseInt(claimId.trim(), 10));
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <Receipt className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Appeal Letter Generator</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={claimFilter}
+            onChange={(event) => setClaimFilter(event.target.value)}
+            placeholder="claim id"
+            inputMode="numeric"
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          />
+          <select
+            value={classificationFilter}
+            onChange={(event) => setClassificationFilter(event.target.value as AppealDenialClassification | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All denial types</option>
+            {APPEAL_CLASSIFICATIONS.map((item) => (
+              <option key={item} value={item}>{item.replace(/_/g, " ")}</option>
+            ))}
+          </select>
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value as AppealLetterStatus | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All appeal status</option>
+            {APPEAL_STATUSES.map((status) => (
+              <option key={status} value={status}>{status.replace(/_/g, " ")}</option>
+            ))}
+          </select>
+          <select
+            value={decisionFilter}
+            onChange={(event) => setDecisionFilter(event.target.value as AppealLetterDecision | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All review</option>
+            <option value="pending">pending</option>
+            <option value="accepted">accepted</option>
+            <option value="deferred">deferred</option>
+            <option value="rejected">rejected</option>
+            <option value="edited">edited</option>
+          </select>
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Submitted</div>
+          <div className="mt-1 text-2xl font-semibold text-blue-700">{submittedCount}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Approved</div>
+          <div className="mt-1 text-2xl font-semibold text-emerald-700">{approvedCount}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Pending review</div>
+          <div className="mt-1 text-2xl font-semibold">{pendingCount}</div>
+        </div>
+      </div>
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_1fr_auto] lg:items-end">
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Claim ID</span>
+            <input
+              value={claimId}
+              onChange={(event) => setClaimId(event.target.value)}
+              inputMode="numeric"
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Admission ID (optional)</span>
+            <input
+              value={admissionId}
+              onChange={(event) => setAdmissionId(event.target.value)}
+              inputMode="numeric"
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Denial reason</span>
+            <input
+              value={denialReason}
+              onChange={(event) => setDenialReason(event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Denial code / Appeal type</span>
+            <div className="flex gap-2">
+              <input
+                value={denialCode}
+                onChange={(event) => setDenialCode(event.target.value)}
+                placeholder="code"
+                className="w-full rounded-md border border-border bg-background px-3 py-2"
+              />
+              <select
+                value={appealType}
+                onChange={(event) => setAppealType(event.target.value as AppealType)}
+                className="rounded-md border border-border bg-background px-2 py-2 text-sm"
+              >
+                {APPEAL_TYPES.map((type) => (
+                  <option key={type} value={type}>{type.replace(/_/g, " ")}</option>
+                ))}
+              </select>
+            </div>
+          </label>
+          <button
+            onClick={() => generate.mutate()}
+            disabled={generate.isPending || !canGenerate}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+          >
+            <PlayCircle className="h-4 w-4" />
+            {generate.isPending ? "Drafting..." : "Draft Appeal"}
+          </button>
+        </div>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Claim / Payer</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Denial</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Evidence</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Appeal status</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Review</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
+                  No appeal letters found
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{row.claim_number || `claim #${row.claim_id}`}</div>
+                    <div className="text-xs text-muted-foreground">{row.insurance_provider || "-"}</div>
+                    {row.patient_name ? <div className="text-xs text-muted-foreground">{row.patient_name}</div> : null}
+                    <div className="font-mono text-xs text-muted-foreground">appeal #{row.id}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs font-medium">
+                      {row.denial_classification.replace(/_/g, " ")}
+                    </span>
+                    <div className="mt-1 text-xs text-muted-foreground">{row.appeal_type.replace(/_/g, " ")}</div>
+                    {row.denial_reason ? (
+                      <div className="mt-1 max-w-xs text-xs text-muted-foreground">{row.denial_reason}</div>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="max-w-xs space-y-1 text-xs">
+                      <div>{(row.letter_draft?.procedure_codes || []).length} procedure code(s)</div>
+                      <div>{(row.letter_draft?.diagnosis_codes || []).length} diagnosis code(s)</div>
+                      <div className="text-muted-foreground">
+                        {(row.source_citations || []).length} citations / {(row.safety_flags || []).length} safety flags
+                      </div>
+                      {(row.safety_flags || []).slice(0, 2).map((flag) => (
+                        <div key={`${row.id}-${flag.code}`} className="flex items-center gap-1">
+                          <span className={`rounded-full border px-2 py-0.5 font-medium ${severityBadgeClass(flag.severity)}`}>
+                            {flag.severity}
+                          </span>
+                          <span>{flag.message}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${appealStatusClass(row.appeal_status)}`}>
+                      {row.appeal_status.replace(/_/g, " ")}
+                    </span>
+                    {row.submitted_at ? (
+                      <div className="mt-1 text-xs text-muted-foreground">submitted {fmt(row.submitted_at)}</div>
+                    ) : null}
+                    {row.payer_response_at ? (
+                      <div className="mt-1 text-xs text-muted-foreground">payer {fmt(row.payer_response_at)}</div>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${documentStatusClass(row.reviewer_decision)}`}>
+                      {row.reviewer_decision}
+                    </span>
+                    {row.reviewer_decision === "pending" ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "accepted" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Edit note") ?? undefined;
+                            decide.mutate({ id: row.id, decision: "edited", note });
+                          }}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-50"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Defer reason") ?? undefined;
+                            decide.mutate({ id: row.id, decision: "deferred", note });
+                          }}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                        >
+                          Defer
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Reject reason") ?? undefined;
+                            decide.mutate({ id: row.id, decision: "rejected", note });
+                          }}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    ) : null}
+                    {row.reviewer_decision === "accepted" && row.appeal_status === "ready_for_submission" ? (
+                      <div className="mt-2">
+                        <button
+                          onClick={() => {
+                            const ref = window.prompt("Payer reference ID (optional)") ?? undefined;
+                            submit.mutate({ id: row.id, ref });
+                          }}
+                          disabled={submit.isPending}
+                          className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-50"
+                        >
+                          Submit to payer
+                        </button>
+                      </div>
+                    ) : null}
+                    {row.appeal_status === "submitted" ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <button
+                          onClick={() => payerResponse.mutate({ id: row.id, status: "approved" })}
+                          disabled={payerResponse.isPending}
+                          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                        >
+                          Mark approved
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Denial reason") ?? undefined;
+                            payerResponse.mutate({ id: row.id, status: "denied", note });
+                          }}
+                          disabled={payerResponse.isPending}
+                          className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
+                        >
+                          Mark denied
+                        </button>
+                        <button
+                          onClick={() => payerResponse.mutate({ id: row.id, status: "withdrawn" })}
+                          disabled={payerResponse.isPending}
+                          className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                        >
+                          Withdraw
+                        </button>
+                      </div>
+                    ) : null}
                   </td>
                 </tr>
               ))
