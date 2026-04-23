@@ -244,6 +244,29 @@ import {
   listInventoryAlerts,
 } from '../../services/ai/inventoryIntelligenceService.js';
 import {
+  decideSyntheticCase,
+  generateAndPersistSyntheticCase,
+  listSyntheticCases,
+} from '../../services/ai/syntheticCaseGeneratorService.js';
+import {
+  decideTrainingModule,
+  generateTrainingModule,
+  listTrainingModules,
+} from '../../services/ai/trainingSimulationCoachService.js';
+import {
+  changeModelStage,
+  decideEvalRun,
+  listEvalRuns,
+  listModelRegistry,
+  recordEvalRun,
+  upsertModelRegistry,
+} from '../../services/ai/modelRegistryWorkbenchService.js';
+import {
+  decideProcurementOpportunity,
+  evaluateProcurementOpportunity,
+  listProcurementOpportunities,
+} from '../../services/ai/procurementNegotiationService.js';
+import {
   decideSepsisBundleAudit,
   generateSepsisBundleAudit,
   listSepsisBundleAudits,
@@ -3741,6 +3764,325 @@ router.patch('/inventory/alerts/:id', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_INVENTORY_DECIDED', String(result.id), null, result);
     return success(res, result, 'Inventory alert updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Synthetic Clinical Case Generator
+// ---------------------------------------------------------------------------
+router.post('/synthetic-cases/generate', async (req, res, next) => {
+  try {
+    const result = await generateAndPersistSyntheticCase({
+      req,
+      pathway: req.body?.pathway,
+      complexity: req.body?.complexity || 'standard',
+      seed: req.body?.seed || null,
+      intendedUse: req.body?.intended_use || null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_SYNTHETIC_CASE_GENERATED',
+      String(result.case_id || result.generation_id || 'inline'),
+      null,
+      {
+        case_id: result.case_id,
+        pathway: result.pathway,
+        complexity: result.complexity,
+      }
+    );
+    return success(res, result, 'Synthetic case generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/synthetic-cases', async (req, res, next) => {
+  try {
+    const result = await listSyntheticCases({
+      tenantId: req.tenantId,
+      pathway: req.query?.pathway || null,
+      complexity: req.query?.complexity || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Synthetic cases retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/synthetic-cases/:id', async (req, res, next) => {
+  try {
+    const result = await decideSyntheticCase({
+      tenantId: req.tenantId,
+      caseId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_SYNTHETIC_CASE_DECIDED', String(result.id), null, result);
+    return success(res, result, 'Synthetic case updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Training and Simulation Coach
+// ---------------------------------------------------------------------------
+router.post('/training/modules/generate', async (req, res, next) => {
+  try {
+    const result = await generateTrainingModule({
+      req,
+      title: req.body?.title,
+      caseType: req.body?.case_type,
+      incidentCategory: req.body?.incident_category || null,
+      severity: req.body?.severity || 'low',
+      summary: req.body?.summary || null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_TRAINING_MODULE_GENERATED',
+      String(result.module_id || result.generation_id || 'inline'),
+      null,
+      {
+        module_id: result.module_id,
+        case_type: result.case_type,
+        severity: result.severity,
+        risk_band: result.risk_band,
+      }
+    );
+    return success(res, result, 'Training module generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/training/modules', async (req, res, next) => {
+  try {
+    const result = await listTrainingModules({
+      tenantId: req.tenantId,
+      caseType: req.query?.case_type || null,
+      severity: req.query?.severity || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Training modules retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/training/modules/:id', async (req, res, next) => {
+  try {
+    const result = await decideTrainingModule({
+      tenantId: req.tenantId,
+      moduleId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_TRAINING_MODULE_DECIDED', String(result.id), null, result);
+    return success(res, result, 'Training module updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Model Registry and Evaluation Workbench
+// ---------------------------------------------------------------------------
+router.post('/model-registry', async (req, res, next) => {
+  try {
+    const result = await upsertModelRegistry({
+      tenantId: req.tenantId,
+      modelKey: req.body?.model_key,
+      version: req.body?.version,
+      provider: req.body?.provider || null,
+      purpose: req.body?.purpose || null,
+      owner: req.body?.owner || null,
+      parentVersion: req.body?.parent_version || null,
+      lineage: req.body?.lineage || {},
+      metadata: req.body?.metadata || {},
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_MODEL_REGISTRY_UPSERTED', String(result?.id || 'inline'), null, result);
+    return success(res, result, 'Model registry entry upserted', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/model-registry', async (req, res, next) => {
+  try {
+    const result = await listModelRegistry({
+      tenantId: req.tenantId,
+      modelKey: req.query?.model_key || null,
+      stage: req.query?.stage || null,
+      approvalStatus: req.query?.approval_status || null,
+      owner: req.query?.owner || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Model registry retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/model-registry/:id/stage', async (req, res, next) => {
+  try {
+    const result = await changeModelStage({
+      tenantId: req.tenantId,
+      registryId: req.params.id,
+      stage: req.body?.stage,
+      approvalStatus: req.body?.approval_status || null,
+      approvalNote: req.body?.approval_note || null,
+      approvedBy: req.user?.uid || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_MODEL_STAGE_CHANGED', String(result.id), null, result);
+    return success(res, result, 'Model stage updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/model-registry/eval-runs', async (req, res, next) => {
+  try {
+    const result = await recordEvalRun({
+      req,
+      modelKey: req.body?.model_key,
+      version: req.body?.version,
+      suite: req.body?.suite,
+      sampleCount: req.body?.sample_count ?? 0,
+      passCount: req.body?.pass_count ?? 0,
+      failCount: req.body?.fail_count ?? 0,
+      accuracy: req.body?.accuracy ?? null,
+      f1Score: req.body?.f1_score ?? null,
+      avgLatencyMs: req.body?.avg_latency_ms ?? null,
+      fallbackRatePct: req.body?.fallback_rate_pct ?? null,
+      safetyFlagRatePct: req.body?.safety_flag_rate_pct ?? null,
+      driftScore: req.body?.drift_score ?? null,
+      baselineMetrics: req.body?.baseline_metrics || null,
+      metadata: req.body?.metadata || {},
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_MODEL_EVAL_RECORDED',
+      String(result.run_id || result.generation_id || 'inline'),
+      null,
+      {
+        run_id: result.run_id,
+        recommendation: result.recommendation,
+        severity: result.severity,
+      }
+    );
+    return success(res, result, 'Model eval run recorded', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/model-registry/eval-runs', async (req, res, next) => {
+  try {
+    const result = await listEvalRuns({
+      tenantId: req.tenantId,
+      modelKey: req.query?.model_key || null,
+      version: req.query?.version || null,
+      recommendation: req.query?.recommendation || null,
+      severity: req.query?.severity || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Model eval runs retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/model-registry/eval-runs/:id', async (req, res, next) => {
+  try {
+    const result = await decideEvalRun({
+      tenantId: req.tenantId,
+      runId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_MODEL_EVAL_DECIDED', String(result.id), null, result);
+    return success(res, result, 'Model eval run updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Procurement Negotiation Assistant
+// ---------------------------------------------------------------------------
+router.post('/procurement/evaluate', async (req, res, next) => {
+  try {
+    const result = await evaluateProcurementOpportunity({
+      req,
+      itemSku: req.body?.item_sku,
+      itemName: req.body?.item_name,
+      category: req.body?.category || null,
+      vendorName: req.body?.vendor_name || null,
+      currentUnitPrice: req.body?.current_unit_price,
+      historicalAvgPrice: req.body?.historical_avg_price ?? 0,
+      historicalMinPrice: req.body?.historical_min_price ?? null,
+      quotedAlternativePrice: req.body?.quoted_alternative_price ?? null,
+      annualVolume: req.body?.annual_volume ?? 0,
+      vendorCountForCategory: req.body?.vendor_count_for_category ?? 1,
+      contractTenureMonths: req.body?.contract_tenure_months ?? null,
+      contractEndDate: req.body?.contract_end_date || null,
+      today: req.body?.today || null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_PROCUREMENT_EVALUATED',
+      String(result.opportunity_id || result.generation_id || 'inline'),
+      null,
+      {
+        opportunity_id: result.opportunity_id,
+        opportunity_category: result.opportunity_category,
+        severity: result.severity,
+      }
+    );
+    return success(res, result, 'Procurement opportunity generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/procurement/opportunities', async (req, res, next) => {
+  try {
+    const result = await listProcurementOpportunities({
+      tenantId: req.tenantId,
+      itemSku: req.query?.item_sku || null,
+      category: req.query?.category || null,
+      vendorName: req.query?.vendor_name || null,
+      opportunityCategory: req.query?.opportunity_category || null,
+      severity: req.query?.severity || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Procurement opportunities retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/procurement/opportunities/:id', async (req, res, next) => {
+  try {
+    const result = await decideProcurementOpportunity({
+      tenantId: req.tenantId,
+      opportunityId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_PROCUREMENT_DECIDED', String(result.id), null, result);
+    return success(res, result, 'Procurement opportunity updated');
   } catch (err) {
     return next(err);
   }

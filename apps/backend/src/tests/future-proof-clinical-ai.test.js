@@ -64,6 +64,11 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_radiology_worklist_priorities WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_ot_block_suggestions WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_inventory_alerts WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_synthetic_cases WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_training_modules WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_model_eval_runs WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_model_registry WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND model_key LIKE 'test-%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_procurement_opportunities WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -207,6 +212,11 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_radiology_worklist_priorities WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_ot_block_suggestions WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_inventory_alerts WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_synthetic_cases WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_training_modules WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_model_eval_runs WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_model_registry WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND model_key LIKE 'test-%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_procurement_opportunities WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -1224,6 +1234,200 @@ describe('future-proof clinical AI and privacy foundations', () => {
       item_sku: 'TEST-SKU',
       item_name: 'Test Item',
       current_stock: 10,
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('generates deterministic synthetic clinical cases and gates by module', async () => {
+    await enableModule('synthetic_case_generator');
+
+    const first = await admin.post('/api/v1/admin/clinical-ai/synthetic-cases/generate').send({
+      pathway: 'sepsis',
+      complexity: 'edge',
+      seed: 'integration-seed-1',
+      intended_use: 'canary',
+    });
+    expectStatus(first, 201, 'synthetic case generate');
+    expect(first.body.data.module_key).toBe('synthetic_case_generator');
+    expect(first.body.data.pathway).toBe('sepsis');
+    expect(first.body.data.complexity).toBe('edge');
+    expect(first.body.data.synthetic).toBe(true);
+    expect(Array.isArray(first.body.data.edge_flags)).toBe(true);
+
+    const listed = await admin.get('/api/v1/admin/clinical-ai/synthetic-cases?pathway=sepsis');
+    expectStatus(listed, 200, 'list synthetic cases');
+    expect(listed.body.data.cases.length).toBeGreaterThanOrEqual(1);
+
+    const decided = await admin
+      .patch(`/api/v1/admin/clinical-ai/synthetic-cases/${first.body.data.case_id}`)
+      .send({ decision: 'accepted', note: 'Accepted into canary suite [test]' });
+    expectStatus(decided, 200, 'decide synthetic case');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/synthetic_case_generator').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/synthetic-cases/generate').send({
+      pathway: 'pneumonia',
+      complexity: 'standard',
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('builds training modules from incidents, scrubs PHI, and gates by module', async () => {
+    await enableModule('training_simulation_coach');
+
+    const sim = await admin.post('/api/v1/admin/clinical-ai/training/modules/generate').send({
+      title: 'Sim — code stroke delayed diagnosis [test]',
+      case_type: 'delayed_diagnosis',
+      incident_category: 'stroke',
+      severity: 'critical',
+      summary: 'Patient MRN: VH-00042 arrived with stroke symptoms. Phone 9876543210 on file.',
+    });
+    expectStatus(sim, 201, 'training module generate');
+    expect(sim.body.data.module_key).toBe('training_simulation_coach');
+    expect(sim.body.data.case_type).toBe('delayed_diagnosis');
+    expect(sim.body.data.format).toBe('sim_lab');
+    // delayed_diagnosis base=25 + critical severity +30 = 55 → 'high' band (40-59).
+    expect(sim.body.data.risk_band).toBe('high');
+    expect(Array.isArray(sim.body.data.phi_findings)).toBe(true);
+    expect(sim.body.data.phi_findings).toEqual(expect.arrayContaining(['MRN_DETECTED', 'PHONE_DETECTED']));
+
+    const listed = await admin.get('/api/v1/admin/clinical-ai/training/modules');
+    expectStatus(listed, 200, 'list training modules');
+    expect(listed.body.data.modules.length).toBeGreaterThanOrEqual(1);
+
+    const decided = await admin
+      .patch(`/api/v1/admin/clinical-ai/training/modules/${sim.body.data.module_id}`)
+      .send({ decision: 'accepted', note: 'Ready to run [test]' });
+    expectStatus(decided, 200, 'decide training module');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/training_simulation_coach').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/training/modules/generate').send({
+      title: 'Blocked [test]',
+      case_type: 'near_miss',
+      severity: 'low',
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('records model eval runs and classifies recommendations, gated by module', async () => {
+    await enableModule('model_registry_workbench');
+
+    const registered = await admin.post('/api/v1/admin/clinical-ai/model-registry').send({
+      model_key: 'test-clinical-summarizer',
+      version: 'v1.0',
+      provider: 'local-llm',
+      purpose: 'Discharge summary drafting',
+      owner: 'test-team',
+    });
+    expectStatus(registered, 201, 'model registry upsert');
+    expect(registered.body.data.model_key).toBe('test-clinical-summarizer');
+
+    const quarantine = await admin.post('/api/v1/admin/clinical-ai/model-registry/eval-runs').send({
+      model_key: 'test-clinical-summarizer',
+      version: 'v1.0',
+      suite: 'canary-discharge-v1',
+      sample_count: 100,
+      pass_count: 92,
+      fail_count: 8,
+      accuracy: 0.9,
+      f1_score: 0.9,
+      avg_latency_ms: 5200,
+      fallback_rate_pct: 1,
+      safety_flag_rate_pct: 0.2,
+      drift_score: 0.02,
+    });
+    expectStatus(quarantine, 201, 'quarantine eval run');
+    expect(quarantine.body.data.module_key).toBe('model_registry_workbench');
+    expect(quarantine.body.data.recommendation).toBe('quarantine');
+    expect(quarantine.body.data.severity).toBe('critical');
+
+    const promote = await admin.post('/api/v1/admin/clinical-ai/model-registry/eval-runs').send({
+      model_key: 'test-clinical-summarizer',
+      version: 'v1.0',
+      suite: 'canary-discharge-v1',
+      sample_count: 100,
+      pass_count: 96,
+      fail_count: 4,
+      accuracy: 0.96,
+      f1_score: 0.95,
+      avg_latency_ms: 500,
+      fallback_rate_pct: 0.5,
+      safety_flag_rate_pct: 0.1,
+      drift_score: 0.02,
+      baseline_metrics: { accuracy: 0.9, f1_score: 0.89 },
+    });
+    expectStatus(promote, 201, 'promote eval run');
+    expect(promote.body.data.recommendation).toBe('promote');
+
+    const listed = await admin.get('/api/v1/admin/clinical-ai/model-registry/eval-runs?model_key=test-clinical-summarizer');
+    expectStatus(listed, 200, 'list eval runs');
+    expect(listed.body.data.runs.length).toBeGreaterThanOrEqual(2);
+
+    const decided = await admin
+      .patch(`/api/v1/admin/clinical-ai/model-registry/eval-runs/${promote.body.data.run_id}`)
+      .send({ decision: 'accepted', note: 'Promotion approved [test]' });
+    expectStatus(decided, 200, 'decide eval run');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/model_registry_workbench').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/model-registry/eval-runs').send({
+      model_key: 'test-clinical-summarizer',
+      version: 'v1.0',
+      suite: 'canary-discharge-v1',
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('classifies procurement opportunities and gates by module', async () => {
+    await enableModule('procurement_negotiation_assistant');
+
+    const priceAnomaly = await admin.post('/api/v1/admin/clinical-ai/procurement/evaluate').send({
+      item_sku: 'TEST-GAUZE-001',
+      item_name: 'Sterile gauze rolls',
+      category: 'consumables',
+      vendor_name: 'Acme Medical',
+      current_unit_price: 140,
+      historical_avg_price: 100,
+      historical_min_price: 95,
+      quoted_alternative_price: null,
+      annual_volume: 5000,
+      vendor_count_for_category: 2,
+      contract_tenure_months: 12,
+      contract_end_date: null,
+      today: '2026-04-23',
+    });
+    expectStatus(priceAnomaly, 201, 'procurement price anomaly');
+    expect(priceAnomaly.body.data.module_key).toBe('procurement_negotiation_assistant');
+    expect(priceAnomaly.body.data.opportunity_category).toBe('price_anomaly');
+
+    const healthy = await admin.post('/api/v1/admin/clinical-ai/procurement/evaluate').send({
+      item_sku: 'TEST-LINEN-001',
+      item_name: 'Standard bed sheets',
+      category: 'linens',
+      vendor_name: 'Linen Co',
+      current_unit_price: 100,
+      historical_avg_price: 100,
+      annual_volume: 1000,
+      vendor_count_for_category: 3,
+      contract_tenure_months: 24,
+      contract_end_date: null,
+      today: '2026-04-23',
+    });
+    expectStatus(healthy, 201, 'procurement healthy');
+    expect(healthy.body.data.opportunity_category).toBe('no_action');
+
+    const listed = await admin.get('/api/v1/admin/clinical-ai/procurement/opportunities');
+    expectStatus(listed, 200, 'list procurement opportunities');
+    expect(listed.body.data.opportunities.length).toBeGreaterThanOrEqual(2);
+
+    const decided = await admin
+      .patch(`/api/v1/admin/clinical-ai/procurement/opportunities/${priceAnomaly.body.data.opportunity_id}`)
+      .send({ decision: 'accepted', note: 'Re-bid queued [test]' });
+    expectStatus(decided, 200, 'decide procurement opportunity');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/procurement_negotiation_assistant').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/procurement/evaluate').send({
+      item_sku: 'TEST-OTHER',
+      item_name: 'Other item',
+      current_unit_price: 50,
     });
     expect(blocked.statusCode).toBe(403);
   });
