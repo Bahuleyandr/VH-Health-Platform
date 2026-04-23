@@ -17,6 +17,10 @@ import {
   getLatestRisk,
   scoreLongitudinalRisk,
 } from '../../services/ai/longitudinalRiskService.js';
+import {
+  generateTeachBackSession,
+  submitTeachBackAnswers,
+} from '../../services/ai/patientTeachBackService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { canEditDischargeSummary, canSignDischargeSummary } from '../../utils/roleHelpers.js';
 
@@ -369,6 +373,36 @@ router.post(
   wrapAsync((req, res) =>
     respondWithAdmissionAiDraft(req, res, 'quality_case_review', 'Quality case review draft generated')
   )
+);
+
+// POST /:id/ai/teach-back — generate a patient teach-back session for an admission.
+router.post(
+  '/:id/ai/teach-back',
+  wrapAsync(async (req, res) => {
+    const admissionId = parseAdmissionId(req, res);
+    if (admissionId === null) return;
+    const result = await generateTeachBackSession({
+      req,
+      admissionId,
+      patientUid: req.body?.patient_uid || null,
+      sourceGenerationId: req.body?.source_generation_id || null,
+      language: req.body?.language || 'en',
+    });
+    success(res, result, 'Patient teach-back session generated', HTTP_STATUS.CREATED);
+  })
+);
+
+// POST /teach-back/:sessionId/answers — submit patient answers to an existing session.
+router.post(
+  '/teach-back/:sessionId/answers',
+  wrapAsync(async (req, res) => {
+    const result = await submitTeachBackAnswers({
+      req,
+      sessionId: req.params.sessionId,
+      answers: req.body?.answers || [],
+    });
+    success(res, result, 'Patient teach-back answers recorded');
+  })
 );
 
 // POST /ward-round-brief — aggregate draft across admitted patients.

@@ -39,6 +39,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM event_outbox WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_document_intake WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_antimicrobial_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_teach_back_sessions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -157,6 +158,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM event_outbox WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_document_intake WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_antimicrobial_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_teach_back_sessions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -557,6 +559,91 @@ describe('future-proof clinical AI and privacy foundations', () => {
     const actions = audit.body.data.logs.map((row) => row.action);
     expect(actions).toContain('CLINICAL_AI_ANTIMICROBIAL_STEWARDSHIP_REVIEW_GENERATED');
     expect(actions).toContain('CLINICAL_AI_ANTIMICROBIAL_STEWARDSHIP_REVIEWED');
+  });
+
+  it('generates a patient teach-back comprehension session and records answers', async () => {
+    await enableModule('patient_teach_back_comprehension');
+
+    const patientDenied = await patient.get('/api/v1/admin/clinical-ai/teach-back/sessions');
+    expectStatus(patientDenied, 403, 'patient denied admin teach-back queue');
+
+    const generated = await admin.post('/api/v1/admin/clinical-ai/teach-back/sessions').send({
+      admission_id: admissionId,
+      language: 'en',
+    });
+    expectStatus(generated, 201, 'admin generates teach-back session');
+    const sessionBody = generated.body.data;
+    expect(sessionBody.module_key).toBe('patient_teach_back_comprehension');
+    expect(sessionBody.requires_signoff).toBe(true);
+    expect(sessionBody.rules_authoritative).toBe(true);
+    expect(sessionBody.session_id).toBeTruthy();
+    expect(sessionBody.generation_id).toBeTruthy();
+    expect(sessionBody.language).toBe('en');
+    expect(Array.isArray(sessionBody.draft.questions)).toBe(true);
+    expect(sessionBody.draft.questions.length).toBeGreaterThan(0);
+    expect(sessionBody.draft.questions.every((q) => q.id && q.prompt && q.category)).toBe(true);
+    const categories = new Set(sessionBody.draft.questions.map((q) => q.category));
+    expect(categories.has('emergency_escalation')).toBe(true);
+    expect(Array.isArray(sessionBody.source_citations)).toBe(true);
+    expect(Array.isArray(sessionBody.safety_flags)).toBe(true);
+
+    const clinicalGenerated = await doctor.post(`/api/v1/emr/${admissionId}/ai/teach-back`).send({ language: 'hi' });
+    expectStatus(clinicalGenerated, 201, 'doctor generates teach-back via EMR route');
+    expect(clinicalGenerated.body.data.language).toBe('hi');
+    expect(clinicalGenerated.body.data.session_id).toBeTruthy();
+
+    const adminListed = await admin.get(`/api/v1/admin/clinical-ai/teach-back/sessions?admission_id=${admissionId}`);
+    expectStatus(adminListed, 200, 'admin list teach-back sessions');
+    expect(adminListed.body.data.sessions.length).toBeGreaterThan(0);
+
+    const sessionId = sessionBody.session_id;
+    const uncertainAnswers = sessionBody.draft.questions.map((q) => ({
+      question_id: q.id,
+      answer: "I don't know",
+    }));
+    const answered = await doctor
+      .post(`/api/v1/emr/teach-back/${sessionId}/answers`)
+      .send({ answers: uncertainAnswers });
+    expectStatus(answered, 200, 'submit uncertain answers via EMR route');
+    expect(answered.body.data.status).toBe('needs_clinician_review');
+    expect(Array.isArray(answered.body.data.misunderstanding_flags)).toBe(true);
+    expect(answered.body.data.misunderstanding_flags.length).toBeGreaterThan(0);
+    expect(answered.body.data.comprehension_score).toBe(0);
+
+    const correctAnswers = sessionBody.draft.questions.map((q) => {
+      if (q.category === 'emergency_escalation') return { question_id: q.id, answer: '108 ambulance' };
+      return { question_id: q.id, answer: q.expected || 'yes' };
+    });
+    const correctSubmission = await admin
+      .post(`/api/v1/admin/clinical-ai/teach-back/sessions/${sessionId}/answers`)
+      .send({ answers: correctAnswers });
+    expectStatus(correctSubmission, 200, 'admin resubmits correct answers');
+    expect(correctSubmission.body.data.comprehension_score).toBeGreaterThan(0);
+
+    const decided = await admin.patch(`/api/v1/admin/clinical-ai/teach-back/sessions/${sessionId}`).send({
+      decision: 'accepted',
+      note: 'Reviewed by admin [test]',
+    });
+    expectStatus(decided, 200, 'accept teach-back session');
+    expect(decided.body.data.reviewer_decision).toBe('accepted');
+
+    const audit = await admin.get('/api/v1/admin/clinical-ai/audit?limit=200');
+    expectStatus(audit, 200, 'teach-back audit logs');
+    const actions = audit.body.data.logs.map((row) => row.action);
+    expect(actions).toContain('CLINICAL_AI_TEACH_BACK_SESSION_GENERATED');
+    expect(actions).toContain('CLINICAL_AI_TEACH_BACK_ANSWERS_SUBMITTED');
+    expect(actions).toContain('CLINICAL_AI_TEACH_BACK_REVIEWED');
+  });
+
+  it('blocks teach-back generation when module is disabled', async () => {
+    await admin.patch('/api/v1/admin/clinical-ai/modules/patient_teach_back_comprehension').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/teach-back/sessions').send({
+      admission_id: admissionId,
+      language: 'en',
+    });
+    expect(blocked.statusCode).toBe(403);
+    const blockedClinical = await doctor.post(`/api/v1/emr/${admissionId}/ai/teach-back`).send({ language: 'en' });
+    expect(blockedClinical.statusCode).toBe(403);
   });
 
   it('aggregates ward-round-brief and denial-risk drafts', async () => {

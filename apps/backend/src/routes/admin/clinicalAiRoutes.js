@@ -126,6 +126,12 @@ import {
   listAntimicrobialStewardshipReviews,
 } from '../../services/ai/antimicrobialStewardshipService.js';
 import {
+  decideTeachBackSession,
+  generateTeachBackSession,
+  listTeachBackSessions,
+  submitTeachBackAnswers,
+} from '../../services/ai/patientTeachBackService.js';
+import {
   decideSepsisBundleAudit,
   generateSepsisBundleAudit,
   listSepsisBundleAudits,
@@ -1545,6 +1551,102 @@ router.patch('/antimicrobial-stewardship/reviews/:id', async (req, res, next) =>
       result
     );
     return success(res, result, 'Antimicrobial stewardship review updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Patient teach-back / comprehension AI
+// ---------------------------------------------------------------------------
+router.post('/teach-back/sessions', async (req, res, next) => {
+  try {
+    const result = await generateTeachBackSession({
+      req,
+      patientUid: req.body?.patient_uid || null,
+      admissionId: req.body?.admission_id || null,
+      sourceGenerationId: req.body?.source_generation_id || null,
+      language: req.body?.language || 'en',
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_TEACH_BACK_SESSION_GENERATED',
+      String(result.session_id || result.generation_id || req.body?.admission_id || 'inline'),
+      null,
+      {
+        session_id: result.session_id,
+        generation_id: result.generation_id,
+        admission_id: req.body?.admission_id,
+        language: result.language,
+        comprehension_score: result.draft?.comprehension_score,
+        question_count: result.draft?.questions?.length || 0,
+        safety_flag_count: result.safety_flags?.length || 0,
+      }
+    );
+    return success(res, result, 'Patient teach-back session generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/teach-back/sessions/:id/answers', async (req, res, next) => {
+  try {
+    const result = await submitTeachBackAnswers({
+      req,
+      sessionId: req.params.id,
+      answers: req.body?.answers || [],
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_TEACH_BACK_ANSWERS_SUBMITTED',
+      String(result.id),
+      null,
+      {
+        session_id: result.id,
+        status: result.status,
+        comprehension_score: result.comprehension_score,
+        misunderstanding_count: Array.isArray(result.misunderstanding_flags) ? result.misunderstanding_flags.length : 0,
+      }
+    );
+    return success(res, result, 'Patient teach-back answers recorded');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/teach-back/sessions', async (req, res, next) => {
+  try {
+    const result = await listTeachBackSessions({
+      tenantId: req.tenantId,
+      admissionId: req.query?.admission_id || null,
+      patientUid: req.query?.patient_uid || null,
+      status: req.query?.status || null,
+      decision: req.query?.decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Patient teach-back sessions retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/teach-back/sessions/:id', async (req, res, next) => {
+  try {
+    const result = await decideTeachBackSession({
+      tenantId: req.tenantId,
+      sessionId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_TEACH_BACK_REVIEWED',
+      String(result.id),
+      null,
+      result
+    );
+    return success(res, result, 'Patient teach-back session updated');
   } catch (err) {
     return next(err);
   }

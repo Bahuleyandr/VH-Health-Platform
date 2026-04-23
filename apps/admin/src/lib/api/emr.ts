@@ -2317,6 +2317,150 @@ export async function decideAntimicrobialStewardshipReview(
 }
 
 // ---------------------------------------------------------------------------
+// Patient teach-back / comprehension AI
+// ---------------------------------------------------------------------------
+export type TeachBackDecision = 'pending' | 'accepted' | 'deferred' | 'rejected';
+export type TeachBackStatus = 'draft' | 'in_progress' | 'completed' | 'needs_clinician_review';
+export type TeachBackLanguage = 'en' | 'hi' | 'ta' | 'te' | 'ml' | 'mr' | 'bn' | 'kn';
+export type TeachBackCategory =
+  | 'medications'
+  | 'warning_signs'
+  | 'follow_up'
+  | 'diet_activity'
+  | 'wound_care'
+  | 'emergency_escalation';
+
+export interface TeachBackQuestion {
+  id: string;
+  category: TeachBackCategory;
+  prompt: string;
+  expected: string;
+  expected_keywords?: string[];
+  choices?: string[];
+  difficulty?: 'easy' | 'medium' | 'hard';
+  free_text?: boolean;
+  explanation?: string;
+  source_citation?: ClinicalAiSourceCitation | null;
+}
+
+export interface TeachBackAnswer {
+  question_id: string;
+  answer?: string;
+  uncertain?: boolean;
+}
+
+export interface TeachBackMisunderstandingFlag {
+  question_id: string;
+  category: TeachBackCategory;
+  severity: 'low' | 'medium' | 'high' | 'critical' | string;
+  code: string;
+  prompt: string;
+  expected?: string;
+  patient_answer?: string;
+  message: string;
+  source_citation?: ClinicalAiSourceCitation | null;
+}
+
+export interface TeachBackSession {
+  id: number;
+  tenant_id?: string;
+  patient_uid: string | null;
+  patient_name?: string | null;
+  admission_id: number | null;
+  generation_id: number | null;
+  source_generation_id: number | null;
+  language: TeachBackLanguage;
+  status: TeachBackStatus;
+  questions: TeachBackQuestion[];
+  patient_answers: TeachBackAnswer[];
+  misunderstanding_flags: TeachBackMisunderstandingFlag[];
+  comprehension_score: number;
+  source_citations: ClinicalAiSourceCitation[];
+  safety_flags: ClinicalAiSafetyFlagSummary[];
+  reviewer_decision: TeachBackDecision;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  reviewer_note?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at?: string;
+}
+
+export async function listTeachBackSessions(params: {
+  admissionId?: number | string;
+  patientUid?: string;
+  status?: TeachBackStatus | string;
+  decision?: TeachBackDecision | string;
+  limit?: number;
+} = {}) {
+  const query: Record<string, string> = {};
+  if (params.admissionId) query.admission_id = String(params.admissionId);
+  if (params.patientUid) query.patient_uid = params.patientUid;
+  if (params.status) query.status = params.status;
+  if (params.decision) query.decision = params.decision;
+  if (params.limit) query.limit = String(params.limit);
+  return getJSON<{ sessions: TeachBackSession[]; count: number }>(
+    '/admin/clinical-ai/teach-back/sessions',
+    query
+  );
+}
+
+export async function generateTeachBackSession(payload: {
+  admissionId?: number;
+  patientUid?: string;
+  sourceGenerationId?: number;
+  language?: TeachBackLanguage;
+}) {
+  const body: Record<string, unknown> = {};
+  if (payload.admissionId) body.admission_id = payload.admissionId;
+  if (payload.patientUid) body.patient_uid = payload.patientUid;
+  if (payload.sourceGenerationId) body.source_generation_id = payload.sourceGenerationId;
+  if (payload.language) body.language = payload.language;
+  return postJSON<{
+    session_id: number | null;
+    generation_id: number | null;
+    clinical_review_id: number | null;
+    draft: {
+      questions: TeachBackQuestion[];
+      patient_answers: TeachBackAnswer[];
+      misunderstanding_flags: TeachBackMisunderstandingFlag[];
+      comprehension_score: number;
+      status: TeachBackStatus;
+      summary?: string;
+      coverage?: Record<TeachBackCategory, boolean>;
+    };
+    module_key: string;
+    prompt_version: string;
+    source_citations: ClinicalAiSourceCitation[];
+    safety_flags: ClinicalAiSafetyFlagSummary[];
+    session_status: TeachBackStatus | string;
+    review_status: string;
+    requires_signoff: boolean;
+    rules_authoritative: boolean;
+    language: TeachBackLanguage;
+    ai_metadata?: Record<string, unknown>;
+  }>('/admin/clinical-ai/teach-back/sessions', body);
+}
+
+export async function submitTeachBackAnswers(id: number, answers: TeachBackAnswer[]) {
+  return postJSON<TeachBackSession & { evaluated_answers: unknown[] }>(
+    `/admin/clinical-ai/teach-back/sessions/${id}/answers`,
+    { answers }
+  );
+}
+
+export async function decideTeachBackSession(
+  id: number,
+  decision: Exclude<TeachBackDecision, 'pending'>,
+  note?: string
+) {
+  return fetchAdminAPI<TeachBackSession>(`/admin/clinical-ai/teach-back/sessions/${id}`, {
+    method: 'PATCH',
+    body: { decision, note },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Sepsis bundle sentinel
 // ---------------------------------------------------------------------------
 export type SepsisBundleRiskBand = 'low' | 'medium' | 'high' | 'critical' | 'unknown';
