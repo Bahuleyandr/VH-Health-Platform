@@ -1,6 +1,6 @@
 # VH Health AI Feature Tracker
 
-Last verified: 2026-04-23 (family update generator v1 shipped)
+Last verified: 2026-04-23 (payer contract variance v1 shipped — entire 6-item recommended queue cleared)
 
 This tracker records the 40 future-proofing AI features proposed for VH Health and maps each one to the current repo state. Update this file whenever a feature graduates from "Not started" to "Partial" or from "Partial" to "Implemented v1".
 
@@ -12,10 +12,10 @@ Status definitions:
 
 Current count:
 
-- Implemented v1: 9 / 40
+- Implemented v1: 10 / 40
 - Partial: 16 / 40
-- Not started: 15 / 40
-- Remaining to fully implement: 31 / 40
+- Not started: 14 / 40
+- Remaining to fully implement: 30 / 40
 
 | # | Feature | Status | Current repo state | Next build unit |
 |---:|---|---|---|---|
@@ -27,7 +27,7 @@ Current count:
 | 6 | Patient Teach-Back / Comprehension AI | Implemented v1 | `patient_teach_back_comprehension`, `patientTeachBackService.js`, `clinical_ai_teach_back_sessions`, EMR + Admin/IT APIs, and dashboard review queue exist. V1 generates category-covered questions (medications, warning signs, follow-up, diet/activity, wound care, emergency escalation) in the patient's language, scores answers, and flags misunderstandings for clinician review without altering care plans. | Add patient-facing chat/IVR delivery, longitudinal comprehension tracking across admissions, and accepted-draft-only gating. |
 | 7 | Consent-Aware Family Update Generator | Implemented v1 | `consent_aware_family_update`, `familyUpdateGeneratorService.js`, `clinical_ai_family_updates`, EMR + Admin/IT APIs (generate/review/sent), and dashboard panel exist. V1 verifies an active `family_update`/`caregiver_communication`/`treatment` consent with relationship + expiry/revocation checks, scrubs medication doses/lab values/MRN before returning family-facing text, and requires clinician review before `mark-sent`. Eight supported languages. Never auto-sends. | Add delivery adapter (SMS/WhatsApp/email), caregiver identity verification, and per-caregiver scope customization UI. |
 | 8 | Appeal Letter Generator for Denied Claims | Implemented v1 | `appeal_letter_generator`, `appealLetterGeneratorService.js`, `clinical_ai_appeal_letters`, Admin/IT APIs (generate/review/submit/payer-response), and dashboard panel exist. V1 classifies denial reasons (medical necessity, prior-auth missing, documentation insufficient, coding, duplicate, timely filing, bundled, non-covered, coverage) and drafts a cover letter, medical necessity narrative, evidence bundle, and requested action from cited chart evidence. Billing coordinator reviews, edits, and submits; module never auto-submits. | Add payer-specific templates, appeal outcome analytics, and integration with denial-risk assist for proactive appeal prep. |
-| 9 | Payer Contract Variance / Underpayment AI | Not started | No contract variance or payment reconciliation AI workflow found. | Add contract/tariff ingestion plus expected-vs-paid variance engine. |
+| 9 | Payer Contract Variance / Underpayment AI | Implemented v1 | `payer_contract_variance`, `payerContractVarianceService.js`, `clinical_ai_payer_contracts` + `clinical_ai_payer_variance_reviews`, Admin/IT APIs (contract upsert/list, variance evaluate/list/decide), and dashboard panel exist. V1 matches claims to contracts by payer + procedure + effective date window and classifies variance (match / underpayment / overpayment / missing_contract / missing_payment), bands (within_tolerance / review / investigate / escalate — escalate at ≥15% underpayment), and suggests specific billing/coordinator actions. Review-only; never auto-appeals or writes off. | Add ERA/EOB line-item ingestion, per-tenant tolerance policies, contract effective-end batch recompute, and auto-appeal handoff (when reviewer approves). |
 | 10 | Acuity-Based Staffing Forecast | Partial | Roster optimizer exists; deterioration/NEWS2 risk exists. They are not connected for acuity-weighted staffing. | Add acuity load model and feed it into staffing demand. |
 | 11 | ED Triage and Boarding Predictor | Not started | No ED triage/boarding predictor workflow found. | Add ED intake risk, specialty/bed prediction, and boarding bottleneck dashboard. |
 | 12 | Sepsis / Stroke / ACS Bundle Compliance AI | Partial | `sepsis_bundle_sentinel` is implemented. Stroke, ACS, VTE, insulin, and other pathways are not. | Generalize bundle sentinel framework across pathway packs. |
@@ -62,4 +62,9 @@ Current count:
 
 Recommended next build order:
 
-1. Payer Contract Variance / Underpayment AI
+The 6-item recommended queue (teach-back, appeal letter, AI ROI, nursing
+ambient, family update, payer variance) is fully shipped. Pick the next
+unit from the still-partial rows above — good candidates: Sepsis / Stroke
+/ ACS Bundle Compliance (generalize the sepsis bundle sentinel framework
+across pathway packs), Radiology Report QA, or Staff Burnout / Workload
+Risk Predictor.

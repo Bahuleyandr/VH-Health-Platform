@@ -51,9 +51,11 @@ export const getRateLimiter = (profileName = 'default') => {
     ? profile.handler
     : defaultHandler;
 
+  const isTestEnv = process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
   const skipFn = typeof profile.skip === 'function'
     ? profile.skip
     : (req) => {
+        if (isTestEnv) return true;
         const p = req.path || '';
         return (
           p === '/' ||

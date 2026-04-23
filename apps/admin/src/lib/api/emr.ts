@@ -2411,6 +2411,181 @@ export async function getLatestAiRoiSnapshot(moduleKey: string = 'ALL') {
 }
 
 // ---------------------------------------------------------------------------
+// Payer contract variance / underpayment AI
+// ---------------------------------------------------------------------------
+export type PayerVarianceDecision = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'escalated';
+export type PayerVarianceCategory =
+  | 'match'
+  | 'underpayment'
+  | 'overpayment'
+  | 'missing_contract'
+  | 'missing_payment'
+  | 'unknown';
+export type PayerVarianceBand = 'within_tolerance' | 'review' | 'investigate' | 'escalate' | 'unknown';
+
+export interface PayerContract {
+  id: number;
+  tenant_id?: string;
+  payer_name: string;
+  payer_code: string | null;
+  procedure_code: string;
+  procedure_description: string | null;
+  expected_rate_minor: number;
+  currency_code: string;
+  tolerance_pct: number;
+  effective_start_date: string;
+  effective_end_date: string | null;
+  contract_reference: string | null;
+  notes: string | null;
+  active: boolean;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface PayerVarianceReview {
+  id: number;
+  tenant_id?: string;
+  claim_id: number;
+  claim_number?: string | null;
+  contract_id: number | null;
+  patient_uid: string | null;
+  patient_name?: string | null;
+  generation_id: number | null;
+  payer_name: string;
+  procedure_code: string | null;
+  expected_amount_minor: number;
+  paid_amount_minor: number;
+  claim_amount_minor: number;
+  variance_minor: number;
+  variance_pct: number;
+  variance_category: PayerVarianceCategory;
+  variance_band: PayerVarianceBand;
+  reason: string | null;
+  suggested_actions: string[];
+  source_citations: ClinicalAiSourceCitation[];
+  safety_flags: ClinicalAiSafetyFlagSummary[];
+  reviewer_decision: PayerVarianceDecision;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  reviewer_note?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at?: string;
+}
+
+export async function listPayerContracts(params: {
+  payerName?: string;
+  procedureCode?: string;
+  active?: boolean;
+  limit?: number;
+} = {}) {
+  const query: Record<string, string> = {};
+  if (params.payerName) query.payer_name = params.payerName;
+  if (params.procedureCode) query.procedure_code = params.procedureCode;
+  if (typeof params.active === 'boolean') query.active = String(params.active);
+  if (params.limit) query.limit = String(params.limit);
+  return getJSON<{ contracts: PayerContract[]; count: number }>(
+    '/admin/clinical-ai/payer-contracts',
+    query
+  );
+}
+
+export async function upsertPayerContract(payload: {
+  payerName: string;
+  procedureCode: string;
+  expectedRateMinor: number;
+  payerCode?: string;
+  procedureDescription?: string;
+  currencyCode?: string;
+  tolerancePct?: number;
+  effectiveStartDate?: string;
+  effectiveEndDate?: string;
+  contractReference?: string;
+  notes?: string;
+  active?: boolean;
+}) {
+  const body: Record<string, unknown> = {
+    payer_name: payload.payerName,
+    procedure_code: payload.procedureCode,
+    expected_rate_minor: payload.expectedRateMinor,
+  };
+  if (payload.payerCode) body.payer_code = payload.payerCode;
+  if (payload.procedureDescription) body.procedure_description = payload.procedureDescription;
+  if (payload.currencyCode) body.currency_code = payload.currencyCode;
+  if (payload.tolerancePct !== undefined) body.tolerance_pct = payload.tolerancePct;
+  if (payload.effectiveStartDate) body.effective_start_date = payload.effectiveStartDate;
+  if (payload.effectiveEndDate) body.effective_end_date = payload.effectiveEndDate;
+  if (payload.contractReference) body.contract_reference = payload.contractReference;
+  if (payload.notes) body.notes = payload.notes;
+  if (typeof payload.active === 'boolean') body.active = payload.active;
+  return postJSON<PayerContract>('/admin/clinical-ai/payer-contracts', body);
+}
+
+export async function listPayerVarianceReviews(params: {
+  claimId?: number | string;
+  decision?: PayerVarianceDecision | string;
+  category?: PayerVarianceCategory | string;
+  band?: PayerVarianceBand | string;
+  limit?: number;
+} = {}) {
+  const query: Record<string, string> = {};
+  if (params.claimId) query.claim_id = String(params.claimId);
+  if (params.decision) query.decision = params.decision;
+  if (params.category) query.category = params.category;
+  if (params.band) query.band = params.band;
+  if (params.limit) query.limit = String(params.limit);
+  return getJSON<{ reviews: PayerVarianceReview[]; count: number }>(
+    '/admin/clinical-ai/payer-variance/reviews',
+    query
+  );
+}
+
+export async function evaluateClaimVariance(payload: {
+  claimId: number;
+  procedureCode?: string;
+  tolerancePct?: number;
+}) {
+  const body: Record<string, unknown> = { claim_id: payload.claimId };
+  if (payload.procedureCode) body.procedure_code = payload.procedureCode;
+  if (payload.tolerancePct !== undefined) body.tolerance_pct = payload.tolerancePct;
+  return postJSON<{
+    review_id: number | null;
+    generation_id: number | null;
+    draft: {
+      claim: Record<string, unknown>;
+      contract: Record<string, unknown> | null;
+      variance_category: PayerVarianceCategory;
+      variance_band: PayerVarianceBand;
+      expected_amount_minor: number;
+      paid_amount_minor: number;
+      claim_amount_minor: number;
+      variance_minor: number;
+      variance_pct: number;
+      reason: string;
+      suggested_actions: string[];
+    };
+    source_citations: ClinicalAiSourceCitation[];
+    safety_flags: ClinicalAiSafetyFlagSummary[];
+    module_key: string;
+    review_status: string;
+    rules_authoritative: boolean;
+    decision_support_only: boolean;
+  }>('/admin/clinical-ai/payer-variance/evaluate', body);
+}
+
+export async function decidePayerVarianceReview(
+  id: number,
+  decision: Exclude<PayerVarianceDecision, 'pending'>,
+  note?: string
+) {
+  return fetchAdminAPI<PayerVarianceReview>(`/admin/clinical-ai/payer-variance/reviews/${id}`, {
+    method: 'PATCH',
+    body: { decision, note },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Consent-aware family update generator
 // ---------------------------------------------------------------------------
 export type FamilyUpdateDecision = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'edited';

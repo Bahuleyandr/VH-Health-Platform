@@ -44,6 +44,8 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_roi_snapshots WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_nursing_ambient_sessions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_family_updates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_payer_variance_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_payer_contracts WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND payer_name LIKE '%[test]%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -167,6 +169,8 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_roi_snapshots WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_nursing_ambient_sessions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_family_updates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_payer_variance_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_payer_contracts WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND payer_name LIKE '%[test]%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -731,6 +735,84 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expect(actions).toContain('CLINICAL_AI_APPEAL_LETTER_REVIEWED');
     expect(actions).toContain('CLINICAL_AI_APPEAL_LETTER_SUBMITTED');
     expect(actions).toContain('CLINICAL_AI_APPEAL_LETTER_PAYER_RESPONSE');
+  });
+
+  it('ingests payer contracts, classifies variance, escalates, and gates by module', async () => {
+    await enableModule('payer_contract_variance');
+
+    const contract = await admin.post('/api/v1/admin/clinical-ai/payer-contracts').send({
+      payer_name: 'Contract Payer [test]',
+      procedure_code: 'CPT-77001',
+      procedure_description: 'Test bronchoscopy service',
+      expected_rate_minor: 1500000,
+      tolerance_pct: 2,
+      effective_start_date: '2026-01-01',
+      contract_reference: 'CTRACT-TEST-1',
+    });
+    expectStatus(contract, 201, 'upsert payer contract');
+    expect(contract.body.data.payer_name).toBe('Contract Payer [test]');
+    expect(contract.body.data.expected_rate_minor).toBe(1500000);
+
+    const claim = await prisma.$queryRawUnsafe(
+      `INSERT INTO insurance_claims
+         (claim_number, patient_uid, insurance_provider, policy_number, claim_amount,
+          approved_amount, status, documents, submitted_at, created_at, updated_at)
+       VALUES ($1, $2::uuid, 'Contract Payer [test]', 'POL-VAR-[test]', 16000.00,
+               12000.00, 'approved', '[]'::jsonb,
+               NOW() - INTERVAL '10 days', NOW() - INTERVAL '10 days', NOW())
+       RETURNING id`,
+      `CLM-VAR-${Date.now()}`,
+      PATIENT_UID
+    );
+    const claimId = claim[0].id;
+
+    const evaluated = await admin.post('/api/v1/admin/clinical-ai/payer-variance/evaluate').send({
+      claim_id: claimId,
+      procedure_code: 'CPT-77001',
+    });
+    expectStatus(evaluated, 201, 'evaluate claim variance');
+    const body = evaluated.body.data;
+    expect(body.module_key).toBe('payer_contract_variance');
+    expect(body.review_id).toBeTruthy();
+    expect(body.draft.variance_category).toBe('underpayment');
+    expect(['investigate', 'escalate']).toContain(body.draft.variance_band);
+    expect(body.draft.expected_amount_minor).toBe(1500000);
+    expect(body.draft.paid_amount_minor).toBe(1200000);
+    expect(body.draft.variance_minor).toBeLessThan(0);
+    expect(Array.isArray(body.draft.suggested_actions)).toBe(true);
+    expect(body.draft.suggested_actions.length).toBeGreaterThan(0);
+    expect(body.source_citations.length).toBeGreaterThan(0);
+
+    const escalated = await admin.patch(`/api/v1/admin/clinical-ai/payer-variance/reviews/${body.review_id}`).send({
+      decision: 'escalated',
+      note: 'Escalated for billing leadership [test]',
+    });
+    expectStatus(escalated, 200, 'escalate payer variance review');
+    expect(escalated.body.data.reviewer_decision).toBe('escalated');
+
+    // Missing-contract path
+    const strayClaim = await prisma.$queryRawUnsafe(
+      `INSERT INTO insurance_claims
+         (claim_number, patient_uid, insurance_provider, policy_number, claim_amount,
+          approved_amount, status, documents, submitted_at, created_at, updated_at)
+       VALUES ($1, $2::uuid, 'Unknown Payer [test]', 'POL-NO-[test]', 5000.00,
+               4800.00, 'approved', '[]'::jsonb, NOW(), NOW(), NOW())
+       RETURNING id`,
+      `CLM-NOCTR-${Date.now()}`,
+      PATIENT_UID
+    );
+    const missing = await admin.post('/api/v1/admin/clinical-ai/payer-variance/evaluate').send({
+      claim_id: strayClaim[0].id,
+    });
+    expectStatus(missing, 201, 'missing_contract evaluation');
+    expect(missing.body.data.draft.variance_category).toBe('missing_contract');
+
+    // Disabled-module gating
+    await admin.patch('/api/v1/admin/clinical-ai/modules/payer_contract_variance').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/payer-variance/evaluate').send({
+      claim_id: strayClaim[0].id,
+    });
+    expect(blocked.statusCode).toBe(403);
   });
 
   it('blocks appeal letter generation when module is disabled', async () => {

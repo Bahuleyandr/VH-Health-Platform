@@ -156,6 +156,13 @@ import {
   markFamilyUpdateSent,
 } from '../../services/ai/familyUpdateGeneratorService.js';
 import {
+  decidePayerVarianceReview,
+  evaluateClaimVariance,
+  listPayerContracts,
+  listPayerVarianceReviews,
+  upsertPayerContract,
+} from '../../services/ai/payerContractVarianceService.js';
+import {
   decideSepsisBundleAudit,
   generateSepsisBundleAudit,
   listSepsisBundleAudits,
@@ -2464,6 +2471,114 @@ router.post('/family-updates/:id/sent', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_FAMILY_UPDATE_SENT', String(result.id), null, result);
     return success(res, result, 'Family update marked as sent');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Payer contract variance / underpayment AI
+// ---------------------------------------------------------------------------
+router.post('/payer-contracts', async (req, res, next) => {
+  try {
+    const result = await upsertPayerContract({
+      tenantId: req.tenantId,
+      payerName: req.body?.payer_name,
+      payerCode: req.body?.payer_code || null,
+      procedureCode: req.body?.procedure_code,
+      procedureDescription: req.body?.procedure_description || null,
+      expectedRateMinor: req.body?.expected_rate_minor,
+      currencyCode: req.body?.currency_code || 'INR',
+      tolerancePct: req.body?.tolerance_pct,
+      effectiveStartDate: req.body?.effective_start_date || null,
+      effectiveEndDate: req.body?.effective_end_date || null,
+      contractReference: req.body?.contract_reference || null,
+      notes: req.body?.notes || null,
+      active: req.body?.active !== undefined ? Boolean(req.body.active) : true,
+      metadata: req.body?.metadata || {},
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_PAYER_CONTRACT_UPSERTED',
+      String(result?.id || req.body?.procedure_code || 'inline'),
+      null,
+      result
+    );
+    return success(res, result, 'Payer contract upserted', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/payer-contracts', async (req, res, next) => {
+  try {
+    const result = await listPayerContracts({
+      tenantId: req.tenantId,
+      payerName: req.query?.payer_name || null,
+      procedureCode: req.query?.procedure_code || null,
+      active: req.query?.active === undefined ? null : req.query.active !== 'false',
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Payer contracts retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/payer-variance/evaluate', async (req, res, next) => {
+  try {
+    const result = await evaluateClaimVariance({
+      req,
+      claimId: req.body?.claim_id,
+      procedureCode: req.body?.procedure_code || null,
+      tolerancePctOverride: req.body?.tolerance_pct,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_PAYER_VARIANCE_EVALUATED',
+      String(result.review_id || result.generation_id || req.body?.claim_id || 'inline'),
+      null,
+      {
+        review_id: result.review_id,
+        generation_id: result.generation_id,
+        claim_id: req.body?.claim_id,
+        variance_category: result.draft?.variance_category,
+        variance_band: result.draft?.variance_band,
+      }
+    );
+    return success(res, result, 'Payer variance evaluated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/payer-variance/reviews', async (req, res, next) => {
+  try {
+    const result = await listPayerVarianceReviews({
+      tenantId: req.tenantId,
+      claimId: req.query?.claim_id || null,
+      decision: req.query?.decision || null,
+      category: req.query?.category || null,
+      band: req.query?.band || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Payer variance reviews retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/payer-variance/reviews/:id', async (req, res, next) => {
+  try {
+    const result = await decidePayerVarianceReview({
+      tenantId: req.tenantId,
+      reviewId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_PAYER_VARIANCE_REVIEWED', String(result.id), null, result);
+    return success(res, result, 'Payer variance review updated');
   } catch (err) {
     return next(err);
   }
