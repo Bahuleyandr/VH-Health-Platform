@@ -557,6 +557,13 @@ export const CLINICAL_AI_MODULES = [
       reviewRoles: ['MEDICAL_RECORDS', 'DOCTOR', 'NURSING_STAFF'],
       approvalPolicy: 'clinical_document_review',
       outputSchema: { type: 'object', required: ['document_type', 'extracted_fields', 'normalized_sections'] },
+      uploadPipeline: true,
+      ocrAdapters: {
+        nativeText: true,
+        nativePdfText: true,
+        localTesseract: true,
+        localPdfText: true,
+      },
       retentionDays: 3650,
     },
   },

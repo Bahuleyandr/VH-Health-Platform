@@ -14,13 +14,14 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
+import { extractTextFromDocumentUpload } from './documentOcrAdapter.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
 import { generateClinicalText } from './localLlmClient.js';
 
 const MODULE_KEY = 'document_intelligence_ocr';
 const MAX_RAW_TEXT_CHARS = 50_000;
 const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATE_RE = /\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/g;
 const PHONE_RE = /\b(?:\+?\d{1,3}[-\s]?)?(?:\d{10}|\d{5}[-\s]?\d{5})\b/g;
 const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
@@ -301,7 +302,7 @@ function mergeAiExtraction(aiDraft, fallbackDraft) {
   return draft;
 }
 
-function baseSafetyFlags({ rawText, facts, documentType }) {
+function baseSafetyFlags({ rawText, facts, documentType, ocrResult = null }) {
   const flags = [];
   if (!cleanText(rawText)) {
     flags.push({
@@ -326,6 +327,9 @@ function baseSafetyFlags({ rawText, facts, documentType }) {
       code: 'UNVERIFIED_EXTERNAL_DOCUMENT',
       message: 'Document facts came from an external source and require human verification before chart import.',
     });
+  }
+  if (Array.isArray(ocrResult?.safety_flags)) {
+    flags.push(...ocrResult.safety_flags);
   }
   return flags;
 }
@@ -360,11 +364,13 @@ export async function ingestClinicalDocument({
   mimeType = null,
   storageKey = null,
   rawText = '',
+  ocrResult = null,
 } = {}) {
   const tenantId = resolveTenantId({ tenantId: req?.tenantId });
   const normalizedPatientUid = maybeUuid(patientUid, 'patient_uid');
   const normalizedAdmissionId = optionalInt(admissionId);
   const text = cleanText(rawText).slice(0, MAX_RAW_TEXT_CHARS);
+  const ocrStatus = ocrResult?.status || (text ? 'text_supplied' : 'no_text');
   const documentType = classifyDocumentType({
     title,
     fileName,
@@ -381,8 +387,9 @@ export async function ingestClinicalDocument({
     normalized_sections: normalizedSections,
     source_citations: citations,
     confidence: facts.confidence,
-    ocr_status: text ? 'text_supplied' : 'no_text',
-    source: 'deterministic_extraction',
+    ocr_status: ocrStatus,
+    ocr_provider: ocrResult?.provider || null,
+    source: ocrResult ? 'file_upload_extraction' : 'deterministic_extraction',
   };
   const module = await getClinicalAiModule(MODULE_KEY);
   if (!module.enabled) {
@@ -401,6 +408,8 @@ export async function ingestClinicalDocument({
       title,
       file_name: fileName,
       mime_type: mimeType,
+      ocr_status: ocrStatus,
+      ocr_provider: ocrResult?.provider || null,
     },
     deterministic_extraction: fallbackDraft,
     raw_text: text.slice(0, 20_000),
@@ -414,18 +423,28 @@ export async function ingestClinicalDocument({
   const aiDraft = safeJsonParse(aiResult.text, null);
   const draft = mergeAiExtraction(aiDraft, fallbackDraft);
   const safetyFlags = [
-    ...baseSafetyFlags({ rawText: text, facts, documentType }),
+    ...baseSafetyFlags({ rawText: text, facts, documentType, ocrResult }),
     ...(Array.isArray(draft.safety_flags) ? draft.safety_flags : []),
     ...runOutputDefenses({
       draft,
       module,
-      context: { raw_text: text, facts, metadata: { title, fileName, sourceType } },
+      context: {
+        raw_text: text,
+        facts,
+        metadata: { title, fileName, sourceType, ocr_status: ocrStatus },
+      },
       citations,
     }),
   ];
   const hasCritical = safetyFlags.some((flag) => flag.severity === 'critical');
   const status = hasCritical ? 'failed' : (text ? 'draft' : 'failed');
-  const extractionStatus = hasCritical || !text ? 'failed' : 'completed';
+  const extractionStatus = hasCritical
+    ? 'failed'
+    : text
+      ? 'completed'
+      : ocrResult
+        ? 'needs_review'
+        : 'failed';
   const usage = aiResult.usage || {};
 
   let generationId = null;
@@ -466,6 +485,11 @@ export async function ingestClinicalDocument({
         document_type: documentType,
         file_name: fileName,
         storage_key: storageKey,
+        ocr_status: ocrStatus,
+        ocr_provider: ocrResult?.provider || null,
+        file_hash: ocrResult?.file_hash || null,
+        file_size_bytes: ocrResult?.file_size_bytes || null,
+        ocr_metadata: ocrResult?.metadata || {},
         fallback_reason: aiResult.reason || null,
       })
     );
@@ -490,7 +514,7 @@ export async function ingestClinicalDocument({
        RETURNING id, tenant_id, patient_uid, admission_id, source_type, title,
                  file_name, mime_type, storage_key, extraction_status, document_type,
                  extracted_fields, normalized_sections, source_citations, safety_flags,
-                 generation_id, reviewer_decision, created_at, updated_at`,
+                 generation_id, reviewer_decision, metadata, created_at, updated_at`,
       tenantId,
       normalizedPatientUid,
       normalizedAdmissionId,
@@ -512,7 +536,11 @@ export async function ingestClinicalDocument({
         used_ai: Boolean(aiResult.usedAi),
         provider: aiResult.provider || 'template',
         model: aiResult.model || null,
-        ocr_status: text ? 'text_supplied' : 'no_text',
+        ocr_status: ocrStatus,
+        ocr_provider: ocrResult?.provider || null,
+        file_hash: ocrResult?.file_hash || null,
+        file_size_bytes: ocrResult?.file_size_bytes || null,
+        ocr_metadata: ocrResult?.metadata || {},
         text_truncated: cleanText(rawText).length > MAX_RAW_TEXT_CHARS,
       })
     );
@@ -577,11 +605,58 @@ export async function ingestClinicalDocument({
     safety_flags: safetyFlags,
     extraction_status: extractionStatus,
     module_key: MODULE_KEY,
-    review_status: status === 'failed' ? 'failed' : 'pending',
+    review_status: extractionStatus === 'needs_review' ? 'pending' : (status === 'failed' ? 'failed' : 'pending'),
     requires_signoff: Boolean(module.settings?.requiresClinicianSignoff),
     used_ai: Boolean(aiResult.usedAi),
     provider: aiResult.provider || 'template',
     decision_support_only: true,
+  };
+}
+
+export async function ingestClinicalDocumentUpload({
+  req,
+  file,
+  patientUid = null,
+  admissionId = null,
+  sourceType = 'other',
+  title = null,
+  storageKey = null,
+  rawTextHint = '',
+} = {}) {
+  if (!file?.buffer) {
+    throw AppError.badRequest('file is required');
+  }
+  const ocrResult = await extractTextFromDocumentUpload({
+    buffer: file.buffer,
+    mimeType: file.mimetype,
+    fileName: file.originalname,
+    rawTextHint,
+  });
+  const result = await ingestClinicalDocument({
+    req,
+    patientUid,
+    admissionId,
+    sourceType,
+    title,
+    fileName: file.originalname || null,
+    mimeType: ocrResult.mime_type || file.mimetype || null,
+    storageKey: storageKey || `inline-upload:${ocrResult.file_hash}`,
+    rawText: ocrResult.raw_text,
+    ocrResult,
+  });
+  return {
+    ...result,
+    ocr: {
+      provider: ocrResult.provider,
+      status: ocrResult.status,
+      mime_type: ocrResult.mime_type,
+      file_name: ocrResult.file_name,
+      file_hash: ocrResult.file_hash,
+      file_size_bytes: ocrResult.file_size_bytes,
+      text_char_count: ocrResult.text_char_count,
+      safety_flags: ocrResult.safety_flags,
+      metadata: ocrResult.metadata,
+    },
   };
 }
 
@@ -674,5 +749,6 @@ export default {
   decideClinicalDocumentIntake,
   extractStructuredDocumentFacts,
   ingestClinicalDocument,
+  ingestClinicalDocumentUpload,
   listClinicalDocumentIntakes,
 };

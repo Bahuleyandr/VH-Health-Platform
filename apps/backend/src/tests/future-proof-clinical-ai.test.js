@@ -37,6 +37,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
   beforeAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE resource = 'clinical_ai' OR action LIKE 'CLINICAL_AI_%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM event_outbox WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_document_intake WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_antimicrobial_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
@@ -154,6 +155,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
   afterAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE resource = 'clinical_ai' OR action LIKE 'CLINICAL_AI_%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM event_outbox WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_document_intake WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_antimicrobial_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
@@ -352,6 +354,59 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expect(draft.generation_id).toBeTruthy();
     expect(['pending', 'accepted', 'rejected', 'needs_revision', 'edited']).toContain(draft.review_status);
   }
+
+  it('supports admin-only native document upload OCR intake and review', async () => {
+    await enableModule('document_intelligence_ocr');
+
+    const textFile = Buffer.from(`
+      Patient Name: Clinical AI Patient
+      MRN: VH-OCR-001
+      Diagnosis: Community acquired pneumonia
+      Tab Azithromycin 500 mg OD for 3 days
+      CBC: WBC 14000, Hb 12 g
+      Follow-up after 7 days
+    `, 'utf8');
+
+    const denied = await doctor
+      .post('/api/v1/admin/clinical-ai/documents/intake/upload')
+      .field('source_type', 'external_discharge_summary')
+      .attach('file', textFile, { filename: 'outside-discharge.txt', contentType: 'text/plain' });
+    expectStatus(denied, 403, 'doctor denied document OCR upload');
+
+    const uploaded = await admin
+      .post('/api/v1/admin/clinical-ai/documents/intake/upload')
+      .field('patient_uid', PATIENT_UID)
+      .field('admission_id', String(admissionId))
+      .field('source_type', 'external_discharge_summary')
+      .field('title', 'Outside discharge summary [test]')
+      .attach('file', textFile, { filename: 'outside-discharge.txt', contentType: 'text/plain' });
+    expectStatus(uploaded, 201, 'admin document OCR upload');
+    expect(uploaded.body.data.module_key).toBe('document_intelligence_ocr');
+    expect(uploaded.body.data.extraction_status).toBe('completed');
+    expect(uploaded.body.data.ocr.provider).toBe('native_text');
+    expect(uploaded.body.data.ocr.text_char_count).toBeGreaterThan(50);
+    expect(uploaded.body.data.source_citations.length).toBeGreaterThan(0);
+    expect(uploaded.body.data.intake.extracted_fields.medications[0].text).toMatch(/Azithromycin/i);
+    expect(uploaded.body.data.intake.metadata.ocr_status).toBe('completed');
+
+    const intakeId = uploaded.body.data.intake_id;
+    const listed = await admin.get('/api/v1/admin/clinical-ai/documents/intake?decision=pending&source_type=external_discharge_summary');
+    expectStatus(listed, 200, 'list document OCR intakes');
+    expect(listed.body.data.documents.some((row) => row.id === intakeId && row.metadata.ocr_provider === 'native_text')).toBe(true);
+
+    const reviewed = await admin.patch(`/api/v1/admin/clinical-ai/documents/intake/${intakeId}`).send({
+      decision: 'accepted',
+      note: 'Test OCR review accepted',
+    });
+    expectStatus(reviewed, 200, 'accept document OCR intake');
+    expect(reviewed.body.data.reviewer_decision).toBe('accepted');
+
+    const audit = await admin.get('/api/v1/admin/clinical-ai/audit');
+    expectStatus(audit, 200, 'document OCR audit logs');
+    const actions = audit.body.data.logs.map((row) => row.action);
+    expect(actions).toContain('CLINICAL_AI_DOCUMENT_INTELLIGENCE_FILE_UPLOADED');
+    expect(actions).toContain('CLINICAL_AI_DOCUMENT_INTELLIGENCE_REVIEWED');
+  });
 
   it('generates admission AI drafts for the new modular surfaces and records review placeholders', async () => {
     for (const key of [

@@ -19,7 +19,7 @@ Current count:
 
 | # | Feature | Status | Current repo state | Next build unit |
 |---:|---|---|---|---|
-| 1 | Document Intelligence / OCR AI | Implemented v1 | `document_intelligence_ocr`, `documentIntelligenceService.js`, admin panel. V1 is text-first and expects raw OCR text. | Add native PDF/photo OCR adapter and upload pipeline. |
+| 1 | Document Intelligence / OCR AI | Implemented v1 | `document_intelligence_ocr`, `documentIntelligenceService.js`, native text/PDF/photo upload adapter, Admin/IT upload panel, and review queue exist. Text/PDF text-layer extraction works locally; image OCR can use local Tesseract when configured and otherwise falls back safely to review. | Add production object storage handoff and optional cloud OCR/provider adapters behind governance. |
 | 2 | Nursing Ambient Documentation | Partial | `ambient_visit_documentation` and ambient encounter flow exist for multi-speaker clinical notes. | Add nursing-specific bedside schema: wounds, drains, IV lines, I/O, mobility, falls, shift charting. |
 | 3 | Clinical Task Extractor | Implemented v1 | `clinical_task_extractor`, `clinicalTaskExtractorService.js`, `clinical_ai_task_candidates`, Admin/IT API, and dashboard review queue exist. V1 creates cited candidates and never auto-assigns work. | Add clinician-facing queue and optional post-review task assignment integration. |
 | 4 | Infection-Control Surveillance | Implemented v1 | `infection_control_sentinel`, `infectionControlSentinelService.js`, admin audit/review panel. | Add continuous realtime ward surveillance and cluster/outbreak automation. |
@@ -62,9 +62,9 @@ Current count:
 
 Recommended next build order:
 
-1. Native OCR adapter for Document Intelligence
-2. Patient Teach-Back / Comprehension AI
-3. Appeal Letter Generator for Denied Claims
-4. AI ROI Dashboard
-5. Nursing Ambient Documentation
-6. Consent-Aware Family Update Generator
+1. Patient Teach-Back / Comprehension AI
+2. Appeal Letter Generator for Denied Claims
+3. AI ROI Dashboard
+4. Nursing Ambient Documentation
+5. Consent-Aware Family Update Generator
+6. Payer Contract Variance / Underpayment AI

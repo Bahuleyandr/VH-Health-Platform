@@ -96,6 +96,7 @@ import {
   submitPriorAuthorization,
   triggerTrialCatalogSync,
   upsertCanaryCase,
+  uploadDocumentIntake,
   type AbnormalResultTriageDraft,
   type AbnormalTriageBand,
   type AdmissionAiDraftModuleKey,
@@ -275,6 +276,13 @@ function documentFactCount(row: DocumentIntake) {
   ].reduce((sum, value) => sum + (Array.isArray(value) ? value.length : 0), 0);
 }
 
+function documentOcrLabel(row: DocumentIntake) {
+  const provider = typeof row.metadata?.ocr_provider === "string" ? row.metadata.ocr_provider : null;
+  const status = typeof row.metadata?.ocr_status === "string" ? row.metadata.ocr_status : null;
+  if (provider && status) return `${provider} / ${status}`;
+  return provider || status || "text-first";
+}
+
 const CHART_RISK_BANDS: ChartGapRiskBand[] = ["critical", "high", "medium", "low"];
 const TASK_PRIORITIES: ClinicalTaskPriority[] = ["critical", "urgent", "soon", "routine", "unknown"];
 const PRIVACY_RISK_BANDS: PrivacySentinelRiskBand[] = ["critical", "high", "medium", "low"];
@@ -345,6 +353,8 @@ export function DocumentIntelligencePanel() {
   const [title, setTitle] = useState("");
   const [fileName, setFileName] = useState("");
   const [rawText, setRawText] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [fileInputKey, setFileInputKey] = useState(0);
 
   const documents = useQuery({
     queryKey: ["clinical-ai", "documents", sourceFilter, decisionFilter, patientFilter],
@@ -361,18 +371,29 @@ export function DocumentIntelligencePanel() {
       const parsedAdmissionId = admissionId.trim()
         ? Number.parseInt(admissionId.trim(), 10)
         : NaN;
-      return ingestDocumentIntake({
+      const payload = {
         source_type: sourceType,
         patient_uid: patientUid.trim() || null,
         admission_id: Number.isFinite(parsedAdmissionId) ? parsedAdmissionId : null,
         title: title.trim() || null,
+      };
+      if (selectedFile) {
+        return uploadDocumentIntake(selectedFile, {
+          ...payload,
+          raw_text: rawText.trim() || null,
+        });
+      }
+      return ingestDocumentIntake({
+        ...payload,
         file_name: fileName.trim() || null,
         raw_text: rawText,
       });
     },
     onSuccess: (result) => {
-      toast.success(result.intake_id ? "Document intake saved" : "Document extracted without intake table");
+      toast.success(result.ocr ? "Document upload extracted" : "Document intake saved");
       setRawText("");
+      setSelectedFile(null);
+      setFileInputKey((value) => value + 1);
       queryClient.invalidateQueries({ queryKey: ["clinical-ai", "documents"] });
       queryClient.invalidateQueries({ queryKey: ["clinical-ai", "reviews"] });
       queryClient.invalidateQueries({ queryKey: ["clinical-ai", "usage"] });
@@ -490,11 +511,31 @@ export function DocumentIntelligencePanel() {
             <input
               value={fileName}
               onChange={(event) => setFileName(event.target.value)}
+              disabled={Boolean(selectedFile)}
               className="w-full rounded-md border border-border bg-background px-3 py-2"
             />
           </label>
           <label className="space-y-1 text-sm lg:col-span-3">
-            <span className="text-muted-foreground">OCR / extracted text</span>
+            <span className="text-muted-foreground">Upload PDF / photo / text</span>
+            <input
+              key={fileInputKey}
+              type="file"
+              accept="application/pdf,image/jpeg,image/png,image/webp,image/tiff,image/bmp,text/plain,text/csv,application/json"
+              onChange={(event) => {
+                const file = event.target.files?.[0] ?? null;
+                setSelectedFile(file);
+                if (file) setFileName(file.name);
+              }}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            />
+            {selectedFile ? (
+              <span className="block text-xs text-muted-foreground">
+                {(selectedFile.size / 1024 / 1024).toFixed(2)} MB / {selectedFile.type || "unknown type"}
+              </span>
+            ) : null}
+          </label>
+          <label className="space-y-1 text-sm lg:col-span-3">
+            <span className="text-muted-foreground">OCR / extracted text override</span>
             <textarea
               value={rawText}
               onChange={(event) => setRawText(event.target.value)}
@@ -505,11 +546,11 @@ export function DocumentIntelligencePanel() {
           <div className="flex items-end lg:col-span-6">
             <button
               onClick={() => ingest.mutate()}
-              disabled={ingest.isPending || !rawText.trim()}
+              disabled={ingest.isPending || (!selectedFile && !rawText.trim())}
               className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
             >
               <PlayCircle className="h-4 w-4" />
-              {ingest.isPending ? "Extracting..." : "Extract Draft"}
+              {ingest.isPending ? "Extracting..." : selectedFile ? "Upload & Extract" : "Extract Draft"}
             </button>
           </div>
         </div>
@@ -564,6 +605,9 @@ export function DocumentIntelligencePanel() {
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
                       {row.document_type} / {row.source_citations?.length || 0} citations
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {documentOcrLabel(row)}
                     </div>
                   </td>
                   <td className="px-4 py-3">

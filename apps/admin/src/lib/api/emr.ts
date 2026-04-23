@@ -1,4 +1,5 @@
-import { deleteJSON, fetchAdminAPI, getJSON, postJSON, putJSON } from './core';
+import { apiFetch } from '../api-fetch';
+import { APIError, deleteJSON, fetchAdminAPI, getJSON, postJSON, putJSON } from './core';
 
 // Types
 export interface Admission {
@@ -1647,6 +1648,32 @@ export interface DocumentIntake {
   updated_at: string;
 }
 
+export interface DocumentOcrResult {
+  provider: string;
+  status: string;
+  mime_type: string;
+  file_name: string | null;
+  file_hash: string;
+  file_size_bytes: number;
+  text_char_count: number;
+  safety_flags: Array<{ severity: string; code: string; message: string }>;
+  metadata: Record<string, unknown>;
+}
+
+export interface DocumentIntakeResult {
+  intake_id: number | null;
+  generation_id: number | null;
+  intake?: DocumentIntake | null;
+  extraction_status: string;
+  safety_flags: Array<{ severity: string; code: string; message: string }>;
+  source_citations?: Array<{ source_type: string; source_id: string; label: string; timestamp?: string | null }>;
+  used_ai: boolean;
+  provider: string;
+  module_key: string;
+  decision_support_only: boolean;
+  ocr?: DocumentOcrResult;
+}
+
 export async function listDocumentIntakes(params: {
   sourceType?: string;
   status?: string;
@@ -1676,16 +1703,33 @@ export async function ingestDocumentIntake(payload: {
   storage_key?: string | null;
   raw_text: string;
 }) {
-  return postJSON<{
-    intake_id: number | null;
-    generation_id: number | null;
-    extraction_status: string;
-    safety_flags: Array<{ severity: string; code: string; message: string }>;
-    used_ai: boolean;
-    provider: string;
-    module_key: string;
-    decision_support_only: boolean;
-  }>('/admin/clinical-ai/documents/intake', payload);
+  return postJSON<DocumentIntakeResult>('/admin/clinical-ai/documents/intake', payload);
+}
+
+export async function uploadDocumentIntake(file: File, payload: {
+  patient_uid?: string | null;
+  admission_id?: number | null;
+  source_type?: string;
+  title?: string | null;
+  storage_key?: string | null;
+  raw_text?: string | null;
+}) {
+  const form = new FormData();
+  form.append('file', file);
+  for (const [key, value] of Object.entries(payload)) {
+    if (value !== undefined && value !== null && value !== '') {
+      form.append(key, String(value));
+    }
+  }
+  const response = await apiFetch('/api/v1/admin/clinical-ai/documents/intake/upload', {
+    method: 'POST',
+    body: form,
+  });
+  const body = await response.json().catch(() => null) as { data?: DocumentIntakeResult; message?: string; error?: string } | null;
+  if (!response.ok) {
+    throw new APIError(body?.message || body?.error || `HTTP ${response.status} uploading document`, response.status, body);
+  }
+  return body?.data ?? (body as DocumentIntakeResult);
 }
 
 export async function decideDocumentIntake(
