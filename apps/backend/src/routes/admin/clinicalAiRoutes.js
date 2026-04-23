@@ -163,6 +163,11 @@ import {
   upsertPayerContract,
 } from '../../services/ai/payerContractVarianceService.js';
 import {
+  decideLabAutoverification,
+  evaluateInvestigation,
+  listLabAutoverifications,
+} from '../../services/ai/labAutoverificationService.js';
+import {
   decideSepsisBundleAudit,
   generateSepsisBundleAudit,
   listSepsisBundleAudits,
@@ -2579,6 +2584,66 @@ router.patch('/payer-variance/reviews/:id', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_PAYER_VARIANCE_REVIEWED', String(result.id), null, result);
     return success(res, result, 'Payer variance review updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Lab autoverification / delta check
+// ---------------------------------------------------------------------------
+router.post('/lab-autoverifications/evaluate', async (req, res, next) => {
+  try {
+    const result = await evaluateInvestigation({
+      req,
+      investigationId: req.body?.investigation_id,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_LAB_AUTOVERIFICATION_EVALUATED',
+      String(result.review_id || result.generation_id || req.body?.investigation_id || 'inline'),
+      null,
+      {
+        review_id: result.review_id,
+        generation_id: result.generation_id,
+        investigation_id: req.body?.investigation_id,
+        decision: result.decision,
+        critical_band: result.critical_band,
+      }
+    );
+    return success(res, result, 'Lab autoverification evaluated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/lab-autoverifications', async (req, res, next) => {
+  try {
+    const result = await listLabAutoverifications({
+      tenantId: req.tenantId,
+      patientUid: req.query?.patient_uid || null,
+      decision: req.query?.decision || null,
+      criticalBand: req.query?.critical_band || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Lab autoverifications retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/lab-autoverifications/:id', async (req, res, next) => {
+  try {
+    const result = await decideLabAutoverification({
+      tenantId: req.tenantId,
+      reviewId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_LAB_AUTOVERIFICATION_REVIEWED', String(result.id), null, result);
+    return success(res, result, 'Lab autoverification review updated');
   } catch (err) {
     return next(err);
   }

@@ -37,6 +37,7 @@ import {
   decideAntimicrobialStewardshipReview,
   decideAppealLetter,
   decideFamilyUpdate,
+  decideLabAutoverification,
   decideNursingAmbientSession,
   decidePayerVarianceReview,
   decideTeachBackSession,
@@ -58,6 +59,7 @@ import {
   extractClinicalAiTasks,
   generateInfectionControlAudit,
   evaluateClaimVariance,
+  evaluateLabAutoverification,
   generateAntimicrobialStewardshipReview,
   generateAppealLetter,
   generateFamilyUpdate,
@@ -86,6 +88,7 @@ import {
   listAntimicrobialStewardshipReviews,
   listAppealLetters,
   listFamilyUpdates,
+  listLabAutoverifications,
   listNursingAmbientSessions,
   listPayerContracts,
   listPayerVarianceReviews,
@@ -140,6 +143,10 @@ import {
   type FamilyUpdateDecision,
   type FamilyUpdateLanguage,
   type FamilyUpdateStatus,
+  type LabAutoverification,
+  type LabAutoverificationDecision,
+  type LabAutoverificationReviewerDecision,
+  type LabCriticalBand,
   type NursingAmbientDecision,
   type NursingAmbientSession,
   type NursingAmbientShift,
@@ -2590,6 +2597,269 @@ export function AppealLetterGeneratorPanel() {
                         </button>
                       </div>
                     ) : null}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Lab Autoverification / Delta Check
+// ---------------------------------------------------------------------------
+const LAB_DECISIONS: LabAutoverificationDecision[] = ["pending", "auto_verify", "hold_for_review", "critical", "rejected"];
+const LAB_REVIEWER_DECISIONS: LabAutoverificationReviewerDecision[] = ["pending", "accepted", "deferred", "rejected", "edited"];
+const LAB_CRITICAL_BANDS: LabCriticalBand[] = ["normal", "borderline_low", "borderline_high", "critical_low", "critical_high", "unknown"];
+
+function labDecisionClass(decision: string) {
+  switch (decision) {
+    case "critical":
+      return "border-red-200 bg-red-50 text-red-800";
+    case "hold_for_review":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "auto_verify":
+      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+    case "rejected":
+      return "border-slate-200 bg-slate-100 text-slate-700";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-700";
+  }
+}
+
+function labBandClass(band: string) {
+  switch (band) {
+    case "critical_low":
+    case "critical_high":
+      return "border-red-200 bg-red-50 text-red-800";
+    case "borderline_low":
+    case "borderline_high":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "normal":
+      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-700";
+  }
+}
+
+export function LabAutoverificationPanel() {
+  const queryClient = useQueryClient();
+  const [investigationId, setInvestigationId] = useState("");
+  const [patientUid, setPatientUid] = useState("");
+  const [decisionFilter, setDecisionFilter] = useState<LabAutoverificationDecision | "">("");
+  const [bandFilter, setBandFilter] = useState<LabCriticalBand | "">("");
+  const [reviewFilter, setReviewFilter] = useState<LabAutoverificationReviewerDecision | "">("pending");
+
+  const rows = useQuery({
+    queryKey: ["clinical-ai", "lab-autoverifications", patientUid, decisionFilter, bandFilter, reviewFilter],
+    queryFn: () =>
+      listLabAutoverifications({
+        patientUid: patientUid.trim() || undefined,
+        decision: decisionFilter || undefined,
+        criticalBand: bandFilter || undefined,
+        reviewerDecision: reviewFilter || undefined,
+        limit: 100,
+      }),
+  });
+  const evaluate = useMutation({
+    mutationFn: () => evaluateLabAutoverification(Number.parseInt(investigationId.trim(), 10)),
+    onSuccess: (result) => {
+      toast.success(`Decision: ${result.decision.replace(/_/g, " ")} / ${result.critical_band.replace(/_/g, " ")}`);
+      setInvestigationId("");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "lab-autoverifications"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Lab evaluation failed"),
+  });
+  const decide = useMutation({
+    mutationFn: ({ id, decision, note }: { id: number; decision: Exclude<LabAutoverificationReviewerDecision, "pending">; note?: string }) =>
+      decideLabAutoverification(id, decision, note),
+    onSuccess: () => {
+      toast.success("Lab review saved");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "lab-autoverifications"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Review failed"),
+  });
+
+  const list: LabAutoverification[] = rows.data?.autoverifications ?? [];
+  const criticalCount = list.filter((row) => row.decision === "critical").length;
+  const holdCount = list.filter((row) => row.decision === "hold_for_review").length;
+  const pendingReview = list.filter((row) => row.reviewer_decision === "pending").length;
+  const canEvaluate = Number.isFinite(Number.parseInt(investigationId.trim(), 10));
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <FlaskConical className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Lab Autoverification / Delta Check</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={patientUid}
+            onChange={(event) => setPatientUid(event.target.value)}
+            placeholder="patient uid"
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          />
+          <select
+            value={decisionFilter}
+            onChange={(event) => setDecisionFilter(event.target.value as LabAutoverificationDecision | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All decisions</option>
+            {LAB_DECISIONS.map((item) => (
+              <option key={item} value={item}>{item.replace(/_/g, " ")}</option>
+            ))}
+          </select>
+          <select
+            value={bandFilter}
+            onChange={(event) => setBandFilter(event.target.value as LabCriticalBand | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All bands</option>
+            {LAB_CRITICAL_BANDS.map((item) => (
+              <option key={item} value={item}>{item.replace(/_/g, " ")}</option>
+            ))}
+          </select>
+          <select
+            value={reviewFilter}
+            onChange={(event) => setReviewFilter(event.target.value as LabAutoverificationReviewerDecision | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All review</option>
+            {LAB_REVIEWER_DECISIONS.map((item) => (
+              <option key={item} value={item}>{item}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Critical results</div>
+          <div className="mt-1 text-2xl font-semibold text-red-700">{criticalCount}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Hold for review</div>
+          <div className="mt-1 text-2xl font-semibold text-amber-700">{holdCount}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Pending review</div>
+          <div className="mt-1 text-2xl font-semibold">{pendingReview}</div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Investigation ID</span>
+            <input
+              value={investigationId}
+              onChange={(event) => setInvestigationId(event.target.value)}
+              inputMode="numeric"
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <button
+            onClick={() => evaluate.mutate()}
+            disabled={evaluate.isPending || !canEvaluate}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+          >
+            <PlayCircle className="h-4 w-4" />
+            {evaluate.isPending ? "Evaluating..." : "Evaluate"}
+          </button>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Test / Patient</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Value / Prior</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Delta / Band</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Decision</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Review</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {list.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
+                  No lab autoverification decisions
+                </td>
+              </tr>
+            ) : (
+              list.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{row.test_name}</div>
+                    <div className="font-mono text-xs text-muted-foreground">{row.patient_uid}</div>
+                    {row.patient_name ? <div className="text-xs text-muted-foreground">{row.patient_name}</div> : null}
+                    <div className="font-mono text-xs text-muted-foreground">review #{row.id}</div>
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    <div>{row.result_value !== null ? `${row.result_value} ${row.units || ""}` : row.result_text || "-"}</div>
+                    {row.prior_value !== null ? (
+                      <div className="text-muted-foreground">prior {row.prior_value} {row.units || ""}</div>
+                    ) : (
+                      <div className="text-muted-foreground">no prior</div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    <div>{row.delta_pct !== null ? `${row.delta_pct}%` : "-"}</div>
+                    <span className={`mt-1 inline-block rounded-full border px-2 py-0.5 font-medium ${labBandClass(row.critical_band)}`}>
+                      {row.critical_band.replace(/_/g, " ")}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${labDecisionClass(row.decision)}`}>
+                      {row.decision.replace(/_/g, " ")}
+                    </span>
+                    {row.decision_reason ? (
+                      <div className="mt-1 max-w-xs text-xs text-muted-foreground">{row.decision_reason}</div>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${documentStatusClass(row.reviewer_decision)}`}>
+                      {row.reviewer_decision}
+                    </span>
+                    {row.reviewer_decision === "pending" ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "accepted" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Edit note") ?? undefined;
+                            decide.mutate({ id: row.id, decision: "edited", note });
+                          }}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-50"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Reject reason") ?? undefined;
+                            decide.mutate({ id: row.id, decision: "rejected", note });
+                          }}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-1 text-xs text-muted-foreground">{fmt(row.reviewed_at)}</div>
+                    )}
                   </td>
                 </tr>
               ))

@@ -46,6 +46,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_family_updates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_payer_variance_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_payer_contracts WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND payer_name LIKE '%[test]%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_lab_autoverifications WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -171,6 +172,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_family_updates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_payer_variance_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_payer_contracts WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND payer_name LIKE '%[test]%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_lab_autoverifications WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -813,6 +815,81 @@ describe('future-proof clinical AI and privacy foundations', () => {
       claim_id: strayClaim[0].id,
     });
     expect(blocked.statusCode).toBe(403);
+  });
+
+  it('evaluates lab autoverification with critical band + delta, and gates by module', async () => {
+    await enableModule('lab_autoverification_delta');
+
+    // Seed a prior potassium result so delta is computed
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO investigations
+         (uid, patient_uid, phone, test_name, status, priority, result_summary,
+          structured_results, requested_by, requested_at, completed_at,
+          created_at, updated_at)
+       VALUES (gen_random_uuid(), $1::uuid, '9000091001', 'Serum Potassium', 'COMPLETED', 'ROUTINE',
+               'K 4.1 mmol/L (normal)',
+               '{"value": 4.1, "units": "mmol/L"}'::jsonb,
+               $2::uuid, NOW() - INTERVAL '2 days', NOW() - INTERVAL '2 days',
+               NOW() - INTERVAL '2 days', NOW() - INTERVAL '2 days')`,
+      PATIENT_UID, DOCTOR_UID
+    );
+
+    // Current potassium at a critical_high value
+    const current = await prisma.$queryRawUnsafe(
+      `INSERT INTO investigations
+         (uid, patient_uid, phone, test_name, status, priority, result_summary,
+          structured_results, requested_by, requested_at, completed_at,
+          created_at, updated_at)
+       VALUES (gen_random_uuid(), $1::uuid, '9000091001', 'Serum Potassium', 'COMPLETED', 'URGENT',
+               'K 7.2 mmol/L (critical high)',
+               '{"value": 7.2, "units": "mmol/L"}'::jsonb,
+               $2::uuid, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '30 minutes',
+               NOW() - INTERVAL '1 hour', NOW())
+       RETURNING id`,
+      PATIENT_UID, DOCTOR_UID
+    );
+    const investigationId = current[0].id;
+
+    const deniedList = await doctor.get('/api/v1/admin/clinical-ai/lab-autoverifications');
+    expectStatus(deniedList, 403, 'doctor denied lab autoverification admin list');
+
+    const evaluated = await admin.post('/api/v1/admin/clinical-ai/lab-autoverifications/evaluate').send({
+      investigation_id: investigationId,
+    });
+    expectStatus(evaluated, 201, 'evaluate lab autoverification');
+    const body = evaluated.body.data;
+    expect(body.module_key).toBe('lab_autoverification_delta');
+    expect(body.review_id).toBeTruthy();
+    expect(body.critical_band).toBe('critical_high');
+    expect(body.decision).toBe('critical');
+    expect(Array.isArray(body.draft.suggested_actions)).toBe(true);
+    expect(body.draft.suggested_actions.length).toBeGreaterThan(0);
+    expect(body.source_citations.length).toBeGreaterThan(0);
+    expect(body.safety_flags.some((flag) => flag.code === 'LAB_CRITICAL_VALUE')).toBe(true);
+
+    const listed = await admin.get(`/api/v1/admin/clinical-ai/lab-autoverifications?critical_band=critical_high`);
+    expectStatus(listed, 200, 'list lab autoverifications');
+    expect(listed.body.data.autoverifications.length).toBeGreaterThan(0);
+
+    const accepted = await admin.patch(`/api/v1/admin/clinical-ai/lab-autoverifications/${body.review_id}`).send({
+      decision: 'accepted',
+      note: 'Reviewed by lab [test]',
+    });
+    expectStatus(accepted, 200, 'accept lab autoverification');
+    expect(accepted.body.data.reviewer_decision).toBe('accepted');
+
+    // Disabled-module gating
+    await admin.patch('/api/v1/admin/clinical-ai/modules/lab_autoverification_delta').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/lab-autoverifications/evaluate').send({
+      investigation_id: investigationId,
+    });
+    expect(blocked.statusCode).toBe(403);
+
+    const audit = await admin.get('/api/v1/admin/clinical-ai/audit?limit=400');
+    expectStatus(audit, 200, 'lab autoverification audit logs');
+    const actions = audit.body.data.logs.map((row) => row.action);
+    expect(actions).toContain('CLINICAL_AI_LAB_AUTOVERIFICATION_EVALUATED');
+    expect(actions).toContain('CLINICAL_AI_LAB_AUTOVERIFICATION_REVIEWED');
   });
 
   it('blocks appeal letter generation when module is disabled', async () => {

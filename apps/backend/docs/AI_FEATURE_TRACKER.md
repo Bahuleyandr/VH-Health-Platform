@@ -1,6 +1,6 @@
 # VH Health AI Feature Tracker
 
-Last verified: 2026-04-23 (payer contract variance v1 shipped — entire 6-item recommended queue cleared)
+Last verified: 2026-04-23 (lab autoverification / delta check v1 shipped)
 
 This tracker records the 40 future-proofing AI features proposed for VH Health and maps each one to the current repo state. Update this file whenever a feature graduates from "Not started" to "Partial" or from "Partial" to "Implemented v1".
 
@@ -12,10 +12,10 @@ Status definitions:
 
 Current count:
 
-- Implemented v1: 10 / 40
+- Implemented v1: 11 / 40
 - Partial: 16 / 40
-- Not started: 14 / 40
-- Remaining to fully implement: 30 / 40
+- Not started: 13 / 40
+- Remaining to fully implement: 29 / 40
 
 | # | Feature | Status | Current repo state | Next build unit |
 |---:|---|---|---|---|
@@ -34,7 +34,7 @@ Current count:
 | 13 | ICU Ventilator / Sedation Bundle Reviewer | Not started | No dedicated ventilator/sedation bundle reviewer found. | Add VAP bundle, sedation interruption, SBT readiness, delirium, and ventilator-day review. |
 | 14 | Radiology Report QA / Discrepancy Assistant | Partial | Imaging inference, PACS adapter, and radiologist queue exist. | Add report QA checks: laterality, missing impression, critical-result communication, indication mismatch. |
 | 15 | Radiology Worklist Prioritizer | Partial | Imaging queue has severity and critical finding support, but not full worklist prioritization. | Rank studies by vitals, location, modality, diagnosis, prior imaging, ED/ICU status. |
-| 16 | Lab Autoverification / Delta Check Assistant | Not started | Abnormal result triage exists, but no lab delta/autoverification workflow. | Add specimen/delta/critical-value assistant for lab review. |
+| 16 | Lab Autoverification / Delta Check Assistant | Implemented v1 | `lab_autoverification_delta`, `labAutoverificationService.js`, `clinical_ai_lab_autoverifications`, Admin/IT API (evaluate/list/decide), and dashboard panel exist. V1 compares the current investigation result against the patient's most recent prior for the same test, computes delta %, classifies critical band (critical_low/high, borderline_low/high, normal) against baked-in reference/critical ranges for common tests (K+, Na+, glucose, creatinine, Hb, platelets, WBC, Ca2+, Mg, INR, troponin, lactate), and emits a rules-authoritative decision (auto_verify / hold_for_review / critical) with suggested actions. Review-only; never finalizes results. | Swap baked-in reference ranges for a per-tenant lab registry; wire into the existing investigations result upload pipeline so it fires automatically on new numeric results. |
 | 17 | Blood Bank Demand and Compatibility Forecast | Not started | No blood bank AI workflow found. | Add component demand forecast, crossmatch urgency, MTP readiness, stock risk. |
 | 18 | Pharmacogenomics / PGx Support | Not started | No genotype-aware medication support found. | Add PGx data model and medication guidance rules. |
 | 19 | Pregnancy / Obstetric Risk Assistant | Not started | No obstetric risk workflow found. | Add ANC, preeclampsia, fetal growth, postpartum follow-up risk assistant. |
