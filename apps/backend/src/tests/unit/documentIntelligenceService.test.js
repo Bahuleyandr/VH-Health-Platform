@@ -2,6 +2,10 @@ import {
   classifyDocumentType,
   extractStructuredDocumentFacts,
 } from '../../services/ai/documentIntelligenceService.js';
+import {
+  extractNativePdfText,
+  extractTextFromDocumentUpload,
+} from '../../services/ai/documentOcrAdapter.js';
 
 describe('document intelligence helpers', () => {
   it('classifies discharge summaries from metadata and body text', () => {
@@ -55,5 +59,54 @@ describe('document intelligence helpers', () => {
     expect(facts.medications).toEqual([]);
     expect(facts.investigations).toEqual([]);
     expect(facts.confidence).toBe(25);
+  });
+
+  it('extracts raw text from text uploads without external OCR tooling', async () => {
+    const result = await extractTextFromDocumentUpload({
+      buffer: Buffer.from('Diagnosis: Pneumonia\nTab Azithromycin 500 mg OD', 'utf8'),
+      mimeType: 'text/plain',
+      fileName: 'outside-summary.txt',
+    });
+
+    expect(result.status).toBe('completed');
+    expect(result.provider).toBe('native_text');
+    expect(result.raw_text).toMatch(/Azithromycin/);
+    expect(result.file_hash).toHaveLength(64);
+  });
+
+  it('extracts selectable PDF text from literal text streams', () => {
+    const pdf = Buffer.from(`
+      %PDF-1.4
+      1 0 obj << /Type /Page >> endobj
+      stream
+      BT (Diagnosis: Community acquired pneumonia) Tj
+      (Tab Amoxicillin clavulanate 625 mg BD) Tj
+      ET
+      endstream
+      %%EOF
+    `, 'latin1');
+
+    const text = extractNativePdfText(pdf);
+    expect(text).toMatch(/Community acquired pneumonia/);
+    expect(text).toMatch(/Amoxicillin clavulanate/);
+  });
+
+  it('keeps image uploads reviewable when local OCR is not configured', async () => {
+    const previousProvider = process.env.CLINICAL_AI_OCR_PROVIDER;
+    delete process.env.CLINICAL_AI_OCR_PROVIDER;
+    try {
+      const result = await extractTextFromDocumentUpload({
+        buffer: Buffer.from('not-a-real-png', 'utf8'),
+        mimeType: 'image/png',
+        fileName: 'prescription.png',
+      });
+
+      expect(result.status).toBe('no_text');
+      expect(result.provider).toBe('image_metadata_only');
+      expect(result.safety_flags.some((flag) => flag.code === 'LOCAL_OCR_NOT_CONFIGURED')).toBe(true);
+    } finally {
+      if (previousProvider === undefined) delete process.env.CLINICAL_AI_OCR_PROVIDER;
+      else process.env.CLINICAL_AI_OCR_PROVIDER = previousProvider;
+    }
   });
 });

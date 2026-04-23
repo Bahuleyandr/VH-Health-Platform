@@ -60,9 +60,9 @@ INSERT INTO clinical_ai_modules (module_key, display_name, description, enabled,
 VALUES
   ('document_intelligence_ocr',
    'Document Intelligence / OCR',
-   'Extracts structured clinical facts from uploaded or externally OCRed documents. Draft-only; medical-records or clinician review required before importing into the chart.',
+   'Extracts structured clinical facts from uploaded PDFs/photos/text or externally OCRed documents. Draft-only; medical-records or clinician review required before importing into the chart.',
    false,
-   '{"surface":"medical_records","risk":"high","status":"available","requiresClinicianSignoff":true,"requiresCitations":true,"reviewRoles":["MEDICAL_RECORDS","DOCTOR","NURSING_STAFF"],"approvalPolicy":"clinical_document_review","outputSchema":{"type":"object","required":["document_type","extracted_fields","normalized_sections"]},"retentionDays":3650}'::jsonb)
+   '{"surface":"medical_records","risk":"high","status":"available","requiresClinicianSignoff":true,"requiresCitations":true,"reviewRoles":["MEDICAL_RECORDS","DOCTOR","NURSING_STAFF"],"approvalPolicy":"clinical_document_review","outputSchema":{"type":"object","required":["document_type","extracted_fields","normalized_sections"]},"uploadPipeline":true,"ocrAdapters":{"nativeText":true,"nativePdfText":true,"localTesseract":true,"localPdfText":true},"retentionDays":3650}'::jsonb)
 ON CONFLICT (module_key)
 DO UPDATE SET
   display_name = EXCLUDED.display_name,
