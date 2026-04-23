@@ -124,6 +124,92 @@ class DatabaseManager {
   }
 
   /**
+   * Execute a query with tenant-scoped Row-Level Security active.
+   *
+   * Wraps the query in a transaction and sets `app.current_tenant_id` via
+   * set_config(..., true) so the GUC is transaction-local (auto-cleared at
+   * COMMIT/ROLLBACK — no session-state leak between pooled connections).
+   *
+   * The RLS policies installed by migration 075 recognize three cases:
+   *   - GUC unset/empty  → permissive (legacy `db.query()` path)
+   *   - GUC = 'bypass'   → full access (SUPER_ADMIN cross-tenant reads)
+   *   - GUC = <uuid>     → only rows whose tenant_id matches the uuid
+   *
+   * Pass `{ superAdmin: true }` for cross-tenant admin reads; tenantId is
+   * then optional (and ignored if provided alongside).
+   *
+   * @param {string} text   Parameterized SQL ($1, $2, ...).
+   * @param {Array}  params Values for the placeholders.
+   * @param {string} tenantId UUID of the tenant to scope to. Required unless superAdmin.
+   * @param {Object} [options]
+   * @param {boolean} [options.superAdmin=false] — if true, set GUC to 'bypass'.
+   */
+  async queryAsTenant(text, params, tenantId, { superAdmin = false } = {}) {
+    if (!superAdmin && !tenantId) {
+      throw new Error('queryAsTenant requires tenantId (or { superAdmin: true } to bypass)');
+    }
+
+    // Circuit breaker mirrors query() semantics.
+    if (circuitOpen) {
+      const elapsed = Date.now() - circuitOpenedAt;
+      if (elapsed < CIRCUIT_BREAKER_RESET_MS) {
+        throw new Error('Database circuit breaker is open — service temporarily unavailable');
+      }
+      circuitOpen = false;
+      logger.info('Database circuit breaker half-open — testing connection');
+    }
+
+    if (!this.isConnected) {
+      const connected = await this.connect();
+      if (!connected) {
+        throw new Error('Database not available - running in debug mode');
+      }
+    }
+
+    const client = await this.pool.connect();
+    const start = Date.now();
+    const gucValue = superAdmin ? 'bypass' : tenantId;
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        "SELECT set_config('app.current_tenant_id', $1, true)",
+        [gucValue]
+      );
+      const result = await client.query(text, params);
+      await client.query('COMMIT');
+      const duration = Date.now() - start;
+      consecutiveFailures = 0;
+      if (duration > 1000) {
+        logger.warn('Slow tenant-scoped query detected', {
+          duration_ms: duration,
+          query: text.substring(0, 200),
+          rowCount: result.rowCount,
+          tenantId: gucValue,
+        });
+      }
+      return result;
+    } catch (error) {
+      try { await client.query('ROLLBACK'); } catch (_err) { /* swallow rollback error */ }
+      consecutiveFailures++;
+      if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+        circuitOpen = true;
+        circuitOpenedAt = Date.now();
+        logger.error(`Database circuit breaker OPEN after ${consecutiveFailures} consecutive failures`);
+      }
+      const duration = Date.now() - start;
+      logger.error('Tenant-scoped query error', {
+        duration_ms: duration,
+        error: error.message,
+        query: text.substring(0, 100),
+        tenantId: gucValue,
+      });
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
    * Execute a read-only query against the read replica (or primary if no replica configured).
    * Use for analytics, exports, dashboards — anything that doesn't need write consistency.
    */

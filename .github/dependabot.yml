@@ -3,6 +3,8 @@ version: 2
 # Single dependabot config for the full-stack monorepo. One update entry
 # per package-ecosystem × directory. Weekly cadence keeps the PR rate
 # manageable; major-version bumps are ignored (review manually).
+# Minor + patch bumps are grouped into a single PR per ecosystem-directory
+# to further reduce weekly noise.
 
 updates:
   # ── Flutter / Dart workspace ────────────────────────────────────────────
@@ -13,6 +15,10 @@ updates:
       day: "monday"
     open-pull-requests-limit: 5
     labels: ["dependencies", "flutter", "patient"]
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
@@ -25,6 +31,10 @@ updates:
       day: "monday"
     open-pull-requests-limit: 5
     labels: ["dependencies", "flutter", "staff"]
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
@@ -37,6 +47,10 @@ updates:
       day: "monday"
     open-pull-requests-limit: 5
     labels: ["dependencies", "flutter", "core"]
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
@@ -49,6 +63,10 @@ updates:
       day: "monday"
     open-pull-requests-limit: 5
     labels: ["dependencies", "backend"]
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
@@ -60,6 +78,10 @@ updates:
       day: "monday"
     open-pull-requests-limit: 5
     labels: ["dependencies", "admin"]
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
@@ -72,3 +94,26 @@ updates:
       day: "monday"
     open-pull-requests-limit: 3
     labels: ["dependencies", "ci"]
+
+  # ── Kubernetes workload images ──────────────────────────────────────────
+  - package-ecosystem: "docker"
+    directory: "/infra/kubernetes/apps/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels: ["dependencies", "infra", "k8s"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "docker"
+    directory: "/infra/kubernetes/apps/admin"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels: ["dependencies", "infra", "k8s"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

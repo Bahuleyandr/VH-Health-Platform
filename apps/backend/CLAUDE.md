@@ -361,6 +361,12 @@ SQL, JWT auth, or test infrastructure:
   bound-value-set violations. Slicing/terminology/profile invariants
   deferred to the official IG Publisher run in CI's `fhir-conformance`
   job (non-blocking; sample bundles in `src/services/fhir/__samples__/`).
+- **RLS enforcement is opt-in via `db.queryAsTenant(sql, params, tenantId)`**.
+  Plain `db.query()` bypasses RLS by design (legacy code paths). Use
+  `queryAsTenant` for any tenant-scoped read/write on the 11 tables listed
+  in `migrations/075_tenant_rls_policies.sql`; pass `{ superAdmin: true }`
+  for admin bypass. Full migration of existing query sites is planned for a
+  follow-up batch.
 
 ## Future Directions
 

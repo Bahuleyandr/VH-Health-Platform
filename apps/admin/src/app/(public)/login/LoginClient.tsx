@@ -26,7 +26,7 @@ import Image from 'next/image';
 import styles from './Login.module.css';
 
 function LoginInner() {
-  const { login, verifyMfa, loginStaff } = useAuth();
+  const { login, verifyMfa, mfaSetupEnroll, mfaSetupConfirm, loginStaff } = useAuth();
 
   // Tab state: 'admin' | 'staff'
   const [loginMode, setLoginMode] = useState<'admin' | 'staff'>('admin');
@@ -51,6 +51,17 @@ function LoginInner() {
   const [mfaChallenge, setMfaChallenge] = useState<{ challengeToken: string; adminHint?: string } | null>(null);
   const [mfaCode, setMfaCode] = useState('');
   const [mfaUseBackup, setMfaUseBackup] = useState(false);
+
+  // MFA setup state — populated when the backend returns mfa_setup_required.
+  const [mfaSetup, setMfaSetup] = useState<{ setupToken: string; adminHint?: string } | null>(null);
+  const [mfaSetupData, setMfaSetupData] = useState<{
+    qrCodeDataUrl: string;
+    otpauthUrl: string;
+    backupCodes: string[];
+    encryptedSecret: string;
+  } | null>(null);
+  const [mfaSetupCode, setMfaSetupCode] = useState('');
+  const [mfaSetupAcked, setMfaSetupAcked] = useState(false);
 
   // Autofocus management
   const userRef = useRef<HTMLInputElement>(null);
@@ -136,6 +147,23 @@ function LoginInner() {
           setMfaCode('');
           setMfaUseBackup(false);
           return; // Stop here — the TOTP panel takes over.
+        }
+        if (outcome.kind === 'mfa_setup_required') {
+          // SUPER_ADMIN without TOTP — kick off first-time enrollment.
+          setMfaSetup({
+            setupToken: outcome.challenge.setupToken,
+            adminHint: outcome.challenge.adminHint?.username,
+          });
+          setMfaSetupData(null);
+          setMfaSetupCode('');
+          setMfaSetupAcked(false);
+          try {
+            const data = await mfaSetupEnroll({ setupToken: outcome.challenge.setupToken });
+            setMfaSetupData(data);
+          } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to start MFA setup');
+          }
+          return; // Stop here — the enrollment panel takes over.
         }
       }
 
@@ -474,6 +502,154 @@ function LoginInner() {
                 {isLoading ? 'Verifying…' : 'Verify'}
               </button>
             </div>
+          </div>
+        )}
+
+        {/* ── MFA first-time setup panel ─────────────────────────────── */}
+        {mfaSetup && (
+          <div
+            style={{
+              marginTop: 24,
+              padding: 16,
+              borderRadius: 10,
+              border: '1px solid #f59e0b',
+              background: 'rgba(245, 158, 11, 0.08)',
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>
+              First-time two-factor setup required
+            </div>
+            <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 12 }}>
+              This account is a Super Admin and must enable an authenticator app
+              before first use. Scan the QR code below with Google Authenticator,
+              Authy, 1Password, or Bitwarden, then enter the 6-digit code.
+            </div>
+
+            {!mfaSetupData ? (
+              <div style={{ padding: 12, opacity: 0.8 }}>
+                Preparing your enrollment credentials…
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={mfaSetupData.qrCodeDataUrl}
+                    alt="Authenticator QR code"
+                    width={200}
+                    height={200}
+                    style={{ background: '#fff', padding: 8, borderRadius: 8 }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                    Save these backup codes
+                  </div>
+                  <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>
+                    Store them somewhere safe — they are shown only once and let
+                    you recover access if you lose your authenticator device.
+                  </div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                      gap: 6,
+                      fontFamily: 'monospace',
+                      fontSize: 13,
+                      background: 'rgba(0,0,0,0.04)',
+                      padding: 10,
+                      borderRadius: 6,
+                    }}
+                  >
+                    {mfaSetupData.backupCodes.map((c) => (
+                      <code key={c}>{c}</code>
+                    ))}
+                  </div>
+                </div>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 12 }}>
+                  <input
+                    type="checkbox"
+                    checked={mfaSetupAcked}
+                    onChange={(e) => setMfaSetupAcked(e.target.checked)}
+                  />
+                  I have saved the backup codes somewhere safe
+                </label>
+
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  value={mfaSetupCode}
+                  onChange={(e) => setMfaSetupCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                  placeholder="123456"
+                  aria-label="Authenticator code"
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: 8,
+                    border: '1px solid #f59e0b55',
+                    fontSize: 18,
+                    letterSpacing: 4,
+                    marginBottom: 10,
+                    background: '#fff',
+                    color: '#111',
+                  }}
+                />
+
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMfaSetup(null);
+                      setMfaSetupData(null);
+                      setMfaSetupCode('');
+                      setMfaSetupAcked(false);
+                      setError('');
+                    }}
+                    disabled={isLoading}
+                    style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: 'transparent', cursor: 'pointer' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isLoading || !mfaSetupAcked || mfaSetupCode.length !== 6}
+                    onClick={async () => {
+                      if (!mfaSetupData) return;
+                      setError('');
+                      setIsLoading(true);
+                      try {
+                        await mfaSetupConfirm({
+                          setupToken: mfaSetup.setupToken,
+                          code: mfaSetupCode,
+                          encryptedSecret: mfaSetupData.encryptedSecret,
+                          backupCodes: mfaSetupData.backupCodes,
+                        });
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'MFA setup failed');
+                      } finally {
+                        setIsLoading(false);
+                      }
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '10px 14px',
+                      borderRadius: 8,
+                      background: '#f59e0b',
+                      color: '#fff',
+                      border: 'none',
+                      cursor: isLoading ? 'wait' : 'pointer',
+                      fontWeight: 600,
+                      opacity: isLoading ? 0.7 : 1,
+                    }}
+                  >
+                    {isLoading ? 'Enrolling…' : 'Complete setup'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
 

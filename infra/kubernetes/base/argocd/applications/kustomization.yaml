@@ -1,0 +1,8 @@
+# argocd/applications/kustomization.yaml
+# Aggregates the Application CRs that tell Argo CD which paths in this
+# repo to watch. Pulled in by the parent argocd kustomization.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - platform.yaml
+  - apps.yaml

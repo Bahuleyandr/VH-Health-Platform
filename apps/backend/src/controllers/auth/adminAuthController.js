@@ -35,6 +35,14 @@ export const login = async (req, res) => {
     const { password } = req.body;
 
     const result = await AuthService.adminLogin(identity, password);
+    if (result?.requiresMfaSetup) {
+      logger.info(`Admin login requires MFA setup: ${identity}`);
+      return success(res, result, 'MFA setup required before full access');
+    }
+    if (result?.requiresTwoFactor) {
+      logger.info(`Admin login requires MFA challenge: ${identity}`);
+      return success(res, result, 'MFA challenge issued');
+    }
     logger.info(`Admin login successful: ${identity}`);
     return success(res, result, 'Admin login successful');
   } catch (err) {
@@ -443,6 +451,123 @@ export const mfaDisable = async (req, res) => {
   } catch (err) {
     logger.error('[MFA Disable]', err);
     return error(res, 'Failed to disable MFA', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+/**
+ * POST /auth/admin/mfa/setup-enroll — (auth: setup-scope token)
+ * First leg of mandatory-MFA enrollment for SUPER_ADMIN accounts that hit
+ * the mfa_setup_required branch in /login. The caller authenticates with the
+ * short-lived setup token returned by /login, not a full-access JWT.
+ * Returns QR + encrypted secret + plaintext backup codes — the client must
+ * echo the encryptedSecret back to /mfa/setup-confirm to finalise enrollment.
+ * We deliberately do NOT persist the secret yet — a failed confirm leaves the
+ * admin row untouched, so a retry starts cleanly.
+ */
+export const mfaSetupEnroll = async (req, res) => {
+  try {
+    const adminId = req.user?.uid;
+    if (!adminId) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+
+    const admin = await prisma.admins.findUnique({
+      where: { uid: String(adminId) },
+      select: { username: true, email: true, role: true, totp_enabled: true },
+    });
+    if (!admin) return error(res, 'Admin not found', HTTP_STATUS.NOT_FOUND);
+    if (admin.totp_enabled) {
+      return error(res, 'MFA is already enabled on this account.', HTTP_STATUS.CONFLICT);
+    }
+
+    const label = admin.username || admin.email || adminId;
+    const { encryptedSecret, qrCodeDataUrl, otpauthUrl } = await generateTotpSetup(label);
+    const backupCodes = generateBackupCodes();
+
+    logger.info('Admin first-time MFA setup initiated', { adminId });
+    return success(res, {
+      qrCodeDataUrl,
+      otpauthUrl,
+      backupCodes,      // shown ONCE — the client must save them before /setup-confirm
+      encryptedSecret,  // client echoes this back to /setup-confirm
+      next: 'POST the 6-digit code, encryptedSecret, and backupCodes to /auth/admin/mfa/setup-confirm',
+    }, 'MFA setup ready');
+  } catch (err) {
+    logger.error('[MFA SetupEnroll]', err);
+    return error(res, 'Failed to start MFA setup', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+/**
+ * POST /auth/admin/mfa/setup-confirm — (auth: setup-scope token)
+ * Body: { code, encryptedSecret, backupCodes }
+ * Second leg of first-time MFA enrollment. Verifies the TOTP code against
+ * the encryptedSecret the client received from /setup-enroll, persists the
+ * secret + bcrypt-hashed backup codes, flips totp_enabled=true, and issues a
+ * standard full-access JWT — identical to the shape returned by /login.
+ */
+export const mfaSetupConfirm = async (req, res) => {
+  try {
+    const adminId = req.user?.uid;
+    if (!adminId) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+
+    const { code, encryptedSecret, backupCodes } = req.body || {};
+    if (!code || !/^\d{6}$/.test(String(code))) {
+      return error(res, 'Provide a 6-digit authenticator code', HTTP_STATUS.BAD_REQUEST);
+    }
+    if (!encryptedSecret || typeof encryptedSecret !== 'string') {
+      return error(res, 'encryptedSecret is required', HTTP_STATUS.BAD_REQUEST);
+    }
+    if (!Array.isArray(backupCodes) || backupCodes.length === 0) {
+      return error(res, 'backupCodes are required', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const ok = await verifyTotp(String(code), encryptedSecret);
+    if (!ok) {
+      logger.warn('[MFA SetupConfirm] invalid TOTP code', { adminId });
+      return error(res, 'Invalid authenticator code', HTTP_STATUS.UNAUTHORIZED);
+    }
+
+    const hashedBackupCodes = await Promise.all(
+      backupCodes.map((c) => bcrypt.hash(String(c), BCRYPT_ROUNDS))
+    );
+
+    await prisma.admins.update({
+      where: { uid: String(adminId) },
+      data: {
+        totp_secret_encrypted: encryptedSecret,
+        totp_backup_codes: hashedBackupCodes,
+        totp_enabled: true,
+        totp_enrolled_at: new Date(),
+      },
+    });
+
+    const admin = await prisma.admins.findUnique({
+      where: { uid: String(adminId) },
+      select: { uid: true, username: true, email: true, role: true },
+    });
+    if (!admin) return error(res, 'Admin not found after enrollment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+
+    const token = generateToken({
+      uid: admin.uid,
+      role: String(admin.role).toUpperCase(),
+      email: admin.email ?? undefined,
+      sub: admin.uid,
+      iss: 'vh-health-backend',
+      aud: 'vh-health-admin',
+    }, SECURITY_CONFIG.jwt.adminExpiry);
+
+    logger.info('Admin MFA enrolled via first-time setup', { adminId });
+    return success(res, {
+      token,
+      admin: {
+        uid: admin.uid,
+        username: admin.username,
+        email: admin.email,
+        role: admin.role,
+      },
+    }, 'MFA enrolled and session established');
+  } catch (err) {
+    logger.error('[MFA SetupConfirm]', err);
+    return error(res, 'Failed to complete MFA setup', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 

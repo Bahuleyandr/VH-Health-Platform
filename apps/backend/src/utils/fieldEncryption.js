@@ -19,9 +19,9 @@ let _cachedKey = null;
 function deriveKey() {
   if (_cachedKey) return _cachedKey;
 
-  const masterKey = process.env.FIELD_ENCRYPTION_KEY || process.env.JWT_SECRET;
+  const masterKey = process.env.FIELD_ENCRYPTION_KEY;
   if (!masterKey) {
-    throw new Error('FIELD_ENCRYPTION_KEY or JWT_SECRET must be set for field encryption');
+    throw new Error('FIELD_ENCRYPTION_KEY must be set for field encryption');
   }
   _cachedKey = crypto.scryptSync(masterKey, 'vh-field-encryption-v1', 32);
   return _cachedKey;

@@ -63,8 +63,18 @@ jobs:
 
       - name: Security audit
         run: |
-          npm audit --audit-level=critical
+          npm audit --audit-level=high
           npx audit-ci --critical
+
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: apps/backend
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+          skip-dirs: apps/backend/node_modules
 
       - run: npm run lint
 

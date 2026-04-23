@@ -42,6 +42,11 @@ if (!process.env.BACKUP_ENCRYPTION_KEY || process.env.BACKUP_ENCRYPTION_KEY.leng
   process.env.BACKUP_ENCRYPTION_KEY = 'test-backup-encryption-key-32chars!!';
 }
 
+// Mandatory-MFA-for-SUPER_ADMIN defaults to 'true' in prod, but the legacy
+// test fixtures seed SUPER_ADMIN accounts without TOTP and assert the
+// normal login shape. Pin to 'false' unless a test explicitly overrides.
+process.env.REQUIRE_MFA_FOR_SUPER_ADMIN ||= 'false';
+
 // Keep Jest output small enough to avoid CI heap blowups from repeated app bootstrap logs.
 console.log = () => {};
 console.info = () => {};

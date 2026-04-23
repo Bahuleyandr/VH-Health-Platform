@@ -545,6 +545,22 @@ function ensureCompatibilityTables() {
 }
 
 function syncSchema() {
+  // Drop RLS policies first — `prisma db push --accept-data-loss` wants to drop
+  // tenant_id columns (not in schema.prisma) and fails when policies depend on
+  // them. Migration 075 re-applies policies after all migrations run.
+  psql(database, `
+    DO $$
+    DECLARE t text;
+    BEGIN
+      FOR t IN SELECT tablename FROM pg_policies WHERE policyname = 'tenant_isolation'
+      LOOP
+        EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
+        EXECUTE format('ALTER TABLE %I DISABLE ROW LEVEL SECURITY', t);
+      END LOOP;
+    END
+    $$;
+  `);
+
   console.log('Syncing Prisma schema into local test database');
   run(
     process.execPath,

@@ -7,3 +7,4 @@ resources:
   - namespace.yaml
   - chart-tracker.yaml
   - project.yaml
+  - applications

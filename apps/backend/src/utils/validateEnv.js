@@ -62,6 +62,16 @@ const envSchema = Joi.object({
 
   // Admin IP allowlist — optional, comma-separated IPs/CIDRs
   ADMIN_IP_ALLOWLIST: Joi.string().optional().label('ADMIN_IP_ALLOWLIST'),
+
+  // Feature flag: enforce mandatory TOTP MFA enrollment for SUPER_ADMIN accounts.
+  // When 'true', a SUPER_ADMIN without totp_enabled cannot obtain a full-access
+  // JWT — login returns an mfa_setup_required response carrying a short-lived
+  // setup token scoped only to the /mfa/setup-enroll + /mfa/setup-confirm routes.
+  // Defaults to 'true' in prod; jest.setup.cjs pins it to 'false' for tests.
+  REQUIRE_MFA_FOR_SUPER_ADMIN: Joi.string()
+    .valid('true', 'false')
+    .default('true')
+    .label('REQUIRE_MFA_FOR_SUPER_ADMIN'),
 }).unknown(true);
 
 // Validate the current environment variables
