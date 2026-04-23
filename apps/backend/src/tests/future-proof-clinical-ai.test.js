@@ -60,6 +60,10 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_security_anomalies WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_pgx_advisories WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_patient_genotypes WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_radiology_report_reviews WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_radiology_worklist_priorities WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_ot_block_suggestions WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_inventory_alerts WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -199,6 +203,10 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_security_anomalies WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_pgx_advisories WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_patient_genotypes WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_radiology_report_reviews WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_radiology_worklist_priorities WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_ot_block_suggestions WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_inventory_alerts WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -1019,6 +1027,203 @@ describe('future-proof clinical AI and privacy foundations', () => {
     const blocked = await admin.post('/api/v1/admin/clinical-ai/pgx/advisories/evaluate').send({
       patient_uid: PATIENT_UID,
       medication_name: 'Codeine',
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('evaluates radiology report QA discrepancies and gates by module', async () => {
+    await enableModule('radiology_report_qa');
+
+    const reportText = [
+      'FINDINGS: Left knee shows mild joint effusion. No fracture identified.',
+      'IMPRESSION: Left knee effusion.',
+    ].join('\n');
+
+    const evaluated = await admin.post('/api/v1/admin/clinical-ai/radiology/report-qa/evaluate').send({
+      patient_uid: PATIENT_UID,
+      study_id: 'STUDY-RPTQA-001',
+      accession_number: 'ACC-RPTQA-001',
+      modality: 'XR',
+      body_part: 'knee',
+      indication: 'Right knee pain after fall; evaluate for fracture',
+      report_text: reportText,
+      report_status: 'draft',
+      priors_available: false,
+      is_critical: false,
+    });
+    expectStatus(evaluated, 201, 'radiology report QA evaluation');
+    expect(evaluated.body.data.module_key).toBe('radiology_report_qa');
+    expect(Array.isArray(evaluated.body.data.discrepancies)).toBe(true);
+    expect(evaluated.body.data.overall_severity).toBe('critical');
+    expect(
+      evaluated.body.data.discrepancies.some((d) => d.code === 'LATERALITY_MISMATCH')
+    ).toBe(true);
+
+    const listed = await admin.get('/api/v1/admin/clinical-ai/radiology/report-qa');
+    expectStatus(listed, 200, 'list radiology report QA');
+    expect(listed.body.data.reviews.length).toBeGreaterThanOrEqual(1);
+
+    const decided = await admin
+      .patch(`/api/v1/admin/clinical-ai/radiology/report-qa/${evaluated.body.data.review_id}`)
+      .send({ decision: 'accepted', note: 'Laterality corrected [test]' });
+    expectStatus(decided, 200, 'decide radiology report QA');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/radiology_report_qa').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/radiology/report-qa/evaluate').send({
+      study_id: 'STUDY-RPTQA-002',
+      report_text: 'Placeholder report text.',
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('prioritizes the radiology worklist and gates by module', async () => {
+    await enableModule('radiology_worklist_prioritizer');
+
+    const statStudy = await admin.post('/api/v1/admin/clinical-ai/radiology/worklist/evaluate').send({
+      patient_uid: PATIENT_UID,
+      study_id: 'STUDY-WORK-001',
+      modality: 'CT',
+      body_part: 'head',
+      indication: 'Code stroke — acute hemiparesis, possible intracranial bleed',
+      location: 'ED',
+      wait_minutes: 30,
+      fragility: { ageYears: 78, criticalVitalsFlag: true, oxygenSupport: false, immunocompromised: false },
+      context_tags: ['code_stroke'],
+      priors_available: false,
+      is_stat_override: false,
+    });
+    expectStatus(statStudy, 201, 'stat radiology worklist priority');
+    expect(statStudy.body.data.module_key).toBe('radiology_worklist_prioritizer');
+    expect(statStudy.body.data.priority_tier).toBe('stat');
+    expect(statStudy.body.data.priority_score).toBeGreaterThanOrEqual(120);
+
+    const routineStudy = await admin.post('/api/v1/admin/clinical-ai/radiology/worklist/evaluate').send({
+      study_id: 'STUDY-WORK-002',
+      modality: 'XR',
+      body_part: 'chest',
+      indication: 'Routine follow-up imaging',
+      location: 'outpatient',
+      wait_minutes: 20,
+      fragility: {},
+      context_tags: ['routine'],
+      priors_available: true,
+      is_stat_override: false,
+    });
+    expectStatus(routineStudy, 201, 'routine radiology worklist priority');
+    expect(['routine', 'deferrable']).toContain(routineStudy.body.data.priority_tier);
+
+    const listed = await admin.get('/api/v1/admin/clinical-ai/radiology/worklist');
+    expectStatus(listed, 200, 'list radiology worklist priorities');
+    expect(listed.body.data.priorities.length).toBeGreaterThanOrEqual(2);
+
+    const decided = await admin
+      .patch(`/api/v1/admin/clinical-ai/radiology/worklist/${statStudy.body.data.priority_id}`)
+      .send({ decision: 'accepted', note: 'Reading immediately [test]' });
+    expectStatus(decided, 200, 'decide radiology worklist priority');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/radiology_worklist_prioritizer').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/radiology/worklist/evaluate').send({
+      study_id: 'STUDY-WORK-003',
+      modality: 'XR',
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('evaluates OT block scheduling recommendations and gates by module', async () => {
+    await enableModule('ot_block_scheduling');
+
+    const reallocate = await admin.post('/api/v1/admin/clinical-ai/ot/blocks/evaluate').send({
+      surgeon_uid: DOCTOR_UID,
+      surgeon_name: 'Dr. Test Surgeon',
+      service_line: 'general_surgery',
+      block_label: 'Mon-AM-OR1',
+      or_room: 'OR-1',
+      window_start: '2026-01-06',
+      window_end: '2026-03-30',
+      allocated_minutes: 500,
+      scheduled_minutes: 200,
+      actual_minutes: 180,
+      prime_allocated_minutes: 200,
+      prime_used_minutes: 50,
+      overrun_count: 0,
+      addon_count: 0,
+      total_cases: 4,
+      avg_turnover_minutes: 25,
+    });
+    expectStatus(reallocate, 201, 'OT block reallocate evaluation');
+    expect(reallocate.body.data.module_key).toBe('ot_block_scheduling');
+    expect(reallocate.body.data.recommendation).toBe('reallocate');
+    expect(reallocate.body.data.severity).toBe('high');
+
+    const listed = await admin.get('/api/v1/admin/clinical-ai/ot/blocks');
+    expectStatus(listed, 200, 'list OT block suggestions');
+    expect(listed.body.data.suggestions.length).toBeGreaterThanOrEqual(1);
+
+    const decided = await admin
+      .patch(`/api/v1/admin/clinical-ai/ot/blocks/${reallocate.body.data.suggestion_id}`)
+      .send({ decision: 'accepted', note: 'Planning reallocation [test]' });
+    expectStatus(decided, 200, 'decide OT block suggestion');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/ot_block_scheduling').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/ot/blocks/evaluate').send({
+      block_label: 'Tue-AM-OR2',
+      allocated_minutes: 400,
+      scheduled_minutes: 300,
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('classifies non-pharmacy inventory alerts and gates by module', async () => {
+    await enableModule('inventory_intelligence');
+
+    const stockout = await admin.post('/api/v1/admin/clinical-ai/inventory/evaluate').send({
+      item_sku: 'PPE-MASK-N95',
+      item_name: 'N95 Respirator Mask',
+      category: 'ppe',
+      ward: 'WARD-A',
+      current_stock: 0,
+      reorder_point: 200,
+      max_stock: 2000,
+      avg_daily_usage: 120,
+      baseline_daily_usage: 110,
+      next_expiry_date: '2027-12-31',
+      today: '2026-04-23',
+    });
+    expectStatus(stockout, 201, 'inventory stockout evaluation');
+    expect(stockout.body.data.module_key).toBe('inventory_intelligence');
+    expect(stockout.body.data.alert_category).toBe('stockout_risk');
+    expect(stockout.body.data.severity).toBe('critical');
+
+    const healthy = await admin.post('/api/v1/admin/clinical-ai/inventory/evaluate').send({
+      item_sku: 'LINEN-SHEET-STD',
+      item_name: 'Standard Bed Sheet',
+      category: 'linens',
+      ward: 'WARD-A',
+      current_stock: 150,
+      reorder_point: 50,
+      max_stock: 300,
+      avg_daily_usage: 10,
+      baseline_daily_usage: 10,
+      next_expiry_date: null,
+      today: '2026-04-23',
+    });
+    expectStatus(healthy, 201, 'inventory healthy evaluation');
+    expect(healthy.body.data.alert_category).toBe('healthy');
+
+    const listed = await admin.get('/api/v1/admin/clinical-ai/inventory/alerts');
+    expectStatus(listed, 200, 'list inventory alerts');
+    expect(listed.body.data.alerts.length).toBeGreaterThanOrEqual(2);
+
+    const decided = await admin
+      .patch(`/api/v1/admin/clinical-ai/inventory/alerts/${stockout.body.data.alert_id}`)
+      .send({ decision: 'accepted', note: 'Reorder placed with supply chain [test]' });
+    expectStatus(decided, 200, 'decide inventory alert');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/inventory_intelligence').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/inventory/evaluate').send({
+      item_sku: 'TEST-SKU',
+      item_name: 'Test Item',
+      current_stock: 10,
     });
     expect(blocked.statusCode).toBe(403);
   });
