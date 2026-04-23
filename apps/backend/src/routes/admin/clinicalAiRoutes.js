@@ -145,6 +145,11 @@ import {
   saveAiRoiSnapshot,
 } from '../../services/ai/aiRoiDashboardService.js';
 import {
+  decideNursingAmbientSession,
+  generateNursingAmbientSession,
+  listNursingAmbientSessions,
+} from '../../services/ai/nursingAmbientDocumentationService.js';
+import {
   decideSepsisBundleAudit,
   generateSepsisBundleAudit,
   listSepsisBundleAudits,
@@ -2290,6 +2295,87 @@ router.get('/roi/snapshots/latest', async (req, res, next) => {
       moduleKey: req.query?.module_key || 'ALL',
     });
     return success(res, { snapshot }, 'Latest AI ROI snapshot retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Nursing ambient documentation
+// ---------------------------------------------------------------------------
+router.post('/nursing-ambient/sessions', async (req, res, next) => {
+  try {
+    const result = await generateNursingAmbientSession({
+      req,
+      patientUid: req.body?.patient_uid,
+      admissionId: req.body?.admission_id || null,
+      nurseUid: req.body?.nurse_uid || req.user?.uid || null,
+      shift: req.body?.shift || 'day',
+      recordingStartedAt: req.body?.recording_started_at || null,
+      recordingEndedAt: req.body?.recording_ended_at || null,
+      durationSeconds: req.body?.duration_seconds || null,
+      consentReference: req.body?.consent_reference || null,
+      audioStorageKey: req.body?.audio_storage_key || null,
+      audioMime: req.body?.audio_mime || null,
+      sttProvider: req.body?.stt_provider || 'none',
+      sttModel: req.body?.stt_model || null,
+      sttLanguage: req.body?.stt_language || null,
+      diarizationProvider: req.body?.diarization_provider || null,
+      transcriptSegments: req.body?.transcript_segments || [],
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_NURSING_AMBIENT_SESSION_GENERATED',
+      String(result.session_id || result.generation_id || req.body?.patient_uid || 'inline'),
+      null,
+      {
+        session_id: result.session_id,
+        generation_id: result.generation_id,
+        admission_id: req.body?.admission_id,
+        shift: result.shift,
+        fall_count: result.draft?.falls?.length || 0,
+        wound_count: result.draft?.wounds?.length || 0,
+      }
+    );
+    return success(res, result, 'Nursing ambient session generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/nursing-ambient/sessions', async (req, res, next) => {
+  try {
+    const result = await listNursingAmbientSessions({
+      tenantId: req.tenantId,
+      admissionId: req.query?.admission_id || null,
+      patientUid: req.query?.patient_uid || null,
+      shift: req.query?.shift || null,
+      decision: req.query?.decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Nursing ambient sessions retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/nursing-ambient/sessions/:id', async (req, res, next) => {
+  try {
+    const result = await decideNursingAmbientSession({
+      tenantId: req.tenantId,
+      sessionId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_NURSING_AMBIENT_REVIEWED',
+      String(result.id),
+      null,
+      result
+    );
+    return success(res, result, 'Nursing ambient session updated');
   } catch (err) {
     return next(err);
   }

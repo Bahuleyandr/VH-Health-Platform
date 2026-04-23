@@ -42,6 +42,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_teach_back_sessions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_appeal_letters WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_roi_snapshots WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_nursing_ambient_sessions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -163,6 +164,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_teach_back_sessions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_appeal_letters WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_roi_snapshots WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_nursing_ambient_sessions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -744,6 +746,89 @@ describe('future-proof clinical AI and privacy foundations', () => {
     const blocked = await admin.post('/api/v1/admin/clinical-ai/appeal-letters').send({
       claim_id: claim[0].id,
       appeal_type: 'first_level',
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('generates, flags, and reviews nursing ambient shift documentation', async () => {
+    await enableModule('nursing_ambient_documentation');
+
+    const transcript = [
+      { speaker: 'nurse', text: 'Starting my day shift rounds on bed A-12.', start_seconds: 0, end_seconds: 5 },
+      { speaker: 'nurse', text: 'Wound dressing on right hip changed, no signs of infection.', start_seconds: 5, end_seconds: 12 },
+      { speaker: 'nurse', text: 'JP drain emptied 40 ml of serosanguinous fluid.', start_seconds: 12, end_seconds: 20 },
+      { speaker: 'nurse', text: 'IV line on left forearm flushed with saline and patent.', start_seconds: 20, end_seconds: 28 },
+      { speaker: 'nurse', text: 'Intake 500 ml in oral fluids; urine output 300 ml out clear.', start_seconds: 28, end_seconds: 38 },
+      { speaker: 'nurse', text: 'Patient ambulated to the bathroom with walker assistance.', start_seconds: 38, end_seconds: 46 },
+      { speaker: 'nurse', text: 'Patient fell while trying to stand; complains of bruised arm.', start_seconds: 46, end_seconds: 58 },
+      { speaker: 'patient', text: 'I felt very dizzy when I stood up.', start_seconds: 58, end_seconds: 63 },
+      { speaker: 'nurse', text: 'Handover to next shift: monitor fall risk and antibiotics.', start_seconds: 63, end_seconds: 72 },
+    ];
+
+    const deniedListing = await doctor.get('/api/v1/admin/clinical-ai/nursing-ambient/sessions');
+    expectStatus(deniedListing, 403, 'doctor denied nursing ambient admin list');
+
+    const generated = await admin.post('/api/v1/admin/clinical-ai/nursing-ambient/sessions').send({
+      patient_uid: PATIENT_UID,
+      admission_id: admissionId,
+      shift: 'day',
+      recording_started_at: new Date(Date.now() - 3600 * 1000).toISOString(),
+      recording_ended_at: new Date().toISOString(),
+      consent_reference: 'nursing-consent-test',
+      transcript_segments: transcript,
+    });
+    expectStatus(generated, 201, 'generate nursing ambient session');
+    const body = generated.body.data;
+    expect(body.module_key).toBe('nursing_ambient_documentation');
+    expect(body.session_id).toBeTruthy();
+    expect(body.generation_id).toBeTruthy();
+    expect(body.shift).toBe('day');
+    expect(body.draft.wounds.length).toBeGreaterThan(0);
+    expect(body.draft.drains.length).toBeGreaterThan(0);
+    expect(body.draft.iv_lines.length).toBeGreaterThan(0);
+    expect(body.draft.falls.length).toBeGreaterThan(0);
+    expect(body.draft.handover_notes.length).toBeGreaterThan(0);
+    expect(body.draft.intake_output.total_intake_ml).toBe(500);
+    expect(body.draft.intake_output.total_output_ml).toBe(300);
+    expect(body.draft.intake_output.balance_ml).toBe(200);
+    expect(body.safety_flags.some((flag) => flag.code === 'NURSING_FALL_DETECTED' || flag.code === 'NURSING_FALL_WITH_INJURY')).toBe(true);
+
+    const listed = await admin.get(`/api/v1/admin/clinical-ai/nursing-ambient/sessions?admission_id=${admissionId}`);
+    expectStatus(listed, 200, 'list nursing ambient sessions');
+    expect(listed.body.data.sessions.length).toBeGreaterThan(0);
+
+    const sessionId = body.session_id;
+    const edited = await admin.patch(`/api/v1/admin/clinical-ai/nursing-ambient/sessions/${sessionId}`).send({
+      decision: 'edited',
+      note: 'Reviewed and edited by admin [test]',
+    });
+    expectStatus(edited, 200, 'edit nursing ambient session');
+    expect(edited.body.data.reviewer_decision).toBe('edited');
+
+    const viaDoctor = await doctor.post(`/api/v1/emr/${admissionId}/ai/nursing-ambient`).send({
+      patient_uid: PATIENT_UID,
+      shift: 'night',
+      consent_reference: 'nursing-consent-test',
+      transcript_segments: [
+        { speaker: 'nurse', text: 'Quiet night; patient slept well.', start_seconds: 0, end_seconds: 5 },
+      ],
+    });
+    expectStatus(viaDoctor, 201, 'doctor EMR-route nursing ambient generation');
+    expect(viaDoctor.body.data.shift).toBe('night');
+
+    const audit = await admin.get('/api/v1/admin/clinical-ai/audit?limit=300');
+    expectStatus(audit, 200, 'nursing ambient audit logs');
+    const actions = audit.body.data.logs.map((row) => row.action);
+    expect(actions).toContain('CLINICAL_AI_NURSING_AMBIENT_SESSION_GENERATED');
+    expect(actions).toContain('CLINICAL_AI_NURSING_AMBIENT_REVIEWED');
+  });
+
+  it('blocks nursing ambient generation when module is disabled', async () => {
+    await admin.patch('/api/v1/admin/clinical-ai/modules/nursing_ambient_documentation').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/nursing-ambient/sessions').send({
+      patient_uid: PATIENT_UID,
+      admission_id: admissionId,
+      transcript_segments: [],
     });
     expect(blocked.statusCode).toBe(403);
   });

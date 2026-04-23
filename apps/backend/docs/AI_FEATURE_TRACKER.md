@@ -1,6 +1,6 @@
 # VH Health AI Feature Tracker
 
-Last verified: 2026-04-23 (AI ROI dashboard v1 shipped)
+Last verified: 2026-04-23 (nursing ambient documentation v1 shipped)
 
 This tracker records the 40 future-proofing AI features proposed for VH Health and maps each one to the current repo state. Update this file whenever a feature graduates from "Not started" to "Partial" or from "Partial" to "Implemented v1".
 
@@ -12,15 +12,15 @@ Status definitions:
 
 Current count:
 
-- Implemented v1: 7 / 40
-- Partial: 18 / 40
+- Implemented v1: 8 / 40
+- Partial: 17 / 40
 - Not started: 15 / 40
-- Remaining to fully implement: 33 / 40
+- Remaining to fully implement: 32 / 40
 
 | # | Feature | Status | Current repo state | Next build unit |
 |---:|---|---|---|---|
 | 1 | Document Intelligence / OCR AI | Implemented v1 | `document_intelligence_ocr`, `documentIntelligenceService.js`, native text/PDF/photo upload adapter, Admin/IT upload panel, and review queue exist. Text/PDF text-layer extraction works locally; image OCR can use local Tesseract when configured and otherwise falls back safely to review. | Add production object storage handoff and optional cloud OCR/provider adapters behind governance. |
-| 2 | Nursing Ambient Documentation | Partial | `ambient_visit_documentation` and ambient encounter flow exist for multi-speaker clinical notes. | Add nursing-specific bedside schema: wounds, drains, IV lines, I/O, mobility, falls, shift charting. |
+| 2 | Nursing Ambient Documentation | Implemented v1 | `nursing_ambient_documentation`, `nursingAmbientDocumentationService.js`, `clinical_nursing_ambient_sessions`, EMR + Admin/IT APIs, and dashboard review queue exist. V1 consumes a multi-speaker transcript and extracts structured wound, drain, IV line, intake/output (with fluid balance), mobility, fall (severity-classified), handover, and patient-education observations with segment-level citations. Fall events emit critical/high safety flags. Never auto-charts or changes orders. | Add bedside audio capture UI, integration with vitals/MAR, auto-merge into nursing care-plan, and continuous-shift streaming. |
 | 3 | Clinical Task Extractor | Implemented v1 | `clinical_task_extractor`, `clinicalTaskExtractorService.js`, `clinical_ai_task_candidates`, Admin/IT API, and dashboard review queue exist. V1 creates cited candidates and never auto-assigns work. | Add clinician-facing queue and optional post-review task assignment integration. |
 | 4 | Infection-Control Surveillance | Implemented v1 | `infection_control_sentinel`, `infectionControlSentinelService.js`, admin audit/review panel. | Add continuous realtime ward surveillance and cluster/outbreak automation. |
 | 5 | Antimicrobial Stewardship Assistant | Implemented v1 | `antimicrobial_stewardship`, `antimicrobialStewardshipService.js`, `clinical_ai_antimicrobial_reviews`, Admin/IT API, and dashboard review queue exist. V1 reviews cultures, duration, renal dosing, IV-to-oral switch, duplicate spectrum, de-escalation, and allergy conflicts without changing orders. | Add continuous stewardship rounds, local antibiogram integration, and policy-pack customization. |
@@ -62,6 +62,5 @@ Current count:
 
 Recommended next build order:
 
-1. Nursing Ambient Documentation
-2. Consent-Aware Family Update Generator
-3. Payer Contract Variance / Underpayment AI
+1. Consent-Aware Family Update Generator
+2. Payer Contract Variance / Underpayment AI

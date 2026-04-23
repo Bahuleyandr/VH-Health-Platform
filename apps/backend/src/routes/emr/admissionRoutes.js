@@ -21,6 +21,7 @@ import {
   generateTeachBackSession,
   submitTeachBackAnswers,
 } from '../../services/ai/patientTeachBackService.js';
+import { generateNursingAmbientSession } from '../../services/ai/nursingAmbientDocumentationService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { canEditDischargeSummary, canSignDischargeSummary } from '../../utils/roleHelpers.js';
 
@@ -389,6 +390,37 @@ router.post(
       language: req.body?.language || 'en',
     });
     success(res, result, 'Patient teach-back session generated', HTTP_STATUS.CREATED);
+  })
+);
+
+// POST /:id/ai/nursing-ambient — generate a nursing ambient documentation session.
+router.post(
+  '/:id/ai/nursing-ambient',
+  wrapAsync(async (req, res) => {
+    const admissionId = parseAdmissionId(req, res);
+    if (admissionId === null) return;
+    if (!req.body?.patient_uid) {
+      return error(res, 'patient_uid is required', HTTP_STATUS.BAD_REQUEST);
+    }
+    const result = await generateNursingAmbientSession({
+      req,
+      admissionId,
+      patientUid: req.body.patient_uid,
+      nurseUid: req.body?.nurse_uid || req.user?.uid || null,
+      shift: req.body?.shift || 'day',
+      recordingStartedAt: req.body?.recording_started_at || null,
+      recordingEndedAt: req.body?.recording_ended_at || null,
+      durationSeconds: req.body?.duration_seconds || null,
+      consentReference: req.body?.consent_reference || null,
+      audioStorageKey: req.body?.audio_storage_key || null,
+      audioMime: req.body?.audio_mime || null,
+      sttProvider: req.body?.stt_provider || 'none',
+      sttModel: req.body?.stt_model || null,
+      sttLanguage: req.body?.stt_language || null,
+      diarizationProvider: req.body?.diarization_provider || null,
+      transcriptSegments: req.body?.transcript_segments || [],
+    });
+    success(res, result, 'Nursing ambient session generated', HTTP_STATUS.CREATED);
   })
 );
 
