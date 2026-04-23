@@ -2411,6 +2411,108 @@ export async function getLatestAiRoiSnapshot(moduleKey: string = 'ALL') {
 }
 
 // ---------------------------------------------------------------------------
+// Lab autoverification / delta check
+// ---------------------------------------------------------------------------
+export type LabAutoverificationDecision = 'pending' | 'auto_verify' | 'hold_for_review' | 'critical' | 'rejected';
+export type LabAutoverificationReviewerDecision = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'edited';
+export type LabCriticalBand =
+  | 'normal'
+  | 'borderline_low'
+  | 'borderline_high'
+  | 'critical_low'
+  | 'critical_high'
+  | 'unknown';
+
+export interface LabAutoverification {
+  id: number;
+  tenant_id?: string;
+  investigation_id: number | null;
+  patient_uid: string;
+  patient_name?: string | null;
+  generation_id: number | null;
+  test_name: string;
+  result_value: number | null;
+  result_text: string | null;
+  units: string | null;
+  prior_value: number | null;
+  prior_recorded_at: string | null;
+  delta_pct: number | null;
+  reference_low: number | null;
+  reference_high: number | null;
+  critical_low: number | null;
+  critical_high: number | null;
+  critical_band: LabCriticalBand;
+  decision: LabAutoverificationDecision;
+  decision_reason: string | null;
+  suggested_actions: string[];
+  source_citations: ClinicalAiSourceCitation[];
+  safety_flags: ClinicalAiSafetyFlagSummary[];
+  reviewer_decision: LabAutoverificationReviewerDecision;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  reviewer_note?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at?: string;
+}
+
+export async function listLabAutoverifications(params: {
+  patientUid?: string;
+  decision?: LabAutoverificationDecision | string;
+  criticalBand?: LabCriticalBand | string;
+  reviewerDecision?: LabAutoverificationReviewerDecision | string;
+  limit?: number;
+} = {}) {
+  const query: Record<string, string> = {};
+  if (params.patientUid) query.patient_uid = params.patientUid;
+  if (params.decision) query.decision = params.decision;
+  if (params.criticalBand) query.critical_band = params.criticalBand;
+  if (params.reviewerDecision) query.reviewer_decision = params.reviewerDecision;
+  if (params.limit) query.limit = String(params.limit);
+  return getJSON<{ autoverifications: LabAutoverification[]; count: number }>(
+    '/admin/clinical-ai/lab-autoverifications',
+    query
+  );
+}
+
+export async function evaluateLabAutoverification(investigationId: number) {
+  return postJSON<{
+    review_id: number | null;
+    generation_id: number | null;
+    draft: {
+      decision: LabAutoverificationDecision;
+      critical_band: LabCriticalBand;
+      test_name: string;
+      result_value: number | null;
+      units: string | null;
+      prior_value: number | null;
+      delta_pct: number | null;
+      decision_reason: string | null;
+      suggested_actions: string[];
+    };
+    decision: LabAutoverificationDecision;
+    critical_band: LabCriticalBand;
+    source_citations: ClinicalAiSourceCitation[];
+    safety_flags: ClinicalAiSafetyFlagSummary[];
+    module_key: string;
+    review_status: string;
+    rules_authoritative: boolean;
+    decision_support_only: boolean;
+  }>('/admin/clinical-ai/lab-autoverifications/evaluate', { investigation_id: investigationId });
+}
+
+export async function decideLabAutoverification(
+  id: number,
+  decision: Exclude<LabAutoverificationReviewerDecision, 'pending'>,
+  note?: string
+) {
+  return fetchAdminAPI<LabAutoverification>(`/admin/clinical-ai/lab-autoverifications/${id}`, {
+    method: 'PATCH',
+    body: { decision, note },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Payer contract variance / underpayment AI
 // ---------------------------------------------------------------------------
 export type PayerVarianceDecision = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'escalated';

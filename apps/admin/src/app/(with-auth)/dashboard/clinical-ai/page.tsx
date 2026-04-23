@@ -47,6 +47,7 @@ import {
   AiRoiDashboardPanel,
   AntimicrobialStewardshipPanel,
   AppealLetterGeneratorPanel,
+  LabAutoverificationPanel,
   PayerContractVariancePanel,
   PatientTeachBackPanel,
   ChartCompletionPanel,
@@ -1006,6 +1007,8 @@ export default function ClinicalAiGovernancePage() {
       <AppealLetterGeneratorPanel />
 
       <PayerContractVariancePanel />
+
+      <LabAutoverificationPanel />
 
       <AiRoiDashboardPanel />
 
