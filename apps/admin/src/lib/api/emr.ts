@@ -1793,6 +1793,94 @@ export async function decideChartCompletionAudit(
 }
 
 // ---------------------------------------------------------------------------
+// Clinical task extractor
+// ---------------------------------------------------------------------------
+export type ClinicalTaskPriority = 'routine' | 'soon' | 'urgent' | 'critical' | 'unknown';
+export type ClinicalTaskDecision = 'pending' | 'accepted' | 'rejected' | 'deferred' | 'completed';
+
+export interface ClinicalAiTaskCandidate {
+  id: number;
+  tenant_id?: string;
+  patient_uid: string | null;
+  patient_name?: string | null;
+  admission_id: number | null;
+  generation_id: number | null;
+  source_scope: string;
+  source_event_type: string | null;
+  source_event_id: string | null;
+  task_title: string;
+  task_description: string | null;
+  category: string;
+  priority: ClinicalTaskPriority;
+  owner_role: string | null;
+  due_hint: string | null;
+  source_citations: ClinicalAiSourceCitation[];
+  safety_flags: ClinicalAiSafetyFlagSummary[];
+  reviewer_decision: ClinicalTaskDecision;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  reviewer_note: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listClinicalAiTasks(params: {
+  admissionId?: number | string;
+  patientUid?: string;
+  decision?: string;
+  priority?: string;
+  ownerRole?: string;
+  limit?: number;
+} = {}) {
+  const query: Record<string, string> = {};
+  if (params.admissionId) query.admission_id = String(params.admissionId);
+  if (params.patientUid) query.patient_uid = params.patientUid;
+  if (params.decision) query.decision = params.decision;
+  if (params.priority) query.priority = params.priority;
+  if (params.ownerRole) query.owner_role = params.ownerRole;
+  if (params.limit) query.limit = String(params.limit);
+  return getJSON<{ tasks: ClinicalAiTaskCandidate[]; count: number }>(
+    '/admin/clinical-ai/tasks',
+    query
+  );
+}
+
+export async function extractClinicalAiTasks(admissionId: number) {
+  return postJSON<{
+    generation_id: number | null;
+    review_id: number | null;
+    task_count: number;
+    tasks: ClinicalAiTaskCandidate[];
+    source_citations: ClinicalAiSourceCitation[];
+    safety_flags: ClinicalAiSafetyFlagSummary[];
+    module_key: string;
+    prompt_version: string;
+    review_status: string;
+    requires_signoff: boolean;
+    ai_metadata?: {
+      provider?: string | null;
+      model?: string | null;
+      used_ai?: boolean;
+      usage?: Record<string, unknown>;
+    };
+    decision_support_only: boolean;
+    no_auto_assign: boolean;
+  }>('/admin/clinical-ai/tasks/extract', { admission_id: admissionId });
+}
+
+export async function decideClinicalAiTask(
+  id: number,
+  decision: Exclude<ClinicalTaskDecision, 'pending'>,
+  note?: string
+) {
+  return fetchAdminAPI<ClinicalAiTaskCandidate>(`/admin/clinical-ai/tasks/${id}`, {
+    method: 'PATCH',
+    body: { decision, note },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Consent & PHI policy sentinel
 // ---------------------------------------------------------------------------
 export type PrivacySentinelDecision = 'pending' | 'acknowledged' | 'escalated' | 'dismissed';

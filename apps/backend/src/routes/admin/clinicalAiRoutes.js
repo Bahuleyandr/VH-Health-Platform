@@ -108,6 +108,11 @@ import {
   listChartCompletionAudits,
 } from '../../services/ai/chartCompletionAuditorService.js';
 import {
+  decideClinicalTaskCandidate,
+  generateClinicalTaskExtraction,
+  listClinicalTaskCandidates,
+} from '../../services/ai/clinicalTaskExtractorService.js';
+import {
   decideInfectionControlAudit,
   generateInfectionControlAudit,
   listInfectionControlAudits,
@@ -1210,6 +1215,74 @@ router.patch('/chart-completion/audits/:id', async (req, res, next) => {
       result
     );
     return success(res, result, 'Chart completion audit reviewed');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Clinical task extractor
+// ---------------------------------------------------------------------------
+router.post('/tasks/extract', async (req, res, next) => {
+  try {
+    const result = await generateClinicalTaskExtraction({
+      req,
+      admissionId: req.body?.admission_id,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_TASKS_EXTRACTED',
+      String(result.generation_id || req.body?.admission_id || 'inline'),
+      null,
+      {
+        generation_id: result.generation_id,
+        review_id: result.review_id,
+        admission_id: req.body?.admission_id,
+        task_count: result.task_count,
+        safety_flag_count: result.safety_flags?.length || 0,
+        no_auto_assign: true,
+      }
+    );
+    return success(res, result, 'Clinical task extraction generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/tasks', async (req, res, next) => {
+  try {
+    const result = await listClinicalTaskCandidates({
+      tenantId: req.tenantId,
+      admissionId: req.query?.admission_id || null,
+      patientUid: req.query?.patient_uid || null,
+      decision: req.query?.decision || null,
+      priority: req.query?.priority || null,
+      ownerRole: req.query?.owner_role || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Clinical task candidates retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/tasks/:id', async (req, res, next) => {
+  try {
+    const result = await decideClinicalTaskCandidate({
+      tenantId: req.tenantId,
+      taskId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_TASK_REVIEWED',
+      String(result.id),
+      null,
+      result
+    );
+    return success(res, result, 'Clinical task candidate reviewed');
   } catch (err) {
     return next(err);
   }

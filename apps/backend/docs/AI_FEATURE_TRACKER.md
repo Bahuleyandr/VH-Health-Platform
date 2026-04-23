@@ -12,16 +12,16 @@ Status definitions:
 
 Current count:
 
-- Implemented v1: 2 / 40
+- Implemented v1: 3 / 40
 - Partial: 21 / 40
-- Not started: 17 / 40
-- Remaining to fully implement: 38 / 40
+- Not started: 16 / 40
+- Remaining to fully implement: 37 / 40
 
 | # | Feature | Status | Current repo state | Next build unit |
 |---:|---|---|---|---|
 | 1 | Document Intelligence / OCR AI | Implemented v1 | `document_intelligence_ocr`, `documentIntelligenceService.js`, admin panel. V1 is text-first and expects raw OCR text. | Add native PDF/photo OCR adapter and upload pipeline. |
 | 2 | Nursing Ambient Documentation | Partial | `ambient_visit_documentation` and ambient encounter flow exist for multi-speaker clinical notes. | Add nursing-specific bedside schema: wounds, drains, IV lines, I/O, mobility, falls, shift charting. |
-| 3 | Clinical Task Extractor | Not started | Existing summaries can mention pending tasks, but there is no task extraction queue. | Add reviewable task extraction service, task table, and clinician queue. |
+| 3 | Clinical Task Extractor | Implemented v1 | `clinical_task_extractor`, `clinicalTaskExtractorService.js`, `clinical_ai_task_candidates`, Admin/IT API, and dashboard review queue exist. V1 creates cited candidates and never auto-assigns work. | Add clinician-facing queue and optional post-review task assignment integration. |
 | 4 | Infection-Control Surveillance | Implemented v1 | `infection_control_sentinel`, `infectionControlSentinelService.js`, admin audit/review panel. | Add continuous realtime ward surveillance and cluster/outbreak automation. |
 | 5 | Antimicrobial Stewardship Assistant | Partial | Infection sentinel detects antimicrobial risks; `polypharmacy_ai_review` handles interaction review. | Add dedicated stewardship workflow for cultures, duration, renal dosing, IV-to-oral switch, and de-escalation. |
 | 6 | Patient Teach-Back / Comprehension AI | Not started | Aftercare instructions and translations exist, but no comprehension loop. | Add patient quiz/chat flow with misunderstanding flags and review queue. |
@@ -62,9 +62,9 @@ Current count:
 
 Recommended next build order:
 
-1. Clinical Task Extractor
-2. Antimicrobial Stewardship Assistant
-3. Native OCR adapter for Document Intelligence
-4. Patient Teach-Back / Comprehension AI
-5. Appeal Letter Generator for Denied Claims
-6. AI ROI Dashboard
+1. Antimicrobial Stewardship Assistant
+2. Native OCR adapter for Document Intelligence
+3. Patient Teach-Back / Comprehension AI
+4. Appeal Letter Generator for Denied Claims
+5. AI ROI Dashboard
+6. Nursing Ambient Documentation

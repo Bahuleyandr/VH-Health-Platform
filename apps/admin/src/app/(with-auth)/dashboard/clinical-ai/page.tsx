@@ -44,6 +44,7 @@ import {
   AmbientDocumentationPanel,
   ChartCompletionPanel,
   ChargeCapturePanel,
+  ClinicalTaskExtractorPanel,
   DeteriorationPanel,
   DocumentIntelligencePanel,
   DriftCanaryPanel,
@@ -984,6 +985,8 @@ export default function ClinicalAiGovernancePage() {
       <AdmissionAiDraftWorkbenchPanel />
 
       <ChartCompletionPanel />
+
+      <ClinicalTaskExtractorPanel />
 
       <AbnormalResultTriagePanel />
 

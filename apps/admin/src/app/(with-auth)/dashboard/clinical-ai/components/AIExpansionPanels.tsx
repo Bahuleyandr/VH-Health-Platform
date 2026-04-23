@@ -15,6 +15,7 @@ import {
   FlaskConical,
   Heart,
   Image,
+  ListChecks,
   Microscope,
   Mic2,
   PlayCircle,
@@ -30,6 +31,7 @@ import {
   acknowledgeVirtualWardEscalation,
   deactivateCanaryCase,
   decideChartCompletionAudit,
+  decideClinicalAiTask,
   decideInfectionControlAudit,
   decidePrivacySentinelAudit,
   decideSepsisBundleAudit,
@@ -44,6 +46,7 @@ import {
   generateAdmissionAiDraft,
   generateAbnormalResultTriage,
   generateChartCompletionAudit,
+  extractClinicalAiTasks,
   generateInfectionControlAudit,
   generatePriorAuthorization,
   generateRcaDraft,
@@ -60,6 +63,7 @@ import {
   listCanaryCases,
   listCanaryRuns,
   listChartCompletionAudits,
+  listClinicalAiTasks,
   listChargeCaptureAudits,
   listDeteriorationSnapshots,
   listDocumentIntakes,
@@ -98,6 +102,9 @@ import {
   type ChartCompletionAudit,
   type ChartGapRiskBand,
   type ChargeCaptureAudit,
+  type ClinicalAiTaskCandidate,
+  type ClinicalTaskDecision,
+  type ClinicalTaskPriority,
   type ClinicalAiDraftResponse,
   type DeteriorationBand,
   type DeteriorationSnapshot,
@@ -262,6 +269,7 @@ function documentFactCount(row: DocumentIntake) {
 }
 
 const CHART_RISK_BANDS: ChartGapRiskBand[] = ["critical", "high", "medium", "low"];
+const TASK_PRIORITIES: ClinicalTaskPriority[] = ["critical", "urgent", "soon", "routine", "unknown"];
 const PRIVACY_RISK_BANDS: PrivacySentinelRiskBand[] = ["critical", "high", "medium", "low"];
 const ABNORMAL_TRIAGE_BANDS: AbnormalTriageBand[] = ["critical", "urgent", "watch", "routine"];
 const INFECTION_RISK_BANDS: InfectionControlRiskBand[] = ["critical", "high", "medium", "low"];
@@ -272,6 +280,14 @@ function chartRiskClass(risk: string) {
   if (risk === "high") return "bg-orange-100 text-orange-800 border-orange-200";
   if (risk === "medium") return "bg-amber-100 text-amber-800 border-amber-200";
   if (risk === "low") return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  return "bg-slate-100 text-slate-700 border-slate-200";
+}
+
+function taskPriorityClass(priority: string) {
+  if (priority === "critical") return "bg-red-100 text-red-800 border-red-200";
+  if (priority === "urgent") return "bg-orange-100 text-orange-800 border-orange-200";
+  if (priority === "soon") return "bg-amber-100 text-amber-800 border-amber-200";
+  if (priority === "routine") return "bg-emerald-100 text-emerald-800 border-emerald-200";
   return "bg-slate-100 text-slate-700 border-slate-200";
 }
 
@@ -973,6 +989,257 @@ export function ChartCompletionPanel() {
                           Reject
                         </button>
                       </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">{fmt(row.reviewed_at)}</span>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Clinical Task Extractor
+// ---------------------------------------------------------------------------
+export function ClinicalTaskExtractorPanel() {
+  const queryClient = useQueryClient();
+  const [admissionId, setAdmissionId] = useState("");
+  const [admissionFilter, setAdmissionFilter] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState<ClinicalTaskPriority | "">("");
+  const [decisionFilter, setDecisionFilter] = useState<ClinicalTaskDecision | "">("pending");
+
+  const tasks = useQuery({
+    queryKey: ["clinical-ai", "tasks", admissionFilter, priorityFilter, decisionFilter],
+    queryFn: () =>
+      listClinicalAiTasks({
+        admissionId: admissionFilter.trim() || undefined,
+        priority: priorityFilter || undefined,
+        decision: decisionFilter || undefined,
+        limit: 75,
+      }),
+  });
+  const extract = useMutation({
+    mutationFn: () => extractClinicalAiTasks(Number.parseInt(admissionId.trim(), 10)),
+    onSuccess: (result) => {
+      toast.success(`Task extraction generated: ${result.task_count} candidate(s)`);
+      setAdmissionId("");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "reviews"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "usage"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Task extraction failed"),
+  });
+  const decide = useMutation({
+    mutationFn: ({ id, decision }: { id: number; decision: Exclude<ClinicalTaskDecision, "pending"> }) =>
+      decideClinicalAiTask(id, decision),
+    onSuccess: () => {
+      toast.success("Task review saved");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "audit"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Task review failed"),
+  });
+
+  const rows: ClinicalAiTaskCandidate[] = tasks.data?.tasks ?? [];
+  const pendingCount = rows.filter((row) => row.reviewer_decision === "pending").length;
+  const urgentCount = rows.filter((row) => row.priority === "critical" || row.priority === "urgent").length;
+  const acceptedCount = rows.filter((row) => row.reviewer_decision === "accepted" || row.reviewer_decision === "completed").length;
+  const canGenerate = Number.isFinite(Number.parseInt(admissionId.trim(), 10));
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <ListChecks className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Clinical Task Extractor</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={admissionFilter}
+            onChange={(event) => setAdmissionFilter(event.target.value)}
+            placeholder="admission"
+            inputMode="numeric"
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          />
+          <select
+            value={priorityFilter}
+            onChange={(event) => setPriorityFilter(event.target.value as ClinicalTaskPriority | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All priority</option>
+            {TASK_PRIORITIES.map((priority) => (
+              <option key={priority} value={priority}>{priority}</option>
+            ))}
+          </select>
+          <select
+            value={decisionFilter}
+            onChange={(event) => setDecisionFilter(event.target.value as ClinicalTaskDecision | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="pending">Pending</option>
+            <option value="accepted">Accepted</option>
+            <option value="deferred">Deferred</option>
+            <option value="completed">Completed</option>
+            <option value="rejected">Rejected</option>
+            <option value="">All decisions</option>
+          </select>
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Pending review</div>
+          <div className="mt-1 text-2xl font-semibold">{pendingCount}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Critical / urgent</div>
+          <div className="mt-1 text-2xl font-semibold text-orange-700">{urgentCount}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Accepted / done</div>
+          <div className="mt-1 text-2xl font-semibold">{acceptedCount}</div>
+        </div>
+      </div>
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Admission ID</span>
+            <input
+              value={admissionId}
+              onChange={(event) => setAdmissionId(event.target.value)}
+              inputMode="numeric"
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <button
+            onClick={() => extract.mutate()}
+            disabled={extract.isPending || !canGenerate}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+          >
+            <PlayCircle className="h-4 w-4" />
+            {extract.isPending ? "Extracting..." : "Extract Tasks"}
+          </button>
+        </div>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Admission</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Task</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Priority</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Owner</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Evidence</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Review</th>
+              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={7}>
+                  No task candidates found
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">admission #{row.admission_id ?? "-"}</div>
+                    <div className="font-mono text-xs text-muted-foreground">{row.patient_uid || "-"}</div>
+                    {row.patient_name ? <div className="text-xs text-muted-foreground">{row.patient_name}</div> : null}
+                    {row.generation_id ? <div className="font-mono text-xs text-muted-foreground">gen #{row.generation_id}</div> : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="max-w-md font-medium">{row.task_title}</div>
+                    {row.task_description ? (
+                      <div className="mt-1 max-w-md text-xs text-muted-foreground">{row.task_description}</div>
+                    ) : null}
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      <span className="rounded-full border border-border bg-background px-2 py-0.5 text-xs">
+                        {row.category}
+                      </span>
+                      {row.due_hint ? (
+                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-800">
+                          {row.due_hint}
+                        </span>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${taskPriorityClass(row.priority)}`}>
+                      {row.priority}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{row.owner_role || "-"}</div>
+                    <div className="text-xs text-muted-foreground">{row.metadata?.no_auto_assign ? "review queue" : "draft"}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="space-y-1">
+                      {row.source_citations?.slice(0, 2).map((citation, index) => (
+                        <div key={`${citation.source_type}-${citation.source_id ?? index}`} className="max-w-xs text-xs">
+                          <div className="font-medium">{citation.label}</div>
+                          <div className="font-mono text-muted-foreground">
+                            {citation.source_type} / {citation.source_id ?? "-"}
+                          </div>
+                        </div>
+                      ))}
+                      {row.source_citations?.length ? null : <span className="text-xs text-muted-foreground">none</span>}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${documentStatusClass(row.reviewer_decision)}`}>
+                      {row.reviewer_decision}
+                    </span>
+                    <div className="mt-1 text-xs text-muted-foreground">{fmt(row.created_at)}</div>
+                    {row.safety_flags?.length ? (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {row.safety_flags.slice(0, 2).map((flag, index) => (
+                          <span key={`${flag.code}-${index}`} className={`rounded-full border px-2 py-0.5 text-xs font-medium ${severityBadgeClass(flag.severity)}`}>
+                            {flag.code}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {row.reviewer_decision === "pending" ? (
+                      <div className="inline-flex gap-1">
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "accepted" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "deferred" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                        >
+                          Defer
+                        </button>
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "rejected" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    ) : row.reviewer_decision === "accepted" || row.reviewer_decision === "deferred" ? (
+                      <button
+                        onClick={() => decide.mutate({ id: row.id, decision: "completed" })}
+                        disabled={decide.isPending}
+                        className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                      >
+                        Complete
+                      </button>
                     ) : (
                       <span className="text-xs text-muted-foreground">{fmt(row.reviewed_at)}</span>
                     )}

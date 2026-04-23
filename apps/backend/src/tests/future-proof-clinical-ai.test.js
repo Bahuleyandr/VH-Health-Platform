@@ -36,6 +36,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
   beforeAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE resource = 'clinical_ai' OR action LIKE 'CLINICAL_AI_%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM event_outbox WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_approvals WHERE reason LIKE '%[test]%' OR payload::text LIKE '%[test]%'`).catch(() => {});
@@ -141,6 +142,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
   afterAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE resource = 'clinical_ai' OR action LIKE 'CLINICAL_AI_%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM event_outbox WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_approvals WHERE reason LIKE '%[test]%' OR payload::text LIKE '%[test]%'`).catch(() => {});
@@ -403,6 +405,46 @@ describe('future-proof clinical AI and privacy foundations', () => {
     });
     expectStatus(decisioned, 200, 'accept review');
     expect(decisioned.body.data.decision).toBe('accepted');
+  });
+
+  it('extracts clinical task candidates into an auditable review queue', async () => {
+    await enableModule('clinical_task_extractor');
+
+    const denied = await doctor.get('/api/v1/admin/clinical-ai/tasks');
+    expectStatus(denied, 403, 'clinical task queue denied for doctor');
+
+    const extracted = await admin.post('/api/v1/admin/clinical-ai/tasks/extract').send({
+      admission_id: admissionId,
+    });
+    expectStatus(extracted, 201, 'clinical task extraction');
+    const body = extracted.body.data;
+    expect(body.module_key).toBe('clinical_task_extractor');
+    expect(body.no_auto_assign).toBe(true);
+    expect(body.requires_signoff).toBe(true);
+    expect(body.generation_id).toBeTruthy();
+    expect(Array.isArray(body.safety_flags)).toBe(true);
+    expect(Array.isArray(body.source_citations)).toBe(true);
+    expect(body.tasks.length).toBeGreaterThan(0);
+    expect(body.tasks[0].reviewer_decision).toBe('pending');
+    expect(body.tasks[0].source_citations.length).toBeGreaterThan(0);
+
+    const listed = await admin.get(`/api/v1/admin/clinical-ai/tasks?decision=pending&admission_id=${admissionId}`);
+    expectStatus(listed, 200, 'list clinical task candidates');
+    expect(listed.body.data.tasks.length).toBeGreaterThan(0);
+
+    const taskId = listed.body.data.tasks[0].id;
+    const accepted = await admin.patch(`/api/v1/admin/clinical-ai/tasks/${taskId}`).send({
+      decision: 'accepted',
+      note: 'Reviewed by admin [test]',
+    });
+    expectStatus(accepted, 200, 'accept clinical task candidate');
+    expect(accepted.body.data.reviewer_decision).toBe('accepted');
+
+    const audit = await admin.get('/api/v1/admin/clinical-ai/audit?limit=100');
+    expectStatus(audit, 200, 'clinical task audit logs');
+    const actions = audit.body.data.logs.map((row) => row.action);
+    expect(actions).toContain('CLINICAL_AI_TASKS_EXTRACTED');
+    expect(actions).toContain('CLINICAL_AI_TASK_REVIEWED');
   });
 
   it('aggregates ward-round-brief and denial-risk drafts', async () => {
