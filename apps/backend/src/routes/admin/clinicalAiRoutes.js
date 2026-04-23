@@ -168,6 +168,11 @@ import {
   listLabAutoverifications,
 } from '../../services/ai/labAutoverificationService.js';
 import {
+  decidePediatricDoseCheck,
+  evaluatePrescriptionSafety,
+  listPediatricDoseChecks,
+} from '../../services/ai/pediatricDosingSafetyService.js';
+import {
   decideSepsisBundleAudit,
   generateSepsisBundleAudit,
   listSepsisBundleAudits,
@@ -2644,6 +2649,74 @@ router.patch('/lab-autoverifications/:id', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_LAB_AUTOVERIFICATION_REVIEWED', String(result.id), null, result);
     return success(res, result, 'Lab autoverification review updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Pediatric dosing safety AI
+// ---------------------------------------------------------------------------
+router.post('/pediatric-dose-checks/evaluate', async (req, res, next) => {
+  try {
+    const result = await evaluatePrescriptionSafety({
+      req,
+      prescriptionId: req.body?.prescription_id || null,
+      patientUid: req.body?.patient_uid,
+      admissionId: req.body?.admission_id || null,
+      medicationName: req.body?.medication_name,
+      prescribedDoseMg: req.body?.prescribed_dose_mg,
+      prescribedRoute: req.body?.prescribed_route || null,
+      prescribedFrequency: req.body?.prescribed_frequency || null,
+      ageDaysOverride: req.body?.age_days_override || null,
+      weightKgOverride: req.body?.weight_kg_override || null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_PEDIATRIC_DOSE_EVALUATED',
+      String(result.check_id || result.generation_id || req.body?.patient_uid || 'inline'),
+      null,
+      {
+        check_id: result.check_id,
+        generation_id: result.generation_id,
+        patient_uid: req.body?.patient_uid,
+        safety_band: result.safety_band,
+        medication_name: req.body?.medication_name,
+      }
+    );
+    return success(res, result, 'Pediatric dose evaluated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/pediatric-dose-checks', async (req, res, next) => {
+  try {
+    const result = await listPediatricDoseChecks({
+      tenantId: req.tenantId,
+      patientUid: req.query?.patient_uid || null,
+      admissionId: req.query?.admission_id || null,
+      safetyBand: req.query?.safety_band || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Pediatric dose checks retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/pediatric-dose-checks/:id', async (req, res, next) => {
+  try {
+    const result = await decidePediatricDoseCheck({
+      tenantId: req.tenantId,
+      checkId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_PEDIATRIC_DOSE_REVIEWED', String(result.id), null, result);
+    return success(res, result, 'Pediatric dose check updated');
   } catch (err) {
     return next(err);
   }

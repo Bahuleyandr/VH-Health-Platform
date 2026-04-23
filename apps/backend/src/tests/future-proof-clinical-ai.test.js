@@ -47,6 +47,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_payer_variance_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_payer_contracts WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND payer_name LIKE '%[test]%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_lab_autoverifications WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_pediatric_dose_checks WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -173,6 +174,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_payer_variance_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_payer_contracts WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND payer_name LIKE '%[test]%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_lab_autoverifications WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_pediatric_dose_checks WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -815,6 +817,77 @@ describe('future-proof clinical AI and privacy foundations', () => {
       claim_id: strayClaim[0].id,
     });
     expect(blocked.statusCode).toBe(403);
+  });
+
+  it('classifies pediatric dose safety across safe / caution / unsafe and gates by module', async () => {
+    await enableModule('pediatric_dosing_safety');
+
+    // Safe amoxicillin dose for a 3y toddler (~15 kg): 90 mg/kg/day = 1350 mg
+    const safe = await admin.post('/api/v1/admin/clinical-ai/pediatric-dose-checks/evaluate').send({
+      patient_uid: PATIENT_UID,
+      medication_name: 'Amoxicillin',
+      prescribed_dose_mg: 500,
+      prescribed_route: 'oral',
+      prescribed_frequency: 'TID',
+      age_days_override: 1100,
+      weight_kg_override: 15,
+    });
+    expectStatus(safe, 201, 'safe pediatric dose');
+    expect(safe.body.data.safety_band).toBe('safe');
+    expect(safe.body.data.check_id).toBeTruthy();
+    expect(safe.body.data.calculated_max_dose_mg).toBeGreaterThan(500);
+
+    // Unsafe: 2000 mg in a 15 kg toddler exceeds 1350 mg max
+    const unsafe = await admin.post('/api/v1/admin/clinical-ai/pediatric-dose-checks/evaluate').send({
+      patient_uid: PATIENT_UID,
+      medication_name: 'Amoxicillin',
+      prescribed_dose_mg: 2000,
+      prescribed_route: 'oral',
+      age_days_override: 1100,
+      weight_kg_override: 15,
+    });
+    expectStatus(unsafe, 201, 'unsafe pediatric dose');
+    expect(unsafe.body.data.safety_band).toBe('unsafe');
+    expect(unsafe.body.data.safety_flags.some((flag) => flag.code === 'PEDIATRIC_DOSE_UNSAFE')).toBe(true);
+
+    // Missing data: no weight override + no patient vitals row means calculation impossible
+    const missing = await admin.post('/api/v1/admin/clinical-ai/pediatric-dose-checks/evaluate').send({
+      patient_uid: PATIENT_UID,
+      medication_name: 'Amoxicillin',
+      prescribed_dose_mg: 400,
+      age_days_override: 1100,
+      // no weight override
+    });
+    expectStatus(missing, 201, 'missing data pediatric dose');
+    expect(missing.body.data.safety_band).toBe('missing_data');
+
+    const listed = await admin.get(`/api/v1/admin/clinical-ai/pediatric-dose-checks?patient_uid=${PATIENT_UID}`);
+    expectStatus(listed, 200, 'list pediatric dose checks');
+    expect(listed.body.data.checks.length).toBeGreaterThanOrEqual(3);
+
+    const accepted = await admin.patch(`/api/v1/admin/clinical-ai/pediatric-dose-checks/${unsafe.body.data.check_id}`).send({
+      decision: 'rejected',
+      note: 'Dose reduced by doctor [test]',
+    });
+    expectStatus(accepted, 200, 'reject unsafe pediatric dose');
+    expect(accepted.body.data.reviewer_decision).toBe('rejected');
+
+    // Disabled-module gating
+    await admin.patch('/api/v1/admin/clinical-ai/modules/pediatric_dosing_safety').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/pediatric-dose-checks/evaluate').send({
+      patient_uid: PATIENT_UID,
+      medication_name: 'Amoxicillin',
+      prescribed_dose_mg: 500,
+      age_days_override: 1100,
+      weight_kg_override: 15,
+    });
+    expect(blocked.statusCode).toBe(403);
+
+    const audit = await admin.get('/api/v1/admin/clinical-ai/audit?limit=500');
+    expectStatus(audit, 200, 'pediatric dose audit');
+    const actions = audit.body.data.logs.map((row) => row.action);
+    expect(actions).toContain('CLINICAL_AI_PEDIATRIC_DOSE_EVALUATED');
+    expect(actions).toContain('CLINICAL_AI_PEDIATRIC_DOSE_REVIEWED');
   });
 
   it('evaluates lab autoverification with critical band + delta, and gates by module', async () => {

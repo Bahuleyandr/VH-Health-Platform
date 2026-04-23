@@ -1,6 +1,6 @@
 # VH Health AI Feature Tracker
 
-Last verified: 2026-04-23 (lab autoverification / delta check v1 shipped)
+Last verified: 2026-04-23 (pediatric dosing safety v1 shipped)
 
 This tracker records the 40 future-proofing AI features proposed for VH Health and maps each one to the current repo state. Update this file whenever a feature graduates from "Not started" to "Partial" or from "Partial" to "Implemented v1".
 
@@ -12,10 +12,10 @@ Status definitions:
 
 Current count:
 
-- Implemented v1: 11 / 40
+- Implemented v1: 12 / 40
 - Partial: 16 / 40
-- Not started: 13 / 40
-- Remaining to fully implement: 29 / 40
+- Not started: 12 / 40
+- Remaining to fully implement: 28 / 40
 
 | # | Feature | Status | Current repo state | Next build unit |
 |---:|---|---|---|---|
@@ -38,7 +38,7 @@ Current count:
 | 17 | Blood Bank Demand and Compatibility Forecast | Not started | No blood bank AI workflow found. | Add component demand forecast, crossmatch urgency, MTP readiness, stock risk. |
 | 18 | Pharmacogenomics / PGx Support | Not started | No genotype-aware medication support found. | Add PGx data model and medication guidance rules. |
 | 19 | Pregnancy / Obstetric Risk Assistant | Not started | No obstetric risk workflow found. | Add ANC, preeclampsia, fetal growth, postpartum follow-up risk assistant. |
-| 20 | Pediatric Dosing Safety AI | Not started | Medication safety foundations exist, but no pediatric dosing module. | Add weight/age/max-dose and pediatric pathway checks. |
+| 20 | Pediatric Dosing Safety AI | Implemented v1 | `pediatric_dosing_safety`, `pediatricDosingSafetyService.js`, `clinical_ai_pediatric_dose_checks`, Admin/IT API (evaluate/list/decide), and dashboard panel exist. V1 loads patient age (via `users.birthday`) and weight (via latest `patient_vitals`), looks up per-drug max-per-kg and absolute-max limits from a baked-in reference table (amoxicillin, clavulanate, cefs, paracetamol, ibuprofen, ondansetron, vancomycin, gentamicin, metronidazole, salbutamol, azithromycin, cephalexin), and classifies safety as safe/caution/unsafe/missing_data with pediatric age-band cross-check. Accepts explicit age/weight overrides for external callers. Review-only; never modifies orders. | Parse free-text `dosage` column into mg; add renal adjustment for gentamicin/vancomycin; plumb weight ingestion from wearable/bedside devices. |
 | 21 | Hospital Command Center AI | Partial | Bed forecast and operational AI pieces exist, but no unified command center. | Add cross-department command center over bed, OT, housekeeping, transport, radiology, pharmacy. |
 | 22 | Housekeeping and Bed Turnover Optimizer | Not started | Housekeeping workflows exist outside AI; no AI turnover optimizer found. | Add bed cleaning prediction, isolation-room priority, bed-ready delay reduction. |
 | 23 | OT Block Scheduling Optimizer | Partial | OT case-time predictor exists. | Add block allocation, cancellation prediction, instrument readiness, surgeon utilization. |
