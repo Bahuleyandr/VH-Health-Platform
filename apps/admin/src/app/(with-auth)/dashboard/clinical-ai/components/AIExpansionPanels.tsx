@@ -38,6 +38,7 @@ import {
   decideAppealLetter,
   decideFamilyUpdate,
   decideNursingAmbientSession,
+  decidePayerVarianceReview,
   decideTeachBackSession,
   getAiRoiMetrics,
   getLatestAiRoiSnapshot,
@@ -56,6 +57,7 @@ import {
   generateChartCompletionAudit,
   extractClinicalAiTasks,
   generateInfectionControlAudit,
+  evaluateClaimVariance,
   generateAntimicrobialStewardshipReview,
   generateAppealLetter,
   generateFamilyUpdate,
@@ -85,12 +87,15 @@ import {
   listAppealLetters,
   listFamilyUpdates,
   listNursingAmbientSessions,
+  listPayerContracts,
+  listPayerVarianceReviews,
   listTeachBackSessions,
   listAiRoiSnapshots,
   markFamilyUpdateSent,
   recordAppealPayerResponse,
   saveAiRoiSnapshot,
   submitAppealLetter,
+  upsertPayerContract,
   listPolypharmacyReviews,
   listPrivacySentinelAudits,
   listPriorAuthorizations,
@@ -138,6 +143,11 @@ import {
   type NursingAmbientDecision,
   type NursingAmbientSession,
   type NursingAmbientShift,
+  type PayerContract,
+  type PayerVarianceBand,
+  type PayerVarianceCategory,
+  type PayerVarianceDecision,
+  type PayerVarianceReview,
   type TeachBackDecision,
   type TeachBackLanguage,
   type TeachBackSession,
@@ -2580,6 +2590,340 @@ export function AppealLetterGeneratorPanel() {
                         </button>
                       </div>
                     ) : null}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Payer Contract Variance / Underpayment AI
+// ---------------------------------------------------------------------------
+const PAYER_VARIANCE_DECISIONS: PayerVarianceDecision[] = ["pending", "accepted", "deferred", "rejected", "escalated"];
+const PAYER_VARIANCE_CATEGORIES: PayerVarianceCategory[] = [
+  "match", "underpayment", "overpayment", "missing_contract", "missing_payment",
+];
+const PAYER_VARIANCE_BANDS: PayerVarianceBand[] = ["within_tolerance", "review", "investigate", "escalate"];
+
+function payerVarianceBandClass(band: string) {
+  switch (band) {
+    case "escalate":
+      return "border-red-200 bg-red-50 text-red-800";
+    case "investigate":
+      return "border-orange-200 bg-orange-50 text-orange-800";
+    case "review":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "within_tolerance":
+      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-700";
+  }
+}
+
+export function PayerContractVariancePanel() {
+  const queryClient = useQueryClient();
+  const [claimId, setClaimId] = useState("");
+  const [procedureCode, setProcedureCode] = useState("");
+  const [toleranceOverride, setToleranceOverride] = useState("");
+  const [contractPayer, setContractPayer] = useState("");
+  const [contractProcedure, setContractProcedure] = useState("");
+  const [contractRate, setContractRate] = useState("");
+  const [contractStart, setContractStart] = useState("");
+  const [contractRef, setContractRef] = useState("");
+  const [decisionFilter, setDecisionFilter] = useState<PayerVarianceDecision | "">("pending");
+  const [categoryFilter, setCategoryFilter] = useState<PayerVarianceCategory | "">("");
+  const [bandFilter, setBandFilter] = useState<PayerVarianceBand | "">("");
+
+  const contracts = useQuery({
+    queryKey: ["clinical-ai", "payer-contracts"],
+    queryFn: () => listPayerContracts({ active: true, limit: 100 }),
+  });
+  const reviews = useQuery({
+    queryKey: ["clinical-ai", "payer-variance", decisionFilter, categoryFilter, bandFilter],
+    queryFn: () =>
+      listPayerVarianceReviews({
+        decision: decisionFilter || undefined,
+        category: categoryFilter || undefined,
+        band: bandFilter || undefined,
+        limit: 100,
+      }),
+  });
+  const saveContract = useMutation({
+    mutationFn: () =>
+      upsertPayerContract({
+        payerName: contractPayer.trim(),
+        procedureCode: contractProcedure.trim(),
+        expectedRateMinor: Math.round(Number.parseFloat(contractRate.trim()) * 100),
+        effectiveStartDate: contractStart || undefined,
+        contractReference: contractRef.trim() || undefined,
+      }),
+    onSuccess: () => {
+      toast.success("Payer contract saved");
+      setContractPayer("");
+      setContractProcedure("");
+      setContractRate("");
+      setContractStart("");
+      setContractRef("");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "payer-contracts"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Save failed"),
+  });
+  const evaluate = useMutation({
+    mutationFn: () =>
+      evaluateClaimVariance({
+        claimId: Number.parseInt(claimId.trim(), 10),
+        procedureCode: procedureCode.trim() || undefined,
+        tolerancePct: toleranceOverride.trim() ? Number.parseFloat(toleranceOverride.trim()) : undefined,
+      }),
+    onSuccess: (result) => {
+      toast.success(`Variance: ${result.draft.variance_category} / ${result.draft.variance_band}`);
+      setClaimId("");
+      setProcedureCode("");
+      setToleranceOverride("");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "payer-variance"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Evaluation failed"),
+  });
+  const decide = useMutation({
+    mutationFn: ({ id, decision, note }: { id: number; decision: Exclude<PayerVarianceDecision, "pending">; note?: string }) =>
+      decidePayerVarianceReview(id, decision, note),
+    onSuccess: () => {
+      toast.success("Variance review updated");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "payer-variance"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Review failed"),
+  });
+
+  const contractRows: PayerContract[] = contracts.data?.contracts ?? [];
+  const reviewRows: PayerVarianceReview[] = reviews.data?.reviews ?? [];
+  const escalateCount = reviewRows.filter((row) => row.variance_band === "escalate").length;
+  const underpaymentTotal = reviewRows
+    .filter((row) => row.variance_category === "underpayment")
+    .reduce((sum, row) => sum + Math.abs(row.variance_minor), 0);
+  const pendingReview = reviewRows.filter((row) => row.reviewer_decision === "pending").length;
+  const canEvaluate = Number.isFinite(Number.parseInt(claimId.trim(), 10));
+  const canSaveContract = Boolean(
+    contractPayer.trim() && contractProcedure.trim() && Number.isFinite(Number.parseFloat(contractRate.trim()))
+  );
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <DollarSign className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Payer Contract Variance</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <select
+            value={categoryFilter}
+            onChange={(event) => setCategoryFilter(event.target.value as PayerVarianceCategory | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All categories</option>
+            {PAYER_VARIANCE_CATEGORIES.map((item) => (
+              <option key={item} value={item}>{item.replace(/_/g, " ")}</option>
+            ))}
+          </select>
+          <select
+            value={bandFilter}
+            onChange={(event) => setBandFilter(event.target.value as PayerVarianceBand | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All bands</option>
+            {PAYER_VARIANCE_BANDS.map((band) => (
+              <option key={band} value={band}>{band.replace(/_/g, " ")}</option>
+            ))}
+          </select>
+          <select
+            value={decisionFilter}
+            onChange={(event) => setDecisionFilter(event.target.value as PayerVarianceDecision | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All review</option>
+            {PAYER_VARIANCE_DECISIONS.map((item) => (
+              <option key={item} value={item}>{item}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Escalate-band reviews</div>
+          <div className="mt-1 text-2xl font-semibold text-red-700">{escalateCount}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Underpayment total</div>
+          <div className="mt-1 text-2xl font-semibold">{formatMinor(underpaymentTotal)}</div>
+          <div className="text-xs text-muted-foreground">{reviewRows.filter((row) => row.variance_category === "underpayment").length} underpayment review(s)</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Pending review</div>
+          <div className="mt-1 text-2xl font-semibold">{pendingReview}</div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="mb-2 text-sm font-medium">Add / update payer contract</div>
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] lg:items-end">
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Payer name</span>
+            <input value={contractPayer} onChange={(e) => setContractPayer(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2" />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Procedure code</span>
+            <input value={contractProcedure} onChange={(e) => setContractProcedure(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2" />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Expected rate (currency)</span>
+            <input value={contractRate} onChange={(e) => setContractRate(e.target.value)} inputMode="decimal" className="w-full rounded-md border border-border bg-background px-3 py-2" />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Effective start (YYYY-MM-DD)</span>
+            <input value={contractStart} onChange={(e) => setContractStart(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2" />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Contract reference</span>
+            <input value={contractRef} onChange={(e) => setContractRef(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2" />
+          </label>
+          <button
+            onClick={() => saveContract.mutate()}
+            disabled={saveContract.isPending || !canSaveContract}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+          >
+            <Save className="h-4 w-4" />
+            {saveContract.isPending ? "Saving..." : "Save"}
+          </button>
+        </div>
+        <div className="mt-3 text-xs text-muted-foreground">
+          {contractRows.length} active contract(s) on file
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="mb-2 text-sm font-medium">Evaluate a claim</div>
+        <div className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto] md:items-end">
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Claim ID</span>
+            <input value={claimId} onChange={(e) => setClaimId(e.target.value)} inputMode="numeric" className="w-full rounded-md border border-border bg-background px-3 py-2" />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Procedure code (optional)</span>
+            <input value={procedureCode} onChange={(e) => setProcedureCode(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2" />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Tolerance pct override</span>
+            <input value={toleranceOverride} onChange={(e) => setToleranceOverride(e.target.value)} inputMode="decimal" className="w-full rounded-md border border-border bg-background px-3 py-2" />
+          </label>
+          <button
+            onClick={() => evaluate.mutate()}
+            disabled={evaluate.isPending || !canEvaluate}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+          >
+            <PlayCircle className="h-4 w-4" />
+            {evaluate.isPending ? "Evaluating..." : "Evaluate"}
+          </button>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Claim / Payer</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Expected / Paid</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Variance</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Category / Band</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Review</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {reviewRows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
+                  No variance reviews
+                </td>
+              </tr>
+            ) : (
+              reviewRows.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{row.claim_number || `claim #${row.claim_id}`}</div>
+                    <div className="text-xs text-muted-foreground">{row.payer_name}</div>
+                    {row.procedure_code ? <div className="font-mono text-xs text-muted-foreground">{row.procedure_code}</div> : null}
+                    <div className="font-mono text-xs text-muted-foreground">review #{row.id}</div>
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    <div>expected {formatMinor(row.expected_amount_minor)}</div>
+                    <div>paid {formatMinor(row.paid_amount_minor)}</div>
+                    <div className="text-muted-foreground">claim {formatMinor(row.claim_amount_minor)}</div>
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    <div className={row.variance_minor < 0 ? "font-medium text-red-700" : row.variance_minor > 0 ? "font-medium text-emerald-700" : ""}>
+                      {formatMinor(row.variance_minor)}
+                    </div>
+                    <div className="text-muted-foreground">{row.variance_pct}%</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-xs">{row.variance_category.replace(/_/g, " ")}</div>
+                    <span className={`mt-1 inline-block rounded-full border px-2 py-0.5 text-xs font-medium ${payerVarianceBandClass(row.variance_band)}`}>
+                      {row.variance_band.replace(/_/g, " ")}
+                    </span>
+                    {row.reason ? <div className="mt-1 max-w-xs text-xs text-muted-foreground">{row.reason}</div> : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${documentStatusClass(row.reviewer_decision)}`}>
+                      {row.reviewer_decision}
+                    </span>
+                    {row.reviewer_decision === "pending" ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "accepted" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Escalation reason") ?? undefined;
+                            decide.mutate({ id: row.id, decision: "escalated", note });
+                          }}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
+                        >
+                          Escalate
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Defer reason") ?? undefined;
+                            decide.mutate({ id: row.id, decision: "deferred", note });
+                          }}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                        >
+                          Defer
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Reject reason") ?? undefined;
+                            decide.mutate({ id: row.id, decision: "rejected", note });
+                          }}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-1 text-xs text-muted-foreground">{fmt(row.reviewed_at)}</div>
+                    )}
                   </td>
                 </tr>
               ))
