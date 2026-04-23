@@ -2411,6 +2411,106 @@ export async function getLatestAiRoiSnapshot(moduleKey: string = 'ALL') {
 }
 
 // ---------------------------------------------------------------------------
+// Staff burnout / workload risk
+// ---------------------------------------------------------------------------
+export type StaffBurnoutRiskBand = 'low' | 'moderate' | 'high' | 'critical' | 'unknown' | 'insufficient_data';
+export type StaffBurnoutDecision = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'escalated';
+
+export interface StaffBurnoutSignal {
+  code: string;
+  severity: string;
+  description: string;
+  recommendation: string;
+}
+
+export interface StaffBurnoutReview {
+  id: number;
+  tenant_id?: string;
+  staff_uid: string;
+  staff_name?: string | null;
+  department: string | null;
+  role: string | null;
+  window_days: number;
+  window_start: string;
+  window_end: string;
+  total_hours: number;
+  overtime_hours: number;
+  night_shift_count: number;
+  consecutive_night_shifts: number;
+  weekend_shift_count: number;
+  pto_days_taken: number;
+  avg_hours_per_week: number;
+  risk_score: number;
+  risk_band: StaffBurnoutRiskBand;
+  contributing_signals: StaffBurnoutSignal[];
+  recommended_actions: string[];
+  generation_id: number | null;
+  source_citations: ClinicalAiSourceCitation[];
+  safety_flags: ClinicalAiSafetyFlagSummary[];
+  reviewer_decision: StaffBurnoutDecision;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  reviewer_note?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at?: string;
+}
+
+export async function listStaffBurnoutReviews(params: {
+  staffUid?: string;
+  department?: string;
+  riskBand?: StaffBurnoutRiskBand | string;
+  reviewerDecision?: StaffBurnoutDecision | string;
+  limit?: number;
+} = {}) {
+  const query: Record<string, string> = {};
+  if (params.staffUid) query.staff_uid = params.staffUid;
+  if (params.department) query.department = params.department;
+  if (params.riskBand) query.risk_band = params.riskBand;
+  if (params.reviewerDecision) query.reviewer_decision = params.reviewerDecision;
+  if (params.limit) query.limit = String(params.limit);
+  return getJSON<{ reviews: StaffBurnoutReview[]; count: number }>(
+    '/admin/clinical-ai/staff-burnout/reviews',
+    query
+  );
+}
+
+export async function evaluateStaffBurnout(payload: { staffUid: string; windowDays?: number }) {
+  const body: Record<string, unknown> = { staff_uid: payload.staffUid };
+  if (payload.windowDays) body.window_days = payload.windowDays;
+  return postJSON<{
+    review_id: number | null;
+    generation_id: number | null;
+    draft: {
+      risk_score: number;
+      risk_band: StaffBurnoutRiskBand;
+      contributing_signals: StaffBurnoutSignal[];
+      recommended_actions: string[];
+      total_hours: number;
+      overtime_hours: number;
+      consecutive_night_shifts: number;
+    };
+    source_citations: ClinicalAiSourceCitation[];
+    safety_flags: ClinicalAiSafetyFlagSummary[];
+    module_key: string;
+    review_status: string;
+    rules_authoritative: boolean;
+    decision_support_only: boolean;
+  }>('/admin/clinical-ai/staff-burnout/evaluate', body);
+}
+
+export async function decideStaffBurnoutReview(
+  id: number,
+  decision: Exclude<StaffBurnoutDecision, 'pending'>,
+  note?: string
+) {
+  return fetchAdminAPI<StaffBurnoutReview>(`/admin/clinical-ai/staff-burnout/reviews/${id}`, {
+    method: 'PATCH',
+    body: { decision, note },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Pediatric dosing safety
 // ---------------------------------------------------------------------------
 export type PediatricSafetyBand = 'safe' | 'caution' | 'unsafe' | 'missing_data' | 'unknown';

@@ -1,6 +1,6 @@
 # VH Health AI Feature Tracker
 
-Last verified: 2026-04-23 (pediatric dosing safety v1 shipped)
+Last verified: 2026-04-23 (staff burnout risk predictor v1 shipped; 3-module parallel agent batch complete)
 
 This tracker records the 40 future-proofing AI features proposed for VH Health and maps each one to the current repo state. Update this file whenever a feature graduates from "Not started" to "Partial" or from "Partial" to "Implemented v1".
 
@@ -12,10 +12,10 @@ Status definitions:
 
 Current count:
 
-- Implemented v1: 12 / 40
+- Implemented v1: 13 / 40
 - Partial: 16 / 40
-- Not started: 12 / 40
-- Remaining to fully implement: 28 / 40
+- Not started: 11 / 40
+- Remaining to fully implement: 27 / 40
 
 | # | Feature | Status | Current repo state | Next build unit |
 |---:|---|---|---|---|
@@ -45,7 +45,7 @@ Current count:
 | 24 | Inventory AI Beyond Pharmacy | Partial | Pharmacy stockout predictor exists. | Expand inventory AI to linen, implants, consumables, oxygen, PPE, lab reagents, contrast. |
 | 25 | Biomedical Device Maintenance Predictor | Not started | No device maintenance predictor found. | Add device usage/service-log ingestion and failure/downtime forecast. |
 | 26 | Cybersecurity / Medical Device Anomaly Detector | Not started | Governance/audit/security foundations exist, but no SOC anomaly AI. | Add admin action, device traffic, impossible login, suspicious export detection. |
-| 27 | Staff Burnout / Workload Risk Predictor | Not started | Roster and HR data exist, but no privacy-gated burnout predictor. | Add workload risk model with strict privacy/governance controls. |
+| 27 | Staff Burnout / Workload Risk Predictor | Implemented v1 | `staff_burnout_workload_risk`, `staffBurnoutRiskService.js`, `clinical_ai_staff_burnout_reviews`, Admin/IT API (evaluate/list/decide), and dashboard panel exist. V1 joins `staff_attendance` + `staff_shift_assignments` + `staff_shifts` + `leave_requests` to compute per-staff total hours, overtime, consecutive night shifts, weekend count, PTO utilization, then classifies burnout risk (low / moderate / high / critical / insufficient_data) with contributing signals and recommended actions. Strict privacy boundary: every output carries a "workload risk signal only — never used for performance or disciplinary action" notice in safety_flags + recommended_actions. | Wire into scheduled digest for HR; add per-tenant threshold overrides; explore de-identified team-level rollups. |
 | 28 | Training and Simulation Coach | Not started | Canary/adversarial tests exist, but no staff training simulation coach. | Add de-identified incident-to-training-case generator. |
 | 29 | Policy Diff / Regulation Watcher | Partial | Admin policy copilot/governance surfaces exist. | Add watcher for policies, payer rules, accreditation updates, and impact mapping. |
 | 30 | Procurement Negotiation Assistant | Not started | No procurement negotiation AI found. | Add quote comparison, reorder volume prediction, historical price anomaly checks. |

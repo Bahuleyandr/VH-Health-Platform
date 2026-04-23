@@ -48,6 +48,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_payer_contracts WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND payer_name LIKE '%[test]%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_lab_autoverifications WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_pediatric_dose_checks WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_staff_burnout_reviews WHERE staff_uid IN ($1::uuid, $2::uuid)`, DOCTOR_UID, IT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -175,6 +176,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_payer_contracts WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND payer_name LIKE '%[test]%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_lab_autoverifications WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_pediatric_dose_checks WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_staff_burnout_reviews WHERE staff_uid IN ($1::uuid, $2::uuid)`, DOCTOR_UID, IT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -817,6 +819,58 @@ describe('future-proof clinical AI and privacy foundations', () => {
       claim_id: strayClaim[0].id,
     });
     expect(blocked.statusCode).toBe(403);
+  });
+
+  it('classifies staff burnout risk with workload metrics and gates by module', async () => {
+    await enableModule('staff_burnout_workload_risk');
+
+    const denied = await doctor.get('/api/v1/admin/clinical-ai/staff-burnout/reviews');
+    expectStatus(denied, 403, 'doctor denied staff burnout admin list');
+
+    // Evaluate without shift data → should return insufficient_data (NO_SHIFT_DATA signal)
+    const evaluated = await admin.post('/api/v1/admin/clinical-ai/staff-burnout/evaluate').send({
+      staff_uid: DOCTOR_UID,
+      window_days: 30,
+    });
+    expectStatus(evaluated, 201, 'evaluate staff burnout');
+    const body = evaluated.body.data;
+    expect(body.module_key).toBe('staff_burnout_workload_risk');
+    expect(body.review_id).toBeTruthy();
+    expect(body.draft.risk_band).toBeTruthy();
+    expect(typeof body.draft.risk_score).toBe('number');
+    expect(Array.isArray(body.draft.contributing_signals)).toBe(true);
+    expect(Array.isArray(body.draft.recommended_actions)).toBe(true);
+    expect(body.safety_flags.some((flag) => flag.code === 'STAFF_PRIVACY_NOTICE')).toBe(true);
+    // Privacy reminder must always be present (as either a safety flag or a recommended action)
+    expect(
+      body.draft.recommended_actions.some((line) => /(workload risk signal only|performance or disciplinary)/i.test(line))
+      || body.safety_flags.some((flag) => /(workload risk signal only|performance or disciplinary)/i.test(flag.message || ''))
+    ).toBe(true);
+
+    const listed = await admin.get(`/api/v1/admin/clinical-ai/staff-burnout/reviews?staff_uid=${DOCTOR_UID}`);
+    expectStatus(listed, 200, 'list staff burnout reviews');
+    expect(listed.body.data.reviews.length).toBeGreaterThan(0);
+
+    const reviewed = await admin.patch(`/api/v1/admin/clinical-ai/staff-burnout/reviews/${body.review_id}`).send({
+      decision: 'accepted',
+      note: 'Reviewed by HR [test]',
+    });
+    expectStatus(reviewed, 200, 'accept staff burnout review');
+    expect(reviewed.body.data.reviewer_decision).toBe('accepted');
+
+    // Disabled-module gating
+    await admin.patch('/api/v1/admin/clinical-ai/modules/staff_burnout_workload_risk').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/staff-burnout/evaluate').send({
+      staff_uid: DOCTOR_UID,
+      window_days: 30,
+    });
+    expect(blocked.statusCode).toBe(403);
+
+    const audit = await admin.get('/api/v1/admin/clinical-ai/audit?limit=500');
+    expectStatus(audit, 200, 'staff burnout audit');
+    const actions = audit.body.data.logs.map((row) => row.action);
+    expect(actions).toContain('CLINICAL_AI_STAFF_BURNOUT_EVALUATED');
+    expect(actions).toContain('CLINICAL_AI_STAFF_BURNOUT_REVIEWED');
   });
 
   it('classifies pediatric dose safety across safe / caution / unsafe and gates by module', async () => {
