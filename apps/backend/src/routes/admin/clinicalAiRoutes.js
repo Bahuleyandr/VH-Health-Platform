@@ -118,6 +118,11 @@ import {
   listInfectionControlAudits,
 } from '../../services/ai/infectionControlSentinelService.js';
 import {
+  decideAntimicrobialStewardshipReview,
+  generateAntimicrobialStewardshipReview,
+  listAntimicrobialStewardshipReviews,
+} from '../../services/ai/antimicrobialStewardshipService.js';
+import {
   decideSepsisBundleAudit,
   generateSepsisBundleAudit,
   listSepsisBundleAudits,
@@ -1396,6 +1401,74 @@ router.patch('/infection-control/audits/:id', async (req, res, next) => {
       result
     );
     return success(res, result, 'Infection-control audit reviewed');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Antimicrobial stewardship assistant
+// ---------------------------------------------------------------------------
+router.post('/antimicrobial-stewardship/reviews', async (req, res, next) => {
+  try {
+    const result = await generateAntimicrobialStewardshipReview({
+      req,
+      admissionId: req.body?.admission_id,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_ANTIMICROBIAL_STEWARDSHIP_REVIEW_GENERATED',
+      String(result.review_id || result.generation_id || req.body?.admission_id || 'inline'),
+      null,
+      {
+        review_id: result.review_id,
+        generation_id: result.generation_id,
+        admission_id: req.body?.admission_id,
+        stewardship_score: result.draft?.stewardship_score,
+        risk_band: result.draft?.risk_band,
+        flag_count: result.draft?.flags?.length || 0,
+        safety_flag_count: result.safety_flags?.length || 0,
+      }
+    );
+    return success(res, result, 'Antimicrobial stewardship review generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/antimicrobial-stewardship/reviews', async (req, res, next) => {
+  try {
+    const result = await listAntimicrobialStewardshipReviews({
+      tenantId: req.tenantId,
+      admissionId: req.query?.admission_id || null,
+      patientUid: req.query?.patient_uid || null,
+      decision: req.query?.decision || null,
+      riskBand: req.query?.risk_band || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Antimicrobial stewardship reviews retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/antimicrobial-stewardship/reviews/:id', async (req, res, next) => {
+  try {
+    const result = await decideAntimicrobialStewardshipReview({
+      tenantId: req.tenantId,
+      reviewId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_ANTIMICROBIAL_STEWARDSHIP_REVIEWED',
+      String(result.id),
+      null,
+      result
+    );
+    return success(res, result, 'Antimicrobial stewardship review updated');
   } catch (err) {
     return next(err);
   }

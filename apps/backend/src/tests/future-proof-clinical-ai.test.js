@@ -8,6 +8,7 @@ const DOCTOR_UID = 'c1111111-1111-4111-8111-111111111a02';
 const ADMIN_UID = 'c1111111-1111-4111-8111-111111111a03';
 const ENCOUNTER_ID = 'c1111111-1111-4111-8111-111111111a04';
 const IT_UID = 'c1111111-1111-4111-8111-111111111a05';
+const CULTURE_INVESTIGATION_UID = 'c1111111-1111-4111-8111-111111111a06';
 
 function authed(role, uid) {
   const token = generateTestToken(role, { uid, id: role === 'PATIENT' ? 7001 : 7002 });
@@ -36,6 +37,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
   beforeAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE resource = 'clinical_ai' OR action LIKE 'CLINICAL_AI_%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM event_outbox WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_antimicrobial_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -132,6 +134,16 @@ describe('future-proof clinical AI and privacy foundations', () => {
     );
 
     await prisma.$executeRawUnsafe(
+      `INSERT INTO investigations
+         (uid, patient_uid, phone, test_name, status, priority, result_summary,
+          requested_by, requested_at, created_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, '9000091001', 'Blood culture', 'PENDING', 'URGENT',
+               'Report pending', $3::uuid, NOW() - INTERVAL '3 hours',
+               NOW() - INTERVAL '3 hours', NOW())`,
+      CULTURE_INVESTIGATION_UID, PATIENT_UID, DOCTOR_UID
+    );
+
+    await prisma.$executeRawUnsafe(
       `INSERT INTO vitals_chart
          (patient_uid, heart_rate, systolic_bp, diastolic_bp, temperature, spo2, respiratory_rate, recorded_by, recorded_at)
        VALUES ($1::uuid, 92, 118, 76, 37.4, 95, 20, $2::uuid, NOW() - INTERVAL '2 hours')`,
@@ -142,6 +154,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
   afterAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE resource = 'clinical_ai' OR action LIKE 'CLINICAL_AI_%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM event_outbox WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_antimicrobial_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -445,6 +458,50 @@ describe('future-proof clinical AI and privacy foundations', () => {
     const actions = audit.body.data.logs.map((row) => row.action);
     expect(actions).toContain('CLINICAL_AI_TASKS_EXTRACTED');
     expect(actions).toContain('CLINICAL_AI_TASK_REVIEWED');
+  });
+
+  it('generates antimicrobial stewardship reviews into an auditable queue', async () => {
+    await enableModule('antimicrobial_stewardship');
+
+    const denied = await doctor.get('/api/v1/admin/clinical-ai/antimicrobial-stewardship/reviews');
+    expectStatus(denied, 403, 'antimicrobial stewardship queue denied for doctor');
+
+    const generated = await admin.post('/api/v1/admin/clinical-ai/antimicrobial-stewardship/reviews').send({
+      admission_id: admissionId,
+    });
+    expectStatus(generated, 201, 'antimicrobial stewardship review');
+    const body = generated.body.data;
+    expect(body.module_key).toBe('antimicrobial_stewardship');
+    expect(body.requires_signoff).toBe(true);
+    expect(body.rules_authoritative).toBe(true);
+    expect(body.generation_id).toBeTruthy();
+    expect(body.review_id).toBeTruthy();
+    expect(typeof body.draft.stewardship_score).toBe('number');
+    expect(['low', 'medium', 'high', 'critical']).toContain(body.draft.risk_band);
+    expect(Array.isArray(body.draft.antibiotic_summary)).toBe(true);
+    expect(Array.isArray(body.draft.culture_summary)).toBe(true);
+    expect(Array.isArray(body.draft.flags)).toBe(true);
+    expect(body.draft.flags.map((flag) => flag.code)).toContain('PENDING_CULTURE_REVIEW');
+    expect(Array.isArray(body.source_citations)).toBe(true);
+    expect(body.source_citations.length).toBeGreaterThan(0);
+
+    const listed = await admin.get(`/api/v1/admin/clinical-ai/antimicrobial-stewardship/reviews?decision=pending&admission_id=${admissionId}`);
+    expectStatus(listed, 200, 'list antimicrobial stewardship reviews');
+    expect(listed.body.data.reviews.length).toBeGreaterThan(0);
+
+    const reviewId = listed.body.data.reviews[0].id;
+    const accepted = await admin.patch(`/api/v1/admin/clinical-ai/antimicrobial-stewardship/reviews/${reviewId}`).send({
+      decision: 'accepted',
+      note: 'Reviewed by admin [test]',
+    });
+    expectStatus(accepted, 200, 'accept antimicrobial stewardship review');
+    expect(accepted.body.data.reviewer_decision).toBe('accepted');
+
+    const audit = await admin.get('/api/v1/admin/clinical-ai/audit?limit=120');
+    expectStatus(audit, 200, 'antimicrobial stewardship audit logs');
+    const actions = audit.body.data.logs.map((row) => row.action);
+    expect(actions).toContain('CLINICAL_AI_ANTIMICROBIAL_STEWARDSHIP_REVIEW_GENERATED');
+    expect(actions).toContain('CLINICAL_AI_ANTIMICROBIAL_STEWARDSHIP_REVIEWED');
   });
 
   it('aggregates ward-round-brief and denial-risk drafts', async () => {

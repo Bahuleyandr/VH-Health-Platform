@@ -18,6 +18,7 @@ import {
   ListChecks,
   Microscope,
   Mic2,
+  Pill,
   PlayCircle,
   Receipt,
   Save,
@@ -33,6 +34,7 @@ import {
   decideChartCompletionAudit,
   decideClinicalAiTask,
   decideInfectionControlAudit,
+  decideAntimicrobialStewardshipReview,
   decidePrivacySentinelAudit,
   decideSepsisBundleAudit,
   concludePromptExperiment,
@@ -48,6 +50,7 @@ import {
   generateChartCompletionAudit,
   extractClinicalAiTasks,
   generateInfectionControlAudit,
+  generateAntimicrobialStewardshipReview,
   generatePriorAuthorization,
   generateRcaDraft,
   generateRosterSuggestion,
@@ -69,6 +72,7 @@ import {
   listDocumentIntakes,
   listImagingFindings,
   listInfectionControlAudits,
+  listAntimicrobialStewardshipReviews,
   listPolypharmacyReviews,
   listPrivacySentinelAudits,
   listPriorAuthorizations,
@@ -96,6 +100,9 @@ import {
   type AbnormalTriageBand,
   type AdmissionAiDraftModuleKey,
   type AmbientEncounter,
+  type AntimicrobialStewardshipDecision,
+  type AntimicrobialStewardshipReview,
+  type AntimicrobialStewardshipRiskBand,
   type BedDischargeForecast,
   type CanaryCase,
   type CanaryRunSummary,
@@ -273,6 +280,7 @@ const TASK_PRIORITIES: ClinicalTaskPriority[] = ["critical", "urgent", "soon", "
 const PRIVACY_RISK_BANDS: PrivacySentinelRiskBand[] = ["critical", "high", "medium", "low"];
 const ABNORMAL_TRIAGE_BANDS: AbnormalTriageBand[] = ["critical", "urgent", "watch", "routine"];
 const INFECTION_RISK_BANDS: InfectionControlRiskBand[] = ["critical", "high", "medium", "low"];
+const ANTIMICROBIAL_RISK_BANDS: AntimicrobialStewardshipRiskBand[] = ["critical", "high", "medium", "low"];
 const SEPSIS_RISK_BANDS: SepsisBundleRiskBand[] = ["critical", "high", "medium", "low"];
 
 function chartRiskClass(risk: string) {
@@ -1628,6 +1636,242 @@ export function InfectionControlSentinelPanel() {
                           className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
                         >
                           Dismiss
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-1 text-xs text-muted-foreground">{fmt(row.reviewed_at)}</div>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Antimicrobial Stewardship Assistant
+// ---------------------------------------------------------------------------
+export function AntimicrobialStewardshipPanel() {
+  const queryClient = useQueryClient();
+  const [admissionId, setAdmissionId] = useState("");
+  const [admissionFilter, setAdmissionFilter] = useState("");
+  const [riskFilter, setRiskFilter] = useState<AntimicrobialStewardshipRiskBand | "">("");
+  const [decisionFilter, setDecisionFilter] = useState<AntimicrobialStewardshipDecision | "">("pending");
+
+  const reviews = useQuery({
+    queryKey: ["clinical-ai", "antimicrobial-stewardship", admissionFilter, riskFilter, decisionFilter],
+    queryFn: () =>
+      listAntimicrobialStewardshipReviews({
+        admissionId: admissionFilter.trim() || undefined,
+        riskBand: riskFilter || undefined,
+        decision: decisionFilter || undefined,
+        limit: 50,
+      }),
+  });
+  const generate = useMutation({
+    mutationFn: () => generateAntimicrobialStewardshipReview(Number.parseInt(admissionId.trim(), 10)),
+    onSuccess: (result) => {
+      toast.success(`Stewardship review: ${result.draft.risk_band} risk`);
+      setAdmissionId("");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "antimicrobial-stewardship"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "reviews"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "usage"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Stewardship review failed"),
+  });
+  const decide = useMutation({
+    mutationFn: ({ id, decision, note }: { id: number; decision: Exclude<AntimicrobialStewardshipDecision, "pending">; note?: string }) =>
+      decideAntimicrobialStewardshipReview(id, decision, note),
+    onSuccess: () => {
+      toast.success("Stewardship review saved");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "antimicrobial-stewardship"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Stewardship review failed"),
+  });
+
+  const rows: AntimicrobialStewardshipReview[] = reviews.data?.reviews ?? [];
+  const criticalOrHigh = rows.filter((row) => row.risk_band === "critical" || row.risk_band === "high").length;
+  const pendingCount = rows.filter((row) => row.reviewer_decision === "pending").length;
+  const averageScore = rows.length
+    ? Math.round(rows.reduce((sum, row) => sum + row.stewardship_score, 0) / rows.length)
+    : 0;
+  const canGenerate = Number.isFinite(Number.parseInt(admissionId.trim(), 10));
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <Pill className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Antimicrobial Stewardship</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={admissionFilter}
+            onChange={(event) => setAdmissionFilter(event.target.value)}
+            placeholder="admission"
+            inputMode="numeric"
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          />
+          <select
+            value={riskFilter}
+            onChange={(event) => setRiskFilter(event.target.value as AntimicrobialStewardshipRiskBand | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All risk</option>
+            {ANTIMICROBIAL_RISK_BANDS.map((band) => (
+              <option key={band} value={band}>{band}</option>
+            ))}
+          </select>
+          <select
+            value={decisionFilter}
+            onChange={(event) => setDecisionFilter(event.target.value as AntimicrobialStewardshipDecision | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All review</option>
+            <option value="pending">pending</option>
+            <option value="accepted">accepted</option>
+            <option value="deferred">deferred</option>
+            <option value="rejected">rejected</option>
+          </select>
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Average score</div>
+          <div className="mt-1 text-2xl font-semibold">{averageScore}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Critical / high</div>
+          <div className="mt-1 text-2xl font-semibold text-orange-700">{criticalOrHigh}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Pending review</div>
+          <div className="mt-1 text-2xl font-semibold">{pendingCount}</div>
+        </div>
+      </div>
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Admission ID</span>
+            <input
+              value={admissionId}
+              onChange={(event) => setAdmissionId(event.target.value)}
+              inputMode="numeric"
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <button
+            onClick={() => generate.mutate()}
+            disabled={generate.isPending || !canGenerate}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+          >
+            <PlayCircle className="h-4 w-4" />
+            {generate.isPending ? "Reviewing..." : "Run Review"}
+          </button>
+        </div>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Admission</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Score</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Antibiotics</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Flags</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Review</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
+                  No stewardship reviews found
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">admission #{row.admission_id}</div>
+                    <div className="font-mono text-xs text-muted-foreground">{row.patient_uid || "-"}</div>
+                    {row.patient_name ? <div className="text-xs text-muted-foreground">{row.patient_name}</div> : null}
+                    <div className="font-mono text-xs text-muted-foreground">review #{row.id}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-lg font-semibold">{row.stewardship_score}</div>
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${chartRiskClass(row.risk_band)}`}>
+                      {row.risk_band}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="max-w-sm space-y-1 text-xs">
+                      {(row.antibiotic_summary || []).slice(0, 3).map((item, index) => (
+                        <div key={`${row.id}-abx-${index}`}>
+                          <span className="font-medium">{item.antibiotic}</span>
+                          <span className="text-muted-foreground"> {item.route || "-"} / {item.duration || "no duration"}</span>
+                        </div>
+                      ))}
+                      {(row.antibiotic_summary || []).length > 3 ? (
+                        <div className="text-muted-foreground">+{row.antibiotic_summary.length - 3} more</div>
+                      ) : null}
+                      <div className="text-muted-foreground">{(row.culture_summary || []).length} culture item(s)</div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="max-w-xl space-y-1 text-xs">
+                      {(row.flags || []).slice(0, 4).map((flag) => (
+                        <div key={`${row.id}-${flag.code}`} className="flex flex-wrap items-center gap-1.5">
+                          <span className={`rounded-full border px-2 py-0.5 font-medium ${severityBadgeClass(flag.severity)}`}>
+                            {flag.severity}
+                          </span>
+                          <span>{flag.title}</span>
+                        </div>
+                      ))}
+                      {(row.flags || []).length > 4 ? (
+                        <div className="text-muted-foreground">+{row.flags.length - 4} more</div>
+                      ) : null}
+                      <div className="text-muted-foreground">
+                        {(row.source_citations || []).length} citations / {(row.safety_flags || []).length} safety flags
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${documentStatusClass(row.reviewer_decision)}`}>
+                      {row.reviewer_decision}
+                    </span>
+                    {row.reviewer_decision === "pending" ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "accepted" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Defer reason") ?? undefined;
+                            decide.mutate({ id: row.id, decision: "deferred", note });
+                          }}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                        >
+                          Defer
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Reject reason") ?? undefined;
+                            decide.mutate({ id: row.id, decision: "rejected", note });
+                          }}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                        >
+                          Reject
                         </button>
                       </div>
                     ) : (

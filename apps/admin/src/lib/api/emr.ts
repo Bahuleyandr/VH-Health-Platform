@@ -2156,6 +2156,123 @@ export async function decideInfectionControlAudit(id: number, decision: Exclude<
 }
 
 // ---------------------------------------------------------------------------
+// Antimicrobial stewardship assistant
+// ---------------------------------------------------------------------------
+export type AntimicrobialStewardshipRiskBand = 'low' | 'medium' | 'high' | 'critical' | 'unknown';
+export type AntimicrobialStewardshipDecision = 'pending' | 'accepted' | 'deferred' | 'rejected';
+
+export interface AntimicrobialStewardshipFlag {
+  severity: 'low' | 'medium' | 'high' | 'critical' | string;
+  code: string;
+  category: string;
+  title: string;
+  recommendation: string;
+  evidence?: Array<Record<string, unknown>>;
+}
+
+export interface AntimicrobialAntibioticSummary {
+  medication: string;
+  antibiotic: string;
+  class_name: string;
+  route: string | null;
+  duration: string | null;
+  broad_spectrum: boolean;
+  renal_risk: boolean;
+  status: string | null;
+  source_citation?: ClinicalAiSourceCitation | null;
+}
+
+export interface AntimicrobialCultureSummary {
+  test_name: string;
+  status: string;
+  result_summary: string | null;
+  source_citation?: ClinicalAiSourceCitation | null;
+}
+
+export interface AntimicrobialStewardshipReview {
+  id: number;
+  tenant_id?: string;
+  patient_uid: string | null;
+  patient_name?: string | null;
+  admission_id: number;
+  generation_id: number | null;
+  stewardship_score: number;
+  risk_band: AntimicrobialStewardshipRiskBand;
+  antibiotic_summary: AntimicrobialAntibioticSummary[];
+  culture_summary: AntimicrobialCultureSummary[];
+  renal_summary: Record<string, unknown>;
+  fever_summary: Record<string, unknown>;
+  flags: AntimicrobialStewardshipFlag[];
+  recommendations: Array<{ code: string; severity: string; recommendation: string }>;
+  source_citations: ClinicalAiSourceCitation[];
+  safety_flags: ClinicalAiSafetyFlagSummary[];
+  reviewer_decision: AntimicrobialStewardshipDecision;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  reviewer_note?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at?: string;
+}
+
+export async function listAntimicrobialStewardshipReviews(params: {
+  admissionId?: number | string;
+  patientUid?: string;
+  decision?: string;
+  riskBand?: string;
+  limit?: number;
+} = {}) {
+  const query: Record<string, string> = {};
+  if (params.admissionId) query.admission_id = String(params.admissionId);
+  if (params.patientUid) query.patient_uid = params.patientUid;
+  if (params.decision) query.decision = params.decision;
+  if (params.riskBand) query.risk_band = params.riskBand;
+  if (params.limit) query.limit = String(params.limit);
+  return getJSON<{ reviews: AntimicrobialStewardshipReview[]; count: number }>(
+    '/admin/clinical-ai/antimicrobial-stewardship/reviews',
+    query
+  );
+}
+
+export async function generateAntimicrobialStewardshipReview(admissionId: number) {
+  return postJSON<{
+    review_id: number | null;
+    generation_id: number | null;
+    clinical_review_id: number | null;
+    draft: {
+      stewardship_score: number;
+      risk_band: AntimicrobialStewardshipRiskBand;
+      antibiotic_summary: AntimicrobialAntibioticSummary[];
+      culture_summary: AntimicrobialCultureSummary[];
+      renal_summary: Record<string, unknown>;
+      fever_summary: Record<string, unknown>;
+      flags: AntimicrobialStewardshipFlag[];
+      recommendations: Array<{ code: string; severity: string; recommendation: string }>;
+      summary?: string;
+    };
+    module_key: string;
+    prompt_version: string;
+    source_citations: ClinicalAiSourceCitation[];
+    safety_flags: ClinicalAiSafetyFlagSummary[];
+    review_status: string;
+    requires_signoff: boolean;
+    rules_authoritative: boolean;
+    ai_metadata?: Record<string, unknown>;
+  }>('/admin/clinical-ai/antimicrobial-stewardship/reviews', { admission_id: admissionId });
+}
+
+export async function decideAntimicrobialStewardshipReview(
+  id: number,
+  decision: Exclude<AntimicrobialStewardshipDecision, 'pending'>,
+  note?: string
+) {
+  return fetchAdminAPI<AntimicrobialStewardshipReview>(`/admin/clinical-ai/antimicrobial-stewardship/reviews/${id}`, {
+    method: 'PATCH',
+    body: { decision, note },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Sepsis bundle sentinel
 // ---------------------------------------------------------------------------
 export type SepsisBundleRiskBand = 'low' | 'medium' | 'high' | 'critical' | 'unknown';

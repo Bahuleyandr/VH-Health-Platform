@@ -12,10 +12,10 @@ Status definitions:
 
 Current count:
 
-- Implemented v1: 3 / 40
-- Partial: 21 / 40
+- Implemented v1: 4 / 40
+- Partial: 20 / 40
 - Not started: 16 / 40
-- Remaining to fully implement: 37 / 40
+- Remaining to fully implement: 36 / 40
 
 | # | Feature | Status | Current repo state | Next build unit |
 |---:|---|---|---|---|
@@ -23,7 +23,7 @@ Current count:
 | 2 | Nursing Ambient Documentation | Partial | `ambient_visit_documentation` and ambient encounter flow exist for multi-speaker clinical notes. | Add nursing-specific bedside schema: wounds, drains, IV lines, I/O, mobility, falls, shift charting. |
 | 3 | Clinical Task Extractor | Implemented v1 | `clinical_task_extractor`, `clinicalTaskExtractorService.js`, `clinical_ai_task_candidates`, Admin/IT API, and dashboard review queue exist. V1 creates cited candidates and never auto-assigns work. | Add clinician-facing queue and optional post-review task assignment integration. |
 | 4 | Infection-Control Surveillance | Implemented v1 | `infection_control_sentinel`, `infectionControlSentinelService.js`, admin audit/review panel. | Add continuous realtime ward surveillance and cluster/outbreak automation. |
-| 5 | Antimicrobial Stewardship Assistant | Partial | Infection sentinel detects antimicrobial risks; `polypharmacy_ai_review` handles interaction review. | Add dedicated stewardship workflow for cultures, duration, renal dosing, IV-to-oral switch, and de-escalation. |
+| 5 | Antimicrobial Stewardship Assistant | Implemented v1 | `antimicrobial_stewardship`, `antimicrobialStewardshipService.js`, `clinical_ai_antimicrobial_reviews`, Admin/IT API, and dashboard review queue exist. V1 reviews cultures, duration, renal dosing, IV-to-oral switch, duplicate spectrum, de-escalation, and allergy conflicts without changing orders. | Add continuous stewardship rounds, local antibiogram integration, and policy-pack customization. |
 | 6 | Patient Teach-Back / Comprehension AI | Not started | Aftercare instructions and translations exist, but no comprehension loop. | Add patient quiz/chat flow with misunderstanding flags and review queue. |
 | 7 | Consent-Aware Family Update Generator | Partial | Consent/PHI sentinel and patient communication translation exist. | Add caregiver/family update draft module gated by consent scope. |
 | 8 | Appeal Letter Generator for Denied Claims | Partial | Denial-risk assist and prior authorization generator exist. | Add denial appeal packet and letter generator. |
@@ -62,9 +62,9 @@ Current count:
 
 Recommended next build order:
 
-1. Antimicrobial Stewardship Assistant
-2. Native OCR adapter for Document Intelligence
-3. Patient Teach-Back / Comprehension AI
-4. Appeal Letter Generator for Denied Claims
-5. AI ROI Dashboard
-6. Nursing Ambient Documentation
+1. Native OCR adapter for Document Intelligence
+2. Patient Teach-Back / Comprehension AI
+3. Appeal Letter Generator for Denied Claims
+4. AI ROI Dashboard
+5. Nursing Ambient Documentation
+6. Consent-Aware Family Update Generator
