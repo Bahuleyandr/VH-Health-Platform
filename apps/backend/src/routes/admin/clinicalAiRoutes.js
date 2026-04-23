@@ -139,6 +139,12 @@ import {
   submitAppealLetter,
 } from '../../services/ai/appealLetterGeneratorService.js';
 import {
+  computeAiRoiMetrics,
+  getLatestAiRoiSnapshot,
+  listAiRoiSnapshots,
+  saveAiRoiSnapshot,
+} from '../../services/ai/aiRoiDashboardService.js';
+import {
   decideSepsisBundleAudit,
   generateSepsisBundleAudit,
   listSepsisBundleAudits,
@@ -2213,6 +2219,77 @@ router.post('/appeal-letters/:id/payer-response', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_APPEAL_LETTER_PAYER_RESPONSE', String(result.id), null, result);
     return success(res, result, 'Appeal letter payer response recorded');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// AI ROI dashboard
+// ---------------------------------------------------------------------------
+router.get('/roi', async (req, res, next) => {
+  try {
+    const metrics = await computeAiRoiMetrics({
+      tenantId: req.tenantId,
+      periodDays: req.query?.period_days,
+    });
+    return success(res, metrics, 'AI ROI metrics computed');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/roi/snapshots', async (req, res, next) => {
+  try {
+    const metrics = await computeAiRoiMetrics({
+      tenantId: req.tenantId,
+      periodDays: req.body?.period_days,
+    });
+    const snapshot = await saveAiRoiSnapshot({
+      tenantId: req.tenantId,
+      metrics,
+      moduleKey: req.body?.module_key || 'ALL',
+      computedBy: req.user?.uid || null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_ROI_SNAPSHOT_RECORDED',
+      String(snapshot?.id || 'inline'),
+      null,
+      {
+        snapshot_id: snapshot?.id,
+        period_days: metrics.period_days,
+        generation_count: metrics.generation_count,
+        accepted_count: metrics.accepted_count,
+        time_saved_minutes: metrics.time_saved_minutes,
+      }
+    );
+    return success(res, { snapshot, metrics }, 'AI ROI snapshot saved', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/roi/snapshots', async (req, res, next) => {
+  try {
+    const result = await listAiRoiSnapshots({
+      tenantId: req.tenantId,
+      moduleKey: req.query?.module_key || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'AI ROI snapshots retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/roi/snapshots/latest', async (req, res, next) => {
+  try {
+    const snapshot = await getLatestAiRoiSnapshot({
+      tenantId: req.tenantId,
+      moduleKey: req.query?.module_key || 'ALL',
+    });
+    return success(res, { snapshot }, 'Latest AI ROI snapshot retrieved');
   } catch (err) {
     return next(err);
   }

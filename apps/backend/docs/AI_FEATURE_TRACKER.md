@@ -1,6 +1,6 @@
 # VH Health AI Feature Tracker
 
-Last verified: 2026-04-23 (appeal letter generator v1 shipped)
+Last verified: 2026-04-23 (AI ROI dashboard v1 shipped)
 
 This tracker records the 40 future-proofing AI features proposed for VH Health and maps each one to the current repo state. Update this file whenever a feature graduates from "Not started" to "Partial" or from "Partial" to "Implemented v1".
 
@@ -12,10 +12,10 @@ Status definitions:
 
 Current count:
 
-- Implemented v1: 6 / 40
-- Partial: 19 / 40
+- Implemented v1: 7 / 40
+- Partial: 18 / 40
 - Not started: 15 / 40
-- Remaining to fully implement: 34 / 40
+- Remaining to fully implement: 33 / 40
 
 | # | Feature | Status | Current repo state | Next build unit |
 |---:|---|---|---|---|
@@ -58,11 +58,10 @@ Current count:
 | 37 | Multimodal Patient Timeline | Partial | Patient timeline plus document, imaging, voice, and ambient data exist as separate workflows. | Build unified multimodal timeline across chart, documents, imaging, audio, claims, messages. |
 | 38 | Voice Patient Assistant / IVR | Partial | STT, patient chatbot, virtual ward, and translation foundations exist. | Add consent-gated voice/IVR bot for prep, aftercare, meds, reminders, virtual ward. |
 | 39 | AI Explainability Dashboard | Partial | Citations, hallucination defenses, safety review scorecard, and governance report exist. | Add per-draft evidence map, unsupported claims, bias/numeric checks, reviewer edit deltas. |
-| 40 | AI ROI Dashboard | Partial | Usage, token/cost, review, and acceptance metrics exist. | Add ROI metrics: time saved, denial prevented, documentation hours, cost per useful draft. |
+| 40 | AI ROI Dashboard | Implemented v1 | `ai_roi_dashboard`, `aiRoiDashboardService.js`, `clinical_ai_roi_snapshots`, Admin/IT API (compute/save/list/latest), and dashboard panel exist. V1 aggregates per-module time saved (configurable minutes-per-accepted multiplier), documentation hours saved, denial value prevented from approved appeals, prior-auth approvals, acceptance rate, and cost per useful draft across clinical_ai_generations + clinical_ai_reviews + appeal/prior-auth tables. Read-only; never alters clinical or billing decisions. | Add trend charts, per-department breakdowns, reviewer-edit-delta accounting, and configurable-per-tenant time-saved multipliers. |
 
 Recommended next build order:
 
-1. AI ROI Dashboard
-2. Nursing Ambient Documentation
-3. Consent-Aware Family Update Generator
-4. Payer Contract Variance / Underpayment AI
+1. Nursing Ambient Documentation
+2. Consent-Aware Family Update Generator
+3. Payer Contract Variance / Underpayment AI

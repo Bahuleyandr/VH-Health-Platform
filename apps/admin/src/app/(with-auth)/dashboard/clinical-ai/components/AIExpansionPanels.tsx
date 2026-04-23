@@ -37,6 +37,8 @@ import {
   decideAntimicrobialStewardshipReview,
   decideAppealLetter,
   decideTeachBackSession,
+  getAiRoiMetrics,
+  getLatestAiRoiSnapshot,
   decidePrivacySentinelAudit,
   decideSepsisBundleAudit,
   concludePromptExperiment,
@@ -79,7 +81,9 @@ import {
   listAntimicrobialStewardshipReviews,
   listAppealLetters,
   listTeachBackSessions,
+  listAiRoiSnapshots,
   recordAppealPayerResponse,
+  saveAiRoiSnapshot,
   submitAppealLetter,
   listPolypharmacyReviews,
   listPrivacySentinelAudits,
@@ -109,6 +113,9 @@ import {
   type AbnormalTriageBand,
   type AdmissionAiDraftModuleKey,
   type AmbientEncounter,
+  type AiRoiByModule,
+  type AiRoiMetrics,
+  type AiRoiSnapshot,
   type AntimicrobialStewardshipDecision,
   type AntimicrobialStewardshipReview,
   type AntimicrobialStewardshipRiskBand,
@@ -2001,6 +2008,205 @@ export function AntimicrobialStewardshipPanel() {
             )}
           </tbody>
         </table>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AI ROI Dashboard
+// ---------------------------------------------------------------------------
+function formatMinor(value: number) {
+  if (!Number.isFinite(value)) return "-";
+  return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(value / 100);
+}
+
+function fmtNumber(value?: number | null) {
+  if (value === null || value === undefined) return "0";
+  return new Intl.NumberFormat("en-IN").format(value);
+}
+
+function formatMinutes(minutes: number) {
+  if (!Number.isFinite(minutes) || minutes <= 0) return "0 min";
+  if (minutes < 60) return `${Math.round(minutes)} min`;
+  const hours = minutes / 60;
+  return `${hours.toFixed(1)} h`;
+}
+
+export function AiRoiDashboardPanel() {
+  const queryClient = useQueryClient();
+  const [periodDays, setPeriodDays] = useState<number>(30);
+
+  const metrics = useQuery({
+    queryKey: ["clinical-ai", "roi", periodDays],
+    queryFn: () => getAiRoiMetrics(periodDays),
+  });
+  const latest = useQuery({
+    queryKey: ["clinical-ai", "roi", "latest"],
+    queryFn: () => getLatestAiRoiSnapshot("ALL"),
+  });
+  const history = useQuery({
+    queryKey: ["clinical-ai", "roi", "snapshots"],
+    queryFn: () => listAiRoiSnapshots({ moduleKey: "ALL", limit: 10 }),
+  });
+  const snapshot = useMutation({
+    mutationFn: () => saveAiRoiSnapshot({ periodDays, moduleKey: "ALL" }),
+    onSuccess: () => {
+      toast.success("AI ROI snapshot saved");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "roi"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Snapshot failed"),
+  });
+
+  const live: AiRoiMetrics | undefined = metrics.data;
+  const latestSnapshot: AiRoiSnapshot | null = latest.data?.snapshot ?? null;
+  const byModule: AiRoiByModule[] = live?.by_module ?? [];
+  const snapshots: AiRoiSnapshot[] = history.data?.snapshots ?? [];
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">AI ROI Dashboard</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <select
+            value={periodDays}
+            onChange={(event) => setPeriodDays(Number.parseInt(event.target.value, 10) || 30)}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value={7}>7 days</option>
+            <option value={14}>14 days</option>
+            <option value={30}>30 days</option>
+            <option value={60}>60 days</option>
+            <option value={90}>90 days</option>
+          </select>
+          <button
+            onClick={() => snapshot.mutate()}
+            disabled={snapshot.isPending}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
+          >
+            <Save className="h-4 w-4" />
+            {snapshot.isPending ? "Saving..." : "Save snapshot"}
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-4">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Generations ({periodDays}d)</div>
+          <div className="mt-1 text-2xl font-semibold">{fmtNumber(live?.generation_count)}</div>
+          <div className="text-xs text-muted-foreground">
+            {fmtNumber(live?.accepted_count)} accepted / {live?.acceptance_rate_pct ?? 0}%
+          </div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Time saved</div>
+          <div className="mt-1 text-2xl font-semibold">{formatMinutes(live?.time_saved_minutes ?? 0)}</div>
+          <div className="text-xs text-muted-foreground">
+            {(live?.documentation_hours_saved ?? 0).toFixed(1)} doc hours
+          </div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Denial prevented</div>
+          <div className="mt-1 text-2xl font-semibold">{formatMinor(live?.denial_value_prevented_minor ?? 0)}</div>
+          <div className="text-xs text-muted-foreground">
+            {fmtNumber(live?.appeal_approved_count)} appeals / {fmtNumber(live?.prior_auth_approved_count)} prior auths
+          </div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Cost / useful draft</div>
+          <div className="mt-1 text-2xl font-semibold">{formatMinor(live?.cost_per_useful_draft_minor ?? 0)}</div>
+          <div className="text-xs text-muted-foreground">
+            total: {formatMinor(live?.total_cost_minor ?? 0)}
+          </div>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Module</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Generated</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Accepted / rate</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Time saved</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Cost / useful</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {byModule.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
+                  No AI activity in this window
+                </td>
+              </tr>
+            ) : (
+              byModule.map((row) => (
+                <tr key={row.module_key}>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{row.module_key}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {row.ai_generation_count} AI / {row.fallback_count} fallback
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">{fmtNumber(row.generation_count)}</td>
+                  <td className="px-4 py-3">
+                    {fmtNumber(row.accepted_count)} / {row.acceptance_rate_pct}%
+                  </td>
+                  <td className="px-4 py-3">{formatMinutes(row.time_saved_minutes)}</td>
+                  <td className="px-4 py-3">{formatMinor(row.cost_per_useful_draft_minor)}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="mb-2 text-sm font-medium">Latest saved snapshot</div>
+          {latestSnapshot ? (
+            <div className="space-y-1 text-sm">
+              <div>
+                <span className="text-muted-foreground">Saved at:</span> {fmt(latestSnapshot.computed_at)}
+              </div>
+              <div>
+                <span className="text-muted-foreground">Window:</span> {latestSnapshot.period_days}d
+              </div>
+              <div>
+                <span className="text-muted-foreground">Accepted:</span> {fmtNumber(latestSnapshot.accepted_count)}
+              </div>
+              <div>
+                <span className="text-muted-foreground">Time saved:</span> {formatMinutes(latestSnapshot.time_saved_minutes)}
+              </div>
+              <div>
+                <span className="text-muted-foreground">Denial prevented:</span> {formatMinor(latestSnapshot.denial_value_prevented_minor)}
+              </div>
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground">No snapshots saved yet</div>
+          )}
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="mb-2 text-sm font-medium">Recent snapshots</div>
+          {snapshots.length === 0 ? (
+            <div className="text-sm text-muted-foreground">No history</div>
+          ) : (
+            <ul className="space-y-1 text-sm">
+              {snapshots.slice(0, 6).map((row) => (
+                <li key={row.id} className="flex justify-between">
+                  <span>{fmt(row.computed_at)}</span>
+                  <span className="text-muted-foreground">
+                    {row.period_days}d · {formatMinutes(row.time_saved_minutes)} · {formatMinor(row.cost_per_useful_draft_minor)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
     </section>
   );
