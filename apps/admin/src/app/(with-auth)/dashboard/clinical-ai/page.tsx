@@ -73,6 +73,35 @@ import {
   TrialMatchesPanel,
   VirtualWardPanel,
 } from "./components/AIExpansionPanels";
+import {
+  AcuityStaffingForecastPanel,
+  AiAgentLifecyclePanel,
+  AiExplainabilityDashboardPanel,
+  BiomedDeviceMaintenancePanel,
+  BloodBankForecastPanel,
+  ClinicalKnowledgeGraphPanel,
+  CybersecurityAnomalyPanel,
+  DatasetLabelingStudioPanel,
+  EdTriagePredictorPanel,
+  FederatedLearningCoordinatorPanel,
+  HospitalCommandCenterPanel,
+  HousekeepingBedTurnoverPanel,
+  IcuVentilatorBundlePanel,
+  InventoryIntelligencePanel,
+  ModelRegistryWorkbenchPanel,
+  MultimodalPatientTimelinePanel,
+  ObstetricRiskPanel,
+  OtBlockSchedulingPanel,
+  PathwayBundleCompliancePanel,
+  PharmacogenomicsPanel,
+  PolicyRegulationWatcherPanel,
+  ProcurementNegotiationPanel,
+  RadiologyReportQaPanel,
+  RadiologyWorklistPrioritizerPanel,
+  SyntheticCaseGeneratorPanel,
+  TrainingSimulationCoachPanel,
+  VoicePatientAssistantIvrPanel,
+} from "./components/deferredModulePanels";
 
 function fmt(value?: string | null) {
   if (!value) return "-";
@@ -1045,6 +1074,66 @@ export default function ClinicalAiGovernancePage() {
       <ChargeCapturePanel />
 
       <PriorAuthorizationPanel />
+
+      {/* ------------------------------------------------------------------
+           Batch 15: Deferred admin UI panels shipped for the remaining 27
+           clinical AI modules, closing the "Admin UI panel deferred" backlog.
+           Rows 10–15, 17–19, 21–26, 28–30, 32–39 in AI_FEATURE_TRACKER.md.
+           Ordered roughly by tracker row number for easier cross-reference.
+         ------------------------------------------------------------------ */}
+      <AcuityStaffingForecastPanel />
+
+      <EdTriagePredictorPanel />
+
+      <PathwayBundleCompliancePanel />
+
+      <IcuVentilatorBundlePanel />
+
+      <RadiologyReportQaPanel />
+
+      <RadiologyWorklistPrioritizerPanel />
+
+      <BloodBankForecastPanel />
+
+      <PharmacogenomicsPanel />
+
+      <ObstetricRiskPanel />
+
+      <HospitalCommandCenterPanel />
+
+      <HousekeepingBedTurnoverPanel />
+
+      <OtBlockSchedulingPanel />
+
+      <InventoryIntelligencePanel />
+
+      <BiomedDeviceMaintenancePanel />
+
+      <CybersecurityAnomalyPanel />
+
+      <TrainingSimulationCoachPanel />
+
+      <PolicyRegulationWatcherPanel />
+
+      <ProcurementNegotiationPanel />
+
+      <ModelRegistryWorkbenchPanel />
+
+      <DatasetLabelingStudioPanel />
+
+      <SyntheticCaseGeneratorPanel />
+
+      <FederatedLearningCoordinatorPanel />
+
+      <AiAgentLifecyclePanel />
+
+      <ClinicalKnowledgeGraphPanel />
+
+      <MultimodalPatientTimelinePanel />
+
+      <VoicePatientAssistantIvrPanel />
+
+      <AiExplainabilityDashboardPanel />
 
       <section className="space-y-3">
         <div className="flex items-center gap-2">
