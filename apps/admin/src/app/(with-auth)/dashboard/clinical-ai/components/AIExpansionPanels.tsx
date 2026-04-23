@@ -40,6 +40,7 @@ import {
   decideLabAutoverification,
   decideNursingAmbientSession,
   decidePayerVarianceReview,
+  decidePediatricDoseCheck,
   decideTeachBackSession,
   getAiRoiMetrics,
   getLatestAiRoiSnapshot,
@@ -60,6 +61,7 @@ import {
   generateInfectionControlAudit,
   evaluateClaimVariance,
   evaluateLabAutoverification,
+  evaluatePediatricDose,
   generateAntimicrobialStewardshipReview,
   generateAppealLetter,
   generateFamilyUpdate,
@@ -92,6 +94,7 @@ import {
   listNursingAmbientSessions,
   listPayerContracts,
   listPayerVarianceReviews,
+  listPediatricDoseChecks,
   listTeachBackSessions,
   listAiRoiSnapshots,
   markFamilyUpdateSent,
@@ -151,6 +154,9 @@ import {
   type NursingAmbientSession,
   type NursingAmbientShift,
   type PayerContract,
+  type PediatricDoseCheck,
+  type PediatricDoseDecision,
+  type PediatricSafetyBand,
   type PayerVarianceBand,
   type PayerVarianceCategory,
   type PayerVarianceDecision,
@@ -2822,6 +2828,277 @@ export function LabAutoverificationPanel() {
                     {row.decision_reason ? (
                       <div className="mt-1 max-w-xs text-xs text-muted-foreground">{row.decision_reason}</div>
                     ) : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${documentStatusClass(row.reviewer_decision)}`}>
+                      {row.reviewer_decision}
+                    </span>
+                    {row.reviewer_decision === "pending" ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "accepted" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Edit note") ?? undefined;
+                            decide.mutate({ id: row.id, decision: "edited", note });
+                          }}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-50"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Reject reason") ?? undefined;
+                            decide.mutate({ id: row.id, decision: "rejected", note });
+                          }}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-1 text-xs text-muted-foreground">{fmt(row.reviewed_at)}</div>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Pediatric Dosing Safety AI
+// ---------------------------------------------------------------------------
+const PEDIATRIC_SAFETY_BANDS: PediatricSafetyBand[] = ["safe", "caution", "unsafe", "missing_data", "unknown"];
+const PEDIATRIC_DECISIONS: PediatricDoseDecision[] = ["pending", "accepted", "deferred", "rejected", "edited"];
+
+function pediatricSafetyClass(band: string) {
+  switch (band) {
+    case "unsafe":
+      return "border-red-200 bg-red-50 text-red-800";
+    case "caution":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "safe":
+      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+    case "missing_data":
+      return "border-slate-200 bg-slate-100 text-slate-700";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-700";
+  }
+}
+
+export function PediatricDosingSafetyPanel() {
+  const queryClient = useQueryClient();
+  const [patientUid, setPatientUid] = useState("");
+  const [medication, setMedication] = useState("");
+  const [doseMg, setDoseMg] = useState("");
+  const [route, setRoute] = useState("");
+  const [frequency, setFrequency] = useState("");
+  const [ageDaysOverride, setAgeDaysOverride] = useState("");
+  const [weightKgOverride, setWeightKgOverride] = useState("");
+  const [patientFilter, setPatientFilter] = useState("");
+  const [bandFilter, setBandFilter] = useState<PediatricSafetyBand | "">("");
+  const [reviewFilter, setReviewFilter] = useState<PediatricDoseDecision | "">("pending");
+
+  const rows = useQuery({
+    queryKey: ["clinical-ai", "pediatric-dose-checks", patientFilter, bandFilter, reviewFilter],
+    queryFn: () =>
+      listPediatricDoseChecks({
+        patientUid: patientFilter.trim() || undefined,
+        safetyBand: bandFilter || undefined,
+        reviewerDecision: reviewFilter || undefined,
+        limit: 100,
+      }),
+  });
+  const evaluate = useMutation({
+    mutationFn: () =>
+      evaluatePediatricDose({
+        patientUid: patientUid.trim(),
+        medicationName: medication.trim(),
+        prescribedDoseMg: Number.parseFloat(doseMg.trim()),
+        prescribedRoute: route.trim() || undefined,
+        prescribedFrequency: frequency.trim() || undefined,
+        ageDaysOverride: ageDaysOverride.trim() ? Number.parseInt(ageDaysOverride.trim(), 10) : undefined,
+        weightKgOverride: weightKgOverride.trim() ? Number.parseFloat(weightKgOverride.trim()) : undefined,
+      }),
+    onSuccess: (result) => {
+      toast.success(`Safety: ${result.safety_band.replace(/_/g, " ")}`);
+      setPatientUid("");
+      setMedication("");
+      setDoseMg("");
+      setRoute("");
+      setFrequency("");
+      setAgeDaysOverride("");
+      setWeightKgOverride("");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "pediatric-dose-checks"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Evaluation failed"),
+  });
+  const decide = useMutation({
+    mutationFn: ({ id, decision, note }: { id: number; decision: Exclude<PediatricDoseDecision, "pending">; note?: string }) =>
+      decidePediatricDoseCheck(id, decision, note),
+    onSuccess: () => {
+      toast.success("Review saved");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "pediatric-dose-checks"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Review failed"),
+  });
+
+  const list: PediatricDoseCheck[] = rows.data?.checks ?? [];
+  const unsafe = list.filter((row) => row.safety_band === "unsafe").length;
+  const caution = list.filter((row) => row.safety_band === "caution").length;
+  const pending = list.filter((row) => row.reviewer_decision === "pending").length;
+  const canEvaluate = Boolean(
+    patientUid.trim() && medication.trim() && Number.isFinite(Number.parseFloat(doseMg.trim()))
+  );
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <Heart className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Pediatric Dosing Safety</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={patientFilter}
+            onChange={(event) => setPatientFilter(event.target.value)}
+            placeholder="patient uid"
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          />
+          <select
+            value={bandFilter}
+            onChange={(event) => setBandFilter(event.target.value as PediatricSafetyBand | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All bands</option>
+            {PEDIATRIC_SAFETY_BANDS.map((item) => (
+              <option key={item} value={item}>{item.replace(/_/g, " ")}</option>
+            ))}
+          </select>
+          <select
+            value={reviewFilter}
+            onChange={(event) => setReviewFilter(event.target.value as PediatricDoseDecision | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All review</option>
+            {PEDIATRIC_DECISIONS.map((item) => (
+              <option key={item} value={item}>{item}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Unsafe</div>
+          <div className="mt-1 text-2xl font-semibold text-red-700">{unsafe}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Caution</div>
+          <div className="mt-1 text-2xl font-semibold text-amber-700">{caution}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Pending review</div>
+          <div className="mt-1 text-2xl font-semibold">{pending}</div>
+        </div>
+      </div>
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_1fr_1fr_auto_auto] lg:items-end">
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Patient UID</span>
+            <input value={patientUid} onChange={(e) => setPatientUid(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2" />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Medication</span>
+            <input value={medication} onChange={(e) => setMedication(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2" />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Dose (mg)</span>
+            <input value={doseMg} onChange={(e) => setDoseMg(e.target.value)} inputMode="decimal" className="w-full rounded-md border border-border bg-background px-3 py-2" />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Route</span>
+            <input value={route} onChange={(e) => setRoute(e.target.value)} placeholder="oral/iv" className="w-full rounded-md border border-border bg-background px-3 py-2" />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Frequency</span>
+            <input value={frequency} onChange={(e) => setFrequency(e.target.value)} placeholder="TID" className="w-full rounded-md border border-border bg-background px-3 py-2" />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Age override (days)</span>
+            <input value={ageDaysOverride} onChange={(e) => setAgeDaysOverride(e.target.value)} inputMode="numeric" className="w-full rounded-md border border-border bg-background px-3 py-2" />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Weight override (kg)</span>
+            <div className="flex gap-2">
+              <input value={weightKgOverride} onChange={(e) => setWeightKgOverride(e.target.value)} inputMode="decimal" className="w-full rounded-md border border-border bg-background px-3 py-2" />
+              <button
+                onClick={() => evaluate.mutate()}
+                disabled={evaluate.isPending || !canEvaluate}
+                className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+              >
+                <PlayCircle className="h-4 w-4" />
+                {evaluate.isPending ? "..." : "Check"}
+              </button>
+            </div>
+          </label>
+        </div>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Patient / Medication</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Dose vs max</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Age / Weight</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Safety</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Review</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {list.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
+                  No pediatric dose checks
+                </td>
+              </tr>
+            ) : (
+              list.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3">
+                    <div className="font-mono text-xs text-muted-foreground">{row.patient_uid}</div>
+                    {row.patient_name ? <div className="text-xs text-muted-foreground">{row.patient_name}</div> : null}
+                    <div className="font-medium">{row.medication_name}</div>
+                    <div className="text-xs text-muted-foreground">{row.prescribed_route || "-"} / {row.prescribed_frequency || "-"}</div>
+                    <div className="font-mono text-xs text-muted-foreground">check #{row.id}</div>
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    <div>prescribed {row.prescribed_dose_mg ?? "-"} mg</div>
+                    <div>max {row.calculated_max_dose_mg ?? "-"} mg</div>
+                    <div className="text-muted-foreground">{row.variance_pct !== null ? `${row.variance_pct}%` : "-"}</div>
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    <div>{row.age_band.replace(/_/g, " ")}</div>
+                    {row.age_days !== null ? <div className="text-muted-foreground">{row.age_days} d</div> : null}
+                    {row.weight_kg !== null ? <div className="text-muted-foreground">{row.weight_kg} kg</div> : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${pediatricSafetyClass(row.safety_band)}`}>
+                      {row.safety_band.replace(/_/g, " ")}
+                    </span>
+                    {row.rationale ? <div className="mt-1 max-w-xs text-xs text-muted-foreground">{row.rationale}</div> : null}
                   </td>
                   <td className="px-4 py-3">
                     <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${documentStatusClass(row.reviewer_decision)}`}>

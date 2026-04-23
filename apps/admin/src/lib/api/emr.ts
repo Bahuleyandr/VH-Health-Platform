@@ -2411,6 +2411,116 @@ export async function getLatestAiRoiSnapshot(moduleKey: string = 'ALL') {
 }
 
 // ---------------------------------------------------------------------------
+// Pediatric dosing safety
+// ---------------------------------------------------------------------------
+export type PediatricSafetyBand = 'safe' | 'caution' | 'unsafe' | 'missing_data' | 'unknown';
+export type PediatricDoseDecision = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'edited';
+export type PediatricAgeBand = 'neonate' | 'infant' | 'toddler' | 'child' | 'adolescent' | 'adult' | 'unknown';
+
+export interface PediatricDoseCheck {
+  id: number;
+  tenant_id?: string;
+  prescription_id: number | null;
+  patient_uid: string;
+  patient_name?: string | null;
+  admission_id: number | null;
+  generation_id: number | null;
+  age_days: number | null;
+  weight_kg: number | null;
+  age_band: PediatricAgeBand;
+  medication_name: string;
+  prescribed_dose_mg: number | null;
+  prescribed_route: string | null;
+  prescribed_frequency: string | null;
+  max_dose_per_kg_mg: number | null;
+  absolute_max_dose_mg: number | null;
+  calculated_max_dose_mg: number | null;
+  variance_pct: number | null;
+  safety_band: PediatricSafetyBand;
+  rationale: string | null;
+  suggested_actions: string[];
+  source_citations: ClinicalAiSourceCitation[];
+  safety_flags: ClinicalAiSafetyFlagSummary[];
+  reviewer_decision: PediatricDoseDecision;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  reviewer_note?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at?: string;
+}
+
+export async function listPediatricDoseChecks(params: {
+  patientUid?: string;
+  admissionId?: number | string;
+  safetyBand?: PediatricSafetyBand | string;
+  reviewerDecision?: PediatricDoseDecision | string;
+  limit?: number;
+} = {}) {
+  const query: Record<string, string> = {};
+  if (params.patientUid) query.patient_uid = params.patientUid;
+  if (params.admissionId) query.admission_id = String(params.admissionId);
+  if (params.safetyBand) query.safety_band = params.safetyBand;
+  if (params.reviewerDecision) query.reviewer_decision = params.reviewerDecision;
+  if (params.limit) query.limit = String(params.limit);
+  return getJSON<{ checks: PediatricDoseCheck[]; count: number }>(
+    '/admin/clinical-ai/pediatric-dose-checks',
+    query
+  );
+}
+
+export async function evaluatePediatricDose(payload: {
+  patientUid: string;
+  medicationName: string;
+  prescribedDoseMg: number;
+  prescriptionId?: number;
+  admissionId?: number;
+  prescribedRoute?: string;
+  prescribedFrequency?: string;
+  ageDaysOverride?: number;
+  weightKgOverride?: number;
+}) {
+  const body: Record<string, unknown> = {
+    patient_uid: payload.patientUid,
+    medication_name: payload.medicationName,
+    prescribed_dose_mg: payload.prescribedDoseMg,
+  };
+  if (payload.prescriptionId) body.prescription_id = payload.prescriptionId;
+  if (payload.admissionId) body.admission_id = payload.admissionId;
+  if (payload.prescribedRoute) body.prescribed_route = payload.prescribedRoute;
+  if (payload.prescribedFrequency) body.prescribed_frequency = payload.prescribedFrequency;
+  if (payload.ageDaysOverride !== undefined) body.age_days_override = payload.ageDaysOverride;
+  if (payload.weightKgOverride !== undefined) body.weight_kg_override = payload.weightKgOverride;
+  return postJSON<{
+    check_id: number | null;
+    generation_id: number | null;
+    safety_band: PediatricSafetyBand;
+    calculated_max_dose_mg: number | null;
+    variance_pct: number | null;
+    age_band: PediatricAgeBand;
+    medication_name: string;
+    draft: Record<string, unknown>;
+    source_citations: ClinicalAiSourceCitation[];
+    safety_flags: ClinicalAiSafetyFlagSummary[];
+    module_key: string;
+    review_status: string;
+    rules_authoritative: boolean;
+    decision_support_only: boolean;
+  }>('/admin/clinical-ai/pediatric-dose-checks/evaluate', body);
+}
+
+export async function decidePediatricDoseCheck(
+  id: number,
+  decision: Exclude<PediatricDoseDecision, 'pending'>,
+  note?: string
+) {
+  return fetchAdminAPI<PediatricDoseCheck>(`/admin/clinical-ai/pediatric-dose-checks/${id}`, {
+    method: 'PATCH',
+    body: { decision, note },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Lab autoverification / delta check
 // ---------------------------------------------------------------------------
 export type LabAutoverificationDecision = 'pending' | 'auto_verify' | 'hold_for_review' | 'critical' | 'rejected';
