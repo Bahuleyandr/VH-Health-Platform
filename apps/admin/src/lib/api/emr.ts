@@ -2411,6 +2411,138 @@ export async function getLatestAiRoiSnapshot(moduleKey: string = 'ALL') {
 }
 
 // ---------------------------------------------------------------------------
+// Nursing ambient documentation
+// ---------------------------------------------------------------------------
+export type NursingAmbientShift = 'day' | 'evening' | 'night' | 'custom';
+export type NursingAmbientDecision = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'edited';
+
+export interface NursingAmbientObservation {
+  description: string;
+  speaker: string;
+  start_seconds: number;
+  citation?: ClinicalAiSourceCitation | null;
+  segment_index: number;
+  severity?: string;
+}
+
+export interface NursingAmbientIntakeOutputEntry extends NursingAmbientObservation {
+  intake_ml?: number | null;
+  output_ml?: number | null;
+}
+
+export interface NursingAmbientIntakeOutput {
+  entries: NursingAmbientIntakeOutputEntry[];
+  total_intake_ml: number;
+  total_output_ml: number;
+  balance_ml: number;
+}
+
+export interface NursingAmbientDraft {
+  shift: NursingAmbientShift;
+  shift_summary: string;
+  patient_reported: string;
+  wounds: NursingAmbientObservation[];
+  drains: NursingAmbientObservation[];
+  iv_lines: NursingAmbientObservation[];
+  intake_output: NursingAmbientIntakeOutput;
+  mobility: NursingAmbientObservation[];
+  falls: NursingAmbientObservation[];
+  handover_notes: NursingAmbientObservation[];
+  patient_education: NursingAmbientObservation[];
+  summary?: string;
+  speaker_talk_time?: Record<string, number>;
+}
+
+export interface NursingAmbientSession {
+  id: number;
+  tenant_id?: string;
+  patient_uid: string;
+  patient_name?: string | null;
+  admission_id: number | null;
+  nurse_uid?: string | null;
+  shift: NursingAmbientShift;
+  recording_started_at: string;
+  recording_ended_at?: string | null;
+  duration_seconds?: number | null;
+  speaker_count: number;
+  transcript_status: string;
+  nursing_note_draft: NursingAmbientDraft;
+  generation_id: number | null;
+  source_citations: ClinicalAiSourceCitation[];
+  safety_flags: ClinicalAiSafetyFlagSummary[];
+  reviewer_decision: NursingAmbientDecision;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  reviewer_note?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at?: string;
+}
+
+export async function listNursingAmbientSessions(params: {
+  admissionId?: number | string;
+  patientUid?: string;
+  shift?: NursingAmbientShift | string;
+  decision?: NursingAmbientDecision | string;
+  limit?: number;
+} = {}) {
+  const query: Record<string, string> = {};
+  if (params.admissionId) query.admission_id = String(params.admissionId);
+  if (params.patientUid) query.patient_uid = params.patientUid;
+  if (params.shift) query.shift = params.shift;
+  if (params.decision) query.decision = params.decision;
+  if (params.limit) query.limit = String(params.limit);
+  return getJSON<{ sessions: NursingAmbientSession[]; count: number }>(
+    '/admin/clinical-ai/nursing-ambient/sessions',
+    query
+  );
+}
+
+export async function generateNursingAmbientSession(payload: {
+  patientUid: string;
+  admissionId?: number;
+  shift?: NursingAmbientShift;
+  recordingStartedAt?: string;
+  transcriptSegments?: Array<{ speaker: string; text: string; start_seconds?: number; end_seconds?: number }>;
+  consentReference?: string;
+}) {
+  const body: Record<string, unknown> = {
+    patient_uid: payload.patientUid,
+    transcript_segments: payload.transcriptSegments || [],
+  };
+  if (payload.admissionId) body.admission_id = payload.admissionId;
+  if (payload.shift) body.shift = payload.shift;
+  if (payload.recordingStartedAt) body.recording_started_at = payload.recordingStartedAt;
+  if (payload.consentReference) body.consent_reference = payload.consentReference;
+  return postJSON<{
+    session_id: number | null;
+    generation_id: number | null;
+    draft: NursingAmbientDraft;
+    module_key: string;
+    prompt_version: string;
+    source_citations: ClinicalAiSourceCitation[];
+    safety_flags: ClinicalAiSafetyFlagSummary[];
+    session_status: string;
+    review_status: string;
+    requires_signoff: boolean;
+    rules_authoritative: boolean;
+    decision_support_only: boolean;
+    shift: NursingAmbientShift;
+  }>('/admin/clinical-ai/nursing-ambient/sessions', body);
+}
+
+export async function decideNursingAmbientSession(
+  id: number,
+  decision: Exclude<NursingAmbientDecision, 'pending'>,
+  note?: string
+) {
+  return fetchAdminAPI<NursingAmbientSession>(`/admin/clinical-ai/nursing-ambient/sessions/${id}`, {
+    method: 'PATCH',
+    body: { decision, note },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Appeal letter generator for denied claims
 // ---------------------------------------------------------------------------
 export type AppealLetterDecision = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'edited';

@@ -36,6 +36,7 @@ import {
   decideInfectionControlAudit,
   decideAntimicrobialStewardshipReview,
   decideAppealLetter,
+  decideNursingAmbientSession,
   decideTeachBackSession,
   getAiRoiMetrics,
   getLatestAiRoiSnapshot,
@@ -80,6 +81,7 @@ import {
   listInfectionControlAudits,
   listAntimicrobialStewardshipReviews,
   listAppealLetters,
+  listNursingAmbientSessions,
   listTeachBackSessions,
   listAiRoiSnapshots,
   recordAppealPayerResponse,
@@ -124,6 +126,9 @@ import {
   type AppealLetterDecision,
   type AppealLetterStatus,
   type AppealType,
+  type NursingAmbientDecision,
+  type NursingAmbientSession,
+  type NursingAmbientShift,
   type TeachBackDecision,
   type TeachBackLanguage,
   type TeachBackSession,
@@ -5668,6 +5673,197 @@ export function VirtualWardPanel() {
                       </div>
                     ) : (
                       <span className="text-xs text-muted-foreground">{row.resolution}</span>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Nursing Ambient Documentation
+// ---------------------------------------------------------------------------
+const NURSING_AMBIENT_SHIFTS: NursingAmbientShift[] = ["day", "evening", "night", "custom"];
+const NURSING_AMBIENT_DECISIONS: NursingAmbientDecision[] = ["pending", "accepted", "deferred", "rejected", "edited"];
+
+export function NursingAmbientDocumentationPanel() {
+  const queryClient = useQueryClient();
+  const [admissionFilter, setAdmissionFilter] = useState("");
+  const [shiftFilter, setShiftFilter] = useState<NursingAmbientShift | "">("");
+  const [decisionFilter, setDecisionFilter] = useState<NursingAmbientDecision | "">("pending");
+
+  const sessions = useQuery({
+    queryKey: ["clinical-ai", "nursing-ambient", admissionFilter, shiftFilter, decisionFilter],
+    queryFn: () =>
+      listNursingAmbientSessions({
+        admissionId: admissionFilter.trim() || undefined,
+        shift: shiftFilter || undefined,
+        decision: decisionFilter || undefined,
+        limit: 50,
+      }),
+  });
+  const decide = useMutation({
+    mutationFn: ({ id, decision, note }: { id: number; decision: Exclude<NursingAmbientDecision, "pending">; note?: string }) =>
+      decideNursingAmbientSession(id, decision, note),
+    onSuccess: () => {
+      toast.success("Nursing session review saved");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "nursing-ambient"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Nursing review failed"),
+  });
+
+  const rows: NursingAmbientSession[] = sessions.data?.sessions ?? [];
+  const pending = rows.filter((row) => row.reviewer_decision === "pending").length;
+  const fallCount = rows.reduce((sum, row) => sum + (row.nursing_note_draft?.falls?.length || 0), 0);
+  const totalDuration = rows.reduce((sum, row) => sum + Number(row.duration_seconds || 0), 0);
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <Stethoscope className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Nursing Ambient Documentation</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={admissionFilter}
+            onChange={(event) => setAdmissionFilter(event.target.value)}
+            placeholder="admission"
+            inputMode="numeric"
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          />
+          <select
+            value={shiftFilter}
+            onChange={(event) => setShiftFilter(event.target.value as NursingAmbientShift | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All shifts</option>
+            {NURSING_AMBIENT_SHIFTS.map((shift) => (
+              <option key={shift} value={shift}>{shift}</option>
+            ))}
+          </select>
+          <select
+            value={decisionFilter}
+            onChange={(event) => setDecisionFilter(event.target.value as NursingAmbientDecision | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All review</option>
+            {NURSING_AMBIENT_DECISIONS.map((decision) => (
+              <option key={decision} value={decision}>{decision}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Pending review</div>
+          <div className="mt-1 text-2xl font-semibold">{pending}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Fall events</div>
+          <div className="mt-1 text-2xl font-semibold text-orange-700">{fallCount}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Total recorded (h)</div>
+          <div className="mt-1 text-2xl font-semibold">{(totalDuration / 3600).toFixed(1)}</div>
+        </div>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Patient / Admission</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Shift</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Observations</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">I/O balance</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Review</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
+                  No nursing ambient sessions
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">admission #{row.admission_id ?? "-"}</div>
+                    <div className="font-mono text-xs text-muted-foreground">{row.patient_uid}</div>
+                    {row.patient_name ? <div className="text-xs text-muted-foreground">{row.patient_name}</div> : null}
+                    <div className="font-mono text-xs text-muted-foreground">session #{row.id}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs font-medium">
+                      {row.shift}
+                    </span>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {Math.round(Number(row.duration_seconds || 0) / 60)} min / {row.speaker_count} speakers
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="max-w-xs space-y-1 text-xs">
+                      <div>{row.nursing_note_draft?.wounds?.length || 0} wound(s)</div>
+                      <div>{row.nursing_note_draft?.drains?.length || 0} drain(s)</div>
+                      <div>{row.nursing_note_draft?.iv_lines?.length || 0} IV line(s)</div>
+                      <div>{row.nursing_note_draft?.mobility?.length || 0} mobility note(s)</div>
+                      <div className={`${(row.nursing_note_draft?.falls?.length || 0) > 0 ? "font-semibold text-orange-700" : ""}`}>
+                        {row.nursing_note_draft?.falls?.length || 0} fall event(s)
+                      </div>
+                      <div className="text-muted-foreground">
+                        {(row.source_citations || []).length} citations / {(row.safety_flags || []).length} safety flags
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    <div>in: {row.nursing_note_draft?.intake_output?.total_intake_ml ?? 0} ml</div>
+                    <div>out: {row.nursing_note_draft?.intake_output?.total_output_ml ?? 0} ml</div>
+                    <div className="font-medium">bal: {row.nursing_note_draft?.intake_output?.balance_ml ?? 0} ml</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${documentStatusClass(row.reviewer_decision)}`}>
+                      {row.reviewer_decision}
+                    </span>
+                    {row.reviewer_decision === "pending" ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "accepted" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Edit note") ?? undefined;
+                            decide.mutate({ id: row.id, decision: "edited", note });
+                          }}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-50"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Reject reason") ?? undefined;
+                            decide.mutate({ id: row.id, decision: "rejected", note });
+                          }}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-1 text-xs text-muted-foreground">{fmt(row.reviewed_at)}</div>
                     )}
                   </td>
                 </tr>
