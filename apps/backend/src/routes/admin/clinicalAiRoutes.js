@@ -200,6 +200,30 @@ import {
   listObstetricRiskAssessments,
 } from '../../services/ai/obstetricRiskService.js';
 import {
+  decideBedTurnoverPrediction,
+  evaluateBedTurnover,
+  listBedTurnoverPredictions,
+} from '../../services/ai/housekeepingBedTurnoverService.js';
+import {
+  decideMaintenancePrediction,
+  evaluateDeviceMaintenanceRisk,
+  listBiomedDevices,
+  listMaintenancePredictions,
+  upsertBiomedDevice,
+} from '../../services/ai/biomedDeviceMaintenanceService.js';
+import {
+  decideSecurityAnomaly,
+  listSecurityAnomalies,
+  recordAnomaly,
+} from '../../services/ai/cybersecurityAnomalyService.js';
+import {
+  decidePgxAdvisory,
+  generatePgxAdvisory,
+  listPatientGenotypes,
+  listPgxAdvisories,
+  upsertPatientGenotype,
+} from '../../services/ai/pharmacogenomicsService.js';
+import {
   decideSepsisBundleAudit,
   generateSepsisBundleAudit,
   listSepsisBundleAudits,
@@ -3093,6 +3117,330 @@ router.patch('/obstetric-risk/assessments/:id', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_OBSTETRIC_RISK_REVIEWED', String(result.id), null, result);
     return success(res, result, 'Obstetric risk assessment updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Housekeeping / bed turnover optimizer
+// ---------------------------------------------------------------------------
+router.post('/bed-turnover/evaluate', async (req, res, next) => {
+  try {
+    const result = await evaluateBedTurnover({
+      req,
+      bedId: req.body?.bed_id ?? null,
+      ward: req.body?.ward ?? null,
+      roomNumber: req.body?.room_number ?? null,
+      previousAdmissionId: req.body?.previous_admission_id ?? null,
+      currentStatus: req.body?.current_status ?? 'discharged_pending_clean',
+      priorDiagnoses: req.body?.prior_diagnoses || [],
+      isolationPrecautions: req.body?.isolation_precautions || [],
+      hadSurgicalProcedure: Boolean(req.body?.had_surgical_procedure),
+      mrsaStatus: req.body?.mrsa_status ?? null,
+      dischargeTime: req.body?.discharge_time ?? null,
+      bedDemand: req.body?.bed_demand ?? 'normal',
+      staffingLoad: req.body?.staffing_load ?? 'normal',
+      hasPrivateBathroom: req.body?.has_private_bathroom ?? true,
+      isEdDoorway: Boolean(req.body?.is_ed_doorway),
+      isIsolationWard: Boolean(req.body?.is_isolation_ward),
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_BED_TURNOVER_PREDICTED',
+      String(result.prediction_id || result.generation_id || 'inline'),
+      null,
+      {
+        prediction_id: result.prediction_id,
+        priority_band: result.draft?.priority_band,
+        cleaning_level: result.draft?.required_cleaning_level,
+      }
+    );
+    return success(res, result, 'Bed turnover predicted', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/bed-turnover/predictions', async (req, res, next) => {
+  try {
+    const result = await listBedTurnoverPredictions({
+      tenantId: req.tenantId,
+      ward: req.query?.ward || null,
+      bedId: req.query?.bed_id || null,
+      priorityBand: req.query?.priority_band || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Bed turnover predictions retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/bed-turnover/predictions/:id', async (req, res, next) => {
+  try {
+    const result = await decideBedTurnoverPrediction({
+      tenantId: req.tenantId,
+      predictionId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_BED_TURNOVER_REVIEWED', String(result.id), null, result);
+    return success(res, result, 'Bed turnover prediction updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Biomedical device maintenance predictor
+// ---------------------------------------------------------------------------
+router.post('/biomed-devices', async (req, res, next) => {
+  try {
+    const result = await upsertBiomedDevice({
+      tenantId: req.tenantId,
+      deviceCode: req.body?.device_code,
+      deviceType: req.body?.device_type,
+      manufacturer: req.body?.manufacturer || null,
+      model: req.body?.model || null,
+      serialNumber: req.body?.serial_number || null,
+      location: req.body?.location || null,
+      installedAt: req.body?.installed_at || null,
+      warrantyExpiresOn: req.body?.warranty_expires_on || null,
+      lastPreventiveMaintenanceAt: req.body?.last_preventive_maintenance_at || null,
+      nextScheduledMaintenanceAt: req.body?.next_scheduled_maintenance_at || null,
+      usageHours: req.body?.usage_hours ?? 0,
+      faultEventsLast90d: req.body?.fault_events_last_90d ?? 0,
+      mtbfHours: req.body?.mean_time_between_failures_hours ?? null,
+      status: req.body?.status || 'in_service',
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_BIOMED_DEVICE_UPSERTED', String(result?.id || 'inline'), null, result);
+    return success(res, result, 'Biomedical device upserted', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/biomed-devices', async (req, res, next) => {
+  try {
+    const result = await listBiomedDevices({
+      tenantId: req.tenantId,
+      deviceType: req.query?.device_type || null,
+      status: req.query?.status || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Biomedical devices retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/biomed-devices/evaluate', async (req, res, next) => {
+  try {
+    const result = await evaluateDeviceMaintenanceRisk({
+      req,
+      deviceId: req.body?.device_id || null,
+      deviceCode: req.body?.device_code || null,
+      overrideInputs: req.body?.override_inputs || null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_BIOMED_DEVICE_MAINTENANCE_PREDICTED',
+      String(result.prediction_id || result.generation_id || 'inline'),
+      null,
+      {
+        prediction_id: result.prediction_id,
+        risk_band: result.draft?.risk_band,
+      }
+    );
+    return success(res, result, 'Biomedical device maintenance risk evaluated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/biomed-devices/predictions', async (req, res, next) => {
+  try {
+    const result = await listMaintenancePredictions({
+      tenantId: req.tenantId,
+      deviceId: req.query?.device_id || null,
+      deviceCode: req.query?.device_code || null,
+      riskBand: req.query?.risk_band || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Biomedical device predictions retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/biomed-devices/predictions/:id', async (req, res, next) => {
+  try {
+    const result = await decideMaintenancePrediction({
+      tenantId: req.tenantId,
+      predictionId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_BIOMED_DEVICE_MAINTENANCE_REVIEWED', String(result.id), null, result);
+    return success(res, result, 'Biomedical device prediction updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Cybersecurity anomaly detector
+// ---------------------------------------------------------------------------
+router.post('/security-anomalies/record', async (req, res, next) => {
+  try {
+    const result = await recordAnomaly({
+      req,
+      subjectType: req.body?.subject_type,
+      subjectId: req.body?.subject_id || null,
+      inputs: req.body?.inputs || {},
+      context: req.body?.context || {},
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_SECURITY_ANOMALY_RECORDED',
+      String(result.anomaly_id || result.generation_id || 'inline'),
+      null,
+      {
+        anomaly_id: result.anomaly_id,
+        anomaly_category: result.draft?.anomaly_category,
+        severity: result.draft?.severity,
+      }
+    );
+    return success(res, result, 'Security anomaly recorded', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/security-anomalies', async (req, res, next) => {
+  try {
+    const result = await listSecurityAnomalies({
+      tenantId: req.tenantId,
+      subjectType: req.query?.subject_type || null,
+      severity: req.query?.severity || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Security anomalies retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/security-anomalies/:id', async (req, res, next) => {
+  try {
+    const result = await decideSecurityAnomaly({
+      tenantId: req.tenantId,
+      anomalyId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_SECURITY_ANOMALY_REVIEWED', String(result.id), null, result);
+    return success(res, result, 'Security anomaly updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Pharmacogenomics / PGx support
+// ---------------------------------------------------------------------------
+router.post('/pgx/genotypes', async (req, res, next) => {
+  try {
+    const result = await upsertPatientGenotype({
+      tenantId: req.tenantId,
+      patientUid: req.body?.patient_uid,
+      gene: req.body?.gene,
+      phenotype: req.body?.phenotype,
+      genotypeDetail: req.body?.genotype_detail || null,
+      source: req.body?.source || null,
+      sourceReportId: req.body?.source_report_id || null,
+      testedAt: req.body?.tested_at || null,
+      verified: Boolean(req.body?.verified),
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_PGX_GENOTYPE_UPSERTED', String(result?.id || 'inline'), null, result);
+    return success(res, result, 'Patient genotype upserted', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/pgx/genotypes', async (req, res, next) => {
+  try {
+    const result = await listPatientGenotypes({
+      tenantId: req.tenantId,
+      patientUid: req.query?.patient_uid || null,
+      gene: req.query?.gene || null,
+    });
+    return success(res, result, 'Patient genotypes retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/pgx/advisories/evaluate', async (req, res, next) => {
+  try {
+    const result = await generatePgxAdvisory({
+      req,
+      patientUid: req.body?.patient_uid,
+      medicationName: req.body?.medication_name,
+      prescriptionId: req.body?.prescription_id || null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_PGX_ADVISORY_GENERATED',
+      String(result.advisory_id || result.generation_id || 'inline'),
+      null,
+      {
+        advisory_id: result.advisory_id,
+        advisory_category: result.draft?.advisory_category,
+        severity: result.draft?.severity,
+      }
+    );
+    return success(res, result, 'PGx advisory generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/pgx/advisories', async (req, res, next) => {
+  try {
+    const result = await listPgxAdvisories({
+      tenantId: req.tenantId,
+      patientUid: req.query?.patient_uid || null,
+      advisoryCategory: req.query?.advisory_category || null,
+      severity: req.query?.severity || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'PGx advisories retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/pgx/advisories/:id', async (req, res, next) => {
+  try {
+    const result = await decidePgxAdvisory({
+      tenantId: req.tenantId,
+      advisoryId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_PGX_ADVISORY_REVIEWED', String(result.id), null, result);
+    return success(res, result, 'PGx advisory updated');
   } catch (err) {
     return next(err);
   }

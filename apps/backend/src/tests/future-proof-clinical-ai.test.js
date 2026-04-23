@@ -54,6 +54,12 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_blood_bank_forecast_reviews WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_blood_bank_inventory_snapshots WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_obstetric_risk_assessments WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_bed_turnover_predictions WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_biomed_maintenance_predictions WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_biomed_devices WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND device_code LIKE 'TEST-%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_security_anomalies WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_pgx_advisories WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_patient_genotypes WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -187,6 +193,12 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_blood_bank_forecast_reviews WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_blood_bank_inventory_snapshots WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_obstetric_risk_assessments WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_bed_turnover_predictions WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_biomed_maintenance_predictions WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_biomed_devices WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND device_code LIKE 'TEST-%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_security_anomalies WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_pgx_advisories WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_patient_genotypes WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -827,6 +839,186 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await admin.patch('/api/v1/admin/clinical-ai/modules/payer_contract_variance').send({ enabled: false });
     const blocked = await admin.post('/api/v1/admin/clinical-ai/payer-variance/evaluate').send({
       claim_id: strayClaim[0].id,
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('predicts bed turnover + cleaning level and gates by module', async () => {
+    await enableModule('housekeeping_bed_turnover');
+
+    // Critical: C. diff discharge from ED-adjacent bed at peak demand
+    const critical = await admin.post('/api/v1/admin/clinical-ai/bed-turnover/evaluate').send({
+      ward: 'ED-OBS',
+      room_number: 'E-05',
+      prior_diagnoses: ['Clostridium difficile colitis'],
+      bed_demand: 'critical',
+      staffing_load: 'high',
+      has_private_bathroom: true,
+      is_ed_doorway: true,
+      discharge_time: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
+    });
+    expectStatus(critical, 201, 'critical bed turnover');
+    expect(critical.body.data.module_key).toBe('housekeeping_bed_turnover');
+    expect(critical.body.data.draft.required_cleaning_level).toBe('deep_clean');
+    expect(critical.body.data.draft.priority_band).toBe('critical');
+    expect(critical.body.data.draft.predicted_turnover_minutes).toBeGreaterThan(60);
+
+    // Normal low-priority turnover
+    const low = await admin.post('/api/v1/admin/clinical-ai/bed-turnover/evaluate').send({
+      ward: 'GENERAL',
+      bed_demand: 'normal',
+      prior_diagnoses: ['Viral URI'],
+      staffing_load: 'normal',
+    });
+    expectStatus(low, 201, 'low bed turnover');
+    expect(low.body.data.draft.required_cleaning_level).toBe('standard');
+
+    const listed = await admin.get('/api/v1/admin/clinical-ai/bed-turnover/predictions?priority_band=critical');
+    expectStatus(listed, 200, 'list bed turnover predictions');
+    expect(listed.body.data.predictions.length).toBeGreaterThan(0);
+
+    const accepted = await admin.patch(`/api/v1/admin/clinical-ai/bed-turnover/predictions/${critical.body.data.prediction_id}`).send({
+      decision: 'accepted',
+      note: 'Dispatched housekeeping [test]',
+    });
+    expectStatus(accepted, 200, 'accept bed turnover');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/housekeeping_bed_turnover').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/bed-turnover/evaluate').send({ ward: 'X' });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('predicts biomedical device maintenance risk and gates by module', async () => {
+    await enableModule('biomed_device_maintenance');
+
+    const device = await admin.post('/api/v1/admin/clinical-ai/biomed-devices').send({
+      device_code: 'TEST-VENT-001',
+      device_type: 'ventilator',
+      manufacturer: 'Hamilton',
+      model: 'C3',
+      location: 'ICU-Bay-1',
+      installed_at: '2021-01-15',
+      warranty_expires_on: '2026-01-15',
+      last_preventive_maintenance_at: new Date(Date.now() - 400 * 86400 * 1000).toISOString(),
+      usage_hours: 1800,
+      fault_events_last_90d: 5,
+      mean_time_between_failures_hours: 300,
+      status: 'in_service',
+    });
+    expectStatus(device, 201, 'upsert biomed device');
+    expect(device.body.data.device_code).toBe('TEST-VENT-001');
+
+    const evaluated = await admin.post('/api/v1/admin/clinical-ai/biomed-devices/evaluate').send({
+      device_code: 'TEST-VENT-001',
+    });
+    expectStatus(evaluated, 201, 'evaluate device maintenance');
+    expect(evaluated.body.data.module_key).toBe('biomed_device_maintenance');
+    expect(['high', 'critical']).toContain(evaluated.body.data.draft.risk_band);
+
+    const listed = await admin.get('/api/v1/admin/clinical-ai/biomed-devices/predictions');
+    expectStatus(listed, 200, 'list maintenance predictions');
+    expect(listed.body.data.predictions.length).toBeGreaterThan(0);
+
+    const accepted = await admin.patch(`/api/v1/admin/clinical-ai/biomed-devices/predictions/${evaluated.body.data.prediction_id}`).send({
+      decision: 'accepted',
+      note: 'Scheduled service [test]',
+    });
+    expectStatus(accepted, 200, 'accept maintenance prediction');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/biomed_device_maintenance').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/biomed-devices/evaluate').send({ device_code: 'TEST-VENT-001' });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('detects cybersecurity anomalies and gates by module', async () => {
+    await enableModule('cybersecurity_anomaly_detector');
+
+    // Impossible travel login anomaly
+    const nowMs = Date.now();
+    const result = await admin.post('/api/v1/admin/clinical-ai/security-anomalies/record').send({
+      subject_type: 'user_login',
+      subject_id: ADMIN_UID,
+      inputs: {
+        recentLogins: [
+          { timestamp: new Date(nowMs - 2 * 60 * 1000).toISOString(), ip: '1.1.1.1', country: 'US', city: 'New York', lat: 40.71, lng: -74.00 },
+          { timestamp: new Date(nowMs).toISOString(), ip: '2.2.2.2', country: 'IN', city: 'Mumbai', lat: 19.07, lng: 72.87 },
+        ],
+      },
+      context: { user_agent: 'test-agent', hour_of_day: 3 },
+    });
+    expectStatus(result, 201, 'record impossible-travel anomaly');
+    expect(result.body.data.module_key).toBe('cybersecurity_anomaly_detector');
+    // Single high-severity signal (IMPOSSIBLE_TRAVEL = +25) lands in medium band (>=20)
+    expect(['medium', 'high', 'critical']).toContain(result.body.data.draft.severity);
+    expect(['impossible_login', 'brute_force', 'lateral_movement']).toContain(result.body.data.draft.anomaly_category);
+
+    const listed = await admin.get('/api/v1/admin/clinical-ai/security-anomalies?severity=high');
+    expectStatus(listed, 200, 'list security anomalies');
+    // not asserting length — anomalies may be categorized differently
+
+    const resolved = await admin.patch(`/api/v1/admin/clinical-ai/security-anomalies/${result.body.data.anomaly_id}`).send({
+      decision: 'investigating',
+      note: 'Security officer paged [test]',
+    });
+    expectStatus(resolved, 200, 'investigating security anomaly');
+    expect(resolved.body.data.reviewer_decision).toBe('investigating');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/cybersecurity_anomaly_detector').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/security-anomalies/record').send({
+      subject_type: 'user_login',
+      subject_id: ADMIN_UID,
+      inputs: {},
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('evaluates PGx advisories against patient genotypes and gates by module', async () => {
+    await enableModule('pharmacogenomics_support');
+
+    // Seed a CYP2D6 ultra-rapid metabolizer genotype
+    const genotype = await admin.post('/api/v1/admin/clinical-ai/pgx/genotypes').send({
+      patient_uid: PATIENT_UID,
+      gene: 'CYP2D6',
+      phenotype: 'ultra_rapid_metabolizer',
+      genotype_detail: '*1/*1xN',
+      source: 'lab_report',
+      tested_at: '2025-06-01',
+      verified: true,
+    });
+    expectStatus(genotype, 201, 'upsert genotype');
+
+    // Codeine + ultra-rapid → contraindicated
+    const advisory = await admin.post('/api/v1/admin/clinical-ai/pgx/advisories/evaluate').send({
+      patient_uid: PATIENT_UID,
+      medication_name: 'Codeine',
+    });
+    expectStatus(advisory, 201, 'PGx advisory for codeine');
+    expect(advisory.body.data.module_key).toBe('pharmacogenomics_support');
+    expect(advisory.body.data.draft.advisory_category).toBe('contraindicated');
+    expect(advisory.body.data.draft.severity).toBe('critical');
+
+    // Paracetamol has no PGx consideration → no_action
+    const noAction = await admin.post('/api/v1/admin/clinical-ai/pgx/advisories/evaluate').send({
+      patient_uid: PATIENT_UID,
+      medication_name: 'Paracetamol',
+    });
+    expectStatus(noAction, 201, 'PGx no-action for paracetamol');
+    expect(noAction.body.data.draft.advisory_category).toBe('no_action');
+
+    const listed = await admin.get(`/api/v1/admin/clinical-ai/pgx/advisories?patient_uid=${PATIENT_UID}`);
+    expectStatus(listed, 200, 'list PGx advisories');
+    expect(listed.body.data.advisories.length).toBeGreaterThanOrEqual(2);
+
+    const accepted = await admin.patch(`/api/v1/admin/clinical-ai/pgx/advisories/${advisory.body.data.advisory_id}`).send({
+      decision: 'accepted',
+      note: 'Switched to paracetamol + NSAIDs [test]',
+    });
+    expectStatus(accepted, 200, 'accept PGx advisory');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/pharmacogenomics_support').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/pgx/advisories/evaluate').send({
+      patient_uid: PATIENT_UID,
+      medication_name: 'Codeine',
     });
     expect(blocked.statusCode).toBe(403);
   });
