@@ -1,6 +1,6 @@
 # VH Health AI Feature Tracker
 
-Last verified: 2026-04-23
+Last verified: 2026-04-23 (teach-back v1 shipped)
 
 This tracker records the 40 future-proofing AI features proposed for VH Health and maps each one to the current repo state. Update this file whenever a feature graduates from "Not started" to "Partial" or from "Partial" to "Implemented v1".
 
@@ -12,10 +12,10 @@ Status definitions:
 
 Current count:
 
-- Implemented v1: 4 / 40
+- Implemented v1: 5 / 40
 - Partial: 20 / 40
-- Not started: 16 / 40
-- Remaining to fully implement: 36 / 40
+- Not started: 15 / 40
+- Remaining to fully implement: 35 / 40
 
 | # | Feature | Status | Current repo state | Next build unit |
 |---:|---|---|---|---|
@@ -24,7 +24,7 @@ Current count:
 | 3 | Clinical Task Extractor | Implemented v1 | `clinical_task_extractor`, `clinicalTaskExtractorService.js`, `clinical_ai_task_candidates`, Admin/IT API, and dashboard review queue exist. V1 creates cited candidates and never auto-assigns work. | Add clinician-facing queue and optional post-review task assignment integration. |
 | 4 | Infection-Control Surveillance | Implemented v1 | `infection_control_sentinel`, `infectionControlSentinelService.js`, admin audit/review panel. | Add continuous realtime ward surveillance and cluster/outbreak automation. |
 | 5 | Antimicrobial Stewardship Assistant | Implemented v1 | `antimicrobial_stewardship`, `antimicrobialStewardshipService.js`, `clinical_ai_antimicrobial_reviews`, Admin/IT API, and dashboard review queue exist. V1 reviews cultures, duration, renal dosing, IV-to-oral switch, duplicate spectrum, de-escalation, and allergy conflicts without changing orders. | Add continuous stewardship rounds, local antibiogram integration, and policy-pack customization. |
-| 6 | Patient Teach-Back / Comprehension AI | Not started | Aftercare instructions and translations exist, but no comprehension loop. | Add patient quiz/chat flow with misunderstanding flags and review queue. |
+| 6 | Patient Teach-Back / Comprehension AI | Implemented v1 | `patient_teach_back_comprehension`, `patientTeachBackService.js`, `clinical_ai_teach_back_sessions`, EMR + Admin/IT APIs, and dashboard review queue exist. V1 generates category-covered questions (medications, warning signs, follow-up, diet/activity, wound care, emergency escalation) in the patient's language, scores answers, and flags misunderstandings for clinician review without altering care plans. | Add patient-facing chat/IVR delivery, longitudinal comprehension tracking across admissions, and accepted-draft-only gating. |
 | 7 | Consent-Aware Family Update Generator | Partial | Consent/PHI sentinel and patient communication translation exist. | Add caregiver/family update draft module gated by consent scope. |
 | 8 | Appeal Letter Generator for Denied Claims | Partial | Denial-risk assist and prior authorization generator exist. | Add denial appeal packet and letter generator. |
 | 9 | Payer Contract Variance / Underpayment AI | Not started | No contract variance or payment reconciliation AI workflow found. | Add contract/tariff ingestion plus expected-vs-paid variance engine. |
@@ -62,9 +62,8 @@ Current count:
 
 Recommended next build order:
 
-1. Patient Teach-Back / Comprehension AI
-2. Appeal Letter Generator for Denied Claims
-3. AI ROI Dashboard
-4. Nursing Ambient Documentation
-5. Consent-Aware Family Update Generator
-6. Payer Contract Variance / Underpayment AI
+1. Appeal Letter Generator for Denied Claims
+2. AI ROI Dashboard
+3. Nursing Ambient Documentation
+4. Consent-Aware Family Update Generator
+5. Payer Contract Variance / Underpayment AI

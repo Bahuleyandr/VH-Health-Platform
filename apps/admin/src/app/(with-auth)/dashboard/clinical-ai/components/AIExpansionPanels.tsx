@@ -35,6 +35,7 @@ import {
   decideClinicalAiTask,
   decideInfectionControlAudit,
   decideAntimicrobialStewardshipReview,
+  decideTeachBackSession,
   decidePrivacySentinelAudit,
   decideSepsisBundleAudit,
   concludePromptExperiment,
@@ -51,6 +52,7 @@ import {
   extractClinicalAiTasks,
   generateInfectionControlAudit,
   generateAntimicrobialStewardshipReview,
+  generateTeachBackSession,
   generatePriorAuthorization,
   generateRcaDraft,
   generateRosterSuggestion,
@@ -73,6 +75,7 @@ import {
   listImagingFindings,
   listInfectionControlAudits,
   listAntimicrobialStewardshipReviews,
+  listTeachBackSessions,
   listPolypharmacyReviews,
   listPrivacySentinelAudits,
   listPriorAuthorizations,
@@ -104,6 +107,10 @@ import {
   type AntimicrobialStewardshipDecision,
   type AntimicrobialStewardshipReview,
   type AntimicrobialStewardshipRiskBand,
+  type TeachBackDecision,
+  type TeachBackLanguage,
+  type TeachBackSession,
+  type TeachBackStatus,
   type BedDischargeForecast,
   type CanaryCase,
   type CanaryRunSummary,
@@ -289,6 +296,23 @@ const PRIVACY_RISK_BANDS: PrivacySentinelRiskBand[] = ["critical", "high", "medi
 const ABNORMAL_TRIAGE_BANDS: AbnormalTriageBand[] = ["critical", "urgent", "watch", "routine"];
 const INFECTION_RISK_BANDS: InfectionControlRiskBand[] = ["critical", "high", "medium", "low"];
 const ANTIMICROBIAL_RISK_BANDS: AntimicrobialStewardshipRiskBand[] = ["critical", "high", "medium", "low"];
+const TEACH_BACK_STATUSES: TeachBackStatus[] = ["draft", "in_progress", "completed", "needs_clinician_review"];
+const TEACH_BACK_LANGUAGES: TeachBackLanguage[] = ["en", "hi", "ta", "te", "ml", "mr", "bn", "kn"];
+const TEACH_BACK_DECISIONS: TeachBackDecision[] = ["pending", "accepted", "deferred", "rejected"];
+
+function teachBackStatusClass(status: string) {
+  switch (status) {
+    case "needs_clinician_review":
+      return "border-orange-200 bg-orange-50 text-orange-800";
+    case "in_progress":
+      return "border-blue-200 bg-blue-50 text-blue-800";
+    case "completed":
+      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+    case "draft":
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-700";
+  }
+}
 const SEPSIS_RISK_BANDS: SepsisBundleRiskBand[] = ["critical", "high", "medium", "low"];
 
 function chartRiskClass(risk: string) {
@@ -1883,6 +1907,264 @@ export function AntimicrobialStewardshipPanel() {
                         {(row.source_citations || []).length} citations / {(row.safety_flags || []).length} safety flags
                       </div>
                     </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${documentStatusClass(row.reviewer_decision)}`}>
+                      {row.reviewer_decision}
+                    </span>
+                    {row.reviewer_decision === "pending" ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <button
+                          onClick={() => decide.mutate({ id: row.id, decision: "accepted" })}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Defer reason") ?? undefined;
+                            decide.mutate({ id: row.id, decision: "deferred", note });
+                          }}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                        >
+                          Defer
+                        </button>
+                        <button
+                          onClick={() => {
+                            const note = window.prompt("Reject reason") ?? undefined;
+                            decide.mutate({ id: row.id, decision: "rejected", note });
+                          }}
+                          disabled={decide.isPending}
+                          className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-1 text-xs text-muted-foreground">{fmt(row.reviewed_at)}</div>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Patient Teach-Back / Comprehension AI
+// ---------------------------------------------------------------------------
+export function PatientTeachBackPanel() {
+  const queryClient = useQueryClient();
+  const [admissionId, setAdmissionId] = useState("");
+  const [sourceGenerationId, setSourceGenerationId] = useState("");
+  const [language, setLanguage] = useState<TeachBackLanguage>("en");
+  const [admissionFilter, setAdmissionFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<TeachBackStatus | "">("");
+  const [decisionFilter, setDecisionFilter] = useState<TeachBackDecision | "">("pending");
+
+  const sessions = useQuery({
+    queryKey: ["clinical-ai", "teach-back", admissionFilter, statusFilter, decisionFilter],
+    queryFn: () =>
+      listTeachBackSessions({
+        admissionId: admissionFilter.trim() || undefined,
+        status: statusFilter || undefined,
+        decision: decisionFilter || undefined,
+        limit: 50,
+      }),
+  });
+  const generate = useMutation({
+    mutationFn: () =>
+      generateTeachBackSession({
+        admissionId: admissionId.trim() ? Number.parseInt(admissionId.trim(), 10) : undefined,
+        sourceGenerationId: sourceGenerationId.trim() ? Number.parseInt(sourceGenerationId.trim(), 10) : undefined,
+        language,
+      }),
+    onSuccess: (result) => {
+      toast.success(`Teach-back session created: ${result.draft.questions.length} question(s)`);
+      setAdmissionId("");
+      setSourceGenerationId("");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "teach-back"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "usage"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Teach-back generation failed"),
+  });
+  const decide = useMutation({
+    mutationFn: ({ id, decision, note }: { id: number; decision: Exclude<TeachBackDecision, "pending">; note?: string }) =>
+      decideTeachBackSession(id, decision, note),
+    onSuccess: () => {
+      toast.success("Teach-back session updated");
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "teach-back"] });
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Teach-back decision failed"),
+  });
+
+  const rows: TeachBackSession[] = sessions.data?.sessions ?? [];
+  const needsReview = rows.filter((row) => row.status === "needs_clinician_review").length;
+  const pending = rows.filter((row) => row.reviewer_decision === "pending").length;
+  const averageScore = rows.length
+    ? Math.round(rows.reduce((sum, row) => sum + (row.comprehension_score || 0), 0) / rows.length)
+    : 0;
+  const canGenerate = Boolean(admissionId.trim() || sourceGenerationId.trim());
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <ListChecks className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Patient Teach-Back / Comprehension</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={admissionFilter}
+            onChange={(event) => setAdmissionFilter(event.target.value)}
+            placeholder="admission"
+            inputMode="numeric"
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          />
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value as TeachBackStatus | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All status</option>
+            {TEACH_BACK_STATUSES.map((status) => (
+              <option key={status} value={status}>{status}</option>
+            ))}
+          </select>
+          <select
+            value={decisionFilter}
+            onChange={(event) => setDecisionFilter(event.target.value as TeachBackDecision | "")}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">All review</option>
+            {TEACH_BACK_DECISIONS.map((decision) => (
+              <option key={decision} value={decision}>{decision}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Average comprehension</div>
+          <div className="mt-1 text-2xl font-semibold">{averageScore}%</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Needs clinician review</div>
+          <div className="mt-1 text-2xl font-semibold text-orange-700">{needsReview}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-sm text-muted-foreground">Pending review</div>
+          <div className="mt-1 text-2xl font-semibold">{pending}</div>
+        </div>
+      </div>
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto_auto] md:items-end">
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Admission ID</span>
+            <input
+              value={admissionId}
+              onChange={(event) => setAdmissionId(event.target.value)}
+              inputMode="numeric"
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Source aftercare generation ID (optional)</span>
+            <input
+              value={sourceGenerationId}
+              onChange={(event) => setSourceGenerationId(event.target.value)}
+              inputMode="numeric"
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Language</span>
+            <select
+              value={language}
+              onChange={(event) => setLanguage(event.target.value as TeachBackLanguage)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            >
+              {TEACH_BACK_LANGUAGES.map((lang) => (
+                <option key={lang} value={lang}>{lang}</option>
+              ))}
+            </select>
+          </label>
+          <button
+            onClick={() => generate.mutate()}
+            disabled={generate.isPending || !canGenerate}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+          >
+            <PlayCircle className="h-4 w-4" />
+            {generate.isPending ? "Generating..." : "Generate Session"}
+          </button>
+        </div>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Patient / Admission</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Score</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Language</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Misunderstanding</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Review</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
+                  No teach-back sessions found
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">admission #{row.admission_id ?? "-"}</div>
+                    <div className="font-mono text-xs text-muted-foreground">{row.patient_uid || "-"}</div>
+                    {row.patient_name ? <div className="text-xs text-muted-foreground">{row.patient_name}</div> : null}
+                    <div className="font-mono text-xs text-muted-foreground">session #{row.id}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-lg font-semibold">{row.comprehension_score}%</div>
+                    <div className="text-xs text-muted-foreground">{row.questions?.length || 0} question(s)</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs font-medium">
+                      {row.language}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="max-w-xl space-y-1 text-xs">
+                      {(row.misunderstanding_flags || []).slice(0, 4).map((flag) => (
+                        <div key={`${row.id}-${flag.question_id}`} className="flex flex-wrap items-center gap-1.5">
+                          <span className={`rounded-full border px-2 py-0.5 font-medium ${severityBadgeClass(flag.severity)}`}>
+                            {flag.severity}
+                          </span>
+                          <span>{flag.category}: {flag.message}</span>
+                        </div>
+                      ))}
+                      {(row.misunderstanding_flags || []).length > 4 ? (
+                        <div className="text-muted-foreground">+{row.misunderstanding_flags.length - 4} more</div>
+                      ) : null}
+                      <div className="text-muted-foreground">
+                        {(row.source_citations || []).length} citations / {(row.safety_flags || []).length} safety flags
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${teachBackStatusClass(row.status)}`}>
+                      {row.status}
+                    </span>
                   </td>
                   <td className="px-4 py-3">
                     <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${documentStatusClass(row.reviewer_decision)}`}>

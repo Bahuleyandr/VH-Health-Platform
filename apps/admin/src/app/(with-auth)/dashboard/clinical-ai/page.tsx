@@ -43,6 +43,7 @@ import {
   AdmissionAiDraftWorkbenchPanel,
   AmbientDocumentationPanel,
   AntimicrobialStewardshipPanel,
+  PatientTeachBackPanel,
   ChartCompletionPanel,
   ChargeCapturePanel,
   ClinicalTaskExtractorPanel,
@@ -994,6 +995,8 @@ export default function ClinicalAiGovernancePage() {
       <InfectionControlSentinelPanel />
 
       <AntimicrobialStewardshipPanel />
+
+      <PatientTeachBackPanel />
 
       <SepsisBundleSentinelPanel />
 
