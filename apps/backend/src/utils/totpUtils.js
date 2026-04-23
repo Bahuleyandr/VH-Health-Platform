@@ -6,8 +6,8 @@ import crypto from 'crypto';
 import { verify, generateSecret as libGenerateSecret, generateURI } from 'otplib';
 import QRCode from 'qrcode';
 
-// Encryption key for TOTP secrets at rest (separate from JWT_SECRET)
-const TOTP_ENCRYPTION_KEY = process.env.TOTP_ENCRYPTION_KEY || process.env.JWT_SECRET;
+// Encryption key for TOTP secrets at rest (mandatory per validateEnv.js)
+const TOTP_ENCRYPTION_KEY = process.env.TOTP_ENCRYPTION_KEY;
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
 

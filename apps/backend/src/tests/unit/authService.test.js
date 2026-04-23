@@ -17,10 +17,12 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 // Mock jwtUtils
 const mockGenerateToken = jest.fn().mockReturnValue('mock-jwt-token');
 const mockVerifyToken = jest.fn();
+const mockIssueSetupToken = jest.fn().mockReturnValue('mock-setup-token');
 jest.unstable_mockModule('../../utils/jwtUtils.js', () => ({
   generateToken: mockGenerateToken,
   verifyToken: mockVerifyToken,
   verifyTokenAllowExpired: mockVerifyToken,
+  issueSetupToken: mockIssueSetupToken,
 }));
 
 // Mock phoneUtils — pass-through normalizePhone for predictability

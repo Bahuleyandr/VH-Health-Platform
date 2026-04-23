@@ -125,16 +125,64 @@ export default async function jwtMiddleware(req, res, next) {
   // resolve/default downstream if the claim is missing.
   const tenantId = decoded.tenant_id || decoded.tenantId || null;
 
+  // Narrow-scope tokens (e.g. first-time MFA enrollment) must never be
+  // mistaken for full-access admin tokens. We preserve the original role on
+  // `rawRole` so the MFA setup controller can persist the correct record
+  // without relying on the normalized ADMIN label.
+  const scope = decoded.scope === 'mfa_setup' ? 'mfa_setup' : 'full';
+  const rawRole = String(roleRaw || '').trim().toUpperCase();
+
   req.user = {
     uid: String(uidRaw),
     role,
+    rawRole,
     roles: rolesAllowed.length ? rolesAllowed : undefined,
     phone,
     email,
     id: idInt,
     tenant_id: tenantId,
+    scope,
   };
 
-  logger.info(`JWT OK: uid=${req.user.uid} role=${req.user.role}`);
+  logger.info(`JWT OK: uid=${req.user.uid} role=${req.user.role} scope=${scope}`);
+  return next();
+}
+
+/**
+ * Gate for the /mfa/setup-enroll + /mfa/setup-confirm endpoints.
+ *
+ * Pairs with `issueSetupToken()` — only tokens carrying `scope: 'mfa_setup'`
+ * are accepted. Full-access tokens are rejected with 403 so that an admin
+ * with an already-valid JWT cannot accidentally re-run the enrollment flow
+ * through these endpoints (they should use /mfa/enroll instead).
+ */
+export function requireSetupScope(req, res, next) {
+  if (req.user?.scope !== 'mfa_setup') {
+    return res.status(403).json({
+      success: false,
+      message: 'Setup token required',
+      code: 'SETUP_SCOPE_REQUIRED',
+    });
+  }
+  return next();
+}
+
+/**
+ * Rejects narrow-scope tokens (e.g. `scope: 'mfa_setup'`) on any protected
+ * endpoint. Apply after `jwtAuth` wherever a router mounts authenticated
+ * routes that are NOT part of the first-time-MFA-enrollment flow.
+ *
+ * Narrow-scope tokens carry `scope !== 'full'`; their only legitimate use is
+ * the two setup routes gated by `requireSetupScope`. If `req.user.scope` is
+ * unset or equals 'full', this is a pass-through.
+ */
+export function enforceFullScope(req, res, next) {
+  if (req.user?.scope && req.user.scope !== 'full') {
+    return res.status(403).json({
+      success: false,
+      error: 'Insufficient token scope',
+      code: 'INSUFFICIENT_SCOPE',
+    });
+  }
   return next();
 }

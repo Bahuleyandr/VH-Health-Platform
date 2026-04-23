@@ -55,7 +55,7 @@ describe("adminLogin", () => {
     const result = await adminLogin(TEST_ADMIN_USERNAME, TEST_LOGIN_SECRET);
     expect(result.success).toBe(true);
     expect(result.requiresTwoFactor).toBe(false);
-    if (!result.requiresTwoFactor) {
+    if (!result.requiresTwoFactor && !result.requiresMfaSetup) {
       expect(result.token).toBe("jwt-abc");
       expect(result.admin?.username).toBe(TEST_ADMIN_USERNAME);
     }

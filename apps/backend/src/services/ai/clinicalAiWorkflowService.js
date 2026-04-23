@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
+import db from '../../config/database.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { collectAdmissionClinicalContext } from '../emr/clinicalTimelineService.js';
@@ -1013,14 +1014,15 @@ export async function getBedForecast({ ward = null, windowHours = 24, tenantId =
     patients,
     generated_at: new Date().toISOString(),
   };
-  await prisma.$queryRawUnsafe(
+  // RLS POC — persists forecast under the tenant's RLS scope. The WITH CHECK
+  // clause on the tenant_isolation policy enforces that tenant_id in the row
+  // matches the GUC uuid set by queryAsTenant.
+  await db.queryAsTenant(
     `INSERT INTO clinical_ai_bed_forecasts
        (tenant_id, ward, forecast_window_hours, forecast, created_at)
      VALUES ($1::uuid, $2, $3, $4::jsonb, NOW())`,
-    tid,
-    ward || null,
-    safeHours,
-    JSON.stringify(forecast)
+    [tid, ward || null, safeHours, JSON.stringify(forecast)],
+    tid
   );
   return forecast;
 }
@@ -1055,14 +1057,15 @@ export async function getPharmacyStockoutForecast({ days = 7, tenantId = null } 
     generated_at: new Date().toISOString(),
   };
   for (const item of highUsageMeds.slice(0, 20)) {
-    await prisma.$queryRawUnsafe(
+    // RLS POC — each write runs under the tenant GUC; RLS WITH CHECK enforces
+    // tenant_id matches the GUC uuid, so a misconfigured caller cannot smuggle
+    // rows into another tenant.
+    await db.queryAsTenant(
       `INSERT INTO clinical_ai_pharmacy_forecasts
          (tenant_id, medication_name, risk_level, forecast, created_at)
        VALUES ($1::uuid, $2, $3, $4::jsonb, NOW())`,
-      tid,
-      item.medication_name,
-      item.risk_level,
-      JSON.stringify(item)
+      [tid, item.medication_name, item.risk_level, JSON.stringify(item)],
+      tid
     );
   }
   return forecast;

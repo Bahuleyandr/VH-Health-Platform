@@ -96,6 +96,34 @@ export function verifyToken(token) {
 verifyToken.lastError = null;
 
 /**
+ * Issue a short-lived, narrow-scope JWT for first-time MFA enrollment.
+ *
+ * Returned only when a SUPER_ADMIN account without `totp_enabled` attempts to
+ * log in while REQUIRE_MFA_FOR_SUPER_ADMIN is on. The token carries
+ * `scope: 'mfa_setup'` and is accepted only by the dedicated setup-enroll +
+ * setup-confirm routes; `requireSetupScope` rejects any other use, and the
+ * standard RBAC layer (see rbacMiddleware) treats non-'full' scopes as
+ * insufficient for normal admin endpoints.
+ *
+ * @param {{ uid?: string, id?: number|string, role: string, username?: string }} admin
+ * @returns {string} signed JWT (expires in 10 minutes)
+ */
+export function issueSetupToken(admin) {
+  const sub = String(admin.uid ?? admin.id ?? '');
+  return jwt.sign(
+    {
+      jti: crypto.randomUUID(),
+      sub,
+      uid: sub,
+      role: String(admin.role || '').toUpperCase(),
+      scope: 'mfa_setup',
+    },
+    JWT_SECRET,
+    { expiresIn: '10m' }
+  );
+}
+
+/**
  * Verifies a JWT token's signature only — ignores expiry.
  *
  * Use ONLY for the refresh-token flow: an access token that has just

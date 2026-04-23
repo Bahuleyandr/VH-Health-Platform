@@ -1,0 +1,40 @@
+# argocd/applications/platform.yaml — Argo CD Application for the
+# cluster-wide platform stack (Postgres, Redis, MinIO, ingress, monitoring).
+# Source path is the prod overlay; individual workloads pin their own
+# namespaces via the base manifests.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vhhealth-platform
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  project: vhhealth
+  source:
+    repoURL: https://github.com/Bahuleyandr/VH-Health-Platform
+    targetRevision: HEAD
+    path: infra/kubernetes/overlays/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+  revisionHistoryLimit: 5

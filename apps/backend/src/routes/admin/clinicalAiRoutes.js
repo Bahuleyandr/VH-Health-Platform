@@ -1,6 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import prisma from '../../lib/prisma.js';
+import db from '../../config/database.js';
 import logger from '../../logging/logger.js';
 import { validateFileContent } from '../../middleware/uploadMiddleware.js';
 import { error, success } from '../../utils/responseHelper.js';
@@ -1066,7 +1067,10 @@ router.get('/generations', async (req, res, next) => {
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    const rows = await prisma.$queryRawUnsafe(
+    // RLS POC — wraps the read in a tenant-scoped transaction. The explicit
+    // `tenant_id = $1::uuid` above remains as belt-and-braces filtering; the
+    // RLS policy from migration 075 is the defense-in-depth layer.
+    const result = await db.queryAsTenant(
       `SELECT g.id, g.patient_uid, u.name AS patient_name, g.admission_id,
               g.task_type, g.module_key, g.provider, g.model, g.prompt_version, g.source_hash,
               g.status, g.used_ai, g.safety_flags, g.generated_by, g.reviewed_by,
@@ -1078,10 +1082,10 @@ router.get('/generations', async (req, res, next) => {
        ${where}
        ORDER BY g.created_at DESC
        LIMIT $${idx} OFFSET $${idx + 1}`,
-      ...params,
-      limit,
-      offset
+      [...params, limit, offset],
+      req.tenantId
     );
+    const rows = result.rows;
 
     return success(res, { generations: rows, count: rows.length }, 'Clinical AI generations retrieved');
   } catch (err) {
@@ -1129,7 +1133,8 @@ router.post('/self-healing/runs', async (req, res, next) => {
 router.get('/safety-flags', async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 500);
-    const rows = await prisma.$queryRawUnsafe(
+    // RLS POC — transactionally scopes the lateral join to the caller's tenant.
+    const result = await db.queryAsTenant(
       `SELECT g.id AS generation_id, g.patient_uid, u.name AS patient_name,
               g.admission_id, g.task_type, g.module_key, g.status,
               flag->>'severity' AS severity,
@@ -1149,9 +1154,10 @@ router.get('/safety-flags', async (req, res, next) => {
          END,
          g.created_at DESC
        LIMIT $2`,
-      req.tenantId,
-      limit
+      [req.tenantId, limit],
+      req.tenantId
     );
+    const rows = result.rows;
 
     return success(res, { flags: rows, count: rows.length }, 'Clinical AI safety flags retrieved');
   } catch (err) {
@@ -5438,19 +5444,24 @@ router.get('/longitudinal-risk', async (req, res, next) => {
 router.get('/dead-letter', async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
-    const rows = await prisma.$queryRawUnsafe(
+    // RLS POC — platform admins (SUPER_ADMIN) can read dead-letter across tenants.
+    // Everyone else is scoped to their own tenant by the RLS policy.
+    const isSuperAdmin = normalizeRole(req.user?.role) === 'SUPER_ADMIN';
+    const result = await db.queryAsTenant(
       `SELECT g.id, g.patient_uid, u.name AS patient_name, g.admission_id,
               g.task_type, g.module_key, g.provider, g.model, g.status,
               g.safety_flags, g.metadata, g.created_at
        FROM clinical_ai_generations g
        LEFT JOIN users u ON u.uid = g.patient_uid
-       WHERE g.tenant_id = $1::uuid
+       WHERE ($1::uuid IS NULL OR g.tenant_id = $1::uuid)
          AND g.status = 'failed'
        ORDER BY g.created_at DESC
        LIMIT $2`,
+      [isSuperAdmin ? null : req.tenantId, limit],
       req.tenantId,
-      limit
+      { superAdmin: isSuperAdmin }
     );
+    const rows = result.rows;
     return success(res, { generations: rows, count: rows.length }, 'Clinical AI dead-letter queue retrieved');
   } catch (err) {
     return next(err);

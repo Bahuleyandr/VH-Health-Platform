@@ -415,6 +415,27 @@ After steps 3–7 are complete:
 - [ ] A test admin login via `https://admin.vhhealth.app` succeeds
 - [ ] A file upload via the uploads endpoint lands in R2 (`wrangler r2 object list vh-health-records`)
 
+### First SUPER_ADMIN login
+
+With `REQUIRE_MFA_FOR_SUPER_ADMIN=true` (the prod default in
+`validateEnv.js`), the very first login for any `SUPER_ADMIN` account does
+NOT return a JWT. Instead the login response is `mfa_setup_required` and
+carries a short-lived setup token. The admin portal renders a first-time
+enrollment panel that:
+
+1. Shows a QR code — scan it with Google Authenticator, Authy, 1Password,
+   or Bitwarden.
+2. Displays 10 one-time backup codes — **save them to a secure vault now;
+   they are shown exactly once** and are the only recovery path if the
+   authenticator device is lost.
+3. Prompts for the 6-digit authenticator code to finalise enrollment.
+
+On confirmation the JWT cookie is set and the admin is taken to the
+dashboard. To turn enforcement off temporarily (e.g. for disaster recovery
+when the SUPER_ADMIN is locked out), set `REQUIRE_MFA_FOR_SUPER_ADMIN=false`
+in the backend SealedSecret and roll the deployment; the next login then
+follows the normal non-MFA path. Revert the flag after recovery.
+
 ---
 
 ## 9. Day-2 operations

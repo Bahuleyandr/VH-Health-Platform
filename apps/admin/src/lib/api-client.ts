@@ -145,14 +145,24 @@ export type AdminLoginResult =
   | {
       success: true;
       requiresTwoFactor: false;
+      requiresMfaSetup: false;
       token: string;
       admin?: AdminUser;
     }
   | {
       success: true;
       requiresTwoFactor: true;
+      requiresMfaSetup: false;
       challengeToken: string;
       expiresAt?: string;
+      admin?: Partial<AdminUser>;
+    }
+  | {
+      success: true;
+      requiresTwoFactor: false;
+      requiresMfaSetup: true;
+      setupToken: string;
+      expiresIn: number;
       admin?: Partial<AdminUser>;
     };
 
@@ -183,8 +193,22 @@ export async function adminLogin(
     return {
       success: true,
       requiresTwoFactor: true,
+      requiresMfaSetup: false,
       challengeToken: payload.challengeToken as string,
       expiresAt: payload.expiresAt as string | undefined,
+      admin: payload.admin as Partial<AdminUser> | undefined,
+    };
+  }
+
+  // First-time MFA setup required — caller must complete enrollment via
+  // adminMfaSetupEnroll() + adminMfaSetupConfirm() before accessing the dashboard.
+  if (payload?.requiresMfaSetup && typeof payload?.setupToken === "string") {
+    return {
+      success: true,
+      requiresTwoFactor: false,
+      requiresMfaSetup: true,
+      setupToken: payload.setupToken as string,
+      expiresIn: typeof payload.expiresIn === "number" ? payload.expiresIn : 600,
       admin: payload.admin as Partial<AdminUser> | undefined,
     };
   }
@@ -198,7 +222,71 @@ export async function adminLogin(
 
   if (admin) cacheAdminUser(admin);
 
-  return { success: true, requiresTwoFactor: false, token, admin };
+  return {
+    success: true,
+    requiresTwoFactor: false,
+    requiresMfaSetup: false,
+    token,
+    admin,
+  };
+}
+
+/**
+ * First leg of first-time MFA enrollment. Returns the QR data URL, otpauth
+ * URL, encryptedSecret, and plaintext backup codes — caller must store the
+ * backup codes and echo the encryptedSecret back to [adminMfaSetupConfirm].
+ */
+export async function adminMfaSetupEnroll(params: {
+  setupToken: string;
+}): Promise<{
+  qrCodeDataUrl: string;
+  otpauthUrl: string;
+  backupCodes: string[];
+  encryptedSecret: string;
+}> {
+  const response = await fetch("/api/login/mfa/setup-enroll", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ setupToken: params.setupToken }),
+  });
+  const json = await response.json();
+  if (!response.ok) {
+    throw new Error(json?.message ?? "Failed to start MFA setup");
+  }
+  const payload = json?.data ?? json;
+  const { qrCodeDataUrl, otpauthUrl, backupCodes, encryptedSecret } = payload ?? {};
+  if (!qrCodeDataUrl || !encryptedSecret || !Array.isArray(backupCodes)) {
+    throw new Error("Incomplete MFA setup response");
+  }
+  return { qrCodeDataUrl, otpauthUrl, backupCodes, encryptedSecret };
+}
+
+/**
+ * Second leg of first-time MFA enrollment. On success the httpOnly auth
+ * cookie is set by the /api/login/mfa/setup-confirm route and the caller is
+ * authenticated like a normal admin session.
+ */
+export async function adminMfaSetupConfirm(params: {
+  setupToken: string;
+  code: string;
+  encryptedSecret: string;
+  backupCodes: string[];
+}): Promise<{ token: string; admin?: AdminUser; success: true }> {
+  const response = await fetch("/api/login/mfa/setup-confirm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  const json = (await response.json()) as LoginResponse;
+  if (!response.ok) {
+    throw new Error(json?.message ?? "Failed to complete MFA setup");
+  }
+  const payload = (json?.data ?? json) as Record<string, unknown>;
+  const token = (payload?.token ?? payload?.accessToken) as string | undefined;
+  const admin = payload?.admin as AdminUser | undefined;
+  if (!token) throw new Error("No token received after MFA setup");
+  if (admin) cacheAdminUser(admin);
+  return { success: true, token, admin };
 }
 
 /**

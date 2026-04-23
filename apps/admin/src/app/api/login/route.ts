@@ -108,6 +108,13 @@ async function proxyLogin(
       return NextResponse.json(data, { status: 200 });
     }
 
+    // First-time MFA setup passthrough — SUPER_ADMIN accounts without TOTP
+    // receive a short-lived setup token. Forward it so the client can render
+    // the enrollment panel. No cookie is set yet.
+    if (payload?.requiresMfaSetup && payload?.setupToken) {
+      return NextResponse.json(data, { status: 200 });
+    }
+
     // Extract token from backend response envelope
     const token =
       data?.data?.token ??

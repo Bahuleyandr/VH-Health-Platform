@@ -21,6 +21,26 @@ export default function rbacMiddleware(allowedRoles = []) {
         return res.status(401).json({ success: false, error: 'Unauthorized' });
       }
 
+      // Narrow-scope tokens (e.g. mfa_setup) must never satisfy role-gated
+      // routes — their only legitimate uses are the first-time-enrollment
+      // endpoints gated by `requireSetupScope`.
+      if (req.user.scope && req.user.scope !== 'full') {
+        logSecurityEvent('INSUFFICIENT_SCOPE', {
+          userId: req.user.uid || req.user.id,
+          userRole: req.user.role,
+          ip: req.ip,
+          userAgent: req.headers?.['user-agent'],
+          path: req.originalUrl,
+          method: req.method,
+          reason: `Scope '${req.user.scope}' cannot access role-gated route`,
+        });
+        return res.status(403).json({
+          success: false,
+          error: 'Insufficient token scope',
+          code: 'INSUFFICIENT_SCOPE',
+        });
+      }
+
       // No restriction applied -> allow
       if (roles.length === 0) return next();
 

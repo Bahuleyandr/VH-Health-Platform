@@ -167,6 +167,9 @@ model admins {
   failed_login_attempts  Int       @default(0)
   last_failed_login      DateTime? @db.Timestamp(6)
   totp_enabled           Boolean   @default(false)
+  totp_secret_encrypted  String?   @db.Text
+  totp_backup_codes      Json?
+  totp_enrolled_at       DateTime? @db.Timestamptz(6)
   password_changed_at    DateTime? @db.Timestamp(6)
   created_at             DateTime  @default(now()) @db.Timestamp(6)
   updated_at             DateTime? @db.Timestamp(6)

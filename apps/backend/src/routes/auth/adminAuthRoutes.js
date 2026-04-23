@@ -7,7 +7,7 @@ import { validationResult, body, oneOf, param } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import { wrapRoutesWithValidation, wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as adminAuthController from '../../controllers/auth/adminAuthController.js';
-import jwtAuth from '../../middleware/jwtMiddleware.js';
+import jwtAuth, { requireSetupScope, enforceFullScope } from '../../middleware/jwtMiddleware.js';
 import { otpRateLimiter, authRateLimiter } from '../../middleware/rateLimitMiddleware.js';
 
 // Use the dedicated admin validators
@@ -94,8 +94,35 @@ wrapRoutesWithValidation(
   }
 );
 
+/* --------- first-time MFA enrollment (setup-scope token auth) ------ */
+// These routes are public-entry but require the short-lived setup token
+// returned by /login when REQUIRE_MFA_FOR_SUPER_ADMIN is on and the
+// SUPER_ADMIN has not yet enrolled. `jwtAuth` verifies signature/expiry;
+// `requireSetupScope` rejects any token without scope='mfa_setup'.
+router.post(
+  '/mfa/setup-enroll',
+  authRateLimiter,
+  jwtAuth,
+  requireSetupScope,
+  adminAuthController.mfaSetupEnroll
+);
+router.post(
+  '/mfa/setup-confirm',
+  authRateLimiter,
+  jwtAuth,
+  requireSetupScope,
+  body('code').matches(/^\d{6}$/).withMessage('6-digit code required'),
+  body('encryptedSecret').isString().notEmpty(),
+  body('backupCodes').isArray({ min: 1 }),
+  handleValidation,
+  adminAuthController.mfaSetupConfirm
+);
+
 /* ------------------------ protected auth routes -------------------- */
 router.use(jwtAuth);
+// Narrow-scope tokens (e.g. mfa_setup) must never reach routes past this
+// point — they're only valid on the /mfa/setup-* endpoints mounted above.
+router.use(enforceFullScope);
 
 wrapRoutesWithValidation(
   router,

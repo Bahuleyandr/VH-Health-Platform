@@ -6,7 +6,7 @@ import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
-import { generateToken, verifyToken, verifyTokenAllowExpired } from '../../utils/jwtUtils.js';
+import { generateToken, issueSetupToken, verifyToken, verifyTokenAllowExpired } from '../../utils/jwtUtils.js';
 import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
@@ -241,6 +241,36 @@ export class AuthService {
         where: { uid: admin.uid },
         data: { last_login: new Date(), failed_login_attempts: 0 },
       });
+
+      // Mandatory-MFA enforcement for SUPER_ADMIN.
+      // When the feature flag is on, a SUPER_ADMIN without TOTP cannot be
+      // issued a full-access JWT — we return a short-lived setup token that
+      // the client exchanges for a JWT via /mfa/setup-enroll + /mfa/setup-confirm.
+      // The flag is on by default in prod; tests pin it to 'false' via jest.setup.cjs.
+      const requireMfa = process.env.REQUIRE_MFA_FOR_SUPER_ADMIN !== 'false';
+      const isSuperAdmin = String(admin.role || '').toUpperCase() === 'SUPER_ADMIN';
+      if (requireMfa && isSuperAdmin && !admin.totp_enabled) {
+        const setupToken = issueSetupToken({
+          uid: admin.uid,
+          role: admin.role,
+          username: admin.username,
+        });
+        logSecurityEvent('MFA_SETUP_REQUIRED', {
+          userId: admin.uid,
+          userName: admin.username,
+          userRole: admin.role,
+        });
+        logger.info('MFA setup required for SUPER_ADMIN login', { adminId: admin.uid });
+        return {
+          requiresMfaSetup: true,
+          setupToken,
+          expiresIn: 600,
+          admin: {
+            uid: admin.uid,
+            username: admin.username,
+          },
+        };
+      }
 
       // 2FA check: if TOTP is enabled, return a challenge instead of a JWT
       if (admin.totp_enabled) {

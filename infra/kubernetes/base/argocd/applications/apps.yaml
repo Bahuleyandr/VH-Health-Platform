@@ -1,0 +1,39 @@
+# argocd/applications/apps.yaml — Argo CD Application for the VH Health
+# workload apps (backend, admin) deployed into the `vhhealth` namespace.
+# Source path is infra/kubernetes/apps; manifests inside set their own ns.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vhhealth-apps
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  project: vhhealth
+  source:
+    repoURL: https://github.com/Bahuleyandr/VH-Health-Platform
+    targetRevision: HEAD
+    path: infra/kubernetes/apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vhhealth
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+  revisionHistoryLimit: 5

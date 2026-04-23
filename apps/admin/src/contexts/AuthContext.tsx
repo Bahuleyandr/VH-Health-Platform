@@ -19,6 +19,8 @@ import {
   getAdminUser,
   clearAuthData,
   verifyAdminMfa,
+  adminMfaSetupEnroll,
+  adminMfaSetupConfirm,
 } from "@/lib/api-client";
 import type { AdminUser } from "@/lib/types";
 
@@ -30,11 +32,22 @@ export interface MfaChallenge {
   adminHint?: { username?: string };
 }
 
+/** Describes the first-time MFA setup handshake returned by `login` when a
+ *  SUPER_ADMIN without TOTP attempts to log in while
+ *  REQUIRE_MFA_FOR_SUPER_ADMIN is on. Callers must complete enrollment via
+ *  `mfaSetupEnroll` + `mfaSetupConfirm` before any dashboard access. */
+export interface MfaSetupChallenge {
+  setupToken: string;
+  expiresIn: number;
+  adminHint?: { username?: string };
+}
+
 /** Discriminated result returned by `login` so the UI can distinguish "go to
- *  dashboard" from "prompt for TOTP". */
+ *  dashboard" from "prompt for TOTP" from "enroll MFA first". */
 export type LoginOutcome =
   | { kind: "success" }
-  | { kind: "mfa"; challenge: MfaChallenge };
+  | { kind: "mfa"; challenge: MfaChallenge }
+  | { kind: "mfa_setup_required"; challenge: MfaSetupChallenge };
 
 interface AuthContextType {
   user: AdminUser | null;
@@ -45,6 +58,20 @@ interface AuthContextType {
   login: (username: string, password: string) => Promise<LoginOutcome>;
   /** Completes the 2FA step after a `login()` that returned `{ kind: "mfa" }`. */
   verifyMfa: (args: { challengeToken: string; code: string; useBackupCode?: boolean }) => Promise<void>;
+  /** First leg of first-time MFA enrollment — returns QR + backup codes + encryptedSecret. */
+  mfaSetupEnroll: (args: { setupToken: string }) => Promise<{
+    qrCodeDataUrl: string;
+    otpauthUrl: string;
+    backupCodes: string[];
+    encryptedSecret: string;
+  }>;
+  /** Second leg of first-time MFA enrollment — confirms the code and logs the admin in. */
+  mfaSetupConfirm: (args: {
+    setupToken: string;
+    code: string;
+    encryptedSecret: string;
+    backupCodes: string[];
+  }) => Promise<void>;
   loginStaff: (employeeId: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
@@ -123,6 +150,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           };
         }
 
+        // Backend requires first-time MFA enrollment — surface the setup handshake.
+        if (result.requiresMfaSetup) {
+          return {
+            kind: "mfa_setup_required",
+            challenge: {
+              setupToken: result.setupToken,
+              expiresIn: result.expiresIn,
+              adminHint: result.admin?.username ? { username: result.admin.username } : undefined,
+            },
+          };
+        }
+
         if (result?.admin) {
           setUser(result.admin);
           router.push("/dashboard");
@@ -150,6 +189,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         router.push("/dashboard");
       } catch (e) {
         const msg = (e as Error).message || "MFA verification failed";
+        setError(msg);
+        throw e;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [router],
+  );
+
+  const mfaSetupEnroll = useCallback(
+    async (args: { setupToken: string }) => {
+      setError(null);
+      return adminMfaSetupEnroll(args);
+    },
+    [],
+  );
+
+  const mfaSetupConfirm = useCallback(
+    async (args: {
+      setupToken: string;
+      code: string;
+      encryptedSecret: string;
+      backupCodes: string[];
+    }) => {
+      try {
+        setLoading(true);
+        setError(null);
+        const result = await adminMfaSetupConfirm(args);
+        if (result?.admin) setUser(result.admin);
+        router.push("/dashboard");
+      } catch (e) {
+        const msg = (e as Error).message || "MFA setup failed";
         setError(msg);
         throw e;
       } finally {
@@ -200,7 +271,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, error, login, verifyMfa, loginStaff, logout, checkAuth }}
+      value={{
+        user,
+        loading,
+        error,
+        login,
+        verifyMfa,
+        mfaSetupEnroll,
+        mfaSetupConfirm,
+        loginStaff,
+        logout,
+        checkAuth,
+      }}
     >
       {children}
     </AuthContext.Provider>
