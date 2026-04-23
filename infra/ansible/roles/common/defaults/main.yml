@@ -1,0 +1,53 @@
+---
+# Baseline timezone for all nodes (hospital on-prem is India).
+common_timezone: Asia/Kolkata
+
+# NTP pool used by chrony. Prefer India-regional pool for lower latency.
+common_ntp_pool: 2.in.pool.ntp.org
+
+# Journald retention caps — prevents log disk exhaustion before Loki ships.
+common_journald_system_max_use: 2G
+common_journald_runtime_max_use: 500M
+
+# Sysctl tuning required for Kubernetes + observability stack.
+# vm.max_map_count supports Elasticsearch/OpenSearch style workloads.
+# bridge-nf-call-* is mandatory for kube-proxy iptables mode.
+# fs.inotify.* is sized for Loki + Grafana Agent file tailing.
+common_sysctls:
+  vm.max_map_count: 262144
+  net.ipv4.ip_forward: 1
+  net.bridge.bridge-nf-call-iptables: 1
+  net.bridge.bridge-nf-call-ip6tables: 1
+  fs.inotify.max_user_watches: 524288
+  fs.inotify.max_user_instances: 512
+
+# Kernel modules required for overlay networking and CNI bridge mode.
+common_kernel_modules:
+  - overlay
+  - br_netfilter
+
+# APT packages installed on every node for minimal toolkit + troubleshooting.
+common_base_packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - jq
+  - less
+  - net-tools
+  - tcpdump
+  - vim
+  - htop
+  - iotop
+  - iftop
+  - ethtool
+  - lsof
+  - dnsutils
+  - unzip
+  - python3-apt
+  - unattended-upgrades
+  - apt-listchanges
+  - chrony
+
+# unattended-upgrades config — we DO NOT auto-reboot here (Kured handles
+# reboots cluster-wide with drain semantics).
+common_unattended_upgrades_auto_reboot: "false"

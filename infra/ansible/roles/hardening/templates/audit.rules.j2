@@ -1,0 +1,43 @@
+{{ ansible_managed | comment }}
+## VH Health Platform auditd rules (CIS Ubuntu 24.04 subset).
+## Drop-in: /etc/audit/rules.d/99-vhhealth.rules
+
+## --- Identity / credential files ------------------------------------------
+-w /etc/passwd        -p wa -k identity
+-w /etc/shadow        -p wa -k identity
+-w /etc/group         -p wa -k identity
+-w /etc/gshadow       -p wa -k identity
+-w /etc/security/opasswd -p wa -k identity
+
+## --- Sudo ------------------------------------------------------------------
+-w /etc/sudoers       -p wa -k scope
+-w /etc/sudoers.d/    -p wa -k scope
+
+## --- SSH -------------------------------------------------------------------
+-w /etc/ssh/sshd_config -p wa -k sshd
+
+## --- Audit logs themselves ------------------------------------------------
+-w /var/log/audit/    -p wa -k audit-log
+
+## --- Login / logout --------------------------------------------------------
+-w /var/log/faillog   -p wa -k logins
+-w /var/log/lastlog   -p wa -k logins
+-w /var/log/tallylog  -p wa -k logins
+
+## --- Network environment ---------------------------------------------------
+-w /etc/hosts         -p wa -k hosts
+-w /etc/network/      -p wa -k network
+-w /etc/netplan/      -p wa -k network
+
+## --- Kernel module load / unload ------------------------------------------
+-w /sbin/insmod       -p x  -k modules
+-w /sbin/rmmod        -p x  -k modules
+-w /sbin/modprobe     -p x  -k modules
+-a always,exit -F arch=b64 -S init_module -S delete_module -k modules
+
+## --- Privilege escalation --------------------------------------------------
+-a always,exit -F arch=b64 -S execve -C uid!=euid -F euid=0 -k setuid_exec
+-a always,exit -F arch=b64 -S execve -C gid!=egid -F egid=0 -k setgid_exec
+
+## --- Lock config (immutable until reboot) ---------------------------------
+-e 2

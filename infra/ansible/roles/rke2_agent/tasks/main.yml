@@ -1,0 +1,70 @@
+---
+# RKE2 agent role — worker-only nodes joining an existing cluster.
+# DELIBERATELY a no-op when inventory has no 'rke2_agents' group: we only
+# touch the host if the operator has opted in explicitly by defining
+# rke2_agent_server_url + rke2_agent_token.
+
+- name: Skip if agent activation vars not provided
+  ansible.builtin.meta: end_host
+  when:
+    - rke2_agent_server_url | length == 0
+    - rke2_agent_token | length == 0
+  tags: [rke2-agent]
+
+- name: Download RKE2 install script (agent mode)
+  ansible.builtin.get_url:
+    url: https://get.rke2.io
+    dest: /usr/local/sbin/rke2-install.sh
+    mode: "0750"
+    owner: root
+    group: root
+  when: rke2_install_method == 'curl'
+  tags: [rke2-agent, install]
+
+- name: Run RKE2 install script (agent, pinned {{ rke2_version }})
+  ansible.builtin.command:
+    cmd: /usr/local/sbin/rke2-install.sh
+  environment:
+    INSTALL_RKE2_VERSION: "{{ rke2_version }}"
+    INSTALL_RKE2_CHANNEL: "{{ rke2_channel }}"
+    INSTALL_RKE2_TYPE: "agent"
+  register: rke2_agent_install
+  changed_when: rke2_agent_install.rc == 0
+  notify: reload systemd
+  tags: [rke2-agent, install]
+
+- name: Ensure config directory
+  ansible.builtin.file:
+    path: "{{ rke2_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  tags: [rke2-agent, config]
+
+- name: Render agent config.yaml
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ rke2_config_file }}"
+    owner: root
+    group: root
+    mode: "0640"
+    backup: true
+  notify: restart rke2-agent
+  tags: [rke2-agent, config]
+
+- name: Ensure rke2-agent enabled + started
+  ansible.builtin.systemd:
+    name: rke2-agent
+    enabled: true
+    state: started
+    daemon_reload: true
+  tags: [rke2-agent]
+
+- name: Wait for kubelet to come up
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 10250
+    timeout: 600
+    delay: 10
+  tags: [rke2-agent]

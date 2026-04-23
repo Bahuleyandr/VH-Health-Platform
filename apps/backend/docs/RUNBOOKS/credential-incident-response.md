@@ -1,5 +1,9 @@
 # Credential Incident Response
 
+> Executed via `kubectl` on the on-prem cluster. See
+> [`../../../../docs/DEPLOYMENT_GUIDE.md`](../../../../docs/DEPLOYMENT_GUIDE.md)
+> for kubeconfig setup.
+
 Use this runbook when a secret, service-account key, API token, or signing
 secret is exposed in GitHub, CI logs, chat, local artifacts, or a third-party
 provider alert.
@@ -14,8 +18,9 @@ access to shared infrastructure.
 
 1. Stop using the exposed credential.
 2. Disable or revoke it at the provider.
-3. Rotate dependent runtime configuration only through the deployment secret
-store. Do not commit generated key files.
+3. Rotate dependent runtime configuration only through the sealed-secret
+flow (see [`cert-rotation.md`](./cert-rotation.md)). Do not commit
+generated key files; commit only their `kubeseal`-sealed form.
 4. Review provider audit logs for use of the exposed principal or token.
 5. Run local and CI secret scans.
 6. Decide whether public Git history must be rewritten.
@@ -86,17 +91,20 @@ Current status and remaining provider work:
   API on `2026-04-21`, but the current Cloudflare connector cannot manage
   account-owned API tokens (`9109 Unauthorized to access requested resource`).
   Rotate manually in the Cloudflare dashboard: create a new scoped R2 token for
-  `vh-health-records`, update deployment secrets `CF_R2_ACCESS_KEY_ID` and
-  `CF_R2_SECRET_ACCESS_KEY`, deploy, verify upload/read/delete, then revoke the
-  old key.
-- Backend JWT: rotation requires deployment secret-store access. Before
-  rotating `JWT_SECRET` in production, set independent 32+ character
-  `FIELD_ENCRYPTION_KEY` and `TOTP_ENCRYPTION_KEY` values if encrypted fields
-  or TOTP secrets may exist, because those utilities currently fall back to
-  `JWT_SECRET`. Then set a new 64+ character `JWT_SECRET`, deploy, invalidate
-  existing sessions/refresh tokens, and require re-auth.
+  `vh-health-records`, update the `vhhealth-r2` sealed secret (see
+  [`cert-rotation.md`](./cert-rotation.md) §R2-keys), commit + ArgoCD sync,
+  verify upload/read/delete, then revoke the old key.
+- Backend JWT: rotation requires `kubeseal` access to the cluster's
+  sealed-secrets controller. Before rotating `JWT_SECRET` in production, set
+  independent 32+ character `FIELD_ENCRYPTION_KEY` and `TOTP_ENCRYPTION_KEY`
+  values if encrypted fields or TOTP secrets may exist, because those utilities
+  currently fall back to `JWT_SECRET`. Then set a new 64+ character
+  `JWT_SECRET` via the sealed-secret flow, `kubectl -n vhhealth rollout
+  restart deployment/vhhealth-backend`, invalidate existing sessions/refresh
+  tokens, and require re-auth.
 - SMS provider: no external SMS provider is currently used. Remove any stale
-  `MSG91_*` or SMS provider key from deployment secrets instead of rotating it.
+  `MSG91_*` or SMS provider key from sealed secrets + commit the delta
+  instead of rotating it.
 - Test bearer tokens: historical-only unless a matching real token was accepted
   outside local tests. Invalidate any matching real token if discovered.
 
@@ -169,9 +177,9 @@ Skip or defer rewrite if:
 ## Post-Incident Checklist
 
 - [x] Exposed Firebase Admin SDK key revoked or deleted.
-- [ ] Runtime secret store updated.
-- [ ] Cloudflare R2 access key rotated in provider/deployment secrets.
-- [ ] Backend `JWT_SECRET` rotated in provider/deployment secrets.
+- [ ] Sealed-secret updated in-repo + ArgoCD synced + backend `kubectl rollout restart`.
+- [ ] Cloudflare R2 access key rotated via `vhhealth-r2` sealed secret.
+- [ ] Backend `JWT_SECRET` rotated via `vhhealth-jwt` sealed secret.
 - [x] No JSON key files or private keys in working tree.
 - [x] `node scripts/scan-secrets.mjs` passes.
 - [x] `node scripts/gitleaks-scan.mjs worktree` passes.

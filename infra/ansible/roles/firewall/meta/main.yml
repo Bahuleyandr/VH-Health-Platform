@@ -1,0 +1,16 @@
+---
+galaxy_info:
+  role_name: firewall
+  author: VH Health Platform SRE
+  description: nftables host firewall for on-prem RKE2 nodes
+  license: Proprietary
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+  galaxy_tags:
+    - firewall
+    - nftables
+    - network
+dependencies: []

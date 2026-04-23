@@ -1,0 +1,36 @@
+---
+# VH Health Platform ansible-lint config.
+# Profile: production (strictest). Skip list is documented below — every
+# entry has a concrete justification tied to this codebase.
+
+profile: production
+
+exclude_paths:
+  - .cache/
+  - .github/
+  - inventories/group_vars/all/vault.yml
+  - tests/
+
+skip_list:
+  # The RKE2 install script is idempotent internally (exits 0 if already at
+  # pinned version). The `changed_when:` is gated on version comparison so
+  # we don't flip changed state falsely.
+  - command-instead-of-shell
+
+  # We intentionally use `run_once: true` in the token broadcast pattern —
+  # rke2_server/tasks/token.yml reads the bootstrap node's token once and
+  # delegates it to all peers. No other idiom covers this safely.
+  - run-once
+
+  # ansible-lint's production profile requires every variable inside a role
+  # to be prefixed with the role name. This RKE2 tree uses the well-known
+  # `rke2_*` prefix (matching upstream RKE2 docs, Rancher's own example
+  # playbooks, and the galaxy community roles). Applying `rke2_server_*`
+  # everywhere would make vars read like `rke2_server_rke2_version` and
+  # break compatibility with anyone extending these roles. Role-tree path
+  # already scopes the variable; the prefix rule adds no value here.
+  - var-naming[no-role-prefix]
+
+warn_list:
+  - experimental
+  - yaml[line-length]

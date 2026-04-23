@@ -1,0 +1,37 @@
+---
+# Hard guards before touching anything. If any of these fail, the run
+# aborts before a single RKE2 byte is written.
+
+- name: Assert Ubuntu 24.04
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['distribution'] == 'Ubuntu'
+      - ansible_facts['distribution_version'] == '24.04'
+    fail_msg: "RKE2 role expects Ubuntu 24.04 LTS; got {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}"
+  tags: [rke2, preflight]
+
+- name: Assert swap is off
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['swaptotal_mb'] | default(0) | int == 0
+    fail_msg: "Swap must be disabled before RKE2 install (common role handles this)."
+  tags: [rke2, preflight]
+
+- name: Assert exactly one bootstrap server in inventory
+  ansible.builtin.assert:
+    that:
+      - groups['rke2_servers'] | selectattr('', 'defined') | map('extract', hostvars, 'rke2_bootstrap') | select('equalto', true) | list | length == 1
+    fail_msg: "Exactly one host in 'rke2_servers' must have rke2_bootstrap: true."
+  run_once: true
+  tags: [rke2, preflight]
+
+- name: Assert cluster token source available
+  ansible.builtin.assert:
+    that:
+      - (rke2_cluster_token is defined and rke2_cluster_token | length > 0)
+        or (rke2_bootstrap | default(false) | bool)
+    fail_msg: >-
+      Non-bootstrap servers need rke2_cluster_token. It is usually populated
+      by the 'token.yml' include from the bootstrap node; if you see this
+      failure, make sure the bootstrap node ran first.
+  tags: [rke2, preflight]

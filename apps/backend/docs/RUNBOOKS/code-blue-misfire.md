@@ -1,5 +1,9 @@
 # Runbook — Code Blue mis-fire investigation
 
+> Executed via `kubectl` on the on-prem cluster. See
+> [`../../../../docs/DEPLOYMENT_GUIDE.md`](../../../../docs/DEPLOYMENT_GUIDE.md)
+> for kubeconfig setup.
+
 **Severity:** P0 (patient safety)
 
 Code Blue is the backend's cardiac-arrest / rapid-response alert
@@ -41,7 +45,8 @@ Both paths go through `emitCodeBlue` in
 ### 1. Capture the offending event from the audit trail
 
 ```bash
-$ docker exec vhhealth-db psql -U vhhealth -d vhhealth -c "
+kubectl -n vhhealth-platform exec -it vhhealth-pg-1 -c postgres -- \
+  psql -U vhhealth -d vhhealth -c "
     SELECT id, user_id, patient_id, action, resource, metadata, created_at
     FROM audit_logs
     WHERE action LIKE '%CODE_BLUE%'
@@ -55,7 +60,8 @@ and the `metadata` JSON.
 ### 2. Find the matching `clinical_alerts` row
 
 ```bash
-$ docker exec vhhealth-db psql -U vhhealth -d vhhealth -c "
+kubectl -n vhhealth-platform exec -it vhhealth-pg-1 -c postgres -- \
+  psql -U vhhealth -d vhhealth -c "
     SELECT id, patient_id, alert_type, severity, source, message,
            auto_generated, created_at, acknowledged_at, acknowledged_by
     FROM clinical_alerts
@@ -86,12 +92,14 @@ Action:
 2. File a training note OR patch the UI confirm-hold duration.
 3. Do NOT delete the alert — audit trail stays. Mark it
    `acknowledged_by_system_with_reason = 'misfire-investigation'` via:
-   ```sql
-   UPDATE clinical_alerts
-     SET acknowledged_at = now(),
-         acknowledged_by = <oncall_user_id>,
-         message = message || ' [POSTMORTEM: misfire, see incident #<N>]'
-   WHERE id = <alert_id>;
+   ```bash
+   kubectl -n vhhealth-platform exec -it vhhealth-pg-1 -c postgres -- \
+     psql -U vhhealth -d vhhealth -c "
+       UPDATE clinical_alerts
+         SET acknowledged_at = now(),
+             acknowledged_by = <oncall_user_id>,
+             message = message || ' [POSTMORTEM: misfire, see incident #<N>]'
+       WHERE id = <alert_id>;"
    ```
 
 ### 4. Mis-fire from auto-vitals
@@ -99,7 +107,8 @@ Action:
 Automatic trigger by `checkVitalAnomalies`. Check the upstream vital:
 
 ```bash
-$ docker exec vhhealth-db psql -U vhhealth -d vhhealth -c "
+kubectl -n vhhealth-platform exec -it vhhealth-pg-1 -c postgres -- \
+  psql -U vhhealth -d vhhealth -c "
     SELECT id, patient_id, bp_systolic, bp_diastolic, pulse, spo2, temperature,
            respiratory_rate, gcs_total, recorded_at, recorded_by
     FROM vitals_chart
@@ -122,16 +131,20 @@ Action:
 1. If input was garbage, correct the vital row (`clinical_alerts` links
    back via `trigger_vital_id`) OR delete it and re-submit.
 2. If unit mismatch, fix the device integration (dedicated incident).
-3. If stale-retry, check `src/scripts/sendAppointmentReminders.js`-style
-   batch-replay logs — there's a rare race where a stuck job reprocesses
-   vitals from hours earlier.
+3. If stale-retry, check scheduler logs for the batch-replay pattern:
+   ```bash
+   kubectl -n vhhealth logs deployment/vhhealth-backend --tail=500 | grep -i "reminder\|batch-replay\|retry"
+   ```
+   There's a rare race where a stuck job reprocesses vitals from hours
+   earlier.
 
 ### 5. Determine the downstream blast radius
 
 How many devices actually received the push?
 
 ```bash
-$ docker exec vhhealth-db psql -U vhhealth -d vhhealth -c "
+kubectl -n vhhealth-platform exec -it vhhealth-pg-1 -c postgres -- \
+  psql -U vhhealth -d vhhealth -c "
     SELECT COUNT(*) AS devices_notified
     FROM notification_outbox
     WHERE type = 'code_blue'
@@ -146,7 +159,9 @@ channel for real future alerts.
 ### 6. Verify receive → ack loop is still healthy
 
 ```bash
-$ curl -s -H "x-api-key: $API_KEY_STAFF" -H "Authorization: Bearer $JWT" \
+STAFF_JWT=<test-staff-jwt>
+kubectl -n vhhealth exec -it deployment/vhhealth-backend -- \
+  curl -s -H "x-api-key: $API_KEY_STAFF" -H "Authorization: Bearer $STAFF_JWT" \
     http://localhost:5000/api/v1/realtime/health | jq
 # Expected: { "ok": true, "connectedSockets": N, ... }
 ```

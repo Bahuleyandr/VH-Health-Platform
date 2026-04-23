@@ -1,0 +1,28 @@
+---
+- name: Restart sshd
+  ansible.builtin.systemd:
+    name: ssh
+    state: restarted
+  listen: restart sshd
+
+- name: Restart auditd
+  # `systemctl restart auditd` is refused by systemd on auditd >= 3.0 because
+  # auditd uses RefuseManualStop. `ansible.builtin.service` drops through to
+  # the SysV shim path (`service auditd restart`) which auditd intercepts.
+  ansible.builtin.service:
+    name: auditd
+    state: restarted
+    use: service
+  listen: restart auditd
+
+- name: Reload auditd rules
+  ansible.builtin.command:
+    cmd: augenrules --load
+  listen: reload audit rules
+  changed_when: true
+
+- name: Restart fail2ban
+  ansible.builtin.systemd:
+    name: fail2ban
+    state: restarted
+  listen: restart fail2ban

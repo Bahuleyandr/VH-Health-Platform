@@ -1,0 +1,19 @@
+{{ ansible_managed | comment }}
+# VH Health Platform — RKE2 agent (worker-only) configuration.
+# This role is a no-op for the current 3-server topology (growth path).
+
+node-name: "{{ inventory_hostname }}"
+node-label:
+  - "kubernetes.io/role=worker"
+  - "topology.kubernetes.io/zone={{ inventory_zone | default('default') }}"
+  - "vhhealth.io/tier=worker"
+
+server: "{{ rke2_agent_server_url }}"
+token: "{{ rke2_agent_token }}"
+
+kubelet-arg:
+  - "system-reserved={{ rke2_system_reserved }}"
+  - "kube-reserved={{ rke2_kube_reserved }}"
+  - "eviction-hard=memory.available<500Mi,nodefs.available<10%,imagefs.available<10%"
+  - "protect-kernel-defaults=true"
+  - "streaming-connection-idle-timeout=5m"

@@ -1,192 +1,333 @@
-# VHHealth Database — Production Migration Plan
-> **Purpose:** Move from Raspberry Pi (Docker) to a managed commercial PostgreSQL service  
-> **Drafted:** 2026-04-04  
-> **Last updated:** 2026-04-04  
-> **Status:** Planning — not yet executed
+# VHHealth Database — Migration to CloudNativePG on-prem
+> **Purpose:** Move Postgres from the legacy containerised deployment to a
+> CloudNativePG (CNPG)-managed Postgres 17 cluster running on the 3-node RKE2
+> Kubernetes cluster inside the hospital.
+> **Drafted:** 2026-04-04 (original — targeting managed SaaS)
+> **Rewritten:** 2026-04-23 (on-prem CNPG target)
+> **Status:** Plan locked; execution gated on Ansible + platform manifests landing (agents A/B).
 
 > **Pre-requisite completed:** DB fully validated and all migrations applied (164 tables, 0 errors). Schema dump available at `docs/schema-dump.sql`. Rebuild guide at `docs/DB-REBUILD-GUIDE.md`.
 
 ---
 
-## Why Move Off the Pi
+## Goal
 
-| Risk | Detail |
-|------|--------|
-| **Hardware failure** | Pi SD cards have finite write cycles; no RAID, no automatic failover |
-| **No HA** | Single point of failure — Pi goes down, entire backend goes down |
-| **Throughput ceiling** | Pi 5 ARM CPU + SD I/O will bottleneck under real patient load |
-| **Backup complexity** | Manual Docker volume backups — no point-in-time recovery |
-| **Network exposure** | Pi sits on home/office network; production DB should be on isolated cloud infra |
-| **Compliance posture** | For any DPDP Act / HIPAA-like posture, you want managed infrastructure with audit trails, encryption at rest, and SLA guarantees |
+Run VH Health's Postgres as a **CNPG `Cluster` CR** with 3 replicas (1 primary
++ 2 sync standbys), storing data on NVMe-backed PVCs on the on-prem RKE2 nodes,
+with backups going to in-cluster MinIO and replicated to Cloudflare R2. No SaaS
+database dependency; all PHI remains inside the hospital's physical perimeter.
 
----
+## Why
 
-## Target Options
-
-### Option A — Neon (Recommended for current stage)
-- **Type:** Serverless Postgres (scale to zero)
-- **Why:** Free tier generous, auto-scaling, built-in branching for dev/staging, Prisma-native
-- **Connection:** Standard PostgreSQL URL — zero code changes
-- **Pricing:** Free up to 512 MB, then $19/mo for 10 GB
-- **Backup:** 7-day PITR on paid, daily on free
-- **Latency from India:** ~80-120ms to EU/US, ~30-50ms if using `ap-southeast-1`
-- **Best for:** Pre-launch / early production (< 1000 patients)
-
-### Option B — Supabase
-- **Type:** Managed Postgres + auth + storage
-- **Why:** Good free tier, India region available (ap-south-1 Mumbai)
-- **Pricing:** Free up to 500 MB, then $25/mo
-- **Backup:** 7-day PITR on Pro plan
-- **Latency from India:** ~10-20ms (Mumbai region)
-- **Consideration:** Supabase wraps Postgres — you can still use Prisma directly
-- **Best for:** If you later want to leverage Supabase auth/storage alongside DB
-
-### Option C — AWS RDS (PostgreSQL 15)
-- **Type:** Managed cloud RDS
-- **Why:** Production-grade, multi-AZ, automated backups, Mumbai region
-- **Pricing:** `db.t4g.micro` ~$15-20/mo, storage ~$0.115/GB/mo
-- **Backup:** Automated + manual snapshots, 35-day retention max
-- **Latency:** ~5-10ms if VHHealth backend moves to EC2/Lightsail in same region
-- **Best for:** Scaling past 1000+ patients, if deploying backend to AWS too
-
-### Option D — Railway
-- **Type:** Managed Postgres (PostgreSQL 15)
-- **Why:** Dead simple, great DX, production-capable
-- **Pricing:** $5/mo + usage, very predictable
-- **Backup:** Automated daily backups
-- **Best for:** Quick production move with minimal ops overhead
+| Driver | Detail |
+|--------|--------|
+| **HA** | 3-replica synchronous replication; primary failover in <60s via CNPG instance manager |
+| **PITR** | pgBackRest + continuous WAL archiving → restore to any point in the retention window |
+| **k8s-native ops** | `kubectl cnpg` for backup/restore/promote; ArgoCD reconciles configuration; no shell scripts |
+| **No SaaS lock-in** | Data stays in-hospital; satisfies DPDP Act data-residency and any HIPAA-style local-control posture |
+| **Observability** | CNPG exports Prometheus metrics by default; Grafana dashboards shipped by the operator |
+| **Cost** | Zero recurring DB SaaS fees — capex-only on hardware already provisioned for k8s |
 
 ---
 
-## Recommendation
+## Pre-requisites
 
-**Short-term (launch → first 6 months):** Neon or Railway  
-**Medium-term (> 500 patients or commercial launch):** Supabase (Mumbai) or RDS
+Gates the migration cannot start without:
 
-All four services use standard PostgreSQL — migration between them later is straightforward.
+- [ ] Cluster bootstrapped via Ansible (`infra/ansible/playbooks/site.yml`
+      applied, `kubectl get nodes` shows 3 Ready nodes).
+- [ ] CNPG operator installed in namespace `cnpg-system`
+      (`kubectl get deploy -n cnpg-system cnpg-controller-manager` Ready).
+- [ ] MinIO running in `vhhealth-platform` namespace with bucket
+      `vhhealth-pg-backups` created and service
+      `minio.vhhealth-platform.svc.cluster.local:9000` reachable from the
+      CNPG pods.
+- [ ] Cloudflare R2 offsite bucket `vhhealth-pg-backups-cold` created,
+      credentials in sealed secret `r2-backup-credentials`.
+- [ ] Sealed secret `pgbackrest-cipher` with a fresh AES-256 pass.
+- [ ] StorageClass `longhorn-nvme` (or equivalent) available on all 3 nodes.
+- [ ] Backend container image published with `DATABASE_URL` support for the
+      CNPG primary DNS name.
+- [ ] Off-hours window agreed with hospital IT (recommend 02:00–05:00 IST,
+      low admissions and no planned surgeries).
 
 ---
 
-## Migration Steps
+## Step-by-step
 
-### Phase 1 — Preparation (before cutover)
+### 1. Apply the CNPG `Cluster` manifest
 
-- [ ] Resolve known schema issues (see `DB-SCHEMA-REFERENCE.md` — Known Issues)
-  - Fix `patient_id` column inconsistency across investigations/pharmacy_orders
-  - Fix `notifications.user_id` vs `uid` mismatch in migration 019
-  - Add `retry_count` + `last_attempt_at` to `notification_outbox` if retry logic needed
-  - Fix migration 017 seed (schema mismatches in departments/doctors)
-- [ ] Consolidate `audit_log` vs `audit_logs` — decide which is canonical
-- [ ] Create a combined init script: `scripts/db-init-full.sh` that runs Prisma migrate + all SQL migrations in order (so a fresh DB can be spun up reproducibly)
-- [ ] Set up automated backups of Pi DB until cutover (daily Docker volume backup to object storage)
+The manifest lives at `infra/kubernetes/base/cnpg/cluster.yaml`. Key shape:
 
-### Phase 2 — Provision Target
-
-```bash
-# Example: Neon
-# 1. Create project at neon.tech
-# 2. Get connection string: postgresql://<user>:<password>@<host>/<database>?sslmode=require
-# 3. Set as DATABASE_URL in production env
-
-# Example: Railway
-# railway add --plugin postgresql
-# railway variables  # get DATABASE_URL
+```yaml
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: vhhealth-pg
+  namespace: vhhealth-platform
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.2
+  primaryUpdateStrategy: unsupervised
+  postgresql:
+    parameters:
+      max_connections: "300"
+      shared_buffers: "16GB"
+      effective_cache_size: "48GB"
+      work_mem: "32MB"
+      wal_level: replica
+      archive_mode: "on"
+      archive_timeout: "60s"
+  storage:
+    storageClass: longhorn-nvme
+    size: 200Gi
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://vhhealth-pg-backups/main
+      endpointURL: http://minio.vhhealth-platform.svc.cluster.local:9000
+      s3Credentials:
+        accessKeyId: {name: minio-creds, key: access}
+        secretAccessKey: {name: minio-creds, key: secret}
+      encryption: AES256
+      wal:
+        compression: gzip
+    retentionPolicy: "30d"
 ```
 
-### Phase 3 — Schema Migration (fresh apply on target)
-
+Apply:
 ```bash
-# On production machine, pointing at new DB URL:
-export DATABASE_URL="postgresql://new-host/vhhealth?sslmode=require"
-
-# Apply Prisma migrations
-cd vhhealth-backend
-npx prisma migrate deploy
-
-# Apply SQL migrations in order
-for f in migrations/002_investigations_notification.sql \
-          migrations/003_attendance_features.sql \
-          migrations/004_shift_overtime.sql \
-          migrations/005_incident_grievance.sql \
-          migrations/006_universal_audit_log.sql \
-          migrations/007_housekeeping.sql \
-          migrations/008_payroll.sql \
-          migrations/009_payroll_complete.sql \
-          migrations/010_payroll_compliance.sql \
-          migrations/011_appointment_records.sql \
-          migrations/012_appointment_improvements.sql \
-          migrations/013_investigation_enhancements.sql \
-          migrations/014_investigation_bookings.sql \
-          migrations/015_pharmacy_orders_enhanced.sql \
-          migrations/016_delivery_tracking.sql \
-          migrations/018_e_prescription.sql \
-          migrations/019_performance_indexes.sql \
-          migrations/020_missing_tables.sql \
-          migrations/add_invalidated_tokens.sql; do
-  echo "Applying $f..."
-  psql "$DATABASE_URL" -f "$f"
-done
+kubectl apply -f infra/kubernetes/base/cnpg/cluster.yaml
 ```
 
-> Skip migration 017 (seed) — do not seed production from dev seed data.
+In the ArgoCD-managed flow, you'd commit `cluster.yaml` and ArgoCD applies it;
+for the migration cutover, `kubectl apply` directly is acceptable (ArgoCD
+detects no drift because the committed manifest matches).
 
-### Phase 4 — Data Migration (Pi → Target)
+### 2. Verify the 3-replica cluster is healthy
 
 ```bash
-# 1. Take final Pi dump
-docker exec vhhealth-db pg_dump -U vhhealth -d vhhealth \
+kubectl -n vhhealth-platform get cluster vhhealth-pg -o yaml
+# Look for: status.phase: "Cluster in healthy state"
+#           status.readyInstances: 3
+
+kubectl -n vhhealth-platform cnpg status vhhealth-pg
+# Shows: primary, replicas, replication lag, backup status
+```
+
+Expected:
+- `vhhealth-pg-1` = primary
+- `vhhealth-pg-2`, `vhhealth-pg-3` = sync standbys, lag <1MB
+- `vhhealth-pg-rw` Service routes to the current primary
+- `vhhealth-pg-ro` Service load-balances across standbys
+
+### 3. Take the final dump from the legacy DB
+
+Dump the current production DB to a file:
+
+```bash
+# Run against the legacy production Postgres (wherever it currently lives).
+# For the legacy host, use its connection string from the secret locker.
+pg_dump "$LEGACY_DATABASE_URL" \
   --no-owner --no-acl \
   --exclude-table='_prisma_migrations' \
   --exclude-table='_migrations' \
-  -f /tmp/vhhealth-prod-$(date +%Y%m%d).sql
-
-# Copy dump out
-docker cp vhhealth-db:/tmp/vhhealth-prod-*.sql ./backups/
-
-# 2. Restore to target (skip if starting fresh — pre-launch with no real patient data)
-psql "$DATABASE_URL" < backups/vhhealth-prod-<date>.sql
+  --format=custom \
+  -f /tmp/vhhealth-prod-$(date +%Y%m%dT%H%M%S).dump
 ```
 
-> **If pre-launch with no real patient data:** Skip the dump/restore entirely. Fresh schema apply is cleaner.
+Archive to a secure offline location (encrypted USB or sealed storage) in
+addition to the in-flight copy — this dump is your pre-cutover rollback anchor.
 
-### Phase 5 — Backend Cutover
+### 4. Copy the dump to the CNPG primary pod
 
 ```bash
-# Update backend environment
-# In ecosystem.config.cjs or .env.production:
-DATABASE_URL=postgresql://new-host/vhhealth?sslmode=require
-
-# Restart backend
-pm2 restart vhhealth-backend
-
-# Verify
-curl http://localhost:5000/api/health
+DUMP=/tmp/vhhealth-prod-$(ls /tmp | grep vhhealth-prod | sort | tail -1)
+kubectl -n vhhealth-platform cp "$DUMP" vhhealth-pg-1:/tmp/vhhealth-prod.dump -c postgres
 ```
 
-### Phase 6 — Verification
+### 5. Import the dump inside the CNPG primary pod
 
-- [ ] All 111 tables present on target
-- [ ] Backend health check returns 200
-- [ ] OTP flow works end to end
-- [ ] Appointment booking works
-- [ ] Staff auth works
-- [ ] Admin portal login works
-- [ ] File upload/download works
+```bash
+kubectl -n vhhealth-platform exec -it vhhealth-pg-1 -c postgres -- \
+  pg_restore \
+    --clean --if-exists \
+    --no-owner --no-acl \
+    --dbname=vhhealth \
+    /tmp/vhhealth-prod.dump 2>&1 | tee /tmp/restore.log
+```
 
-### Phase 7 — Decommission Pi DB
+Review `/tmp/restore.log` for errors. `NOTICE` lines are normal; any
+`ERROR:` line must be resolved before continuing.
 
-- [ ] Keep Pi DB running for 2 weeks as cold fallback
-- [ ] After 2 weeks stable: stop `vhhealth-db` container
-- [ ] Final dump archived to cold storage
-- [ ] Remove DB from Pi `docker-compose.yml`
+### 6. Replay migrations not captured in pg_dump
+
+The dump contains data and schema. Row-count check against the
+`_migrations` tracking table ensures migration history is intact:
+
+```bash
+kubectl -n vhhealth-platform exec -it vhhealth-pg-1 -c postgres -- \
+  psql -U vhhealth -d vhhealth -c "SELECT name, applied_at FROM _migrations ORDER BY applied_at DESC LIMIT 10;"
+```
+
+If any migration committed to `main` but not yet captured in the dump is
+missing, apply it:
+
+```bash
+# From a pod with the backend image mounted / or a one-off Job:
+kubectl -n vhhealth apply -f infra/kubernetes/apps/backend/jobs/migrate.yaml
+kubectl -n vhhealth wait --for=condition=complete job/vhhealth-migrate --timeout=600s
+kubectl -n vhhealth logs job/vhhealth-migrate
+```
+
+### 7. Point the backend at the new CNPG primary
+
+Update the sealed secret for the DB URL:
+
+```bash
+# Create a locally-built Secret (do NOT commit this file)
+cat > /tmp/db-url-secret.yaml <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vhhealth-db-url
+  namespace: vhhealth
+stringData:
+  DATABASE_URL: "postgresql://vhhealth:$PGPASSWORD@vhhealth-pg-rw.vhhealth-platform.svc.cluster.local:5432/vhhealth?sslmode=require"
+  DATABASE_READ_URL: "postgresql://vhhealth:$PGPASSWORD@vhhealth-pg-ro.vhhealth-platform.svc.cluster.local:5432/vhhealth?sslmode=require"
+EOF
+
+kubeseal < /tmp/db-url-secret.yaml > infra/kubernetes/apps/backend/vhhealth-db-url.sealed-secret.yaml
+rm /tmp/db-url-secret.yaml    # never commit the plain version
+
+git add infra/kubernetes/apps/backend/vhhealth-db-url.sealed-secret.yaml
+git commit -m "feat(deploy): point backend at CNPG primary"
+git push
+```
+
+ArgoCD auto-syncs within 3 minutes; the Deployment rolls out with the new
+Secret mounted. To accelerate:
+
+```bash
+argocd app sync vhhealth-backend
+kubectl -n vhhealth rollout restart deployment/vhhealth-backend
+kubectl -n vhhealth rollout status deployment/vhhealth-backend
+```
+
+### 8. End-to-end verification
+
+```bash
+# Health
+kubectl -n vhhealth exec deployment/vhhealth-backend -- curl -s http://localhost:5000/health/deep | jq
+
+# Expected checks: { database: { ok: true }, redis: { ok: true }, r2: { ok: true } }
+
+# Patient OTP happy path (test phone)
+curl -s -X POST https://api.vhhealth.app/api/v1/auth/firebase/firebase-login \
+  -H "x-api-key: $API_KEY_PATIENT" \
+  -H "Content-Type: application/json" \
+  -d '{"phone":"+91XXXXXXXXXX","idToken":"<firebase-id-token>"}' | jq .success
+
+# Admin login
+curl -s -X POST https://api.vhhealth.app/api/v1/auth/admin/login \
+  -H "x-api-key: $API_KEY_ADMIN" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"testadmin","password":"<test-password>"}' | jq .data.token
+
+# Sample read query against a high-cardinality table
+kubectl -n vhhealth-platform exec vhhealth-pg-1 -c postgres -- \
+  psql -U vhhealth -d vhhealth -c "SELECT count(*) FROM appointments;"
+```
+
+### 9. Re-run migrations + seed via `ci-setup-db.mjs`
+
+Only if this is a pre-launch environment with no production data:
+
+```bash
+kubectl -n vhhealth apply -f infra/kubernetes/apps/backend/jobs/ci-setup-db.yaml
+kubectl -n vhhealth wait --for=condition=complete job/vhhealth-ci-setup-db --timeout=600s
+```
+
+For a real production cutover with patient data, SKIP this step — it's only
+for fresh environments.
+
+### 10. Backfill any legacy-only data
+
+Tables that the legacy deployment wrote to but may not have been included in
+the dump freeze window:
+
+- `audit_log` — verify every row post-dump-timestamp on legacy is also present
+  on CNPG. Use `pg_dump -t audit_log --data-only` against the legacy host if
+  needed, import via `psql` into CNPG.
+- `file_access_logs` (HIPAA PHI-access tracking) — same treatment.
+- `notifications` — if the outbox on legacy still had unsent rows, migrate
+  their state to the new DB.
+
+```bash
+# Example backfill pattern for audit_log
+kubectl -n vhhealth-platform exec -it vhhealth-pg-1 -c postgres -- \
+  psql -U vhhealth -d vhhealth -c "SELECT max(created_at) FROM audit_log;"
+# Compare against legacy; dump the gap; import.
+```
+
+### 11. Verify backup is working
+
+Trigger an on-demand backup and confirm it lands in MinIO and replicates to R2:
+
+```bash
+kubectl cnpg backup vhhealth-pg
+kubectl -n vhhealth-platform get backups
+# Expected: status=completed, a few minutes later
+```
+
+Check MinIO:
+```bash
+kubectl -n vhhealth-platform exec -it minio-0 -- \
+  mc ls local/vhhealth-pg-backups/main/base/
+```
+
+Check R2 (from a workstation with R2 creds):
+```bash
+wrangler r2 object list vhhealth-pg-backups-cold --prefix main/base/
+```
+
+### 12. Keep legacy DB running in standby mode for 30 days
+
+Don't decommission immediately.
+
+- Leave the legacy DB accepting read-only connections (no writes — block
+  at the network layer).
+- Run `pg_dump` on both legacy and CNPG daily; diff row counts on the 10
+  highest-volume tables. Any divergence → investigate; do not decommission
+  until 14 consecutive days of parity.
+- Script scaffold at `apps/backend/scripts/compare-dbs.mjs` (to be written).
+
+### 13. Decommission legacy Postgres
+
+After 30 days of parity:
+
+- [ ] Take one final `pg_dump` from legacy, archive to R2 cold storage
+      (`vhhealth-archive/legacy-final-dump/`).
+- [ ] Stop legacy DB container / service.
+- [ ] Remove legacy DB from any remaining orchestration files (container
+      manifests, host provisioning).
+- [ ] Update secrets manager — remove `LEGACY_DATABASE_URL`.
+- [ ] Update `.env.example` to only show CNPG-style connection strings.
+- [ ] Log the decommission in `docs/incidents/legacy-db-decommission-YYYYMMDD.md`.
 
 ---
 
-## SSL / Security Requirements
+## SSL / Security
 
-All managed services require SSL. Backend must connect with `?sslmode=require`. Prisma handles this automatically when the connection string includes it.
-
-No application code changes needed for the move — only the `DATABASE_URL` env var changes.
+- All connections inside the cluster use `sslmode=require` (TLS terminated at
+  the CNPG pod; cert managed by the operator, rotated automatically).
+- Backup files are AES-256 encrypted by pgBackRest before they leave the
+  primary pod. Key in `pgbackrest-cipher` sealed secret; rotation covered in
+  `RUNBOOKS/cert-rotation.md`.
+- Network policy only allows `vhhealth` namespace → CNPG Service; cross-
+  namespace access denied by default.
+- Superuser credentials live in a CNPG-managed Secret; `vhhealth` app user has
+  only the grants it needs (`CONNECT`, `USAGE`, `SELECT/INSERT/UPDATE/DELETE`
+  on app schema).
 
 ---
 
@@ -194,20 +335,61 @@ No application code changes needed for the move — only the `DATABASE_URL` env 
 
 | Phase | Time |
 |-------|------|
-| Resolve schema issues | 1-2 days |
-| Create combined init script | 2 hours |
-| Provision + apply schema to target | 1 hour |
-| Data migration (if needed) | 30 min |
-| Backend cutover + verification | 1-2 hours |
-| Monitor + Pi decommission | 2 weeks |
+| CNPG cluster apply + health verify | 30 min |
+| Dump + copy + import (5GB-ish DB) | 30–60 min |
+| Migration/seed parity check | 15 min |
+| Cutover (Secret update + rollout) | 10 min |
+| End-to-end verification | 30 min |
+| Backfill audit/PHI logs | 15–30 min |
+| Monitoring + 30-day parity period | 30 days (passive) |
 
-Total active work: **1-2 days** (mostly prep). Cutover itself is under 4 hours.
+Active cutover window: **2–3 hours**. Legacy decommission: 30 days after
+cutover.
 
 ---
 
-## Rollback Plan
+## Rollback Procedure
 
-If cutover fails:
-1. Revert `DATABASE_URL` to Pi connection string
-2. Restart backend — fully restored in < 5 minutes
-3. Pi DB untouched throughout — zero risk to existing data
+If cutover fails at any point before step 12, revert in **<10 minutes**:
+
+1. Update the `vhhealth-db-url` sealed secret back to the legacy
+   `DATABASE_URL`:
+   ```bash
+   cat > /tmp/db-url-secret.yaml <<EOF
+   apiVersion: v1
+   kind: Secret
+   metadata:
+     name: vhhealth-db-url
+     namespace: vhhealth
+   stringData:
+     DATABASE_URL: "$LEGACY_DATABASE_URL"
+   EOF
+   kubeseal < /tmp/db-url-secret.yaml > infra/kubernetes/apps/backend/vhhealth-db-url.sealed-secret.yaml
+   rm /tmp/db-url-secret.yaml
+   git commit -am "revert(deploy): point backend back at legacy DB (cutover rollback)"
+   git push
+   ```
+
+2. Force sync + restart:
+   ```bash
+   argocd app sync vhhealth-backend
+   kubectl -n vhhealth rollout restart deployment/vhhealth-backend
+   ```
+
+3. Verify legacy is serving traffic:
+   ```bash
+   curl -s https://api.vhhealth.app/health/deep | jq .checks.database
+   ```
+
+The CNPG cluster stays untouched in the rollback — you can retry the cutover
+after diagnosis. Nothing about step 1 (creating CNPG) is destructive to the
+legacy DB.
+
+---
+
+## Related files
+
+- [`../SYSTEM-ARCHITECTURE.md`](../SYSTEM-ARCHITECTURE.md) — cluster topology reference
+- [`DISASTER-RECOVERY.md`](DISASTER-RECOVERY.md) — DR runbook (backup + PITR scenarios)
+- [`RUNBOOKS/db-restore.md`](RUNBOOKS/db-restore.md) — hot-path restore runbook
+- [`../../../docs/DEPLOYMENT_GUIDE.md`](../../../docs/DEPLOYMENT_GUIDE.md) — end-to-end deployment guide

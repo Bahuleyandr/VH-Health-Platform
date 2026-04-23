@@ -1,0 +1,53 @@
+{{ ansible_managed | comment }}
+# Hardened SSH config for VH Health Platform RKE2 nodes.
+# References: CIS Ubuntu 24.04 LTS benchmark, Mozilla OpenSSH guide.
+
+Port {{ hardening_ssh_port }}
+AddressFamily inet
+
+Protocol 2
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_rsa_key
+
+# Auth — keys only.
+PermitRootLogin no
+PasswordAuthentication no
+PermitEmptyPasswords no
+ChallengeResponseAuthentication no
+KbdInteractiveAuthentication no
+UsePAM yes
+
+MaxAuthTries {{ hardening_ssh_max_auth_tries }}
+MaxSessions 10
+LoginGraceTime 60
+
+AllowUsers {{ hardening_admin_user }}
+
+# Session hygiene.
+ClientAliveInterval {{ hardening_ssh_client_alive_interval }}
+ClientAliveCountMax {{ hardening_ssh_client_alive_count_max }}
+TCPKeepAlive no
+
+# Forwarding — off, this is a server.
+X11Forwarding no
+AllowTcpForwarding no
+AllowAgentForwarding no
+GatewayPorts no
+PermitTunnel no
+
+# Ciphers / KEX / MACs — Mozilla "modern" profile, Ubuntu 24.04 defaults.
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
+KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group-exchange-sha256
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com
+
+# Misc.
+PrintMotd no
+PrintLastLog yes
+IgnoreRhosts yes
+HostbasedAuthentication no
+StrictModes yes
+UseDNS no
+Banner /etc/issue.net
+
+# SFTP subsystem (needed for Ansible file operations over SSH).
+Subsystem sftp /usr/lib/openssh/sftp-server

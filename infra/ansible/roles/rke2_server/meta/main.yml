@@ -1,0 +1,16 @@
+---
+galaxy_info:
+  role_name: rke2_server
+  author: VH Health Platform SRE
+  description: Installs and configures RKE2 in server mode (CIS profile)
+  license: Proprietary
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+  galaxy_tags:
+    - kubernetes
+    - rke2
+    - server
+dependencies: []

@@ -1,0 +1,7 @@
+{{ ansible_managed | comment }}
+{% for k, v in common_sysctls.items() %}
+{{ k }} = {{ v }}
+{% endfor %}
+
+# Core dumps off (hardening — prevents memory leaks via core files).
+fs.suid_dumpable = 0

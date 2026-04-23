@@ -1,0 +1,29 @@
+---
+- name: Ensure nftables package installed
+  ansible.builtin.apt:
+    name: nftables
+    state: present
+  tags: [firewall, packages]
+
+# We intentionally do NOT remove ufw/iptables-persistent here — other roles
+# (kube-proxy iptables mode) rely on iptables compat which is installed by
+# the rke2 installer. nftables-on-ubuntu uses iptables-nft by default.
+
+- name: Render /etc/nftables.conf for VH Health cluster
+  ansible.builtin.template:
+    src: nftables.conf.j2
+    dest: "{{ firewall_config_path }}"
+    owner: root
+    group: root
+    mode: "0750"
+    backup: true
+    validate: "nft -c -f %s"
+  notify: reload nftables
+  tags: [firewall, rules]
+
+- name: Ensure nftables service enabled and started
+  ansible.builtin.systemd:
+    name: nftables
+    enabled: true
+    state: started
+  tags: [firewall]

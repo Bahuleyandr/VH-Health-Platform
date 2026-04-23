@@ -1,0 +1,14 @@
+{{ ansible_managed | comment }}
+# /var/log/auth.log — extended retention for DPDP/HIPAA audit trail.
+/var/log/auth.log
+{
+    rotate {{ hardening_auth_log_rotate_weeks }}
+    weekly
+    missingok
+    notifempty
+    delaycompress
+    compress
+    postrotate
+        /usr/lib/rsyslog/rsyslog-rotate
+    endscript
+}

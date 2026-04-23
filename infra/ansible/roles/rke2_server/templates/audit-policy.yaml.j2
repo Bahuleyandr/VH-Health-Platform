@@ -1,0 +1,113 @@
+{{ ansible_managed | comment }}
+# VH Health Platform — Kubernetes API audit policy.
+# Aligned with CIS Kubernetes Benchmark 1.2.22 + Kubernetes upstream example.
+# Goal: capture everything that affects security posture or PHI access,
+# suppress noise from read-only, cluster-internal traffic.
+
+apiVersion: audit.k8s.io/v1
+kind: Policy
+
+# Anything system: pre-filtered by omitStages for requests that never reach
+# the handler.
+omitStages:
+  - "RequestReceived"
+
+rules:
+  # --- Drop high-volume, low-value requests from audit entirely. -----------
+  - level: None
+    users: ["system:kube-proxy"]
+    verbs: ["watch"]
+    resources:
+      - group: ""
+        resources: ["endpoints", "services", "services/status"]
+
+  - level: None
+    users: ["system:unsecured"]
+    namespaces: ["kube-system"]
+    verbs: ["get"]
+    resources:
+      - group: ""
+        resources: ["configmaps"]
+
+  - level: None
+    userGroups: ["system:nodes"]
+    verbs: ["get"]
+    resources:
+      - group: ""
+        resources: ["nodes", "nodes/status"]
+
+  - level: None
+    users:
+      - system:kube-controller-manager
+      - system:kube-scheduler
+      - system:serviceaccount:kube-system:endpoint-controller
+    verbs: ["get", "update"]
+    namespaces: ["kube-system"]
+    resources:
+      - group: ""
+        resources: ["endpoints"]
+
+  - level: None
+    users: ["system:apiserver"]
+    verbs: ["get"]
+    resources:
+      - group: ""
+        resources: ["namespaces", "namespaces/status", "namespaces/finalize"]
+
+  # Don't log events or leases at all.
+  - level: None
+    resources:
+      - group: ""
+        resources: ["events"]
+      - group: "coordination.k8s.io"
+        resources: ["leases"]
+      - group: "authentication.k8s.io"
+        resources: ["tokenreviews"]
+      - group: "authorization.k8s.io"
+
+  # --- Auth decisions: Metadata level always. ------------------------------
+  - level: Metadata
+    nonResourceURLs:
+      - "/login*"
+      - "/logout*"
+      - "/oauth*"
+
+  # --- Secrets / configmaps with PHI potential: RequestResponse on write. --
+  - level: RequestResponse
+    verbs: ["create", "update", "patch", "delete", "deletecollection"]
+    resources:
+      - group: ""
+        resources: ["secrets", "configmaps", "serviceaccounts"]
+      - group: "rbac.authorization.k8s.io"
+        resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+
+  - level: Metadata
+    verbs: ["get", "list", "watch"]
+    resources:
+      - group: ""
+        resources: ["secrets"]
+
+  # --- Exec / attach / portforward (cluster escape vectors). ---------------
+  - level: RequestResponse
+    resources:
+      - group: ""
+        resources: ["pods/exec", "pods/attach", "pods/portforward", "pods/proxy"]
+
+  # --- All write ops on workloads + PV layer: RequestResponse. -------------
+  - level: RequestResponse
+    verbs: ["create", "update", "patch", "delete", "deletecollection"]
+    resources:
+      - group: ""
+        resources: ["pods", "services", "persistentvolumes", "persistentvolumeclaims", "nodes", "namespaces"]
+      - group: "apps"
+      - group: "batch"
+      - group: "networking.k8s.io"
+      - group: "policy"
+      - group: "storage.k8s.io"
+      - group: "admissionregistration.k8s.io"
+      - group: "apiextensions.k8s.io"
+
+  # --- Default: log at Metadata for everything not matched above. ---------
+  - level: Metadata
+    omitStages:
+      - "RequestReceived"

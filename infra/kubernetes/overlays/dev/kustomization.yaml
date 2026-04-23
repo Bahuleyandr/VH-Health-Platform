@@ -1,0 +1,125 @@
+# overlays/dev/kustomization.yaml — dev cluster
+#
+# Dev is deliberately thinner:
+#   - Single-replica CNPG (no HA).
+#   - No MinIO (use external R2 directly from dev backend).
+#   - No Harbor (push from local docker build or ghcr.io).
+#   - Single ingress-nginx replica (dev cluster has 1 node).
+#   - No Falco, no Kured (we reboot dev manually; runtime security
+#     traces add noise without value).
+#   - Prometheus retention shortened to 7d.
+#
+# We inherit the base via a filtered `resources:` that excludes the
+# services we're dropping. Instead of trying to unload resources from
+# the base (kustomize has no "exclude" primitive), we list the keeper
+# subdirs individually.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: vhhealth-platform-dev
+resources:
+  - ../../base/_common
+  - ../../base/sealed-secrets
+  - ../../base/cert-manager
+  - ../../base/step-ca
+  - ../../base/cnpg
+  - ../../base/redis
+  - ../../base/ingress-nginx
+  - ../../base/cloudflare-tunnel
+  - ../../base/monitoring
+  - ../../base/argocd
+patches:
+  # CNPG: 1 instance (primary only, no HA). minSyncReplicas must be 0
+  # or the cluster won't accept writes.
+  - target:
+      kind: Cluster
+      name: vhhealth-pg
+      group: postgresql.cnpg.io
+    patch: |-
+      - op: replace
+        path: /spec/instances
+        value: 1
+      - op: replace
+        path: /spec/minSyncReplicas
+        value: 0
+      - op: replace
+        path: /spec/maxSyncReplicas
+        value: 0
+      - op: replace
+        path: /spec/storage/size
+        value: 20Gi
+      - op: replace
+        path: /spec/walStorage/size
+        value: 5Gi
+      - op: replace
+        path: /spec/resources/requests/memory
+        value: "512Mi"
+      - op: replace
+        path: /spec/resources/requests/cpu
+        value: "200m"
+      - op: replace
+        path: /spec/resources/limits/memory
+        value: "1Gi"
+      - op: replace
+        path: /spec/resources/limits/cpu
+        value: "500m"
+
+  # Pooler: 1 replica
+  - target:
+      kind: Pooler
+      name: vhhealth-pg-rw-pooler
+      group: postgresql.cnpg.io
+    patch: |-
+      - op: replace
+        path: /spec/instances
+        value: 1
+
+  # Redis: 1 replica (no sentinel HA, but keep the sentinel binary up
+  # for interface compatibility with the backend's client).
+  - target:
+      kind: StatefulSet
+      name: redis
+      namespace: vhhealth-platform
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  # Cloudflared: 1 replica
+  - target:
+      kind: Deployment
+      name: cloudflared
+      namespace: vhhealth-ingress
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  # Vault: not installed in dev
+  # (already excluded via the resources list above)
+
+  # PDBs: drop MinAvailable to 0 so single-replica services can roll.
+  - target:
+      kind: PodDisruptionBudget
+      name: redis
+      namespace: vhhealth-platform
+    patch: |-
+      - op: replace
+        path: /spec/maxUnavailable
+        value: 1
+
+configMapGenerator:
+  - name: vhhealth-env
+    namespace: vhhealth-platform
+    literals:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=debug
+      - INGRESS_PUBLIC_HOST=api.dev.vhhealth.app
+      - INGRESS_ADMIN_HOST=admin.dev.vhhealth.app
+      - DB_HOST=vhhealth-pg-rw.vhhealth-platform.svc.cluster.local
+      - REDIS_SENTINEL_HOST=redis-sentinel.vhhealth-platform.svc.cluster.local
+      - PROMETHEUS_RETENTION=7d
+
+commonAnnotations:
+  vhhealth.app/environment: "development"
+  vhhealth.app/data-residency: "in"

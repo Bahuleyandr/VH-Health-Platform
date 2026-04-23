@@ -1,0 +1,20 @@
+# falco/chart-tracker.yaml — Falco chart version tracker
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falco-chart-tracker
+  namespace: vhhealth-security
+  labels:
+    app.kubernetes.io/name: falco
+    app.kubernetes.io/component: chart-tracker
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+data:
+  chartRepo: "https://falcosecurity.github.io/charts"
+  chartName: "falco"
+  chartVersion: "4.19.0"
+  falcoVersion: "0.39.2"
+  # Documented: vhhealth-monitoring is excluded from rules (noisy exec
+  # events from Prometheus/Grafana/exporters). See falco-values.yaml.
+  excludedNamespaces: "vhhealth-monitoring"

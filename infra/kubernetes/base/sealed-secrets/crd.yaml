@@ -1,0 +1,89 @@
+# sealed-secrets/crd.yaml — SealedSecret CRD (pinned to v0.27.3)
+#
+# Copied verbatim from
+#   https://github.com/bitnami-labs/sealed-secrets/blob/v0.27.3/helm/sealed-secrets/crds/bitnami.com_sealedsecrets.yaml
+#
+# Kept in-tree so kustomize builds offline without pulling a remote
+# resource. Bumped in lockstep with the controller image (see
+# sealed-secrets.yaml).
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: sealedsecrets.bitnami.com
+  labels:
+    app.kubernetes.io/name: sealed-secrets
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  group: bitnami.com
+  scope: Namespaced
+  names:
+    plural: sealedsecrets
+    singular: sealedsecret
+    kind: SealedSecret
+    listKind: SealedSecretList
+    shortNames:
+      - ss
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: SealedSecret is the schema for the sealedsecrets API
+          required: [spec]
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required: [encryptedData]
+              properties:
+                data:
+                  type: string
+                  format: byte
+                encryptedData:
+                  type: object
+                  additionalProperties:
+                    type: string
+                template:
+                  type: object
+                  properties:
+                    metadata:
+                      x-kubernetes-preserve-unknown-fields: true
+                      type: object
+                    type:
+                      type: string
+                    immutable:
+                      type: boolean
+                    data:
+                      nullable: true
+                      type: object
+                      additionalProperties:
+                        type: string
+                    stringData:
+                      nullable: true
+                      type: object
+                      additionalProperties:
+                        type: string
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Status
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Synced")].reason
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+        - name: Synced
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Synced")].status

@@ -126,8 +126,15 @@ the path-filtered CI and the scheduled sweep stay in sync.
 | `release-patient.yml` | tag `patient-v*` | signed APK + AAB → GitHub Release |
 | `release-staff.yml` | tag `staff-v*` | signed APK + AAB → GitHub Release |
 
-Backend deploys to a Raspberry Pi 5 via `systemd`, not via GitHub Actions.
-Manual `deploy/deploy.sh` + systemctl restart on the host.
+Backend + Admin run on a **3-node on-prem RKE2 Kubernetes cluster** inside the
+hospital. Deploys are **GitOps via ArgoCD** — GitHub Actions builds, signs, and
+pushes container images; ArgoCD watches this repo and auto-syncs the Kustomize
+overlays under `infra/kubernetes/overlays/prod` to the cluster. Postgres runs as
+a CloudNativePG-managed **PostgreSQL 17 cluster (3 replicas, HA)** in-cluster.
+Ingress is **Cloudflare Tunnel → ingress-nginx → Service**, so the hospital
+firewall has zero inbound ports open. See [`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md)
+for the end-to-end runbook and [`docs/HARDWARE_REQUIREMENTS.md`](docs/HARDWARE_REQUIREMENTS.md)
+for the procurement spec.
 
 ## Local CI (run workflows without pushing)
 
@@ -147,7 +154,14 @@ act --dryrun push          # preview only
 
 - `patient-v1.2.3` — patient app release (fires `release-patient.yml`)
 - `staff-v1.2.3` — staff app release (fires `release-staff.yml`)
-- Backend + admin don't use tags — ship from main via systemd and web-host deploy
+- `backend-v1.2.3` / `admin-v1.2.3` — semver-tagged container image releases
+  (backend/admin image-build workflow pushes `ghcr.io/.../backend:v1.2.3` +
+  `:latest` on the stable channel). ArgoCD pins to these tags in
+  `overlays/prod/kustomization.yaml`.
+- `main-<short-sha>` — every push to `main` builds and pushes
+  `ghcr.io/.../backend:main-<sha>` + `ghcr.io/.../admin:main-<sha>`. Staging
+  overlay tracks `main-*` for automatic rollouts; prod tracks `v*` and bumps
+  via ArgoCD image updater or manual kustomize edit + PR.
 
 ## Deleted but worth knowing
 

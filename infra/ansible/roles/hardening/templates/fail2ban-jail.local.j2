@@ -1,0 +1,18 @@
+{{ ansible_managed | comment }}
+[DEFAULT]
+bantime  = {{ hardening_fail2ban_bantime }}
+findtime = {{ hardening_fail2ban_findtime }}
+maxretry = {{ hardening_fail2ban_maxretry }}
+backend  = systemd
+banaction = nftables-multiport
+banaction_allports = nftables-allports
+
+# Management CIDRs never get banned — prevents lock-out of hospital IT.
+ignoreip = 127.0.0.1/8 ::1 {{ management_cidrs | default([]) | join(' ') }} {{ cluster_cidrs | default([]) | join(' ') }}
+
+[sshd]
+enabled  = true
+port     = {{ hardening_ssh_port }}
+filter   = sshd
+logpath  = %(sshd_log)s
+maxretry = {{ hardening_fail2ban_maxretry }}

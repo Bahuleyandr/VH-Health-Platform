@@ -1,0 +1,17 @@
+---
+galaxy_info:
+  role_name: hardening
+  author: VH Health Platform SRE
+  description: CIS-aligned hardening subset for on-prem hospital RKE2 nodes
+  license: Proprietary
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+  galaxy_tags:
+    - security
+    - hardening
+    - cis
+dependencies:
+  - role: common

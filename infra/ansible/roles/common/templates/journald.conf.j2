@@ -1,0 +1,9 @@
+{{ ansible_managed | comment }}
+# journald retention — capped so logs do not fill disk before Loki scrapes.
+[Journal]
+Storage=persistent
+Compress=yes
+SystemMaxUse={{ common_journald_system_max_use }}
+RuntimeMaxUse={{ common_journald_runtime_max_use }}
+ForwardToSyslog=no
+MaxRetentionSec=1month

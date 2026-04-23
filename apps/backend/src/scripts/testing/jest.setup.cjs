@@ -28,6 +28,20 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
   process.env.JWT_SECRET = 'test-jwt-secret-at-least-32-chars';
 }
 
+// validateEnv.js requires all three encryption keys (>=32 chars). Tests must
+// supply deterministic dummy keys so `import './utils/validateEnv.js'` succeeds
+// without a real .env file. These are test-only — prod/staging use real
+// 32-byte base64 values delivered via SealedSecrets (see DEPLOYMENT_GUIDE.md#secrets).
+if (!process.env.FIELD_ENCRYPTION_KEY || process.env.FIELD_ENCRYPTION_KEY.length < 32) {
+  process.env.FIELD_ENCRYPTION_KEY = 'test-field-encryption-key-32chars!!';
+}
+if (!process.env.TOTP_ENCRYPTION_KEY || process.env.TOTP_ENCRYPTION_KEY.length < 32) {
+  process.env.TOTP_ENCRYPTION_KEY = 'test-totp-encryption-key-32chars!!!!';
+}
+if (!process.env.BACKUP_ENCRYPTION_KEY || process.env.BACKUP_ENCRYPTION_KEY.length < 32) {
+  process.env.BACKUP_ENCRYPTION_KEY = 'test-backup-encryption-key-32chars!!';
+}
+
 // Keep Jest output small enough to avoid CI heap blowups from repeated app bootstrap logs.
 console.log = () => {};
 console.info = () => {};

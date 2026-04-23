@@ -3,6 +3,14 @@
 import Joi from 'joi';
 import logger from '../logging/logger.js';
 
+// Minimum key length for all at-rest encryption keys (base64-encoded 32 bytes = 44 chars,
+// but Joi.min counts characters; 32 is the floor below which we refuse to boot).
+const MIN_KEY_LENGTH = 32;
+
+const ENCRYPTION_KEY_HELP =
+  'Generate with `openssl rand -base64 32` and store as a SealedSecret in the cluster. ' +
+  'See docs/DEPLOYMENT_GUIDE.md#secrets for the full procedure.';
+
 // Define the expected environment variables schema
 const envSchema = Joi.object({
   API_KEY: Joi.string().required().label('API_KEY'),
@@ -34,20 +42,47 @@ const envSchema = Joi.object({
   // Monitoring — optional but warn if missing
   SENTRY_DSN: Joi.string().optional().label('SENTRY_DSN'),
 
-  // Encryption — optional but recommended for production
-  FIELD_ENCRYPTION_KEY: Joi.string().min(32).optional().label('FIELD_ENCRYPTION_KEY'),
-  TOTP_ENCRYPTION_KEY: Joi.string().min(32).optional().label('TOTP_ENCRYPTION_KEY'),
+  // Encryption — MANDATORY. No JWT_SECRET fallback (compliance footgun).
+  // Each key protects a different class of data and MUST be rotated independently.
+  //   FIELD_ENCRYPTION_KEY  — at-rest PHI columns (names, DOB, diagnosis, etc.)
+  //   TOTP_ENCRYPTION_KEY   — user TOTP shared secrets
+  //   BACKUP_ENCRYPTION_KEY — openssl-encrypted DB dumps (deploy/backup scripts)
+  FIELD_ENCRYPTION_KEY: Joi.string()
+    .min(MIN_KEY_LENGTH)
+    .required()
+    .label('FIELD_ENCRYPTION_KEY'),
+  TOTP_ENCRYPTION_KEY: Joi.string()
+    .min(MIN_KEY_LENGTH)
+    .required()
+    .label('TOTP_ENCRYPTION_KEY'),
+  BACKUP_ENCRYPTION_KEY: Joi.string()
+    .min(MIN_KEY_LENGTH)
+    .required()
+    .label('BACKUP_ENCRYPTION_KEY'),
 
   // Admin IP allowlist — optional, comma-separated IPs/CIDRs
   ADMIN_IP_ALLOWLIST: Joi.string().optional().label('ADMIN_IP_ALLOWLIST'),
 }).unknown(true);
 
 // Validate the current environment variables
-const { error, value: envVars } = envSchema.validate(process.env);
+const { error, value: envVars } = envSchema.validate(process.env, { abortEarly: false });
 
 // Handle validation errors by terminating the application
 if (error) {
-  logger.error('❌ Environment validation error:', error.details.map(d => d.message).join(', '));
+  const details = error.details.map(d => d.message);
+  const mentionsEncryptionKey = details.some(msg =>
+    /FIELD_ENCRYPTION_KEY|TOTP_ENCRYPTION_KEY|BACKUP_ENCRYPTION_KEY/.test(msg),
+  );
+
+  logger.error('❌ Environment validation failed:');
+  details.forEach(msg => logger.error(`   • ${msg}`));
+
+  if (mentionsEncryptionKey) {
+    logger.error('');
+    logger.error('FIELD_ENCRYPTION_KEY, TOTP_ENCRYPTION_KEY, and BACKUP_ENCRYPTION_KEY are mandatory.');
+    logger.error(ENCRYPTION_KEY_HELP);
+  }
+
   process.exit(1);
 }
 
@@ -67,12 +102,6 @@ if (envVars.FIREBASE_AUTH_ENABLED === 'true') {
 }
 if (!envVars.SENTRY_DSN) {
   optionalWarnings.push('SENTRY_DSN is not set — error monitoring is disabled');
-}
-if (!envVars.FIELD_ENCRYPTION_KEY) {
-  optionalWarnings.push('FIELD_ENCRYPTION_KEY is not set — field-level encryption will use JWT_SECRET as fallback (not recommended for production)');
-}
-if (!envVars.TOTP_ENCRYPTION_KEY) {
-  optionalWarnings.push('TOTP_ENCRYPTION_KEY is not set — TOTP secrets will use JWT_SECRET as fallback (not recommended for production)');
 }
 if (optionalWarnings.length > 0) {
   optionalWarnings.forEach(w => logger.warn(`⚠️  ${w}`));

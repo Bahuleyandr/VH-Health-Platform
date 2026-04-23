@@ -1,0 +1,57 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vhhealth-backend
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    # TLS via cert-manager (Let's Encrypt prod issuer — overlay may switch to
+    # `letsencrypt-staging` in dev/staging to avoid rate limits).
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Request/response tunables — match backend's 10mb JSON body limit
+    # but allow larger multipart uploads for patient record attachments
+    # (validatePatientUpload caps at 25MB PDF, so 50m leaves headroom).
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+    # Backend handles CORS itself (src/middleware/corsMiddleware.js) with
+    # ALLOWED_ORIGINS from env. Ingress must NOT double-handle or it strips
+    # Access-Control-Allow-Credentials.
+    nginx.ingress.kubernetes.io/enable-cors: "false"
+    # Security headers — mirror the helmet.js config in backend app.js.
+    # Kept at the ingress so the browser never sees an unhardened first
+    # byte even during a backend restart.
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains; preload";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+      more_set_headers "Permissions-Policy: geolocation=(), microphone=(), camera=()";
+      more_set_headers "Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'";
+    # Rate limiting — belt-and-braces on top of backend's express-rate-limit.
+    # Per-IP burst protection for anyone bypassing the /api/v1/auth rate limits.
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+    nginx.ingress.kubernetes.io/limit-rpm: "600"
+    # Log X-Request-Id so nginx + backend logs correlate by request.
+    nginx.ingress.kubernetes.io/enable-modsecurity: "false"
+  labels:
+    app.kubernetes.io/name: vhhealth-backend
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.vhhealth.app
+      secretName: vhhealth-backend-tls
+  rules:
+    - host: api.vhhealth.app
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vhhealth-backend
+                port:
+                  number: 80

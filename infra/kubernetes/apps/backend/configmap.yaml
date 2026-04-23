@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vhhealth-backend-config
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  labels:
+    app.kubernetes.io/name: vhhealth-backend
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: vhhealth
+data:
+  # Core runtime — keep in sync with apps/backend/src/utils/validateEnv.js
+  NODE_ENV: "production"
+  PORT: "5000"
+
+  # CORS — comma-separated list of allowed origins (backend reads in cors middleware)
+  # Overlay overrides per environment:
+  #   dev:     http://localhost:3001,http://localhost:3000
+  #   staging: https://admin.staging.vhhealth.app,https://api.staging.vhhealth.app
+  #   prod:    https://admin.vhhealth.app,https://vhhealth.app
+  ALLOWED_ORIGINS: "https://admin.vhhealth.app,https://vhhealth.app"
+
+  # Rate limiting — Joi schema defaults are fine; override per env if needed
+  RATE_LIMIT_WINDOW_MS: "900000"
+  RATE_LIMIT_MAX: "100"
+
+  # Logging — Winston format (json for aggregators, pretty in dev)
+  LOG_FORMAT: "json"
+  LOG_LEVEL: "info"
+
+  # Database SSL mode (Prisma / pg) — required for any external managed PG;
+  # CNPG in-cluster uses mTLS so SSL is negotiated but self-signed.
+  DATABASE_SSL_MODE: "require"
+
+  # App metadata — overlay fills APP_VERSION from release tag / git sha
+  APP_VERSION: "0.0.0-dev"
+
+  # Firebase — project ID is public; private_key + client_email live in the Secret
+  FIREBASE_AUTH_ENABLED: "true"
+
+  # Cloudflare R2 — bucket + account are not secret; keys live in the Secret
+  CF_R2_BUCKET: "vh-health-records"
+
+  # Sentry — DSN lives in Secret; project/org are non-secret metadata for release
+  SENTRY_ENVIRONMENT: "production"
+  SENTRY_TRACES_SAMPLE_RATE: "0.1"
+
+  # API versioning header default
+  API_VERSION_DEFAULT: "v1"
+
+  # Admin IP allowlist (optional) — overlay overrides if a specific hospital
+  # subnet should be enforced. Leaving empty in base disables enforcement.
+  ADMIN_IP_ALLOWLIST: ""
+
+  # Feature flags / timeouts that the app reads directly
+  HTTP_BODY_LIMIT: "10mb"
+  STATEMENT_TIMEOUT_MS: "30000"

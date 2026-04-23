@@ -1,0 +1,92 @@
+# cnpg/poolers.yaml — PgBouncer in front of the primary
+#
+# Why pooled connections: Node/Express with raw `pg` Pool keeps long-lived
+# connections per worker. With 2 backend replicas * ~20 pg-pool conns
+# each, we're at 40 real Postgres connections — fine on its own. But the
+# admin portal (Next.js) adds ~10 more, plus cron jobs, plus HL7 import
+# batches that temporarily spike. Max_connections=200 in Postgres gives
+# headroom but crossing it on the primary causes "too many connections"
+# 503s under load. PgBouncer in session mode lets us front all of that
+# with a single multiplexed connection budget.
+#
+# Mode: `session`. Transaction-mode is incompatible with prepared
+# statements, SET LOCAL, and advisory locks — all of which the backend
+# uses for row-level locking and prepared-statement caching. Session
+# mode is the safe default; revisit if we need to scale further.
+#
+# Target: the read/write service (`vhhealth-pg-rw`). Read-only pools
+# (in front of `-ro`) can be added later for dashboards/exports.
+#
+# A separate read-only pooler would be added in a second resource block
+# here once the backend splits DATABASE_READ_URL onto the pooler endpoint.
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: vhhealth-pg-rw-pooler
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: pgbouncer
+    app.kubernetes.io/instance: vhhealth-pg-rw-pooler
+    app.kubernetes.io/component: connection-pooler
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  cluster:
+    name: vhhealth-pg
+  instances: 2
+  type: rw
+  pgbouncer:
+    poolMode: session
+    parameters:
+      default_pool_size: "100"
+      min_pool_size: "10"
+      reserve_pool_size: "20"
+      reserve_pool_timeout: "3"
+      max_client_conn: "500"
+      max_db_connections: "150"
+      server_idle_timeout: "120"
+      server_lifetime: "3600"
+      query_wait_timeout: "30"
+      idle_transaction_timeout: "300"
+      log_connections: "0"
+      log_disconnections: "0"
+      log_pooler_errors: "1"
+      application_name_add_host: "1"
+    authQuery: "SELECT usename, passwd FROM pg_catalog.pg_shadow WHERE usename=$1"
+  template:
+    spec:
+      containers: []  # CNPG fills this in; we only set affinity + resources.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              cnpg.io/poolerName: vhhealth-pg-rw-pooler
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    cnpg.io/poolerName: vhhealth-pg-rw-pooler
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: vhhealth-pg-rw-pooler
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: pgbouncer
+    app.kubernetes.io/instance: vhhealth-pg-rw-pooler
+    app.kubernetes.io/component: connection-pooler
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      cnpg.io/poolerName: vhhealth-pg-rw-pooler

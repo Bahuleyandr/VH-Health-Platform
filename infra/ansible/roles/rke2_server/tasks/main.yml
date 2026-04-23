@@ -1,0 +1,34 @@
+---
+# Entry point for rke2-server role. Orchestrates install + config + bootstrap
+# sequence so that a single `site.yml` run brings up a clean cluster AND is
+# idempotent on re-runs (safe to re-apply after config changes).
+
+- name: Validate pre-reqs
+  ansible.builtin.import_tasks: preflight.yml
+  tags: [rke2, preflight]
+
+- name: Resolve cluster bootstrap token
+  ansible.builtin.import_tasks: token.yml
+  tags: [rke2, token]
+
+- name: Install RKE2 binaries
+  ansible.builtin.import_tasks: install.yml
+  tags: [rke2, install]
+
+- name: Configure RKE2 server
+  ansible.builtin.import_tasks: configure.yml
+  tags: [rke2, config]
+
+- name: Start bootstrap server
+  ansible.builtin.import_tasks: bootstrap.yml
+  when: rke2_bootstrap | default(false) | bool
+  tags: [rke2, bootstrap]
+
+- name: Join additional servers to cluster
+  ansible.builtin.import_tasks: join.yml
+  when: not (rke2_bootstrap | default(false) | bool)
+  tags: [rke2, join]
+
+- name: Post-install tooling + kubeconfig
+  ansible.builtin.import_tasks: post-install.yml
+  tags: [rke2, post]

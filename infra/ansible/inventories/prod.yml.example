@@ -1,0 +1,76 @@
+---
+# VH Health Platform — Production RKE2 inventory (EXAMPLE).
+#
+# Copy this file to `prod.yml`, then substitute every comment-marked
+# REPLACE token with real hospital values. Do NOT commit real IPs or
+# real SSH keys; keep them either in your local `prod.yml` (gitignored)
+# or in `group_vars/all/vault.yml` (ansible-vault encrypted).
+
+all:
+  vars:
+    # --- SSH connectivity ---------------------------------------------------
+    ansible_user: vhhealth
+    ansible_ssh_private_key_file: ~/.ssh/vhhealth_hospital
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new"
+    ansible_python_interpreter: /usr/bin/python3
+
+    # --- Admin user key installed by the hardening role ---------------------
+    # REPLACE with the real ssh-ed25519 public key of the SRE admin.
+    admin_ssh_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... vhhealth@hospital"
+
+    # --- RKE2 version pin (update for controlled upgrades) -----------------
+    rke2_version: "v1.31.4+rke2r1"
+    rke2_channel: stable
+
+    # --- Network scopes ----------------------------------------------------
+    # REPLACE with hospital IT LAN CIDR(s). Used by firewall + fail2ban
+    # ignoreip + SSH access rules.
+    management_cidrs:
+      - "10.0.0.0/8"
+
+    # REPLACE with the cluster subnet the three nodes share. Used by
+    # firewall for cluster-internal port allowlist.
+    cluster_cidrs:
+      - "10.10.0.0/24"
+
+    # --- TLS SANs appended to API-server certificate ----------------------
+    cluster_dns_san:
+      - "vhhealth.hospital.local"
+      - "api.vhhealth.app"
+      - "10.43.0.1"          # first ClusterIP (kubernetes service)
+
+    # --- Server taints -----------------------------------------------------
+    # KEEP false for 3-node combined topology — all nodes carry workloads.
+    # Flip to true when cluster grows to 5+ nodes with dedicated workers.
+    taint_server_nodes: false
+
+    # --- etcd S3 snapshot offsite target (Cloudflare R2) ------------------
+    # Values below come from the ansible-vault file at
+    # group_vars/all/vault.yml; see vault.yml.example for the template.
+    etcd_s3_endpoint: "{{ vault_etcd_s3_endpoint }}"
+    etcd_s3_bucket: "{{ vault_etcd_s3_bucket }}"
+    etcd_s3_access_key: "{{ vault_etcd_s3_access_key }}"
+    etcd_s3_secret_key: "{{ vault_etcd_s3_secret_key }}"
+    etcd_s3_region: "auto"
+
+  children:
+    rke2_servers:
+      hosts:
+        # --- Node 1 --- Bootstrap (creates the cluster) -------------------
+        vhh-node-1:
+          ansible_host: 10.10.0.11       # REPLACE
+          inventory_zone: rack-a         # CNPG uses this for replica spread
+          rke2_bootstrap: true
+        # --- Node 2 --- Joins via the bootstrap node -----------------------
+        vhh-node-2:
+          ansible_host: 10.10.0.12       # REPLACE
+          inventory_zone: rack-b
+        # --- Node 3 --- Joins via the bootstrap node -----------------------
+        vhh-node-3:
+          ansible_host: 10.10.0.13       # REPLACE
+          inventory_zone: rack-c
+
+    # Not populated on day one. Add dedicated workers here when the cluster
+    # grows past 5 total nodes and you want to taint servers.
+    rke2_agents:
+      hosts: {}

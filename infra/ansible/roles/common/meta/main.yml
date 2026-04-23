@@ -1,0 +1,16 @@
+---
+galaxy_info:
+  role_name: common
+  author: VH Health Platform SRE
+  description: Baseline OS config for RKE2 cluster nodes (Ubuntu 24.04 LTS)
+  license: Proprietary
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+  galaxy_tags:
+    - system
+    - kubernetes
+    - rke2
+dependencies: []

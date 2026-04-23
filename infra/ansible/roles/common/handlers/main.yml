@@ -1,0 +1,30 @@
+---
+- name: Reload sysctl
+  ansible.builtin.command:
+    cmd: sysctl --system
+  listen: reload sysctl
+  changed_when: true
+
+- name: Restart chrony
+  ansible.builtin.systemd:
+    name: chrony
+    state: restarted
+  listen: restart chrony
+
+- name: Restart systemd-journald
+  ansible.builtin.systemd:
+    name: systemd-journald
+    state: restarted
+  listen: restart journald
+
+- name: Reload systemd-modules-load
+  ansible.builtin.systemd:
+    name: systemd-modules-load
+    state: restarted
+  listen: reload kernel modules
+
+- name: Reload unattended-upgrades
+  ansible.builtin.systemd:
+    name: unattended-upgrades
+    state: restarted
+  listen: reload unattended-upgrades

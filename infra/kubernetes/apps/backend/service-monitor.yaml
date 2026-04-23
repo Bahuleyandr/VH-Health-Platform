@@ -1,0 +1,38 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: vhhealth-backend
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  labels:
+    app.kubernetes.io/name: vhhealth-backend
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: vhhealth
+    # kube-prometheus-stack selector — overlay may retag per installation
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vhhealth-backend
+  namespaceSelector:
+    matchNames:
+      - vhhealth
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      honorLabels: true
+      # Drop verbose node_ + process_ labels — we only care about
+      # http_*, vh_* and pg_pool_* custom metrics.
+      metricRelabelings:
+        - action: drop
+          sourceLabels: [__name__]
+          regex: "process_(start_time_seconds|open_fds|max_fds|virtual_memory_bytes)"
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace

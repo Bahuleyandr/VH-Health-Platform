@@ -1,0 +1,53 @@
+---
+# Runs ONLY on the host with rke2_bootstrap: true.
+# This node creates the cluster; embedded etcd initializes with a single
+# member, and the other servers join via join.yml.
+
+- name: Ensure rke2-server service is enabled
+  ansible.builtin.systemd:
+    name: rke2-server
+    enabled: true
+    daemon_reload: true
+  tags: [rke2, bootstrap]
+
+- name: Start rke2-server (bootstrap node)
+  ansible.builtin.systemd:
+    name: rke2-server
+    state: started
+  tags: [rke2, bootstrap]
+
+- name: Wait for API server readiness on bootstrap node (5 min budget)
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 6443
+    timeout: 300
+    delay: 5
+  tags: [rke2, bootstrap]
+
+- name: Wait for kubeconfig to exist
+  ansible.builtin.wait_for:
+    path: "{{ rke2_data_dir }}/../../rancher/rke2/rke2.yaml"
+    state: present
+    timeout: 60
+  failed_when: false
+  tags: [rke2, bootstrap]
+
+- name: Re-read cluster token after bootstrap (for join.yml on other hosts)
+  ansible.builtin.slurp:
+    src: "{{ rke2_data_dir }}/server/node-token"
+  register: bootstrap_token_blob_post
+  tags: [rke2, bootstrap]
+
+- name: Expose token to other hosts as hostvar
+  ansible.builtin.set_fact:
+    rke2_cluster_token: "{{ bootstrap_token_blob_post['content'] | b64decode | trim }}"
+  tags: [rke2, bootstrap]
+
+- name: Broadcast cluster token to all rke2_servers hostvars
+  ansible.builtin.set_fact:
+    rke2_cluster_token: "{{ hostvars[inventory_hostname].rke2_cluster_token }}"
+  delegate_to: "{{ item }}"
+  delegate_facts: true
+  loop: "{{ groups['rke2_servers'] }}"
+  when: item != inventory_hostname
+  tags: [rke2, bootstrap]

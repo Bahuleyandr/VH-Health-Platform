@@ -1,0 +1,427 @@
+name: Release Container Images
+
+# Builds, signs, SBOMs, scans, and publishes container images for the
+# backend (Node/Express API) and admin (Next.js) apps. These images are
+# consumed by the on-prem 3-node RKE2 cluster via ArgoCD, which watches
+# kustomize overlays under `infra/kubernetes/overlays/prod` for tag bumps.
+#
+# Triggers:
+#   - push to main                 → tags `main-<sha>` + `latest`
+#   - push of tag `backend-v*`     → tags `backend-v1.2.3` + `latest-backend`
+#   - push of tag `admin-v*`       → tags `admin-v1.2.3` + `latest-admin`
+#   - workflow_dispatch            → manual
+#
+# Image registry: ghcr.io/<owner>/vh-health-{backend,adminportal}
+# Signing:        keyless cosign via GitHub OIDC (no KMS key required)
+# SBOM:           SPDX via anchore/sbom-action (uploaded as GH artifact)
+# Scanning:       Trivy (fails build on fixable CRITICAL/HIGH vulns)
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'backend-v*'
+      - 'admin-v*'
+  workflow_dispatch:
+    inputs:
+      build_backend:
+        description: 'Build backend image'
+        required: false
+        default: 'true'
+        type: boolean
+      build_admin:
+        description: 'Build admin image'
+        required: false
+        default: 'true'
+        type: boolean
+
+concurrency:
+  group: release-images-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write       # cosign keyless signing via OIDC
+  packages: write       # push to ghcr.io
+  contents: read        # actions/checkout
+  attestations: write   # provenance / SBOM attestations
+  security-events: write # Trivy SARIF upload
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/vh-health-backend
+  ADMIN_IMAGE: ghcr.io/${{ github.repository_owner }}/vh-health-adminportal
+
+jobs:
+  build-backend:
+    name: Build + sign backend image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Skip when only an admin-v* tag was pushed, unless manually dispatched with build_backend=true.
+    if: |
+      github.event_name != 'push' ||
+      !startsWith(github.ref, 'refs/tags/admin-v') ||
+      github.event_name == 'workflow_dispatch'
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-tags: ${{ steps.meta.outputs.tags }}
+      trivy-critical: ${{ steps.trivy-summary.outputs.critical }}
+      trivy-high: ${{ steps.trivy-summary.outputs.high }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.BACKEND_IMAGE }}
+          tags: |
+            # main branch → main-<sha> + latest
+            type=raw,value=main-${{ github.sha }},enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            # backend-v* tag → backend-v1.2.3 + latest-backend
+            type=match,pattern=backend-v(.*),group=0,enable=${{ startsWith(github.ref, 'refs/tags/backend-v') }}
+            type=raw,value=latest-backend,enable=${{ startsWith(github.ref, 'refs/tags/backend-v') }}
+            # workflow_dispatch → manual-<sha>
+            type=raw,value=manual-${{ github.sha }},enable=${{ github.event_name == 'workflow_dispatch' }}
+          labels: |
+            org.opencontainers.image.title=VH Health Backend
+            org.opencontainers.image.description=Node/Express API for VH Health platform
+            org.opencontainers.image.vendor=VH Health
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Build and push backend image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ./apps/backend
+          file: ./apps/backend/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.BACKEND_IMAGE }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          artifact-name: vh-health-backend-sbom.spdx.json
+          output-file: vh-health-backend-sbom.spdx.json
+          upload-artifact: true
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.BACKEND_IMAGE }}@${{ steps.build.outputs.digest }}
+          format: sarif
+          output: trivy-backend.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+          vuln-type: os,library
+
+      - name: Upload Trivy SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-backend.sarif
+          category: trivy-backend
+
+      - name: Summarise Trivy counts
+        id: trivy-summary
+        if: always()
+        run: |
+          if [ -f trivy-backend.sarif ]; then
+            critical=$(jq '[.runs[].results[] | select(.properties."security-severity" | tonumber >= 9.0)] | length' trivy-backend.sarif)
+            high=$(jq '[.runs[].results[] | select(.properties."security-severity" | tonumber >= 7.0 and (.properties."security-severity" | tonumber < 9.0))] | length' trivy-backend.sarif)
+          else
+            critical=0
+            high=0
+          fi
+          echo "critical=${critical:-0}" >> "$GITHUB_OUTPUT"
+          echo "high=${high:-0}" >> "$GITHUB_OUTPUT"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign (keyless OIDC)
+        env:
+          COSIGN_EXPERIMENTAL: 'true'
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          # Sign every tag at the same digest — one signature per tag ref.
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            echo "::group::cosign sign ${tag}@${DIGEST}"
+            cosign sign --yes "${tag}@${DIGEST}"
+            echo "::endgroup::"
+          done <<< "$TAGS"
+
+      - name: Write build summary
+        if: always()
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          CRITICAL: ${{ steps.trivy-summary.outputs.critical }}
+          HIGH: ${{ steps.trivy-summary.outputs.high }}
+        run: |
+          {
+            echo "## Backend image"
+            echo ""
+            echo "**Digest:** \`${DIGEST}\`"
+            echo ""
+            echo "**Tags pushed:**"
+            echo ""
+            echo '```'
+            echo "${TAGS}"
+            echo '```'
+            echo ""
+            echo "**Trivy findings:** ${CRITICAL:-0} CRITICAL / ${HIGH:-0} HIGH (fixable only)"
+            echo ""
+            echo "**SBOM:** attached as workflow artifact \`vh-health-backend-sbom.spdx.json\`"
+            echo ""
+            echo "**Signed:** cosign keyless via GitHub OIDC"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-admin:
+    name: Build + sign admin image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Skip when only a backend-v* tag was pushed, unless manually dispatched.
+    if: |
+      github.event_name != 'push' ||
+      !startsWith(github.ref, 'refs/tags/backend-v') ||
+      github.event_name == 'workflow_dispatch'
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-tags: ${{ steps.meta.outputs.tags }}
+      trivy-critical: ${{ steps.trivy-summary.outputs.critical }}
+      trivy-high: ${{ steps.trivy-summary.outputs.high }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.ADMIN_IMAGE }}
+          tags: |
+            type=raw,value=main-${{ github.sha }},enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=match,pattern=admin-v(.*),group=0,enable=${{ startsWith(github.ref, 'refs/tags/admin-v') }}
+            type=raw,value=latest-admin,enable=${{ startsWith(github.ref, 'refs/tags/admin-v') }}
+            type=raw,value=manual-${{ github.sha }},enable=${{ github.event_name == 'workflow_dispatch' }}
+          labels: |
+            org.opencontainers.image.title=VH Health Admin Portal
+            org.opencontainers.image.description=Next.js admin portal for VH Health platform
+            org.opencontainers.image.vendor=VH Health
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Build and push admin image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ./apps/admin
+          file: ./apps/admin/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=admin
+          cache-to: type=gha,scope=admin,mode=max
+          provenance: true
+          sbom: true
+          # Admin is a Next.js app — NEXT_PUBLIC_* are baked into the client
+          # bundle at build time. Override via repo-level variables for
+          # staging/prod rebuilds; secrets in vars keep values non-sensitive.
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || 'https://api.vhhealth.app' }}
+            NEXT_PUBLIC_APP_NAME=${{ vars.NEXT_PUBLIC_APP_NAME || 'VH Health Admin' }}
+            NEXT_PUBLIC_ALLOWED_ORIGIN=${{ vars.NEXT_PUBLIC_ALLOWED_ORIGIN || 'https://admin.vhhealth.app' }}
+            NEXT_PUBLIC_SENTRY_DSN=${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
+
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.ADMIN_IMAGE }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          artifact-name: vh-health-adminportal-sbom.spdx.json
+          output-file: vh-health-adminportal-sbom.spdx.json
+          upload-artifact: true
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.ADMIN_IMAGE }}@${{ steps.build.outputs.digest }}
+          format: sarif
+          output: trivy-admin.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+          vuln-type: os,library
+
+      - name: Upload Trivy SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-admin.sarif
+          category: trivy-admin
+
+      - name: Summarise Trivy counts
+        id: trivy-summary
+        if: always()
+        run: |
+          if [ -f trivy-admin.sarif ]; then
+            critical=$(jq '[.runs[].results[] | select(.properties."security-severity" | tonumber >= 9.0)] | length' trivy-admin.sarif)
+            high=$(jq '[.runs[].results[] | select(.properties."security-severity" | tonumber >= 7.0 and (.properties."security-severity" | tonumber < 9.0))] | length' trivy-admin.sarif)
+          else
+            critical=0
+            high=0
+          fi
+          echo "critical=${critical:-0}" >> "$GITHUB_OUTPUT"
+          echo "high=${high:-0}" >> "$GITHUB_OUTPUT"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign (keyless OIDC)
+        env:
+          COSIGN_EXPERIMENTAL: 'true'
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            echo "::group::cosign sign ${tag}@${DIGEST}"
+            cosign sign --yes "${tag}@${DIGEST}"
+            echo "::endgroup::"
+          done <<< "$TAGS"
+
+      - name: Write build summary
+        if: always()
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          CRITICAL: ${{ steps.trivy-summary.outputs.critical }}
+          HIGH: ${{ steps.trivy-summary.outputs.high }}
+        run: |
+          {
+            echo "## Admin image"
+            echo ""
+            echo "**Digest:** \`${DIGEST}\`"
+            echo ""
+            echo "**Tags pushed:**"
+            echo ""
+            echo '```'
+            echo "${TAGS}"
+            echo '```'
+            echo ""
+            echo "**Trivy findings:** ${CRITICAL:-0} CRITICAL / ${HIGH:-0} HIGH (fixable only)"
+            echo ""
+            echo "**SBOM:** attached as workflow artifact \`vh-health-adminportal-sbom.spdx.json\`"
+            echo ""
+            echo "**Signed:** cosign keyless via GitHub OIDC"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  summary:
+    name: Release summary
+    runs-on: ubuntu-latest
+    needs: [build-backend, build-admin]
+    if: always() && (needs.build-backend.result == 'success' || needs.build-admin.result == 'success')
+    steps:
+      - name: Generate deploy instructions
+        env:
+          OWNER: ${{ github.repository_owner }}
+          REF: ${{ github.ref_name }}
+          BACKEND_DIGEST: ${{ needs.build-backend.outputs.image-digest }}
+          BACKEND_TAGS: ${{ needs.build-backend.outputs.image-tags }}
+          BACKEND_RESULT: ${{ needs.build-backend.result }}
+          BACKEND_CRITICAL: ${{ needs.build-backend.outputs.trivy-critical }}
+          BACKEND_HIGH: ${{ needs.build-backend.outputs.trivy-high }}
+          ADMIN_DIGEST: ${{ needs.build-admin.outputs.image-digest }}
+          ADMIN_TAGS: ${{ needs.build-admin.outputs.image-tags }}
+          ADMIN_RESULT: ${{ needs.build-admin.result }}
+          ADMIN_CRITICAL: ${{ needs.build-admin.outputs.trivy-critical }}
+          ADMIN_HIGH: ${{ needs.build-admin.outputs.trivy-high }}
+        run: |
+          {
+            echo "# VH Health image release — ${REF}"
+            echo ""
+            echo "| Image | Result | Digest | Trivy (CRITICAL/HIGH, fixable) |"
+            echo "| --- | --- | --- | --- |"
+            echo "| \`ghcr.io/${OWNER}/vh-health-backend\` | ${BACKEND_RESULT} | \`${BACKEND_DIGEST:-n/a}\` | ${BACKEND_CRITICAL:-0} / ${BACKEND_HIGH:-0} |"
+            echo "| \`ghcr.io/${OWNER}/vh-health-adminportal\` | ${ADMIN_RESULT} | \`${ADMIN_DIGEST:-n/a}\` | ${ADMIN_CRITICAL:-0} / ${ADMIN_HIGH:-0} |"
+            echo ""
+            echo "## Tags pushed"
+            echo ""
+            echo "### Backend"
+            echo '```'
+            echo "${BACKEND_TAGS:-<no tags>}"
+            echo '```'
+            echo ""
+            echo "### Admin"
+            echo '```'
+            echo "${ADMIN_TAGS:-<no tags>}"
+            echo '```'
+            echo ""
+            echo "## Deploy (bump ArgoCD-tracked digests)"
+            echo ""
+            echo "ArgoCD watches \`infra/kubernetes/overlays/prod/kustomization.yaml\`. Pin the new digests there and push:"
+            echo ""
+            echo '```bash'
+            echo "cd infra/kubernetes/overlays/prod"
+            echo "kustomize edit set image \\"
+            echo "  ghcr.io/${OWNER}/vh-health-backend=ghcr.io/${OWNER}/vh-health-backend@${BACKEND_DIGEST:-<digest>} \\"
+            echo "  ghcr.io/${OWNER}/vh-health-adminportal=ghcr.io/${OWNER}/vh-health-adminportal@${ADMIN_DIGEST:-<digest>}"
+            echo "git commit -am \"bump images to ${REF}\""
+            echo "git push"
+            echo '```'
+            echo ""
+            echo "ArgoCD will auto-sync within 3 minutes, or force a sync:"
+            echo ""
+            echo '```bash'
+            echo "argocd app sync vhhealth-prod"
+            echo '```'
+            echo ""
+            echo "## Verify signatures (on the cluster or locally)"
+            echo ""
+            echo '```bash'
+            echo "cosign verify \\"
+            echo "  --certificate-identity-regexp='https://github.com/${{ github.repository }}/.github/workflows/release-images.yml@.*' \\"
+            echo "  --certificate-oidc-issuer=https://token.actions.githubusercontent.com \\"
+            echo "  ghcr.io/${OWNER}/vh-health-backend@${BACKEND_DIGEST:-<digest>}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

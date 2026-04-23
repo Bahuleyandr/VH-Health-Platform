@@ -1,0 +1,239 @@
+# harbor/harbor-values.yaml — Helm values for Harbor v2.12+
+#
+# Rendered by kustomize's `helmCharts:` inflator. The chart source is
+# https://helm.goharbor.io (chart name: harbor, app version 2.12.x).
+#
+# Deviations from upstream defaults:
+#   - externalURL + expose.ingress: we terminate TLS with an internal CA
+#     cert (step-ca) and use the `nginx` ingress class (LAN-only).
+#   - database.type=external, pointing at the CNPG cluster via its rw
+#     service (vhhealth-pg-rw.vhhealth-platform.svc.cluster.local:5432).
+#     We pre-create a `harbor_registry` DB owned by `harbor_user`.
+#   - redis.type=external, pointing at the Sentinel primary.
+#   - persistence.imageChartStorage.type=s3, pointing at MinIO.
+#   - internalTLS.enabled=true so component-to-component traffic is mTLS
+#     even inside the cluster.
+#
+# Credentials (DB password, Redis password, storage creds, Harbor admin
+# password) come from SealedSecrets referenced by `externalSecretName`
+# so the Helm chart never sees plaintext values.
+expose:
+  type: ingress
+  tls:
+    enabled: true
+    certSource: secret
+    secret:
+      secretName: harbor-public-tls
+  ingress:
+    hosts:
+      core: registry.vhhealth.hospital.local
+    controller: default
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: step-ca-internal
+      nginx.ingress.kubernetes.io/proxy-body-size: "0"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+
+externalURL: https://registry.vhhealth.hospital.local
+
+# No built-in internal TLS bootstrap cert — we use cert-manager.
+internalTLS:
+  enabled: true
+  certSource: auto
+
+# Persist images in MinIO via S3-compatible API. The bucket is created
+# during MinIO tenant bootstrap (see base/minio/tenant.yaml).
+persistence:
+  enabled: true
+  imageChartStorage:
+    disableredirect: true
+    type: s3
+    s3:
+      region: apsouth1
+      bucket: harbor-registry
+      regionendpoint: https://minio-api.vhhealth-platform.svc.cluster.local
+      secure: true
+      skipverify: true
+      # accesskey + secretkey injected via existing secret below.
+      existingSecret: harbor-s3-credentials
+      # keys: REGISTRY_STORAGE_S3_ACCESSKEY, REGISTRY_STORAGE_S3_SECRETKEY
+  persistentVolumeClaim:
+    registry:
+      storageClass: local-path
+      accessMode: ReadWriteOnce
+      size: 50Gi
+    jobservice:
+      jobLog:
+        storageClass: local-path
+        accessMode: ReadWriteOnce
+        size: 5Gi
+    database:
+      # Not used — we go external
+      storageClass: local-path
+      size: 1Gi
+    redis:
+      # Not used — we go external
+      storageClass: local-path
+      size: 1Gi
+    trivy:
+      storageClass: local-path
+      accessMode: ReadWriteOnce
+      size: 10Gi
+
+imagePullPolicy: IfNotPresent
+
+# No embedded DB — point at CNPG Postgres via external mode.
+database:
+  type: external
+  external:
+    host: vhhealth-pg-rw.vhhealth-platform.svc.cluster.local
+    port: "5432"
+    username: harbor
+    coreDatabase: harbor
+    sslmode: require
+    existingSecret: harbor-database-credentials  # keys: password
+
+# No embedded Redis — point at our Sentinel primary. Harbor ≤2.12 does
+# not speak Sentinel directly; we front Redis with a pooler/proxy or
+# rely on the primary's stable DNS (redis-0.redis-headless). For now
+# we use the primary's pod DNS and restart Harbor on failover.
+redis:
+  type: external
+  external:
+    addr: redis-0.redis-headless.vhhealth-platform.svc.cluster.local:6379
+    existingSecret: harbor-redis-credentials  # keys: REDIS_PASSWORD
+
+# Three-replica scale-out for registry + core + portal + jobservice.
+portal:
+  replicas: 3
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10000
+    runAsGroup: 10000
+    fsGroup: 10000
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10000
+    runAsGroup: 10000
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+  automountServiceAccountToken: false
+
+core:
+  replicas: 3
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10000
+    runAsGroup: 10000
+    fsGroup: 10000
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10000
+    runAsGroup: 10000
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 250m
+    limits:
+      memory: 1Gi
+      cpu: 1
+  existingSecret: harbor-core-secret  # keys: HARBOR_ADMIN_PASSWORD, secret
+
+jobservice:
+  replicas: 3
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10000
+    runAsGroup: 10000
+    fsGroup: 10000
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10000
+    runAsGroup: 10000
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+registry:
+  replicas: 3
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+  registry:
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 512Mi
+        cpu: 500m
+  controller:
+    resources:
+      requests:
+        memory: 128Mi
+        cpu: 50m
+      limits:
+        memory: 256Mi
+        cpu: 250m
+
+trivy:
+  enabled: true
+  replicas: 2
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 200m
+    limits:
+      memory: 1Gi
+      cpu: 1
+
+# Prometheus
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    additionalLabels:
+      release: vhhealth-monitoring
+
+# Disable chartmuseum + notary (deprecated in Harbor 2.10+ / 2.11+)
+chartmuseum:
+  enabled: false
+notary:
+  enabled: false

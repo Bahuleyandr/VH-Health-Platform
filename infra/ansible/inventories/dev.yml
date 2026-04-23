@@ -1,0 +1,53 @@
+---
+# VH Health Platform — Dev / single-node RKE2 inventory.
+#
+# Use for a single-node cluster spun up on a laptop, WSL2 VM, or similar
+# engineering sandbox. No HA, no quorum, one etcd member.
+#
+# This file IS committed (no secrets) — it's pointed at a fake address
+# and is intended to be edited in place for local testing.
+
+all:
+  vars:
+    ansible_user: vhhealth
+    ansible_ssh_private_key_file: ~/.ssh/vhhealth_dev
+    ansible_python_interpreter: /usr/bin/python3
+
+    admin_ssh_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... dev@localhost"
+
+    rke2_version: "v1.31.4+rke2r1"
+    rke2_channel: stable
+
+    management_cidrs:
+      - "10.0.0.0/8"
+      - "192.168.0.0/16"
+      - "172.16.0.0/12"
+
+    cluster_cidrs:
+      - "127.0.0.0/8"
+
+    cluster_dns_san:
+      - "dev.vhhealth.local"
+      - "localhost"
+
+    taint_server_nodes: false
+
+    # Dev runs without S3 snapshots — set rke2_etcd_s3_enabled: false
+    # override at the role level (default true); we flip it here.
+    rke2_etcd_s3_enabled: false
+    etcd_s3_endpoint: ""
+    etcd_s3_bucket: ""
+    etcd_s3_access_key: ""
+    etcd_s3_secret_key: ""
+
+  children:
+    rke2_servers:
+      hosts:
+        vhh-dev-1:
+          ansible_host: 127.0.0.1
+          ansible_connection: local       # target the local machine
+          inventory_zone: dev-local
+          rke2_bootstrap: true
+
+    rke2_agents:
+      hosts: {}

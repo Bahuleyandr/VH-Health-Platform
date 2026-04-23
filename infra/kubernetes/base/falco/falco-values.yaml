@@ -1,0 +1,162 @@
+# falco/falco-values.yaml — values for the Falco helm chart
+#
+# Chart: falcosecurity/falco v4.19.0 (app version 0.39.x).
+# Deployed via Argo CD Application; this file is the source of truth
+# for values.
+#
+# Driver: `modern-bpf` uses CO-RE eBPF which requires kernel 5.8+. RKE2
+# on Ubuntu 24.04 (our target) ships kernels 6.x, so this is safe and
+# avoids the kernel-module compile step.
+#
+# Default rules plus the Kubernetes audit ruleset. Custom rules can be
+# added per-app via the `customRules` map (a ConfigMap in the cluster).
+driver:
+  kind: modern-bpf
+
+collectors:
+  enabled: true
+  docker:
+    enabled: false
+  containerd:
+    enabled: true
+    socket: /run/k3s/containerd/containerd.sock
+  kubernetes:
+    enabled: true
+
+falco:
+  grpc:
+    enabled: true
+    bind_address: "unix:///run/falco/falco.sock"
+  grpc_output:
+    enabled: true
+  http_output:
+    enabled: true
+    # Alertmanager webhook for critical events. The URL is the generic
+    # webhook receiver that alertmanager exposes for external sources.
+    # For v1, we route through a dedicated falcosidekick deployment below.
+    url: "http://falcosidekick:2801/"
+  stdout_output:
+    enabled: true
+  syslog_output:
+    enabled: false
+  file_output:
+    enabled: false
+  log_level: info
+  log_syslog: false
+  priority: informational
+  buffered_outputs: true
+  outputs:
+    rate: 1
+    max_burst: 1000
+
+falcoctl:
+  artifact:
+    install:
+      enabled: true
+      refs: ["falco-rules:3", "k8saudit-rules:0"]
+    follow:
+      enabled: true
+      refs: ["falco-rules:3"]
+
+tty: false
+
+podSecurityContext:
+  runAsNonRoot: false  # Falco requires root on the host to read BPF
+  runAsUser: 0
+  fsGroup: 0
+
+securityContext:
+  runAsUser: 0
+  runAsGroup: 0
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+    add:
+      - SYS_ADMIN
+      - SYS_RESOURCE
+      - SYS_PTRACE
+      - BPF
+      - PERFMON
+
+resources:
+  requests:
+    memory: 512Mi
+    cpu: 100m
+  limits:
+    memory: 1Gi
+    cpu: 1
+
+serviceMonitor:
+  create: true
+  additionalLabels:
+    release: vhhealth-monitoring
+
+# Skip vhhealth-monitoring's ever-busy processes (noisy false-positives
+# from Prometheus/Grafana exec'ing probes).
+extra:
+  env:
+    - name: FALCO_K8S_NODE_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: spec.nodeName
+
+rulesExcludedNamespaces:
+  - vhhealth-monitoring
+
+customRules:
+  vhhealth-exclusions.yaml: |-
+    - list: vhhealth_monitoring_namespaces
+      items: [vhhealth-monitoring]
+
+    - rule: Do not alert on monitoring namespace
+      desc: Suppress noisy-but-benign Prometheus/Grafana/exporter exec events
+      condition: k8s.ns.name in (vhhealth_monitoring_namespaces)
+      output: "skipped: %k8s.ns.name"
+      priority: DEBUG
+      source: syscall
+      append: false
+      enabled: true
+
+falcosidekick:
+  enabled: true
+  replicaCount: 2
+  config:
+    alertmanager:
+      hostport: "http://vhhealth-monitoring-alertmanager.vhhealth-monitoring.svc.cluster.local:9093"
+      minimumpriority: "critical"
+      expiredaftersec: 0
+    loki:
+      hostport: "http://vhhealth-monitoring-loki.vhhealth-monitoring.svc.cluster.local:3100"
+      minimumpriority: "informational"
+      user: ""
+      apikey: ""
+      tenant: ""
+      endpoint: "/loki/api/v1/push"
+  webui:
+    enabled: true
+    replicaCount: 1
+    ingress:
+      enabled: false  # LAN-only, accessed via port-forward for now
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 50m
+    limits:
+      memory: 256Mi
+      cpu: 200m

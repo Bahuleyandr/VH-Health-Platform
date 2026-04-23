@@ -1,0 +1,28 @@
+# monitoring/chart-tracker.yaml — metadata tracking for Helm charts
+#
+# The kube-prometheus-stack and loki-stack charts are Argo-managed
+# Applications. This ConfigMap tracks the pinned versions.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: monitoring-chart-tracker
+  namespace: vhhealth-monitoring
+  labels:
+    app.kubernetes.io/name: monitoring
+    app.kubernetes.io/component: chart-tracker
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+data:
+  kubePrometheusStackRepo: "https://prometheus-community.github.io/helm-charts"
+  kubePrometheusStackChart: "kube-prometheus-stack"
+  kubePrometheusStackVersion: "65.2.0"
+  prometheusVersion: "v2.55.0"
+  grafanaVersion: "11.3.0"
+  alertmanagerVersion: "v0.27.0"
+
+  lokiStackRepo: "https://grafana.github.io/helm-charts"
+  lokiStackChart: "loki-stack"
+  lokiStackVersion: "2.10.2"
+  lokiVersion: "2.9.10"
+  promtailVersion: "2.9.10"

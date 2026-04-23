@@ -1,0 +1,94 @@
+# namespaces.yaml — VH Health platform namespaces
+#
+# All five namespaces carry Pod Security Standards "restricted" enforcement:
+# no privileged containers, no host namespaces, no hostPath volumes (other than
+# what the kubelet injects), runAsNonRoot required, seccomp=RuntimeDefault.
+# See https://kubernetes.io/docs/concepts/security/pod-security-admission/
+#
+# The audit + warn levels are set alongside enforce so that new workloads
+# whose images are not yet hardened at least surface a violation in the
+# apiserver audit stream, rather than silently failing admission.
+#
+# Namespace naming: `vhhealth-*` for everything we own. The lone exception
+# is the `argocd` namespace, which is conventional for Argo CD and lives
+# outside this file (it is created inside `base/argocd/`).
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vhhealth
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+  annotations:
+    vhhealth.app/description: "Application workloads — backend API, admin portal, app-adjacent services."
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vhhealth-platform
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+  annotations:
+    vhhealth.app/description: "Platform data-plane services — CNPG Postgres, Redis Sentinel, MinIO, Harbor."
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vhhealth-monitoring
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+  annotations:
+    vhhealth.app/description: "Observability stack — kube-prometheus-stack (Prometheus/Grafana/Alertmanager) and Loki/Promtail."
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vhhealth-ingress
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+  annotations:
+    vhhealth.app/description: "Ingress data plane — ingress-nginx DaemonSet and cloudflared Tunnel Deployment."
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vhhealth-security
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+  annotations:
+    vhhealth.app/description: "Security tooling — cert-manager, sealed-secrets, Vault, step-ca, Falco."

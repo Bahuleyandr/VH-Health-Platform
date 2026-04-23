@@ -1,0 +1,85 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vhhealth-admin
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    app.kubernetes.io/name: vhhealth-admin
+    app.kubernetes.io/component: admin
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: vhhealth-admin
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # 1. ingress-nginx → admin on :3001 (public hospital staff traffic)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-ingress
+      ports:
+        - protocol: TCP
+          port: 3001
+    # 2. Prometheus scrape (if/when admin exposes /api/metrics — today it
+    # doesn't; the ServiceMonitor is a no-op until a metrics route lands).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-monitoring
+      ports:
+        - protocol: TCP
+          port: 3001
+  egress:
+    # CoreDNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # In-cluster backend — /api/proxy forwards all API calls here.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vhhealth-backend
+      ports:
+        - protocol: TCP
+          port: 5000
+        # Also allow the Service port in case the proxy uses the Service name.
+        - protocol: TCP
+          port: 80
+
+    # External HTTPS — Sentry, Firebase (for any client-SDK bootstrapping
+    # admin does server-side), Let's Encrypt ACME. No LLM egress from admin
+    # (all AI calls proxy through the backend).
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 443
+
+    # NTP — clock sync for TOTP MFA verification flow.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: UDP
+          port: 123

@@ -1,0 +1,26 @@
+# harbor/chart-tracker.yaml — metadata tracking for Harbor's external Helm chart
+#
+# Argo CD installs Harbor from helm chart repo `https://helm.goharbor.io`.
+# The Application CR is defined under `infra/kubernetes/apps/platform/`
+# (Agent C territory). The values it uses are kept alongside in
+# `harbor-values.yaml` in this directory so platform edits stay here.
+#
+# This ConfigMap is the single source of truth for the pinned chart
+# version so Renovate + Argo CD image updater can bump us together.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: harbor-chart-tracker
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: harbor
+    app.kubernetes.io/component: chart-tracker
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+data:
+  chartRepo: "https://helm.goharbor.io"
+  chartName: "harbor"
+  chartVersion: "1.16.2"  # Harbor app version 2.12.2
+  appVersion: "v2.12.2"
+  valuesFile: "infra/kubernetes/base/harbor/harbor-values.yaml"

@@ -18,7 +18,9 @@
 - ML adherence model: lazy-loads ONNX, no training pipeline or retraining story.
 - Clinical safety (CDS, MAR 5-rights, vital anomaly): real code with real tests, most credible slice.
 
-**Still open (honest list):** see FINISH_BUILDING.md. Top items: observability (Sentry release + structured log shipping), pentest engagement, runbooks.
+**Still open (honest list):** see FINISH_BUILDING.md. Top items: pentest engagement, ArgoCD Application CR + cutover work, SOC 2 Type II prep (runbooks done; deployment grade upgraded 2026-04-23 — see below).
+
+**Deployment grade upgraded 2026-04-23:** C (manual single-host deploy) → **A (GitOps via ArgoCD on 3-node on-prem RKE2)**. All 8 runbooks migrated to `kubectl` + sealed secrets. Target architecture + end-to-end runbook live in `../../docs/DEPLOYMENT_GUIDE.md` and `../../docs/HARDWARE_REQUIREMENTS.md`.
 
 ---
 
@@ -115,6 +117,28 @@ Full script sketch lives in `adherenceModelServing.js` top-of-file comment.
 
 ### Admin 3F. Revenue cycle UI ✅ (denial dashboard, 2026-04-14)
 Admin page at `dashboard/billing/denials` — reads `/billing/denials/summary` + `/billing/denials`, renders count / amount / appeal-win-rate tiles, top reason codes table, and recent denials list.
+
+---
+
+## Phase 4 — Platform + Deployment (2026-04-23 onwards)
+
+### 4A. Deployment migration ✅ (narrative locked — infra landing via parallel agents)
+Target architecture documented end-to-end:
+- 3-node on-prem RKE2 cluster in-hospital.
+- Container images built by GitHub Actions (signed, semver-tagged + `main-<sha>`), pushed to ghcr.io.
+- ArgoCD reconciles `infra/kubernetes/overlays/prod` → cluster.
+- CNPG-managed Postgres 17 (3 replicas, sync) replaces the containerised legacy deployment.
+- pgBackRest → MinIO (hot) → Cloudflare R2 (cold) backup chain with customer-managed AES-256 cipher.
+- Cloudflare Tunnel → ingress-nginx → Service. Zero inbound ports on hospital firewall.
+- See `../../docs/DEPLOYMENT_GUIDE.md`, `../../docs/HARDWARE_REQUIREMENTS.md`, `DISASTER-RECOVERY.md`, `DB-MIGRATION-PLAN.md`, and all 8 runbooks under `RUNBOOKS/`.
+
+### 4B. Deferred — batch 17
+- **ArgoCD Application CR wiring + fully automated cutover from legacy deployment.** Narrative ready; production cutover + validation remains.
+- **Formal pentest engagement.** Third-party vendor + scope + report.
+- **SOC 2 Type II audit.** Requires 6-month observation window; start after cutover stabilises for 30 days.
+- **Offsite DR standby cluster at partner hospital site.** See `DISASTER-RECOVERY.md` Scenario 6.
+- **ArgoCD image updater** for fully automatic tag bumps on `main-<sha>` (staging) and semver (prod).
+- **BAA** for HIPAA if / when US-covered-entity partnership lands.
 
 ---
 

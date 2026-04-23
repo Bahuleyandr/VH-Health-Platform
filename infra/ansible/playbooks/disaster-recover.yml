@@ -1,0 +1,137 @@
+---
+# Disaster recovery — restore cluster from etcd snapshot onto fresh nodes.
+#
+# Usage:
+#   ansible-playbook -i inventories/prod.yml playbooks/disaster-recover.yml \
+#     -e etcd_snapshot=<snapshot-filename-or-s3-url> \
+#     --ask-vault-pass
+#
+# Assumptions:
+#   - All three RKE2 nodes have been freshly imaged (site.yml NOT yet run).
+#   - The etcd snapshot lives either in Cloudflare R2 (vault creds) or on
+#     the bootstrap node's /var/lib/rancher/rke2/server/db/snapshots/.
+#   - PVs on CNPG-hosted Postgres are reattached manually via kubectl after
+#     the cluster is back up — this playbook restores control plane only.
+#
+# Flow:
+#   1. Assert etcd_snapshot provided.
+#   2. Run site.yml up to (and including) install, but NOT start rke2-server.
+#   3. Restore etcd from snapshot on the bootstrap node.
+#   4. Start the bootstrap node; wait for API server.
+#   5. Wipe + rejoin the other two nodes (they become etcd followers).
+#   6. Verify: `kubectl get nodes` shows all Ready, workloads redeploy on
+#      their own via existing Deployment + StatefulSet manifests.
+
+- name: Validate inputs
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Assert etcd_snapshot var
+      ansible.builtin.assert:
+        that:
+          - etcd_snapshot is defined
+          - etcd_snapshot | length > 0
+        fail_msg: "Pass -e etcd_snapshot=<filename-or-s3-URL>"
+      run_once: true
+
+- name: Pre-install baseline on all nodes (but do not start RKE2 yet)
+  hosts: rke2_servers
+  become: true
+  gather_facts: true
+  roles:
+    - role: common
+    - role: hardening
+    - role: firewall
+  tasks:
+    - name: Install RKE2 binaries (no service start)
+      ansible.builtin.include_role:
+        name: rke2_server
+        tasks_from: install.yml
+
+    - name: Render RKE2 config (no service start)
+      ansible.builtin.include_role:
+        name: rke2_server
+        tasks_from: configure.yml
+
+    - name: Ensure rke2-server is stopped before restore
+      ansible.builtin.systemd:
+        name: rke2-server
+        state: stopped
+        enabled: true
+        daemon_reload: true
+      failed_when: false
+
+- name: Restore etcd on bootstrap node
+  hosts: rke2_servers
+  become: true
+  gather_facts: false
+  vars:
+    bootstrap_host: >-
+      {{ (groups['rke2_servers']
+          | selectattr('rke2_bootstrap', 'defined')
+          | selectattr('rke2_bootstrap', 'equalto', true)
+          | list
+          | first
+         ) | default(groups['rke2_servers'] | first) }}
+  tasks:
+    - name: Run rke2 cluster-reset with snapshot
+      ansible.builtin.command:
+        cmd: >-
+          /usr/local/bin/rke2 server
+          --cluster-reset
+          --cluster-reset-restore-path={{ etcd_snapshot }}
+          --etcd-s3={{ rke2_etcd_s3_enabled | default(true) | ternary('true', 'false') }}
+          --etcd-s3-endpoint={{ etcd_s3_endpoint | default('') }}
+          --etcd-s3-bucket={{ etcd_s3_bucket | default('') }}
+          --etcd-s3-access-key={{ etcd_s3_access_key | default('') }}
+          --etcd-s3-secret-key={{ etcd_s3_secret_key | default('') }}
+      delegate_to: "{{ bootstrap_host }}"
+      run_once: true
+      changed_when: true
+
+    - name: Start rke2-server on bootstrap node
+      ansible.builtin.systemd:
+        name: rke2-server
+        state: started
+      delegate_to: "{{ bootstrap_host }}"
+      run_once: true
+
+    - name: Wait for API server
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 6443
+        timeout: 600
+      delegate_to: "{{ bootstrap_host }}"
+      run_once: true
+
+- name: Wipe + rejoin follower servers
+  hosts: rke2_servers
+  become: true
+  gather_facts: false
+  serial: 1
+  tasks:
+    - name: Skip bootstrap node (already restored)
+      ansible.builtin.meta: end_host
+      when: rke2_bootstrap | default(false) | bool
+
+    - name: Stop rke2-server
+      ansible.builtin.systemd:
+        name: rke2-server
+        state: stopped
+      failed_when: false
+
+    - name: Wipe server DB (forces re-join to new cluster)
+      ansible.builtin.file:
+        path: /var/lib/rancher/rke2/server/db
+        state: absent
+
+    - name: Start rke2-server (will rejoin restored cluster)
+      ansible.builtin.systemd:
+        name: rke2-server
+        state: started
+
+    - name: Wait for kubelet up
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 10250
+        timeout: 600

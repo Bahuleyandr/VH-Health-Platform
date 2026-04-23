@@ -1,0 +1,136 @@
+# Off-cluster R2 sync — mirrors CNPG-managed Postgres backups + local MinIO
+# uploads to Cloudflare R2 for 3-2-1 disaster recovery.
+#
+# CNPG already runs physical Postgres backups inside the cluster (see Agent B's
+# platform services). This job is the "leave the building" copy — encrypted
+# + uploaded to R2 every 6h so a full-cluster loss still has a recent RPO.
+#
+# Image: amazon/aws-cli — has aws, openssl, and sh baked in; tiny (~60MB).
+# For anything more complex, bake our own slim image with the exact flags.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vhhealth-backend-r2-sync
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  labels:
+    app.kubernetes.io/name: vhhealth-backend-r2-sync
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  schedule: "0 */6 * * *"
+  timeZone: "Asia/Kolkata"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  startingDeadlineSeconds: 1800
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 3600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: vhhealth-backend-r2-sync
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: OnFailure
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: r2-sync
+              image: amazon/aws-cli:2.17.0
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+
+                  TS=$(date -u +%Y%m%dT%H%M%SZ)
+                  STAGE=/tmp/backup-${TS}
+                  mkdir -p "${STAGE}"
+
+                  echo "[+] Sync from in-cluster MinIO to local stage"
+                  aws --endpoint-url "${MINIO_ENDPOINT}" \
+                      s3 sync "s3://${MINIO_BUCKET}/" "${STAGE}/" \
+                      --exclude "*/tmp/*" --only-show-errors
+
+                  echo "[+] Encrypt archive with BACKUP_ENCRYPTION_KEY"
+                  tar -C "${STAGE}" -cf - . | \
+                    openssl enc -aes-256-cbc -salt -pbkdf2 -iter 600000 \
+                      -pass "env:BACKUP_ENCRYPTION_KEY" \
+                      -out "/tmp/vhhealth-${TS}.tar.enc"
+
+                  echo "[+] Upload to Cloudflare R2"
+                  aws --endpoint-url "https://${CF_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+                      --region auto \
+                      s3 cp "/tmp/vhhealth-${TS}.tar.enc" \
+                      "s3://${CF_R2_BUCKET}/offsite/${TS}.tar.enc" \
+                      --only-show-errors
+
+                  echo "[+] Verify upload exists"
+                  aws --endpoint-url "https://${CF_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+                      --region auto \
+                      s3api head-object --bucket "${CF_R2_BUCKET}" \
+                      --key "offsite/${TS}.tar.enc" >/dev/null
+
+                  echo "[+] Prune local stage"
+                  rm -rf "${STAGE}" "/tmp/vhhealth-${TS}.tar.enc"
+
+                  echo "[+] Done — offsite/${TS}.tar.enc"
+              env:
+                # MinIO source creds (in-cluster). Different from R2 creds.
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: vhhealth-backend-env
+                      key: CF_R2_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: vhhealth-backend-env
+                      key: CF_R2_SECRET_ACCESS_KEY
+                - name: MINIO_ENDPOINT
+                  value: "http://minio.vhhealth-platform.svc.cluster.local:9000"
+                - name: MINIO_BUCKET
+                  value: "vhhealth-uploads"
+              envFrom:
+                - configMapRef:
+                    name: vhhealth-backend-config
+                - secretRef:
+                    name: vhhealth-backend-env
+              resources:
+                requests:
+                  cpu: "200m"
+                  memory: "256Mi"
+                limits:
+                  cpu: "1000m"
+                  memory: "1Gi"
+              securityContext:
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                - name: aws-home
+                  mountPath: /home/nobody
+          volumes:
+            - name: tmp
+              emptyDir:
+                sizeLimit: 10Gi
+            - name: aws-home
+              emptyDir:
+                sizeLimit: 16Mi
