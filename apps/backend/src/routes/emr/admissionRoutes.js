@@ -22,6 +22,7 @@ import {
   submitTeachBackAnswers,
 } from '../../services/ai/patientTeachBackService.js';
 import { generateNursingAmbientSession } from '../../services/ai/nursingAmbientDocumentationService.js';
+import { generateFamilyUpdate } from '../../services/ai/familyUpdateGeneratorService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { canEditDischargeSummary, canSignDischargeSummary } from '../../utils/roleHelpers.js';
 
@@ -390,6 +391,29 @@ router.post(
       language: req.body?.language || 'en',
     });
     success(res, result, 'Patient teach-back session generated', HTTP_STATUS.CREATED);
+  })
+);
+
+// POST /:id/ai/family-update — draft a consent-scoped family/caregiver update.
+router.post(
+  '/:id/ai/family-update',
+  wrapAsync(async (req, res) => {
+    const admissionId = parseAdmissionId(req, res);
+    if (admissionId === null) return;
+    if (!req.body?.patient_uid) {
+      return error(res, 'patient_uid is required', HTTP_STATUS.BAD_REQUEST);
+    }
+    const result = await generateFamilyUpdate({
+      req,
+      admissionId,
+      patientUid: req.body.patient_uid,
+      caregiverIdentifier: req.body?.caregiver_identifier || null,
+      caregiverRelationship: req.body?.caregiver_relationship || 'other',
+      language: req.body?.language || 'en',
+      sourceGenerationId: req.body?.source_generation_id || null,
+      consentReference: req.body?.consent_reference || null,
+    });
+    success(res, result, 'Family update drafted', HTTP_STATUS.CREATED);
   })
 );
 

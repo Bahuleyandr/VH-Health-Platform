@@ -1,6 +1,6 @@
 # VH Health AI Feature Tracker
 
-Last verified: 2026-04-23 (nursing ambient documentation v1 shipped)
+Last verified: 2026-04-23 (family update generator v1 shipped)
 
 This tracker records the 40 future-proofing AI features proposed for VH Health and maps each one to the current repo state. Update this file whenever a feature graduates from "Not started" to "Partial" or from "Partial" to "Implemented v1".
 
@@ -12,10 +12,10 @@ Status definitions:
 
 Current count:
 
-- Implemented v1: 8 / 40
-- Partial: 17 / 40
+- Implemented v1: 9 / 40
+- Partial: 16 / 40
 - Not started: 15 / 40
-- Remaining to fully implement: 32 / 40
+- Remaining to fully implement: 31 / 40
 
 | # | Feature | Status | Current repo state | Next build unit |
 |---:|---|---|---|---|
@@ -25,7 +25,7 @@ Current count:
 | 4 | Infection-Control Surveillance | Implemented v1 | `infection_control_sentinel`, `infectionControlSentinelService.js`, admin audit/review panel. | Add continuous realtime ward surveillance and cluster/outbreak automation. |
 | 5 | Antimicrobial Stewardship Assistant | Implemented v1 | `antimicrobial_stewardship`, `antimicrobialStewardshipService.js`, `clinical_ai_antimicrobial_reviews`, Admin/IT API, and dashboard review queue exist. V1 reviews cultures, duration, renal dosing, IV-to-oral switch, duplicate spectrum, de-escalation, and allergy conflicts without changing orders. | Add continuous stewardship rounds, local antibiogram integration, and policy-pack customization. |
 | 6 | Patient Teach-Back / Comprehension AI | Implemented v1 | `patient_teach_back_comprehension`, `patientTeachBackService.js`, `clinical_ai_teach_back_sessions`, EMR + Admin/IT APIs, and dashboard review queue exist. V1 generates category-covered questions (medications, warning signs, follow-up, diet/activity, wound care, emergency escalation) in the patient's language, scores answers, and flags misunderstandings for clinician review without altering care plans. | Add patient-facing chat/IVR delivery, longitudinal comprehension tracking across admissions, and accepted-draft-only gating. |
-| 7 | Consent-Aware Family Update Generator | Partial | Consent/PHI sentinel and patient communication translation exist. | Add caregiver/family update draft module gated by consent scope. |
+| 7 | Consent-Aware Family Update Generator | Implemented v1 | `consent_aware_family_update`, `familyUpdateGeneratorService.js`, `clinical_ai_family_updates`, EMR + Admin/IT APIs (generate/review/sent), and dashboard panel exist. V1 verifies an active `family_update`/`caregiver_communication`/`treatment` consent with relationship + expiry/revocation checks, scrubs medication doses/lab values/MRN before returning family-facing text, and requires clinician review before `mark-sent`. Eight supported languages. Never auto-sends. | Add delivery adapter (SMS/WhatsApp/email), caregiver identity verification, and per-caregiver scope customization UI. |
 | 8 | Appeal Letter Generator for Denied Claims | Implemented v1 | `appeal_letter_generator`, `appealLetterGeneratorService.js`, `clinical_ai_appeal_letters`, Admin/IT APIs (generate/review/submit/payer-response), and dashboard panel exist. V1 classifies denial reasons (medical necessity, prior-auth missing, documentation insufficient, coding, duplicate, timely filing, bundled, non-covered, coverage) and drafts a cover letter, medical necessity narrative, evidence bundle, and requested action from cited chart evidence. Billing coordinator reviews, edits, and submits; module never auto-submits. | Add payer-specific templates, appeal outcome analytics, and integration with denial-risk assist for proactive appeal prep. |
 | 9 | Payer Contract Variance / Underpayment AI | Not started | No contract variance or payment reconciliation AI workflow found. | Add contract/tariff ingestion plus expected-vs-paid variance engine. |
 | 10 | Acuity-Based Staffing Forecast | Partial | Roster optimizer exists; deterioration/NEWS2 risk exists. They are not connected for acuity-weighted staffing. | Add acuity load model and feed it into staffing demand. |
@@ -62,5 +62,4 @@ Current count:
 
 Recommended next build order:
 
-1. Consent-Aware Family Update Generator
-2. Payer Contract Variance / Underpayment AI
+1. Payer Contract Variance / Underpayment AI
