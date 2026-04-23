@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, AlertTriangle, Cpu, Gauge, History, RefreshCw, Save, Settings2, ShieldCheck, ToggleLeft, ToggleRight } from "lucide-react";
+import { Activity, AlertTriangle, Cpu, Download, Gauge, History, RefreshCw, Save, Settings2, ShieldCheck, ToggleLeft, ToggleRight } from "lucide-react";
 import { toast } from "react-hot-toast";
 import {
   getClinicalAiAuditLogs,
   getClinicalAiGenerations,
+  getClinicalAiGovernanceReport,
   getClinicalAiSafetyFlags,
   getClinicalAiSafetyReviewSummary,
   getClinicalAiStatus,
@@ -94,6 +95,19 @@ function fmtPercent(value?: number | null) {
 
 function capPercent(value?: number | null) {
   return Math.min(Math.max(value ?? 0, 0), 100);
+}
+
+function downloadJsonReport(filenamePrefix: string, payload: unknown) {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${filenamePrefix}-${timestamp}.json`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function toOptionalNumber(value: string) {
@@ -641,6 +655,16 @@ export default function ClinicalAiGovernancePage() {
     onError: (err: Error) => toast.error(err.message || "Guardrail update failed"),
   });
 
+  const exportGovernanceReport = useMutation({
+    mutationFn: () => getClinicalAiGovernanceReport(30),
+    onSuccess: (report) => {
+      downloadJsonReport("clinical-ai-governance-report", report);
+      queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
+      toast.success("Governance report downloaded");
+    },
+    onError: (err: Error) => toast.error(err.message || "Governance report export failed"),
+  });
+
   const generationRows: ClinicalAiGeneration[] = generations.data?.generations ?? [];
   const flagRows: ClinicalAiSafetyFlag[] = flags.data?.flags ?? [];
   const safetyReviewSummary: ClinicalAiSafetyReviewSummary | undefined = safetyReviews.data;
@@ -663,19 +687,29 @@ export default function ClinicalAiGovernancePage() {
             Provider status, usage, modules, and safety flags
           </p>
         </div>
-        <button
-          onClick={() => {
-            status.refetch();
-            generations.refetch();
-            flags.refetch();
-            safetyReviews.refetch();
-            auditLogs.refetch();
-          }}
-          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium transition-colors hover:bg-accent"
-        >
-          <RefreshCw className="h-4 w-4" />
-          Refresh
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => exportGovernanceReport.mutate()}
+            disabled={exportGovernanceReport.isPending}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Download className="h-4 w-4" />
+            {exportGovernanceReport.isPending ? "Exporting" : "Export Report"}
+          </button>
+          <button
+            onClick={() => {
+              status.refetch();
+              generations.refetch();
+              flags.refetch();
+              safetyReviews.refetch();
+              auditLogs.refetch();
+            }}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium transition-colors hover:bg-accent"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">

@@ -205,11 +205,25 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expect(Array.isArray(safetyReviews.body.data.by_module)).toBe(true);
     expect(Array.isArray(safetyReviews.body.data.recent_findings)).toBe(true);
 
+    const governanceReport = await admin.get('/api/v1/admin/clinical-ai/governance-report?days=30');
+    expectStatus(governanceReport, 200, 'clinical AI governance report');
+    expect(governanceReport.body.data.report_version).toBe('clinical-ai-governance-v1');
+    expect(governanceReport.body.data.summary).toHaveProperty('module_count');
+    expect(governanceReport.body.data.summary).toHaveProperty('adapter_configured_count');
+    expect(governanceReport.body.data.runtime.adapters.some((adapter) => adapter.key === 'prior_auth_payer')).toBe(true);
+    expect(Array.isArray(governanceReport.body.data.modules.all)).toBe(true);
+    expect(governanceReport.body.data.prompts).toHaveProperty('count');
+    expect(governanceReport.body.data.audit.summary).toHaveProperty('total');
+    expect(governanceReport.body.data.data_boundaries.decision_support_only).toBe(true);
+
     const itStatus = await itAdminClient.get('/api/v1/admin/clinical-ai/status');
     expectStatus(itStatus, 200, 'clinical AI status for IT admin');
 
     const doctorStatus = await doctor.get('/api/v1/admin/clinical-ai/status');
     expectStatus(doctorStatus, 403, 'clinical AI status denied for doctor');
+
+    const doctorReport = await doctor.get('/api/v1/admin/clinical-ai/governance-report');
+    expectStatus(doctorReport, 403, 'clinical AI governance report denied for doctor');
 
     const nextRequestLimit = status.body.data.guardrails.request_token_limit === 1200 ? 1400 : 1200;
     const guardrails = await admin.patch('/api/v1/admin/clinical-ai/guardrails').send({
@@ -282,6 +296,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expect(auditActions).toContain('CLINICAL_AI_MODULE_UPDATED');
     expect(auditActions).toContain('CLINICAL_AI_TENANT_MODULE_UPDATED');
     expect(auditActions).toContain('CLINICAL_AI_TENANT_MODULE_RESET');
+    expect(auditActions).toContain('CLINICAL_AI_GOVERNANCE_REPORT_EXPORTED');
     const moduleAudit = audit.body.data.logs.find((row) => row.action === 'CLINICAL_AI_MODULE_UPDATED');
     expect(moduleAudit.metadata.changed_fields).toContain('enabled');
   });

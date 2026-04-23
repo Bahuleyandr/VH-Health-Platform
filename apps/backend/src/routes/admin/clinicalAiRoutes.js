@@ -234,11 +234,54 @@ function pickGuardrailAuditFields(guardrails = {}) {
   };
 }
 
+function parseClinicalAiWindowDays(value, fallback = 7) {
+  return Math.min(Math.max(parseInt(value, 10) || fallback, 1), 90);
+}
+
+async function getClinicalAiAuditRows({ limit = 50, tenantId = null } = {}) {
+  const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 500);
+  return prisma.$queryRawUnsafe(
+    `SELECT id, uid, role, action, resource, resource_id, metadata,
+            ip_address, user_agent, created_at
+     FROM audit_logs
+     WHERE (resource = $1 OR action LIKE 'CLINICAL_AI_%')
+       AND ($3::text IS NULL OR COALESCE(metadata->>'tenant_id', $3::text) = $3::text)
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    CLINICAL_AI_AUDIT_RESOURCE,
+    safeLimit,
+    tenantId
+  );
+}
+
+function summarizeClinicalAiAuditRows(rows = []) {
+  const byAction = new Map();
+  const byActorRole = new Map();
+
+  for (const row of rows) {
+    const action = String(row.action || 'unknown');
+    const role = String(row.metadata?.actor?.role || row.role || 'unknown');
+    byAction.set(action, (byAction.get(action) || 0) + 1);
+    byActorRole.set(role, (byActorRole.get(role) || 0) + 1);
+  }
+
+  return {
+    total: rows.length,
+    latest_at: rows[0]?.created_at || null,
+    by_action: Array.from(byAction, ([action, count]) => ({ action, count }))
+      .sort((left, right) => right.count - left.count || left.action.localeCompare(right.action)),
+    by_actor_role: Array.from(byActorRole, ([role, count]) => ({ role, count }))
+      .sort((left, right) => right.count - left.count || left.role.localeCompare(right.role)),
+  };
+}
+
 async function logClinicalAiAudit(req, action, resourceId, before, after) {
   const metadata = {
     before,
     after,
     changed_fields: changedFields(before, after),
+    tenant_id: req.tenantId || null,
+    tenant_region: req.tenant?.region || null,
     actor: {
       uid: req.user?.uid || null,
       id: req.user?.id || null,
@@ -276,7 +319,7 @@ router.use(requireClinicalAiControl);
 router.get('/status', async (req, res, next) => {
   try {
     const live = String(req.query.live || '').toLowerCase() === 'true';
-    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 90);
+    const days = parseClinicalAiWindowDays(req.query.days);
     const status = await getClinicalAiRuntimeStatus({
       live,
       days,
@@ -563,7 +606,7 @@ router.get('/break-glass', async (req, res, next) => {
 
 router.get('/usage', async (req, res, next) => {
   try {
-    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 90);
+    const days = parseClinicalAiWindowDays(req.query.days);
     const usage = await getClinicalAiUsageSummary({ days, tenantId: req.tenantId });
     return success(res, usage, 'Clinical AI usage retrieved');
   } catch (err) {
@@ -573,9 +616,127 @@ router.get('/usage', async (req, res, next) => {
 
 router.get('/safety-reviews/summary', async (req, res, next) => {
   try {
-    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 90);
+    const days = parseClinicalAiWindowDays(req.query.days);
     const summary = await getClinicalAiSafetyReviewSummary({ days, tenantId: req.tenantId });
     return success(res, summary, 'Clinical AI safety review summary retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/governance-report', async (req, res, next) => {
+  try {
+    const days = parseClinicalAiWindowDays(req.query.days, 30);
+    const tenantRegion = req.tenant?.region || null;
+    const [
+      runtime,
+      prompts,
+      pendingApprovals,
+      recentApprovals,
+      reviews,
+      breakGlass,
+      safetyReviews,
+      auditRows,
+    ] = await Promise.all([
+      getClinicalAiRuntimeStatus({
+        live: false,
+        days,
+        tenantId: req.tenantId,
+        tenantRegion,
+      }),
+      listPrompts({ limit: 500, tenantId: req.tenantId }),
+      listApprovals({ status: 'pending', limit: 200, tenantId: req.tenantId }),
+      listApprovals({ limit: 200, tenantId: req.tenantId }),
+      listReviews({ limit: 200, tenantId: req.tenantId }),
+      getActiveBreakGlass({ tenantId: req.tenantId }),
+      getClinicalAiSafetyReviewSummary({ days, tenantId: req.tenantId }),
+      getClinicalAiAuditRows({ limit: 200, tenantId: req.tenantId }),
+    ]);
+
+    const runtimeModules = Array.isArray(runtime.modules) ? runtime.modules : [];
+    const runtimeAdapters = Array.isArray(runtime.adapters) ? runtime.adapters : [];
+    const enabledModules = runtimeModules.filter((module) => module.enabled);
+    const highRiskEnabled = enabledModules.filter((module) => (
+      String(module.settings?.risk || '').toLowerCase() === 'high'
+    ));
+    const externalEnabled = enabledModules.filter((module) => module.external_allowed);
+
+    const summary = {
+      module_count: runtimeModules.length,
+      enabled_module_count: enabledModules.length,
+      high_risk_enabled_count: highRiskEnabled.length,
+      external_enabled_module_count: externalEnabled.length,
+      pending_approval_count: pendingApprovals.count,
+      active_break_glass_count: breakGlass.count,
+      safety_review_count: safetyReviews.overall.review_count,
+      blocked_safety_review_count: safetyReviews.overall.blocked_count,
+      adapter_configured_count: runtimeAdapters.filter((adapter) => adapter.configured).length,
+      adapter_blocked_count: runtimeAdapters.filter((adapter) => adapter.status === 'blocked').length,
+      total_tokens: runtime.usage?.overall?.total_tokens || 0,
+      estimated_cost_minor: runtime.usage?.overall?.estimated_cost_minor || 0,
+      audit_event_count: auditRows.length,
+    };
+
+    const report = {
+      report_version: 'clinical-ai-governance-v1',
+      generated_at: new Date().toISOString(),
+      generated_by: {
+        uid: req.user?.uid || null,
+        role: req.user?.role || null,
+      },
+      tenant: {
+        id: req.tenantId,
+        region: tenantRegion,
+      },
+      window_days: days,
+      summary,
+      runtime: {
+        provider_health: runtime.providerHealth,
+        adapters: runtimeAdapters,
+        guardrails: runtime.guardrails,
+        budget: runtime.budget,
+      },
+      modules: {
+        all: runtimeModules,
+        enabled: enabledModules.map((module) => module.module_key),
+        high_risk_enabled: highRiskEnabled.map((module) => module.module_key),
+        external_enabled: externalEnabled.map((module) => module.module_key),
+      },
+      prompts,
+      approvals: {
+        pending: pendingApprovals.approvals,
+        recent: recentApprovals.approvals,
+        pending_count: pendingApprovals.count,
+        recent_count: recentApprovals.count,
+      },
+      reviews,
+      safety_reviews: safetyReviews,
+      break_glass: breakGlass,
+      usage: runtime.usage,
+      audit: {
+        summary: summarizeClinicalAiAuditRows(auditRows),
+        recent: auditRows,
+      },
+      data_boundaries: {
+        external_ai_enabled: Boolean(runtime.guardrails?.external_ai_enabled),
+        external_regions: process.env.CLINICAL_AI_EXTERNAL_REGIONS || null,
+        decision_support_only: true,
+        human_review_required: true,
+      },
+    };
+
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_GOVERNANCE_REPORT_EXPORTED',
+      'governance-report',
+      null,
+      {
+        window_days: days,
+        summary,
+      }
+    );
+
+    return success(res, report, 'Clinical AI governance report generated');
   } catch (err) {
     return next(err);
   }
@@ -613,16 +774,7 @@ router.patch('/guardrails', async (req, res, next) => {
 router.get('/audit', async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT id, uid, role, action, resource, resource_id, metadata,
-              ip_address, user_agent, created_at
-       FROM audit_logs
-       WHERE resource = $1 OR action LIKE 'CLINICAL_AI_%'
-       ORDER BY created_at DESC
-       LIMIT $2`,
-      CLINICAL_AI_AUDIT_RESOURCE,
-      limit
-    );
+    const rows = await getClinicalAiAuditRows({ limit, tenantId: req.tenantId });
 
     return success(res, { logs: rows, count: rows.length }, 'Clinical AI audit logs retrieved');
   } catch (err) {

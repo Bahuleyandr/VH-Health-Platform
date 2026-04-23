@@ -307,6 +307,8 @@ export interface ClinicalAiAuditLog {
   resource_id?: string | null;
   metadata?: {
     changed_fields?: string[];
+    tenant_id?: string | null;
+    tenant_region?: string | null;
     actor?: {
       uid?: string | null;
       id?: string | number | null;
@@ -553,6 +555,82 @@ export interface ClinicalAiBreakGlassSession {
   created_at: string;
 }
 
+export interface ClinicalAiGovernanceReport {
+  report_version: string;
+  generated_at: string;
+  generated_by: {
+    uid?: string | null;
+    role?: string | null;
+  };
+  tenant: {
+    id?: string | null;
+    region?: string | null;
+  };
+  window_days: number;
+  summary: {
+    module_count: number;
+    enabled_module_count: number;
+    high_risk_enabled_count: number;
+    external_enabled_module_count: number;
+    pending_approval_count: number;
+    active_break_glass_count: number;
+    safety_review_count: number;
+    blocked_safety_review_count: number;
+    adapter_configured_count: number;
+    adapter_blocked_count: number;
+    total_tokens: number;
+    estimated_cost_minor: number;
+    audit_event_count: number;
+  };
+  runtime: {
+    provider_health: ClinicalAiStatus['providerHealth'];
+    adapters: ClinicalAiAdapterStatus[];
+    guardrails: ClinicalAiGuardrails;
+    budget: ClinicalAiBudgetStatus;
+  };
+  modules: {
+    all: ClinicalAiModule[];
+    enabled: string[];
+    high_risk_enabled: string[];
+    external_enabled: string[];
+  };
+  prompts: {
+    prompts: ClinicalAiPrompt[];
+    count: number;
+  };
+  approvals: {
+    pending: ClinicalAiApproval[];
+    recent: ClinicalAiApproval[];
+    pending_count: number;
+    recent_count: number;
+  };
+  reviews: {
+    reviews: ClinicalAiReview[];
+    count: number;
+  };
+  safety_reviews: ClinicalAiSafetyReviewSummary;
+  break_glass: {
+    sessions: ClinicalAiBreakGlassSession[];
+    count: number;
+  };
+  usage: ClinicalAiUsageSummary;
+  audit: {
+    summary: {
+      total: number;
+      latest_at?: string | null;
+      by_action: Array<{ action: string; count: number }>;
+      by_actor_role: Array<{ role: string; count: number }>;
+    };
+    recent: ClinicalAiAuditLog[];
+  };
+  data_boundaries: {
+    external_ai_enabled: boolean;
+    external_regions?: string | null;
+    decision_support_only: boolean;
+    human_review_required: boolean;
+  };
+}
+
 export async function getClinicalAiPrompts(params: { moduleKey?: string; status?: string } = {}) {
   const query: Record<string, string | number> = {};
   if (params.moduleKey) query.module_key = params.moduleKey;
@@ -619,6 +697,10 @@ export async function decideClinicalAiApproval(
 
 export async function getActiveBreakGlassSessions() {
   return getJSON<{ sessions: ClinicalAiBreakGlassSession[]; count: number }>('/admin/clinical-ai/break-glass');
+}
+
+export async function getClinicalAiGovernanceReport(days = 30) {
+  return getJSON<ClinicalAiGovernanceReport>('/admin/clinical-ai/governance-report', { days });
 }
 
 export async function startBreakGlassSession(payload: { scope?: string; reason: string; expires_in_hours?: number }) {
