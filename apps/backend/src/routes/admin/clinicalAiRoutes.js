@@ -150,6 +150,12 @@ import {
   listNursingAmbientSessions,
 } from '../../services/ai/nursingAmbientDocumentationService.js';
 import {
+  decideFamilyUpdate,
+  generateFamilyUpdate,
+  listFamilyUpdates,
+  markFamilyUpdateSent,
+} from '../../services/ai/familyUpdateGeneratorService.js';
+import {
   decideSepsisBundleAudit,
   generateSepsisBundleAudit,
   listSepsisBundleAudits,
@@ -2376,6 +2382,88 @@ router.patch('/nursing-ambient/sessions/:id', async (req, res, next) => {
       result
     );
     return success(res, result, 'Nursing ambient session updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Consent-aware family update generator
+// ---------------------------------------------------------------------------
+router.post('/family-updates', async (req, res, next) => {
+  try {
+    const result = await generateFamilyUpdate({
+      req,
+      patientUid: req.body?.patient_uid,
+      admissionId: req.body?.admission_id || null,
+      caregiverIdentifier: req.body?.caregiver_identifier || null,
+      caregiverRelationship: req.body?.caregiver_relationship || 'other',
+      language: req.body?.language || 'en',
+      sourceGenerationId: req.body?.source_generation_id || null,
+      consentReference: req.body?.consent_reference || null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_FAMILY_UPDATE_GENERATED',
+      String(result.update_id || result.generation_id || req.body?.patient_uid || 'inline'),
+      null,
+      {
+        update_id: result.update_id,
+        generation_id: result.generation_id,
+        admission_id: req.body?.admission_id,
+        caregiver_relationship: result.caregiver_relationship,
+        language: result.language,
+        safety_flag_count: result.safety_flags?.length || 0,
+      }
+    );
+    return success(res, result, 'Family update drafted', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/family-updates', async (req, res, next) => {
+  try {
+    const result = await listFamilyUpdates({
+      tenantId: req.tenantId,
+      admissionId: req.query?.admission_id || null,
+      patientUid: req.query?.patient_uid || null,
+      updateStatus: req.query?.update_status || null,
+      decision: req.query?.decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Family updates retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/family-updates/:id', async (req, res, next) => {
+  try {
+    const result = await decideFamilyUpdate({
+      tenantId: req.tenantId,
+      updateId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_FAMILY_UPDATE_REVIEWED', String(result.id), null, result);
+    return success(res, result, 'Family update review recorded');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/family-updates/:id/sent', async (req, res, next) => {
+  try {
+    const result = await markFamilyUpdateSent({
+      tenantId: req.tenantId,
+      updateId: req.params.id,
+      sentBy: req.user?.uid || null,
+      deliveryChannel: req.body?.delivery_channel || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_FAMILY_UPDATE_SENT', String(result.id), null, result);
+    return success(res, result, 'Family update marked as sent');
   } catch (err) {
     return next(err);
   }

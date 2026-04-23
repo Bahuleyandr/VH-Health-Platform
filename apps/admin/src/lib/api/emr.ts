@@ -2411,6 +2411,136 @@ export async function getLatestAiRoiSnapshot(moduleKey: string = 'ALL') {
 }
 
 // ---------------------------------------------------------------------------
+// Consent-aware family update generator
+// ---------------------------------------------------------------------------
+export type FamilyUpdateDecision = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'edited';
+export type FamilyUpdateStatus = 'draft' | 'ready_to_send' | 'sent' | 'withdrawn';
+export type FamilyCaregiverRelationship =
+  | 'spouse'
+  | 'parent'
+  | 'child'
+  | 'sibling'
+  | 'friend'
+  | 'legal_guardian'
+  | 'guardian'
+  | 'care_manager'
+  | 'other';
+export type FamilyUpdateLanguage = 'en' | 'hi' | 'ta' | 'te' | 'ml' | 'mr' | 'bn' | 'kn';
+
+export interface FamilyUpdateDraft {
+  language: FamilyUpdateLanguage;
+  caregiver_identifier: string | null;
+  caregiver_relationship: FamilyCaregiverRelationship;
+  consent_scope: string[];
+  plain_language_summary: string;
+  current_status: string;
+  next_steps: string;
+  when_to_worry: string;
+  questions_you_may_have: string[];
+  summary?: string;
+}
+
+export interface FamilyUpdate {
+  id: number;
+  tenant_id?: string;
+  patient_uid: string;
+  patient_name?: string | null;
+  admission_id: number | null;
+  caregiver_identifier: string | null;
+  caregiver_relationship: FamilyCaregiverRelationship;
+  consent_reference: string | null;
+  consent_scope: string[];
+  language: FamilyUpdateLanguage;
+  generation_id: number | null;
+  source_generation_id: number | null;
+  update_draft: FamilyUpdateDraft;
+  source_citations: ClinicalAiSourceCitation[];
+  safety_flags: ClinicalAiSafetyFlagSummary[];
+  update_status: FamilyUpdateStatus;
+  reviewer_decision: FamilyUpdateDecision;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  reviewer_note?: string | null;
+  sent_at?: string | null;
+  sent_by?: string | null;
+  delivery_channel?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at?: string;
+}
+
+export async function listFamilyUpdates(params: {
+  admissionId?: number | string;
+  patientUid?: string;
+  updateStatus?: FamilyUpdateStatus | string;
+  decision?: FamilyUpdateDecision | string;
+  limit?: number;
+} = {}) {
+  const query: Record<string, string> = {};
+  if (params.admissionId) query.admission_id = String(params.admissionId);
+  if (params.patientUid) query.patient_uid = params.patientUid;
+  if (params.updateStatus) query.update_status = params.updateStatus;
+  if (params.decision) query.decision = params.decision;
+  if (params.limit) query.limit = String(params.limit);
+  return getJSON<{ updates: FamilyUpdate[]; count: number }>(
+    '/admin/clinical-ai/family-updates',
+    query
+  );
+}
+
+export async function generateFamilyUpdate(payload: {
+  patientUid: string;
+  admissionId?: number;
+  caregiverIdentifier?: string;
+  caregiverRelationship?: FamilyCaregiverRelationship;
+  language?: FamilyUpdateLanguage;
+  sourceGenerationId?: number;
+  consentReference?: string;
+}) {
+  const body: Record<string, unknown> = { patient_uid: payload.patientUid };
+  if (payload.admissionId) body.admission_id = payload.admissionId;
+  if (payload.caregiverIdentifier) body.caregiver_identifier = payload.caregiverIdentifier;
+  if (payload.caregiverRelationship) body.caregiver_relationship = payload.caregiverRelationship;
+  if (payload.language) body.language = payload.language;
+  if (payload.sourceGenerationId) body.source_generation_id = payload.sourceGenerationId;
+  if (payload.consentReference) body.consent_reference = payload.consentReference;
+  return postJSON<{
+    update_id: number | null;
+    generation_id: number | null;
+    draft: FamilyUpdateDraft;
+    consent_scope: string[];
+    source_citations: ClinicalAiSourceCitation[];
+    safety_flags: ClinicalAiSafetyFlagSummary[];
+    module_key: string;
+    prompt_version: string;
+    update_status: FamilyUpdateStatus | string;
+    review_status: string;
+    requires_signoff: boolean;
+    rules_authoritative: boolean;
+    decision_support_only: boolean;
+    language: FamilyUpdateLanguage;
+    caregiver_relationship: FamilyCaregiverRelationship;
+  }>('/admin/clinical-ai/family-updates', body);
+}
+
+export async function decideFamilyUpdate(
+  id: number,
+  decision: Exclude<FamilyUpdateDecision, 'pending'>,
+  note?: string
+) {
+  return fetchAdminAPI<FamilyUpdate>(`/admin/clinical-ai/family-updates/${id}`, {
+    method: 'PATCH',
+    body: { decision, note },
+  });
+}
+
+export async function markFamilyUpdateSent(id: number, deliveryChannel?: string) {
+  return postJSON<FamilyUpdate>(`/admin/clinical-ai/family-updates/${id}/sent`, {
+    delivery_channel: deliveryChannel,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Nursing ambient documentation
 // ---------------------------------------------------------------------------
 export type NursingAmbientShift = 'day' | 'evening' | 'night' | 'custom';

@@ -43,6 +43,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_appeal_letters WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_roi_snapshots WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_nursing_ambient_sessions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_family_updates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -165,6 +166,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_appeal_letters WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_roi_snapshots WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_nursing_ambient_sessions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_family_updates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -821,6 +823,81 @@ describe('future-proof clinical AI and privacy foundations', () => {
     const actions = audit.body.data.logs.map((row) => row.action);
     expect(actions).toContain('CLINICAL_AI_NURSING_AMBIENT_SESSION_GENERATED');
     expect(actions).toContain('CLINICAL_AI_NURSING_AMBIENT_REVIEWED');
+  });
+
+  it('drafts, scrubs, reviews, and sends a consent-aware family update', async () => {
+    await enableModule('consent_aware_family_update');
+
+    const generated = await admin.post('/api/v1/admin/clinical-ai/family-updates').send({
+      patient_uid: PATIENT_UID,
+      admission_id: admissionId,
+      caregiver_identifier: 'Spouse (9000091001)',
+      caregiver_relationship: 'spouse',
+      language: 'en',
+    });
+    expectStatus(generated, 201, 'generate family update');
+    const body = generated.body.data;
+    expect(body.module_key).toBe('consent_aware_family_update');
+    expect(body.update_id).toBeTruthy();
+    expect(body.generation_id).toBeTruthy();
+    expect(body.language).toBe('en');
+    expect(body.caregiver_relationship).toBe('spouse');
+    expect(body.draft.plain_language_summary).toBeTruthy();
+    expect(body.draft.current_status).toBeTruthy();
+    expect(body.draft.next_steps).toBeTruthy();
+    expect(body.draft.when_to_worry).toBeTruthy();
+    expect(Array.isArray(body.draft.questions_you_may_have)).toBe(true);
+    expect(body.consent_scope.length).toBeGreaterThan(0);
+    expect(Array.isArray(body.source_citations)).toBe(true);
+    expect(Array.isArray(body.safety_flags)).toBe(true);
+    const draftCorpus = [
+      body.draft.plain_language_summary,
+      body.draft.current_status,
+      body.draft.next_steps,
+      body.draft.when_to_worry,
+    ].join(' ');
+    expect(draftCorpus).not.toMatch(/\b\d+(?:\.\d+)?\s*(?:mg|mcg|ml|g)\b/i);
+
+    const listed = await admin.get(`/api/v1/admin/clinical-ai/family-updates?admission_id=${admissionId}`);
+    expectStatus(listed, 200, 'list family updates');
+    expect(listed.body.data.updates.length).toBeGreaterThan(0);
+
+    const updateId = body.update_id;
+
+    const prematureSend = await admin.post(`/api/v1/admin/clinical-ai/family-updates/${updateId}/sent`).send({});
+    expect(prematureSend.statusCode).toBeGreaterThanOrEqual(400);
+
+    const accepted = await admin.patch(`/api/v1/admin/clinical-ai/family-updates/${updateId}`).send({
+      decision: 'accepted',
+      note: 'Reviewed by admin [test]',
+    });
+    expectStatus(accepted, 200, 'accept family update');
+    expect(accepted.body.data.reviewer_decision).toBe('accepted');
+    expect(accepted.body.data.update_status).toBe('ready_to_send');
+
+    const sent = await admin.post(`/api/v1/admin/clinical-ai/family-updates/${updateId}/sent`).send({
+      delivery_channel: 'sms',
+    });
+    expectStatus(sent, 200, 'mark family update sent');
+    expect(sent.body.data.update_status).toBe('sent');
+    expect(sent.body.data.delivery_channel).toBe('sms');
+
+    const audit = await admin.get('/api/v1/admin/clinical-ai/audit?limit=300');
+    expectStatus(audit, 200, 'family update audit logs');
+    const actions = audit.body.data.logs.map((row) => row.action);
+    expect(actions).toContain('CLINICAL_AI_FAMILY_UPDATE_GENERATED');
+    expect(actions).toContain('CLINICAL_AI_FAMILY_UPDATE_REVIEWED');
+    expect(actions).toContain('CLINICAL_AI_FAMILY_UPDATE_SENT');
+  });
+
+  it('blocks family update generation when module is disabled', async () => {
+    await admin.patch('/api/v1/admin/clinical-ai/modules/consent_aware_family_update').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/family-updates').send({
+      patient_uid: PATIENT_UID,
+      admission_id: admissionId,
+      caregiver_relationship: 'spouse',
+    });
+    expect(blocked.statusCode).toBe(403);
   });
 
   it('blocks nursing ambient generation when module is disabled', async () => {

@@ -42,6 +42,7 @@ import {
   AbnormalResultTriagePanel,
   AdmissionAiDraftWorkbenchPanel,
   AmbientDocumentationPanel,
+  FamilyUpdateGeneratorPanel,
   NursingAmbientDocumentationPanel,
   AiRoiDashboardPanel,
   AntimicrobialStewardshipPanel,
@@ -1012,6 +1013,8 @@ export default function ClinicalAiGovernancePage() {
       <AmbientDocumentationPanel />
 
       <NursingAmbientDocumentationPanel />
+
+      <FamilyUpdateGeneratorPanel />
 
       <RosterOptimizerPanel />
 
