@@ -224,6 +224,26 @@ import {
   upsertPatientGenotype,
 } from '../../services/ai/pharmacogenomicsService.js';
 import {
+  decideRadiologyReportReview,
+  evaluateRadiologyReport,
+  listRadiologyReportReviews,
+} from '../../services/ai/radiologyReportQaService.js';
+import {
+  decideWorklistPriority,
+  evaluateWorklistStudy,
+  listWorklistPriorities,
+} from '../../services/ai/radiologyWorklistPrioritizerService.js';
+import {
+  decideOtBlockSuggestion,
+  evaluateOtBlock,
+  listOtBlockSuggestions,
+} from '../../services/ai/otBlockSchedulingService.js';
+import {
+  decideInventoryAlert,
+  evaluateInventoryItem,
+  listInventoryAlerts,
+} from '../../services/ai/inventoryIntelligenceService.js';
+import {
   decideSepsisBundleAudit,
   generateSepsisBundleAudit,
   listSepsisBundleAudits,
@@ -3441,6 +3461,286 @@ router.patch('/pgx/advisories/:id', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_PGX_ADVISORY_REVIEWED', String(result.id), null, result);
     return success(res, result, 'PGx advisory updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Radiology Report QA / Discrepancy Assistant
+// ---------------------------------------------------------------------------
+router.post('/radiology/report-qa/evaluate', async (req, res, next) => {
+  try {
+    const result = await evaluateRadiologyReport({
+      req,
+      patientUid: req.body?.patient_uid || null,
+      studyId: req.body?.study_id || null,
+      accessionNumber: req.body?.accession_number || null,
+      modality: req.body?.modality || null,
+      bodyPart: req.body?.body_part || null,
+      indication: req.body?.indication || null,
+      reportText: req.body?.report_text,
+      reportStatus: req.body?.report_status || 'draft',
+      priorsAvailable: Boolean(req.body?.priors_available),
+      isCritical: Boolean(req.body?.is_critical),
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_RADIOLOGY_REPORT_QA_EVALUATED',
+      String(result.review_id || result.generation_id || 'inline'),
+      null,
+      {
+        review_id: result.review_id,
+        overall_severity: result.overall_severity,
+        discrepancy_count: result.discrepancy_count,
+      }
+    );
+    return success(res, result, 'Radiology report QA evaluated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/radiology/report-qa', async (req, res, next) => {
+  try {
+    const result = await listRadiologyReportReviews({
+      tenantId: req.tenantId,
+      patientUid: req.query?.patient_uid || null,
+      modality: req.query?.modality || null,
+      severity: req.query?.severity || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Radiology report QA reviews retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/radiology/report-qa/:id', async (req, res, next) => {
+  try {
+    const result = await decideRadiologyReportReview({
+      tenantId: req.tenantId,
+      reviewId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_RADIOLOGY_REPORT_QA_DECIDED', String(result.id), null, result);
+    return success(res, result, 'Radiology report QA review updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Radiology Worklist Prioritizer
+// ---------------------------------------------------------------------------
+router.post('/radiology/worklist/evaluate', async (req, res, next) => {
+  try {
+    const result = await evaluateWorklistStudy({
+      req,
+      patientUid: req.body?.patient_uid || null,
+      studyId: req.body?.study_id || null,
+      accessionNumber: req.body?.accession_number || null,
+      modality: req.body?.modality || null,
+      bodyPart: req.body?.body_part || null,
+      indication: req.body?.indication || null,
+      location: req.body?.location || null,
+      waitMinutes: req.body?.wait_minutes ?? null,
+      fragility: req.body?.fragility || {},
+      contextTags: Array.isArray(req.body?.context_tags) ? req.body.context_tags : [],
+      priorsAvailable: Boolean(req.body?.priors_available),
+      isStatOverride: Boolean(req.body?.is_stat_override),
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_RADIOLOGY_WORKLIST_EVALUATED',
+      String(result.priority_id || result.generation_id || 'inline'),
+      null,
+      {
+        priority_id: result.priority_id,
+        priority_tier: result.priority_tier,
+        priority_score: result.priority_score,
+      }
+    );
+    return success(res, result, 'Radiology worklist priority evaluated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/radiology/worklist', async (req, res, next) => {
+  try {
+    const result = await listWorklistPriorities({
+      tenantId: req.tenantId,
+      patientUid: req.query?.patient_uid || null,
+      modality: req.query?.modality || null,
+      priorityTier: req.query?.priority_tier || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Radiology worklist priorities retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/radiology/worklist/:id', async (req, res, next) => {
+  try {
+    const result = await decideWorklistPriority({
+      tenantId: req.tenantId,
+      priorityId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_RADIOLOGY_WORKLIST_DECIDED', String(result.id), null, result);
+    return success(res, result, 'Radiology worklist priority updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// OT Block Scheduling Optimizer
+// ---------------------------------------------------------------------------
+router.post('/ot/blocks/evaluate', async (req, res, next) => {
+  try {
+    const result = await evaluateOtBlock({
+      req,
+      surgeonUid: req.body?.surgeon_uid || null,
+      surgeonName: req.body?.surgeon_name || null,
+      serviceLine: req.body?.service_line || null,
+      blockLabel: req.body?.block_label,
+      orRoom: req.body?.or_room || null,
+      windowStart: req.body?.window_start || null,
+      windowEnd: req.body?.window_end || null,
+      allocatedMinutes: req.body?.allocated_minutes,
+      scheduledMinutes: req.body?.scheduled_minutes,
+      actualMinutes: req.body?.actual_minutes ?? null,
+      primeAllocatedMinutes: req.body?.prime_allocated_minutes ?? null,
+      primeUsedMinutes: req.body?.prime_used_minutes ?? null,
+      overrunCount: req.body?.overrun_count ?? 0,
+      addonCount: req.body?.addon_count ?? 0,
+      totalCases: req.body?.total_cases ?? 0,
+      avgTurnoverMinutes: req.body?.avg_turnover_minutes ?? null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_OT_BLOCK_EVALUATED',
+      String(result.suggestion_id || result.generation_id || 'inline'),
+      null,
+      {
+        suggestion_id: result.suggestion_id,
+        recommendation: result.recommendation,
+        severity: result.severity,
+      }
+    );
+    return success(res, result, 'OT block evaluated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/ot/blocks', async (req, res, next) => {
+  try {
+    const result = await listOtBlockSuggestions({
+      tenantId: req.tenantId,
+      surgeonUid: req.query?.surgeon_uid || null,
+      serviceLine: req.query?.service_line || null,
+      recommendation: req.query?.recommendation || null,
+      severity: req.query?.severity || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'OT block suggestions retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/ot/blocks/:id', async (req, res, next) => {
+  try {
+    const result = await decideOtBlockSuggestion({
+      tenantId: req.tenantId,
+      suggestionId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_OT_BLOCK_DECIDED', String(result.id), null, result);
+    return success(res, result, 'OT block suggestion updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Inventory Intelligence (Non-Pharmacy)
+// ---------------------------------------------------------------------------
+router.post('/inventory/evaluate', async (req, res, next) => {
+  try {
+    const result = await evaluateInventoryItem({
+      req,
+      itemSku: req.body?.item_sku,
+      itemName: req.body?.item_name,
+      category: req.body?.category || null,
+      ward: req.body?.ward || null,
+      currentStock: req.body?.current_stock,
+      reorderPoint: req.body?.reorder_point ?? 0,
+      maxStock: req.body?.max_stock ?? null,
+      avgDailyUsage: req.body?.avg_daily_usage ?? 0,
+      baselineDailyUsage: req.body?.baseline_daily_usage ?? 0,
+      nextExpiryDate: req.body?.next_expiry_date || null,
+      today: req.body?.today || null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_INVENTORY_EVALUATED',
+      String(result.alert_id || result.generation_id || 'inline'),
+      null,
+      {
+        alert_id: result.alert_id,
+        alert_category: result.alert_category,
+        severity: result.severity,
+      }
+    );
+    return success(res, result, 'Inventory alert generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/inventory/alerts', async (req, res, next) => {
+  try {
+    const result = await listInventoryAlerts({
+      tenantId: req.tenantId,
+      itemSku: req.query?.item_sku || null,
+      category: req.query?.category || null,
+      ward: req.query?.ward || null,
+      alertCategory: req.query?.alert_category || null,
+      severity: req.query?.severity || null,
+      reviewerDecision: req.query?.reviewer_decision || null,
+      limit: req.query?.limit,
+    });
+    return success(res, result, 'Inventory alerts retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/inventory/alerts/:id', async (req, res, next) => {
+  try {
+    const result = await decideInventoryAlert({
+      tenantId: req.tenantId,
+      alertId: req.params.id,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_INVENTORY_DECIDED', String(result.id), null, result);
+    return success(res, result, 'Inventory alert updated');
   } catch (err) {
     return next(err);
   }
