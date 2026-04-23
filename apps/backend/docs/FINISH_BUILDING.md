@@ -14,6 +14,10 @@
 
 Legend: `[ ]` open · `[~]` in progress · `[x]` done · `[!]` blocked · `[-]` dropped
 
+Related tracker: `apps/backend/docs/AI_FEATURE_TRACKER.md` keeps the 40-item
+Clinical AI future-proofing wishlist mapped to implemented/partial/not-started
+status across sessions.
+
 ---
 
 ## Phase 0 — Unblock Builds (Day 1–2)
