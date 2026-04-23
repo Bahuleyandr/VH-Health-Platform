@@ -49,6 +49,11 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_lab_autoverifications WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_pediatric_dose_checks WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_staff_burnout_reviews WHERE staff_uid IN ($1::uuid, $2::uuid)`, DOCTOR_UID, IT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_ed_triage_predictions WHERE patient_uid = $1::uuid OR admission_id IS NOT NULL`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_ventilator_bundle_audits WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_blood_bank_forecast_reviews WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_blood_bank_inventory_snapshots WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_obstetric_risk_assessments WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -177,6 +182,11 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_lab_autoverifications WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_pediatric_dose_checks WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_staff_burnout_reviews WHERE staff_uid IN ($1::uuid, $2::uuid)`, DOCTOR_UID, IT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_ed_triage_predictions WHERE patient_uid = $1::uuid OR admission_id IS NOT NULL`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_ventilator_bundle_audits WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_blood_bank_forecast_reviews WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_blood_bank_inventory_snapshots WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_obstetric_risk_assessments WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -819,6 +829,206 @@ describe('future-proof clinical AI and privacy foundations', () => {
       claim_id: strayClaim[0].id,
     });
     expect(blocked.statusCode).toBe(403);
+  });
+
+  it('audits ICU ventilator bundle + SBT readiness and gates by module', async () => {
+    await enableModule('icu_ventilator_sedation_bundle');
+
+    // Seed ventilator-related notes/orders (overlay existing admission)
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO clinical_notes
+         (encounter_id, patient_uid, author_uid, author_role, note_type, content, created_at)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, 'NURSE', 'icu_flowsheet',
+               $4::jsonb, NOW() - INTERVAL '2 hours')`,
+      ENCOUNTER_ID, PATIENT_UID, DOCTOR_UID,
+      JSON.stringify({
+        summary: 'Patient intubated and on mechanical ventilation. Head of bed elevated 30 degrees. Oral care with chlorhexidine performed. SAT done. RASS -2. CAM-ICU negative. FiO2 40%, PEEP 6.',
+      })
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO clinical_orders
+         (order_number, encounter_id, patient_uid, order_type, priority, details, status, ordered_by, created_at)
+       VALUES ('ORD-ICU-VENT', $1::uuid, $2::uuid, 'medication', 'routine',
+               $3::jsonb, 'active', $4::uuid, NOW() - INTERVAL '4 hours')`,
+      ENCOUNTER_ID, PATIENT_UID,
+      JSON.stringify({ medication_name: 'Enoxaparin', dose: '40 mg', route: 'sc', frequency: 'daily' }),
+      DOCTOR_UID
+    );
+
+    const audited = await admin.post('/api/v1/admin/clinical-ai/icu-ventilator-bundle/audits').send({
+      admission_id: admissionId,
+    });
+    expectStatus(audited, 201, 'ICU ventilator audit');
+    expect(audited.body.data.module_key).toBe('icu_ventilator_sedation_bundle');
+    expect(audited.body.data.audit_id).toBeTruthy();
+    expect(typeof audited.body.data.draft.compliance_score).toBe('number');
+    expect(['low', 'moderate', 'high', 'critical']).toContain(audited.body.data.draft.risk_band);
+
+    const listed = await admin.get(`/api/v1/admin/clinical-ai/icu-ventilator-bundle/audits?admission_id=${admissionId}`);
+    expectStatus(listed, 200, 'list ICU audits');
+    expect(listed.body.data.audits.length).toBeGreaterThan(0);
+
+    const accepted = await admin.patch(`/api/v1/admin/clinical-ai/icu-ventilator-bundle/audits/${audited.body.data.audit_id}`).send({
+      decision: 'accepted',
+      note: 'Reviewed by ICU team [test]',
+    });
+    expectStatus(accepted, 200, 'accept ICU audit');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/icu_ventilator_sedation_bundle').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/icu-ventilator-bundle/audits').send({
+      admission_id: admissionId,
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('forecasts blood bank demand + stockout risk and gates by module', async () => {
+    await enableModule('blood_bank_demand_forecast');
+
+    // Seed inventory
+    const inventoryItems = [
+      { blood_group: 'O-', component: 'packed_red_cells', units_available: 8, minimum_stock_level: 4 },
+      { blood_group: 'O+', component: 'packed_red_cells', units_available: 2, minimum_stock_level: 4 },
+      { blood_group: 'AB+', component: 'ffp', units_available: 5, minimum_stock_level: 2 },
+      { blood_group: 'O+', component: 'platelets', units_available: 3, minimum_stock_level: 2 },
+    ];
+    for (const item of inventoryItems) {
+      const result = await admin.post('/api/v1/admin/clinical-ai/blood-bank/inventory').send(item);
+      expectStatus(result, 201, `upsert inventory ${item.blood_group}/${item.component}`);
+    }
+
+    const inventoryList = await admin.get('/api/v1/admin/clinical-ai/blood-bank/inventory');
+    expectStatus(inventoryList, 200, 'list blood bank inventory');
+    expect(inventoryList.body.data.inventory.length).toBe(4);
+
+    const forecast = await admin.post('/api/v1/admin/clinical-ai/blood-bank/forecast').send({
+      forecast_window_hours: 24,
+    });
+    expectStatus(forecast, 201, 'blood bank forecast');
+    expect(forecast.body.data.module_key).toBe('blood_bank_demand_forecast');
+    expect(forecast.body.data.review_id).toBeTruthy();
+    expect(Array.isArray(forecast.body.data.draft.stockout_risks)).toBe(true);
+    expect(Array.isArray(forecast.body.data.draft.predicted_demand)).toBe(true);
+    expect(forecast.body.data.draft.mtp_readiness).toBeDefined();
+
+    const listed = await admin.get('/api/v1/admin/clinical-ai/blood-bank/forecasts');
+    expectStatus(listed, 200, 'list blood bank forecasts');
+    expect(listed.body.data.forecasts.length).toBeGreaterThan(0);
+
+    const accepted = await admin.patch(`/api/v1/admin/clinical-ai/blood-bank/forecasts/${forecast.body.data.review_id}`).send({
+      decision: 'accepted',
+      note: 'Reviewed by blood bank [test]',
+    });
+    expectStatus(accepted, 200, 'accept forecast');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/blood_bank_demand_forecast').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/blood-bank/forecast').send({ forecast_window_hours: 24 });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('evaluates obstetric risk with preeclampsia + PPH signals and gates by module', async () => {
+    await enableModule('obstetric_risk_assistant');
+
+    // Severe preeclampsia: SBP 170, DBP 115 at 28 weeks
+    const severe = await admin.post('/api/v1/admin/clinical-ai/obstetric-risk/evaluate').send({
+      patient_uid: PATIENT_UID,
+      gestational_age_weeks: 28,
+      gravida: 2,
+      parity: 1,
+      age_years: 32,
+      prior_conditions: ['chronic hypertension'],
+      current_conditions: [],
+      vitals: { systolic_bp: 170, diastolic_bp: 115, heart_rate: 92 },
+      labs: { urine_protein: '3+' },
+      symptoms: ['headache', 'proteinuria'],
+    });
+    expectStatus(severe, 201, 'severe preeclampsia assessment');
+    expect(severe.body.data.module_key).toBe('obstetric_risk_assistant');
+    expect(severe.body.data.assessment_id).toBeTruthy();
+    expect(severe.body.data.draft.risk_band).toBe('critical');
+    expect(severe.body.data.draft.red_flag_signals.some((flag) => flag.code === 'SEVERE_PREECLAMPSIA')).toBe(true);
+
+    // Low-risk routine ANC at 12 weeks
+    const routine = await admin.post('/api/v1/admin/clinical-ai/obstetric-risk/evaluate').send({
+      patient_uid: PATIENT_UID,
+      gestational_age_weeks: 12,
+      gravida: 1,
+      parity: 0,
+      age_years: 26,
+      vitals: { systolic_bp: 110, diastolic_bp: 70, heart_rate: 78 },
+      symptoms: [],
+    });
+    expectStatus(routine, 201, 'routine obstetric assessment');
+    expect(['low', 'moderate']).toContain(routine.body.data.draft.risk_band);
+
+    const listed = await admin.get(`/api/v1/admin/clinical-ai/obstetric-risk/assessments?patient_uid=${PATIENT_UID}`);
+    expectStatus(listed, 200, 'list obstetric assessments');
+    expect(listed.body.data.assessments.length).toBeGreaterThanOrEqual(2);
+
+    const escalated = await admin.patch(`/api/v1/admin/clinical-ai/obstetric-risk/assessments/${severe.body.data.assessment_id}`).send({
+      decision: 'escalated',
+      note: 'Admit for MgSO4 + BP control [test]',
+    });
+    expectStatus(escalated, 200, 'escalate obstetric assessment');
+
+    await admin.patch('/api/v1/admin/clinical-ai/modules/obstetric_risk_assistant').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/obstetric-risk/evaluate').send({
+      patient_uid: PATIENT_UID,
+      gestational_age_weeks: 20,
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
+  it('predicts ED triage level + boarding risk and gates by module', async () => {
+    await enableModule('ed_triage_boarding_predictor');
+
+    // Critical arrival — SpO2 85, hypotension
+    const critical = await admin.post('/api/v1/admin/clinical-ai/ed-triage/evaluate').send({
+      chief_complaint: 'Severe shortness of breath, cyanosis',
+      arrival_mode: 'ambulance',
+      age_years: 72,
+      vitals: { spo2: 82, systolic_bp: 85, heart_rate: 140, respiratory_rate: 32 },
+      pain_score: 9,
+    });
+    expectStatus(critical, 201, 'critical ED triage evaluation');
+    expect(critical.body.data.module_key).toBe('ed_triage_boarding_predictor');
+    expect(critical.body.data.draft.triage_level).toBe(1);
+    expect(['icu', 'admission']).toContain(critical.body.data.draft.predicted_disposition);
+    expect(critical.body.data.safety_flags.length).toBeGreaterThan(0);
+
+    // Low-acuity walk-in
+    const mild = await admin.post('/api/v1/admin/clinical-ai/ed-triage/evaluate').send({
+      chief_complaint: 'Mild cough for two days, requesting medication refill',
+      arrival_mode: 'walk_in',
+      age_years: 28,
+      vitals: { spo2: 99, systolic_bp: 120, heart_rate: 72, respiratory_rate: 16, temperature: 36.8 },
+      pain_score: 1,
+    });
+    expectStatus(mild, 201, 'mild ED triage evaluation');
+    expect(mild.body.data.draft.triage_level).toBeGreaterThanOrEqual(4);
+
+    const listed = await admin.get('/api/v1/admin/clinical-ai/ed-triage/predictions?triage_level=1');
+    expectStatus(listed, 200, 'list ED predictions');
+    expect(listed.body.data.predictions.length).toBeGreaterThan(0);
+
+    const accepted = await admin.patch(`/api/v1/admin/clinical-ai/ed-triage/predictions/${critical.body.data.prediction_id}`).send({
+      decision: 'accepted',
+      note: 'Reviewed by charge nurse [test]',
+    });
+    expectStatus(accepted, 200, 'accept ED triage');
+    expect(accepted.body.data.reviewer_decision).toBe('accepted');
+
+    // Disabled-module gating
+    await admin.patch('/api/v1/admin/clinical-ai/modules/ed_triage_boarding_predictor').send({ enabled: false });
+    const blocked = await admin.post('/api/v1/admin/clinical-ai/ed-triage/evaluate').send({
+      chief_complaint: 'test',
+    });
+    expect(blocked.statusCode).toBe(403);
+
+    const audit = await admin.get('/api/v1/admin/clinical-ai/audit?limit=500');
+    expectStatus(audit, 200, 'ED triage audit');
+    const actions = audit.body.data.logs.map((row) => row.action);
+    expect(actions).toContain('CLINICAL_AI_ED_TRIAGE_PREDICTED');
+    expect(actions).toContain('CLINICAL_AI_ED_TRIAGE_REVIEWED');
   });
 
   it('classifies staff burnout risk with workload metrics and gates by module', async () => {
