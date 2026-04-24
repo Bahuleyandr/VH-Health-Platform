@@ -29,6 +29,15 @@ const REFERRAL_STATE_SELECT = {
   created_at: true,
 };
 
+// Columns returned by the three list views (getIncomingReferrals /
+// getOutgoingReferrals / getPatientReferrals). Superset of REFERRAL_STATE_SELECT
+// with `encounter_id` — which the list views include but the mutation returns
+// don't.
+const REFERRAL_LIST_SELECT = {
+  ...REFERRAL_STATE_SELECT,
+  encounter_id: true,
+};
+
 class ReferralService {
 
   /**
@@ -131,27 +140,27 @@ class ReferralService {
    */
   async getIncomingReferrals(doctorUid, filters = {}) {
     const { status, urgency, page = 1, limit = 20 } = filters;
-    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const parsedLimit = parseInt(limit, 10);
+    const offset = (parseInt(page, 10) - 1) * parsedLimit;
+
+    const where = { referred_to_doctor: doctorUid };
+    if (status) where.status = status;
+    if (urgency) where.urgency = urgency;
+
+    // Count uses ORM so column-name drift (e.g. referred_to_doctor rename)
+    // fails fast. The list itself keeps the raw query because its
+    // `ORDER BY CASE urgency ...` expression has no first-class Prisma
+    // equivalent — pulling the unordered page and sorting in JS would
+    // break pagination (a page-2 emergency referral could never reach
+    // page 1). This is the only remaining raw read in this service.
+    const total = await prisma.referrals.count({ where });
+
     const conditions = [`referred_to_doctor = $1`];
     const params = [doctorUid];
     let paramIndex = 2;
-
-    if (status) {
-      conditions.push(`status = $${paramIndex++}`);
-      params.push(status);
-    }
-    if (urgency) {
-      conditions.push(`urgency = $${paramIndex++}`);
-      params.push(urgency);
-    }
-
+    if (status) { conditions.push(`status = $${paramIndex++}`); params.push(status); }
+    if (urgency) { conditions.push(`urgency = $${paramIndex++}`); params.push(urgency); }
     const whereClause = `WHERE ${conditions.join(' AND ')}`;
-
-    const countResult = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*) AS total FROM referrals ${whereClause}`,
-      ...params
-    );
-    const total = parseInt(countResult[0].total, 10);
 
     const result = await prisma.$queryRawUnsafe(
       `SELECT id, referral_number, patient_uid, encounter_id,
@@ -163,16 +172,16 @@ class ReferralService {
          CASE urgency WHEN 'emergency' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END,
          created_at DESC
        LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
-      ...params, parseInt(limit, 10), offset
+      ...params, parsedLimit, offset
     );
 
     return {
       referrals: result,
       pagination: {
         page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
+        limit: parsedLimit,
         total,
-        totalPages: Math.ceil(total / parseInt(limit, 10)),
+        totalPages: Math.ceil(total / parsedLimit),
       },
     };
   }
@@ -182,46 +191,31 @@ class ReferralService {
    */
   async getOutgoingReferrals(doctorUid, filters = {}) {
     const { status, urgency, page = 1, limit = 20 } = filters;
-    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
-    const conditions = [`referring_doctor = $1`];
-    const params = [doctorUid];
-    let paramIndex = 2;
+    const parsedLimit = parseInt(limit, 10);
+    const offset = (parseInt(page, 10) - 1) * parsedLimit;
 
-    if (status) {
-      conditions.push(`status = $${paramIndex++}`);
-      params.push(status);
-    }
-    if (urgency) {
-      conditions.push(`urgency = $${paramIndex++}`);
-      params.push(urgency);
-    }
+    const where = { referring_doctor: doctorUid };
+    if (status) where.status = status;
+    if (urgency) where.urgency = urgency;
 
-    const whereClause = `WHERE ${conditions.join(' AND ')}`;
-
-    const countResult = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*) AS total FROM referrals ${whereClause}`,
-      ...params
-    );
-    const total = parseInt(countResult[0].total, 10);
-
-    const result = await prisma.$queryRawUnsafe(
-      `SELECT id, referral_number, patient_uid, encounter_id,
-        referring_doctor, referred_to_doctor, referred_to_department,
-        referral_type, reason, urgency, clinical_summary, status,
-        accepted_by, accepted_at, completed_at, response_notes, created_at
-       FROM referrals ${whereClause}
-       ORDER BY created_at DESC
-       LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
-      ...params, parseInt(limit, 10), offset
-    );
+    const [total, referrals] = await Promise.all([
+      prisma.referrals.count({ where }),
+      prisma.referrals.findMany({
+        where,
+        select: REFERRAL_LIST_SELECT,
+        orderBy: { created_at: 'desc' },
+        take: parsedLimit,
+        skip: offset,
+      }),
+    ]);
 
     return {
-      referrals: result,
+      referrals,
       pagination: {
         page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
+        limit: parsedLimit,
         total,
-        totalPages: Math.ceil(total / parseInt(limit, 10)),
+        totalPages: Math.ceil(total / parsedLimit),
       },
     };
   }
@@ -339,33 +333,29 @@ class ReferralService {
    */
   async getPatientReferrals(patientUid, filters = {}) {
     const { page = 1, limit = 20 } = filters;
-    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const parsedLimit = parseInt(limit, 10);
+    const offset = (parseInt(page, 10) - 1) * parsedLimit;
 
-    const countResult = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*) AS total FROM referrals WHERE patient_uid = $1`,
-      patientUid
-    );
-    const total = parseInt(countResult[0].total, 10);
+    const where = { patient_uid: patientUid };
 
-    const result = await prisma.$queryRawUnsafe(
-      `SELECT id, referral_number, patient_uid, encounter_id,
-        referring_doctor, referred_to_doctor, referred_to_department,
-        referral_type, reason, urgency, clinical_summary, status,
-        accepted_by, accepted_at, completed_at, response_notes, created_at
-       FROM referrals
-       WHERE patient_uid = $1
-       ORDER BY created_at DESC
-       LIMIT $2 OFFSET $3`,
-      patientUid, parseInt(limit, 10), offset
-    );
+    const [total, referrals] = await Promise.all([
+      prisma.referrals.count({ where }),
+      prisma.referrals.findMany({
+        where,
+        select: REFERRAL_LIST_SELECT,
+        orderBy: { created_at: 'desc' },
+        take: parsedLimit,
+        skip: offset,
+      }),
+    ]);
 
     return {
-      referrals: result,
+      referrals,
       pagination: {
         page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
+        limit: parsedLimit,
         total,
-        totalPages: Math.ceil(total / parseInt(limit, 10)),
+        totalPages: Math.ceil(total / parsedLimit),
       },
     };
   }

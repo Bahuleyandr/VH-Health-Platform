@@ -1,34 +1,143 @@
-import { Prisma } from '@prisma/client';
-import { 
+import {
   INVESTIGATION_STATUS,
   MEDICAL_STAFF_ROLES,
-  LAB_STAFF_ROLES 
+  LAB_STAFF_ROLES
 } from '../../config/investigationConfig.js';
 import prisma from '../../lib/prisma.js';
+
+// Shape of the investigation columns the list views select. Kept as
+// Prisma-select objects rather than SELECT-strings so column renames in
+// schema.prisma surface as PrismaClientValidationError, which is what
+// this batch of migrations is buying.
+const INV_LIST_SELECT_BASE = {
+  id: true,
+  test_name: true,
+  test_type: true,
+  status: true,
+  priority: true,
+  requested_at: true,
+  completed_at: true,
+  notes: true,
+  patient_id: true,
+  requested_by: true,
+  created_at: true,
+  updated_at: true,
+};
+const INV_LIST_SELECT_WITH_RESULTS = { ...INV_LIST_SELECT_BASE, results: true };
+
+/**
+ * Enrich a batch of investigation rows with the patient + doctor + doctor-profile
+ * info the list views used to JOIN in SQL. One extra findMany per related
+ * domain, deduped by id/uid — O(1) extra queries regardless of list size.
+ *
+ * The old raw SQL referenced `dept.specialization`, but the doctors table
+ * actually has `specialty` (schema.prisma line ~302). The raw SQL was thus
+ * 500-ing whenever these list endpoints were hit; the alias name is
+ * preserved in the response (`specialization`) but now populated from
+ * `doctors.specialty` so existing admin UI keys keep working.
+ *
+ * `fields` controls which related columns to attach — different list views
+ * need different subsets (getInvestigationsByType skips specialization/
+ * department entirely, getPendingInvestigations needs `gender` + `department`
+ * etc.).
+ */
+async function enrichInvestigations(rows, fields = {}) {
+  if (rows.length === 0) return rows;
+
+  const patientIds = [...new Set(rows.map((r) => r.patient_id).filter(Boolean))];
+  const doctorUids = [...new Set(rows.map((r) => r.requested_by).filter(Boolean))];
+
+  const patientSelect = {
+    id: true,
+    name: true,
+    phone: true,
+    ...(fields.patientEmail ? { email: true } : {}),
+    ...(fields.patientBirthGender ? { birthday: true, gender: true } : {}),
+    ...(fields.patientGender ? { gender: true } : {}),
+  };
+  const doctorSelect = {
+    uid: true,
+    id: true,
+    name: true,
+    ...(fields.doctorPhone ? { phone: true } : {}),
+    ...(fields.doctorEmail ? { email: true } : {}),
+  };
+
+  const [patients, doctors] = await Promise.all([
+    patientIds.length
+      ? prisma.users.findMany({ where: { id: { in: patientIds } }, select: patientSelect })
+      : [],
+    doctorUids.length
+      ? prisma.users.findMany({ where: { uid: { in: doctorUids } }, select: doctorSelect })
+      : [],
+  ]);
+
+  const doctorUserIds = doctors.map((d) => d.id).filter(Boolean);
+  const doctorProfiles =
+    (fields.specialization || fields.department) && doctorUserIds.length
+      ? await prisma.doctors.findMany({
+          where: { user_id: { in: doctorUserIds } },
+          select: {
+            user_id: true,
+            ...(fields.specialization ? { specialty: true } : {}),
+            ...(fields.department ? { department: true } : {}),
+          },
+        })
+      : [];
+
+  const patientMap = new Map(patients.map((p) => [p.id, p]));
+  const doctorMap = new Map(doctors.map((d) => [d.uid, d]));
+  const doctorProfileMap = new Map(doctorProfiles.map((d) => [d.user_id, d]));
+
+  return rows.map((r) => {
+    const patient = r.patient_id != null ? patientMap.get(r.patient_id) : null;
+    const doctor = r.requested_by ? doctorMap.get(r.requested_by) : null;
+    const profile = doctor ? doctorProfileMap.get(doctor.id) : null;
+    const enriched = {
+      ...r,
+      patient_name: patient?.name ?? null,
+      patient_phone: patient?.phone ?? null,
+      doctor_name: doctor?.name ?? null,
+      doctor_id: doctor?.id ?? null,
+    };
+    if (fields.patientEmail) enriched.patient_email = patient?.email ?? null;
+    if (fields.patientBirthGender) {
+      enriched.birthday = patient?.birthday ?? null;
+      enriched.gender = patient?.gender ?? null;
+    }
+    if (fields.patientGender) enriched.gender = patient?.gender ?? null;
+    if (fields.doctorPhone) enriched.doctor_phone = doctor?.phone ?? null;
+    if (fields.doctorEmail) enriched.doctor_email = doctor?.email ?? null;
+    if (fields.specialization) enriched.specialization = profile?.specialty ?? null;
+    if (fields.department) enriched.department = profile?.department ?? null;
+    return enriched;
+  });
+}
 
 // Get investigations with filtering
 export const getInvestigations = async (page, limit, filters, userRole, userId) => {
   const offset = (page - 1) * limit;
-  
-  const conditions = [];
-  let patientDbId = null;
-  
+
+  const where = {};
+
   // Role-based filtering for patients
   if (userRole === 'PATIENT') {
-    const users = await prisma.$queryRaw`SELECT id FROM users WHERE uid = ${userId}`;
-    if (users.length === 0) {
+    const users = await prisma.users.findUnique({
+      where: { uid: userId },
+      select: { id: true },
+    });
+    if (!users) {
       throw new Error('USER_NOT_FOUND');
     }
-    patientDbId = users[0].id;
-    conditions.push(Prisma.sql`i.patient_id = ${patientDbId}`);
+    where.patient_id = users.id;
   }
-  
+
   // Apply filters
   const { patient_id, doctor_id, type, status, date } = filters;
 
   // Only allow patient_id filter for non-PATIENT roles (replicates original behaviour)
   if (patient_id && userRole !== 'PATIENT') {
-    conditions.push(Prisma.sql`i.patient_id = ${parseInt(patient_id)}`);
+    where.patient_id = parseInt(patient_id);
   }
 
   // `doctor_id` filter: the investigations table has no `doctor_id` column —
@@ -36,72 +145,45 @@ export const getInvestigations = async (page, limit, filters, userRole, userId) 
   // Callers still pass an integer user-id in the filter, so resolve it to
   // a UUID once before scoping the query.
   if (doctor_id) {
-    const doctorRow = await prisma.$queryRaw`SELECT uid FROM users WHERE id = ${parseInt(doctor_id)}`;
-    if (doctorRow.length > 0 && doctorRow[0].uid) {
-      conditions.push(Prisma.sql`i.requested_by = ${doctorRow[0].uid}::uuid`);
+    const doctorRow = await prisma.users.findUnique({
+      where: { id: parseInt(doctor_id) },
+      select: { uid: true },
+    });
+    if (doctorRow?.uid) {
+      where.requested_by = doctorRow.uid;
     } else {
-      // No matching user: ensure zero rows
-      conditions.push(Prisma.sql`FALSE`);
+      // No matching user: ensure zero rows (impossible id sentinel)
+      where.id = -1;
     }
   }
 
-  if (type) {
-    conditions.push(Prisma.sql`i.test_type = ${type.toUpperCase()}`);
-  }
-
-  if (status) {
-    conditions.push(Prisma.sql`i.status = ${status.toUpperCase()}`);
-  }
-
+  if (type) where.test_type = type.toUpperCase();
+  if (status) where.status = status.toUpperCase();
   if (date) {
-    conditions.push(Prisma.sql`DATE(i.requested_at) = ${date}::date`);
+    // DATE(i.requested_at) = $date → range over the day
+    const start = new Date(date);
+    const end = new Date(date);
+    end.setDate(end.getDate() + 1);
+    where.requested_at = { gte: start, lt: end };
   }
 
-  const whereClause = conditions.length > 0
-    ? Prisma.join(conditions, ' AND ')
-    : Prisma.sql`1=1`;
+  const [rows, totalInvestigations] = await Promise.all([
+    prisma.investigations.findMany({
+      where,
+      select:
+        userRole === 'PATIENT' ? INV_LIST_SELECT_BASE : INV_LIST_SELECT_WITH_RESULTS,
+      orderBy: { requested_at: 'desc' },
+      take: limit,
+      skip: offset,
+    }),
+    prisma.investigations.count({ where }),
+  ]);
 
-  // Build query with role-based field selection. Column references match
-  // the schema in src/migrations/008_add_investigation_structured_results.sql
-  // + 009_future_proof_clinical_ai.sql: requested_at / completed_at /
-  // test_type (not the legacy ordered_date / completed_date / type).
-  const investigations = userRole === 'PATIENT'
-    ? await prisma.$queryRaw`
-        SELECT i.id, i.test_name, i.test_type, i.status, i.priority,
-               i.requested_at, i.completed_at, i.notes,
-               p.name as patient_name, p.phone as patient_phone, p.id as patient_id,
-               d.name as doctor_name, d.phone as doctor_phone, d.id as doctor_id,
-               dept.specialization, i.created_at, i.updated_at
-        FROM investigations i
-        LEFT JOIN users p ON i.patient_id = p.id
-        LEFT JOIN users d ON i.requested_by = d.uid
-        LEFT JOIN doctors dept ON d.id = dept.user_id
-        WHERE ${whereClause}
-        ORDER BY i.requested_at DESC
-        LIMIT ${limit} OFFSET ${offset}
-      `
-    : await prisma.$queryRaw`
-        SELECT i.id, i.test_name, i.test_type, i.status, i.priority,
-               i.requested_at, i.completed_at,
-               i.results, i.notes,
-               p.name as patient_name, p.phone as patient_phone, p.id as patient_id,
-               d.name as doctor_name, d.phone as doctor_phone, d.id as doctor_id,
-               dept.specialization, i.created_at, i.updated_at
-        FROM investigations i
-        LEFT JOIN users p ON i.patient_id = p.id
-        LEFT JOIN users d ON i.requested_by = d.uid
-        LEFT JOIN doctors dept ON d.id = dept.user_id
-        WHERE ${whereClause}
-        ORDER BY i.requested_at DESC
-        LIMIT ${limit} OFFSET ${offset}
-      `;
-  
-  // Get total count
-  const [countRow] = await prisma.$queryRaw`
-    SELECT COUNT(*)::int as count FROM investigations i WHERE ${whereClause}
-  `;
-  const totalInvestigations = Number(countRow.count);
-  
+  const investigations = await enrichInvestigations(rows, {
+    specialization: true,
+    doctorPhone: true,
+  });
+
   return {
     investigations,
     pagination: {
@@ -118,149 +200,150 @@ export const getInvestigations = async (page, limit, filters, userRole, userId) 
 
 // Get single investigation by ID
 export const getInvestigationById = async (id, userRole, userId) => {
-  let rows;
-  
-  // Patients can only view their own investigations
+  const where = { id: parseInt(id) };
+
+  // Patients can only view their own investigations — scope by patient_id
+  // rather than filtering after the read.
   if (userRole === 'PATIENT') {
-    const users = await prisma.$queryRaw`SELECT id FROM users WHERE uid = ${userId}`;
-    if (users.length === 0) {
+    const users = await prisma.users.findUnique({
+      where: { uid: userId },
+      select: { id: true },
+    });
+    if (!users) {
       throw new Error('USER_NOT_FOUND');
     }
-    const patientDbId = users[0].id;
-    rows = await prisma.$queryRaw`
-      SELECT i.*,
-             p.name as patient_name, p.phone as patient_phone, p.email as patient_email,
-             p.birthday, p.gender,
-             d.name as doctor_name, d.phone as doctor_phone, d.email as doctor_email,
-             d.id as doctor_id,
-             dept.specialization, dept.department
-      FROM investigations i
-      LEFT JOIN users p ON i.patient_id = p.id
-      LEFT JOIN users d ON i.requested_by = d.uid
-      LEFT JOIN doctors dept ON d.id = dept.user_id
-      WHERE i.id = ${parseInt(id)} AND i.patient_id = ${patientDbId}
-    `;
-  } else {
-    rows = await prisma.$queryRaw`
-      SELECT i.*,
-             p.name as patient_name, p.phone as patient_phone, p.email as patient_email,
-             p.birthday, p.gender,
-             d.name as doctor_name, d.phone as doctor_phone, d.email as doctor_email,
-             d.id as doctor_id,
-             dept.specialization, dept.department
-      FROM investigations i
-      LEFT JOIN users p ON i.patient_id = p.id
-      LEFT JOIN users d ON i.requested_by = d.uid
-      LEFT JOIN doctors dept ON d.id = dept.user_id
-      WHERE i.id = ${parseInt(id)}
-    `;
+    where.patient_id = users.id;
   }
 
-  if (rows.length === 0) {
-    return null;
-  }
+  const row = await prisma.investigations.findFirst({ where });
+  if (!row) return null;
 
-  // Filter sensitive data for patients
-  const investigation = { ...rows[0] };
+  const [enriched] = await enrichInvestigations([row], {
+    patientEmail: true,
+    patientBirthGender: true,
+    doctorPhone: true,
+    doctorEmail: true,
+    specialization: true,
+    department: true,
+  });
+
+  // Filter sensitive data for patients — keep the old delete semantics so
+  // callers already checking `if (x.doctor_phone)` work unchanged.
   if (userRole === 'PATIENT') {
-    delete investigation.doctor_phone;
-    delete investigation.doctor_email;
+    delete enriched.doctor_phone;
+    delete enriched.doctor_email;
   }
 
-  return investigation;
+  return enriched;
 };
 
 // Get patient investigations
 export const getPatientInvestigations = async (patientId, filters, userRole, userId) => {
   // Access control for patients
   if (userRole === 'PATIENT') {
-    const users = await prisma.$queryRaw`SELECT id FROM users WHERE uid = ${userId}`;
-    if (users.length === 0 || users[0].id !== parseInt(patientId)) {
+    const users = await prisma.users.findUnique({
+      where: { uid: userId },
+      select: { id: true },
+    });
+    if (!users || users.id !== parseInt(patientId)) {
       return null; // Access denied
     }
   }
-  
+
   const { type, status, limit } = filters;
-  
-  const conditions = [Prisma.sql`i.patient_id = ${parseInt(patientId)}`];
 
-  if (type) {
-    conditions.push(Prisma.sql`i.test_type = ${type.toUpperCase()}`);
-  }
+  const where = { patient_id: parseInt(patientId) };
+  if (type) where.test_type = type.toUpperCase();
+  if (status) where.status = status.toUpperCase();
 
-  if (status) {
-    conditions.push(Prisma.sql`i.status = ${status.toUpperCase()}`);
-  }
+  const rows = await prisma.investigations.findMany({
+    where,
+    select:
+      userRole === 'PATIENT' ? INV_LIST_SELECT_BASE : INV_LIST_SELECT_WITH_RESULTS,
+    orderBy: { requested_at: 'desc' },
+    take: parseInt(limit),
+  });
 
-  const whereClause = Prisma.join(conditions, ' AND ');
+  // This view only needs doctor_name + specialization (no patient_* aliases —
+  // the patient-specific info is returned separately as `patient`).
+  const enriched = await enrichInvestigations(rows, { specialization: true });
+  // Drop the patient_* keys added by the shared enricher; this endpoint's
+  // old shape didn't include them.
+  const investigations = enriched.map((r) => {
+    const { patient_name, patient_phone, ...rest } = r;
+    void patient_name; void patient_phone;
+    return rest;
+  });
 
-  const investigations = userRole === 'PATIENT'
-    ? await prisma.$queryRaw`
-        SELECT i.id, i.test_name, i.test_type, i.status, i.priority,
-               i.requested_at, i.completed_at, i.notes,
-               d.name as doctor_name, dept.specialization
-        FROM investigations i
-        LEFT JOIN users d ON i.requested_by = d.uid
-        LEFT JOIN doctors dept ON d.id = dept.user_id
-        WHERE ${whereClause}
-        ORDER BY i.requested_at DESC LIMIT ${parseInt(limit)}
-      `
-    : await prisma.$queryRaw`
-        SELECT i.id, i.test_name, i.test_type, i.status, i.priority,
-               i.requested_at, i.completed_at,
-               i.results, i.notes,
-               d.name as doctor_name, dept.specialization
-        FROM investigations i
-        LEFT JOIN users d ON i.requested_by = d.uid
-        LEFT JOIN doctors dept ON d.id = dept.user_id
-        WHERE ${whereClause}
-        ORDER BY i.requested_at DESC LIMIT ${parseInt(limit)}
-      `;
-  
   // Get patient info
-  const patientInfoFields = userRole === 'ADMIN'
-    ? await prisma.$queryRaw`SELECT name, phone, email, birthday, gender FROM users WHERE id = ${parseInt(patientId)}`
-    : await prisma.$queryRaw`SELECT name, birthday, gender FROM users WHERE id = ${parseInt(patientId)}`;
-  
+  const patient = await prisma.users.findUnique({
+    where: { id: parseInt(patientId) },
+    select:
+      userRole === 'ADMIN'
+        ? { name: true, phone: true, email: true, birthday: true, gender: true }
+        : { name: true, birthday: true, gender: true },
+  });
+
   return {
     investigations,
     count: investigations.length,
-    patient: patientInfoFields[0] || null,
+    patient: patient || null,
     filters: { type, status }
   };
 };
+
+// Helper: date filter that matches the old `DATE(i.requested_at) = $date` —
+// inclusive-start / exclusive-end over the calendar day.
+function dateRangeFilter(date) {
+  const start = new Date(date);
+  const end = new Date(date);
+  end.setDate(end.getDate() + 1);
+  return { gte: start, lt: end };
+}
 
 // Get doctor investigations
 export const getDoctorInvestigations = async (doctorId, filters) => {
   const { date, status } = filters;
 
   // Resolve the doctor's integer id to the uid used in investigations.requested_by.
-  const doctorRow = await prisma.$queryRaw`SELECT uid FROM users WHERE id = ${parseInt(doctorId)}`;
-  if (doctorRow.length === 0 || !doctorRow[0].uid) {
+  const doctorRow = await prisma.users.findUnique({
+    where: { id: parseInt(doctorId) },
+    select: { uid: true },
+  });
+  if (!doctorRow?.uid) {
     return { investigations: [], count: 0, doctor_id: doctorId, filters: { status, date } };
   }
-  const doctorUid = doctorRow[0].uid;
 
-  const conditions = [
-    Prisma.sql`i.requested_by = ${doctorUid}::uuid`,
-    Prisma.sql`i.status = ${status.toUpperCase()}`
-  ];
+  const where = {
+    requested_by: doctorRow.uid,
+    status: status.toUpperCase(),
+  };
+  if (date) where.requested_at = dateRangeFilter(date);
 
-  if (date) {
-    conditions.push(Prisma.sql`DATE(i.requested_at) = ${date}::date`);
-  }
+  const rows = await prisma.investigations.findMany({
+    where,
+    select: {
+      id: true,
+      test_name: true,
+      test_type: true,
+      status: true,
+      priority: true,
+      requested_at: true,
+      notes: true,
+      patient_id: true,
+      requested_by: true,
+    },
+    orderBy: [{ requested_at: 'desc' }, { priority: 'desc' }],
+  });
 
-  const whereClause = Prisma.join(conditions, ' AND ');
-
-  const investigations = await prisma.$queryRaw`
-    SELECT i.id, i.test_name, i.test_type, i.status, i.priority,
-           i.requested_at, i.notes,
-           p.name as patient_name, p.phone as patient_phone, p.id as patient_id
-    FROM investigations i
-    LEFT JOIN users p ON i.patient_id = p.id
-    WHERE ${whereClause}
-    ORDER BY i.requested_at DESC, i.priority DESC
-  `;
+  // Only patient_name / patient_phone / patient_id needed here — no doctor
+  // or specialization aliases (this view is scoped to one doctor already).
+  const enriched = await enrichInvestigations(rows, {});
+  const investigations = enriched.map((r) => {
+    const { doctor_name, doctor_id, requested_by, ...rest } = r;
+    void doctor_name; void doctor_id; void requested_by;
+    return rest;
+  });
 
   return {
     investigations,
@@ -274,29 +357,27 @@ export const getDoctorInvestigations = async (doctorId, filters) => {
 export const getInvestigationsByType = async (type, filters) => {
   const { status, date } = filters;
 
-  const conditions = [Prisma.sql`i.test_type = ${type.toUpperCase()}`];
+  const where = { test_type: type.toUpperCase() };
+  if (status) where.status = status.toUpperCase();
+  if (date) where.requested_at = dateRangeFilter(date);
 
-  if (status) {
-    conditions.push(Prisma.sql`i.status = ${status.toUpperCase()}`);
-  }
+  const rows = await prisma.investigations.findMany({
+    where,
+    select: {
+      id: true,
+      test_name: true,
+      status: true,
+      priority: true,
+      requested_at: true,
+      completed_at: true,
+      patient_id: true,
+      requested_by: true,
+    },
+    orderBy: { requested_at: 'desc' },
+    take: 100,
+  });
 
-  if (date) {
-    conditions.push(Prisma.sql`DATE(i.requested_at) = ${date}::date`);
-  }
-
-  const whereClause = Prisma.join(conditions, ' AND ');
-
-  const investigations = await prisma.$queryRaw`
-    SELECT i.id, i.test_name, i.status, i.priority,
-           i.requested_at, i.completed_at,
-           p.name as patient_name, p.phone as patient_phone,
-           d.name as doctor_name
-    FROM investigations i
-    LEFT JOIN users p ON i.patient_id = p.id
-    LEFT JOIN users d ON i.requested_by = d.uid
-    WHERE ${whereClause}
-    ORDER BY i.requested_at DESC LIMIT 100
-  `;
+  const investigations = await enrichInvestigations(rows, {});
 
   return {
     investigations,
@@ -309,32 +390,35 @@ export const getInvestigationsByType = async (type, filters) => {
 // Get pending investigations
 export const getPendingInvestigations = async (filters) => {
   const { type, priority } = filters;
-  
-  const conditions = [Prisma.sql`i.status = 'PENDING'`];
 
-  if (type) {
-    conditions.push(Prisma.sql`i.test_type = ${type.toUpperCase()}`);
-  }
+  const where = { status: 'PENDING' };
+  if (type) where.test_type = type.toUpperCase();
+  if (priority) where.priority = priority.toUpperCase();
 
-  if (priority) {
-    conditions.push(Prisma.sql`i.priority = ${priority.toUpperCase()}`);
-  }
+  const rows = await prisma.investigations.findMany({
+    where,
+    select: {
+      id: true,
+      test_name: true,
+      test_type: true,
+      priority: true,
+      requested_at: true,
+      notes: true,
+      patient_id: true,
+      requested_by: true,
+    },
+    // Priority is a VARCHAR so lexical 'URGENT' < 'HIGH' < 'NORMAL' — the
+    // old `ORDER BY priority DESC` inherited that same text ordering. This
+    // intentionally preserves the existing behaviour; a future ticket can
+    // introduce a priority_rank column if the ordering is wrong.
+    orderBy: [{ priority: 'desc' }, { requested_at: 'asc' }],
+  });
 
-  const whereClause = Prisma.join(conditions, ' AND ');
+  const investigations = await enrichInvestigations(rows, {
+    patientGender: true,
+    department: true,
+  });
 
-  const investigations = await prisma.$queryRaw`
-    SELECT i.id, i.test_name, i.test_type, i.priority,
-           i.requested_at, i.notes,
-           p.name as patient_name, p.phone as patient_phone, p.gender,
-           d.name as doctor_name, dept.department
-    FROM investigations i
-    LEFT JOIN users p ON i.patient_id = p.id
-    LEFT JOIN users d ON i.requested_by = d.uid
-    LEFT JOIN doctors dept ON d.id = dept.user_id
-    WHERE ${whereClause}
-    ORDER BY i.priority DESC, i.requested_at ASC
-  `;
-  
   return {
     investigations,
     count: investigations.length,
